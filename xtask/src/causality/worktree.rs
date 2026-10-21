@@ -1,17 +1,24 @@
 //! Putting a git worktree into the base state - the only part of this gate that is plumbing.
 //!
 //! Split out of `causality.rs` for the file-length gate, and the seam is real: everything here is
-//! `git` and the filesystem, and nothing here decides anything about a test. Two things it carries
+//! `git` and the filesystem, and nothing here decides what a test proves. Three things it carries
 //! that a reader would not guess: "revert to base" means two different operations depending on
 //! whether the file existed at base ([`base_has`]), and every subprocess has to have the CALLER's
 //! git environment stripped or it operates on another repository - which is why [`git`] is the only
-//! way this module spawns one.
+//! way this module spawns one - and a git call that could not start or exited non-zero is
+//! [`GitFailed`], never an empty answer.
 //!
-//! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`search`],
-//! [`head_branch`], [`head_commit`], [`branch_metadata`], [`at_base`] and [`naming`] - are here for that
-//! second reason and no other. Each returns raw output and decides nothing; `super::provenance`, `super::stack` and
+//! THE QUESTIONS IT ASKS OF A TREE IT DOES NOT CHANGE - [`merge_base`], [`touched`], [`deleted`],
+//! [`search`], [`head_branch`], [`head_commit`], [`branch_metadata`], [`base_has`] and [`naming`]
+//! return raw output or [`GitFailed`] and decide nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
-//! repository.
+//! repository. [`at_base`] is the exception: it returns `None` for a failed call as well as an
+//! absent one, as before. `feature_activation` pairs it with [`base_has`] and refuses `None` as
+//! unreadable. The other readers of the base image are not changed here and do not all refuse it:
+//! `deletion_in` does, while the rest read `None` as no text.
+//! Two compositions are glue over those reads and still decide nothing: [`parent`] binds
+//! `super::stack::parent_of` to this repository, and [`already_there`] asks
+//! `super::provenance::Moved` about the base.
 
 use std::path::Path;
 use std::process::Command;
@@ -19,8 +26,9 @@ use std::process::Command;
 use sutura_dev::discovery::path_for;
 use sutura_dev::scope::Scope;
 
-use super::provenance::Commit;
-use super::stack::BranchRef;
+use super::place::AddedTest;
+use super::provenance::{Commit, Moved, Reach, needles};
+use super::stack::{self, BranchRef, Parent};
 
 /// A `git` invocation in `dir`, with the caller's git environment stripped.
 ///
@@ -34,6 +42,63 @@ fn git(dir: &Path) -> Command {
     crate::repo::strip_git_env(&mut command);
     command.current_dir(dir);
     command
+}
+
+/// A `git` call that did not answer: it could not start, or it exited non-zero.
+///
+/// **A FAILED CALL IS NOT AN EMPTY ANSWER.** Every question here used to read one as empty text, and
+/// where empty means *nothing to check* - no merge commits, no touched path, no base file - that let
+/// a check pass over a tree git never read. Each caller now refuses or maps it to the fallback it
+/// states.
+#[derive(Debug)]
+pub(super) struct GitFailed {
+    call: String,
+    why: String,
+}
+
+impl GitFailed {
+    /// A failure to put in the way of a caller that is under test; no git ran.
+    #[cfg(test)]
+    pub(super) fn unreadable() -> Self {
+        Self {
+            call: String::from("ls-tree"),
+            why: String::from("exit status: 128"),
+        }
+    }
+
+    /// Print the refusal; for `map_err` where the caller returns [`Verdict::Fail`](crate::Verdict::Fail).
+    pub(super) fn refuse(self) {
+        eprintln!("xtask test-causality: FAILED - {self}");
+    }
+}
+
+impl std::fmt::Display for GitFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "`git {}` did not answer: {}", self.call, self.why)
+    }
+}
+
+/// `command`'s stdout, or why git did not give it.
+///
+/// `no_match` is for the one status git uses as an answer: exit 1 from a question whose reply may be
+/// *none* (`merge-base` with no common ancestor, `grep` with no match, `rev-parse --verify --quiet`
+/// of an absent ref). It reads as empty text; every other non-zero exit, and a signal, is a failure.
+fn stdout(mut command: Command, no_match: bool) -> Result<String, GitFailed> {
+    let call = command
+        .get_args()
+        .next()
+        .map_or_default(|arg| arg.to_string_lossy().into_owned());
+    let failed = |why: String| GitFailed { call: call.clone(), why };
+    let out = command.output().map_err(|e| failed(format!("could not start: {e}")))?;
+    if out.status.success() || (no_match && out.status.code() == Some(1)) {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(failed(format!(
+            "{}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        )))
+    }
 }
 
 /// The commit `earlier` and `later` diverged at, as git printed it.
@@ -51,27 +116,25 @@ fn git(dir: &Path) -> Command {
 /// only two of those are against HEAD: the third compares the two candidate BASES, which is the
 /// guard that stops a stale recorded parent from moving the base off this branch's history.
 ///
-/// Raw text out, [`Commit`] parses it: an unrelated history, an unknown ref or an ambiguous answer
-/// all reach `super::provenance::Commit::parse` as text that is not one object name, and the gate
-/// refuses rather than splicing it into `git checkout`.
-pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> String {
-    git(root)
-        .args(["merge-base", earlier, later])
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+/// Raw text out, [`Commit`] parses it. An unrelated history exits 1 and reaches
+/// `super::provenance::Commit::parse` as empty text; an unknown ref exits 128 and is [`GitFailed`].
+/// The gate refuses both rather than splicing either into `git checkout`.
+pub(super) fn merge_base(root: &Path, earlier: &str, later: &str) -> Result<String, GitFailed> {
+    let mut command = git(root);
+    command.args(["merge-base", earlier, later]);
+    stdout(command, true)
 }
 
 /// The branch HEAD is on, or `None` when HEAD is detached.
 ///
 /// Detached is the ordinary state in two venues that matter - the reconstruction worktree this gate
 /// creates, and a CI checkout of a merge commit - and neither has branch metadata to read, so no
-/// branch is the same answer as no recorded parent.
-pub(super) fn head_branch(root: &Path) -> Option<BranchRef> {
-    let out = git(root).args(["symbolic-ref", "--short", "HEAD"]).output().ok()?;
-    out.status
-        .success()
-        .then(|| BranchRef::parse(String::from_utf8_lossy(&out.stdout).trim()))
-        .flatten()
+/// branch is the same answer as no recorded parent. `symbolic-ref -q` exits 1 for detached and 128
+/// for a call that failed, so only the first is `None`.
+pub(super) fn head_branch(root: &Path) -> Result<Option<BranchRef>, GitFailed> {
+    let mut command = git(root);
+    command.args(["symbolic-ref", "-q", "--short", "HEAD"]);
+    Ok(BranchRef::parse(stdout(command, true)?.trim()))
 }
 
 /// HEAD's own commit, as git printed it.
@@ -80,11 +143,10 @@ pub(super) fn head_branch(root: &Path) -> Option<BranchRef> {
 /// a base equal to HEAD makes `git diff <base> --` the uncommitted working tree alone - an exit-0
 /// verdict over every file the branch changed. `super::stack::Origin::Contains` is that refusal and
 /// it needs the commit rather than a name, because any parent reaching HEAD produces it.
-pub(super) fn head_commit(root: &Path) -> String {
-    git(root)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+pub(super) fn head_commit(root: &Path) -> Result<String, GitFailed> {
+    let mut command = git(root);
+    command.args(["rev-parse", "HEAD"]);
+    stdout(command, false)
 }
 
 /// The commit messages in `base..HEAD`, as git printed them: `<hash>\0<body>\0` per commit.
@@ -101,26 +163,48 @@ pub(super) fn head_commit(root: &Path) -> String {
 /// WORKING TREE, so a hand run over uncommitted work has a diff and no message to declare it with.
 /// That is the fail-closed direction and it is the point of the carrier: a claim that is not in a
 /// commit is not in review either.
-pub(super) fn messages(root: &Path, base: &Commit) -> String {
+fn range_messages(root: &Path, base: &Commit) -> Result<String, GitFailed> {
     range_log(root, base, &[])
 }
 
-/// The MERGE commits in `base..HEAD` - more than one parent - in [`messages`]' own framing, so
+/// [`range_messages`] for a fixture repository, where a failed git call is a failed test.
+#[cfg(test)]
+pub(super) fn messages(root: &Path, base: &Commit) -> String {
+    range_messages(root, base).expect("a scratch repository answers git")
+}
+
+/// The MERGE commits in `base..HEAD` - more than one parent - in [`range_messages`]' own framing, so
 /// [`commit_logs`] splits them unchanged. Read for one refusal, `super::refusals::report_merged_trailers`.
-pub(super) fn merges(root: &Path, base: &Commit) -> String {
+fn merges(root: &Path, base: &Commit) -> Result<String, GitFailed> {
     range_log(root, base, &["--merges"])
 }
 
-fn range_log(root: &Path, base: &Commit, filter: &[&str]) -> String {
-    git(root)
-        .args(["log", "-z", "--format=%H%x00%B"])
-        .args(filter)
-        .arg(format!("{}..HEAD", base.as_str()))
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+/// What `run` reads of `base..HEAD` up front, together: one failed read is one refusal, not a value
+/// that differs per call site. `already_there` asks for the touched paths again on the proof path.
+pub(super) struct Range {
+    pub(super) merges: String,
+    pub(super) messages: String,
+    pub(super) touched: Vec<String>,
 }
 
-/// Splits [`messages`]' NUL-delimited per-commit stream into `(hash, body)` pairs.
+pub(super) fn range(root: &Path, base: &Commit) -> Result<Range, GitFailed> {
+    Ok(Range {
+        merges: merges(root, base)?,
+        messages: range_messages(root, base)?,
+        touched: touched(root, base)?,
+    })
+}
+
+fn range_log(root: &Path, base: &Commit, filter: &[&str]) -> Result<String, GitFailed> {
+    let mut command = git(root);
+    command
+        .args(["log", "-z", "--format=%H%x00%B"])
+        .args(filter)
+        .arg(format!("{}..HEAD", base.as_str()));
+    stdout(command, false)
+}
+
+/// Splits [`range_messages`]' NUL-delimited per-commit stream into `(hash, body)` pairs.
 ///
 /// `git log -z --format=%H%x00%B` prints, for each commit, `<hash>\0<body>\0`; a trailing NUL
 /// leaves an empty final field that is dropped. A commit with no message body still yields its
@@ -137,32 +221,59 @@ pub(super) fn commit_logs(log: &str) -> Vec<(&str, &str)> {
 ///
 /// One blob per branch under `refs/branch-metadata/`, which is where the tool this repository pins
 /// records a branch's parent. A branch with no metadata - never tracked, or tracked in another
-/// worktree - is a non-zero status and reaches the caller as empty text, which
+/// worktree - is an absent ref and reaches the caller as empty text, which
 /// `super::stack::recorded_parent` reads as *no recorded parent*: the fallback, and the behaviour
-/// that shipped before the derivation existed.
-pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> String {
-    git(root)
-        .args(["cat-file", "-p", &format!("refs/branch-metadata/{}", branch.as_str())])
-        .stderr(std::process::Stdio::null())
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+/// that shipped before the derivation existed. ABSENT IS ASKED FIRST (`rev-parse --verify --quiet`
+/// exits 1 for it), so a `cat-file` that then fails is a [`GitFailed`] and not that fallback.
+pub(super) fn branch_metadata(root: &Path, branch: &BranchRef) -> Result<String, GitFailed> {
+    let reference = format!("refs/branch-metadata/{}", branch.as_str());
+    let mut find = git(root);
+    find.args(["rev-parse", "--verify", "--quiet", &reference]);
+    if stdout(find, true)?.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let mut read = git(root);
+    read.args(["cat-file", "-p", &reference]);
+    stdout(read, false)
+}
+
+/// The branch below HEAD's in the stack, resolved against `asked_for`; `Ok(None)` is the fallback.
+///
+/// GLUE AND NO DECISION: [`stack::parent_of`] composes the reads and [`stack::Base::of`] chooses.
+/// The metadata read can fail and that is [`GitFailed`], not *no recorded parent*. The merge-base
+/// reads inside `parent_of` fall back on failure, deliberately: a parent branch deleted after
+/// merging is an ordinary state there, and the fallback measures the named ref - the wider base.
+pub(super) fn parent(root: &Path, asked_for: &Commit) -> Result<Option<Parent>, GitFailed> {
+    let branch = head_branch(root)?;
+    let blob = std::cell::Cell::new(
+        branch
+            .as_ref()
+            .map(|b| branch_metadata(root, b))
+            .transpose()?
+            .unwrap_or_default(),
+    );
+    let metadata = |_: &BranchRef| blob.take();
+    let fork = |earlier: &str, later: &str| merge_base(root, earlier, later).unwrap_or_default();
+    Ok(stack::parent_of(
+        asked_for,
+        &stack::Reads {
+            branch,
+            metadata: &metadata,
+            merge_base: &fork,
+        },
+    ))
 }
 
 /// Every tracked `.rs` file in the working tree that contains `word` as a whole word.
 ///
-/// A git failure reads as none, which `super::no_base` refuses as stale: the closed direction.
-pub(super) fn naming(root: &Path, word: &str) -> Vec<String> {
-    git(root)
-        .args(["grep", "-l", "-z", "-w", "-F", "-e", word, "--", "*.rs"])
-        .stderr(std::process::Stdio::null())
-        .output()
-        .map_or_default(|out| {
-            String::from_utf8_lossy(&out.stdout)
-                .split('\0')
-                .filter(|path| !path.is_empty())
-                .map(String::from)
-                .collect()
-        })
+pub(super) fn naming(root: &Path, word: &str) -> Result<Vec<String>, GitFailed> {
+    let mut command = git(root);
+    command.args(["grep", "-l", "-z", "-w", "-F", "-e", word, "--", "*.rs"]);
+    Ok(stdout(command, true)?
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Every path the diff touched, one per line - **deletions included**.
@@ -171,28 +282,24 @@ pub(super) fn naming(root: &Path, word: &str) -> Vec<String> {
 /// has no entry there at all: its `+++` is `/dev/null`. That is the one shape a whole-file move
 /// takes, and [`search`] has to be able to look in it. `--name-only` answers with no post-image
 /// involved.
-pub(super) fn touched(root: &Path, base: &Commit) -> Vec<String> {
-    git(root)
-        .args(["diff", "--name-only", base.as_str(), "--"])
-        .output()
-        .map_or_default(|out| {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(String::from)
-                .collect()
-        })
+pub(super) fn touched(root: &Path, base: &Commit) -> Result<Vec<String>, GitFailed> {
+    let mut command = git(root);
+    command.args(["diff", "--name-only", base.as_str(), "--"]);
+    Ok(stdout(command, false)?
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Every path the base has and the working tree deleted or moved, one per line, as git printed it.
 ///
 /// `--no-renames`, because a moved file is otherwise reported as `R` and never as `D`, so the old
 /// path - the one a restored `mod` line names - would not be listed.
-pub(super) fn deleted(root: &Path, base: &Commit) -> Vec<String> {
-    git(root)
-        .args(["diff", "--name-only", "--no-renames", "--diff-filter=D", base.as_str(), "--"])
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).lines().map(String::from).collect())
+pub(super) fn deleted(root: &Path, base: &Commit) -> Result<Vec<String>, GitFailed> {
+    let mut command = git(root);
+    command.args(["diff", "--name-only", "--no-renames", "--diff-filter=D", base.as_str(), "--"]);
+    Ok(stdout(command, false)?.lines().map(String::from).collect())
 }
 
 /// Lines matching any of `needles` in `base`, under `paths`.
@@ -200,12 +307,11 @@ pub(super) fn deleted(root: &Path, base: &Commit) -> Vec<String> {
 /// The pathspec is what keeps this narrow: the question is whether a test the diff NAMES was
 /// already in a file the diff also touched, because that is what a move looks like from the base
 /// side, and asking the whole tree instead would let one of this tree's duplicated test names
-/// answer yes. `-F` because a needle is a fixed string; a non-zero status is "no match" and reaches
-/// the caller as empty output, which reads as *nothing moved* - the answer the gate gave before
-/// this existed.
-pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[String]) -> String {
+/// answer yes. `-F` because a needle is a fixed string; exit 1 is "no match" and reaches the caller
+/// as empty output, which reads as *nothing moved* - the answer the gate gave before this existed.
+pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[String]) -> Result<String, GitFailed> {
     if needles.is_empty() || paths.is_empty() {
-        return String::new();
+        return Ok(String::new());
     }
     let mut command = git(root);
     command.args(["grep", "-F"]);
@@ -216,9 +322,25 @@ pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[St
     for path in paths {
         command.arg(path);
     }
-    command
-        .output()
-        .map_or_default(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    stdout(command, true)
+}
+
+/// Which of the tests `named` the base commit already had, asked of git.
+///
+/// TWO CALLS AND NO DECISION HERE. The search is restricted to the `.rs` files THIS DIFF TOUCHED -
+/// deletions included, which is why the path list comes from git rather than from the parsed diff -
+/// because that is what a move looks like from the base side: the file the test came from lost
+/// those lines, so it is in the diff. Asking the whole tree instead would let one of this tree's
+/// duplicated test names answer yes about a genuinely new test. `provenance` owns both the patterns
+/// and the classification, so the direction it fails in is stated where it is decided.
+pub(super) fn already_there(root: &Path, base: &Commit, named: &[&str], scoped: &[AddedTest]) -> Result<Moved, GitFailed> {
+    let paths: Vec<String> = touched(root, base)?
+        .into_iter()
+        .filter(|path| Reach::of(path) == Reach::Compiled)
+        .collect();
+    let found = search(root, base, &needles(named), &paths)?;
+    let edited: Vec<&str> = scoped.iter().filter(|test| test.is_edited()).map(AddedTest::name).collect();
+    Ok(Moved::of(named, &edited, &found))
 }
 
 /// Does `path` exist at `base`?
@@ -227,15 +349,14 @@ pub(super) fn search(root: &Path, base: &Commit, needles: &[String], paths: &[St
 /// existed, it means check out the old content. For a file this branch ADDED, it means the file
 /// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
 /// known to git", which is how this gate first broke in CI.
-pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> bool {
-    git(root)
-        .arg("cat-file")
-        .arg("-e")
-        .arg(format!("{}:{path}", base.as_str()))
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+///
+/// `ls-tree` and not `cat-file -e`, because the latter exits 128 for an absent path AND for a base
+/// git cannot read, so the two could not be told apart. `ls-tree` exits 0 with no entry for an absent
+/// path and 128 only for a failure, which is [`GitFailed`] here and never "absent".
+pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> Result<bool, GitFailed> {
+    let mut command = git(root);
+    command.args(["ls-tree", "-z", "--name-only", base.as_str(), "--", path]);
+    Ok(!stdout(command, false)?.is_empty())
 }
 
 /// `path`'s content at `base`, or `None` when git did not hand any back.
@@ -244,7 +365,7 @@ pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> bool {
 /// a manifest the base does not have is a NEW package and its base feature table is legitimately
 /// empty, while a manifest the base HAS and whose content did not come back leaves that scan with
 /// nothing to compare - and answering *nothing was enabled* there would be a claim about a table
-/// it never read. One reader, two callers, and the pairing is decided at the call site.
+/// it never read. One reader, and the pairing is decided at the call site.
 pub(super) fn at_base(root: &Path, base: &Commit, path: &str) -> Option<String> {
     let out = git(root)
         .args(["show", &format!("{}:{path}", base.as_str())])
@@ -320,9 +441,17 @@ impl BaseState<'_> {
 ///
 /// "Revert to base" means two different things depending on the answer, and getting it wrong is
 /// how this gate first broke in CI - see [`base_has`].
-pub(super) fn base_state<'a>(root: &Path, base: &Commit, files: &'a [String]) -> BaseState<'a> {
-    let (restore, remove) = files.iter().partition(|f| base_has(root, base, f));
-    BaseState { restore, remove }
+pub(super) fn base_state<'a>(root: &Path, base: &Commit, files: &'a [String]) -> Result<BaseState<'a>, GitFailed> {
+    let (mut restore, mut remove) = (Vec::new(), Vec::new());
+    for file in files {
+        if base_has(root, base, file)? {
+            &mut restore
+        } else {
+            &mut remove
+        }
+        .push(file);
+    }
+    Ok(BaseState { restore, remove })
 }
 
 /// Check out the base version of the files that had one, and delete the ones this branch added.
@@ -361,11 +490,16 @@ pub(super) fn apply(wt: &Path, base: &Commit, state: &BaseState<'_>) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseState, Commit, apply, deleted};
+    use std::path::{Path, PathBuf};
 
-    #[test]
-    fn a_moved_file_is_listed_by_its_old_path() {
-        let dir = std::env::temp_dir().join(format!("sutura-causality-moved-{}", std::process::id()));
+    use super::{
+        BaseState, BranchRef, Commit, apply, base_has, base_state, branch_metadata, deleted, head_branch, head_commit,
+        merge_base, merges, naming, range, range_messages, search, touched,
+    };
+
+    /// A scratch repository holding `src/a.rs` in one commit, and that commit.
+    fn one_commit_in_a_scratch_repo(label: &str) -> (PathBuf, Commit) {
+        let dir = std::env::temp_dir().join(format!("sutura-causality-{label}-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&dir));
         std::fs::create_dir_all(dir.join("src")).expect("a scratch tree");
         std::fs::write(dir.join("src/a.rs"), "pub fn one() -> u8 {\n    1\n}\n").expect("a module");
@@ -389,10 +523,95 @@ mod tests {
             "base",
         ]);
         let base = Commit::parse(&git(&["rev-parse", "HEAD"])).expect("an object name");
-        git(&["mv", "src/a.rs", "src/b.rs"]);
-        let listed = deleted(&dir, &base);
+        (dir, base)
+    }
+
+    #[test]
+    fn a_moved_file_is_listed_by_its_old_path() {
+        let (dir, base) = one_commit_in_a_scratch_repo("moved");
+        let mut mv = std::process::Command::new("git");
+        crate::repo::strip_git_env(&mut mv);
+        assert!(
+            mv.current_dir(&dir)
+                .args(["mv", "src/a.rs", "src/b.rs"])
+                .status()
+                .expect("git runs")
+                .success()
+        );
+        let listed = deleted(&dir, &base).unwrap();
         drop(std::fs::remove_dir_all(&dir));
         assert_eq!(listed, vec![String::from("src/a.rs")]);
+    }
+
+    /// Git exits 128 for a base it cannot read and cannot start in a directory that is gone; neither
+    /// is an answer, and every helper used to read both as empty text.
+    #[test]
+    fn a_failed_git_call_is_an_error_and_never_an_empty_answer() {
+        let (dir, _) = one_commit_in_a_scratch_repo("failed");
+        let unknown = Commit::parse("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef").expect("an object name");
+        let gone: &Path = &dir.join("absent");
+        let branch = BranchRef::parse("a-branch").expect("a branch name");
+        let files = [String::from("src/a.rs")];
+        let needles = [String::from("one")];
+        let answered: Vec<&str> = [
+            ("merge_base", merge_base(&dir, "no-such-ref", "HEAD").is_ok()),
+            ("range_messages", range_messages(&dir, &unknown).is_ok()),
+            ("merges", merges(&dir, &unknown).is_ok()),
+            ("range", range(&dir, &unknown).is_ok()),
+            ("touched", touched(&dir, &unknown).is_ok()),
+            ("deleted", deleted(&dir, &unknown).is_ok()),
+            ("search", search(&dir, &unknown, &needles, &files).is_ok()),
+            ("base_has", base_has(&dir, &unknown, "src/a.rs").is_ok()),
+            ("base_state", base_state(&dir, &unknown, &files).is_ok()),
+            ("head_commit", head_commit(gone).is_ok()),
+            ("head_branch", head_branch(gone).is_ok()),
+            ("naming", naming(gone, "one").is_ok()),
+            ("branch_metadata", branch_metadata(gone, &branch).is_ok()),
+        ]
+        .into_iter()
+        .filter_map(|(call, ok)| ok.then_some(call))
+        .collect();
+        let why = range_messages(&dir, &unknown).unwrap_err().to_string();
+        drop(std::fs::remove_dir_all(&dir));
+        assert!(answered.is_empty(), "a failed git call read as an answer: {answered:?}");
+        assert!(why.contains("git log"), "the refusal names the call: {why}");
+    }
+
+    /// The other half: git's own *nothing here* answers stay answers, so refusing a failure does not
+    /// turn every absent path or unmatched search into a refusal.
+    #[test]
+    fn an_absent_answer_is_still_an_answer() {
+        let (dir, base) = one_commit_in_a_scratch_repo("absent");
+        let branch = BranchRef::parse("a-branch").expect("a branch name");
+        let files = [String::from("src/a.rs")];
+        let present = base_has(&dir, &base, "src/a.rs");
+        let absent = base_has(&dir, &base, "src/none.rs");
+        let unmatched = (naming(&dir, "zzz"), search(&dir, &base, &[String::from("zzz")], &files));
+        let named = naming(&dir, "one");
+        let untracked = branch_metadata(&dir, &branch);
+        let forked_at = merge_base(&dir, base.as_str(), "HEAD");
+        let on_a_branch = head_branch(&dir);
+        let mut detach = std::process::Command::new("git");
+        crate::repo::strip_git_env(&mut detach);
+        assert!(
+            detach
+                .current_dir(&dir)
+                .args(["checkout", "-q", "--detach"])
+                .status()
+                .expect("git runs")
+                .success()
+        );
+        let detached = head_branch(&dir);
+        drop(std::fs::remove_dir_all(&dir));
+        assert!(present.unwrap(), "a file at base is present");
+        assert!(!absent.unwrap(), "a path the base lacks is absent, not a failure");
+        assert_eq!(unmatched.0.unwrap(), Vec::<String>::new());
+        assert_eq!(unmatched.1.unwrap(), "");
+        assert_eq!(named.unwrap(), vec![String::from("src/a.rs")]);
+        assert_eq!(untracked.unwrap(), "", "no metadata blob is no recorded parent");
+        assert_eq!(forked_at.unwrap().trim(), base.as_str());
+        assert_eq!(on_a_branch.unwrap().as_ref().map(BranchRef::as_str), Some("main"));
+        assert_eq!(detached.unwrap(), None, "a detached HEAD is no branch, not a failure");
     }
 
     #[test]

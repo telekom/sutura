@@ -470,6 +470,12 @@ impl FederatedPlan {
         &self.keys
     }
 
+    /// The time bucket the answer groups by: its label, grain and column.
+    #[inline]
+    pub const fn bucket(&self) -> &PlanBucket {
+        &self.bucket
+    }
+
     /// The label the fact leg projected its time bucket under, which the answer groups by.
     ///
     /// **Four accessors arrived with the combiner port and this is the first of them.** The combine

@@ -243,6 +243,7 @@ Why a plan cannot be asked of Cube as one query.
 
 - `UnboundParameter`
 - `TopAcrossMetricQueries`
+- `TruncatedKey`
 
 #### Implements
 

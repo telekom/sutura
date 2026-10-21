@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-datafusion/src/lib.rs b/crates/sutura-exec-datafusion/src/lib.rs
+--- a/crates/sutura-exec-datafusion/src/lib.rs
++++ b/crates/sutura-exec-datafusion/src/lib.rs
+@@ -513,7 +513,10 @@ impl DataFusionWarehouse {
+         // aggregate's output fields line up with the labels position for position.
+         let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
+         for key in plan.keys() {
+-            grouping.push(key_expression(key));
++            grouping.push(match key.value() {
++                sutura_domain::plan::KeyValue::Column(_) => key_expression(key),
++                sutura_domain::plan::KeyValue::Truncated { column: over, .. } => crate::translate::column(over),
++            });
+         }
+         grouping.push(bucket_expression(plan.bucket().grain(), plan.bucket().column()));
+         let group_count = grouping.len();

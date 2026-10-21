@@ -85,9 +85,12 @@ impl Exemptions {
 ///
 /// `git grep` only narrows the files to read and [`Code`] decides, so a comment or a string still
 /// spelling `fn <name>` does not keep a deleted test's entry fresh (`github.com/telekom/sutura#1270`).
-/// An unreadable file reads as no: the closed direction.
+/// An unreadable file, or a git call that failed (printed), reads as no: the closed direction.
 fn declares_fn(root: &Path, name: &str) -> bool {
-    worktree::naming(root, name).iter().any(|path| {
+    let Ok(paths) = worktree::naming(root, name).map_err(worktree::GitFailed::refuse) else {
+        return false;
+    };
+    paths.iter().any(|path| {
         std::fs::read_to_string(root.join(path))
             .is_ok_and(|text| Code::of(&text).functions().any(|declared| declared.as_str() == name))
     })

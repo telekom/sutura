@@ -991,13 +991,29 @@ pub fn cases_at(at: Option<&sutura_domain::model::TableQualifier>) -> Vec<Case>
 `cases`, every plan reading the corpus table under `at`: for a data system that addresses
 no table by its bare name.
 
+### `fn leg_cases`
+
+```rust
+pub fn leg_cases() -> [LegCase; 2]
+```
+
+Every leg in the corpus: `leg_case` and `truncated_link_leg_case`.
+
+### `fn leg_cases_at`
+
+```rust
+pub fn leg_cases_at(at: Option<&sutura_domain::model::TableQualifier>) -> [LegCase; 2]
+```
+
+`leg_cases`, each leg reading the corpus table under `at`.
+
 ### `fn leg_case`
 
 ```rust
 pub fn leg_case() -> LegCase
 ```
 
-The one leg in the corpus.
+The leg that answers `total-by-region-and-day`'s rows.
 
 ### `fn leg_case_at`
 
@@ -1006,6 +1022,25 @@ pub fn leg_case_at(at: Option<&sutura_domain::model::TableQualifier>) -> LegCase
 ```
 
 `leg_case`, its leg reading the corpus table under `at`.
+
+### `fn truncated_link_leg_case`
+
+```rust
+pub fn truncated_link_leg_case() -> LegCase
+```
+
+A leg whose link is `day` truncated to its month, bucketed by month over the same column.
+
+Both days of the range fall in one month, so the leg answers ONE row: a link that grouped by
+the raw day would answer two. The rows are literals from the fixture (800 + 1450 cents).
+
+### `fn truncated_link_leg_case_at`
+
+```rust
+pub fn truncated_link_leg_case_at(at: Option<&sutura_domain::model::TableQualifier>) -> LegCase
+```
+
+`truncated_link_leg_case`, its leg reading the corpus table under `at`.
 
 ### `fn federated_cases`
 
@@ -1245,7 +1280,8 @@ A leg reaches the answer a whole plan reaches.
 Selected for an adapter that declares `EXECUTES_LEGS`. The leg reads the same table over the same
 range as one of the whole-plan cases and must answer that case's rows, which is what makes it a
 conformance claim rather than a smoke test: an adapter with a leg-rendering path of its own has
-to land on the number the whole-plan path lands on.
+to land on the number the whole-plan path lands on. A second leg links on a key truncated to a
+month, so the adapter's own truncation runs in a leg; its rows are literals.
 
 Content only. See this module's header for why a leg gets no order assertion.
 
