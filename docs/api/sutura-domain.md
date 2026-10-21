@@ -7356,7 +7356,11 @@ One metric's share of a drill-across question.
 One arm's leg results, in the shape its `Arm` takes.
 
 The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
-Whether the variants line up with the plan's arms is the combiner's to check: a slice cannot say.
+A local arm's result is tagged with the metric of the fact leg it came from, because two local arms'
+results share a shape and a swap would answer one metric's number under the other's name. Whether
+the variants line up with the plan's arms, and whether a local arm's metric is the arm's own, is
+the combiner's to check: a slice cannot say. A joined arm's `Legs` carry a side and not a metric, so
+two joined arms' results are not told apart here.
 
 ### `use DrillAcrossCombiner`
 
@@ -8546,7 +8550,11 @@ Why a drill-across plan, or one of its arms, could not be built.
 One arm's leg results, in the shape its `Arm` takes.
 
 The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
-Whether the variants line up with the plan's arms is the combiner's to check: a slice cannot say.
+A local arm's result is tagged with the metric of the fact leg it came from, because two local arms'
+results share a shape and a swap would answer one metric's number under the other's name. Whether
+the variants line up with the plan's arms, and whether a local arm's metric is the arm's own, is
+the combiner's to check: a slice cannot say. A joined arm's `Legs` carry a side and not a metric, so
+two joined arms' results are not told apart here.
 
 #### `use DrillAcrossCombiner`
 
@@ -9464,7 +9472,7 @@ Behind `fixtures`, so nothing published holds it.
 
 ###### Implements
 
-`Clone`, `Copy`, `Debug`, `Default`, `DrillAcrossCombiner`, `FederationCombiner`
+`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
 
 ##### `struct NothingCombined`
 

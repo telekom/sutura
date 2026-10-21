@@ -11,10 +11,12 @@
 //! one arm carries, and the other arm's measure answers null there: "no rows" stays visible, and a
 //! ratio arm cannot fail the answer by dividing an invented zero.
 //!
-//! **What it refuses is one thing: a bucket the arms type differently.** Two period columns of
-//! different Arrow types cannot be compared without choosing a reading of a period, so the merge
-//! refuses rather than casts. A key of different types across arms is NOT checked: the engine's own
-//! coercion decides, and a pair it cannot coerce leaves as this workspace's own failure.
+//! **What it refuses is a key or a bucket the arms type differently.** Two columns of different
+//! Arrow kinds cannot be compared without choosing a reading of a value - a text `"01"` and an integer
+//! `1` are one group under a cast and two without it - so the merge refuses before it joins, never
+//! casts. The types are read off each arm's cut plan, so a key on a joined arm's lookup leg counts as
+//! much as one on its fact leg. A kind is the join key's own (`Utf8` and `LargeUtf8` are one kind); a
+//! pair of types neither of which is a join-key type must be the same type.
 
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, JoinType, NullEquality, TableReference};
@@ -25,7 +27,7 @@ use sutura_domain::plan::{Arm, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, Lo
 use sutura_domain::warehouse::ResultBatches;
 
 use super::arm::{above_expression, leaf_labels, qualified, scan, schema_mismatch};
-use super::schema::{FACT, LegSchema};
+use super::schema::{FACT, LegSchema, same_kind};
 use super::{CombineError, DataFusionCombiner, FACT_TABLE, arm_plan, bounded_session, executed, register, working_set_of};
 use crate::collect::outputs;
 use crate::pool::WorkingSet;
@@ -49,12 +51,16 @@ async fn merged(
     working_set: WorkingSet,
     ceiling_bytes: u64,
 ) -> Result<ResultBatches, CombineError> {
+    if arms.len() != plan.arms().len() {
+        return Err(CombineError::ArmsMiswired {
+            arm: arms.len().min(plan.arms().len()),
+        });
+    }
     let context = bounded_session(working_set)?;
     let grouped: Vec<&str> = plan.keys().into_iter().chain([plan.bucket_label()]).collect();
     let first_legs = arms.first().ok_or(CombineError::ArmsMiswired { arm: 0 })?;
-    let (first, bucket_kind) = cut(
+    let first = cut(
         0,
-        plan,
         plan.arms().first(),
         first_legs,
         &grouped,
@@ -62,23 +68,14 @@ async fn merged(
         (ceiling_bytes, working_set),
     )
     .await?;
+    let first_kinds = kinds_of(&first, &grouped)?;
     let mut running = aliased(first, MERGED)?;
     let mut measures = vec![plan.arms().first().measure_label()];
     for (index, (arm, legs)) in plan.arms().iter().zip(arms).enumerate().skip(1) {
-        let (next, kind) = cut(index, plan, arm, legs, &grouped, &context, (ceiling_bytes, working_set)).await?;
-        if kind != bucket_kind {
-            return Err(CombineError::BucketKindMismatch {
-                first: format!("{bucket_kind:?}"),
-                other: format!("{kind:?}"),
-            });
-        }
+        let next = cut(index, arm, legs, &grouped, &context, (ceiling_bytes, working_set)).await?;
+        agreeing_kinds(&grouped, plan.bucket_label(), &first_kinds, &kinds_of(&next, &grouped)?)?;
         running = joined_with(running, next, &grouped, &measures, arm.measure_label())?;
         measures.push(arm.measure_label());
-    }
-    if arms.len() != plan.arms().len() {
-        return Err(CombineError::ArmsMiswired {
-            arm: arms.len().min(plan.arms().len()),
-        });
     }
     let labels: Vec<String> = grouped.iter().chain(&measures).map(|label| String::from(*label)).collect();
     let (projection, ordering) = outputs(running.schema(), &labels, grouped.len()).map_err(schema_mismatch)?;
@@ -90,33 +87,61 @@ async fn merged(
     executed(&context, logical, labels, measures.len(), ceiling_bytes, working_set).await
 }
 
-/// One arm's logical plan, with the Arrow type its bucket column came back as.
+/// One arm's logical plan.
 async fn cut(
     index: usize,
-    plan: &DrillAcrossPlan,
     arm: &Arm,
     legs: &ArmLegs<'_>,
     grouped: &[&str],
     context: &SessionContext,
     (ceiling_bytes, working_set): (u64, WorkingSet),
-) -> Result<(LogicalPlan, DataType), CombineError> {
-    let kind = LegSchema::of(FACT, fact_schema(legs))?.kind_of(plan.bucket_label())?.clone();
-    let cut = match (arm, legs) {
-        (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, *legs, context, ceiling_bytes, working_set).await?,
-        (Arm::Local(local), ArmLegs::Local(batches)) => local_plan(local, grouped, context, batches).await?,
-        (Arm::Joined(_), ArmLegs::Local(_)) | (Arm::Local(_), ArmLegs::Joined(_)) => {
-            return Err(CombineError::ArmsMiswired { arm: index });
+) -> Result<LogicalPlan, CombineError> {
+    match (arm, legs) {
+        (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, *legs, context, ceiling_bytes, working_set).await,
+        (Arm::Local(local), ArmLegs::Local { metric, batches }) if *metric == arm.metric() => {
+            local_plan(local, grouped, context, batches).await
         }
-    };
-    Ok((cut, kind))
+        (Arm::Joined(_), ArmLegs::Local { .. }) | (Arm::Local(_), ArmLegs::Joined(_) | ArmLegs::Local { .. }) => {
+            Err(CombineError::ArmsMiswired { arm: index })
+        }
+    }
 }
 
-/// The schema of the leg a drill-across arm's bucket column is read off.
-const fn fact_schema<'a>(legs: &ArmLegs<'a>) -> &'a datafusion::arrow::datatypes::SchemaRef {
-    match *legs {
-        ArmLegs::Joined(legs) => legs.fact().schema(),
-        ArmLegs::Local(batches) => batches.schema(),
+/// The Arrow type each `grouped` label comes back as in `plan`, which names every label whichever
+/// leg of the arm it was read off.
+fn kinds_of(plan: &LogicalPlan, grouped: &[&str]) -> Result<Vec<DataType>, CombineError> {
+    grouped
+        .iter()
+        .map(|label| {
+            plan.schema()
+                .field_with_unqualified_name(label)
+                .map(|field| field.data_type().clone())
+                .map_err(|cause| CombineError::Build { cause })
+        })
+        .collect()
+}
+
+/// Refuses an arm whose grouped columns are not of the first arm's kinds, before any join is built.
+///
+/// A type is read, never a value: the refusal names the two Arrow types, so a key the legs returned
+/// cannot reach it.
+fn agreeing_kinds(grouped: &[&str], bucket: &str, first: &[DataType], other: &[DataType]) -> Result<(), CombineError> {
+    for ((label, first), other) in grouped.iter().zip(first).zip(other) {
+        if same_kind(first, other) {
+            continue;
+        }
+        let (first, other) = (format!("{first:?}"), format!("{other:?}"));
+        return Err(if *label == bucket {
+            CombineError::BucketKindMismatch { first, other }
+        } else {
+            CombineError::KeyKindMismatch {
+                label: String::from(*label),
+                first,
+                other,
+            }
+        });
     }
+    Ok(())
 }
 
 /// A local arm as a plan: its one fact leg, aggregated to the answer's keys and bucket and divided
@@ -201,7 +226,11 @@ mod tests {
     //! legs would have returned. The merge is new API, so no base tree runs these: each cell's
     //! kill is a mutation of this module, in the commit body.
 
-    use datafusion::arrow::datatypes::DataType;
+    use std::error::Error as _;
+    use std::sync::Arc;
+
+    use datafusion::arrow::array::{Int64Array, LargeStringArray, RecordBatch};
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::TIME_BUCKET_LABEL;
     use sutura_domain::federation::Federation;
@@ -214,7 +243,7 @@ mod tests {
         ResultLabel, StatementTables, labels,
     };
     use sutura_domain::warehouse::arrow::of_row_set;
-    use sutura_domain::warehouse::{ResultBatches, RowSet, Value};
+    use sutura_domain::warehouse::{Accumulating, Real, ResultBatches, ResultBudget, RowSet, Value};
 
     use crate::combine::{CombineError, DataFusionCombiner};
 
@@ -303,11 +332,19 @@ mod tests {
 
     /// A metric whose one fact leg is grouped by region.
     fn local(name: &str) -> Arm {
+        local_by(name, &["region"])
+    }
+
+    /// A metric whose one fact leg is grouped by each of `dimensions`, which are also the answer's keys.
+    fn local_by(name: &str, dimensions: &[&str]) -> Arm {
         let federation = federation();
-        let fact = fact_leg(name, vec![region_key()], &federation);
-        let keys = vec![ResultLabel::dimension(
-            &DimensionName::parse("region").expect("a test dimension"),
-        )];
+        let labels = |dimension: &&str| ResultLabel::dimension(&DimensionName::parse(dimension).expect("a test dimension"));
+        let keys = dimensions.iter().map(labels).collect();
+        let leg_keys = dimensions
+            .iter()
+            .map(|dimension| PlanKey::new(labels(dimension), PlanColumn::new(table(FACT), column(dimension))))
+            .collect();
+        let fact = fact_leg(name, leg_keys, &federation);
         Arm::Local(Box::new(
             LocalArm::new(fact, federation, keys).expect("a test local arm is well formed"),
         ))
@@ -343,7 +380,7 @@ mod tests {
         InternalLabel::Leaf(0).label()
     }
 
-    fn batches(columns: [String; 3], rows: Vec<[Value; 3]>) -> ResultBatches {
+    fn batches<const N: usize>(columns: [String; N], rows: Vec<[Value; N]>) -> ResultBatches {
         let rows = rows.into_iter().map(Vec::from).collect();
         of_row_set(&RowSet::new(Vec::from(columns), rows).expect("a test result is well formed")).expect("a result converts")
     }
@@ -364,8 +401,19 @@ mod tests {
         DrillAcrossPlan::new(first, second, arms.collect()).expect("a test drill-across plan")
     }
 
+    /// The results handed over in order, each tagged with the metric its arm measures: `revenue`, then
+    /// `visits`, then `tickets`.
     fn merged(plan: &DrillAcrossPlan, results: &[&ResultBatches], ceiling: u64) -> Result<ResultBatches, CombineError> {
-        let arms: Vec<ArmLegs<'_>> = results.iter().map(|batches| ArmLegs::Local(batches)).collect();
+        let metrics: Vec<MetricName> = ["revenue", "visits", "tickets", "extra"]
+            .into_iter()
+            .take(results.len())
+            .map(metric)
+            .collect();
+        let arms: Vec<ArmLegs<'_>> = metrics
+            .iter()
+            .zip(results)
+            .map(|(metric, batches)| ArmLegs::Local { metric, batches })
+            .collect();
         combiner().merge(plan, &arms, ceiling)
     }
 
@@ -463,7 +511,17 @@ mod tests {
         let visits = leg(vec![(text("north"), 7), (text("south"), 3)]);
         let legs = sutura_domain::plan::Legs::of(&fact, &lookup).expect("one of each");
         let answered = combiner()
-            .merge(&drill, &[ArmLegs::Joined(legs), ArmLegs::Local(&visits)], UNBOUNDED)
+            .merge(
+                &drill,
+                &[
+                    ArmLegs::Joined(legs),
+                    ArmLegs::Local {
+                        metric: &metric("visits"),
+                        batches: &visits,
+                    },
+                ],
+                UNBOUNDED,
+            )
             .expect("the arms merge")
             .to_rows()
             .expect("the answer decodes");
@@ -527,12 +585,213 @@ mod tests {
         let none = combiner().merge(&plan, &[], UNBOUNDED).expect_err("no results for two arms");
         let one = merged(&plan, &[&revenue], UNBOUNDED).expect_err("one result for two arms");
         let wrong = combiner()
-            .merge(&plan, &[ArmLegs::Local(&revenue), ArmLegs::Joined(legs)], UNBOUNDED)
+            .merge(
+                &plan,
+                &[
+                    ArmLegs::Local {
+                        metric: &metric("revenue"),
+                        batches: &revenue,
+                    },
+                    ArmLegs::Joined(legs),
+                ],
+                UNBOUNDED,
+            )
             .expect_err("a joined arm's legs where a local arm's result belongs");
 
         assert!(matches!(none, CombineError::ArmsMiswired { arm: 0 }), "{none:?}");
         assert!(matches!(one, CombineError::ArmsMiswired { arm: 1 }), "{one:?}");
         assert!(matches!(wrong, CombineError::ArmsMiswired { arm: 1 }), "{wrong:?}");
         assert_eq!(combiner().answer_not_well_formed(&wrong), None, "ours, never the question's");
+    }
+
+    /// A local arm's leg result with one row per `(region, period, total)`.
+    fn periods(rows: Vec<(&str, &str, i64)>) -> ResultBatches {
+        batches(
+            [String::from("region"), String::from(TIME_BUCKET_LABEL), leaf()],
+            rows.into_iter()
+                .map(|(region, period, total)| [text(region), text(period), Value::Integer(total)])
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn two_periods_of_one_key_join_on_the_period() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let revenue = periods(vec![("north", "2026-05", 1), ("north", "2026-06", 2)]);
+        let visits = periods(vec![("north", "2026-06", 20), ("north", "2026-07", 30)]);
+
+        assert_eq!(
+            rows(&plan, &[&revenue, &visits]),
+            vec![
+                vec![text("north"), text("2026-05"), Value::Integer(1), Value::Null],
+                vec![text("north"), text("2026-06"), Value::Integer(2), Value::Integer(20)],
+                vec![text("north"), text("2026-07"), Value::Null, Value::Integer(30)],
+            ],
+            "the periods stay apart: a period joins its own period, and a lone one answers null under the other arm"
+        );
+    }
+
+    #[test]
+    fn two_keys_join_on_both() {
+        let plan = plan_of(vec![
+            local_by("revenue", &["region", "tier"]),
+            local_by("visits", &["region", "tier"]),
+        ]);
+        let pairs = |rows: Vec<(&str, &str, i64)>| {
+            batches(
+                [
+                    String::from("region"),
+                    String::from("tier"),
+                    String::from(TIME_BUCKET_LABEL),
+                    leaf(),
+                ],
+                rows.into_iter()
+                    .map(|(region, tier, total)| [text(region), text(tier), text("2026-06"), Value::Integer(total)])
+                    .collect(),
+            )
+        };
+        let revenue = pairs(vec![("north", "gold", 1), ("north", "silver", 2), ("south", "gold", 3)]);
+        let visits = pairs(vec![("north", "gold", 10), ("north", "silver", 20)]);
+
+        let period = || text("2026-06");
+        assert_eq!(
+            rows(&plan, &[&revenue, &visits]),
+            vec![
+                vec![text("north"), text("gold"), period(), Value::Integer(1), Value::Integer(10)],
+                vec![text("north"), text("silver"), period(), Value::Integer(2), Value::Integer(20)],
+                vec![text("south"), text("gold"), period(), Value::Integer(3), Value::Null],
+            ],
+            "a group is every key together: two arms agreeing on one key and differing on the other are two groups"
+        );
+    }
+
+    #[test]
+    fn a_non_finite_measure_is_refused_in_any_arm() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let real_leg = |totals: &[f64]| {
+            batches(
+                [String::from("region"), String::from(TIME_BUCKET_LABEL), leaf()],
+                totals
+                    .iter()
+                    .map(|total| {
+                        [
+                            text("north"),
+                            text("2026-06"),
+                            Value::Real(Real::parse(*total).expect("a finite test real")),
+                        ]
+                    })
+                    .collect(),
+            )
+        };
+        let overflowing = real_leg(&[f64::MAX, f64::MAX]);
+        let finite = real_leg(&[7.0]);
+
+        let error = merged(&plan, &[&overflowing, &finite], UNBOUNDED).expect_err("a sum that left the finite range");
+
+        assert!(matches!(error, CombineError::NonFinite), "{error:?}");
+        assert_eq!(
+            combiner().answer_not_well_formed(&error),
+            Some(FederatedAnswerRefusal::NonFinite),
+            "refused here as the question's, not left to fail at the presentation edge as a retryable fault"
+        );
+    }
+
+    #[test]
+    fn more_results_than_arms_is_a_wiring_defect() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let (first, second, third) = (
+            leg(vec![(text("north"), 1)]),
+            leg(vec![(text("north"), 2)]),
+            leg(vec![(text("north"), 3)]),
+        );
+
+        let error = merged(&plan, &[&first, &second, &third], UNBOUNDED).expect_err("three results for two arms");
+
+        assert!(matches!(error, CombineError::ArmsMiswired { arm: 2 }), "{error:?}");
+    }
+
+    #[test]
+    fn a_local_result_tagged_with_another_arms_metric_is_a_wiring_defect() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let (revenue, visits) = (leg(vec![(text("north"), 100)]), leg(vec![(text("north"), 7)]));
+        let swapped = [
+            ArmLegs::Local {
+                metric: &metric("visits"),
+                batches: &visits,
+            },
+            ArmLegs::Local {
+                metric: &metric("revenue"),
+                batches: &revenue,
+            },
+        ];
+
+        let error = combiner()
+            .merge(&plan, &swapped, UNBOUNDED)
+            .expect_err("each result is under the other arm's metric");
+
+        assert!(matches!(error, CombineError::ArmsMiswired { arm: 0 }), "{error:?}");
+        assert_eq!(combiner().answer_not_well_formed(&error), None, "ours, never the question's");
+    }
+
+    /// A local arm's leg result whose key and period columns are `LargeUtf8` and whose leaf is `Int64`.
+    fn large_text_leg(region: &str, total: i64) -> ResultBatches {
+        let leaf = leaf();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("region", DataType::LargeUtf8, true),
+            Field::new(TIME_BUCKET_LABEL, DataType::LargeUtf8, true),
+            Field::new(leaf.as_str(), DataType::Int64, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(LargeStringArray::from(vec![region])),
+                Arc::new(LargeStringArray::from(vec!["2026-06"])),
+                Arc::new(Int64Array::from(vec![total])),
+            ],
+        )
+        .expect("a test batch is well formed");
+        let mut accumulating = Accumulating::announcing(schema, 1, ResultBudget::of_bytes(core::num::NonZeroUsize::MAX));
+        accumulating.push(batch).expect("a test batch agrees with its own schema");
+        accumulating.finish()
+    }
+
+    #[test]
+    fn keys_of_different_kinds_are_refused_and_the_refusal_names_no_key() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let revenue = leg(vec![(text("abc"), 1), (text("01"), 2)]);
+        let visits = leg(vec![(Value::Integer(1), 7)]);
+
+        let error = merged(&plan, &[&revenue, &visits], UNBOUNDED).expect_err("a text key and an integer key cannot be joined");
+
+        assert!(
+            matches!(&error, CombineError::KeyKindMismatch { label, first, other } if label == "region" && *first == format!("{:?}", DataType::Utf8) && *other == format!("{:?}", DataType::Int64)),
+            "{error:?}"
+        );
+        assert_eq!(
+            combiner().answer_not_well_formed(&error),
+            Some(FederatedAnswerRefusal::KeyKindMismatch)
+        );
+        let mut told = vec![error.to_string(), format!("{error:?}")];
+        let mut cause = error.source();
+        while let Some(source) = cause {
+            told.push(source.to_string());
+            told.push(format!("{source:?}"));
+            cause = source.source();
+        }
+        for text in told {
+            assert!(!text.contains("abc") && !text.contains("01"), "a key value reached `{text}`");
+        }
+    }
+
+    #[test]
+    fn a_key_and_a_bucket_of_either_text_width_are_one_kind() {
+        let plan = plan_of(vec![local("revenue"), local("visits")]);
+        let (revenue, visits) = (leg(vec![(text("north"), 100)]), large_text_leg("north", 7));
+
+        assert_eq!(
+            rows(&plan, &[&revenue, &visits]),
+            vec![vec![text("north"), text("2026-06"), Value::Integer(100), Value::Integer(7)]],
+            "Utf8 against LargeUtf8 is one kind of key and one kind of period, and joins"
+        );
     }
 }

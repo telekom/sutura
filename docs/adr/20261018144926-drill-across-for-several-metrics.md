@@ -65,11 +65,19 @@ and the two classifying predicates are the two-leg combine's. `DataFusionCombine
 - **The join is FULL on every key and the bucket, a null equal to a null.** It is
   `NullEquality::NullEqualsNull` on `join_detailed` at the pinned DataFusion; a plain `=` would answer
   a null key two arms share as two rows. A group one arm lacks answers null under that arm.
-- **A bucket of another Arrow type is refused.** `FederatedAnswerRefusal::BucketKindMismatch`; no cast.
-- **Leg results that are not the plan's arms** are `ArmsMiswired`: this workspace's defect.
+- **A key or a bucket of another Arrow kind is refused.** `FederatedAnswerRefusal::KeyKindMismatch` for
+  a key, `BucketKindMismatch` for the bucket; never a cast, because a text `"01"` and an integer `1`
+  are one group under a cast. The types are read off each arm's cut plan before the join, so a key on a
+  joined arm's lookup leg is compared too, and the refusal carries the two Arrow type names and the
+  label, never a key value. A kind is the join key's own, so `Utf8` and `LargeUtf8` are one.
+- **Leg results that are not the plan's arms** are `ArmsMiswired`: this workspace's defect. A count
+  that is not the plan's, a variant that is not the arm's, and a local arm's result tagged with another
+  metric are checked. A joined arm's two legs carry a side and no metric, so two joined arms' results
+  are not told apart by the port.
 
-Limits: a key whose Arrow types differ between arms is not checked; the engine's coercion decides, and
-a pair it cannot coerce leaves as an internal failure. The ceiling bounds the merge's operators, as
+Limits: a key type that is not a join-key type (a float, a timestamp) must be identical across arms,
+so two timestamp units are refused though they could join. A declared cast across arms is not honoured.
+The ceiling bounds the merge's operators, as
 for the two-leg combine, not the leg results the caller already holds. Only local arms and one joined
 arm over in-memory legs are measured; no served question reaches `merge`.
 

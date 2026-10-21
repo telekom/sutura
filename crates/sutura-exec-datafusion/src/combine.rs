@@ -126,7 +126,7 @@ const EXACT_SUM_PRECISION: u8 = 76;
 
 /// Why a combine could not be assembled.
 ///
-/// Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+/// Split the way the port's two predicates read it: the caller-facing arms are deterministic
 /// refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 /// engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 /// driver's metadata and a label the splitter assigned - and never a cell.
@@ -217,6 +217,12 @@ pub enum CombineError {
     /// the other.
     #[error("the first arm's bucket column is {first} and another arm's is {other}, so no period can match")]
     BucketKindMismatch { first: String, other: String },
+    /// Two arms group by columns of different Arrow types for one answer key, which no equality
+    /// compares without a cast.
+    ///
+    /// Carries the label, which names a dimension, and the two Arrow types: never a key value.
+    #[error("the first arm's key `{label}` is {first} and another arm's is {other}, so no key can match without a cast")]
+    KeyKindMismatch { label: String, first: String, other: String },
     /// The leg results handed to a merge are not the plan's arms: another count, or a joined arm's
     /// legs where a local arm's one result belongs.
     #[error("the leg results of arm {arm} do not match the plan's arm")]
@@ -495,6 +501,7 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::AmbiguousLink => Some(FederatedAnswerRefusal::AmbiguousLink),
             CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
             CombineError::BucketKindMismatch { .. } => Some(FederatedAnswerRefusal::BucketKindMismatch),
+            CombineError::KeyKindMismatch { .. } => Some(FederatedAnswerRefusal::KeyKindMismatch),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
