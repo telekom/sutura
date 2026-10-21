@@ -10823,6 +10823,14 @@ somebody else's input.
   executes it where the registered adapter can run a leg and otherwise refuses it as
   `FederationNotExecutable`). So this is the bound on
   an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+- `PlanNeedsTooManyLookupLegs` - The plan would need more lookup legs than one answer may carry.
+
+  Refused rather than run in parts, because each leg's data system is a separate identity to
+  satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+  prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+  model through two relationships count twice, and a chain that crosses twice spends two. The
+  "too many" is a named count against `MAX_LOOKUP_LEGS`. Narrowable: ask for fewer remote
+  dimensions.
 - `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
 
   **A fact about the two adapters this answer would run on, read per LEG.** `Warehouses<W>`
@@ -11095,6 +11103,11 @@ somebody else's input.
   else, and the second fact `model` declares its own relationship into it on the column the
   first fact links through, truncated to the same grain or not at all. Narrowable: group by a
   dimension both facts link to.
+- `CrossModelRatioNeedsOneLookupLeg` - A cross-model ratio asked by dimensions that need more than one lookup leg.
+
+  The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+  is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
+  lifts it. Narrowable: group by the dimensions of one remote model.
 
 #### Methods
 

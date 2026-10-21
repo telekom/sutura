@@ -36,6 +36,10 @@ pub(super) fn too_many_legs(legs: usize, limit: usize) -> String {
     )
 }
 
+pub(super) fn too_many_lookup_legs(legs: usize, limit: usize) -> String {
+    format!("answering this would read {legs} lookup legs, and a plan reads {limit} at most")
+}
+
 pub(super) fn resources_exhausted(ceiling_bytes: u64) -> String {
     format!(
         "answering this needed more working memory than this deployment's ceiling of \
