@@ -18,8 +18,8 @@ data:
     sources:
       warehouse:
         acknowledged_because: a single analytics project this deployment owns
-        billing_project: sutura-analytics
-        dataset: metrics
+        billing:
+          service_account_project: sutura-analytics
         kind: bigquery
         max_bytes_billed: 1073741824
         posture: shared-service-user

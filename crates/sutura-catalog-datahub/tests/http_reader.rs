@@ -280,7 +280,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let order_id = sutura_domain::model::ColumnName::parse("order_id").expect("a fixture column is a column");
         let column = orders.column(&order_id).expect("order_id is declared");
@@ -324,7 +324,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
         assert_eq!(
@@ -364,7 +364,7 @@ mod tests {
         let orders = bundle
             .definitions()
             .models()
-            .get(&sutura_domain::model::ModelName::parse("orders").expect("a fixture model is a model"))
+            .get(&sutura_domain::model::ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
             .expect("orders is a model");
         let amount_cents = sutura_domain::model::ColumnName::parse("amount_cents").expect("a fixture column is a column");
         assert_eq!(
@@ -388,10 +388,14 @@ mod tests {
         let mut dataset = dataset_page();
         // Rewrite entity 0's own URN so the platform this cell refuses is what it names, keeping
         // every other aspect exactly the happy path's.
-        dataset["entities"][0]["urn"] = serde_json::json!("urn:li:dataset:(urn:li:dataPlatform:postgres,orders,PROD)");
+        // The relationship names that same urn, so the read reaches the platform refusal.
+        let postgres_orders = serde_json::json!("urn:li:dataset:(urn:li:dataPlatform:postgres,orders,PROD)");
+        dataset["entities"][0]["urn"] = postgres_orders.clone();
+        let mut relationships = relationship_page();
+        relationships["entities"][0]["semanticModelInfo"]["value"]["relationships"][0]["from"] = postgres_orders;
         let server = FakeServer::start(vec![
             Scripted::ok(&dataset),
-            Scripted::ok(&relationship_page()),
+            Scripted::ok(&relationships),
             Scripted::ok(&metric_page()),
         ]);
         let mut sources = std::collections::BTreeMap::new();
@@ -472,6 +476,15 @@ mod tests {
         page
     }
 
+    /// [`relationship_page`] with its endpoints moved onto the bare datasets `from` and `to`.
+    fn relationship_between(from: &str, to: &str) -> serde_json::Value {
+        let mut page = relationship_page();
+        let relationship = &mut page["entities"][0]["semanticModelInfo"]["value"]["relationships"][0];
+        relationship["from"] = serde_json::json!(format!("urn:li:dataset:(urn:li:dataPlatform:bigquery,{from},PROD)"));
+        relationship["to"] = serde_json::json!(format!("urn:li:dataset:(urn:li:dataPlatform:bigquery,{to},PROD)"));
+        page
+    }
+
     /// One `metric` page of bare metrics named `names`, `scroll_id` naming the next page.
     fn metrics_of(names: &[String], scroll_id: Option<&str>) -> serde_json::Value {
         let entities: Vec<_> = names
@@ -508,13 +521,13 @@ mod tests {
             Scripted::ok(&datasets_of(&["d1", "d2"], Some("s-1"), None)),
             Scripted::ok(&datasets_of(&["d3", "d4"], Some("s-2&x=1"), None)),
             Scripted::ok(&datasets_of(&["d5"], None, None)),
-            Scripted::ok(&relationship_page()),
+            Scripted::ok(&relationship_between("d1", "d2")),
             Scripted::ok(&metrics_of(&metric_names[..2], Some("m-1"))),
             Scripted::ok(&metrics_of(&metric_names[2..], None)),
         ]);
         let snapshot = reader_of(&server, two_per_page()).read().expect("every page loads");
         let seen = server.finish();
-        let datasets: Vec<_> = snapshot.datasets().iter().map(|dataset| dataset.name().to_owned()).collect();
+        let datasets: Vec<_> = snapshot.datasets().iter().map(|dataset| dataset.table().to_owned()).collect();
         assert_eq!(datasets, ["d1", "d2", "d3", "d4", "d5"]);
         let metrics: Vec<_> = snapshot.metrics().iter().map(|metric| metric.name().to_owned()).collect();
         assert_eq!(metrics, ["m1", "m2", "m3"]);

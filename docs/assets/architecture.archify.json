@@ -21,8 +21,8 @@
     { "id": "catalogs", "type": "backend", "label": "sutura-catalog-*", "sublabel": "metadata adapters", "pos": [250, 440], "size": [160, 60], "sources": [{ "path": "crates/sutura-catalog-local/Cargo.toml", "label": "catalog adapters" }] },
     { "id": "exec", "type": "backend", "label": "sutura-exec-*", "sublabel": "data-system adapters", "pos": [560, 440], "size": [160, 60], "sources": [{ "path": "crates/sutura-exec-datafusion/Cargo.toml", "label": "exec adapters" }] },
     { "id": "sql", "type": "backend", "label": "sutura-sql", "sublabel": "plan to SQL dialect", "pos": [800, 440], "size": [150, 60], "sources": [{ "path": "crates/sutura-sql/Cargo.toml", "label": "renderer" }] },
-    { "id": "metadata", "type": "external", "label": "Metadata sources", "sublabel": "files, DataHub, OpenMetadata", "pos": [250, 580], "size": [160, 60] },
-    { "id": "data", "type": "database", "label": "Data systems", "sublabel": "BigQuery, PostgreSQL, DuckDB", "pos": [560, 580], "size": [160, 60] }
+    { "id": "metadata", "type": "external", "label": "Metadata sources", "sublabel": "DataHub, OpenMetadata, Cube, files", "pos": [250, 580], "size": [160, 60] },
+    { "id": "data", "type": "database", "label": "Data systems", "sublabel": "BigQuery, ClickHouse, Oracle, PostgreSQL, DuckDB", "pos": [560, 580], "size": [160, 60] }
   ],
   "boundaries": [
     { "kind": "region", "label": "One binary: sutura-cli wires adapters into ports", "wraps": ["mcp", "http", "app", "semantic", "domain", "catalogs", "exec", "sql"] }

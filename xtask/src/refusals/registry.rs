@@ -57,8 +57,9 @@ const QUERY: Subject = Subject {
     // pull-up REMOVED `MeasureDoesNotFederate` - a distinct count across two sources is answered
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
-    // kinds is refused at plan time.
-    variants: variants(32),
+    // kinds is refused at plan time. 34 since `BillToNotAllowed` and `NoBillingProject`: a job whose
+    // payer was named where none is taken, or cannot be decided, is refused before it runs.
+    variants: variants(34),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
@@ -70,12 +71,11 @@ const STARTUP: Subject = Subject {
     // that verifies no `direct` caller. 19: `AgentSurfaceWithoutInboundIdentity` and
     // `AgentSurfaceOverAnImpersonatingSource` (#1293), where `/mcp` may not run without leg 1. 21:
     // `QuerySurfaceWithoutInboundIdentity` and `QuerySurfaceOverAnImpersonatingSource` (#1400), where
-    // `/v1` may not run without leg 1. 22: `CallerIdentityModeNotBuilt` (#1439), a
-    // `domain_delegation` block this build parses and does not run. 24:
-    // `InboundTokenAtPoolUnacknowledged` and `InboundTokenAtPoolWithoutEffect`, a `direct`
-    // workload-identity source with no delegation hop and its acknowledgement. 25:
-    // `DelegationToTheDeploymentsOwnAudience`, a last hop asking for the deployment's own audience.
-    variants: variants(25),
+    // `/v1` may not run without leg 1. 23: `InboundTokenAtPoolUnacknowledged` and
+    // `InboundTokenAtPoolWithoutEffect`, a `direct` workload-identity source with no delegation hop
+    // and its acknowledgement. 24: `DelegationToTheDeploymentsOwnAudience`, a last hop asking for
+    // the deployment's own audience.
+    variants: variants(24),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

@@ -115,7 +115,7 @@ mod tests {
                 assert_eq!(plan.measures().first().metric().as_str(), "revenue");
                 // The fact table the model maps to, read off the plan rather than off the README,
                 // so the plan and the documented shape cannot drift.
-                assert_eq!(plan.table_name().as_str(), "fct_order");
+                assert_eq!(plan.table_name().as_str(), "orders");
             }
             Compiled::Refused { reason } => {
                 panic!("the README's question must not be refused by its own catalog: {reason:?}")

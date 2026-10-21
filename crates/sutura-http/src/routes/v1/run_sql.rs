@@ -42,7 +42,9 @@ const TAG: &str = "run_sql";
         (status = 200, description = "The statement executed.", body = RawOutcomeBody),
         (
             status = 400,
-            description = "The body is not a statement, or is empty.",
+            description = "The body is not a statement, or is empty (`not_a_question`); or the request \
+                           sends `Sutura-Bill-To`, which this route does not read \
+                           (`unusable_bill_to`).",
             body = crate::problem::ProblemBody
         ),
         (
@@ -105,9 +107,15 @@ pub(crate) async fn run_sql(
     // Opened by `middleware::enforce_timeout`, before admission - the same extension mechanism
     // `super::query::ask` reads its own `deadline` through.
     Extension(deadline): Extension<Deadline>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<RunSqlBody>, JsonRejection>,
 ) -> Result<RunSqlOutcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
+    if headers.contains_key(super::query::BILL_TO) {
+        return Err(Failure::UnusableBillTo {
+            cause: crate::problem::UnusableBillTo::RawStatement,
+        });
+    }
     // `harness/run_sql.rs` pins this path's status and code, not its detail's bytes.
     let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| Failure::NotAQuestion {
         detail: crate::problem::Detail::of(&cause),

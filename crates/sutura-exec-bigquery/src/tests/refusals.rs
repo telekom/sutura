@@ -7,6 +7,7 @@ use std::sync::Arc;
 use arrow_array::{ArrayRef, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use sutura_domain::calendar::TimeRange;
+use sutura_domain::identity::BillTo;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBindings, PlanBucket, PlanColumn, PlanMeasure, PlanTerm, QueryPlan, ResultLabel, StatementTables,
@@ -16,7 +17,9 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Wareho
 use crate::BigQueryError;
 use crate::transport::{NamedResource, ProjectId, UnusableResourceName};
 
-use super::{Recording, a_subject_token, day, impersonating_posture, leg_of, open, shared_posture, source, test_deadline};
+use super::{
+    Recording, a_subject_token, day, group_pays, impersonating_posture, leg_of, open, shared_posture, source, test_deadline,
+};
 
 /// A one-row `Float32` answer: the only float width `to_rows` maps is `Float64`.
 fn unmapped_float_column() -> ResultBatches {
@@ -36,7 +39,10 @@ fn unfiltered_plan() -> QueryPlan {
     QueryPlan::new(
         source(),
         metric.clone(),
-        StatementTables::only(table.clone()),
+        StatementTables::only(
+            sutura_domain::model::QualifiedTable::parse("acme-analytics.sales.fct_subscription_monthly")
+                .expect("a test table path parses"),
+        ),
         PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
@@ -69,8 +75,22 @@ fn a_plan_that_will_not_render_is_refused_as_render_and_not_as_an_endpoint_failu
 #[test]
 fn an_identity_read_whose_column_type_is_unmapped_is_refused_as_unreadable() {
     let warehouse = open(Recording::answering(unmapped_float_column()), impersonating_posture());
-    let refused = warehouse.session_user(&a_subject_token("exchanged-for-principal-a"));
+    let refused = warehouse.session_user(&a_subject_token("exchanged-for-principal-a"), &group_pays());
     assert!(matches!(refused, Err(BigQueryError::Unreadable { .. })), "{refused:?}");
+}
+
+#[test]
+fn a_caller_run_identity_read_no_payer_was_stated_for_is_refused_naming_the_fix() {
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let refused = warehouse.session_user(&a_subject_token("exchanged-for-principal-a"), &BillTo::Unstated);
+    assert!(
+        matches!(refused, Err(ref cause @ BigQueryError::NoPayer { .. }) if cause.to_string().contains("billing.by_group")),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "an unbilled job may not reach the endpoint"
+    );
 }
 
 #[test]
@@ -87,14 +107,14 @@ fn an_empty_project_id_is_refused_by_name_and_not_as_a_dataset_id() {
 mod fixtures {
     use std::path::{Path, PathBuf};
 
-    use sutura_domain::model::TableName;
+    use sutura_domain::model::QualifiedTable;
 
     use crate::{FixtureNotLoaded, FixtureNotUsable};
 
     use super::super::{Broken, Recording, open, shared_posture};
 
-    fn table() -> TableName {
-        TableName::parse("fct").expect("a table name parses")
+    fn table() -> QualifiedTable {
+        QualifiedTable::parse("acme-analytics.fixtures.fct").expect("a table path parses")
     }
 
     /// A fixture file written for one cell, under this crate's own target scratch.

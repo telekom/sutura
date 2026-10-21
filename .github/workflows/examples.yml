@@ -1,0 +1,61 @@
+# Runs the runnable examples and compares the answer to one question each with expected rows (see
+# .github/scripts/example-smoke.sh for where each expectation comes from).
+#
+# ON CHANGE ONLY: the paths below, on a pull request and on a push to `main`, and no schedule. The
+# push run is what shows the job green on `main`. `merge_group` is absent on purpose: it takes no
+# `paths` filter (see `ci.yml`), so a queue entry would run this job on every change, and nothing
+# in the queue waits for it - it is not in `ci-aggregate`.
+#
+# HELD BY REVIEW ALONE (no gate checks these; a mutation of each stays green): `permissions:
+# contents: read`, `persist-credentials: false`, no secret in the job, no `merge_group` or
+# `schedule` trigger, and the job's own files (this workflow and the script) in both `paths` lists.
+#
+# WHAT IT PROVES, AND NOT: the example runs from a Linux amd64 runner against the RELEASED image
+# (`SUTURA_VERSION`, unset is `latest`), not against the commit. A catalog or setting the release
+# does not read yet fails here though the commit is right. Docker Desktop and arm64 are not covered.
+# `multi-player` needs Google credentials, so it is not in the matrix.
+#
+# Not a required context. It may become one, on the owner's word, once it is green on `main`; the
+# way is listed in `devco/required-contexts`.
+name: examples
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "docs/examples/**"
+      - ".github/workflows/examples.yml"
+      - ".github/scripts/example-smoke.sh"
+  pull_request:
+    paths:
+      - "examples/**"
+      - "docs/examples/**"
+      - ".github/workflows/examples.yml"
+      - ".github/scripts/example-smoke.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [single-player, federated, cube, metrics-layer]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run the example
+        env:
+          EXAMPLE: ${{ matrix.example }}
+        run: .github/scripts/example-smoke.sh "$EXAMPLE"

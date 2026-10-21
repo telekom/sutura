@@ -8,6 +8,7 @@
 use core::num::NonZeroU64;
 use std::collections::{BTreeMap, BTreeSet};
 
+use sutura_domain::identity::BillTo;
 use sutura_domain::model::QualifiedTable;
 use sutura_domain::warehouse::preflight::{TablesPresent, UnaccountedTables};
 
@@ -52,18 +53,13 @@ impl Gap {
     }
 }
 
-/// Which dataset one model's table path resolves in, or `None` if this adapter cannot address it.
+/// Which dataset one model's table path names, billed like every boot job, or `None` if this
+/// adapter cannot address it.
 ///
-/// **The unqualified case is the connection's own pair and not a guess**, which is the same
-/// decision the request body's `defaultDataset` carries: a bare table name resolves in the
-/// dataset the source was opened against, inside the project the job is billed to. A qualified
-/// path overrides one or both, and each part is re-parsed by the type for its position, because
-/// the value written into a request path is this crate's to accept or refuse.
-///
-/// **The project half of that decision is [`crate::resolve::resolve`], not a second copy of it.**
-/// A path naming a dataset and no project resolves in the connection's own billing project there
-/// too - the same choice this function used to make on its own - so the two callers cannot drift
-/// apart on what a partial path means.
+/// **Only a path naming its own project is addressed**: there is no default project or dataset to
+/// resolve a shorter one in. Each part is re-parsed by the type for its position, because the value
+/// written into a request path is this crate's to accept or refuse. One listing is one job over one
+/// project, so a caller-run source bills the dataset's own project, a shared one its service account's.
 ///
 /// **`None` rather than an `Err`, and the measurement is why.** An `Err` here propagated out of
 /// [`preflight`]'s grouping loop **before any dataset was listed** - so one mixed-case
@@ -76,19 +72,10 @@ fn addressed<T>(warehouse: &BigQueryWarehouse<T>, table: &QualifiedTable) -> Opt
 where
     T: JobTransport,
 {
-    let billed_to = warehouse.billing_project.clone();
-    if table.qualifier().is_none() {
-        return Some(DatasetAddress::of(
-            billed_to,
-            warehouse.billing_project.clone(),
-            warehouse.default_dataset.clone(),
-        ));
-    }
-    let resolved = crate::resolve::resolve(table, &warehouse.billing_project).ok()?;
-    // `resolved` came from a table that HAD a qualifier, and `resolve` never removes one - so both
-    // unwraps below read a value that is always there rather than guess at one.
-    let qualifier = resolved.qualifier()?;
-    let project = ProjectId::parse(qualifier.project()?.as_str()).ok()?;
+    let qualifier = table.qualifier()?;
+    let named = qualifier.project()?.as_str();
+    let billed_to = crate::billing::payer(&warehouse.billing, &BillTo::Unstated, &BTreeSet::from([named])).ok()?;
+    let project = ProjectId::parse(named).ok()?;
     let dataset = DatasetId::parse(qualifier.dataset().as_str()).ok()?;
     Some(DatasetAddress::of(billed_to, project, dataset))
 }
@@ -96,8 +83,7 @@ where
 /// Asks the dataset which of the bundle's tables it holds.
 ///
 /// **One call per DATASET and not per model, which is what makes this affordable at boot.** The
-/// tables asked about are grouped by the pair they resolve in - the connection's own project and
-/// dataset for an unqualified path, whatever the path names otherwise - and each group costs one
+/// tables asked about are grouped by the project and dataset each names, and each group costs one
 /// metadata read.
 ///
 /// **The comparison is case-SENSITIVE, deliberately.** `GoogleSQL` folds the case of an alias and

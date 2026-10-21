@@ -41,3 +41,9 @@ config:
   # environment: SUTURA_GOOGLE_GOOGLE_LOGIN_USER. The OAuth client and the identity provider's
   # Google provider are manual (test-infra/README.md).
   # sutura-google-test-infra:google_login_user: "user@example.com"
+  # Optional - mode c (`domain_delegation`): a user in the Workspace or Cloud Identity domain that a
+  # query runs as. The stack creates the delegating service account, lets the CI service account sign
+  # as it, and grants this user jobUser, readSessionUser and dataViewer on `ci_dataset`. From the
+  # environment: SUTURA_GOOGLE_DOMAIN_DELEGATION_USER. The delegation itself is manual
+  # (test-infra/README.md).
+  # sutura-google-test-infra:domain_delegation_user: "user@example.com"

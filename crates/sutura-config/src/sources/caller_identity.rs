@@ -7,9 +7,6 @@
 //!   verified address. The deployment vouches for the caller here, not the caller's own credential.
 //!
 //! Exactly one, and only on an impersonating source; each refusal is at load, before any socket.
-//! This build runs `workload_identity` and `google_login`: `Settings::refusals` refuses to serve a
-//! source that declares `domain_delegation`, so a block that nothing reads does not load as if it
-//! did.
 //! `docs/adr/20261014100540-bigquery-caller-identity-modes.md` records the decision.
 
 use std::path::{Path, PathBuf};
@@ -37,19 +34,8 @@ pub enum CallerIdentity {
     WorkloadIdentity(WorkloadIdentityConfig),
     /// The caller's own Google login, brokered by the identity provider.
     GoogleLogin(GoogleLogin),
-    /// A delegating service account acting as the caller's verified address. Not served by this
-    /// build.
+    /// A delegating service account acting as the caller's verified address.
     DomainDelegation(DomainDelegation),
-}
-
-impl CallerIdentity {
-    /// The block of a mode this build does not serve - see `NotFitToServe::CallerIdentityModeNotBuilt`.
-    pub(crate) const fn not_built(&self) -> Option<&'static str> {
-        match *self {
-            Self::WorkloadIdentity(_) | Self::GoogleLogin(_) => None,
-            Self::DomainDelegation(_) => Some(DOMAIN_DELEGATION),
-        }
-    }
 }
 
 /// A `google_login` block.
@@ -251,10 +237,8 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     use super::{CallerIdentityBlocks, InvalidDelegatingAccount};
-    use crate::environment::Environment;
     use crate::raw::{RawDomainDelegation, RawGoogleLogin};
     use crate::security::DeploymentIdentity;
-    use crate::settings::{NotFitToServe, Settings, SettingsError, Sources};
     use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
 
     fn warehouse_alias() -> SourceName {
@@ -267,8 +251,8 @@ mod tests {
             written: "warehouse",
             kind: "bigquery",
             data_dir: None,
-            billing_project: Some("acme-analytics"),
-            dataset: Some("warehouse"),
+            billing_project: None,
+            dataset: None,
             max_bytes_billed: Some(1024 * 1024 * 1024),
             posture: "impersonation-at-source",
             acknowledged_because: None,
@@ -406,8 +390,13 @@ mod tests {
             acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
             ..bigquery_impersonating_entry()
         };
+        let billing = crate::raw::RawBilling {
+            service_account_project: Some(String::from("acme-analytics")),
+            ..crate::raw::RawBilling::default()
+        };
+        let billed = std::collections::BTreeMap::from([(entry.written, &billing)]);
         for (blocks, block) in each_bigquery_only_block(&login, &delegation) {
-            let error = parse_one_entry(&entry, blocks).expect_err(block);
+            let error = SourceRegistry::parse_billed([(&entry, blocks)], &billed, Some(&one_analyst())).expect_err(block);
             assert_eq!(
                 error,
                 InvalidSourceRegistry::IdentityModeNotImpersonating {
@@ -522,37 +511,6 @@ mod tests {
                 key: "google_login.client_secret_file",
                 path: std::path::PathBuf::from("secrets/idp-client-secret"),
             }
-        );
-    }
-
-    /// A single-user deployment with one impersonating `bigquery` source carrying `block`.
-    fn bigquery_overlay_with(block: &str) -> Sources {
-        Sources::defaults(Environment::Development).with_overlay(format!(
-            "security:\n  identity: \"single-user\"\n  single_user_because: \"one analyst on one laptop\"\n\
-             sources:\n  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-             dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n{block}"
-        ))
-    }
-
-    const DELEGATION_YAML: &str =
-        "    domain_delegation:\n      delegating_account: \"dwd-bigquery@acme-analytics.iam.gserviceaccount.com\"\n";
-
-    fn refused_at_boot(block: &str) -> Vec<NotFitToServe> {
-        let error = Settings::load(&bigquery_overlay_with(block)).expect_err("a mode this build does not run is refused");
-        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-            panic!("expected a boot refusal, got {error:?}");
-        };
-        refusals.clone()
-    }
-
-    #[test]
-    fn a_domain_delegation_source_is_refused_at_boot_as_not_built() {
-        assert_eq!(
-            refused_at_boot(DELEGATION_YAML),
-            vec![NotFitToServe::CallerIdentityModeNotBuilt {
-                alias: warehouse_alias(),
-                block: "domain_delegation",
-            }]
         );
     }
 }

@@ -406,14 +406,35 @@ fn the_mode_decides_where_a_shared_witness_may_come_from() {
 
 // ------------------------------------------------------------------- per-kind fields ----
 
+/// One entry parsed with its `billing` block, as `settings` hands it over.
+fn registry_billed(
+    entry: &RawSourceEntry<'_>,
+    billing: Option<&crate::raw::RawBilling>,
+) -> Result<SourceRegistry, InvalidSourceRegistry> {
+    let blocks = billing.into_iter().map(|billing| (entry.written, billing)).collect();
+    SourceRegistry::parse_billed(
+        [(entry, super::caller_identity::CallerIdentityBlocks::default())],
+        &blocks,
+        Some(&single_user()),
+    )
+}
+
+/// The `billing` block a shared `bigquery` source needs.
+fn billed_by_service_account(project: &str) -> crate::raw::RawBilling {
+    crate::raw::RawBilling {
+        service_account_project: Some(String::from(project)),
+        ..crate::raw::RawBilling::default()
+    }
+}
+
 /// A `bigquery` entry with everything that kind needs, so a test changes one field at a time.
 fn bigquery(written: &str) -> RawSourceEntry<'_> {
     RawSourceEntry {
         written,
         kind: "bigquery",
         data_dir: None,
-        billing_project: Some("acme-analytics"),
-        dataset: Some("warehouse"),
+        billing_project: None,
+        dataset: None,
         max_bytes_billed: Some(1024 * 1024 * 1024),
         posture: "shared-service-user",
         acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
@@ -440,85 +461,64 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
 }
 
 #[test]
-fn a_bigquery_source_declares_its_billing_project_and_dataset() {
-    // The declaration this step exists to land: the billing project is a value an operator wrote,
-    // one step before anything impersonates, so the per-subject step does not have to introduce it.
-    let entries = [bigquery("warehouse")];
-    let registry = SourceRegistry::parse(&entries, Some(&single_user())).expect("a complete bigquery entry parses");
+fn a_shared_bigquery_source_bills_its_service_account_project() {
+    let registry = registry_billed(&bigquery("warehouse"), Some(&billed_by_service_account("acme-analytics")))
+        .expect("a complete bigquery entry parses");
     let configured = registry.get(&alias("warehouse")).expect("the entry is there");
-    assert_eq!(configured.kind(), super::SourceKind::BigQuery);
-    match configured.placement() {
-        super::placement::SourcePlacement::BigQuery {
-            billing_project,
-            dataset,
-            max_bytes_billed,
-        } => {
-            assert_eq!(billing_project.as_str(), "acme-analytics");
-            assert_eq!(dataset.as_str(), "warehouse");
-            assert_eq!(*max_bytes_billed, 1024 * 1024 * 1024);
+    let super::placement::SourcePlacement::BigQuery {
+        billing,
+        max_bytes_billed,
+    } = configured.placement()
+    else {
+        panic!("the entry declared kind: bigquery");
+    };
+    assert_eq!(
+        *billing,
+        super::billing::SourceBilling::ServiceAccount {
+            project: placement::BillingProject::parse("acme-analytics").expect("a test project is one"),
         }
-        super::placement::SourcePlacement::Files { .. }
-        | super::placement::SourcePlacement::Postgres { .. }
-        | super::placement::SourcePlacement::ClickHouse { .. }
-        | super::placement::SourcePlacement::Oracle { .. }
-        | super::placement::SourcePlacement::Cube { .. }
-        | super::placement::SourcePlacement::Duckdb { .. } => {
-            panic!("the entry declared kind: bigquery");
-        }
-    }
+    );
+    assert_eq!(*max_bytes_billed, 1024 * 1024 * 1024);
 }
 
 #[test]
-fn a_bigquery_source_missing_a_required_key_does_not_parse() {
-    // Fail-closed, and it names the key. There is nothing to infer a billing project from: it is a
-    // path segment of the request that submits a job.
-    let without_project = RawSourceEntry {
-        billing_project: None,
-        ..bigquery("warehouse")
-    };
-    let without_dataset = RawSourceEntry {
-        dataset: None,
-        ..bigquery("warehouse")
-    };
+fn a_bigquery_source_without_a_ceiling_does_not_parse() {
     // Without a ceiling there is no bound on what one question may be billed for.
-    let without_ceiling = RawSourceEntry {
+    let entry = RawSourceEntry {
         max_bytes_billed: None,
         ..bigquery("warehouse")
     };
-    for (key, entry) in [
-        ("billing_project", without_project),
-        ("dataset", without_dataset),
-        ("max_bytes_billed", without_ceiling),
-    ] {
-        let entries = [entry];
-        let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a bigquery entry missing a key is refused");
-        match error {
-            InvalidSourceRegistry::MissingForKind { kind, key: named, .. } => {
-                assert_eq!(kind, super::SourceKind::BigQuery);
-                assert_eq!(named, key);
+    let error = registry_billed(&entry, Some(&billed_by_service_account("acme-analytics")))
+        .expect_err("a bigquery entry missing a key is refused");
+    assert!(
+        matches!(
+            error,
+            InvalidSourceRegistry::MissingForKind {
+                kind: super::SourceKind::BigQuery,
+                key: "max_bytes_billed",
+                ..
             }
-            other => panic!("expected a missing-key refusal for {key}, got {other:?}"),
-        }
-    }
+        ),
+        "{error:?}"
+    );
 }
 
 #[test]
 fn a_key_that_means_nothing_for_this_kind_is_refused_rather_than_ignored() {
     // **Both directions**, because the second one is the one that would otherwise be a configuration
-    // nobody can see: an operator who writes `billing_project` under a `files` source believes it is
+    // nobody can see: an operator who writes `max_bytes_billed` under a `files` source believes it is
     // in effect. `deny_unknown_fields` cannot catch it - the key IS known, just not to this kind.
     let entries = [RawSourceEntry {
-        billing_project: Some("acme-analytics"),
+        max_bytes_billed: Some(1024),
         ..impersonating("local")
     }];
-    let error =
-        SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a billing project on a files source is refused");
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a byte ceiling on a files source is refused");
     assert!(
         matches!(
             error,
             InvalidSourceRegistry::KeyNotForKind {
                 kind: super::SourceKind::Files,
-                key: "billing_project",
+                key: "max_bytes_billed",
                 ..
             }
         ),
@@ -614,17 +614,17 @@ fn an_unusable_resource_name_is_refused_at_the_key_that_carries_it() {
     // The newtype's own refusal, surfaced with the key beside it - so an operator is told which line
     // to fix rather than that "a name" is wrong. The value is NOT in the message: a project id is one
     // of the things this repository does not print.
-    let entries = [RawSourceEntry {
-        billing_project: Some("acme/../other"),
-        ..bigquery("warehouse")
-    }];
-    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a path-escaping project id is refused");
+    let error = registry_billed(&bigquery("warehouse"), Some(&billed_by_service_account("acme/../other")))
+        .expect_err("a path-escaping project id is refused");
     match error {
-        InvalidSourceRegistry::ResourceName { key, ref cause, .. } => {
-            assert_eq!(key, "billing_project");
+        InvalidSourceRegistry::Billing {
+            cause: ref cause @ super::billing::InvalidBilling::ServiceAccountProject { .. },
+            ..
+        } => {
+            assert!(cause.to_string().contains("billing.service_account_project"), "{cause}");
             assert!(!cause.to_string().contains("acme"), "{cause}");
         }
-        other => panic!("expected a resource-name refusal, got {other:?}"),
+        other => panic!("expected a billing refusal, got {other:?}"),
     }
 }
 
@@ -872,6 +872,8 @@ fn a_workload_identity_delegation_ending_in_a_broker_token_hop_is_refused() {
     .expect("a first broker-token hop loads");
 }
 
+#[cfg(test)]
+mod billing;
 mod postgres;
 
 /// A `duckdb` entry over an absolute database file, shared and acknowledged by the single-user mode.

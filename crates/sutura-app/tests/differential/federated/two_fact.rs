@@ -223,7 +223,7 @@ where
             )),
         };
     }
-    let pinned = bundle(&derived.two_source);
+    let pinned = W::bundle_over(&derived.two_source);
     let warehouses = sutura_app::Warehouses::of(opened_on::<W>(&derived.data, &source(), &pinned))
         .and(opened_on(&derived.data, &lookup_source(), &pinned))
         .expect("two sources, one registry");

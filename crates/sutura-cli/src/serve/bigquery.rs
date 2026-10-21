@@ -91,8 +91,7 @@ fn build_bigquery(
 ) -> Result<super::BigQuerySource, String> {
     crate::bigquery_driver::refuse_undeliverable_outbound(source, outbound)?;
     let sutura_config::SourcePlacement::BigQuery {
-        ref billing_project,
-        ref dataset,
+        ref billing,
         max_bytes_billed,
     } = *configured.placement()
     else {
@@ -153,14 +152,7 @@ fn build_bigquery(
     let driver = crate::bigquery_driver::resolve(&format!("`sources.{source}`"))?;
     sutura_exec_bigquery::adbc::AdbcBigQuery::probe(&driver)
         .map_err(|cause| format!("the BigQuery ADBC driver ({driver}) did not initialise for {source}: {cause}"))?;
-    // The two resource newtypes are parsed a SECOND time here, and that is not a redundant check: the
-    // settings tree's `BillingProject` and the transport's `ProjectId` are two types in two crates,
-    // and the one whose value is written into a request path is the transport's. Neither can be
-    // reached from the other without going through a `parse`.
-    let project = sutura_exec_bigquery::transport::ProjectId::parse(billing_project.as_str())
-        .map_err(|cause| format!("`sources.{source}.billing_project` is not a usable project id: {cause}"))?;
-    let dataset = sutura_exec_bigquery::transport::DatasetId::parse(dataset.as_str())
-        .map_err(|cause| format!("`sources.{source}.dataset` is not a usable dataset id: {cause}"))?;
+    let billing = crate::bigquery_driver::job_billing(source, billing)?;
     // **Which of the two modes this source is, decided here and never per request.** They are XOR
     // rather than a ladder: a `shared-service-user` source runs on the deployment's own application
     // default credentials and impersonates nothing, and an `impersonation-at-source` source
@@ -182,8 +174,7 @@ fn build_bigquery(
     Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
         source.clone(),
         identity.posture().clone(),
-        project,
-        dataset,
+        billing,
         driver,
         impersonation,
         max_bytes_billed,
@@ -208,11 +199,11 @@ pub(super) fn impersonation_of(
         Some(sutura_config::sources::caller_identity::CallerIdentity::GoogleLogin(_)) => {
             sutura_exec_bigquery::adbc::Impersonation::GoogleLogin
         }
-        // `Settings::refusals` refuses to serve it; answered rather than unwrapped.
-        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
-            return Err(format!(
-                "`sources.{source}.domain_delegation` is a mode this build does not run"
-            ));
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(delegation)) => {
+            sutura_exec_bigquery::adbc::Impersonation::DomainDelegation(
+                sutura_exec_bigquery::adbc::DelegatingAccount::parse(delegation.delegating_account().as_str())
+                    .map_err(|cause| format!("`sources.{source}.domain_delegation.delegating_account` is not usable: {cause}"))?,
+            )
         }
     })
 }
@@ -226,7 +217,7 @@ mod tests {
                        mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
                        authorization_server: \"https://idp.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
                        algorithms: [\"RS256\"]\nsources:\n  warehouse:\n    kind: \"bigquery\"\n    \
-                       billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    max_bytes_billed: 1073741824\n    \
+                       max_bytes_billed: 1073741824\n    \
                        posture: \"impersonation-at-source\"\n    google_login:\n      \
                        token_endpoint: \"https://idp.example.com/realms/r/broker/google/token\"\n      \
                        client_id: \"sutura\"\n      client_secret_file: \"/run/secrets/idp-client-secret\"\n";
@@ -240,5 +231,257 @@ mod tests {
             super::impersonation_of(&warehouse, configured),
             Ok(sutura_exec_bigquery::adbc::Impersonation::GoogleLogin)
         );
+    }
+
+    /// A `domain_delegation` source served end to end: the real leg-1 gate reads the caller's
+    /// address, the composition root's broker and `impersonation_of` decide the mode, and a
+    /// recording transport behind the real `BigQueryWarehouse` sees what a job runs as.
+    #[cfg(feature = "bigquery")]
+    mod domain_delegation {
+        use std::sync::Arc;
+        use std::sync::mpsc::{Receiver, Sender, channel};
+
+        use sutura_dev::issuer::{MockIssuer, PublishedKeySet, Token};
+        use sutura_domain::model::SourceName;
+        use sutura_domain::pinned::PinnedDefinitions;
+        use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation};
+        use sutura_exec_bigquery::transport::{
+            DatasetAddress, DryRunEstimate, HeldTables, JobIdentity, JobRequest, JobTransport,
+        };
+
+        const ADDRESS: &str = "Analyst.One@Example.com";
+
+        /// One billed-revenue metric over `ledger`, unanchored so the service asks nothing at boot.
+        fn ledger_bundle() -> PinnedDefinitions {
+            use sutura_domain::catalog::{Audience, Definitions, Description, Metric, Model};
+            use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+            use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, QualifiedTable};
+            use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion};
+
+            let invoice = ColumnName::parse("invoice_key").expect("a column");
+            let billed_on = ColumnName::parse("billed_on").expect("a column");
+            let ledger = ModelName::parse("ledger").expect("a model");
+            let model = Model::new(
+                ledger.clone(),
+                SourceName::parse("ledger").expect("a source"),
+                QualifiedTable::parse("acme-analytics.ledger.fct_invoice").expect("a table"),
+                std::collections::BTreeSet::from([invoice.clone(), billed_on.clone()]),
+                Description::default(),
+            );
+            let measure = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Count, invoice)));
+            let metric = Metric::new(
+                MetricName::parse("invoices").expect("a metric"),
+                ledger,
+                measure,
+                Vec::new(),
+                billed_on,
+                std::collections::BTreeSet::from([Grain::Month]),
+                Vec::new(),
+                None,
+                Description::default(),
+                Audience::Open,
+            )
+            .expect("no dimensions");
+            let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("a consistent bundle");
+            let produced = sutura_domain::capabilities::MetadataCapabilities::produced(
+                &definitions,
+                &sutura_domain::knowledge::Knowledge::none(),
+            );
+            PinnedDefinitions::pin(
+                DefinitionVersion::parse("ledger-1").expect("a version"),
+                definitions,
+                sutura_domain::knowledge::Knowledge::none(),
+                ContributionManifest::single(SourceName::parse("local").expect("a source"), Contribution::of(produced)),
+            )
+            .expect("the bundle hashes")
+        }
+
+        struct Ledger(PinnedDefinitions);
+
+        impl sutura_domain::pinned::SemanticCatalog for Ledger {
+            type Error = core::convert::Infallible;
+
+            const KIND: sutura_domain::pinned::CatalogKind = sutura_domain::pinned::CatalogKind::Golden;
+
+            fn capabilities() -> sutura_domain::capabilities::MetadataCapabilities {
+                sutura_domain::capabilities::MetadataCapabilities::everything()
+            }
+
+            fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+                Ok(self.0.clone())
+            }
+        }
+
+        #[derive(Debug, thiserror::Error)]
+        #[error("the recording transport answers no job")]
+        struct Declined;
+
+        /// Sends each job's address - `None` for any other identity - and answers none. Whether it
+        /// delegates by address is the real transport's answer for the mode the source declared.
+        struct Recording {
+            seen: Sender<Option<String>>,
+            adbc: AdbcBigQuery,
+        }
+
+        impl Recording {
+            fn record(&self, request: &JobRequest<'_>) {
+                let address = match request.identity() {
+                    JobIdentity::AsAddress { address } => Some(String::from(address.as_str())),
+                    JobIdentity::Transport | JobIdentity::AsSubject { .. } => None,
+                };
+                self.seen.send(address).expect("the cell holds the receiving end");
+            }
+        }
+
+        impl JobTransport for Recording {
+            type Error = Declined;
+
+            fn run(&self, request: &JobRequest<'_>) -> Result<sutura_domain::warehouse::ResultBatches, Self::Error> {
+                self.record(request);
+                Err(Declined)
+            }
+
+            fn validate(&self, request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
+                self.record(request);
+                Ok(None)
+            }
+
+            fn list_tables(&self, _at: &DatasetAddress) -> Result<HeldTables, Self::Error> {
+                Err(Declined)
+            }
+
+            fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+                Err(Declined)
+            }
+
+            fn delegates_by_address(&self) -> bool {
+                self.adbc.delegates_by_address()
+            }
+        }
+
+        /// The router over one `domain_delegation` source, its issuer, and what reached its transport.
+        struct Served {
+            app: axum::Router,
+            issuer: MockIssuer,
+            jobs: Receiver<Option<String>>,
+            _published: PublishedKeySet,
+        }
+
+        fn served(case: &str) -> Served {
+            let issuer =
+                MockIssuer::generating("https://issuer.example.com", "https://sutura.example.com", "k1").expect("a key pair");
+            let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
+            let overlay = format!(
+                "security:\n  identity: \"multi-user\"\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
+                 authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n\
+                 sources:\n  ledger:\n    kind: \"bigquery\"\n    \
+                 max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n    \
+                 domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n",
+                issuer.audience(),
+                issuer.issuer(),
+                published.path().display(),
+            );
+            let settings = sutura_config::Settings::load(
+                &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(&overlay),
+            )
+            .expect("a direct deployment serves a domain_delegation source");
+            let source = SourceName::parse("ledger").expect("a source");
+            let configured = settings.sources().get(&source).expect("the source is declared");
+            let adbc = AdbcBigQuery::new(
+                DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so").expect("an absolute path"),
+                super::super::impersonation_of(&source, configured).expect("the declared mode"),
+                BytesBilledCeiling::parse(1 << 30).expect("a ceiling"),
+            );
+            let (seen, jobs) = channel();
+            let warehouse = sutura_exec_bigquery::BigQueryWarehouse::new(
+                source,
+                sutura_domain::source::SourcePosture::ImpersonationAtSource,
+                sutura_exec_bigquery::JobBilling::CallerRun { caller_may_name: false },
+                Recording { seen, adbc },
+            );
+            let broker = super::super::super::broker::build_broker(settings.sources(), None).expect("a broker");
+            let service: Arc<dyn sutura_app::surface::Surface> = Arc::new(
+                sutura_app::surface::LocalService::start(
+                    &Ledger(ledger_bundle()),
+                    sutura_app::Warehouses::of(warehouse),
+                    sutura_runtime::TracingAuditSink::new(),
+                    broker,
+                    sutura_domain::plan::RefusingCombiner,
+                    1 << 30,
+                )
+                .expect("the bundle validates"),
+            );
+            let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
+                .expect("a gate");
+            let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+            let state =
+                sutura_http::ServiceState::new(service, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));
+            let app = sutura_http::router(&state).expect("the router assembles");
+            Served {
+                app,
+                issuer,
+                jobs,
+                _published: published,
+            }
+        }
+
+        /// `/v1/query` for the one metric under `token`: the status and the body.
+        async fn query(app: axum::Router, token: &str) -> (axum::http::StatusCode, String) {
+            use tower::ServiceExt as _;
+
+            let request = axum::http::Request::post("/v1/query")
+                .header(axum::http::header::HOST, "localhost")
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"metrics":["invoices"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+                ))
+                .expect("a request");
+            let response = app.oneshot(request).await.expect("infallible");
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("the body reads");
+            (status, String::from_utf8_lossy(&body).into_owned())
+        }
+
+        fn caller(email_verified: Option<bool>) -> Token {
+            let scopes = sutura_app::Capability::every()
+                .map(sutura_app::Capability::scope)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let token = Token::for_subject("analyst-one")
+                .granting(&scopes)
+                .claiming("email", serde_json::json!(ADDRESS));
+            match email_verified {
+                Some(verified) => token.claiming("email_verified", serde_json::json!(verified)),
+                None => token,
+            }
+        }
+
+        #[tokio::test]
+        async fn a_verified_email_runs_the_job_as_that_address_as_written() {
+            let Served { app, issuer, jobs, .. } = served("domain-delegation-verified");
+            let token = issuer.mint(&caller(Some(true))).expect("a signed token");
+            let (status, body) = query(app, &token).await;
+            let seen: Vec<Option<String>> = jobs.try_iter().collect();
+            assert!(!seen.is_empty(), "the question must reach the source ({status}: {body})");
+            assert!(
+                seen.iter().all(|job| job.as_deref() == Some(ADDRESS)),
+                "every job runs as the verified address, as written: {seen:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn an_email_not_marked_verified_is_refused_before_the_source() {
+            let Served { app, issuer, jobs, .. } = served("domain-delegation-unverified");
+            for verified in [None, Some(false)] {
+                let token = issuer.mint(&caller(verified)).expect("a signed token");
+                let (status, body) = query(app.clone(), &token).await;
+                assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "{verified:?}: {body}");
+                assert!(body.contains("credential_unavailable"), "{verified:?}: {body}");
+                assert_eq!(jobs.try_iter().count(), 0, "{verified:?}: no job reaches the source ({body})");
+            }
+        }
     }
 }

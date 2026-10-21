@@ -99,7 +99,9 @@ sutura_questions_total{code="too_large"} 0
 sutura_questions_total{code="tool_not_enabled"} 0
 sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
+sutura_questions_total{code="unusable_bill_to"} 0
 # TYPE sutura_refusals_total counter
+sutura_refusals_total{reason="bill_to_not_allowed"} 0
 sutura_refusals_total{reason="budget_exhausted"} 0
 sutura_refusals_total{reason="credential_unavailable"} 0
 sutura_refusals_total{reason="cross_model_ratio_spans_sources"} 0
@@ -121,6 +123,7 @@ sutura_refusals_total{reason="metric_unknown"} 0
 sutura_refusals_total{reason="metrics_span_different_models"} 0
 sutura_refusals_total{reason="multi_metric_federation_not_executable"} 0
 sutura_refusals_total{reason="multi_metric_top_not_executable"} 0
+sutura_refusals_total{reason="no_billing_project"} 0
 sutura_refusals_total{reason="plan_spans_too_many_sources"} 0
 sutura_refusals_total{reason="plan_tables_share_an_identifier"} 0
 sutura_refusals_total{reason="resources_exhausted"} 0

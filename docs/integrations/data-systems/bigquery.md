@@ -25,15 +25,18 @@ the source kind is `bigquery`. It can run a query as the caller. See [Identity](
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                | Type    | Default  | Meaning                                                                            |
-| ------------------ | ------- | -------- | ---------------------------------------------------------------------------------- |
-| `billing_project`  | string  | required | The project that BigQuery bills the job to. 6 to 30 characters: `a-z`, `0-9`, `-`  |
-| `dataset`          | string  | required | The dataset where unqualified table names resolve. It must be in `billing_project` |
-| `max_bytes_billed` | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                          |
+| Key                               | Type    | Default  | Meaning                                                                                                       |
+| --------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| `max_bytes_billed`                | integer | required | The most bytes that one job may bill for. 1 byte to 1 TiB                                                     |
+| `billing.service_account_project` | string  | none     | `shared-service-user` only, and required there: the project that BigQuery bills every job to                  |
+| `billing.by_group`                | list    | none     | `impersonation-at-source` only: `group` and `project` pairs. The first group the caller holds names the payer |
+
+Every model names its table as `project.dataset.table`. A job on an `impersonation-at-source` source
+bills, in order: the project of the caller's first `billing.by_group` group, then the one project
+that the job's tables are in. If no step decides a payer, the question is refused.
 
 `impersonation-at-source` needs exactly one of `workload_identity`, `google_login` or
-`domain_delegation`. sutura runs `workload_identity` and `google_login`. `workload_identity` has
-these keys:
+`domain_delegation`. `workload_identity` has these keys:
 
 | Key                                                 | Type          | Default          | Meaning                                                                                                                                                                                  |
 | --------------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,11 +85,28 @@ The identity provider keeps the Google token and refreshes it. Its Google provid
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.
 
-sutura reads and checks the `domain_delegation` block, and then refuses to start with it:
+With `domain_delegation`, the query runs as the Google account with the caller's verified email
+address. The deployment vouches for the caller: sutura takes the address from the `email` claim of
+the caller's verified token, and only when `email_verified` is `true`. sutura uses the address as
+it is written. A caller without a verified address is refused. The deployment's own application
+default credentials sign as the delegating account, which acts as that address with the scope
+`https://www.googleapis.com/auth/bigquery`. These are its keys:
 
 | Key                                    | Type   | Meaning                                                            |
 | -------------------------------------- | ------ | ------------------------------------------------------------------ |
 | `domain_delegation.delegating_account` | string | The service account: `<account>@<project>.iam.gserviceaccount.com` |
+
+`domain_delegation` has these requirements:
+
+- The identity provider must not let users edit their own email address. A user who can set their
+  email to another person's address runs queries as that person.
+- A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
+  for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery` only.
+- The deployment's own identity has `iam.serviceAccounts.signJwt` on the delegating account (the
+  role `roles/iam.serviceAccountTokenCreator`, granted on that account only).
+- Each caller's Google account has its own BigQuery grants. The delegating account can act as any
+  user in the domain, so protect the deployment's credential as you protect the domain's
+  administrator.
 
 The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
 build can select the feature:
@@ -106,8 +126,6 @@ The [multi player](../../examples/multi-player.md) example writes this source wi
 sources:
   warehouse:
     kind: "bigquery"
-    billing_project: "my-project"
-    dataset: "sutura_example"
     max_bytes_billed: 1073741824
     posture: "impersonation-at-source"
     workload_identity:
@@ -119,7 +137,8 @@ sources:
           audience: "sutura-gcp-pool"
 ```
 
-For one shared account, use `posture: shared-service-user` and leave out `workload_identity`. The
+For one shared account, use `posture: shared-service-user`, leave out `workload_identity` and set
+`billing.service_account_project`. The
 driver then uses the application default credentials of the process.
 
 ## Identity
@@ -129,7 +148,7 @@ This data system supports `shared-service-user` and secure-impersonation.
 With `shared-service-user`, every query runs as one identity: the application default
 credentials of the process.
 
-With `impersonation-at-source`, each caller has their own principal in the pool, and the query runs
+With `workload_identity`, each caller has their own principal in the pool, and the query runs
 with that principal's own grants. No service account is used at any step:
 
 1. sutura verifies the caller's token.

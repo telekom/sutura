@@ -245,7 +245,8 @@ ci:
     # postgres-linked-driver runs the adapter's tier cells through the LINKED static musl driver; only
     # an x86_64-linux host executes it, and anywhere else the check is a stub that says so.
     # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver vendored-oracledb; do
+    # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver vendored-oracledb slides; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done

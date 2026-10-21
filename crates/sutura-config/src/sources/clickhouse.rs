@@ -106,11 +106,9 @@ fn parse_delegation(alias: &SourceName, entry: &RawSourceEntry<'_>) -> Result<Ve
 /// The `files` key, the four `bigquery` keys, and the three dialled keys this kind does not read -
 /// see this module's own header for why `unix_socket` and `database` are an absence in the adapter
 /// rather than a pending feature; `service_name` is `oracle`'s.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 8] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 6] {
     [
         ("data_dir", written(entry.data_dir)),
-        ("billing_project", written(entry.billing_project)),
-        ("dataset", written(entry.dataset)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
         ("workload_identity", entry.workload_identity.is_some()),
         ("unix_socket", written(entry.unix_socket)),

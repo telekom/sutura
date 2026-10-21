@@ -164,6 +164,15 @@ Every reason you can be given, and what to do about each:
   Nothing you can change in the question, and retrying it will be refused again at the same place:
   this is not a data system being down and it is not waiting out. Report it to the person you are
   acting for, and say that access to that data system is what would be needed.
+- **bill_to_not_allowed** - the request named who pays, and a source the question reaches bills no
+  job to a payer named on the request - nothing ran.
+  Ask again without naming a payer. Who may name one is this deployment's setting, not something the
+  question can change.
+- **no_billing_project** - no payer could be decided for a source's job: no group of the caller's is
+  mapped to a billing project, the question reads more than one project, and no payer was named -
+  nothing ran.
+  Ask a question over the tables of one project, or name a payer where the source allows one. Which
+  groups map to a payer is this deployment's setting.
 - **credential_unavailable** - the person you are acting for has no access to the data system that
   metric lives in, and this deployment will not read it under its own identity instead.
   Nothing you can change, and this is the one refusal where that matters most: a narrower question,

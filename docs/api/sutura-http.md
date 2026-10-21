@@ -1561,6 +1561,12 @@ fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
 ##### Methods
 
 ```rust
+pub const fn address(&self) -> Option<&sutura_domain::identity::VerifiedAddress>
+```
+
+The address the issuer verified for this caller, if it did.
+
+```rust
 pub const fn assertion(&self) -> &sutura_domain::identity::Secret
 ```
 
@@ -3130,6 +3136,23 @@ halves are needed for the message to be actionable.
 
 `Clone`, `Debug`, `Display`
 
+### `enum UnusableBillTo`
+
+```rust
+pub enum UnusableBillTo
+```
+
+Why a request's `Sutura-Bill-To` header was not used. Neither variant echoes the value.
+
+#### Variants
+
+- `NotAnAccount`
+- `RawStatement` - `/v1/sql/run` bills no statement to a named payer, so a named one is refused, never dropped.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
 ### `enum Failure`
 
 ```rust
@@ -3190,6 +3213,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
   which field was wrong, never the field's contents. A cause chain that started carrying them
   again would reach a caller through here, which is why the assertion lives beside the chain
   and not beside this variant.
+- `UnusableBillTo` - The `Sutura-Bill-To` header could not be used; the cause says why.
 - `TooLarge` - The body is larger than the configured bound.
 
   Separate from `Self::NotAQuestion` even though both arrive as the same extractor
