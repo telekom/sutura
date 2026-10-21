@@ -13,7 +13,9 @@
 //! return raw output or [`GitFailed`] and decide nothing; `super::provenance`, `super::stack` and
 //! `super::features` parse them, so every classification they feed is testable without a
 //! repository. [`at_base`] is the exception: it returns `None` for a failed call as well as an
-//! absent one, because its one caller pairs it with [`base_has`] and reads `None` as unreadable.
+//! absent one, as before. `feature_activation` pairs it with [`base_has`] and refuses `None` as
+//! unreadable. The other readers of the base image are not changed here and do not all refuse it:
+//! `deletion_in` does, while the rest read `None` as no text.
 //! Two compositions are glue over those reads and still decide nothing: [`parent`] binds
 //! `super::stack::parent_of` to this repository, and [`already_there`] asks
 //! `super::provenance::Moved` about the base.
@@ -363,7 +365,7 @@ pub(super) fn base_has(root: &Path, base: &Commit, path: &str) -> Result<bool, G
 /// a manifest the base does not have is a NEW package and its base feature table is legitimately
 /// empty, while a manifest the base HAS and whose content did not come back leaves that scan with
 /// nothing to compare - and answering *nothing was enabled* there would be a claim about a table
-/// it never read. One reader, two callers, and the pairing is decided at the call site.
+/// it never read. One reader, and the pairing is decided at the call site.
 pub(super) fn at_base(root: &Path, base: &Commit, path: &str) -> Option<String> {
     let out = git(root)
         .args(["show", &format!("{}:{path}", base.as_str())])
