@@ -3745,14 +3745,13 @@ metric, and Cube decides which rows each caller reads.</p>
 </table>
 <p>All data is synthetic.</p>
 <h2 id="the-parts">The parts<a class="headerlink" href="#the-parts" title="Permanent link">&para;</a></h2>
-<p><code>just dev-up-cube</code> starts the <code>cube</code> profile of <code>compose.services.yaml</code>. Three services belong to
-this example:</p>
-<ul>
-<li><code>cube-keycloak</code> imports <code>keycloak/realm.json</code>.</li>
-<li><code>cube-clickhouse</code> loads <code>clickhouse/init.sql</code>.</li>
-<li><code>cube-metrics</code> serves <code>cube/model.yml</code> over <code>cube-clickhouse</code>. It verifies each token with the
-  keys of the realm, and accepts only the issuer of the realm and the audience <code>cube</code>.</li>
-</ul>
+<p><code>compose.cube.yaml</code> runs the three services of this example by hand (see
+<a href="#run-the-services">Run the services</a>): <code>keycloak</code> imports <code>keycloak/realm.json</code>, <code>clickhouse</code> loads
+<code>clickhouse/init.sql</code>, and <code>cube</code> serves <code>cube/model.yml</code> over <code>clickhouse</code>, verifies each token
+with the keys of the realm, and accepts only the issuer of the realm and the audience <code>cube</code>
+(<code>cube-tls</code> is the TLS proxy in front of it). <code>just dev-up-cube</code> starts the same three as
+<code>cube-keycloak</code>, <code>cube-clickhouse</code> and <code>cube-metrics</code> in the <code>cube</code> profile of
+<code>compose.services.yaml</code>, for the tests of this repository.</p>
 <p>The DataHub catalog holds the <code>orders</code> and <code>customers</code> datasets and the certified metric <code>revenue</code>.
 Each dataset is a cube with the same name, and <code>revenue</code> is a measure of <code>orders</code>.</p>
 <h2 id="who-reads-what">Who reads what<a class="headerlink" href="#who-reads-what" title="Permanent link">&para;</a></h2>
@@ -3823,13 +3822,15 @@ Cube, and a TLS proxy for Cube on <code>127.0.0.1:443</code>. From <code>example
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>loader
 </span></code></pre></div>
 <p><code>setup.sh</code> writes the secrets to <code>.env</code>, with <code>COMPOSE_FILE</code> so that <code>docker compose</code> reads both
-files, and the CA and certificate of the proxy. The loader writes the <code>orders</code> and <code>customers</code>
-datasets, the relationship <code>orders_to_customer</code> and the metric <code>revenue</code> into DataHub. It also
+files, and the CA and certificate of the proxy. The certificates are valid for 30 days: delete
+<code>.tls</code>, run <code>./setup.sh</code> again, run <code>docker compose restart cube-tls</code>, and start sutura again. The
+loader writes the <code>orders</code> and <code>customers</code> datasets, the relationship <code>orders_to_customer</code> and the
+metric <code>revenue</code> into DataHub. It also
 writes the files that sutura reads from <code>/run/sutura</code> to <code>.local</code>: the DataHub token <code>datahub-token</code>
 (the catalog <code>token_file</code> in both settings files), <code>jwks.json</code> with the keys of the realm,
 <code>exchange-secret</code>, and <code>cube-token</code>, a token of the <code>sutura-deployment</code> client. The realm issues
-tokens for an hour, so run the loader again when <code>cube-token</code> has expired. Every port binds to
-<code>127.0.0.1</code> only.</p>
+tokens for an hour, so run the loader again when <code>cube-token</code> has expired. Then start sutura again:
+it reads the token at startup. Every port binds to <code>127.0.0.1</code> only.</p>
 <h2 id="run-sutura">Run sutura<a class="headerlink" href="#run-sutura" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>base.yaml</code> in <code>SUTURA_CONFIG_DIR</code>, so a settings file under another name is not read.
 From <code>examples/metrics-layer</code>, give sutura the file you chose under that name and start it. The
@@ -3842,6 +3843,8 @@ that name at the proxy:</p>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/.local:/run/sutura:ro"</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">SUTURA_CONFIG_DIR</span><span class="o">=</span>/run/sutura/conf<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>ghcr.io/telekom/sutura:<span class="nv">$SUTURA_VERSION</span><span class="w"> </span>serve
 </span></code></pre></div>
+<p>On Docker Desktop, turn on <strong>Settings &gt; Resources &gt; Network &gt; Enable host networking</strong> first; with
+it off, <code>127.0.0.1:8080</code> does not answer. See <a href="../single-player/">Single player</a>.</p>
 <p>Ask the example question as <code>alice</code>. <code>$TOKEN</code> is her access token from the <code>sutura</code> client of the
 realm (password grant, user and password <code>alice</code>), and the answer is <code>262345</code>. As <code>bob</code> it is
 <code>150000</code>:</p>
