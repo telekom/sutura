@@ -12,39 +12,54 @@ computes each metric, and Cube decides which rows each caller reads. Read the wa
 | `cube/model.yml`                    | The `orders` and `customers` cubes, and the access policy on `orders`             |
 | `clickhouse/init.sql`               | The tables that Cube reads                                                        |
 | `compose.yaml`                      | A live DataHub, and the loader that writes the catalog into it                    |
-| `loader/load.py`                    | The datasets, the relationship and the metric that the loader writes              |
-| `setup.sh`                          | Writes the secrets of the local DataHub to `.env`                                 |
+| `compose.cube.yaml`                 | Keycloak, ClickHouse, Cube and the TLS proxy in front of Cube                     |
+| `proxy/nginx.conf`                  | The TLS proxy: `https://cube.example.com` to Cube                                 |
+| `loader/load.py`                    | The catalog that the loader writes, and the files it takes from the realm         |
+| `setup.sh`                          | Writes the secrets to `.env`, and the CA and certificate of the TLS proxy         |
 
-`just dev-up-cube` starts the services in the `cube` profile of `compose.services.yaml`:
-`cube-keycloak` with this realm, and `cube-metrics`, which serves `cube/model.yml` and verifies each
-token with the keys of the realm.
-
-A live DataHub, from this directory:
+The services, from this directory:
 
 ```sh
 ./setup.sh
-docker compose up -d --wait datahub
+docker compose up -d --wait datahub keycloak cube-tls
 docker compose run --rm loader
 ```
 
-The loader writes a DataHub token for sutura to `.local/datahub-token`. Give sutura that file as
-`/run/sutura/datahub-token`. Both settings files read DataHub at `http://127.0.0.1:8081`.
+`setup.sh` writes `COMPOSE_FILE` to `.env`, so `docker compose` reads `compose.yaml` and
+`compose.cube.yaml` together. Keycloak imports `keycloak/realm.json` on `127.0.0.1:8180`. Cube serves
+`cube/model.yml` over ClickHouse, verifies each token with the keys of the realm, and answers
+through the proxy on `127.0.0.1:443`. `just dev-up-cube` starts the same services for this
+repository's tests, in the `cube` profile of `compose.services.yaml`.
+
+The loader writes the files that sutura reads from `/run/sutura` to `.local`: `datahub-token`,
+`jwks.json` (the keys of the realm), `exchange-secret`, and `cube-token`, a token of the
+`sutura-deployment` client. `setup.sh` wrote `cube-ca.pem`, the CA of the proxy. The realm issues
+tokens for an hour, so run the loader again when `cube-token` has expired. Both settings files read
+DataHub at `http://127.0.0.1:8081`.
 
 Start sutura with one settings file. sutura reads `base.yaml` in `SUTURA_CONFIG_DIR`, so copy the
-file you chose to that name:
+file you chose to that name. The container names Cube as `cube.example.com`, the host of the
+certificate, and `--add-host` points that name at the proxy:
 
 ```sh
 mkdir -p .local/conf
 cp conf/impersonation-at-source.yaml .local/conf/base.yaml
-SUTURA_CONFIG_DIR="$PWD/.local/conf" sutura serve
+docker run --rm --network host --add-host cube.example.com:127.0.0.1 --user "$(id -u):$(id -g)" \
+  -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/run/sutura/conf \
+  ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest} serve
 ```
 
 Ask the example question as `alice`. `$TOKEN` is her access token from the `sutura` client of the
 realm (password grant, user and password `alice`):
 
 ```sh
+TOKEN=$(curl -s http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=sutura -d username=alice -d password=alice \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 curl -s -X POST http://127.0.0.1:8080/v1/query \
   -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'
 ```
+
+`alice` reads `262345`, and `bob` (user and password `bob`) reads `150000`.
