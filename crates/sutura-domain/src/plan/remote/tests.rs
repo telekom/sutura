@@ -467,13 +467,19 @@ fn a_leg_whose_bundle_digest_differs_and_whose_metric_digests_agree_is_accepted(
 #[test]
 fn a_table_the_receiver_does_not_certify_for_the_metric_and_source_is_refused() {
     let (json, params) = fact();
-    for table in ["salaries", "customers", "channels"] {
+    for (source, table) in [
+        ("sales", "salaries"),
+        ("sales", "customers"),
+        ("sales", "channels"),
+        ("crm", "orders"),
+    ] {
         let mut tampered = json.clone();
+        tampered["source"] = json!(source);
         tampered["table"] = json!(table);
         let refused = refusal(tampered, params.clone());
         assert!(
             matches!(refused, LegNotCertified::TableNotCertified { .. }),
-            "{table}: {refused:?}"
+            "{source}.{table}: {refused:?}"
         );
     }
 }
