@@ -223,7 +223,7 @@ model name refuses - `bigquery` and `acme-prod.sales.orders` read as
 `bigquery__acme_prod__sales__orders`.
 
 A name past `MODEL_NAME_LIMIT` keeps its first 54 characters, then `_` and eight hex digits
-of the FNV-1a hash of `<platform>,<table>`, so a long path still names a model a data system
+of the FNV-1a hash of the whole mapped name, so a long path still names a model a data system
 keeps whole. A metric document names its model by this function's answer.
 
 A function of the dataset alone, so reading another dataset never renames one. Two datasets it

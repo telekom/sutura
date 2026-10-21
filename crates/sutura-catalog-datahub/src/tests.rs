@@ -895,11 +895,11 @@ fn two_paths_that_read_as_one_model_name_are_refused_as_a_duplicate_model() {
 fn a_path_too_long_for_a_model_name_keeps_its_head_and_a_hash_of_the_whole() {
     let long = "my-company-analytics-prod.marketing.fct_campaign_touchpoints";
     let named = crate::model_name("bigquery", long);
-    assert_eq!(named, "bigquery__my_company_analytics_prod__marketing__fct_ca_2388219d");
+    assert_eq!(named, "bigquery__my_company_analytics_prod__marketing__fct_ca_09e04f63");
     assert_eq!(named.len(), crate::MODEL_NAME_LIMIT);
     assert_eq!(
         crate::model_name("bigquery", &format!("{long}_v2")),
-        "bigquery__my_company_analytics_prod__marketing__fct_ca_f5f32226",
+        "bigquery__my_company_analytics_prod__marketing__fct_ca_74eb8b7c",
         "two long paths with one head are two models"
     );
     let pinned = over(Snapshot::new(
@@ -913,5 +913,36 @@ fn a_path_too_long_for_a_model_name_keeps_its_head_and_a_hash_of_the_whole() {
     assert_eq!(
         (model.name().as_str(), model.table().to_string()),
         (named.as_str(), String::from(long))
+    );
+}
+
+#[test]
+fn two_long_paths_that_differ_only_where_a_character_became_an_underscore_are_refused_as_a_duplicate_model() {
+    let twice = over(Snapshot::new(
+        vec![
+            dataset(
+                "my-company-analytics-prod.marketing.fct_campaign_touchpoints",
+                &["amount_cents"],
+                "",
+            ),
+            dataset(
+                "my_company_analytics_prod.marketing.fct_campaign_touchpoints",
+                &["amount_cents"],
+                "",
+            ),
+        ],
+        Vec::new(),
+        Vec::new(),
+    ))
+    .load()
+    .expect_err("two long paths read as one model are refused");
+    assert!(
+        matches!(
+            twice,
+            DataHubError::Inconsistent {
+                cause: InconsistentDefinitions::DuplicateModel { ref model }
+            } if model.as_str() == "bigquery__my_company_analytics_prod__marketing__fct_ca_09e04f63"
+        ),
+        "{twice:?}"
     );
 }

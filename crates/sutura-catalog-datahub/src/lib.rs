@@ -523,7 +523,7 @@ impl<R: AspectReader> DataHubCatalog<R> {
 /// `bigquery__acme_prod__sales__orders`.
 ///
 /// A name past [`MODEL_NAME_LIMIT`] keeps its first 54 characters, then `_` and eight hex digits
-/// of the FNV-1a hash of `<platform>,<table>`, so a long path still names a model a data system
+/// of the FNV-1a hash of the whole mapped name, so a long path still names a model a data system
 /// keeps whole. A metric document names its model by this function's answer.
 ///
 /// A function of the dataset alone, so reading another dataset never renames one. Two datasets it
@@ -547,7 +547,7 @@ pub fn model_name(platform: &str, table: &str) -> String {
     }
     // ponytail: a 32-bit hash, so two long paths sharing a prefix collide about once in 2^32; a
     // collision is refused as a duplicate model rather than merged.
-    let hash = format!("{platform},{table}").bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+    let hash = whole.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
         (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     });
     let kept: String = whole.chars().take(MODEL_NAME_LIMIT - 9).collect();

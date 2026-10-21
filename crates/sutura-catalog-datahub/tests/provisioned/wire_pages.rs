@@ -96,8 +96,7 @@ fn one_column(value: &serde_json::Value, field: &str) -> String {
 }
 
 /// A relationship endpoint (`from`/`to`) reduced to the model name it names: the `dataset` urn's
-/// platform and each part of its name, `__` between them and `_` for any other character - the
-/// mapping `src/lib.rs`'s `model_name` holds.
+/// platform and name, through the crate's public `model_name`.
 fn one_endpoint(value: &serde_json::Value, field: &str) -> String {
     let urn = value[field].as_str().expect("a relationship endpoint is a dataset urn");
     let inner = urn
@@ -110,15 +109,7 @@ fn one_endpoint(value: &serde_json::Value, field: &str) -> String {
         .and_then(|platform| platform.strip_prefix("urn:li:dataPlatform:"))
         .expect("a dataset urn names a platform");
     let name = parts.next().expect("a dataset urn names the dataset");
-    core::iter::once(platform)
-        .chain(name.split('.'))
-        .map(|part| {
-            part.chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("__")
+    sutura_catalog_datahub::model_name(platform, name)
 }
 
 /// One relationship element out of a `semanticModel` entity's nested
