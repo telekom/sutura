@@ -73,6 +73,9 @@
     .cards h2 { font-size: 13px; margin: 0 0 4px; }
     .cards ul { margin: 0; padding-left: 18px; color: var(--text-muted); }
     p.hint { color: var(--text-muted); margin: 4px 0 12px; }
+    body.crop main { max-width: none; padding: 0; height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+    body.crop header, body.crop .hint, body.crop .cards, body.crop svg > rect[fill="url(#grid)"] { display: none; }
+    body.crop svg { max-height: 100vh; }
   </style>
 </head>
 <body>
@@ -297,8 +300,8 @@
         <text data-detail="context" x="875" y="484" class="t-muted" font-size="9" text-anchor="middle">plan to SQL dialect</text>
         </g>
 
-        <g id="node-metadata" data-node-id="metadata" data-node-label="Metadata sources" tabindex="0" role="button" aria-label="Focus Metadata sources, files, DataHub, OpenMetadata, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="files, DataHub, OpenMetadata" data-node-context="Architecture component">
-          <title>Metadata sources · files, DataHub, OpenMetadata · Architecture component</title>
+        <g id="node-metadata" data-node-id="metadata" data-node-label="Metadata sources" tabindex="0" role="button" aria-label="Focus Metadata sources, DataHub, OpenMetadata, Cube, files, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="DataHub, OpenMetadata, Cube, files" data-node-context="Architecture component">
+          <title>Metadata sources · DataHub, OpenMetadata, Cube, files · Architecture component</title>
           <rect x="250" y="580" width="160" height="60" rx="6" class="c-mask"/>
           <rect x="250" y="580" width="160" height="60" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(256 586) scale(0.6875)">
@@ -306,11 +309,11 @@
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="330" y="608" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Metadata sources</text>
-        <text data-detail="context" x="330" y="624" class="t-muted" font-size="9" text-anchor="middle">files, DataHub, OpenMetadata</text>
+        <text data-detail="context" x="330" y="621" class="t-muted" font-size="9" text-anchor="middle"><tspan x="330">DataHub, OpenMetadata,</tspan><tspan x="330" dy="11">Cube, files</tspan></text>
         </g>
 
-        <g id="node-data" data-node-id="data" data-node-label="Data systems" tabindex="0" role="button" aria-label="Focus Data systems, BigQuery, PostgreSQL, DuckDB, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="BigQuery, PostgreSQL, DuckDB" data-node-context="Architecture component">
-          <title>Data systems · BigQuery, PostgreSQL, DuckDB · Architecture component</title>
+        <g id="node-data" data-node-id="data" data-node-label="Data systems" tabindex="0" role="button" aria-label="Focus Data systems, BigQuery, ClickHouse, Oracle, PostgreSQL, DuckDB, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="BigQuery, ClickHouse, Oracle, PostgreSQL, DuckDB" data-node-context="Architecture component">
+          <title>Data systems · BigQuery, ClickHouse, Oracle, PostgreSQL, DuckDB · Architecture component</title>
           <rect x="560" y="580" width="160" height="60" rx="6" class="c-mask"/>
           <rect x="560" y="580" width="160" height="60" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(566 586) scale(0.6875)">
@@ -318,7 +321,7 @@
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="640" y="608" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Data systems</text>
-        <text data-detail="context" x="640" y="624" class="t-muted" font-size="9" text-anchor="middle">BigQuery, PostgreSQL, DuckDB</text>
+        <text data-detail="context" x="640" y="621" class="t-muted" font-size="9" text-anchor="middle"><tspan x="640">BigQuery, ClickHouse,</tspan><tspan x="640" dy="11">Oracle, Postgres, DuckDB</tspan></text>
         </g>
 
         <!-- Connection labels -->
@@ -422,6 +425,25 @@
 </main>
 <script>
   const svg = document.querySelector('.diagram-container > svg');
+  // The deck embeds each half on its own slide: #top or #bottom crops to it, closes the frame
+  // inside the crop and hides the edges that would enter from the other half.
+  const crop = {
+    top: { box: '20 0 980 384', frame: [10, 366], hide: ['catalogs-domain', 'exec-domain'] },
+    bottom: { box: '20 288 980 420', frame: [292, 228], hide: ['app-domain'] },
+  }[location.hash.slice(1)];
+  if (crop) {
+    svg.setAttribute('viewBox', crop.box);
+    const frame = svg.querySelector('[data-graph-role="structural-frame"]');
+    frame.setAttribute('y', crop.frame[0]);
+    frame.setAttribute('height', crop.frame[1]);
+    for (const id of crop.hide) {
+      svg.querySelectorAll(`[data-edge-id="${id}"]`).forEach((e) => {
+        if (e.previousElementSibling?.dataset.graphRole === 'automatic-crossover-underlay') e.previousElementSibling.remove();
+        e.remove();
+      });
+    }
+    document.body.classList.add('crop');
+  }
   const edges = [...svg.querySelectorAll('[data-edge-id]')];
   const show = (id) => {
     svg.classList.add('focus');

@@ -73,6 +73,11 @@
     .cards h2 { font-size: 13px; margin: 0 0 4px; }
     .cards ul { margin: 0; padding-left: 18px; color: var(--text-muted); }
     p.hint { color: var(--text-muted); margin: 4px 0 12px; }
+    body.crop main { max-width: none; padding: 0; height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+    body.crop header, body.crop .hint, body.crop .cards, body.crop svg > rect[fill="url(#grid)"] { display: none; }
+    body.crop svg { max-height: 100vh; touch-action: none; cursor: grab; }
+    .zoom { position: fixed; right: 10px; bottom: 10px; display: flex; gap: 6px; }
+    .zoom button { width: 34px; height: 34px; padding: 0; font-size: 18px; line-height: 1; background: var(--mask); }
   </style>
 </head>
 <body>
@@ -111,7 +116,7 @@
         <!-- Boundaries (behind everything) -->
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" data-composition-frame-label="Identity" x="490" y="160" width="540" height="110" rx="12" class="c-region" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" data-composition-frame-label="Data systems" x="1210" y="290" width="200" height="290" rx="12" class="c-region" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="1" data-composition-frame-label="Data systems" x="1210" y="290" width="200" height="380" rx="12" class="c-region" stroke-width="1"/>
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="2" data-composition-frame-label="Semantics" x="490" y="670" width="510" height="110" rx="12" class="c-region" stroke-width="1"/>
 
@@ -179,6 +184,7 @@
         <g data-graph-role="automatic-crossover" style="--step:16">
           <path data-graph-role="automatic-crossover-underlay" d="M 1000 454 L 1112 454 Q 1120 454 1120 462 L 1120 522 Q 1120 530 1128 530 L 1240 530" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="sutura" data-edge-to="postgres" data-edge-label="SQL as a shared service user" data-edge-key="16" data-edge-id="sutura-postgres" data-composition-points="1000,454;1120,454;1120,530;1240,530" data-composition-crossover="halo" data-composition-independent="true" d="M 1000 454 L 1112 454 Q 1120 454 1120 462 L 1120 522 Q 1120 530 1128 530 L 1240 530" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="sutura" data-edge-to="oracle" data-edge-label="SQL as the caller" data-edge-key="23" data-edge-id="sutura-oracle" data-composition-points="1000,500;1100,500;1100,620;1240,620" d="M 1000 500 L 1092 500 Q 1100 500 1100 508 L 1100 612 Q 1100 620 1108 620 L 1240 620" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:17">
           <path data-graph-role="automatic-crossover-underlay" d="M 595 700 L 595 623 Q 595 615 603 615 L 735 615 Q 743 615 743 607 L 743 530" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -193,12 +199,12 @@
           <path data-edge-from="cube" data-edge-to="sutura" data-edge-label="metrics" data-edge-key="19" data-edge-id="cube-sutura" data-composition-points="895,700;895,615;757,615;757,530" data-composition-crossover="halo" data-composition-independent="true" d="M 895 700 L 895 623 Q 895 615 887 615 L 765 615 Q 757 615 757 607 L 757 530" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:20">
-          <path data-graph-role="automatic-crossover-underlay" d="M 970 723 L 1027 723 Q 1035 723 1035 715 L 1035 693 Q 1035 685 1043 685 L 1100 685" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cube" data-edge-to="bi" data-edge-label="metrics" data-edge-key="20" data-edge-id="cube-bi" data-composition-points="970,723;1035,723;1035,685;1100,685" data-composition-crossover="halo" data-composition-independent="true" d="M 970 723 L 1027 723 Q 1035 723 1035 715 L 1035 693 Q 1035 685 1043 685 L 1100 685" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 970 723 L 1027 723 Q 1035 723 1035 719 Q 1035 715 1043 715 L 1100 715" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="cube" data-edge-to="bi" data-edge-label="metrics" data-edge-key="20" data-edge-id="cube-bi" data-composition-points="970,723;1035,723;1035,715;1100,715" data-composition-crossover="halo" data-composition-independent="true" d="M 970 723 L 1027 723 Q 1035 723 1035 719 Q 1035 715 1043 715 L 1100 715" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:21">
-          <path data-graph-role="automatic-crossover-underlay" d="M 970 737 L 1027 737 Q 1035 737 1035 745 L 1035 767 Q 1035 775 1043 775 L 1100 775" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cube" data-edge-to="apis" data-edge-label="metrics" data-edge-key="21" data-edge-id="cube-apis" data-composition-points="970,737;1035,737;1035,775;1100,775" data-composition-crossover="halo" data-composition-independent="true" d="M 970 737 L 1027 737 Q 1035 737 1035 745 L 1035 767 Q 1035 775 1043 775 L 1100 775" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 970 737 L 1027 737 Q 1035 737 1035 745 L 1035 797 Q 1035 805 1043 805 L 1100 805" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="cube" data-edge-to="apis" data-edge-label="metrics" data-edge-key="21" data-edge-id="cube-apis" data-composition-points="970,737;1035,737;1035,805;1100,805" data-composition-crossover="halo" data-composition-independent="true" d="M 970 737 L 1027 737 Q 1035 737 1035 745 L 1035 797 Q 1035 805 1043 805 L 1100 805" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
 
         <!-- Components -->
@@ -365,6 +371,18 @@
         <text data-detail="context" x="1310" y="544" class="t-muted" font-size="9" text-anchor="middle">data system</text>
         </g>
 
+        <g id="node-oracle" data-node-id="oracle" data-node-label="Oracle" tabindex="0" role="button" aria-label="Focus Oracle, data system, Data systems" aria-pressed="false" data-node-kind="database" data-node-sublabel="data system" data-node-context="Data systems">
+          <title>Oracle · data system · Data systems</title>
+          <rect x="1240" y="590" width="140" height="60" rx="6" class="c-mask"/>
+          <rect x="1240" y="590" width="140" height="60" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1246 596) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1310" y="618" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Oracle</text>
+        <text data-detail="context" x="1310" y="634" class="t-muted" font-size="9" text-anchor="middle">data system</text>
+        </g>
+
         <g id="node-datahub" data-node-id="datahub" data-node-label="DataHub" tabindex="0" role="button" aria-label="Focus DataHub, holds the definitions, Semantics" aria-pressed="false" data-node-kind="external" data-node-sublabel="holds the definitions" data-node-context="Semantics">
           <title>DataHub · holds the definitions · Semantics</title>
           <rect x="520" y="700" width="150" height="60" rx="6" class="c-mask"/>
@@ -388,7 +406,7 @@
         <text data-detail="context" x="895" y="744" class="t-muted" font-size="9" text-anchor="middle">serves the metrics</text>
         </g>
 
-        <g id="node-bi" data-node-id="bi" data-node-label="BI tools" tabindex="0" role="button" aria-label="Focus BI tools, dashboards, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="dashboards" data-node-context="Architecture component">
+        <g id="node-bi" transform="translate(0 30)" data-node-id="bi" data-node-label="BI tools" tabindex="0" role="button" aria-label="Focus BI tools, dashboards, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="dashboards" data-node-context="Architecture component">
           <title>BI tools · dashboards · Architecture component</title>
           <rect x="1100" y="655" width="150" height="60" rx="6" class="c-mask"/>
           <rect x="1100" y="655" width="150" height="60" rx="6" class="c-external" stroke-width="1.5"/>
@@ -400,7 +418,7 @@
         <text data-detail="context" x="1175" y="699" class="t-muted" font-size="9" text-anchor="middle">dashboards</text>
         </g>
 
-        <g id="node-apis" data-node-id="apis" data-node-label="APIs" tabindex="0" role="button" aria-label="Focus APIs, applications, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="applications" data-node-context="Architecture component">
+        <g id="node-apis" transform="translate(0 30)" data-node-id="apis" data-node-label="APIs" tabindex="0" role="button" aria-label="Focus APIs, applications, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="applications" data-node-context="Architecture component">
           <title>APIs · applications · Architecture component</title>
           <rect x="1100" y="745" width="150" height="60" rx="6" class="c-mask"/>
           <rect x="1100" y="745" width="150" height="60" rx="6" class="c-external" stroke-width="1.5"/>
@@ -481,6 +499,10 @@
           <rect x="1047.8" y="472" width="144.4" height="14" rx="3" class="c-mask"/>
           <text x="1120" y="482" class="t-edge-default" font-size="8" text-anchor="middle">SQL as a shared service user</text>
         </g>
+        <g data-detail="context" data-edge-from="sutura" data-edge-to="oracle" data-edge-label="SQL as the caller" data-edge-key="23" data-edge-id="sutura-oracle">
+          <rect x="1054.2" y="553" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="1100" y="563" class="t-edge-default" font-size="8" text-anchor="middle">SQL as the caller</text>
+        </g>
         <g data-detail="context" data-edge-from="datahub" data-edge-to="sutura" data-edge-label="definitions" data-edge-key="17" data-edge-id="sutura-datahub">
           <rect x="637.6" y="595" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="669" y="605" class="t-edge-default" font-size="8" text-anchor="middle">definitions</text>
@@ -494,12 +516,12 @@
           <text x="826" y="605" class="t-edge-default" font-size="8" text-anchor="middle">metrics</text>
         </g>
         <g data-detail="context" data-edge-from="cube" data-edge-to="bi" data-edge-label="metrics" data-edge-key="20" data-edge-id="cube-bi">
-          <rect x="1013.2" y="684" width="43.6" height="14" rx="3" class="c-mask"/>
-          <text x="1035" y="694" class="t-edge-default" font-size="8" text-anchor="middle">metrics</text>
+          <rect x="1049.2" y="708" width="43.6" height="14" rx="3" class="c-mask"/>
+          <text x="1071" y="718" class="t-edge-default" font-size="8" text-anchor="middle">metrics</text>
         </g>
         <g data-detail="context" data-edge-from="cube" data-edge-to="apis" data-edge-label="metrics" data-edge-key="21" data-edge-id="cube-apis">
-          <rect x="1013.2" y="736" width="43.6" height="14" rx="3" class="c-mask"/>
-          <text x="1035" y="746" class="t-edge-default" font-size="8" text-anchor="middle">metrics</text>
+          <rect x="1013.2" y="764" width="43.6" height="14" rx="3" class="c-mask"/>
+          <text x="1035" y="774" class="t-edge-default" font-size="8" text-anchor="middle">metrics</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
@@ -577,6 +599,73 @@
     const dark = root.dataset.theme ? root.dataset.theme === 'dark' : !matchMedia('(prefers-color-scheme: light)').matches;
     root.dataset.theme = dark ? 'light' : 'dark';
   });
+  // The deck embeds the whole diagram with #fit: + / − buttons, wheel or pinch zoom, drag pans,
+  // double-click resets, and slide keys still reach the deck after a click inside the frame.
+  // #fit/<view> glides to a named region, so the deck's click steps can drive the zoom.
+  if (location.hash.startsWith('#fit')) {
+    document.body.classList.add('crop');
+    const home = svg.getAttribute('viewBox').split(' ').map(Number);
+    let [x, y, w, h] = home;
+    const set = () => {
+      x = Math.min(Math.max(x, home[0]), home[0] + home[2] - w);
+      y = Math.min(Math.max(y, home[1]), home[1] + home[3] - h);
+      svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+    };
+    const zoom = (factor, p = { x: x + w / 2, y: y + h / 2 }) => {
+      const k = Math.min(Math.max(factor, home[2] / 8 / w), home[2] / w);
+      x = p.x - (p.x - x) * k;
+      y = p.y - (p.y - y) * k;
+      w *= k;
+      h *= k;
+      set();
+    };
+    const at = (e) => new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoom(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), at(e));
+    }, { passive: false });
+    const controls = document.createElement('div');
+    controls.className = 'zoom';
+    for (const [label, title, act] of [['+', 'Zoom in', () => zoom(1 / 1.5)], ['−', 'Zoom out', () => zoom(1.5)], ['⟲', 'Reset', () => zoom(Infinity)]]) {
+      const b = document.createElement('button');
+      Object.assign(b, { type: 'button', textContent: label, title });
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', act);
+      controls.append(b);
+    }
+    document.body.append(controls);
+    svg.addEventListener('pointerdown', (e) => {
+      const scale = svg.getScreenCTM().a;
+      const [sx, sy, x0, y0] = [e.clientX, e.clientY, x, y];
+      const move = (m) => { x = x0 - (m.clientX - sx) / scale; y = y0 - (m.clientY - sy) / scale; set(); };
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', () => removeEventListener('pointermove', move), { once: true });
+    });
+    svg.addEventListener('dblclick', () => { [x, y, w, h] = home; set(); });
+    const views = {
+      path: [20, 170, 1000, 580],
+      identity: [470, 20, 760, 540],
+      data: [960, 260, 580, 430],
+      semantics: [470, 520, 800, 330],
+    };
+    const glide = (to) => {
+      const from = [x, y, w, h];
+      const t0 = performance.now();
+      const step = (t) => {
+        const p = Math.min((t - t0) / 450, 1);
+        [x, y, w, h] = from.map((v, i) => v + (to[i] - v) * p * (2 - p));
+        set();
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const route = () => glide(views[location.hash.slice('#fit/'.length)] ?? home);
+    addEventListener('hashchange', route);
+    route();
+    if (parent !== window) {
+      addEventListener('keydown', (e) => parent.dispatchEvent(new KeyboardEvent('keydown', e)));
+    }
+  }
 </script>
 </body>
 </html>
