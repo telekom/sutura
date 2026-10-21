@@ -103,7 +103,7 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
             "sales",
             &["amount_cents", "order_date", "status", "customer_id", "channel_id", "day_key"],
         ),
-        model("channels", "sales", &["id", "channel_name"]),
+        model("channels", "sales", &["id", "channel_name", "amount_cents"]),
         model("refunds", "sales", &["refund_cents", "order_id", "day_key"]),
         model("calendar", "sales", &["day_key", "order_date"]),
         model("customers", "crm", &["id", "region_id"]),
@@ -115,6 +115,7 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         relationship("customers_region", "customers", "regions", "region_id", "id"),
         relationship("orders_calendar", "orders", "calendar", "day_key", "day_key"),
         relationship("refunds_calendar", "refunds", "calendar", "day_key", "day_key"),
+        relationship("calendar_refunds", "calendar", "refunds", "day_key", "day_key"),
     ];
     let channel = Dimension::new(
         DimensionName::parse("channel_name").expect("a test dimension is a dimension"),
@@ -542,6 +543,72 @@ fn a_term_over_a_column_the_metric_does_not_measure_is_refused() {
     let refused = refusal(json, params);
     assert!(
         matches!(refused, LegNotCertified::TermNotMetrics { ref column, .. } if *column == self::column("customer_id")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_bucket_on_a_joined_tables_column_of_the_same_name_is_refused() {
+    let (mut json, params) = fact();
+    json["joins"] = json!(["orders_channel", "orders_calendar"]);
+    json["bucket"]["column"] = json!({"table": "calendar", "column": "order_date"});
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::BucketNotTimeColumn { ref table, .. } if *table == self::table("calendar")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_term_on_a_joined_tables_column_of_the_same_name_is_refused() {
+    let (mut json, params) = fact();
+    json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "channels", "column": "amount_cents"});
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::TermNotMetrics { ref table, .. } if *table == self::table("channels")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_fact_leg_not_bounded_by_its_own_range_is_refused() {
+    let (json, params) = fact();
+    let mut unbounded = json.clone();
+    unbounded["filters"].as_array_mut().expect("filters are a list").drain(..2);
+    let refused = refusal(unbounded, params.clone());
+    assert!(
+        matches!(refused, LegNotCertified::RangeNotBound { .. }),
+        "unbounded: {refused:?}"
+    );
+    let mut elsewhere = params;
+    if let Some(start) = elsewhere.first_mut() {
+        *start = ParamValue::Date(day("1900-01-01"));
+    }
+    let refused = refusal(json, elsewhere);
+    assert!(
+        matches!(refused, LegNotCertified::RangeNotBound { .. }),
+        "other dates: {refused:?}"
+    );
+}
+
+#[test]
+fn a_range_longer_than_this_node_plans_is_refused() {
+    let (mut json, params) = fact();
+    json["range"] = json!({"start": "1900-01-01", "end": "2100-01-01"});
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::RangeTooLong { limit, .. } if limit == crate::query::MAX_RANGE_DAYS),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_join_from_a_table_only_a_later_join_reaches_is_refused() {
+    let (mut json, params) = fact();
+    json["joins"] = json!(["orders_channel", "calendar_refunds", "orders_calendar"]);
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::RelationshipNotCertified { ref relationship } if *relationship == relationship_name("calendar_refunds")),
         "{refused:?}"
     );
 }

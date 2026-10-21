@@ -5681,8 +5681,9 @@ pub fn metric_digest(&self, metric: &MetricName) -> Result<MetricDigest, NotDige
 
 The digest of one metric of this pin, with the metric's name.
 
-Computed here from the definitions this pin holds, which is why `MetricDigest` has no
-public constructor: a digest on the wire is this pin's own, never a value somebody chose.
+Computed here from the definitions this pin holds. A `MetricDigest` that was deserialized is
+a sender's claim: `Self::agrees_on` compares it, and nothing stores it. A `Provenance`
+holds only digests this method computed, because `Provenance::new` is private.
 
 ```rust
 pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge, manifest: ContributionManifest) -> Result<Self, NotDigestible>
@@ -7324,6 +7325,14 @@ fn _checked(filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> Result<PlanBin
 }
 ```
 
+### `use range_filters`
+
+The range's two bounds on `time_column`, each binding the next parameter - the head of every
+fact leg's predicates, and the whole of a second fact leg's (`telekom/sutura#780`).
+
+The planner writes a leg's time bound with it and a receiving node certifies one against it, so
+the two cannot spell the bound differently.
+
 ### `use FederatedRowCeiling`
 
 How many rows a federated answer may return before it is refused - `github.com/telekom/sutura#828`.
@@ -8337,6 +8346,18 @@ the number, and an out-of-range index is out of order as well.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `fn range_filters`
+
+```rust
+pub fn range_filters(range: crate::calendar::TimeRange, time_column: &crate::plan::PlanColumn, params: &mut Vec<crate::warehouse::ParamValue>) -> [crate::plan::PlanFilter; 2]
+```
+
+The range's two bounds on `time_column`, each binding the next parameter - the head of every
+fact leg's predicates, and the whole of a second fact leg's (`telekom/sutura#780`).
+
+The planner writes a leg's time bound with it and a receiving node certifies one against it, so
+the two cannot spell the bound differently.
 
 ### Module `drill_across`
 
@@ -10401,7 +10422,12 @@ no digest does not deserialize, and the receiver compares only that digest
 nodes and is no control against a hostile sender. The parse does not compare a result label with
 the dimension it names, an aggregate with the metric's own, or a column's type with the
 sender's. It certifies that every name is one this node declares, that the metric is defined as
-the sender defined it, and that a required filter of this node's definition is present.
+the sender defined it, and that a required filter of this node's definition is present. It also
+certifies that the bucket is the metric's time column on the table this node buckets it on, that
+every term reads a column of the measure on the table the measure reads it from, and that the leg
+is bounded by its own range on that bucket column, at most
+`MAX_RANGE_DAYS` days long: this node holds the time bound itself,
+as its own planner does.
 
 #### `enum WireLabel`
 

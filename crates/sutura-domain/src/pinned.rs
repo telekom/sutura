@@ -395,8 +395,9 @@ impl PinnedDefinitions {
 
     /// The digest of one metric of this pin, with the metric's name.
     ///
-    /// Computed here from the definitions this pin holds, which is why [`MetricDigest`] has no
-    /// public constructor: a digest on the wire is this pin's own, never a value somebody chose.
+    /// Computed here from the definitions this pin holds. A [`MetricDigest`] that was deserialized is
+    /// a sender's claim: [`Self::agrees_on`] compares it, and nothing stores it. A [`Provenance`]
+    /// holds only digests this method computed, because `Provenance::new` is private.
     pub fn metric_digest(&self, metric: &MetricName) -> Result<MetricDigest, NotDigestible> {
         DefinitionDigest::of_metric(&self.definitions, metric).map(|digest| MetricDigest {
             metric: metric.clone(),

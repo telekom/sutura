@@ -1,20 +1,23 @@
 //! The receiver's half: a leg parsed against this node's own pinned definitions.
 //!
 //! Every name the document carries is looked up here, in the definitions the process pinned at
-//! boot, and every join is rebuilt from this node's own relationship. Nothing the sender wrote is
-//! stored unless this node declares it. The order is the cheapest diagnostic first: the metric's
-//! digest, then sizes, then the statement's tables, then the columns, then the required filters.
+//! boot, and every join is rebuilt from this node's own relationship. Every name a certified leg
+//! keeps is one this node declares, except its result labels, which are kept as sent. A fact leg
+//! is checked in this order: the metric's digest; the root table and the joins, each from the root
+//! or an earlier join's target; the grain and the bucket column; the range's length; the terms,
+//! keys and filters, each bounded before it is walked; the range's bounds; the required filters.
 
 use super::{LegWire, WireBucket, WireKey, WireTerm};
-use crate::catalog::{Definitions, Model};
+use crate::calendar::TimeRange;
+use crate::catalog::{Definitions, Metric, Model};
 use crate::measure::RequiredFilter;
 use crate::model::{ColumnName, Grain, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
 use crate::pinned::{NotAgreed, PinnedDefinitions};
 use crate::plan::{
     AmbiguousTables, IncoherentBindings, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey,
-    PlanPredicate, PredicateOrigin, ResultLabel, StatementTables,
+    PlanPredicate, PredicateOrigin, ResultLabel, StatementTables, range_filters,
 };
-use crate::query::{MAX_DIMENSIONS, MAX_FILTERS};
+use crate::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_RANGE_DAYS};
 use crate::warehouse::ParamValue;
 
 /// The part of a leg whose length is bounded before anything walks it.
@@ -50,12 +53,28 @@ pub enum LegNotCertified {
     /// The metric is not defined here at that grain.
     #[error("metric {metric} is not defined here at grain {grain:?}")]
     GrainNotDeclared { metric: MetricName, grain: Grain },
-    /// The bucket does not truncate the metric's own time column.
-    #[error("metric {metric} buckets on another column than {column}")]
-    BucketNotTimeColumn { metric: MetricName, column: ColumnName },
-    /// A term reads a column the metric's own measure does not.
-    #[error("metric {metric} does not measure column {column}")]
-    TermNotMetrics { metric: MetricName, column: ColumnName },
+    /// The bucket is not the metric's time column on the table this node buckets it on: the metric's
+    /// own table, or its shared calendar's for a ratio across two models.
+    #[error("metric {metric} does not bucket on column {column} of table {table}")]
+    BucketNotTimeColumn {
+        metric: MetricName,
+        table: TableName,
+        column: ColumnName,
+    },
+    /// A term reads a column of a table that the metric's own measure does not read it from.
+    #[error("metric {metric} does not measure column {column} of table {table}")]
+    TermNotMetrics {
+        metric: MetricName,
+        table: TableName,
+        column: ColumnName,
+    },
+    /// The leg spans more days than this node plans for one question.
+    #[error("a leg spans {days} days, more than {limit}")]
+    RangeTooLong { days: i32, limit: i32 },
+    /// The leg's first two predicates are not its range's bounds on the bucket column, bound to the
+    /// range's own dates.
+    #[error("the leg of metric {metric} is not bounded by its range on its bucket column")]
+    RangeNotBound { metric: MetricName },
     /// A required filter of this node's definition of the metric is not in the leg.
     #[error("the leg omits the required filter of metric {metric} on column {column}")]
     RequiredFilterMissing { metric: MetricName, column: ColumnName },
@@ -135,9 +154,11 @@ fn statement<'d>(
     models.extend(declared.iter().map(|&(_, target)| target));
     let joins = declared
         .iter()
-        .map(|&(relationship, target)| {
+        .enumerate()
+        .map(|(index, &(relationship, target))| {
             let origin = models
                 .iter()
+                .take(index.saturating_add(1))
                 .find(|model| model.name() == relationship.origin_model())
                 .ok_or_else(|| not_a_join(relationship.name()))?;
             Ok(PlanJoin::hop(relationship, origin.table_name(), target))
@@ -167,6 +188,43 @@ fn filters(wire: &[PlanFilter], statement: &Statement<'_>, required: usize) -> R
     )?;
     wire.iter()
         .try_for_each(|filter| statement.certifies(filter.predicate().column()))
+}
+
+/// The column this node buckets `metric` on: its time column on its own table, or on its shared
+/// calendar's table when its measure reads a second model, as the planner does.
+fn time_column(definitions: &Definitions, metric: &Metric) -> Option<PlanColumn> {
+    let crosses = metric
+        .measure()
+        .is_some_and(|m| m.models().into_iter().flatten().any(|second| second != metric.model()));
+    let model = metric.shared_calendar().filter(|_| crosses).unwrap_or_else(|| metric.model());
+    let table = definitions.model(model)?.table_name().clone();
+    Some(PlanColumn::new(table, metric.time_column().clone()))
+}
+
+/// Every column `metric`'s measure reads, on the table of the model it reads that column from.
+fn measured(definitions: &Definitions, metric: &Metric) -> Vec<PlanColumn> {
+    let Some(measure) = metric.measure() else {
+        return Vec::new();
+    };
+    measure
+        .columns()
+        .into_iter()
+        .zip(measure.models())
+        .filter_map(|(column, model)| {
+            let table = definitions
+                .model(model.unwrap_or_else(|| metric.model()))?
+                .table_name()
+                .clone();
+            Some(PlanColumn::new(table, column.clone()))
+        })
+        .collect()
+}
+
+/// Whether the leg's first two predicates are `range`'s bounds on `bucket`, bound to `range`'s dates.
+fn bounded(range: TimeRange, bucket: &PlanColumn, filters: &[PlanFilter], params: &[ParamValue]) -> bool {
+    let mut dates = Vec::with_capacity(2);
+    let bounds = range_filters(range, bucket, &mut dates);
+    filters.get(..2) == Some(bounds.as_slice()) && params.get(..2) == Some(dates.as_slice())
 }
 
 /// Whether `filters` holds this node's own required filter, bound to the value this node declares.
@@ -224,21 +282,29 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
                     grain,
                 });
             }
-            if column.column() != declared.time_column() {
+            if time_column(definitions, declared).as_ref() != Some(&column) {
                 return Err(LegNotCertified::BucketNotTimeColumn {
                     metric: name.clone(),
+                    table: column.table().clone(),
                     column: column.column().clone(),
                 });
             }
             statement.certifies(&column)?;
+            if range.days() > MAX_RANGE_DAYS {
+                return Err(LegNotCertified::RangeTooLong {
+                    days: range.days(),
+                    limit: MAX_RANGE_DAYS,
+                });
+            }
             within(LegPart::Terms, terms.len(), MAX_TERMS)?;
+            let measures = measured(definitions, declared);
             let terms = terms
                 .into_iter()
                 .map(|WireTerm { label, term }| {
-                    let measured = measure.is_some_and(|m| m.columns().contains(&term.column().column()));
-                    if !measured {
+                    if !measures.contains(term.column()) {
                         return Err(LegNotCertified::TermNotMetrics {
                             metric: name.clone(),
+                            table: term.column().table().clone(),
                             column: term.column().column().clone(),
                         });
                     }
@@ -248,6 +314,9 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
                 .collect::<Result<Vec<_>, LegNotCertified>>()?;
             let keys = keys(wire_keys, &statement)?;
             filters(&wire_filters, &statement, required.len())?;
+            if !bounded(range, &column, &wire_filters, &params) {
+                return Err(LegNotCertified::RangeNotBound { metric: name.clone() });
+            }
             let own_table = statement.models.first().map(|m| m.table_name().clone());
             if let Some(own_table) = own_table.filter(|_| own)
                 && let Some(missing) = required

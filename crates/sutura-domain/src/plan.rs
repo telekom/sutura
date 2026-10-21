@@ -43,7 +43,7 @@ pub mod tables;
 mod anchor_tests;
 
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
-pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
+pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCeilings};
 pub use crate::plan::drill_across::{Arm, DrillAcrossPlan, DrillAcrossPlanError, LocalArm, MAX_LEGS};
 pub use crate::plan::federated::{
