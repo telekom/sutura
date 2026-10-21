@@ -136,9 +136,9 @@ Every reason you can be given, and what to do about each:
   declares as different kinds of value.
   Nothing you can change. Report it: it is a fact about how the two columns are declared.
 - **federated_answer_not_well_formed** - answering this across two data systems hit a division by
-  zero, a join key that matched more than one row, or a join key that can never match because the
-  two data systems store it as two different types - the same question and the same rows fail the
-  same way every time.
+  zero, a join key that matched more than one row, a join key that can never match because the two
+  data systems store it as two different types, or a join key value that cannot be read as the kind
+  the catalog declares for it - the same question and the same rows fail the same way every time.
   Do not retry it unchanged. Ask the same metric without the dimension on the second data system, or
   report it to a person: it is a fact about the data, not about how you asked.
 - **top_over_uncertified_rows** - the question spans two data systems and asks for a ranked, bounded

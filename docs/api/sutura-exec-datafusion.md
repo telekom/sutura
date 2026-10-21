@@ -337,7 +337,7 @@ adapter, so the composition root converts.
 
 Why a combine could not be assembled.
 
-Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+Split the way the port's two predicates read it: the caller-facing arms are deterministic
 refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 driver's metadata and a label the splitter assigned - and never a cell.

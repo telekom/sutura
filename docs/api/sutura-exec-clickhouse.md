@@ -157,8 +157,12 @@ pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureErro
 Exposes a fixture CSV as a table.
 
 Columns are typed by `csv::infer` (see the module header for the one deliberate
-departure), the table is recreated, then the file is sent as the body of an
-`INSERT ... FORMAT CSVWithNames` the SERVER parses against those types.
+departure), and the file is sent as the body of an `INSERT ... FORMAT CSVWithNames` the
+SERVER parses against those types.
+
+The rows go into a staging table of this load's own, which then replaces `table` in one
+`CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
+ones, never an empty table, and a load refused before the swap leaves `table` as it was.
 
 ```rust
 pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError>
