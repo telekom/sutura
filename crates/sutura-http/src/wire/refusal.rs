@@ -390,9 +390,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
             (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
         }
-        // 409, the status `CrossModelRatioSpansSources` gets: a shape this build does not serve, and
-        // not a grouping the caller got wrong.
-        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => (StatusCode::CONFLICT, needs_one_lookup_leg(metric)),
+        // 409, the status `CrossModelRatioSpansSources` gets: which relationship serves a lookup leg is
+        // the catalog's to say, so the caller has no grouping to change.
+        RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => (StatusCode::CONFLICT, ambiguous(metric, model)),
     };
     (
         status,
@@ -430,10 +430,11 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
     )
 }
 
-fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+/// `CrossModelRatioLinkAmbiguous`: the catalog decides, so there is nothing to narrow.
+fn ambiguous(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
-        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
-         lookup leg; group by dimensions of one remote model"
+        "`{metric}` measures a ratio over two fact models, and `{model}` does not declare exactly one \
+         relationship for each lookup leg this question reads; report it to a person"
     )
 }
 
@@ -515,7 +516,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
         | RefusalReason::CrossModelRatioSpansSources { .. }
         | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
-        | RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => None,
+        | RefusalReason::CrossModelRatioLinkAmbiguous { .. } => None,
     }
 }
 

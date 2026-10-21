@@ -153,8 +153,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             metric: metric("revenue_per_customer"),
             model: model("customers"),
         },
-        RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+        RefusalReason::CrossModelRatioLinkAmbiguous {
             metric: metric("revenue_per_customer"),
+            model: model("customers"),
         },
     ];
     for reason in &all {
@@ -195,7 +196,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
             | RefusalReason::CrossModelRatioSpansSources { .. }
             | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
-            | RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => {}
+            | RefusalReason::CrossModelRatioLinkAmbiguous { .. } => {}
         }
     }
     all
