@@ -1,10 +1,10 @@
 //! Fan-in: three lookup legs, one joined onto another, each on its own link.
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::plan::{FederatedAnswerRefusal, InternalLabel, LinkKind};
-use sutura_domain::warehouse::Value;
+use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, InternalLabel, LinkKind};
+use sutura_domain::warehouse::{Real, ResultBatches, Value};
 
-use super::fixtures::{UNBOUNDED, batches_of, fan_in_plan, leaf, try_combine_every};
+use super::fixtures::{UNBOUNDED, batches_of, fan_in_plan, leaf, ratio_over_two_lookups_plan, try_combine_every};
 use crate::combine::DataFusionCombiner;
 
 fn text(value: &str) -> Value {
@@ -126,5 +126,128 @@ fn a_later_lookup_leg_is_compared_exactly_under_a_declaration() {
             vec![text("north"), text("emea"), text("gold"), text("2026-06"), Value::Integer(10)],
             vec![text("south"), text("apac"), Value::Null, text("2026-06"), Value::Integer(20)],
         ]
+    );
+}
+
+fn quotient(value: f64) -> Value {
+    Value::Real(Real::parse(value).expect("a test real is finite"))
+}
+
+/// One fact leg row: `(customer, product, leaf value)`, in June.
+type RatioRow<'a> = (Option<&'a str>, &'a str, i64);
+
+/// One fact leg's rows under leaf `at`.
+fn ratio_fact(at: usize, rows: &[RatioRow<'_>]) -> ResultBatches {
+    batches_of(
+        vec![link(0), link(1), named(TIME_BUCKET_LABEL), leaf(at)],
+        rows.iter()
+            .map(|&(customer, product, value)| {
+                vec![
+                    customer.map_or(Value::Null, text),
+                    text(product),
+                    text("2026-06"),
+                    Value::Integer(value),
+                ]
+            })
+            .collect(),
+    )
+}
+
+/// The four legs of the ratio over two lookups, in plan order: the fact, the second fact, `geo`
+/// (customer to region) and `crm` (product to segment).
+fn ratio_legs(revenue: ResultBatches, orders: ResultBatches) -> Vec<ResultBatches> {
+    let geo = batches_of(
+        vec![link(0), named("region")],
+        vec![vec![text("c1"), text("north")], vec![text("c2"), text("south")]],
+    );
+    let crm = batches_of(
+        vec![link(1), named("segment")],
+        vec![vec![text("p1"), text("gold")], vec![text("p2"), text("silver")]],
+    );
+    vec![revenue, orders, geo, crm]
+}
+
+fn combined_rows(plan: &FederatedPlan, legs: &[ResultBatches]) -> Vec<Vec<Value>> {
+    try_combine_every(plan, legs, UNBOUNDED)
+        .expect("a ratio over two lookup legs answers")
+        .to_rows()
+        .expect("a combined answer decodes")
+        .rows()
+        .to_vec()
+}
+
+/// Revenue is the fact's; orders the second fact's. `(c1, p1)` and `(c1, p2)` share a customer, so a
+/// join on the customer link alone would fan each row out across the other's product.
+fn revenue_and_orders() -> (ResultBatches, ResultBatches) {
+    (
+        ratio_fact(0, &[(Some("c1"), "p1", 100), (Some("c1"), "p2", 50), (Some("c2"), "p1", 30)]),
+        ratio_fact(1, &[(Some("c1"), "p1", 2), (Some("c1"), "p2", 1), (Some("c2"), "p2", 4)]),
+    )
+}
+
+/// Both facts meet each lookup on its own link, and a pair only one fact reached counts on its own
+/// side: `(south, gold)` has revenue and no orders, `(south, silver)` orders and no revenue.
+#[test]
+fn a_ratio_over_two_lookup_legs_is_the_hand_worked_figure() {
+    let (revenue, orders) = revenue_and_orders();
+    assert_eq!(
+        combined_rows(&ratio_over_two_lookups_plan(), &ratio_legs(revenue, orders)),
+        vec![
+            vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
+            vec![text("north"), text("silver"), text("2026-06"), quotient(50.0)],
+            vec![text("south"), text("gold"), text("2026-06"), Value::Null],
+            vec![text("south"), text("silver"), text("2026-06"), quotient(0.0)],
+        ]
+    );
+}
+
+/// Two second-fact rows for one pair of links would double every revenue row under them.
+#[test]
+fn a_second_fact_with_two_rows_for_one_pair_of_links_is_ambiguous() {
+    let (revenue, _) = revenue_and_orders();
+    let orders = ratio_fact(1, &[(Some("c1"), "p1", 2), (Some("c1"), "p1", 3)]);
+    let refused = try_combine_every(&ratio_over_two_lookups_plan(), &ratio_legs(revenue, orders), UNBOUNDED)
+        .expect_err("a repeated pair of links refuses");
+    assert_eq!(
+        sutura_domain::plan::FederationCombiner::answer_not_well_formed(
+            &DataFusionCombiner::new().expect("a combiner builds"),
+            &refused
+        ),
+        Some(FederatedAnswerRefusal::AmbiguousLink)
+    );
+}
+
+/// A row with no customer joins no row of the other fact, and the two stay apart; both land in the
+/// group of an unmatched customer, where their leaves are summed.
+#[test]
+fn a_ratio_row_with_a_null_first_link_still_counts_in_its_group() {
+    let revenue = ratio_fact(0, &[(None, "p1", 40), (Some("c1"), "p1", 100)]);
+    let orders = ratio_fact(1, &[(None, "p1", 2), (Some("c1"), "p1", 2)]);
+    assert_eq!(
+        combined_rows(&ratio_over_two_lookups_plan(), &ratio_legs(revenue, orders)),
+        vec![
+            vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
+            vec![Value::Null, text("gold"), text("2026-06"), quotient(20.0)],
+        ]
+    );
+}
+
+/// The second fact's product link is typed on its own: an integer one against the fact's text one is
+/// refused, though the customer link agrees.
+#[test]
+fn a_second_fact_whose_second_link_kind_differs_is_refused() {
+    let (revenue, _) = revenue_and_orders();
+    let orders = batches_of(
+        vec![link(0), link(1), named(TIME_BUCKET_LABEL), leaf(1)],
+        vec![vec![text("c1"), Value::Integer(1), text("2026-06"), Value::Integer(2)]],
+    );
+    let refused = try_combine_every(&ratio_over_two_lookups_plan(), &ratio_legs(revenue, orders), UNBOUNDED)
+        .expect_err("a link kind mismatch on the second link refuses");
+    assert_eq!(
+        sutura_domain::plan::FederationCombiner::answer_not_well_formed(
+            &DataFusionCombiner::new().expect("a combiner builds"),
+            &refused
+        ),
+        Some(FederatedAnswerRefusal::LinkTypeMismatch)
     );
 }

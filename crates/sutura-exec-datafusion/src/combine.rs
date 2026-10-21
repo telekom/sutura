@@ -473,20 +473,31 @@ async fn arm_plan(
         agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
     }
     let link = InternalLabel::link(0).label();
+    // The links both facts carry: one per lookup leg that joins onto the fact.
+    let fact_links: Vec<String> = plan
+        .lookups()
+        .legs()
+        .iter()
+        .enumerate()
+        .filter(|&(_, lookup)| lookup.onto() == LegAt::Fact)
+        .map(|(position, _)| InternalLabel::link(position).label())
+        .collect();
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
-    // joined above on the link and the bucket, so its link kind must agree with the first.
+    // joined above on every one of those links and the bucket, so each link kind must agree.
     let second_fact = match (plan.second_fact(), legs.second_fact()) {
         (Some(_), Some(batches)) => Some(LegSchema::of(SECOND_FACT, batches.schema())?),
         (Some(_), None) => {
             return Err(CombineError::MissingColumn {
                 side: SECOND_FACT,
-                label: link.clone(),
+                label: InternalLabel::link(0).label(),
             });
         }
         (None, _) => None,
     };
     if let Some(second) = &second_fact {
-        agreeing_link(None, fact.link_kind(&link)?, second.link_kind(&link)?)?;
+        for link in &fact_links {
+            agreeing_link(None, fact.link_kind(link)?, second.link_kind(link)?)?;
+        }
     }
     let casts = match lookups.first() {
         Some((_, _, _, lookup)) => LinkCasts::of(plan.link_comparison(), &link, &fact, lookup, second_fact.as_ref())?,
@@ -536,10 +547,10 @@ async fn arm_plan(
         let own = InternalLabel::link(position).label();
         refuse_ambiguous_link(context, table, &[&own], ceiling_bytes, working_set).await?;
     }
-    // The second fact is joined on the link AND the bucket, so a second row for one pair fans
-    // every first-fact row under it out exactly as a second lookup row would.
+    // The second fact is joined on every link AND the bucket, so a second row for one tuple of them
+    // fans every first-fact row under it out exactly as a second lookup row would.
     if second_fact.is_some() {
-        let on = [link.as_str(), plan.bucket_label()];
+        let on: Vec<&str> = fact_links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
         // A cast can make two first-fact groups one key, and each would meet the second fact's row.
         if casts.fact.is_some() {
@@ -548,7 +559,7 @@ async fn arm_plan(
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &link, &leaves, second_table).await
+    combine_plan(plan, context, &fact_links, &leaves, second_table).await
 }
 
 /// A session whose operators reserve against `working_set`: the one pool a question's combine has.

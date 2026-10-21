@@ -247,7 +247,13 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let link = InternalLabel::link(0).label();
+        let fact_links: Vec<String> = lookups
+            .legs()
+            .iter()
+            .enumerate()
+            .filter(|(_, lookup)| lookup.onto() == LegAt::Fact)
+            .map(|(position, _)| InternalLabel::link(position).label())
+            .collect();
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -262,16 +268,23 @@ impl FederatedPlan {
             if shared == 0 {
                 return Err(FederatedPlanError::FactsShareNoKey);
             }
-            if !leg_has_key(second, &link) {
+            // Each fact carries the link of every lookup leg that joins onto the fact, so each
+            // lookup meets both facts on the same value.
+            if let Some(missing) = fact_links.iter().find(|label| !leg_has_key(second, label)) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
                     side: LegAt::Fact,
-                    label: link,
+                    label: missing.clone(),
                 });
             }
-            // Each fact groups by the link and nothing else. A key only one fact carries would
+            // Each fact groups by those links and nothing else. A key only one fact carries would
             // group that fact alone, fan the other's rows out across it, and answer a null key for
             // every row only the other fact reached - the chasm trap and a NULL-padded dimension.
-            if let Some(extra) = fact.keys().iter().chain(second.keys()).find(|key| key.label() != link) {
+            if let Some(extra) = fact
+                .keys()
+                .iter()
+                .chain(second.keys())
+                .find(|key| !fact_links.iter().any(|label| label == key.label()))
+            {
                 return Err(FederatedPlanError::FactKeyNotShared {
                     label: String::from(extra.label()),
                 });
@@ -548,12 +561,13 @@ pub enum FederatedPlanError {
     /// production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
     #[error("the two fact legs share no key, so no join is possible")]
     FactsShareNoKey,
-    /// A two-fact plan whose fact legs group by a key besides the link (`telekom/sutura#780`).
+    /// A two-fact plan whose fact legs group by a key besides the links of the lookup legs that
+    /// join onto the fact (`telekom/sutura#780`).
     ///
     /// Reached only by direct construction: `plan()` refuses a question grouped by a dimension
     /// only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
     /// shape as a type.
-    #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
+    #[error("a fact leg of a two-fact plan groups by `{label}`, which is not a link both facts share")]
     FactKeyNotShared { label: String },
     /// A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the
     /// lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.

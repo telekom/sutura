@@ -1,12 +1,16 @@
 diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+index 6431463d6..4355aa64a 100644
 --- a/crates/sutura-domain/src/plan/federated.rs
 +++ b/crates/sutura-domain/src/plan/federated.rs
-@@ -268,7 +268,7 @@
-             // Each fact groups by the link and nothing else. A key only one fact carries would
+@@ -278,10 +278,9 @@ impl FederatedPlan {
+             // Each fact groups by those links and nothing else. A key only one fact carries would
              // group that fact alone, fan the other's rows out across it, and answer a null key for
              // every row only the other fact reached - the chasm trap and a NULL-padded dimension.
--            if let Some(extra) = fact.keys().iter().chain(second.keys()).find(|key| key.label() != link) {
-+            if let Some(extra) = second.keys().iter().find(|key| key.label() != link) {
+-            if let Some(extra) = fact
++            if let Some(extra) = second
+                 .keys()
+                 .iter()
+-                .chain(second.keys())
+                 .find(|key| !fact_links.iter().any(|label| label == key.label()))
+             {
                  return Err(FederatedPlanError::FactKeyNotShared {
-                     label: String::from(extra.label()),
-                 });

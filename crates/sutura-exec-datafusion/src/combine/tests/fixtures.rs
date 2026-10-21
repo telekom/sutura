@@ -248,6 +248,78 @@ pub(super) fn fan_in_plan() -> FederatedPlan {
     .expect("a fan-in plan is a plan")
 }
 
+/// A cross-model ratio, revenue over orders, over two lookup legs that both join onto the fact:
+/// `geo` on the customer link and `crm` on the product link.
+///
+/// Both fact legs group by both links and the bucket. The answer groups by `region` from `geo` and
+/// `segment` from `crm`; the fact leg carries the numerator, the second fact leg the denominator.
+pub(super) fn ratio_over_two_lookups_plan() -> FederatedPlan {
+    let measure = Measure::Ratio {
+        numerator: term(Aggregate::Sum, "mrr_cents"),
+        denominator: Term::Aggregate(AggregatedColumn::on_model(
+            Aggregate::Count,
+            column("customer_key"),
+            ModelName::parse("orders").expect("a test model is a model"),
+        )),
+        zero_denominator: ZeroDenominator::Null,
+    };
+    let federation = Federation::of(&measure);
+    let terms_of = |second: bool| -> Vec<LegTerm> {
+        labels(&federation)
+            .into_iter()
+            .zip(federation.carried())
+            .filter(|&(_, carried)| carried.model().is_some() == second)
+            .map(|(label, _)| {
+                LegTerm::new(
+                    PlanTerm::CountIf {
+                        column: PlanColumn::new(table(FACT), column("mrr_cents")),
+                    },
+                    ResultLabel::internal(label),
+                )
+            })
+            .collect()
+    };
+    let fact_on = |on: &str, terms: Vec<LegTerm>| LegPlan::Fact {
+        source: source(on),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![linked(0, "customer_key"), linked(1, "product_key")],
+        terms,
+        bindings: PlanBindings::none(),
+        range: range(),
+    };
+    let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
+        source: source(on),
+        table: table(FACT).into(),
+        keys,
+        bindings: PlanBindings::none(),
+    };
+    let label = |name: &str| ResultLabel::dimension(&dimension(name));
+    let lookups = sutura_domain::plan::LookupLegs::parse(vec![
+        LookupLeg::onto_fact(
+            lookup("geo", vec![linked(0, "customer_key"), keyed(label("region"), "region")]),
+            true,
+        ),
+        LookupLeg::onto_fact(
+            lookup("crm", vec![linked(1, "product_key"), keyed(label("segment"), "segment")]),
+            true,
+        ),
+    ])
+    .expect("two legs onto the fact are a tree");
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact_on("facts", terms_of(false)),
+        Some(fact_on("orders", terms_of(true))),
+        lookups,
+        federation,
+        vec![AnswerKey::lookup(0, label("region")), AnswerKey::lookup(1, label("segment"))],
+    )
+    .expect("a ratio over two lookup legs is a plan")
+}
+
 pub(super) fn sum_plan(include_unmatched: bool) -> FederatedPlan {
     plan_for(
         "revenue",

@@ -1,12 +1,13 @@
 diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+index 8e9be5ab4..6e4c77c11 100644
 --- a/crates/sutura-domain/src/plan/federated.rs
 +++ b/crates/sutura-domain/src/plan/federated.rs
-@@ -261,7 +261,7 @@ impl FederatedPlan {
-             if shared == 0 {
-                 return Err(FederatedPlanError::FactsShareNoKey);
+@@ -270,7 +270,7 @@ impl FederatedPlan {
              }
--            if !leg_has_key(second, &link) {
-+            if !leg_has_key(second, &link) && false {
+             // Each fact carries the link of every lookup leg that joins onto the fact, so each
+             // lookup meets both facts on the same value.
+-            if let Some(missing) = fact_links.iter().find(|label| !leg_has_key(second, label)) {
++            if let Some(missing) = fact_links.iter().find(|label| !leg_has_key(second, label) && false) {
                  return Err(FederatedPlanError::KeyNotOnLeg {
                      side: LegAt::Fact,
-                     label: link,
+                     label: missing.clone(),
