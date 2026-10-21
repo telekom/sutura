@@ -1,3 +1,4 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
 --- a/crates/sutura-exec-datafusion/src/combine/arm.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
 @@ -2,7 +2,7 @@
@@ -9,12 +10,12 @@
  use datafusion::functions_aggregate::expr_fn::{count_distinct, max, min, sum};
  use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
  use datafusion::prelude::SessionContext;
-@@ -187,7 +187,7 @@
-     } else {
-         JoinType::Inner
-     };
--    let on = qualified(FACT_TABLE, link).eq(qualified(LOOKUP_TABLE, link));
-+    let on = rtrim(vec![qualified(FACT_TABLE, link)]).eq(rtrim(vec![qualified(LOOKUP_TABLE, link)]));
-     let mut builder = builder
-         .join_on(lookup, kind, [on])
-         .map_err(|cause| CombineError::Build { cause })?;
+@@ -182,7 +182,7 @@
+         } else {
+             JoinType::Inner
+         };
+-        let on = qualified(table_at(lookup.onto(), &link)?, &link).eq(qualified(table, &link));
++        let on = rtrim(vec![qualified(table_at(lookup.onto(), &link)?, &link)]).eq(rtrim(vec![qualified(table, &link)]));
+         builder = builder
+             .join_on(scan(context, table).await?, kind, [on])
+             .map_err(|cause| CombineError::Build { cause })?;

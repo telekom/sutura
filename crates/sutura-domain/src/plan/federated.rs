@@ -11,7 +11,7 @@
 //! `DataFusion` plan in an adapter, under the owner instruction *no hand row handling*. What that
 //! leaves here is the plan TYPE, its refusals, the label scheme both halves read, and the port; the
 //! four accessors [`FederatedPlan::bucket_label`], [`FederatedPlan::measure_label`],
-//! [`FederatedPlan::federation`] and [`FederatedPlan::include_unmatched`] exist because an
+//! [`FederatedPlan::federation`] and [`FederatedPlan::lookups`] exist because an
 //! implementor above this crate cannot read a private field. What is deliberately not published is
 //! anything a combiner could use to invent a column.
 //!
@@ -55,6 +55,7 @@ mod failure;
 ///
 /// Declares no test module, for the reason [`label`] gives.
 mod link;
+mod lookup;
 
 /// The reserved label namespace, and the one function that assigns it.
 ///
@@ -72,22 +73,24 @@ use crate::plan::leg::LegPlan;
 use crate::query::{Top, TopBy, TopDirection};
 use crate::warehouse::{MalformedRowSet, RowSet, Value};
 
-pub use combiner::{Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsAreNotOneOfEach};
+pub use combiner::{Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsMiswired};
 #[cfg(any(test, feature = "fixtures"))]
 pub use combiner::{NothingCombined, RefusingCombiner};
 pub use failure::FederatedAnswerRefusal;
 pub use label::{InternalLabel, labels};
 pub use link::{LinkKind, QuotedColumnType};
+pub use lookup::{LegAt, LookupLeg, LookupLegs, LookupLegsError};
 
-/// The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
-/// another, linked by a single column.
+/// The one federated shape this workspace combines: a fact leg on one source and one to
+/// [`MAX_LOOKUP_LEGS`](crate::query::MAX_LOOKUP_LEGS) lookup legs, each on another source than the
+/// leg it joins onto and linked to it by a single column.
 ///
-/// **Two legs, as two named fields.** A match over [`LegPlan`] is exhaustive, so the fact leg *is*
-/// the [`Fact`](LegPlan::Fact) variant and the lookup leg the [`Lookup`](LegPlan::Lookup) one, and
-/// a plan that had anything other than exactly these two is a type that does not exist rather than a
-/// count a caller checks. The shape is deliberately the one [`crate::plan::leg`] pins in its goldens:
-/// the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
-/// second data system forms the lookup leg. The final answer groups by the answer's keys - each
+/// **One fact leg as a named field, the lookup legs as [`LookupLegs`].** A match over [`LegPlan`]
+/// is exhaustive, so the fact leg *is* the [`Fact`](LegPlan::Fact) variant and each lookup leg the
+/// [`Lookup`](LegPlan::Lookup) one, and a plan with no lookup leg or more than the cap is a type that
+/// does not exist rather than a count a caller checks. The shape is deliberately the one
+/// [`crate::plan::leg`] pins in its goldens: the metric's own rows (and any same-source dimension)
+/// form the fact leg, and a dimension on another data system forms a lookup leg. The final answer groups by the answer's keys - each
 /// named by which leg's result it is read from, in question order - bucketed and measured under the
 /// metric's own name.
 ///
@@ -106,13 +109,9 @@ pub struct FederatedPlan {
     /// aggregated on its own and joined above on the link and the time bucket, and
     /// [`FederatedPlan::new`] refuses a second fact that cannot be joined.
     second_fact: Option<LegPlan>,
-    /// The second data system's share: the remote dimensions the answer groups by.
-    lookup: LegPlan,
-    /// Whether an unmatched fact row survives with null remote keys.
-    ///
-    /// INNER for a lookup carrying a filter, LEFT for one that does not - the splitter's decision,
-    /// recorded here so the combiner does not have to guess. `docs/adr/0009` decides the direction.
-    include_unmatched: bool,
+    /// The other data systems' shares: one lookup leg per crossing relationship, each with the leg
+    /// it joins onto and its own join direction.
+    lookups: LookupLegs,
     /// The combine tree above the legs, and the metric that names its leaves.
     federation: Federation,
     /// The answer's group-by keys in question order, each naming which leg's result it is read from.
@@ -144,7 +143,7 @@ pub enum LegSide {
 /// One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct AnswerKey {
-    side: LegSide,
+    side: LegAt,
     label: ResultLabel,
 }
 
@@ -153,23 +152,23 @@ impl AnswerKey {
     #[inline]
     pub const fn fact(label: ResultLabel) -> Self {
         Self {
-            side: LegSide::Fact,
+            side: LegAt::Fact,
             label,
         }
     }
 
-    /// A key read from the lookup leg's result, under `label`.
+    /// A key read from the result of the lookup leg at `leg`, under `label`.
     #[inline]
-    pub const fn lookup(label: ResultLabel) -> Self {
+    pub const fn lookup(leg: usize, label: ResultLabel) -> Self {
         Self {
-            side: LegSide::Lookup,
+            side: LegAt::Lookup(leg),
             label,
         }
     }
 
     /// Which leg this key is read from.
     #[inline]
-    pub const fn side(&self) -> LegSide {
+    pub const fn side(&self) -> LegAt {
         self.side
     }
 
@@ -181,18 +180,19 @@ impl AnswerKey {
 }
 
 impl FederatedPlan {
-    /// Constructs a federated plan from its two legs and the answer's key order.
+    /// Constructs a federated plan from its legs and the answer's key order.
     ///
     /// A `Result` constructor is this workspace's convention for a value with an invariant: a plan
-    /// that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
-    /// a plan and cannot be built.
+    /// that is not a fact leg beside lookup legs, or that names one data system on a leg and the leg
+    /// it joins onto, is not a plan and cannot be built.
     ///
     /// **There is no link-label parameter, and that is the F2 fix's structural half.** The label the
     /// legs are joined under used to be two `String` arguments, and the splitter filled both with the
     /// physical remote join column's text - which is a legal dimension name, so a legal question
     /// produced two fact columns under one label. It is now [`InternalLabel::Link`], a constant of
     /// the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
-    /// for the two legs to disagree about, and the constructor requires both legs to project it.
+    /// for two legs to disagree about, and the constructor requires each lookup leg and the leg it
+    /// joins onto to project its own.
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
@@ -202,27 +202,43 @@ impl FederatedPlan {
         bucket: PlanBucket,
         fact: LegPlan,
         second_fact: Option<LegPlan>,
-        lookup: LegPlan,
-        include_unmatched: bool,
+        lookups: LookupLegs,
         federation: Federation,
         keys: Vec<AnswerKey>,
     ) -> Result<Self, FederatedPlanError> {
-        let is_fact = matches!(fact, LegPlan::Fact { .. });
-        let is_lookup = matches!(lookup, LegPlan::Lookup { .. });
-        if !is_fact {
+        if !matches!(fact, LegPlan::Fact { .. }) {
             return Err(FederatedPlanError::NotFact {
                 source_name: fact.source().clone(),
             });
         }
-        if !is_lookup {
-            return Err(FederatedPlanError::NotLookup {
-                source_name: lookup.source().clone(),
-            });
-        }
-        if fact.source() == lookup.source() {
-            return Err(FederatedPlanError::SameSource {
-                source_name: fact.source().clone(),
-            });
+        let leg_at = |at: LegAt| match at {
+            LegAt::Fact => Some(&fact),
+            LegAt::Lookup(position) => lookups.legs().get(position).map(LookupLeg::leg),
+        };
+        // A leg and the leg it joins onto on one data system are one statement, not two. Two legs
+        // of one system that are not neighbours - a chain that crosses away and comes back - are
+        // two statements and are served.
+        for (position, lookup) in lookups.legs().iter().enumerate() {
+            let leg = lookup.leg();
+            if !matches!(leg, LegPlan::Lookup { .. }) {
+                return Err(FederatedPlanError::NotLookup {
+                    source_name: leg.source().clone(),
+                });
+            }
+            let onto = leg_at(lookup.onto()).ok_or_else(|| FederatedPlanError::NotLookup {
+                source_name: leg.source().clone(),
+            })?;
+            if onto.source() == leg.source() {
+                return Err(FederatedPlanError::SameSource {
+                    source_name: leg.source().clone(),
+                });
+            }
+            let link = InternalLabel::Link(position).label();
+            for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
+                if !leg_has_key(on, &link) {
+                    return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
+                }
+            }
         }
         // A second fact leg arrives only for a cross-model ratio (`telekom/sutura#780`). It is a
         // `Fact` of its own - a second statement, so the two facts never share a `FROM`, which is
@@ -230,7 +246,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let link = InternalLabel::Link.label();
+        let link = InternalLabel::Link(0).label();
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -247,7 +263,7 @@ impl FederatedPlan {
             }
             if !leg_has_key(second, &link) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
-                    side: LegSide::Fact,
+                    side: LegAt::Fact,
                     label: link,
                 });
             }
@@ -261,31 +277,12 @@ impl FederatedPlan {
             }
         }
         for key in &keys {
-            let (side, leg) = match key.side() {
-                LegSide::Fact => (LegSide::Fact, &fact),
-                LegSide::Lookup => (LegSide::Lookup, &lookup),
-            };
-            if !leg_has_key(leg, key.label()) {
+            if !leg_at(key.side()).is_some_and(|leg| leg_has_key(leg, key.label())) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
-                    side,
+                    side: key.side(),
                     label: String::from(key.label()),
                 });
             }
-        }
-        // The link column, which is not an answer key: the combiner looked it up in each leg's
-        // result and reported a missing column when a leg had not projected it. Asked here, so a
-        // plan that cannot be joined does not exist.
-        if !leg_has_key(&fact, &link) {
-            return Err(FederatedPlanError::KeyNotOnLeg {
-                side: LegSide::Fact,
-                label: link,
-            });
-        }
-        if !leg_has_key(&lookup, &link) {
-            return Err(FederatedPlanError::KeyNotOnLeg {
-                side: LegSide::Lookup,
-                label: link,
-            });
         }
         // D9: `bucket` and `fact`'s own embedded bucket and terms are three independently supplied
         // arguments, and the one production splitter (`sutura_semantic::plan::federated_plan`)
@@ -330,7 +327,7 @@ impl FederatedPlan {
             let label = label.label();
             if !leg_has_key(&fact, &label) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
-                    side: LegSide::Fact,
+                    side: LegAt::Fact,
                     label,
                 });
             }
@@ -380,8 +377,7 @@ impl FederatedPlan {
             bucket,
             fact,
             second_fact,
-            lookup,
-            include_unmatched,
+            lookups,
             federation,
             keys,
             top: None,
@@ -426,18 +422,16 @@ impl FederatedPlan {
         self.link_comparison
     }
 
-    /// Every leg, in execution order: the fact leg, the second fact leg if present, then the
-    /// lookup leg.
+    /// Every leg, each once: the fact leg, the second fact leg if present, then each lookup leg in
+    /// plan order.
     ///
-    /// A two-fact plan (`telekom/sutura#780`) carries a third leg; the combiner joins it on the
-    /// link and the time bucket above the port.
+    /// The one list of a plan's legs. The cut, the credential request, the posture record and the
+    /// legs a combiner runs all read it, so no lookup leg can be left out of one of them.
     pub fn legs(&self) -> Vec<&LegPlan> {
-        let mut legs = vec![&self.fact];
-        if let Some(second) = &self.second_fact {
-            legs.push(second);
-        }
-        legs.push(&self.lookup);
-        legs
+        core::iter::once(&self.fact)
+            .chain(self.second_fact.as_ref())
+            .chain(self.lookups.legs().iter().map(LookupLeg::leg))
+            .collect()
     }
 
     /// The fact leg.
@@ -450,9 +444,9 @@ impl FederatedPlan {
         self.second_fact.as_ref()
     }
 
-    /// The lookup leg.
-    pub const fn lookup(&self) -> &LegPlan {
-        &self.lookup
+    /// The lookup legs, each with the leg it joins onto and its own join direction.
+    pub const fn lookups(&self) -> &LookupLegs {
+        &self.lookups
     }
 
     /// The metric this answer is measured in.
@@ -503,15 +497,6 @@ impl FederatedPlan {
     pub const fn federation(&self) -> &Federation {
         &self.federation
     }
-
-    /// Whether a fact row with no lookup row survives with null remote keys.
-    ///
-    /// LEFT for a lookup leg carrying no filter, INNER for one that does - the splitter's decision,
-    /// published here so a combiner does not have to guess. `docs/adr/0009` decides the direction.
-    #[inline]
-    pub const fn include_unmatched(&self) -> bool {
-        self.include_unmatched
-    }
 }
 
 /// Why a federated plan could not be built.
@@ -523,12 +508,13 @@ pub enum FederatedPlanError {
     /// The leg meant to be the lookup leg is not a [`LegPlan::Lookup`].
     #[error("the lookup leg reads `{source_name}`, which is not a lookup leg")]
     NotLookup { source_name: SourceName },
-    /// Both legs name the same data system, which is a single-source question, not a federated one.
-    #[error("both legs read from `{source_name}`, which is not a federated question")]
+    /// A lookup leg and the leg it joins onto name the same data system, which is one statement and
+    /// not two legs.
+    #[error("a lookup leg and the leg it joins onto both read from `{source_name}`")]
     SameSource { source_name: SourceName },
     /// An answer key names a column the leg it belongs to does not project.
     #[error("the {side:?} leg projects no key `{label}`")]
-    KeyNotOnLeg { side: LegSide, label: String },
+    KeyNotOnLeg { side: LegAt, label: String },
     /// The bucket handed to this constructor is not the fact leg's own.
     ///
     /// Unreachable through the one production splitter, which builds both from one local value -

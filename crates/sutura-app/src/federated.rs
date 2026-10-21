@@ -132,42 +132,34 @@ where
     C: FederationCombiner,
     C::Error: Send,
 {
-    // Both data systems, so a missing one is the same refusal the mono path gives before any
-    // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
-    // registry lookups cannot collide. Looked up BEFORE the capability gate below, for the reason
-    // the gate itself is now per-instance rather than per-type: there is no adapter to ask about a
-    // source nobody opened.
+    // Every leg's data system, so a missing one is the same refusal the mono path gives before any
+    // credential is minted. Read off `FederatedPlan::legs`, the one list of the plan's legs, so no
+    // lookup leg can be left out here, of the credential request or of the posture record. Looked up
+    // BEFORE the capability gate below, for the reason the gate itself is now per-instance rather
+    // than per-type: there is no adapter to ask about a source nobody opened.
     let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
     };
-    let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
-    };
-    // A two-fact plan's third leg (`telekom/sutura#780`), paired with its adapter so nothing below
-    // can hold one without the other. The splitter builds it on the fact's own source; the type
-    // lets it share a source with either leg.
-    let second_fact = match plan
-        .second_fact()
-        .map(|leg| warehouses.get(leg.source()).map(|w| (leg, w)).ok_or(leg))
-        .transpose()
+    let other_legs = match plan
+        .legs()
+        .into_iter()
+        .skip(1)
+        .map(|leg| warehouses.get(leg.source()).map(|warehouse| (leg, warehouse)).ok_or(leg))
+        .collect::<Result<Vec<_>, _>>()
     {
-        Ok(second_fact) => second_fact,
+        Ok(other_legs) => other_legs,
         Err(leg) => return Ok(Answered::declined_before_minting(source_unavailable(leg.source()))),
     };
     // The capability gate, PER LEG: a heterogeneous registry - one closed-enum variant per LINKED
     // kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
     // each leg's own instance rather than one `W::EXECUTES_LEGS` for the whole build. Refuses
-    // before minting or running anything, exactly as the type-level check used to, whichever side
-    // (or both) cannot run a leg.
-    if !fact_warehouse.executes_legs()
-        || !lookup_warehouse.executes_legs()
-        || second_fact.is_some_and(|(_, warehouse)| !warehouse.executes_legs())
-    {
+    // before minting or running anything, whichever leg cannot run.
+    if !fact_warehouse.executes_legs() || other_legs.iter().any(|&(_, warehouse)| !warehouse.executes_legs()) {
         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
             reason: RefusalReason::FederationNotExecutable,
         }));
     }
-    let executed_as = executed_as_of::<_, B, C>(plan, fact_warehouse, lookup_warehouse, second_fact)?;
+    let executed_as = executed_as_of::<_, B, C>(plan.fact(), fact_warehouse, &other_legs)?;
     // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
     // gone.** It refused an answer whose legs decided identity differently - and BigQuery was then the
     // only impersonating adapter, so that prevented BigQuery from federating with any
@@ -190,10 +182,12 @@ where
     //
     // One mint over the whole set, exactly like the mono path: the broker answers for every source
     // this answer reads, and `agreeing_with` compares that answer against this request.
-    let requested = second_fact.into_iter().fold(
-        SourceSet::of(plan.fact().source().clone()).and(plan.lookup().source().clone()),
-        |requested, (leg, _)| requested.and(leg.source().clone()),
-    );
+    // A source two legs read is asked for once: a `SourceSet` holds each source once.
+    let requested = other_legs
+        .iter()
+        .fold(SourceSet::of(plan.fact().source().clone()), |requested, &(leg, _)| {
+            requested.and(leg.source().clone())
+        });
     let minted = broker
         .mint(context, &requested)
         .map_err(|cause| ServiceError::Broker { cause })?;
@@ -231,7 +225,7 @@ where
     };
     // **The legs run through the combiner, which calls back into `run_leg` through the leg runner
     // port**, so each leg keeps its credential, deadline and refusal mapping here. The combiner runs
-    // the lookup leg on one scoped OS thread beside the fact leg on THIS thread: `answer_federated`
+    // each lookup leg on a scoped OS thread of its own beside the fact leg on THIS thread: `answer_federated`
     // already holds the blocking-pool thread a transport spawned, and a pool task per leg would
     // deadlock on the pool's own slots at the configured ceiling. A failed fact leg does not cancel
     // a started lookup leg, which still runs, billed at the source under the caller's identity.
@@ -256,7 +250,7 @@ where
         Err(ExecuteError::Leg(LegError::Failure(error))) => return Err(error),
         Err(ExecuteError::Miswired(cause)) => {
             return Err(ServiceError::Miswired {
-                cause: crate::FederationMiswired::LegsAreNotOneOfEach { cause },
+                cause: crate::FederationMiswired::LegsMiswired { cause },
             });
         }
         Err(ExecuteError::Combine(cause)) => {
@@ -433,11 +427,9 @@ where
 /// Execution records for every leg, so provenance names each source. Read off the adapters this
 /// answer would run on rather than off a settings tree, for the reason `Warehouse::posture` gives.
 ///
-/// `FederatedPlan::new` refuses same-source legs, so the fact and lookup records belong to distinct
-/// sources and `and` cannot collide; the Err arm is kept (rather than an expect) because the compile
-/// cannot know that. A second fact on the fact's or the lookup's source is already recorded, under
-/// the one adapter both legs run on, so it is skipped rather than recorded twice.
-fn executed_as_of<W, B, C>(plan: &FederatedPlan, fact: &W, lookup: &W, second_fact: Option<(&LegPlan, &W)>) -> Recorded<W, B, C>
+/// A source two legs read - a second fact on the fact's source, or a chain that crosses away and
+/// comes back - is recorded once, under the one adapter both legs run on.
+fn executed_as_of<W, B, C>(fact: &LegPlan, warehouse: &W, other_legs: &[(&LegPlan, &W)]) -> Recorded<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
@@ -446,15 +438,17 @@ where
     let collide = |at: &SourceName| ServiceError::Miswired {
         cause: crate::FederationMiswired::LegsCollide { at: at.clone() },
     };
-    let record = ExecutedAs::of(plan.fact().source().clone(), fact.posture().clone())
-        .and(plan.lookup().source().clone(), lookup.posture().clone())
-        .map_err(|_collision| collide(plan.fact().source()))?;
-    match second_fact {
-        Some((leg, warehouse)) if record.posture(leg.source()).is_none() => record
-            .and(leg.source().clone(), warehouse.posture().clone())
-            .map_err(|_collision| collide(leg.source())),
-        _ => Ok(record),
-    }
+    other_legs.iter().try_fold(
+        ExecutedAs::of(fact.source().clone(), warehouse.posture().clone()),
+        |record, &(leg, warehouse)| {
+            if record.posture(leg.source()).is_some() {
+                return Ok(record);
+            }
+            record
+                .and(leg.source().clone(), warehouse.posture().clone())
+                .map_err(|_collision| collide(leg.source()))
+        },
+    )
 }
 
 pub(crate) use leg::{LegsAtTheirSources, preflight_and_charge};

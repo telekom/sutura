@@ -325,8 +325,8 @@ mod tests {
     use crate::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
     use crate::plan::leg::{LegPlan, LegTerm};
     use crate::plan::{
-        AnswerKey, Arm, DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, InternalLabel, LocalArm, MAX_LEGS, PlanBindings,
-        PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
+        AnswerKey, Arm, DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, InternalLabel, LocalArm, LookupLegs, MAX_LEGS,
+        PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
     };
     use crate::query::{Top, TopBy, TopDirection, TopN};
 
@@ -421,7 +421,7 @@ mod tests {
     }
 
     fn link() -> PlanKey {
-        key(ResultLabel::internal(InternalLabel::Link), "customer_key")
+        key(ResultLabel::internal(InternalLabel::Link(0)), "customer_key")
     }
 
     /// A metric reaching `region` on another source: answers by `product_family`, then `region`.
@@ -444,12 +444,11 @@ mod tests {
                 terms_for(&federation),
             ),
             None,
-            lookup,
-            true,
+            LookupLegs::one(lookup, true),
             federation,
             vec![
                 AnswerKey::fact(dimension_label("product_family")),
-                AnswerKey::lookup(dimension_label("region")),
+                AnswerKey::lookup(0, dimension_label("region")),
             ],
         )
         .expect("a fact leg beside a lookup leg is a federated plan");
@@ -506,10 +505,9 @@ mod tests {
             bucket(Grain::Month),
             fact_leg(name, Grain::Month, vec![link()], terms_for(&federation)),
             Some(second),
-            lookup,
-            true,
+            LookupLegs::one(lookup, true),
             federation,
-            vec![AnswerKey::lookup(dimension_label("region"))],
+            vec![AnswerKey::lookup(0, dimension_label("region"))],
         )
         .expect("two facts beside a lookup leg are a federated plan");
         Arm::Joined(Box::new(plan))

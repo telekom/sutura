@@ -1,11 +1,17 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -192,7 +192,6 @@ impl<'p> Cut<'p> {
+@@ -192,7 +192,12 @@
+ impl<'p> Cut<'p> {
+     /// Every leg of the cut, each once, in [`FederatedPlan::legs`] order.
      pub fn legs(&self) -> impl Iterator<Item = &'p LegPlan> + use<'p> {
-         [self.plan.fact(), self.plan.lookup()]
-             .into_iter()
--            .chain(self.plan.second_fact())
+-        self.plan.legs().into_iter()
++        let plan = self.plan;
++        plan.legs()
++            .into_iter()
++            .enumerate()
++            .filter(move |&(at, _)| at != 1 || plan.second_fact().is_none())
++            .map(|(_, leg)| leg)
      }
  }
  

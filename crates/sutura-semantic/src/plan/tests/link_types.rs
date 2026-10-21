@@ -327,7 +327,10 @@ fn a_truncated_crossing_key_groups_the_fact_leg_by_its_origin_at_the_grain() {
             grain: Grain::Month
         }
     );
-    assert_eq!(read_from(planned.lookup().keys().first()), pair("dim_customers", "month"));
+    assert_eq!(
+        read_from(planned.lookups().legs().first().expect("one lookup leg").leg().keys().first()),
+        pair("dim_customers", "month")
+    );
 }
 
 /// The kind a truncated origin reaches the combine as is a date, whatever the origin is declared as,

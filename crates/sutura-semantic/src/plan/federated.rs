@@ -86,7 +86,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
     // different column, produced two fact columns under one label and the combiner refused the
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
-    let link_label = ResultLabel::internal(InternalLabel::Link);
+    let link_label = ResultLabel::internal(InternalLabel::Link(0));
 
     let crossing_key = one_crossing_key(relationship, remote_source)?;
     // Decided from the catalog's declared types before either leg runs, which is what makes the
@@ -212,7 +212,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         .map(|key| {
             let label = ResultLabel::dimension(key.dimension.name());
             if is_remote(key, model.source()) {
-                sutura_domain::plan::AnswerKey::lookup(label)
+                sutura_domain::plan::AnswerKey::lookup(0, label)
             } else {
                 sutura_domain::plan::AnswerKey::fact(label)
             }
@@ -257,8 +257,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         bucket,
         fact,
         second_fact,
-        lookup,
-        include_unmatched,
+        sutura_domain::plan::LookupLegs::one(lookup, include_unmatched),
         federation,
         answer_keys,
     )?;
@@ -392,7 +391,7 @@ fn second_fact_leg(
         tables,
         bucket: bucket.clone(),
         keys: vec![origin_key(
-            ResultLabel::internal(InternalLabel::Link),
+            ResultLabel::internal(InternalLabel::Link(0)),
             second.table_name(),
             link_key,
         )],

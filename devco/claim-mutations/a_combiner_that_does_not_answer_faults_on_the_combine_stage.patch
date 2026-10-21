@@ -1,9 +1,8 @@
 diff --git a/crates/sutura-conformance/src/execute.rs b/crates/sutura-conformance/src/execute.rs
-index b686bad11..c7f3d251b 100644
 --- a/crates/sutura-conformance/src/execute.rs
 +++ b/crates/sutura-conformance/src/execute.rs
-@@ -399,7 +399,7 @@ where
-     let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+@@ -410,7 +410,7 @@
+     let legs = Legs::assign(plan, &results).expect("one result per leg of the plan, in its order");
      combiner
          .combine(plan, legs, WORKING_SET_BYTES)
 -        .map_err(|cause| not_answered(Stage::Combine(cause)))?
