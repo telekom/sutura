@@ -6333,6 +6333,7 @@ happened.</p>
   which document to open, and whoever renders it walks the chain for which character to look
   for. Reported per metric rather than per field because a metric document declares one anchor.
 - <code>Audience</code> - The <code>audience:</code> declaration is not a usable one - the architecture decision.
+- <code>SharedCalendars</code> - The <code>shared_calendar:</code> list is empty or names a model twice.
 - <code>EmptyChain</code> - A dimension's <code>via:</code> chain names nothing.</p>
 <p>The domain's <code>ViaChain::of</code> refuses the empty chain; this is where the refusal learns which
   document to open, the same arrangement <code>Self::AnchorValue</code> uses. The refused chain is the
@@ -6390,7 +6391,7 @@ metric's name say which cube, if any, it came from - that grouping is not record
 <p>What a measure cannot say is held by <code>deny_unknown_fields</code> on <code>MeasureDoc</code>: no <code>dimensions:</code>
 of its own (the cube's list is the only one), no <code>model:</code>, <code>time_column:</code> or <code>grains:</code>.
 <code>hierarchies:</code> is refused by name on <code>CubeDoc</code> the same way: a roll-up order has no domain
-representation. A measure's <code>shared_calendar:</code> is its own, so a cross-model ratio can sit beside
+representation. A measure's <code>shared_calendar:</code> list is its own, so a cross-model ratio can sit beside
 one-model siblings whose metrics do not change.</p>
 <h4 id="struct-cubedoc"><code>struct CubeDoc</code><a class="headerlink" href="#struct-cubedoc" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CubeDoc</span>
