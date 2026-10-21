@@ -11206,12 +11206,6 @@ somebody else's input.</p>
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
-- <code>FederationLinkTruncated</code> - The relationship crossing into the remote data system joins on a key truncated to a grain.</p>
-<p>The combiner links the two legs on the raw column values, so a truncated key (<code>month_of(a.x) =
-  b.y</code>) would join each row to the wrong lookup row or to none. Refused before either leg runs
-  rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
-  narrowable by the caller: the key is the catalog's, and declaring an equality against a column
-  that already sits at the grain removes the refusal.
 - <code>FederationLinkTypeMismatch</code> - The two columns the crossing relationship joins are declared as different kinds of value.</p>
 <p>Decided from the catalog before either leg runs, and only when BOTH types are declared and
   BOTH are known: an integer against text can never match, so every row would miss. A type
@@ -11410,7 +11404,8 @@ somebody else's input.</p>
 <p>The two facts are aggregated in two statements and joined above on ONE link into a remote
   dimension's model, so the question groups and filters by that model's dimensions and nothing
   else, and the second fact <code>model</code> declares its own relationship into it on the column the
-  first fact links through. Narrowable: group by a dimension both facts link to.</p>
+  first fact links through, truncated to the same grain or not at all. Narrowable: group by a
+  dimension both facts link to.</p>
 <h4 id="methods_86">Methods<a class="headerlink" href="#methods_86" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-584-1"><a id="__codelineno-584-1" name="__codelineno-584-1" href="#__codelineno-584-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
