@@ -76,8 +76,8 @@ pub(crate) enum Plan {
 /// The same two arms `crate::resolve::ResolveError` already has, for the same reason. **The limit,
 /// next to the claim:** every [`FederatedPlanError`] variant is structurally unreachable from
 /// `federated_plan` as it stands - the splitter builds a `Fact` beside a `Lookup` on a source
-/// `is_remote` has already established is not its own, projects `InternalLabel::Link(0)` onto both legs
-/// unconditionally, derives each answer key's side from the same predicate that filled that leg's
+/// `Lookups` has already established is not its own, projects each lookup leg's `InternalLabel::Link`
+/// onto that leg and the leg it joins onto unconditionally, derives each answer key's side from the same predicate that filled that leg's
 /// keys, and projects a `Carried::Keys` leaf as a fact key under its own label. So this arm carries
 /// no test that can provoke it, and what it buys is that a future edit which makes one of those
 /// reachable produces an error rather than a governance refusal.
@@ -142,7 +142,6 @@ impl From<RefusalReason> for PlanError {
 /// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
-///
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // Every metric has now resolved exactly as one was checked - every one's grain, every
     // dimension against every metric, every filter value against every metric's own allowlist -
@@ -542,20 +541,16 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     PlanBindings::parse(filters, params)
 }
 /// The three properties of a chain a plan is a function of: which table qualifies hop N's origin
-/// column, that a chain which left its data system is refused here as well as at load, and that the
-/// join order does not depend on the order the caller listed their dimensions.
+/// column, that a chain which crosses data systems is planned as lookup legs, and that the join
+/// order and the legs do not depend on the order the caller listed their dimensions.
 ///
 /// Inline rather than a `plan/tests.rs`, and the reason is the causality gate rather than taste: it
 /// reconstructs a base tree by reverting every changed file that added no test, so a `mod tests;`
 /// line in a reverted `plan.rs` would orphan the file it declares and the base run would have no
 /// test to be red.
 ///
-/// A [`Resolution`] is built by hand here, and that is the ONLY venue two of these can be measured
-/// in. `sutura_domain::catalog::Definitions::assemble` refuses a cross-source chain at load, so no
-/// pinned bundle can carry one this far, and a question has no field that names a join - so the
-/// plan-time refusal is provokable from a hand-built resolution and from nothing else. Reaching
-/// past the load check is what makes that cell honest about being the SECOND reader of one rule.
-/// The end-to-end evidence for the first property is the two-hop dimension in
+/// A [`Resolution`] is built by hand here, because a question has no field that names a join and a
+/// chain placed on several data systems is cheaper to state than to assemble. The end-to-end evidence for the first property is the two-hop dimension in
 /// `examples/single-player`, which every rendering golden and the executed corpus read.
 #[cfg(test)]
 mod tests;

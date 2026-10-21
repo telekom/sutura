@@ -155,7 +155,7 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
     reason: "plan_needs_too_many_lookup_legs",
     meaning: "answering would need more lookup legs than this deployment serves (three at most)",
-    remedy: "Ask for dimensions from fewer remote relationships: each one reads its own data system, so drop the ones you can do without.",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
 };
 
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {

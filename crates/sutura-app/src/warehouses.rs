@@ -4,7 +4,7 @@
 //!
 //! A plan resolves to a single source for one answer - a question spanning two is federated, and
 //! answered where every registered adapter declares `Warehouse::EXECUTES_LEGS` and refused as
-//! `FederationNotExecutable` where one does not (three or more are refused at plan time) - but a
+//! `FederationNotExecutable` where one does not (more than three lookup legs are refused at plan time) - but a
 //! *deployment* holds as many as its catalog names, and until now the service held exactly one. That
 //! made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 //! question is for the other one of the two we opened". The first is a refusal an operator has to fix

@@ -1773,8 +1773,8 @@ decision.
 
 - **Built.** The planner makes one lookup leg for each distinct path of crossing relationships. A
   chain crosses wherever a hop lands on another data system than the hop before it, and each crossing
-  opens a leg: a leg joins onto the fact leg when the crossing leaves the metric's own system, and onto
-  the leg the earlier crossing opened otherwise. Legs are sorted by path, so a leg's parent comes
+  opens a leg: a chain's first crossing joins onto the fact leg, and each later crossing onto the leg
+  of the crossing before it. Legs are sorted by path, so a leg's parent comes
   before it and its link label does not depend on the order the caller listed dimensions. A leg
   joins as LEFT unless a filter reads one of its dimensions, for each leg and not once for the plan.
   A dimension is read from the leg of its last crossing, so a chain that crosses and comes back is
@@ -1792,6 +1792,6 @@ decision.
   one lookup leg through the combiner; the combiner is measured on plans built by hand
   (*Eighteenth amendment*).
 - A leg is read whole, as before. The cap of three and the working-set ceiling are the only bounds
-  on bytes, and neither was measured for a plan that reads three sources.
+  on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
 - Two crossings that start from one model by different relationships are two legs and are not
   merged, even when they land on one remote model.

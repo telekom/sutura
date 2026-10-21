@@ -256,6 +256,63 @@ fn a_filter_on_one_lookup_leg_makes_only_that_leg_inner() {
     );
 }
 
+/// Exactly three lookup legs are planned: the cap is a bound that admits its own count.
+///
+/// `region` crosses twice and `family` once, over three other data systems, so the plan carries a
+/// chain's two legs and a leg of its own, and a cap that refused its own limit would refuse it.
+#[test]
+fn a_question_that_needs_exactly_three_lookup_legs_is_planned() {
+    let corpus = Corpus::spread("a", "b", "c", "local");
+    let Plan::Federated(planned) =
+        plan(&corpus.asking(vec![corpus.key("region"), corpus.key("family")])).expect("three legs plan")
+    else {
+        panic!("dimensions on other data systems are a federated plan");
+    };
+    assert_eq!(
+        lookup_shape(&planned),
+        vec![
+            (String::from("a"), LegAt::Fact),
+            (String::from("b"), LegAt::Lookup(0)),
+            (String::from("c"), LegAt::Fact)
+        ]
+    );
+}
+
+/// The legs, their link labels and the side each answer key is read from do not depend on the order
+/// the caller listed the dimensions.
+///
+/// `brand` sorts after `region` by its crossing relationship, so a leg numbered by arrival would swap
+/// the two links when `brand` is asked first.
+#[test]
+fn the_legs_and_their_links_do_not_depend_on_the_order_the_dimensions_are_asked() {
+    let corpus = Corpus::placed("a", "a", "b");
+    let planned =
+        |by: [&str; 2]| match plan(&corpus.asking(by.iter().map(|name| corpus.key(name)).collect())).expect("this plans") {
+            Plan::Federated(planned) => planned,
+            Plan::Mono(_) => panic!("dimensions on other data systems are a federated plan"),
+        };
+    let (forward, reverse) = (planned(["region", "brand"]), planned(["brand", "region"]));
+    assert_eq!(lookup_shape(&forward), lookup_shape(&reverse));
+    let fact_keys = |plan: &sutura_domain::plan::FederatedPlan| {
+        plan.fact()
+            .keys()
+            .iter()
+            .map(|key| (key.label().to_owned(), read_from(Some(key))))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fact_keys(&forward), fact_keys(&reverse));
+    let side_of = |plan: &sutura_domain::plan::FederatedPlan, label: &str| {
+        plan.keys().iter().find(|key| key.label() == label).map(AnswerKey::side)
+    };
+    for label in ["region", "brand"] {
+        assert_eq!(
+            side_of(&forward, label),
+            side_of(&reverse, label),
+            "{label} is read from one leg either way"
+        );
+    }
+}
+
 /// A question that would read four lookup legs is refused by name, with the count and the cap.
 #[test]
 fn a_question_that_needs_four_lookup_legs_is_refused_with_the_count() {
@@ -368,9 +425,7 @@ fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
 }
 
 /// A relationship crossing into a remote source with MORE THAN ONE join key is refused by its
-/// own name, `FederationLinkCompound` - not `FederationLinkAmbiguous`, which means two
-/// RELATIONSHIPS crossing at once and would tell a caller something untrue about one correctly
-/// declared compound key. Built by hand for the same reason every federated-splitter cell here
+/// own name, `FederationLinkCompound`, which names the one relationship that declares them. Built by hand for the same reason every federated-splitter cell here
 /// is: `Definitions::assemble` never puts two remote-crossing keys in front of a caller's
 /// question on its own, so the splitter's own guard is the only venue that provokes this.
 #[test]

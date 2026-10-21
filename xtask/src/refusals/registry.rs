@@ -29,8 +29,8 @@ const QUERY: Subject = Subject {
     // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
     // model loads and is refused at plan time rather than mis-planned against the wrong table.
     // 24 since `telekom/sutura#967` ADDED `FederationLinkCompound`: a relationship crossing into a
-    // remote data system with more than one join key is refused under its own name rather than
-    // under its own name, because the combiner links two legs on a single column. 26:
+    // remote data system with more than one join key is refused under its own name, because the
+    // combiner links two legs on a single column. 26:
     // `github.com/telekom/sutura#968` added `MetricsSpanDifferentModels` and
     // `MultiMetricNotExecutable` for a question naming more than one metric. 27: this diff
     // removed `MultiMetricNotExecutable` (every multi-metric question that shares model, time,

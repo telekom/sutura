@@ -56,9 +56,9 @@ A refusal is a variant here rather than an `Err`, which is the same choice
 
   The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
   set by its rarest variant makes every refusal carry the cost of an answer.
-- `Federated` - The question resolved to two data systems, split into a fact leg and a lookup leg.
+- `Federated` - The question reached other data systems, split into a fact leg and up to three lookup legs.
 
-  The two legs execute against their own sources and the combiner behind
+  The legs execute against their own sources and the combiner behind
   `FederationCombiner` turns the batches
   back into one answer above them.
 - `Refused` - The question was refused, and this is why.

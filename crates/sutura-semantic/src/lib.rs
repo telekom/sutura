@@ -55,9 +55,9 @@ pub enum Compiled {
     /// The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
     /// set by its rarest variant makes every refusal carry the cost of an answer.
     Planned { plan: Box<DomainPlan> },
-    /// The question resolved to two data systems, split into a fact leg and a lookup leg.
+    /// The question reached other data systems, split into a fact leg and up to three lookup legs.
     ///
-    /// The two legs execute against their own sources and the combiner behind
+    /// The legs execute against their own sources and the combiner behind
     /// [`FederationCombiner`](sutura_domain::plan::FederationCombiner) turns the batches
     /// back into one answer above them.
     Federated { plan: Box<FederatedPlan> },
