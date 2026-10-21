@@ -464,8 +464,9 @@ fn declared_two_fact(first: &[&str], second: &[&str]) -> Result<ResultBatches, C
 #[test]
 fn two_first_fact_keys_that_cast_to_one_integer_are_ambiguous_beside_a_second_fact() {
     // `1` and `01` are two groups at the source and one key after the cast. Each would meet the
-    // one second-fact row, so its leaf would be summed twice and the ratio would read 25 where the
-    // declared meaning is 50, with no refusal. The first fact leg is probed once it is cast.
+    // one second-fact row, so the second fact's leaf would be summed twice and the ratio would
+    // read 1 where the declared meaning is 2, with no refusal. The first fact leg is probed once it
+    // is cast.
     assert_eq!(
         refusal_of(declared_two_fact(&["1", "01"], &["1"])),
         FederatedAnswerRefusal::AmbiguousLink

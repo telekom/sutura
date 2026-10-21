@@ -40,14 +40,14 @@ split is the whole of the design:
    whatever its origin is declared as.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
-   either leg's rows are read
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`, `link_kind`).
+   either leg's rows are read (`link_kind` in
+   `crates/sutura-exec-datafusion/src/combine/schema.rs`).
    The kind is one of five - `ExactInteger`, `ExactDecimal`, `Text`, `Date`,
    `Boolean` - and anything else is refused (see below).
 
 2. **The two legs' link kinds are compared to each other**, and a mismatch is
-   refused
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:105-113`, `agreeing_link`).
+   refused (`agreeing_link` in
+   `crates/sutura-exec-datafusion/src/combine/schema.rs`).
    With no declaration the check is `fact == lookup`: the two kinds must be the same
    variant, with no coercion, no widening and no fallback. `ExactInteger` against
    `Text` is refused; `ExactInteger` against `ExactDecimal` is refused; `Date`
@@ -78,37 +78,38 @@ which a mismatch means *no row can ever match*.
 
 ### Why from the schema, not the data
 
-The check reads a TYPE and no value
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:1-8`). The hand-written
+The check reads a TYPE and no value (the header of
+`crates/sutura-exec-datafusion/src/combine/schema.rs`). The hand-written
 combine that preceded this one decided a link column's kind from the first non-null
 cell it happened to find, so two legs whose link columns could never match were
 refused only when the data proved it - and two empty legs were answered as *no
 rows* rather than refused. An Arrow column carries a declared type whether it has
 rows or not, so the same mismatch is refused from the schema, before a batch is
 read, for every input including an empty one
-(`crates/sutura-exec-datafusion/src/combine/tests/refusals.rs:46-69`,
-`two_empty_legs_whose_link_kinds_disagree_are_refused`).
+(`two_empty_legs_whose_link_kinds_disagree_are_refused` in
+`crates/sutura-exec-datafusion/src/combine/tests/refusals.rs`).
 
 ## What is refused
 
 ### A link column whose Arrow type maps to no kind
 
 `link_kind` returns `None` for any Arrow type outside the five kinds
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`). The refusal is
+(`link_kind` in `crates/sutura-exec-datafusion/src/combine/schema.rs`). The refusal is
 split by what the type is:
 
 - **A floating-point type** (`Float16`, `Float32`, `Float64`) is refused as
-  `CombineError::FloatLinkKey`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:148-151`,
-  `classify_unjoinable`), which reaches a caller as
+  `CombineError::FloatLinkKey` (`classify_unjoinable` in
+  `crates/sutura-exec-datafusion/src/combine/schema.rs`), which reaches a caller as
   `FederatedAnswerRefusal::FloatLinkKey`
-  (`crates/sutura-domain/src/plan/federated/failure.rs:56-58`).
+  (`FederatedAnswerRefusal::FloatLinkKey` in
+  `crates/sutura-domain/src/plan/federated/failure.rs`).
   This is ADR 0007's float-key rule: formatting a float into an equality lets
   distinct values collide, so a floating-point link column is forbidden by the
   DATA, and a caller is told.
 
 - **Any other unmapped type** is refused as `CombineError::LinkTypeNotMapped`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:152-155`), which stays
+  (`classify_unjoinable` in
+  `crates/sutura-exec-datafusion/src/combine/schema.rs`), which stays
   this workspace's own wiring defect and reaches a caller as nothing - it is not
   a `FederatedAnswerRefusal`. A question naming such a column would have failed
   at the presentation edge whatever the combine did.
@@ -131,18 +132,19 @@ so a catalog that mis-declares a key refuses a join that would have matched.
 ### Two legs whose link kinds disagree
 
 `agreeing_link` refuses a mismatch as `CombineError::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:109-112`), carrying both
-sides' kind as a prose word - *an exact integer*, *text*, *a date* - via
-`LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The combiner maps that to
-`FederatedAnswerRefusal::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine.rs:446`,
-`crates/sutura-domain/src/plan/federated/failure.rs:62-65`), and it reaches a
+(`agreeing_link` in `crates/sutura-exec-datafusion/src/combine/schema.rs`),
+carrying both sides' kind as a prose word - *an exact integer*, *text*, *a date* -
+via `LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The
+combiner maps that to `FederatedAnswerRefusal::LinkTypeMismatch`
+(`answer_not_well_formed` in `crates/sutura-exec-datafusion/src/combine.rs`,
+`FederatedAnswerRefusal::LinkTypeMismatch` in
+`crates/sutura-domain/src/plan/federated/failure.rs`), and it reaches a
 caller inside `RefusalReason::FederatedAnswerNotWellFormed`.
 
 The refusal is **deterministic**: the same plan against the same legs refuses
 again. A caller told to retry retries forever, which is the opposite of a
 data-system failure, and `FederatedAnswerRefusal` says so in its own doc
-(`crates/sutura-domain/src/plan/federated/failure.rs:22-25`).
+(`FederatedAnswerRefusal` in `crates/sutura-domain/src/plan/federated/failure.rs`).
 
 ### What the refusal replaced
 
