@@ -58,8 +58,9 @@ const QUERY: Subject = Subject {
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
     // kinds is refused at plan time. 33 since `FederationLinkTruncated`: a crossing key truncated to a
-    // grain is refused rather than joined on the raw value.
-    variants: variants(33),
+    // grain is refused rather than joined on the raw value. 35 since `DimensionNotConformed` and
+    // `QuestionNeedsTooManyLegs`, declared ahead of the planner that raises them.
+    variants: variants(35),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
