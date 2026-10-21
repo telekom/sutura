@@ -476,6 +476,7 @@ the domain: the domain's `JoinKeys` already refuses an empty key set, which is w
 - `Both` - The document declared both a `keys:` list and a `column` on an endpoint.
 - `EmptyKeys` - The document declared a `keys:` list with nothing in it.
 - `Neither` - The document declared neither a column pair nor a `keys:` list.
+- `Comparison` - The document declared `compare_as:` on a relationship whose join is not one key.
 
 #### Implements
 

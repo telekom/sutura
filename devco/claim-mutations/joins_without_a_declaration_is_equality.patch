@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/plan/federated/link.rs b/crates/sutura-domain/src/plan/federated/link.rs
+index a0a996bf9..10f2770a0 100644
+--- a/crates/sutura-domain/src/plan/federated/link.rs
++++ b/crates/sutura-domain/src/plan/federated/link.rs
+@@ -78,7 +78,7 @@ impl LinkKind {
+     /// reach `d` and at least one of which IS `d`: a cast needs an anchor, so two text keys under a
+     /// declared integer do not join.
+     pub fn joins(declared: Option<Self>, a: Self, b: Self) -> bool {
+-        declared.map_or(a == b, |d| d.reaches(a) && d.reaches(b) && (a == d || b == d))
++        declared.map_or(a.reaches(b) || b.reaches(a), |d| d.reaches(a) && d.reaches(b) && (a == d || b == d))
+     }
+ 
+     /// The kind a source's own spelling of a column type declares, or `None` for one this does not

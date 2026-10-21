@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/plan/federated/link.rs b/crates/sutura-domain/src/plan/federated/link.rs
+index a0a996bf9..ca1a71f77 100644
+--- a/crates/sutura-domain/src/plan/federated/link.rs
++++ b/crates/sutura-domain/src/plan/federated/link.rs
+@@ -65,7 +65,7 @@ impl LinkKind {
+         matches!(
+             (self, from),
+             (Self::ExactInteger, Self::ExactInteger | Self::Text)
+-                | (Self::ExactDecimal, Self::ExactDecimal | Self::ExactInteger)
++                | (Self::ExactDecimal, Self::ExactDecimal | Self::ExactInteger | Self::Text)
+                 | (Self::Text, Self::Text)
+                 | (Self::Date, Self::Date)
+                 | (Self::Boolean, Self::Boolean)

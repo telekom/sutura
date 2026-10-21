@@ -19,7 +19,11 @@ use crate::catalog::ColumnType;
 /// against a text column misses on every row by construction, and the hand-written combine returned
 /// that silently as an empty inner answer or a left answer whose every fact row had a null remote
 /// side.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// **It is also the word a relationship declares its comparison in** (`compare_as`), so it is
+/// serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LinkKind {
     /// Any width of integer, or a decimal whose scale is zero. Equality is exact.
     ExactInteger,
@@ -49,6 +53,32 @@ impl LinkKind {
             Self::Date => "a date",
             Self::Boolean => "a boolean",
         }
+    }
+
+    /// Whether a key of kind `from` can be compared AS this kind: itself, or one of the two
+    /// declared casts - text read as an exact integer, an exact integer widened to an exact decimal.
+    ///
+    /// **Closed on purpose.** Text to a decimal rounds a longer fraction, text to a date applies an
+    /// offset and drops a time, and a decimal to an integer drops its fraction: each would join a
+    /// row the values do not equal. A new pair needs a row here and a cell that measures the cast.
+    pub const fn reaches(self, from: Self) -> bool {
+        matches!(
+            (self, from),
+            (Self::ExactInteger, Self::ExactInteger | Self::Text)
+                | (Self::ExactDecimal, Self::ExactDecimal | Self::ExactInteger)
+                | (Self::Text, Self::Text)
+                | (Self::Date, Self::Date)
+                | (Self::Boolean, Self::Boolean)
+        )
+    }
+
+    /// Whether two key kinds join under a relationship's declared comparison.
+    ///
+    /// No declaration is equality of kind, as before. A declaration `d` joins two kinds that both
+    /// reach `d` and at least one of which IS `d`: a cast needs an anchor, so two text keys under a
+    /// declared integer do not join.
+    pub fn joins(declared: Option<Self>, a: Self, b: Self) -> bool {
+        declared.map_or(a == b, |d| d.reaches(a) && d.reaches(b) && (a == d || b == d))
     }
 
     /// The kind a source's own spelling of a column type declares, or `None` for one this does not

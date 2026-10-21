@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+--- a/crates/sutura-semantic/src/plan/federated.rs
++++ b/crates/sutura-semantic/src/plan/federated.rs
+@@ -383,9 +383,10 @@
+         metric: resolution.metric.name().clone(),
+         tables,
+         bucket: bucket.clone(),
+-        keys: vec![PlanKey::new(
++        keys: vec![PlanKey::truncated(
+             ResultLabel::internal(InternalLabel::Link),
+             PlanColumn::new(second.table_name().clone(), link_key.origin().clone()),
++            sutura_domain::model::Grain::Month,
+         )],
+         terms: second_terms,
+         bindings: super::range_only(resolution.range, bucket.column())?,

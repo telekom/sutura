@@ -13,12 +13,18 @@ use super::{
     MAX_VERSION_LEN, NotExecutedReason, NotValidated, PinnedDefinitions,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue, Audience, AudienceGrant, Definitions, Description, GrantedAudiences, Metric, Model};
+use crate::catalog::{
+    Anchor, AnchorValue, Audience, AudienceGrant, Definitions, Description, GrantedAudiences, JoinKey, JoinKeys, Metric, Model,
+    Relationship,
+};
 use crate::definitions::DefinitionDigest;
 use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use crate::measure::{AggregatedColumn, Measure, Term};
-use crate::model::{Aggregate, AudienceId, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+use crate::model::{
+    Aggregate, AudienceId, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+};
 use crate::pinned::view::ScopedView;
+use crate::plan::LinkKind;
 use crate::source::{ExecutedAs, SourcePosture};
 
 fn metric_name(raw: &str) -> MetricName {
@@ -558,6 +564,59 @@ fn a_column_s_type_or_description_arriving_moves_the_digest() {
         bare.digest(),
         described.digest(),
         "a column's description arriving must move the digest"
+    );
+}
+
+#[test]
+fn a_declared_comparison_moves_the_bundle_digest() {
+    // The comparison changes which keys a federated answer joins, so a bundle that declares one is
+    // not the bundle that did not - and one that declares none keeps the bytes it always had.
+    let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+    let model = |name: &str, columns: &[&str]| {
+        Model::new(
+            ModelName::parse(name).expect("a test model is a model"),
+            SourceName::parse("local").expect("a test source is a source"),
+            TableName::parse(name).expect("a test table is a table"),
+            columns.iter().map(|raw| column(raw)),
+            Description::default(),
+        )
+    };
+    let relationship = || {
+        Relationship::new(
+            RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
+            ModelName::parse("orders").expect("a test model is a model"),
+            ModelName::parse("customers").expect("a test model is a model"),
+            JoinType::ManyToOne,
+            JoinKeys::single(JoinKey::Equal {
+                origin: column("customer_id"),
+                target: column("id"),
+            }),
+        )
+    };
+    let pinned = |relationship: Relationship| {
+        pin(Definitions::assemble(
+            vec![model("orders", &["customer_id"]), model("customers", &["id"])],
+            vec![relationship],
+            vec![],
+        )
+        .expect("the test bundle is consistent"))
+    };
+    let bare = pinned(relationship());
+    let declared = pinned(
+        relationship()
+            .with_comparison(LinkKind::ExactDecimal)
+            .expect("one key takes a comparison"),
+    );
+    let other = pinned(
+        relationship()
+            .with_comparison(LinkKind::ExactInteger)
+            .expect("one key takes a comparison"),
+    );
+    assert_ne!(bare.digest(), declared.digest(), "a declared comparison must move the digest");
+    assert_ne!(
+        declared.digest(),
+        other.digest(),
+        "a different declaration must move it again"
     );
 }
 

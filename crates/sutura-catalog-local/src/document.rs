@@ -21,8 +21,8 @@ use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
     Anchor, AnchorValue, Column, ColumnRefusal, Description, Dimension, DimensionValue, InconsistentDefinitions,
-    InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain, JoinKey, JoinKeys,
-    Metric, Model, Relationship, SharedCalendars, ViaChain,
+    InvalidComparison, InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain,
+    JoinKey, JoinKeys, Metric, Model, Relationship, SharedCalendars, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
@@ -30,6 +30,7 @@ use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
 };
+use sutura_domain::plan::LinkKind;
 
 use crate::document::audience::{AudienceDoc, InvalidAudienceDeclaration};
 
@@ -417,6 +418,9 @@ pub enum InvalidRelationshipDocument {
     /// The document declared neither a column pair nor a `keys:` list.
     #[error("a relationship must declare either one column pair or a `keys:` list")]
     Neither,
+    /// The document declared `compare_as:` on a relationship whose join is not one key.
+    #[error("a relationship may declare `compare_as:` only on a one-key join")]
+    Comparison(#[source] InvalidComparison),
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -436,6 +440,10 @@ pub struct RelationshipDoc {
     #[serde(default)]
     keys: Option<Vec<JoinKeyDoc>>,
     join_type: JoinType,
+    /// The kind the two keys compare as. Absent means equality of kind, which is every existing
+    /// document.
+    #[serde(default)]
+    compare_as: Option<LinkKind>,
 }
 
 impl RelationshipDoc {
@@ -452,13 +460,13 @@ impl RelationshipDoc {
             // No `keys:` and not a complete column pair - neither join form is declared.
             _ => return Err(InvalidRelationshipDocument::Neither),
         };
-        Ok(Relationship::new(
-            self.name,
-            self.origin.model,
-            self.target.model,
-            self.join_type,
-            keys,
-        ))
+        let relationship = Relationship::new(self.name, self.origin.model, self.target.model, self.join_type, keys);
+        match self.compare_as {
+            Some(kind) => relationship
+                .with_comparison(kind)
+                .map_err(InvalidRelationshipDocument::Comparison),
+            None => Ok(relationship),
+        }
     }
 }
 
@@ -741,3 +749,7 @@ impl MetricDoc {
 #[cfg(test)]
 #[path = "document/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "document/relationship_tests.rs"]
+mod relationship_tests;

@@ -25,7 +25,7 @@ pub(super) struct Waived(BTreeMap<String, String>);
 
 impl Waived {
     /// Read every `Weakens-Test:` trailer out of `log` (`base..HEAD`'s NUL-delimited messages,
-    /// [`super::worktree::messages`]'s own format - `<hash>\0<body>\0..`). A malformed trailer -
+    /// [`super::worktree::Range`]'s `messages`, in its own format - `<hash>\0<body>\0..`). A malformed trailer -
     /// no `-`, an empty name or an empty reason - is not a claim: requiring both is what stops a
     /// bare `Weakens-Test: t` riding through with no stated reason at all.
     ///
