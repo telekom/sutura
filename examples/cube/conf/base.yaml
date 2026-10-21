@@ -1,6 +1,8 @@
-# sutura's settings for this example, run from the repository root. The markdown catalog of
-# `examples/single-player` defines the metrics, and Cube computes them: `just dev-up-cube` starts the
-# Cube in `compose.services.yaml`, which serves `model/` over the corpus `clickhouse/` loads.
+# sutura's settings for this example. The README runs sutura with the working directory `/`, so the
+# catalog paths below are relative to `/`: the README mounts `../single-player` at
+# `/examples/single-player`. The markdown catalog of `examples/single-player` defines the metrics,
+# and the Cube that `compose.yaml` in this directory starts computes them, serving `model/` over the
+# corpus `clickhouse/` loads.
 security:
   identity: "single-user"
   single_user_because: "one developer asks one Cube deployment with its one token"
