@@ -154,7 +154,7 @@ fn a_column_s_type_description_and_primary_key_evidence_arrive() {
     let orders = pinned
         .definitions()
         .models()
-        .get(&ModelName::parse(ORDERS).expect("a fixture model is a model"))
+        .get(&ModelName::parse("bigquery__orders").expect("a fixture model is a model"))
         .expect("orders is a model");
     let amount = ColumnName::parse("amount_cents").expect("a fixture column is a column");
     let column = orders.column(&amount).expect("amount_cents is declared");
