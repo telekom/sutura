@@ -223,9 +223,9 @@
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
         cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs toolchain; };
 
-        # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
-        # they fall behind - the two must agree byte for byte, which is why one file defines the
-        # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
+        # WRITES the API pages - into the ignored `docs/api/`, for `just api` and for the docs workflow's
+        # publish step - and `checks.api-docs` below is the gate that proves they generate: the two
+        # must run one flag list, which is why one file defines the writer. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
         apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs toolchain; };
@@ -892,9 +892,9 @@
           # and does not catch.
           helm-chart = chart.check;
 
-          # The committed API reference pages under `docs/api/` are GENERATED from the library
-          # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
-          # temporary directory and byte-compares. The fix it names is `just api`.
+          # The API reference pages under `docs/api/` are GENERATED from the library crates' doc
+          # comments and committed nowhere, and this FAILS when the publish run would: it generates
+          # them into a temporary directory and scans their links. `just api` shows the pages.
           #
           # It shares the ONE nightly `ci` closure with every other check here: the whole tree is
           # built from the single pinned nightly, so rustdoc's unstable `--output-format json`
@@ -1547,7 +1547,7 @@
             exec ${self.packages.${system}.xtask}/bin/xtask "$@"
           '');
         };
-        # `just api`. The writer for what `checks.api-docs` byte-compares.
+        # `just api`, and the docs workflow's publish step. The writer for what `checks.api-docs` proves generates.
         apps.api-docs = {
           type = "app";
           program = "${apiDocsWriter}/bin/sutura-api-docs";

@@ -337,7 +337,7 @@ fn adr_number_problems(files: &[String]) -> Vec<String> {
 /// What one sweep read, for the caller to print.
 ///
 /// Returned rather than folded into a message, because a floor nobody can see is a floor nobody
-/// checks: `check-guidance`'s success line states these, the way `check-api-links` states its own.
+/// checks: `check-guidance`'s success line states these, the way `api_links` states its own.
 pub(super) struct PageCounts {
     /// Markdown pages in the caller's list, counted BEFORE the loop's own filter.
     pub(super) offered: usize,

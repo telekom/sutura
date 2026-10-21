@@ -1,4 +1,4 @@
-# `nix run .#api-docs` - the writer for the committed API reference pages.
+# `nix run .#api-docs` - the writer for the API reference pages, which nothing commits.
 #
 # ITS OWN FILE because flake.nix sat at exactly the 1000-line limit `cargo xtask max-lines`
 # enforces, so the next edit to it failed the gate. `nix/duckdb.nix`, `nix/crap.nix` and
@@ -12,12 +12,13 @@
 # `just api` reaches it with nothing but nix, from outside any dev shell.
 { pkgs, toolchain }:
 
-# WRITES the committed API pages. `checks.api-docs` is the gate that fails when they fall
-# behind; this is the fix it names, and the two must agree byte for byte, so both get their
-# tools from here: `toolchain` above and a stdlib interpreter out of nixpkgs.
+# WRITES the API pages into `docs/api/`, which git ignores. The docs workflow runs it on `main` and
+# on a `v*` tag before the site build, and `just api` runs it for a reader who wants the pages
+# locally. `checks.api-docs` is the gate that proves they generate; the two must run one flag list,
+# so both get their tools from here: `toolchain` above and a stdlib interpreter out of nixpkgs.
 #
 # An app rather than a check, because a check cannot write to the source tree - the point
-# of this one is to leave the regenerated file in the worktree for review. It exists because
+# of this one is to leave the pages where mkdocs reads them. It exists because
 # `just api` called a BARE `cargo` and a BARE `pixi`, so it only worked where a dev shell
 # was already active - the drift this flake exists to remove, and it bit. The recipe is now
 # `nix run .#api-docs` and needs nothing but nix.

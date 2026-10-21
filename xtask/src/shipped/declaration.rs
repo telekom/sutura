@@ -322,7 +322,7 @@ pub(super) struct Spellings {
 /// **The second return is half of a pair taken from two DIFFERENT places** - the file finder
 /// produces `files`, the walk produces this - because a verdict over a scan that stopped early
 /// reads exactly like one over the whole tree, and a row total cannot tell them apart: a file that
-/// declares nothing contributes no row either way. `check-api-links`' `scanned == pages.len()` is
+/// declares nothing contributes no row either way. `api_links`' `scanned == pages.len()` is
 /// the same rule, and `.agents/skills/sutura/gates/SKILL.md` records what one total cost there.
 ///
 /// NAMES rather than a count, so the caller can say WHICH file went unread and so the witness
@@ -498,7 +498,7 @@ pub(super) fn read(files: &BTreeMap<String, String>, expected: &[String]) -> Opt
     // walk reports which files it read, [`in_scope`] counts the caller's whole map by the file
     // NAME, and the rows below are unreachable until the two sets are equal. A row total cannot
     // stand in for it - a file declaring nothing contributes no row whether it was read or not -
-    // which is `check-api-links`' `scanned == pages.len()` one gate over.
+    // which is `api_links`' `scanned == pages.len()` one gate over.
     let walk = declarations(files);
     let offered: Vec<&str> = files.keys().map(String::as_str).filter(|name| in_scope(name)).collect();
     let unread: Vec<&str> = offered

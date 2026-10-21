@@ -65,8 +65,8 @@ struct Window {
 ///
 /// `pub(crate)`, not `pub`: nothing outside this crate calls [`SpendLedger::charge`] - only
 /// `crate::charge_subject` does, which is also the one place `federated::answer_federated`'s
-/// summed charge reaches the ledger through - so exporting this widened `docs/api/sutura-app.md`
-/// for nobody.
+/// summed charge reaches the ledger through - so exporting this widened the generated `sutura-app`
+/// API page for nobody.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Charge {
     /// Under the ceiling, or no ceiling is configured at all.

@@ -226,9 +226,10 @@ const FORBIDDEN: &[Forbidden] = &[
         why: "`docs/adr/0016`'s addendum decided the name is the deployment's, and the same change \
               wrote the opposite into five other places - a record, the plan, an example README \
               and two crate doc comments. That is exactly the one-cause-many-files shape this \
-              module exists for. Rust source is out of scope for the filter in `run`, and it does \
-              not have to be in it: a doc comment reaches `docs/api/**` through `just api`, which \
-              `check-api-docs` forces, so the generated page is where a comment gets caught",
+              module exists for. Rust source is out of scope for the filter in `run`. A doc comment \
+              was once caught on its committed API page; nothing commits those pages now, so a \
+              wording in a doc comment is held by review alone, and only a constant's claim and \
+              what a program prints are read in the source",
         only: &[],
         except: &[],
     },
@@ -510,7 +511,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let (advice, cited) = advice::advice_problems(&root, &text_of, &files);
     problems.extend(advice);
     // Also `.rs`, and the same reason a third time: what a page PUBLISHES about a constant is a
-    // doc comment, and `docs/api/**` is regenerated from it - so the scope limit above would put
+    // doc comment, and the API reference is generated from it - so the scope limit above would put
     // this check on the derived copy rather than on the source of the claim.
     let (contradicted_constants, confirmed) = constant_problems(&text_of, &files);
     problems.extend(contradicted_constants);

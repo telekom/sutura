@@ -24,6 +24,8 @@ mod tests {
     use super::scratch_tree::Tree;
 
     const PAGE: &str = "<!-- GENERATED FILE - do not edit. -->\nfixture\n";
+    /// The one line of the real generator the link scan reads: the schemes it will leave alone.
+    const GENERATOR: &str = "REAL_SCHEMES = (\"http\", \"https\")\n";
     const METADATA_CALL: &str = "<metadata><--format-version><1><--locked><--no-deps>\n";
     /// ONE cargo invocation documents every member. The rustdoc flags are NOT on this line -
     /// `cargo doc` takes no trailing rustdoc arguments - so the fake asserts them out of
@@ -76,7 +78,7 @@ exit 0
 
     const RENDERER: &str = r#"
 set -eu
-# The generator's own self-test, which check-api-docs now runs first: it renders a
+# The generator's own self-test, which check-api-docs runs first: it renders a
 # fixture and exits non-zero on a regression. The real script passes on it; the fake
 # must too, without touching the render ledger the cases below assert on.
 if [ "$#" -eq 2 ] && [ "$2" = --self-test ]; then
@@ -90,7 +92,7 @@ if [ "$(<"$2")" != '{}' ]; then
   exit 42
 fi
 printf '<render><library-only>\n' >>"$SUTURA_DOC_LEDGER"
-printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
+printf '%s' "$SUTURA_DOC_PAGE" >"$3/$SUTURA_DOC_OUT"
 "#;
 
     #[derive(Debug)]
@@ -121,8 +123,7 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
                     "Cargo.toml",
                     b"[workspace]\nmembers = [\n\"crates/doc-library\",\n\"crates/bin-one\",\n\"crates/bin-two\",\n\"crates/macro-only\",\n]\n[workspace.lints.rustdoc]\nbroken_intra_doc_links = \"forbid\"\n",
                 ),
-                ("docs/.tools/rustdoc_to_markdown.py", b"# fake renderer input\n"),
-                ("docs/api/doc-library.md", PAGE.as_bytes()),
+                ("docs/.tools/rustdoc_to_markdown.py", GENERATOR.as_bytes()),
             ],
         );
         // macOS resolves `/var` through a symlink, and the gate's renderer compares its
@@ -180,7 +181,11 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             .env("SUTURA_DOC_CASE", case)
             .env("SUTURA_DOC_METADATA", metadata.to_string())
             .env("SUTURA_DOC_LEDGER", &ledger)
-            .env("SUTURA_DOC_PAGE", PAGE)
+            .env("SUTURA_DOC_PAGE", page_for(case))
+            .env(
+                "SUTURA_DOC_OUT",
+                if case == "no-page" { "index.md" } else { "doc-library.md" },
+            )
             .env_remove("CARGO_TARGET_DIR")
             .env_remove("BASH_ENV")
             .output();
@@ -189,6 +194,14 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
         Observed {
             output: output.expect("run the real gate"),
             ledger: calls.expect("read the invocation ledger"),
+        }
+    }
+
+    /// What the fake renderer writes. The tree commits no page: this is the whole of the reference.
+    fn page_for(case: &str) -> String {
+        match case {
+            "dead-link" => format!("{PAGE}\nSee [`Q`](crate::plan::QueryPlan).\n"),
+            _ => String::from(PAGE),
         }
     }
 
@@ -237,6 +250,38 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/doc-library.md"
             stderr.contains("cargo doc --workspace --no-deps"),
             "name the invocation: {stderr}"
         );
+    }
+
+    /// The tree commits no page, and the gate still passes: it generates, then reads what it made.
+    #[test]
+    fn a_tree_with_no_committed_page_generates_and_passes() {
+        let observed = observe("clean");
+        assert_eq!(observed.output.status.code(), Some(0), "{observed:?}");
+        let stdout = String::from_utf8(observed.output.stdout).expect("verdict");
+        assert!(stdout.contains("1 page(s) generated and read"), "{stdout}");
+    }
+
+    /// A destination mkdocs publishes dead is a finding on the page it came from, before any publish.
+    #[test]
+    fn a_dead_destination_on_a_generated_page_fails_the_gate() {
+        let observed = observe("dead-link");
+        assert_eq!(observed.output.status.code(), Some(1), "{observed:?}");
+        let mut expected = documented();
+        expected.push_str(RENDERED);
+        assert_eq!(observed.ledger, expected, "the page was generated before it was judged");
+        let stderr = String::from_utf8(observed.output.stderr).expect("diagnostics");
+        assert!(stderr.contains("does not generate cleanly"), "{stderr}");
+        assert!(stderr.contains("doc-library.md") && stderr.contains("line 4"), "{stderr}");
+    }
+
+    /// A library crate the generator wrote nothing for is named, so the missing input is findable.
+    #[test]
+    fn a_library_crate_with_no_generated_page_fails_the_gate() {
+        let observed = observe("no-page");
+        assert_eq!(observed.output.status.code(), Some(1), "{observed:?}");
+        let stderr = String::from_utf8(observed.output.stderr).expect("diagnostics");
+        assert!(stderr.contains("does not generate cleanly"), "{stderr}");
+        assert!(stderr.contains("doc-library: the generator wrote no page"), "{stderr}");
     }
 
     /// One invocation covers every binary-only target, and only library JSON becomes a page.

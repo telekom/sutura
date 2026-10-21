@@ -234,16 +234,9 @@ fn select(paths: &[String], declared: Option<&BTreeSet<String>>, locks: Option<&
     (core, selected, reasons)
 }
 
-/// A generated page or snapshot belongs to an adapter only when the registry declares exactly
+/// A generated snapshot belongs to an adapter only when the registry declares exactly
 /// that category. Unknown names retain the fail-open `core` verdict.
 fn derived_category(path: &str, declared: &BTreeSet<String>) -> Option<String> {
-    if let Some(page) = path.strip_prefix("docs/api/").and_then(|name| name.strip_suffix(".md")) {
-        if page.contains('/') {
-            return None;
-        }
-        return category_from_crate(page).filter(|category| declared.contains(category));
-    }
-
     let snapshot = path
         .strip_prefix("crates/sutura-app/tests/snapshots/")?
         .strip_suffix(".snap")?;
@@ -490,7 +483,6 @@ mod tests {
     fn an_adapter_and_its_derived_files_do_not_select_another_adapter() {
         let cats = selected(&[
             "crates/sutura-catalog-datahub/src/lib.rs",
-            "docs/api/sutura-catalog-datahub.md",
             "crates/sutura-app/tests/snapshots/catalog_definitions@datahub.snap",
         ]);
         assert!(!cats.core, "DataHub's own derived files must not select core: {cats:?}");
@@ -507,10 +499,6 @@ mod tests {
         assert!(markdown.needs("catalog_local"));
 
         for path in [
-            "docs/api/sutura-domain.md",
-            "docs/api/sutura-http.md",
-            "docs/api/sutura-catalog-unknown.md",
-            "docs/api/nested/sutura-catalog-datahub.md",
             "crates/sutura-app/tests/snapshots/catalog_definitions@unknown.snap",
             "crates/sutura-app/tests/snapshots/catalog_definitions@snowflake.snap",
             "crates/sutura-app/tests/snapshots/nested/catalog_definitions@datahub.snap",
