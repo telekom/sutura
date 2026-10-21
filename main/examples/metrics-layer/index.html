@@ -2098,10 +2098,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-live-datahub" class="md-nav__link">
+  <a href="#run-the-services" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A live DataHub
+        Run the services
       
     </span>
   </a>
@@ -3639,10 +3639,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-live-datahub" class="md-nav__link">
+  <a href="#run-the-services" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A live DataHub
+        Run the services
       
     </span>
   </a>
@@ -3730,12 +3730,16 @@ metric, and Cube decides which rows each caller reads.</p>
 <td>A live DataHub, and the loader that writes the catalog into it</td>
 </tr>
 <tr>
+<td><code>compose.cube.yaml</code></td>
+<td>Keycloak, ClickHouse, Cube and the TLS proxy in front of Cube</td>
+</tr>
+<tr>
 <td><code>loader/load.py</code></td>
 <td>The catalog that the loader writes into DataHub</td>
 </tr>
 <tr>
 <td><code>setup.sh</code></td>
-<td>Writes the secrets of the local DataHub to <code>.env</code></td>
+<td>Writes the secrets to <code>.env</code>, and the CA of the TLS proxy</td>
 </tr>
 </tbody>
 </table>
@@ -3801,8 +3805,8 @@ audience <code>cube</code>. Cube receives the caller's own token, so <code>alice
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/exchange-secret"</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"cube"</span>
 </span></code></pre></div>
-<p>Cube serves plain HTTP, and sutura sends a caller's token only over <code>https</code>. Put a TLS proxy in
-front of <code>cube-metrics</code>, and give its CA in <code>security.outbound.transport_anchors</code>.</p>
+<p>Cube serves plain HTTP, and sutura sends a caller's token only over <code>https</code>. <code>compose.cube.yaml</code>
+puts a TLS proxy in front of Cube, and <code>security.outbound.transport_anchors</code> names its CA.</p>
 <p><code>token_file</code> holds a token of the <code>sutura-deployment</code> client. sutura sends it only for the checks
 it runs at startup. <code>verification_identity</code> names the identity of those checks, because the
 <code>revenue</code> metric has an anchor.</p>
@@ -3810,30 +3814,44 @@ it runs at startup. <code>verification_identity</code> names the identity of tho
 <p>sutura sends the token of the <code>sutura-deployment</code> client on every request. Every caller reads
 <code>412345</code>, the answer of the deployment. <code>acknowledged_because</code> on the source records why every
 caller reads as one identity.</p>
-<h2 id="a-live-datahub">A live DataHub<a class="headerlink" href="#a-live-datahub" title="Permanent link">&para;</a></h2>
+<h2 id="run-the-services">Run the services<a class="headerlink" href="#run-the-services" title="Permanent link">&para;</a></h2>
 <p><code>compose.yaml</code> in the example runs DataHub on <code>127.0.0.1:8081</code>, the catalog <code>endpoint</code> in both
-settings files. Its loader writes the <code>orders</code> and <code>customers</code> datasets, the relationship
-<code>orders_to_customer</code> and the metric <code>revenue</code> into DataHub. From <code>examples/metrics-layer</code>:</p>
+settings files, and its loader. <code>compose.cube.yaml</code> adds Keycloak on <code>127.0.0.1:8180</code>, ClickHouse,
+Cube, and a TLS proxy for Cube on <code>127.0.0.1:443</code>. From <code>examples/metrics-layer</code>:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>./setup.sh
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--wait<span class="w"> </span>datahub
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--wait<span class="w"> </span>datahub<span class="w"> </span>keycloak<span class="w"> </span>cube-tls
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>loader
 </span></code></pre></div>
-<p><code>setup.sh</code> writes the secrets of this DataHub to <code>.env</code>. The loader writes a DataHub token for
-sutura to <code>.local/datahub-token</code>. Give sutura that file as <code>/run/sutura/datahub-token</code>, the catalog
-<code>token_file</code> in both settings files. Every port of this DataHub binds to <code>127.0.0.1</code> only.</p>
+<p><code>setup.sh</code> writes the secrets to <code>.env</code>, with <code>COMPOSE_FILE</code> so that <code>docker compose</code> reads both
+files, and the CA and certificate of the proxy. The loader writes the <code>orders</code> and <code>customers</code>
+datasets, the relationship <code>orders_to_customer</code> and the metric <code>revenue</code> into DataHub. It also
+writes the files that sutura reads from <code>/run/sutura</code> to <code>.local</code>: the DataHub token <code>datahub-token</code>
+(the catalog <code>token_file</code> in both settings files), <code>jwks.json</code> with the keys of the realm,
+<code>exchange-secret</code>, and <code>cube-token</code>, a token of the <code>sutura-deployment</code> client. The realm issues
+tokens for an hour, so run the loader again when <code>cube-token</code> has expired. Every port binds to
+<code>127.0.0.1</code> only.</p>
 <h2 id="run-sutura">Run sutura<a class="headerlink" href="#run-sutura" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>base.yaml</code> in <code>SUTURA_CONFIG_DIR</code>, so a settings file under another name is not read.
-From <code>examples/metrics-layer</code>, give sutura the file you chose under that name and start it:</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>.local/conf
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>cp<span class="w"> </span>conf/impersonation-at-source.yaml<span class="w"> </span>.local/conf/base.yaml
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nv">SUTURA_CONFIG_DIR</span><span class="o">=</span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/.local/conf"</span><span class="w"> </span>sutura<span class="w"> </span>serve
+From <code>examples/metrics-layer</code>, give sutura the file you chose under that name and start it. The
+settings name Cube as <code>cube.example.com</code>, the host of the proxy certificate, and <code>--add-host</code> points
+that name at the proxy:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SUTURA_VERSION</span><span class="o">=</span><span class="m">0</span>.9.0
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>.local/conf
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>cp<span class="w"> </span>conf/impersonation-at-source.yaml<span class="w"> </span>.local/conf/base.yaml
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>--network<span class="w"> </span>host<span class="w"> </span>--add-host<span class="w"> </span>cube.example.com:127.0.0.1<span class="w"> </span>--user<span class="w"> </span><span class="s2">"</span><span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span><span class="s2">:</span><span class="k">$(</span>id<span class="w"> </span>-g<span class="k">)</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">/.local:/run/sutura:ro"</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">SUTURA_CONFIG_DIR</span><span class="o">=</span>/run/sutura/conf<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>ghcr.io/telekom/sutura:<span class="nv">$SUTURA_VERSION</span><span class="w"> </span>serve
 </span></code></pre></div>
 <p>Ask the example question as <code>alice</code>. <code>$TOKEN</code> is her access token from the <code>sutura</code> client of the
-realm (password grant, user and password <code>alice</code>):</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://127.0.0.1:8080/v1/query<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'content-type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'</span>
+realm (password grant, user and password <code>alice</code>), and the answer is <code>262345</code>. As <code>bob</code> it is
+<code>150000</code>:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8180/realms/metrics-layer/protocol/openid-connect/token<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-d<span class="w"> </span><span class="nv">grant_type</span><span class="o">=</span>password<span class="w"> </span>-d<span class="w"> </span><span class="nv">client_id</span><span class="o">=</span>sutura<span class="w"> </span>-d<span class="w"> </span><span class="nv">username</span><span class="o">=</span>alice<span class="w"> </span>-d<span class="w"> </span><span class="nv">password</span><span class="o">=</span>alice<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>sed<span class="w"> </span>-n<span class="w"> </span><span class="s1">'s/.*"access_token":"\([^"]*\)".*/\1/p'</span><span class="k">)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://127.0.0.1:8080/v1/query<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'content-type: application/json'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'</span>
 </span></code></pre></div>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
