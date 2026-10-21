@@ -69,7 +69,7 @@ use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, TableReference};
 use datafusion::datasource::MemTable;
 use datafusion::functions_aggregate::expr_fn::count;
-use datafusion::logical_expr::{Expr, LogicalPlanBuilder, lit};
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
@@ -81,6 +81,8 @@ use crate::pool::{self, WorkingSet};
 
 /// The one logical plan above the legs, and the labels and leaves it reads.
 mod arm;
+/// The drill-across merge: several arms joined above their legs, in this one session.
+mod merge;
 /// The provider a source and a subject give the plan cutter.
 mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
@@ -211,6 +213,14 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
+    /// Two arms bucket by columns of different Arrow types, so no period of one could equal a period of
+    /// the other.
+    #[error("the first arm's bucket column is {first} and another arm's is {other}, so no period can match")]
+    BucketKindMismatch { first: String, other: String },
+    /// The leg results handed to a merge are not the plan's arms: another count, or a joined arm's
+    /// legs where a local arm's one result belongs.
+    #[error("the leg results of arm {arm} do not match the plan's arm")]
+    ArmsMiswired { arm: usize },
     /// A link value maps to more than one lookup row, or to more than one second-fact row in one
     /// bucket, which would double every measure under it.
     ///
@@ -341,89 +351,129 @@ impl DataFusionCombiner {
         working_set: WorkingSet,
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
-        let fact = LegSchema::of(FACT, legs.fact().schema())?;
-        let lookup = LegSchema::of(LOOKUP, legs.lookup().schema())?;
-        let link = InternalLabel::Link.label();
-        agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
-        // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
-        // joined above on the link and the bucket, so its link kind must agree with the first.
-        let second_fact = match (plan.second_fact(), legs.second_fact()) {
-            (Some(_), Some(batches)) => Some(LegSchema::of(SECOND_FACT, batches.schema())?),
-            (Some(_), None) => {
-                return Err(CombineError::MissingColumn {
-                    side: SECOND_FACT,
-                    label: link.clone(),
-                });
-            }
-            (None, _) => None,
-        };
-        if let Some(second) = &second_fact {
-            agreeing_link(fact.link_kind(&link)?, second.link_kind(&link)?)?;
-        }
-        let leaves = leaf_labels(plan, &fact, second_fact.as_ref())?;
-        fact.projects(plan.bucket_label())?;
-        if let Some(second) = &second_fact {
-            second.projects(plan.bucket_label())?;
-        }
-        for key in plan.keys() {
-            match key.side() {
-                LegSide::Fact => fact.projects(key.label())?,
-                LegSide::Lookup => lookup.projects(key.label())?,
-            }
-        }
+        let context = bounded_session(working_set)?;
+        let logical = arm_plan(plan, legs, &context, ceiling_bytes, working_set).await?;
+        executed(&context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
+    }
+}
 
-        let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
-        let context = SessionContext::new_with_config_rt(SessionConfig::new(), environment.into_runtime());
-        register(&context, FACT_TABLE, FACT, legs.fact())?;
-        register(&context, LOOKUP_TABLE, LOOKUP, legs.lookup())?;
-        if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
-            register(&context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
-        }
+/// `logical` run in `context`, its columns checked against `labels` and its last `measures` columns
+/// checked finite: the tail every combine shares, whether it joined two legs or several arms.
+async fn executed(
+    context: &SessionContext,
+    logical: LogicalPlan,
+    labels: Vec<String>,
+    measures: usize,
+    ceiling_bytes: u64,
+    working_set: WorkingSet,
+) -> Result<ResultBatches, CombineError> {
+    let frame = context
+        .execute_logical_plan(logical)
+        .await
+        .map_err(|cause| CombineError::Analyze { cause })?;
+    let actual: Vec<String> = frame
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| String::from(field.name().as_str()))
+        .collect();
+    if actual != labels {
+        return Err(CombineError::SchemaMismatch {
+            expected: labels,
+            actual,
+        });
+    }
+    let answered = collected(frame, ceiling_bytes, working_set).await?;
+    refuse_non_finite(&answered, measures)?;
+    Ok(answered)
+}
 
-        refuse_ambiguous_link(&context, LOOKUP_TABLE, &[&link], ceiling_bytes, working_set).await?;
-        // The second fact is joined on the link AND the bucket, so a second row for one pair fans
-        // every first-fact row under it out exactly as a second lookup row would.
-        if second_fact.is_some() {
-            let on = [link.as_str(), plan.bucket_label()];
-            refuse_ambiguous_link(&context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
-        }
-
-        let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-        let logical = combine_plan(plan, &context, &link, &leaves, second_table).await?;
-        let frame = context
-            .execute_logical_plan(logical)
-            .await
-            .map_err(|cause| CombineError::Analyze { cause })?;
-        let labels = answer_labels(plan);
-        let actual: Vec<String> = frame
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| String::from(field.name().as_str()))
-            .collect();
-        if actual != labels {
-            return Err(CombineError::SchemaMismatch {
-                expected: labels,
-                actual,
+/// One joined arm's logical plan over `context`: its legs checked, registered under the fixed leg
+/// names and probed for an ambiguous link, then cut.
+///
+/// The plan owns the tables it reads, so a later arm may register its legs under the same names in the
+/// same session without disturbing it.
+async fn arm_plan(
+    plan: &FederatedPlan,
+    legs: Legs<'_>,
+    context: &SessionContext,
+    ceiling_bytes: u64,
+    working_set: WorkingSet,
+) -> Result<LogicalPlan, CombineError> {
+    let fact = LegSchema::of(FACT, legs.fact().schema())?;
+    let lookup = LegSchema::of(LOOKUP, legs.lookup().schema())?;
+    let link = InternalLabel::Link.label();
+    agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
+    // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
+    // joined above on the link and the bucket, so its link kind must agree with the first.
+    let second_fact = match (plan.second_fact(), legs.second_fact()) {
+        (Some(_), Some(batches)) => Some(LegSchema::of(SECOND_FACT, batches.schema())?),
+        (Some(_), None) => {
+            return Err(CombineError::MissingColumn {
+                side: SECOND_FACT,
+                label: link.clone(),
             });
         }
-        let answered = collected(frame, ceiling_bytes, working_set).await?;
-        refuse_non_finite(&answered)?;
-        Ok(answered)
+        (None, _) => None,
+    };
+    if let Some(second) = &second_fact {
+        agreeing_link(fact.link_kind(&link)?, second.link_kind(&link)?)?;
     }
+    let leaves = leaf_labels(plan.federation(), &fact, second_fact.as_ref())?;
+    fact.projects(plan.bucket_label())?;
+    if let Some(second) = &second_fact {
+        second.projects(plan.bucket_label())?;
+    }
+    for key in plan.keys() {
+        match key.side() {
+            LegSide::Fact => fact.projects(key.label())?,
+            LegSide::Lookup => lookup.projects(key.label())?,
+        }
+    }
+
+    register(context, FACT_TABLE, FACT, legs.fact())?;
+    register(context, LOOKUP_TABLE, LOOKUP, legs.lookup())?;
+    if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
+        register(context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
+    }
+
+    refuse_ambiguous_link(context, LOOKUP_TABLE, &[&link], ceiling_bytes, working_set).await?;
+    // The second fact is joined on the link AND the bucket, so a second row for one pair fans
+    // every first-fact row under it out exactly as a second lookup row would.
+    if second_fact.is_some() {
+        let on = [link.as_str(), plan.bucket_label()];
+        refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+    }
+
+    let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
+    combine_plan(plan, context, &link, &leaves, second_table).await
+}
+
+/// A session whose operators reserve against `working_set`: the one pool a question's combine has.
+fn bounded_session(working_set: WorkingSet) -> Result<SessionContext, CombineError> {
+    let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
+    Ok(SessionContext::new_with_config_rt(
+        SessionConfig::new(),
+        environment.into_runtime(),
+    ))
+}
+
+/// The pool a ceiling of `bytes` sizes.
+///
+/// A ceiling of zero, or one wider than this target's pointers, is not a pool this engine can
+/// install. Clamped to one byte rather than defaulted to unbounded: an unbounded pool under
+/// `panic = "abort"` makes a wide join process death for every caller in flight, and a one-byte pool
+/// refuses the first reservation - which is a refusal the caller can read.
+fn working_set_of(bytes: u64) -> WorkingSet {
+    let clamped = usize::try_from(bytes).unwrap_or(usize::MAX);
+    WorkingSet::of_bytes(core::num::NonZeroUsize::new(clamped).unwrap_or(core::num::NonZeroUsize::MIN))
 }
 
 impl FederationCombiner for DataFusionCombiner {
     type Error = CombineError;
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
-        // A ceiling of zero, or one wider than this target's pointers, is not a pool this engine can
-        // install. Clamped to one byte rather than defaulted to unbounded: an unbounded pool under
-        // `panic = "abort"` makes a wide join process death for every caller in flight, and a
-        // one-byte pool refuses the first reservation - which is a refusal the caller can read.
-        let clamped = usize::try_from(working_set_bytes).unwrap_or(usize::MAX);
-        let bytes = core::num::NonZeroUsize::new(clamped).unwrap_or(core::num::NonZeroUsize::MIN);
-        let working_set = WorkingSet::of_bytes(bytes);
+        let working_set = working_set_of(working_set_bytes);
         self.runtime()?
             .block_on(Self::assembled(plan, legs, working_set, working_set_bytes))
     }
@@ -444,6 +494,7 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::FloatLinkKey { .. } => Some(FederatedAnswerRefusal::FloatLinkKey),
             CombineError::AmbiguousLink => Some(FederatedAnswerRefusal::AmbiguousLink),
             CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
+            CombineError::BucketKindMismatch { .. } => Some(FederatedAnswerRefusal::BucketKindMismatch),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
@@ -457,6 +508,7 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::Exhausted { .. }
             | CombineError::Unannounced { .. }
             | CombineError::SchemaMismatch { .. }
+            | CombineError::ArmsMiswired { .. }
             | CombineError::MissingColumn { .. }
             | CombineError::DuplicateLabels { .. }
             | CombineError::UnsupportedAggregate { .. }
@@ -472,6 +524,12 @@ impl FederationCombiner for DataFusionCombiner {
 /// where that limit on the ceiling's reach is stated.
 fn register(context: &SessionContext, table: &str, side: &'static str, batches: &ResultBatches) -> Result<(), CombineError> {
     let memory = MemTable::try_new(Arc::clone(batches.schema()), vec![batches.batches().to_vec()])
+        .map_err(|cause| CombineError::Register { side, cause })?;
+    // A merge registers each arm's legs under the same names in turn; the plan an earlier arm built
+    // holds its own table, so the name is free again. Nothing is registered under it on the two-leg
+    // path, where this finds nothing to remove.
+    context
+        .deregister_table(TableReference::bare(table))
         .map_err(|cause| CombineError::Register { side, cause })?;
     context
         .register_table(TableReference::bare(table), Arc::new(memory))
@@ -575,9 +633,10 @@ async fn collected(
 
 /// Refuses an answer whose measure is not a finite number.
 ///
-/// **One pass over ONE column, and only when that column is a float.** The measure is the answer's
-/// last column by construction - [`answer_labels`] states the order - and only a `Float64` measure
-/// can be non-finite: an exact decimal cannot represent one.
+/// **One pass over the measure columns, and only the ones that are floats.** The measures are the
+/// answer's last `measures` columns by construction - [`answer_labels`] states the order, and a
+/// drill-across answer carries one per arm - and only a `Float64` measure can be non-finite: an
+/// exact decimal cannot represent one.
 ///
 /// **Why the combiner refuses this rather than letting the presentation edge do it.**
 /// `ResultBatches::to_rows` already refuses a non-finite double, so the answer would be refused
@@ -586,23 +645,25 @@ async fn collected(
 /// asked for exactly this, and a caller told to retry it retries forever. So the refusal is taken
 /// here, where it can be classified as
 /// [`FederatedAnswerRefusal::NonFinite`](sutura_domain::plan::FederatedAnswerRefusal::NonFinite).
-fn refuse_non_finite(answered: &ResultBatches) -> Result<(), CombineError> {
-    let measure = answered.schema().fields().len().saturating_sub(1);
-    let Some(field) = answered.schema().fields().get(measure) else {
-        return Ok(());
-    };
-    if *field.data_type() != DataType::Float64 {
-        return Ok(());
-    }
-    for batch in answered.batches() {
-        let Some(column) = batch.columns().get(measure) else {
+fn refuse_non_finite(answered: &ResultBatches, measures: usize) -> Result<(), CombineError> {
+    let width = answered.schema().fields().len();
+    for measure in width.saturating_sub(measures)..width {
+        let Some(field) = answered.schema().fields().get(measure) else {
             continue;
         };
-        let Some(floats) = column.as_any().downcast_ref::<Float64Array>() else {
+        if *field.data_type() != DataType::Float64 {
             continue;
-        };
-        if floats.iter().flatten().any(|value| !value.is_finite()) {
-            return Err(CombineError::NonFinite);
+        }
+        for batch in answered.batches() {
+            let Some(column) = batch.columns().get(measure) else {
+                continue;
+            };
+            let Some(floats) = column.as_any().downcast_ref::<Float64Array>() else {
+                continue;
+            };
+            if floats.iter().flatten().any(|value| !value.is_finite()) {
+                return Err(CombineError::NonFinite);
+            }
         }
     }
     Ok(())

@@ -7351,6 +7351,17 @@ two.
 
 One metric's share of a drill-across question.
 
+### `use ArmLegs`
+
+One arm's leg results, in the shape its `Arm` takes.
+
+The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
+Whether the variants line up with the plan's arms is the combiner's to check: a slice cannot say.
+
+### `use DrillAcrossCombiner`
+
+Joins every arm of a `DrillAcrossPlan` on the answer's keys and time bucket.
+
 ### `use DrillAcrossPlan`
 
 Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
@@ -8530,6 +8541,17 @@ Why a drill-across plan, or one of its arms, could not be built.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+#### `use ArmLegs`
+
+One arm's leg results, in the shape its `Arm` takes.
+
+The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
+Whether the variants line up with the plan's arms is the combiner's to check: a slice cannot say.
+
+#### `use DrillAcrossCombiner`
+
+Joins every arm of a `DrillAcrossPlan` on the answer's keys and time bucket.
+
 #### `constant MAX_LEGS`
 
 The most legs one question may run, over every arm.
@@ -9442,7 +9464,7 @@ Behind `fixtures`, so nothing published holds it.
 
 ###### Implements
 
-`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
+`Clone`, `Copy`, `Debug`, `Default`, `DrillAcrossCombiner`, `FederationCombiner`
 
 ##### `struct NothingCombined`
 

@@ -5,7 +5,7 @@ description: A question that names several metrics runs one arm per metric and j
 
 # Drill across for several metrics
 
-Status: **accepted**. The plan type is built. The planner, the combine and the answer path are not.
+Status: **accepted**. The plan type and the DataFusion merge are built. The planner and the answer path are not.
 
 ## The question
 
@@ -54,11 +54,30 @@ a set of arms that cannot be joined, with a typed error each:
 A local arm refuses a leg that is not a fact leg, terms that are not its federation's leaves, a leaf
 on another model, and an answer key (or a distinct count's key) the leg does not project.
 
+## The combiner
+
+`DrillAcrossCombiner::merge` (`sutura-domain`) is a supertrait of `FederationCombiner`, so the error
+and the two classifying predicates are the two-leg combine's. `DataFusionCombiner` implements it.
+
+- **One session, one plan.** Each arm is cut to a logical plan (a joined arm by the plan the two-leg
+  combine runs, a local arm by one aggregate over its fact leg), and the plans are joined left to
+  right into one plan that runs once. The working-set ceiling is the question's, not each arm's.
+- **The join is FULL on every key and the bucket, a null equal to a null.** It is
+  `NullEquality::NullEqualsNull` on `join_detailed` at the pinned DataFusion; a plain `=` would answer
+  a null key two arms share as two rows. A group one arm lacks answers null under that arm.
+- **A bucket of another Arrow type is refused.** `FederatedAnswerRefusal::BucketKindMismatch`; no cast.
+- **Leg results that are not the plan's arms** are `ArmsMiswired`: this workspace's defect.
+
+Limits: a key whose Arrow types differ between arms is not checked; the engine's coercion decides, and
+a pair it cannot coerce leaves as an internal failure. The ceiling bounds the merge's operators, as
+for the two-leg combine, not the leg results the caller already holds. Only local arms and one joined
+arm over in-memory legs are measured; no served question reaches `merge`.
+
 ## What is not built
 
 - **No planner builds this plan.** Both refusals above still fire, and no question reaches it.
-- **No combine.** The `FederationCombiner` port gains no method here. A method with no implementor
-  is not a port, so the join arrives with the DataFusion combiner that implements it.
+- **No leg running.** `merge` takes the leg results; running the legs, one mint and one charge for
+  every leg is the answer path's.
 - **No conformance check, and no `QuestionNeedsTooManyLegs` refusal.** The plan type holds the cap;
   the refusal text a caller sees comes with the planner.
 - **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,
