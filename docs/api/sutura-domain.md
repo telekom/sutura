@@ -6811,43 +6811,6 @@ pub const fn new(label: ResultLabel, grain: Grain, column: PlanColumn) -> Self
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
-### `struct PlanKey`
-
-```rust
-pub struct PlanKey
-```
-
-One group-by key.
-
-**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
-to be labelled with whatever text its producer computed, and what kept that out of the internal
-namespace a federated leg also projects into was a derivation held by review. The type is the
-mechanism now: `ResultLabel` carries the compile-fail pair that says so.
-
-#### Methods
-
-```rust
-pub const fn column(&self) -> &PlanColumn
-```
-
-```rust
-pub fn label(&self) -> &str
-```
-
-The text this key is projected under.
-
-Text rather than the `ResultLabel`, because every reader of a label renders it: the
-generator quotes it as an alias and the combiner looks a column up by it. What the type
-holds is the way IN.
-
-```rust
-pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
 ### `enum PlanTerm`
 
 ```rust
@@ -7384,6 +7347,37 @@ Why a federated row ceiling did not parse.
 Both configured row ceilings, carried together so a service hands one argument down rather than
 two.
 
+### `use Arm`
+
+One metric's share of a drill-across question.
+
+### `use DrillAcrossPlan`
+
+Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
+
+The keys, the bucket and the range are the first arm's, and every later arm is checked against
+them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
+would leave the full join a null for a period it never read, which the answer reads as "no rows".
+Each arm's time column may differ: only the label and grain must agree, and what an Arrow kind
+mismatch between two buckets means is the combiner's to refuse.
+
+### `use DrillAcrossPlanError`
+
+Why a drill-across plan, or one of its arms, could not be built.
+
+### `use LocalArm`
+
+A metric answered by one fact leg, which no lookup leg joins.
+
+Each answer key, and each distinct count's leaf key, is on the leg. The leg can group by more
+keys, so the combine aggregates it to the answer's keys and bucket. Its metric, bucket and
+measure label are read off the leg and the metric rather than passed beside them, so no argument
+can disagree with the leg.
+
+### `use MAX_LEGS`
+
+The most legs one question may run, over every arm.
+
 ### `use AnswerKey`
 
 One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
@@ -7711,6 +7705,22 @@ reached through this fake is a test that has drifted into the federated path, an
 loudly rather than passing over a fabricated number.
 
 Behind `fixtures`, so nothing published holds it.
+
+### `use KeyValue`
+
+What a `PlanKey` groups by.
+
+### `use PlanKey`
+
+One group-by key.
+
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
+**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
+by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
 
 ### `use ResultLabel`
 
@@ -8300,6 +8310,230 @@ the number, and an out-of-range index is out of order as well.
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### Module `drill_across`
+
+The drill-across plan: several metrics, each answered by its own arm, joined above on the
+answer's keys and time bucket.
+
+**No new leg shape.** A metric that reaches a remote dimension is an `Arm::Joined`, the
+`FederatedPlan` the splitter already builds; a metric whose dimensions are all on its own source
+is an `Arm::Local`, one fact leg grouped by the answer's keys and the bucket. Every arm is
+aggregated on its own, so no leg reads two fact tables and the chasm trap stays impossible.
+
+**What this type holds, and what it does not.** It holds the arms and refuses a set of arms that
+cannot be joined: two arms whose keys, bucket or time range differ, one metric twice, an arm
+carrying a `top`, or more legs than `MAX_LEGS`. A `top` cuts its arm before the join, so that arm
+answers a null for each group it cut that another arm has, and the answer reads that null as "no
+rows"; a `top` for the whole question, for example by period after the join, is not built here.
+The plan names no join and no engine; the combine is a port's concern. Nothing builds this plan
+yet, so no question reaches it.
+
+**The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
+memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
+refusal a caller sees comes with the planner, which does not read the cap yet.
+
+The architecture decision records the decision and its limits.
+
+#### `enum Arm`
+
+```rust
+pub enum Arm
+```
+
+One metric's share of a drill-across question.
+
+##### Variants
+
+- `Joined` - A metric that reaches a remote dimension: a fact leg beside a lookup leg.
+
+  Boxed with the local arm: both are hundreds of bytes, and an enum is as large as its largest.
+- `Local` - A metric whose dimensions are all on its own source.
+
+##### Methods
+
+```rust
+pub fn bucket(&self) -> &PlanBucket
+```
+
+The time bucket this arm groups by.
+
+```rust
+pub fn keys(&self) -> Vec<&str>
+```
+
+The answer's group-by labels in question order.
+
+```rust
+pub fn legs(&self) -> Vec<&LegPlan>
+```
+
+Every leg this arm runs.
+
+```rust
+pub fn measure_label(&self) -> &str
+```
+
+The label this arm's measure is emitted under.
+
+```rust
+pub fn metric(&self) -> &MetricName
+```
+
+The metric this arm measures.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct LocalArm`
+
+```rust
+pub struct LocalArm
+```
+
+A metric answered by one fact leg, which no lookup leg joins.
+
+Each answer key, and each distinct count's leaf key, is on the leg. The leg can group by more
+keys, so the combine aggregates it to the answer's keys and bucket. Its metric, bucket and
+measure label are read off the leg and the metric rather than passed beside them, so no argument
+can disagree with the leg.
+
+##### Methods
+
+```rust
+pub const fn fact(&self) -> &LegPlan
+```
+
+The fact leg.
+
+```rust
+pub const fn federation(&self) -> &Federation
+```
+
+The combine tree above the leg, and the metric that names its leaves.
+
+```rust
+pub fn measure_label(&self) -> &str
+```
+
+The label the answer's measure is emitted under.
+
+```rust
+pub fn new(fact: LegPlan, federation: Federation, keys: Vec<ResultLabel>) -> Result<Self, DrillAcrossPlanError>
+```
+
+An arm over `fact`, whose leaves `federation` names and whose answer keys are `keys`.
+
+# Errors
+
+`DrillAcrossPlanError::NotFact` for a leg that is not a fact leg;
+`DrillAcrossPlanError::TermsDoNotMatchFederation` for terms that are not the federation's
+labels in order, or a leaf that names another model - a second fact is a `Arm::Joined`'s;
+`DrillAcrossPlanError::KeyNotOnLeg` for an answer key, or a pulled-up leaf's key, that the
+leg does not project.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct DrillAcrossPlan`
+
+```rust
+pub struct DrillAcrossPlan
+```
+
+Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
+
+The keys, the bucket and the range are the first arm's, and every later arm is checked against
+them, so the plan holds no copy that could disagree with an arm. A fact leg over another range
+would leave the full join a null for a period it never read, which the answer reads as "no rows".
+Each arm's time column may differ: only the label and grain must agree, and what an Arrow kind
+mismatch between two buckets means is the combiner's to refuse.
+
+##### Methods
+
+```rust
+pub const fn arms(&self) -> &NonEmpty<Arm>
+```
+
+The arms, in question order of their metrics.
+
+```rust
+pub fn bucket_label(&self) -> &str
+```
+
+The label the time bucket is emitted under.
+
+```rust
+pub fn grain(&self) -> Grain
+```
+
+The grain every arm buckets by.
+
+```rust
+pub fn keys(&self) -> Vec<&str>
+```
+
+The group-by labels every arm answers under, in question order.
+
+```rust
+pub fn legs(&self) -> Vec<&LegPlan>
+```
+
+Every leg of every arm, arm by arm.
+
+```rust
+pub fn new(first: Arm, second: Arm, rest: Vec<Arm>) -> Result<Self, DrillAcrossPlanError>
+```
+
+A plan over `first`, `second` and every arm of `rest`.
+
+Two arms are the least there is to join, so the signature takes two rather than a list that
+could hold fewer.
+
+# Errors
+
+`DrillAcrossPlanError` for one metric in two arms, an arm carrying a `top`, an arm whose
+keys, bucket or time range differ from the first arm's, or more than `MAX_LEGS` legs.
+
+```rust
+pub fn sources(&self) -> impl Iterator<Item> + '_
+```
+
+Every data system a leg reads, once per leg.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum DrillAcrossPlanError`
+
+```rust
+pub enum DrillAcrossPlanError
+```
+
+Why a drill-across plan, or one of its arms, could not be built.
+
+##### Variants
+
+- `NotFact` - The leg of a local arm is not a fact leg.
+- `KeyNotOnLeg` - A local arm's leg does not project a key the arm needs.
+- `TermsDoNotMatchFederation` - A local arm's terms are not its federation's leaves.
+- `ArmCarriesTop` - A joined arm carries a `top`, which a drill-across question refuses: it cuts that arm before the join, so that arm answers a null for each group it cut that another arm has, and the answer reads that null as "no rows".
+- `DuplicateMetric` - One metric is measured by two arms, which would emit one measure column twice.
+- `KeysDiffer` - An arm answers under other keys, or in another order, than the first arm.
+- `BucketDiffers` - An arm buckets by another label or grain than the first arm.
+- `RangeDiffers` - A fact leg reads another time range than the first arm's.
+- `TooManyLegs` - The arms run more legs than one question may hold.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `constant MAX_LEGS`
+
+The most legs one question may run, over every arm.
+
 ### Module `federated`
 
 The federated question: two legs, the plan that names them, and the port the combine happens
@@ -8366,6 +8600,12 @@ serialized to be printed; `FederatedPlan` does not derive `serde::Deserialize`, 
 be reconstructed from its serialized form and no field here is a request a caller writes.
 
 ##### Methods
+
+```rust
+pub const fn bucket(&self) -> &PlanBucket
+```
+
+The time bucket the answer groups by: its label, grain and column.
 
 ```rust
 pub fn bucket_label(&self) -> &str
@@ -9372,6 +9612,73 @@ function twice, so naming by aggregate would give both leaves one label and a co
 divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
 metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
 under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+
+### Module `key`
+
+One group-by key: a column, or a column truncated to a grain.
+
+#### `struct PlanKey`
+
+```rust
+pub struct PlanKey
+```
+
+One group-by key.
+
+**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+to be labelled with whatever text its producer computed, and what kept that out of the internal
+namespace a federated leg also projects into was a derivation held by review. The type is the
+mechanism now: `ResultLabel` carries the compile-fail pair that says so.
+
+**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
+by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
+
+##### Methods
+
+```rust
+pub fn label(&self) -> &str
+```
+
+The text this key is projected under.
+
+Text rather than the `ResultLabel`, because every reader of a label renders it: the
+generator quotes it as an alias and the combiner looks a column up by it. What the type
+holds is the way IN.
+
+```rust
+pub const fn new(label: ResultLabel, column: PlanColumn) -> Self
+```
+
+```rust
+pub const fn truncated(label: ResultLabel, column: PlanColumn, grain: Grain) -> Self
+```
+
+A key on `column` truncated to `grain`.
+
+```rust
+pub const fn value(&self) -> KeyValue<'_>
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum KeyValue`
+
+```rust
+pub enum KeyValue<'key>
+```
+
+What a `PlanKey` groups by.
+
+##### Variants
+
+- `Column` - The column as stored.
+- `Truncated` - The column truncated to `grain`, with the function a time bucket and a truncated join use.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ### Module `label`
 

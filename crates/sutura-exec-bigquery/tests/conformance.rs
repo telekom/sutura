@@ -296,9 +296,9 @@ mod conformance {
     impl Canned {
         /// Renders every corpus case once, through the same function the adapter renders through,
         /// and remembers each one's answer under the exact request it will be asked for.
-        /// The LEG is precomputed beside them, through `generate_leg` rather than `generate` -
-        /// the same split `BigQueryWarehouse::render` makes. Its expected rows are the
-        /// `total-by-region-and-day` case's own (`corpus::leg_case`), which is what makes
+        /// Every corpus LEG is precomputed beside them, through `generate_leg` rather than
+        /// `generate` - the same split `BigQueryWarehouse::render` makes. The first leg's expected
+        /// rows are the `total-by-region-and-day` case's own (`corpus::leg_case`), which is what makes
         /// `a_leg_is_executed` a claim that the leg path reaches the whole-plan path's answer
         /// rather than a smoke test over this lookup table.
         fn from_corpus() -> Self {
@@ -308,9 +308,10 @@ mod conformance {
                 let key = key_of(rendered.sql(), rendered.params());
                 drop(answers.insert(key, canned_rows(case.expected())));
             }
-            let leg = corpus::leg_case();
-            let rendered = generate_leg(leg.leg(), Dialect::BigQuery).expect("the corpus leg renders for BigQuery");
-            drop(answers.insert(key_of(rendered.sql(), rendered.params()), canned_rows(leg.expected())));
+            for leg in corpus::leg_cases() {
+                let rendered = generate_leg(leg.leg(), Dialect::BigQuery).expect("a corpus leg renders for BigQuery");
+                drop(answers.insert(key_of(rendered.sql(), rendered.params()), canned_rows(leg.expected())));
+            }
             Self { answers }
         }
     }
