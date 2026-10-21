@@ -3820,6 +3820,9 @@ catalog <code>name</code> is also the name of the BigQuery source that the model
 model must be on the <code>bigquery</code> platform, and sutura binds it to the source whose alias is the
 catalog <code>name</code>. A model on a platform that is not mapped is refused at load, by name.
 The <a href="../../../examples/federated/">federated</a> example maps <code>postgres</code> and <code>clickhouse</code>.</p>
+<p>A relationship endpoint (<code>from</code> or <code>to</code> of a semantic model) joins only through the exact dataset urn
+it names, and that urn must name a dataset the same read returned. An endpoint that names any other
+dataset, on any platform or environment, is refused, and the error names the endpoint and the urn.</p>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
 <p>The reader sends the token from <code>token_file</code> on every request. It is one token for every caller,
 because sutura loads a catalog without a caller's identity.</p>
