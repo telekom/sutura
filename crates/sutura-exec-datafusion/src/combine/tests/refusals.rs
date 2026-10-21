@@ -441,6 +441,55 @@ fn two_lookup_keys_that_cast_to_one_integer_are_ambiguous() {
     );
 }
 
+/// One fact leg of `two_fact_plan` carrying leaf `position`: a text link and the month bucket, one row per key.
+fn two_fact_leg(position: usize, keys: &[&str]) -> ResultBatches {
+    batches_of(
+        vec![
+            link(),
+            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+            leaf(position),
+        ],
+        keys.iter()
+            .map(|key| vec![Value::Text((*key).into()), Value::Text("2026-06".into()), Value::Integer(100)])
+            .collect(),
+    )
+}
+
+fn declared_two_fact(first: &[&str], second: &[&str]) -> Result<ResultBatches, CombineError> {
+    let plan = two_fact_plan().with_link_comparison(Some(LinkKind::ExactInteger));
+    let lookup = lookup_linked(DataType::Int64, integers(&[1]));
+    try_combine_every(&plan, &[two_fact_leg(0, first), two_fact_leg(1, second), lookup], UNBOUNDED)
+}
+
+#[test]
+fn two_first_fact_keys_that_cast_to_one_integer_are_ambiguous_beside_a_second_fact() {
+    // `1` and `01` are two groups at the source and one key after the cast. Each would meet the
+    // one second-fact row, so its leaf would be summed twice and the ratio would read 25 where the
+    // declared meaning is 50, with no refusal. The first fact leg is probed once it is cast.
+    assert_eq!(
+        refusal_of(declared_two_fact(&["1", "01"], &["1"])),
+        FederatedAnswerRefusal::AmbiguousLink
+    );
+}
+
+#[test]
+fn a_second_fact_key_that_is_not_an_integer_is_refused_by_the_cast() {
+    // The second fact leg is cast as the first is. Left uncast, the engine's own comparison would
+    // coerce the text and fail during execution, as no typed refusal.
+    let error = declared_two_fact(&["1"], &["not-a-number"]).expect_err("a value that does not cast refuses the answer");
+    assert!(
+        matches!(
+            error,
+            CombineError::LinkValueNotCast {
+                side: "second_fact",
+                from: "text",
+                to: "an exact integer"
+            }
+        ),
+        "{error:?}"
+    );
+}
+
 fn refusal_of(answer: Result<ResultBatches, CombineError>) -> FederatedAnswerRefusal {
     let error = answer.expect_err("this combine is refused");
     combiner()

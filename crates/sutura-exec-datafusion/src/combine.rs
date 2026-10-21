@@ -541,6 +541,10 @@ async fn arm_plan(
     if second_fact.is_some() {
         let on = [link.as_str(), plan.bucket_label()];
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        // A cast can make two first-fact groups one key, and each would meet the second fact's row.
+        if casts.fact.is_some() {
+            refuse_ambiguous_link(context, FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        }
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);

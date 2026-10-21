@@ -579,21 +579,28 @@ fn a_null_text_key_stays_unmatched_under_a_declaration() {
     );
 }
 
+/// Scale-nine decimals of `kind`, one per whole number in `whole`.
+fn scale_nine(kind: &DataType, whole: &[i128]) -> ArrayRef {
+    let scaled = whole.iter().map(|value| value * 1_000_000_000);
+    match *kind {
+        DataType::Decimal256(precision, scale) => Arc::new(
+            Decimal256Array::from_iter_values(scaled.map(i256::from_i128))
+                .with_precision_and_scale(precision, scale)
+                .expect("a scale-nine decimal"),
+        ),
+        _ => Arc::new(
+            Decimal128Array::from_iter_values(scaled)
+                .with_precision_and_scale(38, 9)
+                .expect("a scale-nine decimal"),
+        ),
+    }
+}
+
 #[test]
 fn an_integer_leg_joins_a_scale_nine_decimal_leg_declared_exact_decimal() {
-    // The integer 7 and the decimal 7.000000000 are one key. Both decimal widths, both ends, both
-    // join kinds, for the reason the cell above gives.
-    let narrow: ArrayRef = Arc::new(
-        Decimal128Array::from(vec![7_000_000_000_i128])
-            .with_precision_and_scale(38, 9)
-            .expect("a scale-nine decimal"),
-    );
-    let wide: ArrayRef = Arc::new(
-        Decimal256Array::from(vec![i256::from_i128(7_000_000_000)])
-            .with_precision_and_scale(76, 9)
-            .expect("a scale-nine decimal"),
-    );
-    for (kind, decimals) in [(DataType::Decimal128(38, 9), narrow), (DataType::Decimal256(76, 9), wide)] {
+    // The integer 7 and the decimal 7.000000000 are one key. Both decimal widths, the decimal on
+    // either leg, both join kinds, for the reason the first cell above gives.
+    for kind in [DataType::Decimal128(38, 9), DataType::Decimal256(76, 9)] {
         for include_unmatched in [true, false] {
             let expected = if include_unmatched {
                 vec![matched_row(), unmatched_row()]
@@ -601,11 +608,18 @@ fn an_integer_leg_joins_a_scale_nine_decimal_leg_declared_exact_decimal() {
                 vec![matched_row()]
             };
             let integer_fact = fact_linked(DataType::Int64, integer_keys(&[7, 8]));
-            let decimal_lookup = lookup_linked(kind.clone(), Arc::clone(&decimals));
+            let decimal_lookup = lookup_linked(kind.clone(), scale_nine(&kind, &[7]));
             assert_eq!(
                 declared_answers(LinkKind::ExactDecimal, include_unmatched, &integer_fact, &decimal_lookup),
                 expected,
                 "an integer fact key against a {kind:?} lookup key, unmatched kept: {include_unmatched}"
+            );
+            let decimal_fact = fact_linked(kind.clone(), scale_nine(&kind, &[7, 8]));
+            let integer_lookup = lookup_linked(DataType::Int64, integer_keys(&[7]));
+            assert_eq!(
+                declared_answers(LinkKind::ExactDecimal, include_unmatched, &decimal_fact, &integer_lookup),
+                expected,
+                "a {kind:?} fact key against an integer lookup key, unmatched kept: {include_unmatched}"
             );
         }
     }

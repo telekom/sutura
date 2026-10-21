@@ -12,9 +12,10 @@ ADR 0007's *What is explicitly not decided* carried *"How a cross-source join ke
 declared and compared"* as an open question
 (`docs/adr/0007-federating-across-different-data-systems.md:1049-1052`). This page
 closes the comparison half: the plan-time refusal from the catalog's declared types and
-the runtime refusal from the legs' schemas. The declaration half - a catalog field
-saying two columns are comparable - is still open, is tracked in
-`telekom/sutura#1482`, and the last sections say so. ADR 0007's *Fifteenth amendment*
+the runtime refusal from the legs' schemas. The declaration half exists as an optional
+relationship field (see the declaration section below); what is still open, tracked in
+`telekom/sutura#1482`, is that the splitter does not yet write it onto a plan and the
+plan-time and load checks do not read it. ADR 0007's *Fifteenth amendment*
 records the split.
 
 ## What is compared, and where
@@ -47,19 +48,23 @@ split is the whole of the design:
 2. **The two legs' link kinds are compared to each other**, and a mismatch is
    refused
    (`crates/sutura-exec-datafusion/src/combine/schema.rs:105-113`, `agreeing_link`).
-   The check is `fact == lookup`: the two kinds must be the same variant. There is
-   no coercion, no widening, and no fallback. `ExactInteger` against `Text` is
-   refused; `ExactInteger` against `ExactDecimal` is refused; `Date` against `Text`
-   is refused.
+   With no declaration the check is `fact == lookup`: the two kinds must be the same
+   variant, with no coercion, no widening and no fallback. `ExactInteger` against
+   `Text` is refused; `ExactInteger` against `ExactDecimal` is refused; `Date`
+   against `Text` is refused. With a declaration the pair must be one the declaration
+   joins (see the declaration section).
 
-The call site is `crates/sutura-exec-datafusion/src/combine.rs:347`:
+The call site is the combiner's `arm_plan`:
 
 ```rust
-agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
+agreeing_link(declared, fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
 ```
 
-A second fact leg, when one is present for a cross-model ratio, is checked the same
-way against the first fact leg at `combine.rs:361`.
+where `declared` is the plan's `link_comparison` for the first lookup leg and `None`
+for a later one. A second fact leg, when one is present for a cross-model ratio, is
+checked against the first fact leg by kind equality, before any cast, so under a
+declaration a second fact leg of another kind than the first is refused as
+`LinkTypeMismatch`.
 
 ### Why kinds, not types
 
@@ -162,7 +167,7 @@ cross-model ratio's second fact leg are decided by the runtime check after both 
 have executed. `Column::data_type` is otherwise descriptive text - a quote of what
 the source called the column - and `LinkKind::declared` reads it only to refuse.
 
-### No comparability declaration on a relationship
+### A relationship may declare how its keys compare
 
 A relationship can declare how its two keys compare, with the field `comparison`
 (markdown: `compare_as:`, one of `exact_integer`, `exact_decimal`, `text`, `date`,
@@ -180,8 +185,13 @@ Limits: the splitter does not yet write the declaration onto the plan, and the
 plan-time check and the load check do not read it yet, so no served question carries
 one; the declaration applies to the first lookup leg and to a second fact leg, not to
 a later lookup leg; DataHub reads none; a text value past i64 is refused; the cast leg
-is a second copy of one column held outside the memory pool. The cells are in
-`crates/sutura-exec-datafusion/src/combine/tests.rs` and `combine/tests/refusals.rs`.
+is a second copy of one column held outside the memory pool. The second fact leg must
+be of the first fact leg's kind, else it is `LinkTypeMismatch` even where the
+declared cast would join it; and Arrow's integer cast also accepts a leading sign and
+surrounding ASCII spaces, so ` 1`, `1 ` and `+1` are the key 1 under a declared
+`exact_integer`. The cells are in
+`crates/sutura-exec-datafusion/src/combine/tests.rs` and `combine/tests/refusals.rs`
+(a later lookup leg: `combine/tests/fan_in.rs`).
 
 ### Case and whitespace on a text key
 

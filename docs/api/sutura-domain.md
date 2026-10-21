@@ -8708,7 +8708,10 @@ legs a combiner runs all read it, so no lookup leg can be left out of one of the
 pub const fn link_comparison(&self) -> Option<LinkKind>
 ```
 
-The comparison the link declares, or `None` for equality of kind.
+The comparison the first link declares, or `None` for equality of kind.
+
+The combiner reads it for the first lookup leg's link and the second fact leg's, so whatever
+writes it names the first lookup leg's relationship.
 
 ```rust
 pub const fn lookups(&self) -> &LookupLegs

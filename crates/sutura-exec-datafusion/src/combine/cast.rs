@@ -6,10 +6,11 @@
 //! `telekom/sutura#138` closed. Arrow's own message names the value, so the cause is dropped and the
 //! refusal carries the two kinds only.
 //!
-//! **Two casts, because [`LinkKind::reaches`] admits two.** Text is read as an `Int64`, never as
-//! the anchor's own type: a text cast to a zero-scale decimal goes through the rounding path. An
-//! integer is widened to the anchor's decimal scale at the widest precision its width holds, so the
-//! join compares like with like and a value past that precision is refused rather than wrapped.
+//! **Two casts, because [`sutura_domain::plan::LinkKind::reaches`] admits two.** Text is read as an
+//! `Int64`, never as the anchor's own type: a text cast to a zero-scale decimal goes through the
+//! rounding path. An integer is widened to the anchor's decimal scale at the widest precision its
+//! width holds, so the join compares like with like and a value past that precision is refused
+//! rather than wrapped.
 //!
 //! The cast leg is a second copy of one column's batches, held outside the memory pool exactly as
 //! the registered legs are, and bounded by that leg's own rows.
@@ -94,6 +95,8 @@ impl LinkCasts {
                         target,
                     })
                 })
+                // Unreachable behind `agreeing_link`, which only passes a pair `reaches` admits. Kept
+                // closed rather than dropped: a leg left uncast would meet the engine's own coercion.
                 .ok_or(CombineError::LinkKindsNotJoined {
                     declared: declared.word(),
                     fact: fact_kind.word(),
