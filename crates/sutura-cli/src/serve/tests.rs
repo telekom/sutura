@@ -379,10 +379,12 @@ fn a_refreshed_bundle_naming_a_table_the_engine_did_not_attach_is_refused() {
 /// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
 ///
 fn bigquery_entry(alias: &str, posture: &str, extra: &str) -> String {
-    format!(
-        "  {alias}:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
-         \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"{posture}\"\n{extra}"
-    )
+    let billing = if posture == "shared-service-user" {
+        "    billing:\n      service_account_project: \"acme-analytics\"\n"
+    } else {
+        ""
+    };
+    format!("  {alias}:\n    kind: \"bigquery\"\n    max_bytes_billed: 1073741824\n    posture: \"{posture}\"\n{billing}{extra}")
 }
 
 /// The startup a `bigquery` source produces, whichever way this binary was built.

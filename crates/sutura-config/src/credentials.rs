@@ -160,7 +160,9 @@ impl CredentialBroker for StaticCredentialBroker {
         // `Expiry` says that as a case rather than as a sentinel instant. A broker that exchanges a
         // token computes the earliest across what it minted instead.
         LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
-            .map(|credentials| Minted::Granted { credentials })
+            .map(|credentials| Minted::Granted {
+                credentials: credentials.named_by(context),
+            })
             .map_err(|cause| StaticCredentialsUnusable::Coverage { cause })
     }
 }

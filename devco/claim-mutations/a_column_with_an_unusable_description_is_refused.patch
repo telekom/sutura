@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-catalog-datahub/src/lib.rs b/crates/sutura-catalog-datahub/src/lib.rs
-index 9a53f0513..7aaaf58d9 100644
 --- a/crates/sutura-catalog-datahub/src/lib.rs
 +++ b/crates/sutura-catalog-datahub/src/lib.rs
-@@ -337,10 +337,9 @@ impl<R: AspectReader> DataHubCatalog<R> {
+@@ -352,10 +352,9 @@
                  None,
              )
              .map_err(|refusal| {
@@ -10,7 +9,7 @@ index 9a53f0513..7aaaf58d9 100644
 -                DataHubError::ColumnDescription {
 +                let (_column, cause) = refusal.into_parts();
 +                DataHubError::Description {
-                     on: dataset.name().to_owned(),
+                     on: model.clone(),
 -                    column,
                      cause,
                  }

@@ -16,8 +16,6 @@ config:
     sources:
       warehouse:
         kind: bigquery
-        billing_project: example-project
-        dataset: metrics
         max_bytes_billed: 1073741824
         posture: impersonation-at-source
         workload_identity:

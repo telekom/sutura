@@ -18,9 +18,6 @@ use crate::combine::CombineError;
 /// Which side a refusal is about, as the word a message carries.
 pub(crate) const FACT: &str = "fact";
 
-/// The lookup leg, as the word a message carries.
-pub(crate) const LOOKUP: &str = "lookup";
-
 /// How a column may be re-aggregated, once a type no total or comparison is exact over is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LeafKind {
@@ -110,6 +107,17 @@ pub(crate) fn agreeing_link(fact: LinkKind, lookup: LinkKind) -> Result<(), Comb
         fact: fact.word(),
         lookup: lookup.word(),
     })
+}
+
+/// Whether two columns hold one kind of value, so an equality between them compares like with like.
+///
+/// Two types a join key can be agree by kind, which makes `Utf8` and `LargeUtf8` one; any other pair
+/// agrees only when it is the same type.
+pub(crate) fn same_kind(first: &DataType, other: &DataType) -> bool {
+    match (link_kind(first), link_kind(other)) {
+        (Some(first), Some(other)) => first == other,
+        _ => first == other,
+    }
 }
 
 /// How a link column of this Arrow type joins, or `None` for one no exact equality can be taken

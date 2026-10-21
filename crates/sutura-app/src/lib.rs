@@ -38,6 +38,7 @@ use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::{Executable, FederationCombiner, RowCeilings};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
+use sutura_domain::warehouse::billed::Billed;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{PreFlight, UnreadableCell, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
@@ -281,14 +282,13 @@ pub enum FederationMiswired {
         /// `Error::source` chain - `SourceAlreadyOpen::at`'s own reason.
         at: sutura_domain::model::SourceName,
     },
-    /// The two leg results did not resolve to one of each side.
+    /// The leg results did not stand for the plan's legs.
     ///
-    /// `FederatedPlan::legs` returns the fact leg and the lookup leg by construction, so a pair
-    /// built from it is one of each.
-    #[error("the two leg results are not one fact leg and one lookup leg")]
-    LegsAreNotOneOfEach {
+    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order.
+    #[error("the leg results do not stand for the federated plan's legs")]
+    LegsMiswired {
         #[source]
-        cause: sutura_domain::plan::LegsAreNotOneOfEach,
+        cause: sutura_domain::plan::LegsMiswired,
     },
     /// A leg was run that is not among the cut's own legs: one that already ran, or one the cut
     /// never held.
@@ -576,23 +576,20 @@ where
     // record. A budget already spent here means the pre-flight is refused before the data system is
     // asked at all - the same shape `still_usable_at` below gives the credential's own expiry.
     if deadline.remaining_at(Instant::now()).is_none() {
-        return Ok(Answered::under(
-            &credentials,
-            ToolOutcome::Refusal {
-                reason: deadline_exceeded(deadline),
-            },
-        ));
+        let reason = deadline_exceeded(deadline);
+        return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
     }
-    let preflight = match warehouse.dry_run(Executable::Query(&plan), presented, deadline) {
+    let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
+    let preflight = match warehouse
+        .dry_run_billed(asked_plan, presented, bill_to, deadline)
+        .map_err(Billed::into_source)
+    {
         Ok(preflight) => preflight,
-        Err(cause) => {
+        Err(Err(reason)) => return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason })),
+        Err(Ok(cause)) => {
             if warehouse.deadline_exceeded(&cause) {
-                return Ok(Answered::under(
-                    &credentials,
-                    ToolOutcome::Refusal {
-                        reason: deadline_exceeded(deadline),
-                    },
-                ));
+                let reason = deadline_exceeded(deadline);
+                return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
             }
             if warehouse.source_refused(&cause) {
                 return Ok(Answered::under(
@@ -663,9 +660,13 @@ where
     // refusal a caller sees must not be line order nobody wrote down. Ask the adapters in a real tree
     // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
     // a both-predicate fake and the comment at `sutura_app::tests`.
-    let rows = match warehouse.execute(Executable::Query(&plan), presented, deadline) {
+    let rows = match warehouse
+        .execute_billed(asked_plan, presented, bill_to, deadline)
+        .map_err(Billed::into_source)
+    {
         Ok(rows) => rows,
-        Err(cause) => {
+        Err(Err(reason)) => return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason })),
+        Err(Ok(cause)) => {
             if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
                 return Ok(Answered::under(
                     &credentials,

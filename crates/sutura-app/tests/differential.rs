@@ -68,7 +68,7 @@ mod tests {
     use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
     use sutura_domain::warehouse::{RowSet, Value};
 
-    use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, load, open, questions, read_question, stem};
+    use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, load, load_on, open, questions, read_question, stem};
 
     /// The side every registered data system is compared against.
     ///
@@ -271,17 +271,20 @@ mod tests {
         }
         let pinned = load::<ReferenceCatalog>();
         // Two registries, each holding one adapter under the SAME source name - which is the whole
-        // instrument: one plan, run through two data systems that both answer to `local`, rows
+        // instrument: one catalog, run through two data systems that both answer to `local`, rows
         // compared. `Warehouses` is keyed by the adapter's own source, so the two cannot be in one
         // registry, and that is correct rather than awkward: a deployment holds one adapter per source.
+        // Each side compiles its own bundle, which differ only where `W` names a table differently.
+        let theirs = load_on::<W>();
         let engine = sutura_app::Warehouses::of(open::<Engine>(&pinned));
-        let other = sutura_app::Warehouses::of(open::<W>(&pinned));
+        let other = sutura_app::Warehouses::of(open::<W>(&theirs));
         let against = if is_the_reference::<W>() {
             "a second, independently opened engine"
         } else {
             "the engine"
         };
         let validated = sutura_app::verify_and_validate(pinned, &engine).expect("the anchors hold");
+        let validated_there = sutura_app::verify_and_validate(theirs, &other).expect("the anchors hold");
 
         let mut compared = 0_usize;
         let mut refused = 0_usize;
@@ -306,7 +309,7 @@ mod tests {
                 sutura_domain::plan::RowCeilings::DEFAULT,
             );
             let from_other = answer(
-                &validated,
+                &validated_there,
                 &question,
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
@@ -393,10 +396,11 @@ mod tests {
             return;
         }
         let pinned = load::<ReferenceCatalog>();
+        let theirs = load_on::<W>();
         let engine = sutura_app::Warehouses::of(open::<Engine>(&pinned));
-        let other = sutura_app::Warehouses::of(open::<W>(&pinned));
+        let other = sutura_app::Warehouses::of(open::<W>(&theirs));
         let from_engine = verify_anchors(&pinned, &engine);
-        let from_other = verify_anchors(&pinned, &other);
+        let from_other = verify_anchors(&theirs, &other);
         assert_eq!(
             from_engine.checks(),
             from_other.checks(),
@@ -411,7 +415,7 @@ mod tests {
         // being handed the report above, which is the point: a report is evidence a caller could have
         // written by hand, and a `Validated` bundle is not.
         drop(
-            sutura_app::verify_and_validate(pinned, &other).expect("a data system that reproduced every anchor is fit to serve"),
+            sutura_app::verify_and_validate(theirs, &other).expect("a data system that reproduced every anchor is fit to serve"),
         );
     }
 

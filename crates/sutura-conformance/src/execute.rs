@@ -37,6 +37,7 @@ use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse};
 
 use crate::corpus::{self, Case, FederatedCase};
 use crate::{Conformed, Declination, Fault, Outcome};
+use sutura_domain::model::TableQualifier;
 
 /// What every comparison in this pack is made at.
 ///
@@ -62,7 +63,15 @@ pub fn labels_are_the_plans_own<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    for case in corpus::cases() {
+    labels_are_the_plans_own_at(warehouse, None)
+}
+
+/// [`labels_are_the_plans_own`], over the corpus table under `at`.
+pub fn labels_are_the_plans_own_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    for case in corpus::cases_at(at) {
         let answered = answer(warehouse, &case)?;
         let projected = case.plan().result_labels();
         if answered.columns() != projected {
@@ -84,7 +93,15 @@ pub fn content_agrees_with_the_reference<W>(warehouse: &W) -> Conformed<W::Error
 where
     W: Warehouse,
 {
-    for case in corpus::cases() {
+    content_agrees_with_the_reference_at(warehouse, None)
+}
+
+/// [`content_agrees_with_the_reference`], over the corpus table under `at`.
+pub fn content_agrees_with_the_reference_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    for case in corpus::cases_at(at) {
         let answered = answer(warehouse, &case)?;
         agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
             case: case.name().to_owned(),
@@ -107,7 +124,15 @@ pub fn order_agrees_with_the_reference<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    for case in corpus::cases() {
+    order_agrees_with_the_reference_at(warehouse, None)
+}
+
+/// [`order_agrees_with_the_reference`], over the corpus table under `at`.
+pub fn order_agrees_with_the_reference_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    for case in corpus::cases_at(at) {
         let answered = answer(warehouse, &case)?;
         if !case.order_is_asserted() {
             continue;
@@ -131,7 +156,15 @@ pub fn one_plan_asked_twice_answers_the_same_way<W>(warehouse: &W) -> Conformed<
 where
     W: Warehouse,
 {
-    for case in corpus::cases() {
+    one_plan_asked_twice_answers_the_same_way_at(warehouse, None)
+}
+
+/// [`one_plan_asked_twice_answers_the_same_way`], over the corpus table under `at`.
+pub fn one_plan_asked_twice_answers_the_same_way_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    for case in corpus::cases_at(at) {
         let first = answer(warehouse, &case)?;
         let again = answer(warehouse, &case)?;
         agree_on_content(&first, &again, TOLERANCE).map_err(|disagreement| Fault::Content {
@@ -170,8 +203,16 @@ pub fn a_preflight_that_accepts_is_followed_by_an_answer<W>(warehouse: &W) -> Co
 where
     W: Warehouse,
 {
+    a_preflight_that_accepts_is_followed_by_an_answer_at(warehouse, None)
+}
+
+/// [`a_preflight_that_accepts_is_followed_by_an_answer`], over the corpus table under `at`.
+pub fn a_preflight_that_accepts_is_followed_by_an_answer_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
     let mut accepted = 0_usize;
-    for case in corpus::cases() {
+    for case in corpus::cases_at(at) {
         let executable = Executable::Query(case.plan());
         let checked = warehouse
             .dry_run(executable, &corpus::presented(), corpus::deadline())
@@ -218,7 +259,15 @@ pub fn a_leg_is_executed<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    for case in corpus::leg_cases() {
+    a_leg_is_executed_at(warehouse, None)
+}
+
+/// [`a_leg_is_executed`], over the corpus table under `at`.
+pub fn a_leg_is_executed_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    for case in corpus::leg_cases_at(at) {
         let answered = warehouse
             .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
             .map_err(|cause| Fault::NotAnswered {
@@ -257,7 +306,15 @@ pub fn a_leg_is_refused<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    a_leg_is_refused_over(warehouse, &corpus::cases())
+    a_leg_is_refused_at(warehouse, None)
+}
+
+/// [`a_leg_is_refused`], over the corpus table under `at`.
+pub fn a_leg_is_refused_at<W>(warehouse: &W, at: Option<&TableQualifier>) -> Conformed<W::Error>
+where
+    W: Warehouse,
+{
+    a_leg_is_refused_over(warehouse, &corpus::cases_at(at))
 }
 
 /// The same behaviour, over cases a caller supplies.
@@ -369,11 +426,15 @@ where
     Ok(Outcome::Held)
 }
 
-/// One federated case's combined rows: both legs, then the combine, then the decode.
+/// One federated case's combined rows: every leg, then the combine, then the decode.
+///
+/// A leg runs on the warehouse whose source it names: the fact warehouse for a leg on the fact's
+/// source, a lookup leg of a chain that comes back to it among them, and the lookup warehouse for
+/// every other leg.
 #[expect(
     clippy::expect_used,
     clippy::unwrap_in_result,
-    reason = "`FederatedPlan::new` refuses anything but one fact and one lookup leg, so `Legs::of` cannot refuse"
+    reason = "one result per `FederatedPlan::legs` entry, in order, is what `Legs::assign` takes, so it cannot refuse"
 )]
 fn combined<Fact, Lookup, Combiner>(
     federation: &(Fact, Lookup, Combiner),
@@ -390,15 +451,22 @@ where
         cause,
     };
     let plan = case.plan();
-    let fact_result = fact
-        .execute(Executable::Leg(plan.fact()), &corpus::presented(), corpus::deadline())
-        .map(|batches| LegResult::of(plan.fact(), batches))
-        .map_err(|cause| not_answered(Stage::Fact(cause)))?;
-    let lookup_result = lookup
-        .execute(Executable::Leg(plan.lookup()), &corpus::presented(), corpus::deadline())
-        .map(|batches| LegResult::of(plan.lookup(), batches))
-        .map_err(|cause| not_answered(Stage::Lookup(cause)))?;
-    let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+    let results = plan
+        .legs()
+        .into_iter()
+        .map(|leg| {
+            let answered = if leg.source() == plan.fact().source() {
+                fact.execute(Executable::Leg(leg), &corpus::presented(), corpus::deadline())
+                    .map_err(Stage::Fact)
+            } else {
+                lookup
+                    .execute(Executable::Leg(leg), &corpus::presented(), corpus::deadline())
+                    .map_err(Stage::Lookup)
+            };
+            answered.map(|batches| LegResult::of(leg, batches)).map_err(not_answered)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let legs = Legs::assign(plan, &results).expect("one result per leg of the plan, in its order");
     combiner
         .combine(plan, legs, WORKING_SET_BYTES)
         .map_err(|cause| not_answered(Stage::Combine(cause)))?

@@ -94,14 +94,6 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Oracle and/or its affiliates"
 SPDX-License-Identifier = "UPL-1.0 OR Apache-2.0"
 
-# The vendored Swagger UI crate. `VENDOR.md` records the upstream commit and the two local edits.
-# Dual-licensed upstream, and the copyright line is upstream's own from `LICENSE-MIT`.
-[[annotations]]
-path = "vendor/utoipa-swagger-ui/**"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2021 the utoipa-swagger-ui authors"
-SPDX-License-Identifier = "MIT OR Apache-2.0"
-
 # The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
 # its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
 #
@@ -127,6 +119,14 @@ path = ["docs/assets/architecture.html", "docs/assets/deployment.html"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = ["the sutura authors", "2026 tt-a1i (Archify)", "2025 Cocoon AI"]
 SPDX-License-Identifier = "Apache-2.0 AND MIT"
+
+# The meetup deck's Slidev theme, copied from metaxy's own deck. Its licence is Apache-2.0 and
+# its LICENSE names no holder. `VENDOR.md` has the commit and what changed locally.
+[[annotations]]
+path = "slides/2026-introducing-sutura/theme/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the metaxy authors"
+SPDX-License-Identifier = "Apache-2.0"
 
 # The brand icons. Each is a product's own logo, copied unchanged, and `SOURCES.md` beside them
 # records where from. The five projects publish theirs under their repository licence.

@@ -223,13 +223,15 @@ mod tests {
         );
     }
 
-    /// The catalog's pages with every model on `platform` instead of `bigquery`.
+    /// The catalog's pages with every model on `platform` instead of `bigquery`, and the metric
+    /// document naming its model by that platform.
     fn pages_on(platform: &str) -> Vec<sutura_catalog_datahub::test_support::Scripted> {
         use sutura_catalog_datahub::test_support::Scripted;
         let moved = |page: serde_json::Value| {
             let text = page
                 .to_string()
-                .replace("dataPlatform:bigquery", &format!("dataPlatform:{platform}"));
+                .replace("dataPlatform:bigquery", &format!("dataPlatform:{platform}"))
+                .replace("bigquery__", &format!("{platform}__"));
             Scripted::ok(&serde_json::from_str(&text).expect("a page with a renamed platform is still JSON"))
         };
         happy_path_answers()

@@ -122,14 +122,14 @@ async fn run_sql_over_two_open_sources_is_a_refusal_naming_the_cause() {
     let both = Named::open("local")
         .merge(Named::open("other"))
         .expect("two distinct sources open together");
-    let (code, detail) = refusal_code(over(both)).await;
+    let (code, detail) = Box::pin(refusal_code(over(both))).await;
     assert_eq!(code, "more_than_one_source_open");
     assert!(detail.contains("certified tools"), "{detail}");
 }
 
 #[tokio::test]
 async fn run_sql_over_one_source_that_takes_no_raw_statement_is_a_refusal_naming_the_cause() {
-    let (code, detail) = refusal_code(over(Named::open("local"))).await;
+    let (code, detail) = Box::pin(refusal_code(over(Named::open("local")))).await;
     assert_eq!(code, "no_source_accepts_raw_statements");
     assert!(detail.contains("tools.run_sql.enabled"), "{detail}");
 }

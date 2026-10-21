@@ -32,14 +32,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_link_compound",
         ),
         (
-            RefusalReason::FederationLinkTruncated {
-                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
-                    .expect("a test relationship is a relationship"),
-            },
-            StatusCode::CONFLICT,
-            "federation_link_truncated",
-        ),
-        (
             RefusalReason::FederationLinkTypeMismatch {
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),
@@ -101,6 +93,20 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             },
             StatusCode::FORBIDDEN,
             "source_refused",
+        ),
+        (
+            RefusalReason::BillToNotAllowed {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "bill_to_not_allowed",
+        ),
+        (
+            RefusalReason::NoBillingProject {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "no_billing_project",
         ),
         (
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },

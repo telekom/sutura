@@ -278,6 +278,17 @@ demo-container.yml:smoke-test
 docs.yml:verify
 docs.yml:publish
 
+# The runnable examples (single-player, federated, cube, metrics-layer): each runs as its README
+# says and the answer to its question is compared with the expected rows. On a pull request and a
+# push to `main` that touch `examples/` or `docs/examples/`, so it reports nothing on most pull
+# requests - a required context that does not report is a permanently pending merge. Advisory by
+# the owner's decision; required only on the owner's word, once it is green on `main`. TO REQUIRE
+# IT: add a job to `ci.yml` that calls this workflow (`on: workflow_call`) and put that job in
+# `ci-aggregate`'s `needs` - `ci-aggregate` is already required, and a matrix context cannot be
+# spelled here. A queue entry would then run it too, because `merge_group` takes no `paths`
+# filter. Its limits are in the workflow header: a released image, Linux amd64, no `multi-player`.
+examples.yml:examples
+
 # The supply-chain audit. It runs on a pull request that touches a manifest or a lock, on a push to
 # `main`, and weekly regardless - and the weekly run is the point of the file, since most
 # advisories arrive against a dependency already in the lock. The pull-request leg is a path-scoped

@@ -38,6 +38,12 @@ pub type MetricNames = NonEmpty<MetricName>;
 /// scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 /// a person asks and refuses the ones a loop generates.
 pub const MAX_DIMENSIONS: usize = 4;
+/// The most lookup legs one federated answer may read: one per crossing relationship.
+///
+/// A constant and not a setting, and changing it amends `docs/adr/0007`. Each lookup leg reads its
+/// whole table that survives the question's own filters, so the cap bounds how many such reads one
+/// question starts; the working-set ceiling bounds their bytes.
+pub const MAX_LOOKUP_LEGS: usize = 3;
 /// The most metrics one question may name together.
 ///
 /// A bound for the same reason the time range and the dimension count are bounded: each
@@ -276,14 +282,6 @@ pub enum RefusalReason {
         source: SourceName,
         relationship: RelationshipName,
     },
-    /// The relationship crossing into the remote data system joins on a key truncated to a grain.
-    ///
-    /// The combiner links the two legs on the raw column values, so a truncated key (`month_of(a.x) =
-    /// b.y`) would join each row to the wrong lookup row or to none. Refused before either leg runs
-    /// rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
-    /// narrowable by the caller: the key is the catalog's, and declaring an equality against a column
-    /// that already sits at the grain removes the refusal.
-    FederationLinkTruncated { relationship: RelationshipName },
     /// The two columns the crossing relationship joins are declared as different kinds of value.
     ///
     /// Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -412,11 +410,8 @@ pub enum RefusalReason {
     /// credentials decision: the identity that ran the query WAS presented, and the source refuses
     /// it.
     ///
-    /// **A refusal rather than an error, and the distinction is the whole variant.** It used to
-    /// arrive as [`crate::warehouse::Warehouse::execute`]'s `Err` and leave the transport as the
-    /// `503` a dead data system produces - so a caller was told to retry an authorization decision
-    /// that will refuse again at the same place. It is an answer, and the answer does not change by
-    /// asking again.
+    /// **A refusal rather than an error, and the distinction is the whole variant**: not the `503` a
+    /// dead data system produces, because the answer does not change by asking again.
     ///
     /// **It is the query-time sibling of the boot-time
     /// [`Warehouse::preflight_was_refused`](crate::warehouse::Warehouse::preflight_was_refused)
@@ -429,6 +424,10 @@ pub enum RefusalReason {
     /// system's to say, and echoing them would publish a foreign authorization decision into a log,
     /// a UI and an agent's context.
     SourceRefused { source: SourceName },
+    /// The request named a payer this source does not bill, so nothing ran.
+    BillToNotAllowed { source: SourceName },
+    /// No payer could be decided for this source's job - no mapped group, more than one project read, none named.
+    NoBillingProject { source: SourceName },
     /// This answer ran out of the time it was given, at the data system or before it was ever
     /// asked.
     ///
@@ -543,7 +542,8 @@ pub enum RefusalReason {
     /// The two facts are aggregated in two statements and joined above on ONE link into a remote
     /// dimension's model, so the question groups and filters by that model's dimensions and nothing
     /// else, and the second fact `model` declares its own relationship into it on the column the
-    /// first fact links through. Narrowable: group by a dimension both facts link to.
+    /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
+    /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
 }
 
@@ -739,9 +739,6 @@ mod tests {
             },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
-                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
-            },
-            RefusalReason::FederationLinkTruncated {
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
             },
             RefusalReason::FederationLinkTypeMismatch {

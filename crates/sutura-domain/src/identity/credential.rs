@@ -55,7 +55,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::identity::principal::{RequestContext, Subject, parse_principal_id};
+use crate::identity::principal::{Subject, parse_principal_id};
+use crate::identity::{BillTo, RequestContext};
 use crate::identity::{InvalidPrincipalId, Secret};
 use crate::model::SourceName;
 use crate::source::{SharedIdentityDeclared, SourcePosture};
@@ -109,6 +110,13 @@ impl TryFrom<String> for PrincipalName {
 
     fn try_from(raw: String) -> Result<Self, Self::Error> {
         Self::parse(raw)
+    }
+}
+
+/// A verified address is a principal name as written: its parse accepts a subset of this one's.
+impl From<&crate::identity::VerifiedAddress> for PrincipalName {
+    fn from(address: &crate::identity::VerifiedAddress) -> Self {
+        Self(String::from(address.as_str()))
     }
 }
 
@@ -509,6 +517,7 @@ pub struct LegCredentials {
     asked_by: Subject,
     not_after: Expiry,
     by_source: BTreeMap<SourceName, Presented>,
+    bill_to: BTreeMap<SourceName, BillTo>,
 }
 
 /// A broker returned credentials that do not match the sources it was asked about.
@@ -552,6 +561,7 @@ impl LegCredentials {
             asked_by,
             not_after,
             by_source: presented,
+            bill_to: BTreeMap::new(),
         };
         credentials.covers(sources)?;
         Ok(credentials)
@@ -595,6 +605,29 @@ impl LegCredentials {
     #[must_use]
     pub const fn not_after(&self) -> Expiry {
         self.not_after
+    }
+
+    /// Who pays for each source's leg, where the broker decided; a source left out is
+    /// [`BillTo::Unstated`].
+    #[must_use]
+    pub fn billed(mut self, bill_to: BTreeMap<SourceName, BillTo>) -> Self {
+        self.bill_to = bill_to;
+        self
+    }
+
+    /// Bills every source to the payer `context` names, if it names one: a broker that decides no
+    /// payer of its own passes the caller's on, so a source that takes none refuses it. A source that
+    /// takes one may still bill another payer first by its own declared order - a one-project
+    /// question bills that project - and the caller is not told.
+    #[must_use]
+    pub fn named_by(self, context: &RequestContext) -> Self {
+        let bill_to = context.named_payer().map_or_else(BTreeMap::new, |named| {
+            self.by_source
+                .keys()
+                .map(|source| (source.clone(), BillTo::Named(named.clone())))
+                .collect()
+        });
+        self.billed(bill_to)
     }
 
     /// How many legs. At least one, and equal to the size of the set this was minted for.
@@ -706,6 +739,12 @@ impl BoundToTheRequest {
     #[must_use]
     pub const fn not_after(&self) -> Expiry {
         self.0.not_after()
+    }
+
+    /// Who pays for `source`'s leg: [`BillTo::Unstated`] unless the broker decided.
+    #[must_use]
+    pub fn bill_to_for(&self, source: &SourceName) -> &BillTo {
+        self.0.bill_to.get(source).unwrap_or(&BillTo::Unstated)
     }
 
     /// Whether this grant is still usable at `now_unix_seconds`.

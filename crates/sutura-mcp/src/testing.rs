@@ -473,7 +473,9 @@ impl CredentialBroker for GrantsTheSharedIdentity {
         // is the one outcome the tests here assert on - a fixture that could fabricate it would let
         // those assertions pass without the code under test deciding anything.
         LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
-            .map(|credentials| Minted::Granted { credentials })
+            .map(|credentials| Minted::Granted {
+                credentials: credentials.named_by(context),
+            })
             .map_err(|cause| FixtureBrokerDefect { cause })
     }
 }

@@ -163,8 +163,9 @@ const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
     reason: "federated_answer_not_well_formed",
     meaning: "answering this across two data systems hit a division by zero, a join key that \
-              matched more than one row, or a join key that can never match because the two data \
-              systems store it as two different types - the same question and the same rows fail \
+              matched more than one row, a join key that can never match because the two data \
+              systems store it as two different types, or a join key value that cannot be read \
+              as the kind the catalog declares for it - the same question and the same rows fail \
               the same way every time",
     remedy: "Do not retry it unchanged. Ask the same metric without the dimension on the second \
              data system, or report it to a person: it is a fact about the data, not about how \
@@ -201,12 +202,6 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
     remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
-const FEDERATION_LINK_TRUNCATED: Guide = Guide {
-    reason: "federation_link_truncated",
-    meaning: "the crossing relationship joins on a key truncated to a grain, which the two legs do not carry",
-    remedy: "Nothing you can change. Report it: it is a fact about how the relationship's key is declared.",
-};
-
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
     reason: "federation_link_type_mismatch",
     meaning: "the crossing relationship joins two columns the catalog declares as different kinds of value",
@@ -229,6 +224,23 @@ const CREDENTIAL_UNAVAILABLE: Guide = Guide {
              narrower question, a different grain and a shorter period all return it again. Say so, \
              and say that access to that data system is what would be needed - a person can ask for \
              it, and you cannot.",
+};
+
+const BILL_TO_NOT_ALLOWED: Guide = Guide {
+    reason: "bill_to_not_allowed",
+    meaning: "the request named who pays, and a source the question reaches bills no job to a payer \
+              named on the request - nothing ran",
+    remedy: "Ask again without naming a payer. Who may name one is this deployment's setting, not \
+             something the question can change.",
+};
+
+const NO_BILLING_PROJECT: Guide = Guide {
+    reason: "no_billing_project",
+    meaning: "no payer could be decided for a source's job: no group of the caller's is mapped to a \
+              billing project, the question reads more than one project, and no payer was named - nothing \
+              ran",
+    remedy: "Ask a question over the tables of one project, or name a payer where the source allows one. \
+             Which groups map to a payer is this deployment's setting.",
 };
 
 const SOURCE_REFUSED: Guide = Guide {
@@ -337,7 +349,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
-    &FEDERATION_LINK_TRUNCATED,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -359,6 +370,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
+    &BILL_TO_NOT_ALLOWED,
+    &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
 ];
 
@@ -395,12 +408,13 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
-        RefusalReason::FederationLinkTruncated { .. } => &FEDERATION_LINK_TRUNCATED,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
+        RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,
+        RefusalReason::NoBillingProject { .. } => &NO_BILLING_PROJECT,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,

@@ -58,7 +58,9 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
     ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
 };
-use sutura_domain::identity::{Actor, ActorChain, ClientClaim, ClientClaims, InvalidPrincipalId, PrincipalChain, Subject};
+use sutura_domain::identity::{
+    Actor, ActorChain, ClientClaim, ClientClaims, InvalidPrincipalId, PrincipalChain, Subject, VerifiedAddress,
+};
 
 use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, VerifiedCaller};
 use crate::inbound::keys::{KeyId, NotAKeyId};
@@ -333,6 +335,13 @@ struct Claims {
     /// every mainstream issuer's convention for this claim (unlike `scope`).
     #[serde(default)]
     groups: Option<Vec<String>>,
+    /// The caller's email address, read into an address only beside `email_verified: true`. A
+    /// `Value`, so an issuer that sends another shape loses the address, not the token.
+    #[serde(default)]
+    email: Option<serde_json::Value>,
+    /// Whether the issuer verified `email`. Only the JSON boolean `true` counts.
+    #[serde(default)]
+    email_verified: Option<serde_json::Value>,
     /// When the token was issued.
     ///
     /// **Read here rather than required of the library**, because the library cannot: its
@@ -455,6 +464,7 @@ impl TokenValidator {
         // signature, an issuer and an audience do not distinguish an access token from an ID token.
         self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
+        let address = address_of(&claims);
         self.within_the_lifetime_ceiling(&claims)?;
         self.issued_to_another_client(&claims)?;
         // The single construction of a verified subject: both the masked id a record renders and the
@@ -484,7 +494,8 @@ impl TokenValidator {
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
             client,
-        );
+        )
+        .addressed(address);
         // LAST, so an assertion any check above refuses never takes a place in the store.
         self.admitted_once(claims.jti.as_ref(), claims.exp)?;
         Ok(caller)
@@ -750,6 +761,15 @@ fn chain_from(claim: &ActorClaim) -> Result<ActorChain, TokenRejected> {
     })
 }
 
+/// The caller's verified address: `email`, only where `email_verified` is `true` and the value
+/// parses. Anything else is no address, never a refused token.
+fn address_of(claims: &Claims) -> Option<VerifiedAddress> {
+    if claims.email_verified != Some(serde_json::Value::Bool(true)) {
+        return None;
+    }
+    VerifiedAddress::parse(claims.email.as_ref()?.as_str()?).ok()
+}
+
 /// One actor identifier, parsed by the domain so a control character cannot reach an audit line.
 fn actor_of(raw: &str) -> Result<Actor, TokenRejected> {
     Actor::parse(raw).map_err(|cause| TokenRejected::UnusableActor { cause })
@@ -785,5 +805,45 @@ mod tests {
     fn a_seen_entry_lives_the_ceiling_plus_the_leeway_on_both_ends() {
         let ceiling = ProofLifetime::parse(120).expect("120 seconds is a lifetime");
         assert_eq!(super::entry_window(ceiling), 180);
+    }
+}
+
+#[cfg(test)]
+mod address_tests {
+    use super::{Claims, VerifiedAddress, address_of};
+
+    fn claims(extra: &serde_json::Value) -> Claims {
+        let mut claims = serde_json::json!({ "sub": "someone@example.com", "exp": 4_102_444_800_i64 });
+        if let (Some(into), Some(from)) = (claims.as_object_mut(), extra.as_object()) {
+            into.extend(from.clone());
+        }
+        serde_json::from_value(claims).expect("a test claim set deserializes")
+    }
+
+    #[test]
+    fn a_verified_email_is_the_callers_address_as_written() {
+        let address = address_of(&claims(
+            &serde_json::json!({ "email": "Some.One@Example.com", "email_verified": true }),
+        ));
+        assert_eq!(address.as_ref().map(VerifiedAddress::as_str), Some("Some.One@Example.com"));
+    }
+
+    #[test]
+    fn an_unverified_email_yields_no_address() {
+        for verified in [serde_json::json!(false), serde_json::json!("true"), serde_json::json!(1)] {
+            let unverified = claims(&serde_json::json!({ "email": "someone@example.com", "email_verified": verified }));
+            assert!(address_of(&unverified).is_none(), "{verified}");
+        }
+        assert!(address_of(&claims(&serde_json::json!({ "email": "someone@example.com" }))).is_none());
+    }
+
+    #[test]
+    fn an_absent_email_yields_no_address() {
+        // The `sub` beside it is an address too, so an absent `email` that fell back to it would show.
+        for email in [serde_json::json!(null), serde_json::json!(["someone@example.com"])] {
+            let verified = claims(&serde_json::json!({ "email": email, "email_verified": true }));
+            assert!(address_of(&verified).is_none(), "{email}");
+        }
+        assert!(address_of(&claims(&serde_json::json!({ "email_verified": true }))).is_none());
     }
 }

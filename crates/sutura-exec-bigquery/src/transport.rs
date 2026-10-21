@@ -21,7 +21,7 @@
 use core::num::NonZeroU64;
 use std::collections::BTreeSet;
 
-use sutura_domain::identity::Secret;
+use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
@@ -59,9 +59,9 @@ pub enum JobDeadline {
     /// The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and
     /// the identity read build this arm. This used to add *the ADBC driver opens a fresh window
     /// under its own configured bounds instead*, and this process configures no TIME bound at all:
-    /// the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the
-    /// three an impersonating leg chains for the credential document (`adbc::identity`'s
-    /// `credential_options`), and none of them is a window - so whatever window exists is the
+    /// the database options it sets are `bigquery.project_id` plus the identity options
+    /// `adbc::identity` chains for the leg (`credential_options`, `access_token_options` or
+    /// `delegation_options`), and none of them is a window - so whatever window exists is the
     /// driver's own default and is not ours to state. **It is not the only bound, and the earlier
     /// *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every
     /// statement this transport submits, which bounds what a job may SPEND and says nothing about
@@ -72,17 +72,15 @@ pub enum JobDeadline {
 
 /// Which identity one job is to be executed as.
 ///
-/// **TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
-/// a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
-/// authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
-/// question answered under the deployment's identity while provenance reported it as the asker's has
-/// no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+/// **Three variants.** `AsSubject` is leg 2: the subject's own credential. `AsAddress` is the
+/// deployment vouching for a verified address, and only a transport that declares
+/// [`JobTransport::delegates_by_address`] is ever handed one.
 ///
-/// **The domain still presents four shapes** ([`sutura_domain::identity::Presented`]), so the
-/// mapping is 4 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where two of them
-/// become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a
-/// transport's fact and `Presented::agrees_with` passes all three subject shapes - they are one
-/// POSTURE.
+/// **The domain presents four shapes** ([`sutura_domain::identity::Presented`]), so the mapping is
+/// not one to one: `BigQueryWarehouse::job_identity` is where a sign-in, and a principal switch at
+/// any other transport, become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be
+/// delivered* is a transport's fact and `Presented::agrees_with` passes all three subject shapes -
+/// they are one POSTURE.
 ///
 /// `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
 #[derive(Debug, Clone, Copy)]
@@ -107,6 +105,13 @@ pub enum JobIdentity<'job> {
         /// What the pool verifies, or, for `google_login`, the access token the driver sends.
         assertion: &'job Secret,
     },
+    /// The address the asking subject's identity provider verified, for a transport that runs it
+    /// through domain-wide delegation: the DEPLOYMENT vouches for it, and Google never sees the
+    /// subject's own credential. Built only where [`JobTransport::delegates_by_address`] is `true`.
+    AsAddress {
+        /// The Google account the job runs as.
+        address: &'job PrincipalName,
+    },
 }
 
 /// One query job, as this adapter asks for it.
@@ -118,7 +123,6 @@ pub struct JobRequest<'job> {
     statement: &'job str,
     params: &'job [ParamValue],
     billing_project: &'job ProjectId,
-    default_dataset: &'job DatasetId,
     identity: JobIdentity<'job>,
     deadline: JobDeadline,
 }
@@ -141,7 +145,6 @@ impl<'job> JobRequest<'job> {
         statement: &'job str,
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
-        default_dataset: &'job DatasetId,
         identity: JobIdentity<'job>,
         deadline: JobDeadline,
     ) -> Self {
@@ -149,7 +152,6 @@ impl<'job> JobRequest<'job> {
             statement,
             params,
             billing_project,
-            default_dataset,
             identity,
             deadline,
         }
@@ -220,18 +222,6 @@ impl<'job> JobRequest<'job> {
     #[must_use]
     pub const fn billing_project(&self) -> &ProjectId {
         self.billing_project
-    }
-
-    /// The dataset the statement's unqualified table names resolve in.
-    ///
-    /// **This is why the generated statement needs no qualifying**, and it is the reason the fourth
-    /// dialect changed nothing about how a table is rendered: the endpoint's request carries a default
-    /// dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
-    /// same shape it emits for every other dialect.
-    #[inline]
-    #[must_use]
-    pub const fn default_dataset(&self) -> &DatasetId {
-        self.default_dataset
     }
 }
 
@@ -752,6 +742,15 @@ pub trait JobTransport {
     /// Defaulted to `false`, which is the answer a fake gives unless a test is about this split, and
     /// which is the direction that keeps a deployment serving.
     fn listing_was_refused(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Does this transport run a job as a verified ADDRESS, through domain-wide delegation?
+    ///
+    /// The one place a principal switch is accepted: `BigQueryWarehouse` refuses
+    /// `Presented::SubjectPrincipal` with `BigQueryError::NoPrincipalSwitch` unless this is `true`.
+    /// Defaulted to `false`, so a transport that declares nothing keeps the refusal.
+    fn delegates_by_address(&self) -> bool {
         false
     }
 

@@ -1701,3 +1701,66 @@ a third lookup leg (risk 3).
   *Alternatives considered*), a crossing with a compound key (`github.com/telekom/sutura#1490`), a
   cross-model ratio with more than one lookup leg (`github.com/telekom/sutura#1493`), an optional
   source at boot, a cap that an operator can set, and a change to the working-set ceiling.
+
+## Eighteenth amendment, 2026-10-19: the plan carries up to three lookup legs, and the planner still makes one
+
+The *Seventeenth amendment*'s Limits say "Nothing is built". That sentence is false now. It is left
+as written.
+
+- **Built** (part of `telekom/sutura#1342`). `LookupLegs`, in
+  `crates/sutura-domain/src/plan/federated/lookup.rs`, parses one to `MAX_LOOKUP_LEGS` lookup legs.
+  Each `LookupLeg` names the leg it joins onto - the fact leg or an earlier lookup leg - and its own
+  `include_unmatched`. Each lookup leg has its own link label. `Legs::assign` hands a combiner every
+  leg's result, and refuses a count of results that differs from the plan's legs. The DataFusion
+  combiner joins each lookup leg onto the leg it names. The conformance corpus holds a plan with
+  three lookup legs and a plan whose second lookup leg joins onto its first, and
+  `crates/sutura-conformance/tests/federated_bound.rs` runs both.
+- **Not built.** The planner still makes one lookup leg. `HopCrossesSource` and
+  `ChainLeavesItsSource` still refuse a chain that crosses twice, and `PlanNeedsTooManyLookupLegs`
+  and `CrossModelRatioNeedsOneLookupLeg` do not exist. A plan with more than one lookup leg is built
+  only by a test.
+
+## Nineteenth amendment, 2026-10-20: the fact leg projects a crossing key truncated to a grain
+
+The *Sixteenth amendment* refused a crossing relationship whose key truncates its origin to a grain
+(`month_of(a.x) = b.y`), because the legs link on raw column values. This amendment retires that
+refusal: `FederationLinkTruncated` and its code `federation_link_truncated` no longer exist. The
+sixteenth amendment stays as written, and so does the *Seventeenth amendment*'s sentence *a key
+truncated to a grain (`FederationLinkTruncated`, until `github.com/telekom/sutura#1489` carries the
+grain into the leg)*, which this amendment makes past. The *Eighteenth amendment* did not touch
+this: the planner still makes one lookup leg, so the key truncated here is the one link that leg
+joins on.
+
+**Decision: the fact leg truncates the link at its source.** A `PlanKey` may carry a grain, and the
+fact leg's link key then groups by the origin column truncated to it, through the function a time
+bucket and a single-source join already use. The lookup leg still projects the target as it is, and
+the combine still links on one column. So the answer cannot differ from the single-source answer on
+a boundary row: one function, one source and one session truncate both. The alternative, the
+combine truncating the raw origin, was declined. It pushes no computation down, it truncates in the
+engine's time zone and not the source's, and it needs a link kind the combine does not have for a
+timestamp.
+
+**What is checked.** A truncated origin reaches the combine as a date, so the plan-time key check
+reads a truncated key as a date whatever its origin is declared as (fifteenth amendment). A date
+against text, or against an integer, is `FederationLinkTypeMismatch` before either leg runs. Only
+the first fact's crossing relationship is checked. The second fact of a cross-model ratio is held to
+the first fact's target column and grain, so it needs no check of its own for a truncated key.
+
+**One grain for both facts.** A cross-model ratio links its second fact through a relationship with
+one key on the same target column and at the same grain, or none, as the first fact's crossing key.
+A second fact that links on raw values beside a first fact that links on months would meet the lookup on different
+values, and both are dates, so no type check sees it. Such a ratio is refused as
+`CrossModelRatioWithoutSharedDimension`, the refusal for two facts that share no dimension.
+
+**Limits.**
+
+- A crossing with more than one key stays `FederationLinkCompound`, a truncated part included. A
+  link carries one column. `github.com/telekom/sutura#1490` lifts it.
+- Oracle returns a timestamp as text, so an Oracle link is text, and the combine refuses it against
+  a date lookup once the legs have run, as it does for a plain date link. Reasoned from the adapter's
+  batch mapping, not run.
+- Offline cells hold dates only. A source with a session zone that is not UTC, and BigQuery
+  `DATE_TRUNC` over a `TIMESTAMP`, are held by the rendered statement text alone.
+- The type check reads the catalog and not the data. A truncated key over an origin declared as an
+  integer reads as a date: it is refused as a mismatch against a text or an integer target and
+  planned against a date target, and a refusal names the declared types.

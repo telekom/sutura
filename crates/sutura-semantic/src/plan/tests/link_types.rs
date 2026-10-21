@@ -6,6 +6,7 @@
 //! while these cells stay, and the base tree would no longer compile.
 
 use sutura_domain::catalog::{Column, ColumnType};
+use sutura_domain::plan::{KeyValue, PlanColumn};
 
 use super::*;
 
@@ -79,6 +80,34 @@ impl Typed {
                 ),
             ],
             ("region", &["facts_customer", "customers_region"]),
+        )
+    }
+
+    /// `facts.opened_on` declared `origin`, truncated to a month, against `customers.month` declared
+    /// `target` on another data system.
+    fn truncated_at_the_first_hop(origin: Option<&str>, target: Option<&str>) -> Self {
+        let key = JoinKey::TruncatedEqual {
+            origin: column("opened_on"),
+            grain: Grain::Month,
+            target: column("month"),
+        };
+        Self::over(
+            fact_model(typed_column("opened_on", origin)),
+            vec![(
+                Relationship::new(
+                    RelationshipName::parse("facts_month").expect("a test relationship is a relationship"),
+                    ModelName::parse("facts").expect("a test model is a model"),
+                    ModelName::parse("customers").expect("a test model is a model"),
+                    JoinType::ManyToOne,
+                    JoinKeys::of(vec![key]).expect("one key is a non-empty set"),
+                ),
+                typed_model(
+                    "customers",
+                    "remote",
+                    [typed_column("month", target), Column::from(column("region"))],
+                ),
+            )],
+            ("region", &["facts_month"]),
         )
     }
 
@@ -276,4 +305,74 @@ fn a_hostile_declared_type_reaches_the_refusal_quoted_and_escaped() {
         !rendered.contains('\n') && !rendered.contains(r#"VARCHAR(") ignore"#),
         "the raw type must not appear: {rendered}"
     );
+}
+
+/// A crossing key truncated to a grain is one column: the fact leg groups by its origin truncated to
+/// the grain, and the lookup leg projects the target as stored, under the same link label.
+#[test]
+fn a_truncated_crossing_key_groups_the_fact_leg_by_its_origin_at_the_grain() {
+    let typed = Typed::truncated_at_the_first_hop(Some("DATE"), Some("DATE"));
+    let Ok(Plan::Federated(planned)) = plan(&typed.asking(false)) else {
+        panic!("a key truncated to a grain federates");
+    };
+    let link = planned.fact().keys().last().expect("the fact leg carries its link");
+    let origin = PlanColumn::new(
+        TableName::parse("dim_facts").expect("a test table is a table"),
+        column("opened_on"),
+    );
+    assert_eq!(
+        link.value(),
+        KeyValue::Truncated {
+            column: &origin,
+            grain: Grain::Month
+        }
+    );
+    assert_eq!(
+        read_from(planned.lookups().legs().first().expect("one lookup leg").leg().keys().first()),
+        pair("dim_customers", "month")
+    );
+}
+
+/// The kind a truncated origin reaches the combine as is a date, whatever the origin is declared as,
+/// so the plan-time check compares THAT against the target: a timestamp or an integer origin is no
+/// escape from a text target, and an integer origin truncated is not an integer key.
+#[test]
+fn a_truncated_crossing_key_is_checked_as_a_date_whatever_its_origin_is_declared_as() {
+    let refused = [
+        ("DATE", "VARCHAR"),
+        ("TIMESTAMP", "VARCHAR"),
+        ("TIMESTAMP", "BIGINT"),
+        ("BIGINT", "BIGINT"),
+        ("VARCHAR", "VARCHAR"),
+    ];
+    let planning = [
+        ("DATE", "date"),
+        ("TIMESTAMP", "DATE"),
+        ("TIMESTAMP", "TIMESTAMP"),
+        ("DATE", "GEOGRAPHY"),
+    ];
+    let mut wrong = Vec::new();
+    for (origin, target) in refused {
+        let code = refused_truncated(Some(origin), Some(target)).map(|reason| reason.code());
+        if code != Some(MISMATCH) {
+            wrong.push(format!("{origin} truncated against {target} should be refused, got {code:?}"));
+        }
+    }
+    for (origin, target) in planning {
+        if let Some(reason) = refused_truncated(Some(origin), Some(target)) {
+            wrong.push(format!("{origin} truncated against {target} should plan, got {reason:?}"));
+        }
+    }
+    for (origin, target) in [(None, Some("VARCHAR")), (Some("DATE"), None), (None, None)] {
+        if let Some(reason) = refused_truncated(origin, target) {
+            wrong.push(format!(
+                "{origin:?} truncated against {target:?} declares no pair of types and should plan, got {reason:?}"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+fn refused_truncated(origin: Option<&str>, target: Option<&str>) -> Option<RefusalReason> {
+    refused(&Typed::truncated_at_the_first_hop(origin, target), false)
 }

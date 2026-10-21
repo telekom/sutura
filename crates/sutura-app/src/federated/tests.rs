@@ -46,7 +46,7 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
     let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
     // The link column, under the reserved label both legs project it as. The splitter names it
     // from `InternalLabel` and this fake does too, so the shape stays the shape it emits.
-    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link), tablecol("customer_key"));
+    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), tablecol("customer_key"));
     let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
     let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
@@ -87,12 +87,11 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
         bucket("month"),
         fact,
         None,
-        lookup,
-        true,
+        sutura_domain::plan::LookupLegs::one(lookup, true),
         federation,
         vec![
             AnswerKey::fact(ResultLabel::dimension(&dimension("product_family"))),
-            AnswerKey::lookup(ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
         ],
     )
     .expect("a valid two-leg plan")
@@ -103,7 +102,7 @@ fn federated_fact_rows() -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
-            InternalLabel::Link.label(),
+            InternalLabel::Link(0).label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
             InternalLabel::Leaf(0).label(),
         ],
@@ -134,7 +133,7 @@ fn federated_fact_rows() -> RowSet {
 fn federated_lookup_rows() -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
-        vec![InternalLabel::Link.label(), String::from("region")],
+        vec![InternalLabel::Link(0).label(), String::from("region")],
         vec![
             vec![Value::Text("c1".into()), Value::Text("north".into())],
             vec![Value::Text("c2".into()), Value::Text("north".into())],
@@ -584,7 +583,7 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
     let lookup_source = SourceName::parse("geo").expect("geo");
     let shared = shared();
     let ambiguous_lookup = RowSet::new(
-        vec![InternalLabel::Link.label(), String::from("region")],
+        vec![InternalLabel::Link(0).label(), String::from("region")],
         vec![
             vec![Value::Text("c1".into()), Value::Text("north".into())],
             vec![Value::Text("c1".into()), Value::Text("south".into())],

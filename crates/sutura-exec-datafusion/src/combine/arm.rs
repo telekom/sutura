@@ -6,13 +6,13 @@ use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
 use datafusion::functions_aggregate::expr_fn::{count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::SessionContext;
-use sutura_domain::federation::{Above, Carried};
+use sutura_domain::federation::{Above, Carried, Federation};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::Aggregate;
-use sutura_domain::plan::{AnswerKey, FederatedPlan, InternalLabel, LegSide, labels};
+use sutura_domain::plan::{FederatedPlan, InternalLabel, labels};
 
 use super::schema::{FACT, LeafKind, LegSchema};
-use super::{CombineError, EXACT_SUM_PRECISION, FACT_TABLE, LOOKUP_TABLE, SECOND_FACT_TABLE};
+use super::{CombineError, EXACT_SUM_PRECISION, FACT_TABLE, LOOKUP_TABLES, SECOND_FACT_TABLE, table_at};
 use crate::collect::outputs;
 
 /// The answer's column labels, in the order the answer projects them.
@@ -59,12 +59,12 @@ pub(super) enum Reading {
 /// with no second fact, reads the first. Decided here once, with the table it names, so the
 /// expression built from a leaf cannot read a table this check did not.
 pub(super) fn leaf_labels(
-    plan: &FederatedPlan,
+    federation: &Federation,
     fact: &LegSchema,
     second_fact: Option<&LegSchema>,
 ) -> Result<Leaves, CombineError> {
-    let carried = plan.federation().carried();
-    labels(plan.federation())
+    let carried = federation.carried();
+    labels(federation)
         .into_iter()
         .zip(carried.iter())
         .map(|(internal, carried)| {
@@ -95,14 +95,6 @@ pub(super) fn qualified(table: &str, label: &str) -> Expr {
     Expr::Column(Column::new(Some(TableReference::bare(table)), label))
 }
 
-/// The table one answer key is read from.
-const fn table_of(key: &AnswerKey) -> &'static str {
-    match key.side() {
-        LegSide::Fact => FACT_TABLE,
-        LegSide::Lookup => LOOKUP_TABLE,
-    }
-}
-
 /// The whole combine, as one logical plan.
 pub(super) async fn combine_plan(
     plan: &FederatedPlan,
@@ -112,7 +104,6 @@ pub(super) async fn combine_plan(
     second_table: Option<&str>,
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
-    let lookup = scan(context, LOOKUP_TABLE).await?;
     // A second fact leg (`telekom/sutura#780`) is joined on the link AND the bucket: both legs are
     // grouped by both, so each first-fact row meets at most the one second-fact row of its own
     // period. On the link alone a second fact with two periods fans every first-fact row out across
@@ -178,23 +169,32 @@ pub(super) async fn combine_plan(
             leaf.2 = FACT_TABLE;
         }
     }
-    // **The join kind is the splitter's decision, carried on the plan rather than guessed.** LEFT
-    // keeps a fact row whose link value found no lookup row, with null remote keys; INNER drops it.
-    // A NULL link value is decided identically under both, and by the join rather than by an arm of
-    // ours: `NULL = NULL` is not true, so such a row matches nothing.
-    let kind = if plan.include_unmatched() {
-        JoinType::Left
-    } else {
-        JoinType::Inner
-    };
-    let on = qualified(FACT_TABLE, link).eq(qualified(LOOKUP_TABLE, link));
-    let mut builder = builder
-        .join_on(lookup, kind, [on])
-        .map_err(|cause| CombineError::Build { cause })?;
+    // **The join kind is the splitter's decision, carried on each lookup leg rather than guessed.**
+    // LEFT keeps a row of the leg it joins onto whose link value found no row here, with null keys
+    // from this leg; INNER drops it. A NULL link value is decided identically under both, and by the
+    // join rather than by an arm of ours: `NULL = NULL` is not true, so such a row matches nothing.
+    // Each lookup leg joins onto the leg it names on its own link label, in plan order, so the leg
+    // it names is already in the relation.
+    for (position, (lookup, table)) in plan.lookups().legs().iter().zip(LOOKUP_TABLES).enumerate() {
+        let link = InternalLabel::Link(position).label();
+        let kind = if lookup.include_unmatched() {
+            JoinType::Left
+        } else {
+            JoinType::Inner
+        };
+        let on = qualified(table_at(lookup.onto(), &link)?, &link).eq(qualified(table, &link));
+        builder = builder
+            .join_on(scan(context, table).await?, kind, [on])
+            .map_err(|cause| CombineError::Build { cause })?;
+    }
 
     // Keys in question order, then the bucket - the order `answer_labels` states, so the aggregate's
     // output fields line up with the labels position for position.
-    let mut grouping: Vec<Expr> = plan.keys().iter().map(|key| qualified(table_of(key), key.label())).collect();
+    let mut grouping: Vec<Expr> = plan
+        .keys()
+        .iter()
+        .map(|key| Ok(qualified(table_at(key.side(), key.label())?, key.label())))
+        .collect::<Result<_, CombineError>>()?;
     grouping.push(qualified(FACT_TABLE, plan.bucket_label()));
     let group_count = grouping.len();
 
@@ -226,7 +226,7 @@ pub(super) async fn scan(context: &SessionContext, table: &str) -> Result<Logica
 }
 
 /// [`crate::collect::outputs`]'s own refusal, as this module's.
-fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
+pub(super) fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
     match cause {
         crate::DataFusionError::SchemaMismatch { expected, actual } => CombineError::SchemaMismatch { expected, actual },
         other => CombineError::Build {
@@ -244,7 +244,7 @@ fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
 /// **The division happens HERE and cannot happen in a leg**, which is `sutura_domain::federation`'s
 /// own shape: a `Carried` has no quotient variant, so a per-leg guard is unrepresentable and the
 /// [`ZeroDenominator`] the definition asked for is applied once, above every leg's rows.
-fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
+pub(super) fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
     match *above {
         Above::Total(ref carried) => {
             let &(ref label, reading, table) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {

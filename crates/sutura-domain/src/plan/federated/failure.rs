@@ -63,6 +63,13 @@ pub enum FederatedAnswerRefusal {
     /// misses by construction - `telekom/sutura#138`. Silently, before this refusal existed: an
     /// empty inner answer, or a left answer whose every fact row survived with a null remote side.
     LinkTypeMismatch,
+    /// The catalog declares how this relationship's two keys compare, and the legs' link columns are
+    /// not a pair that declaration joins: the declaration no longer fits the data.
+    LinkKindsNotJoined,
+    /// A link value could not be read as the kind the catalog declares for it - text that is not an
+    /// integer, or an integer wider than the decimal it is compared with. The answer is refused
+    /// whole: dropping the row, or matching it to nothing, would be a number that looks right.
+    LinkValueNotCast,
     /// A carried leaf's column is not a numeric type, so no total or comparison over it is exact.
     ///
     /// A row-speaking adapter returns an exact `DECIMAL` money column as text to keep it exact, and
@@ -70,4 +77,13 @@ pub enum FederatedAnswerRefusal {
     /// zero. A column mixing integers with exact integral text is NOT this case: the interior's own
     /// row builder gives it a zero-scale decimal type, which is numeric and exact.
     NonNumericLeaf,
+    /// Two arms of a drill-across question bucket by columns of different Arrow types, so a period
+    /// of one arm could never equal a period of the other. Refused, never cast: a cast would pick
+    /// which of two readings of a period the answer means.
+    BucketKindMismatch,
+    /// Two arms of a drill-across question group by columns of different Arrow types for one answer
+    /// key, so a key of one arm is equal to a key of the other only through a cast. Refused, never
+    /// cast: a text `"1"` and a text `"01"` collapse into one group under an integer cast, and the
+    /// answer reads the merged group as one.
+    KeyKindMismatch,
 }
