@@ -14,8 +14,13 @@ routerMode: hash
 ---
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 flex flex-col justify-between">
-  <div class="eyebrow-light" style="font-size:1rem">Multiplayer semantic layer</div>
-  <div class="grid w-full gap-10" style="grid-template-columns:1.6fr 0.4fr;align-items:center">
+  <div class="eyebrow-light" style="font-size:1rem">
+    Multiplayer semantic layer
+  </div>
+  <div
+    class="grid w-full gap-10"
+    style="grid-template-columns:1.6fr 0.4fr;align-items:center"
+  >
     <div class="space-y-5">
       <h1 class="slide-title text-white" style="font-size:7rem">sutura</h1>
       <p class="lead-dark" style="font-size:2.75rem;line-height:1.25">
@@ -24,11 +29,22 @@ routerMode: hash
       </p>
     </div>
     <div class="flex justify-center">
-      <img src="/shared/sutura.svg" alt="sutura" class="h-auto object-contain" style="max-height:15rem" />
+      <img
+        src="/shared/sutura.svg"
+        alt="sutura"
+        class="h-auto object-contain"
+        style="max-height:15rem"
+      />
     </div>
   </div>
-  <div class="mono-label" style="color:rgba(94,234,212,0.78);line-height:1.6;letter-spacing:0.04em;font-size:1rem">
-    <a href="https://telekom.github.io/sutura/latest/" class="hover:text-teal-300">telekom.github.io/sutura</a> · Apache-2.0
+  <div
+    class="mono-label"
+    style="color:rgba(94,234,212,0.78);line-height:1.6;letter-spacing:0.04em;font-size:1rem"
+  >
+    <a
+      href="https://telekom.github.io/sutura/latest/"
+      class="hover:text-teal-300"
+    >telekom.github.io/sutura</a> · Apache-2.0
   </div>
 </div>
 
@@ -39,23 +55,35 @@ Certified metrics from your semantic layer, no lock-in. HTTP + MCP, many data so
 -->
 
 ---
+
+```yaml
 layout: light
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex items-center">
   <div class="w-full space-y-8">
-    <div class="eyebrow" style="font-size:1rem">Agent + database = its own SQL</div>
-    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.6rem">Agentic trust and context problem</h1>
+    <div class="eyebrow" style="font-size:1rem">
+      Agent + database = its own SQL
+    </div>
+    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.6rem">
+      Agentic trust and context problem
+    </h1>
     <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
       <TealCallout label="Governance misalignment">
-        <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+        <ul
+          class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+          style="font-size:1.35rem"
+        >
           <li>Nobody certified the number</li>
           <li>"Revenue" ≠ finance's revenue</li>
           <li>Data quality unclear</li>
         </ul>
       </TealCallout>
       <TealCallout label="Security challenges">
-        <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+        <ul
+          class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+          style="font-size:1.35rem"
+        >
           <li>Service credential, not the caller's</li>
           <li>Row-level security: no effect</li>
           <li>IAM re-implemented in the service</li>
@@ -75,30 +103,49 @@ Two things go wrong, governance misalignment and security challenges:
 -->
 
 ---
+
+```yaml
 layout: dark
----
+```
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
-    <div class="eyebrow-light" style="font-size:1rem">Pluggable, no lock-in semantic data experience</div>
-    <h1 class="slide-heading text-white" style="text-wrap:balance;font-size:3.6rem">Certified answers - or a refusal</h1>
+    <div class="eyebrow-light" style="font-size:1rem">
+      Pluggable, no lock-in semantic data experience
+    </div>
+    <h1
+      class="slide-heading text-white"
+      style="text-wrap:balance;font-size:3.6rem"
+    >Certified answers - or a refusal</h1>
   </div>
   <div class="grid gap-4" style="grid-template-columns:repeat(3,1fr)">
     <StageCard label="Pluggable" name="Catalog + data">
-      <div class="mt-3 text-lg text-slate-300">DataHub · OpenMetadata · Cube · files (OKF, ODCS)</div>
-      <div class="mt-1 text-lg text-slate-300">BigQuery · ClickHouse · Oracle · Postgres · DuckDB</div>
+      <div class="mt-3 text-lg text-slate-300">
+        DataHub · OpenMetadata · Cube · files (OKF, ODCS)
+      </div>
+      <div class="mt-1 text-lg text-slate-300">
+        BigQuery · ClickHouse · Oracle · Postgres · DuckDB
+      </div>
       <div class="mt-1 text-lg text-slate-300">Data stays in place</div>
     </StageCard>
     <StageCard label="Verified metrics" name="No SQL from the model">
-      <div class="mt-3 text-lg text-slate-300">Only certified metrics parse · values are bind parameters</div>
+      <div class="mt-3 text-lg text-slate-300">
+        Only certified metrics parse · values are bind parameters
+      </div>
       <div class="mt-1 text-lg text-slate-300">Less SQL/prompt injection</div>
     </StageCard>
     <StageCard label="DataFusion + ADBC" name="Federation">
-      <div class="mt-3 text-lg text-slate-300">One question, several systems · bind parameters</div>
-      <div class="mt-1 text-lg text-slate-300">ADBC: Arrow-native drivers per data system</div>
+      <div class="mt-3 text-lg text-slate-300">
+        One question, several systems · bind parameters
+      </div>
+      <div class="mt-1 text-lg text-slate-300">
+        ADBC: Arrow-native drivers per data system
+      </div>
     </StageCard>
   </div>
-  <p class="text-base text-slate-400">Apache-2.0 · open standards: DataFusion · Arrow · ADBC · MCP</p>
+  <p class="text-base text-slate-400">
+    Apache-2.0 · open standards: DataFusion · Arrow · ADBC · MCP
+  </p>
 </div>
 
 <!--
@@ -114,34 +161,49 @@ Everything is Apache-2.0, on open standards.
 -->
 
 ---
+
+```yaml
 layout: light
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow" style="font-size:1rem">Inspiration</div>
-    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.2rem">Standing on the shoulders of giants</h1>
+    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.2rem">
+      Standing on the shoulders of giants
+    </h1>
   </div>
   <div class="grid gap-6" style="grid-template-columns:repeat(3,1fr)">
     <TealCallout label="Wren">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+        style="font-size:1.35rem"
+      >
         <li>Semantic model → SQL</li>
         <li>On DataFusion</li>
       </ul>
     </TealCallout>
     <TealCallout label="Spice">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+        style="font-size:1.35rem"
+      >
         <li>Federated SQL on DataFusion</li>
       </ul>
     </TealCallout>
     <TealCallout label="sutura adds">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-2 mt-2" style="font-size:1.35rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+        style="font-size:1.35rem"
+      >
         <li>Polyglot adapters</li>
         <li>Pluggable connectors</li>
       </ul>
     </TealCallout>
   </div>
-  <p class="lead" style="font-size:1.35rem"><strong>Pushing the ecosystem forward:</strong> upstream contributions (OIDC, fuzzing)</p>
+  <p class="lead" style="font-size:1.35rem">
+    <strong>Pushing the ecosystem forward:</strong> upstream contributions (OIDC, fuzzing)
+  </p>
   <p class="text-base text-neutral-500">Built on DataFusion · Arrow · ADBC</p>
 </div>
 
@@ -160,8 +222,10 @@ It runs on Apache DataFusion, Apache Arrow and ADBC.
 -->
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full px-10 py-6 flex flex-col gap-2">
   <div class="eyebrow">Architecture · 1/2</div>
@@ -174,8 +238,10 @@ The agent speaks MCP, an app speaks HTTP. Both transports verify the token with 
 -->
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full px-10 py-6 flex flex-col gap-2">
   <div class="eyebrow">Architecture · 2/2</div>
@@ -188,9 +254,11 @@ The domain defines the ports. Each adapter implements one. Nothing depends on an
 -->
 
 ---
+
+```yaml
 layout: white
 clicks: 4
----
+```
 
 <div class="h-full px-10 py-6 flex flex-col gap-2">
   <div class="eyebrow">Deployment{{ ['', ' · request path', ' · identity', ' · data systems', ' · semantics'][$clicks] }}</div>
@@ -206,13 +274,17 @@ DataHub holds the definitions. Cube serves the metrics to BI tools and APIs.
 -->
 
 ---
+
+```yaml
 layout: dark
----
+```
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow-light">Identity</div>
-    <h1 class="slide-heading text-white" style="text-wrap:balance">Two legs: who asks, who runs it</h1>
+    <h1 class="slide-heading text-white" style="text-wrap:balance">
+      Two legs: who asks, who runs it
+    </h1>
   </div>
   <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
     <DarkCallout label="Leg 1 - who asks · per deployment">
@@ -224,7 +296,8 @@ layout: dark
     </DarkCallout>
     <DarkCallout label="Leg 2 - who runs it · per source">
       <ul class="lead-dark list-disc pl-5 space-y-1">
-        <li><b>as the caller</b>
+        <li>
+          <b>as the caller</b>
           <ul class="list-[circle] pl-5">
             <li><b>multi-hop</b> exchange → caller signs in</li>
             <li>federation → caller's own principal</li>
@@ -235,7 +308,9 @@ layout: dark
       </ul>
     </DarkCallout>
   </div>
-  <p class="lead-dark max-w-5xl">Any OIDC issuer · grants, row policies, masking stay in the data system</p>
+  <p class="lead-dark max-w-5xl">
+    Any OIDC issuer · grants, row policies, masking stay in the data system
+  </p>
 </div>
 
 <!--
@@ -253,29 +328,54 @@ Grants, row policies and masking stay in the data system.
 -->
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow">Showcase 1 - Federated</div>
-    <h1 class="slide-heading" style="text-wrap:balance">One question, two data systems</h1>
+    <h1 class="slide-heading" style="text-wrap:balance">
+      One question, two data systems
+    </h1>
   </div>
   <div class="grid gap-4" style="grid-template-columns:repeat(3,1fr)">
     <PhaseCard phase="Catalog" title="DataHub" output="metric + relationship">
-      <li class="text-sm text-neutral-700"><code style="color:#336791">recurring_revenue</code></li>
-      <li class="text-sm text-neutral-700"><code>subscription_customer</code></li>
+      <li class="text-sm text-neutral-700">
+        <code style="color:#336791">recurring_revenue</code>
+      </li>
+      <li class="text-sm text-neutral-700">
+        <code>subscription_customer</code>
+      </li>
     </PhaseCard>
-    <PhaseCard phase="Fact" title="Postgres" output="fct_subscription_monthly" accent="#336791">
+    <PhaseCard
+      phase="Fact"
+      title="Postgres"
+      output="fct_subscription_monthly"
+      accent="#336791"
+    >
       <li class="text-sm text-neutral-700">TLS, one declared identity</li>
       <li class="text-sm text-neutral-700">Holds the metric</li>
     </PhaseCard>
-    <PhaseCard phase="Dimension" title="ClickHouse" output="dim_customer" accent="#b45309">
-      <li class="text-sm text-neutral-700">Dimension <code style="color:#b45309">segment</code></li>
+    <PhaseCard
+      phase="Dimension"
+      title="ClickHouse"
+      output="dim_customer"
+      accent="#b45309"
+    >
+      <li class="text-sm text-neutral-700">
+        Dimension <code style="color:#b45309">segment</code>
+      </li>
       <li class="text-sm text-neutral-700">Joined by sutura</li>
     </PhaseCard>
   </div>
-  <p class="slide-heading text-neutral-700" style="font-size:1.55rem;font-style:italic">“What was our <span style="color:#336791">recurring revenue in June 2026</span>, <span style="color:#b45309">by customer segment</span>?”</p>
+  <p
+    class="slide-heading text-neutral-700"
+    style="font-size:1.55rem;font-style:italic"
+  >
+    “What was our <span style="color:#336791">recurring revenue in June 2026</span>, <span style="color:#b45309">by customer segment</span>?”
+  </p>
 </div>
 
 <!--
@@ -286,8 +386,10 @@ Example question: what was our recurring revenue in June 2026, by customer segme
 -->
 
 ---
+
+```yaml
 layout: dark
----
+```
 
 <div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-5">
   <div class="space-y-2">
@@ -320,8 +422,10 @@ docker run "${args[@]}" "$image" serve  # start sutura
 </style>
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
@@ -360,8 +464,10 @@ The answer names both sources in executed_as: billing (Postgres) and crm (ClickH
 -->
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
@@ -398,8 +504,10 @@ Point at executed_as: every answer names the identity each source ran as.
 -->
 
 ---
+
+```yaml
 layout: light
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-8 flex flex-col justify-center gap-4">
   <div class="space-y-2">
@@ -429,37 +537,53 @@ The remedy is one line in the real output; the slide wraps it.
 -->
 
 ---
+
+```yaml
 layout: white
----
+```
 
 <div class="h-full max-w-6xl mx-auto px-16 py-10 flex flex-col justify-center gap-6">
   <div class="space-y-2">
     <div class="eyebrow" style="font-size:1rem">Safety patterns</div>
-    <h1 class="slide-heading" style="font-size:3.2rem">Secure by design, and by verification</h1>
+    <h1 class="slide-heading" style="font-size:3.2rem">
+      Secure by design, and by verification
+    </h1>
   </div>
   <div class="grid gap-5" style="grid-template-columns:1fr 1fr">
     <TealCallout label="Rust">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-1 mt-1"
+        style="font-size:1.2rem"
+      >
         <li>No <code>unsafe</code> in all crates but one</li>
         <li>Clippy pedantic + restriction lints</li>
         <li>No <code>unwrap</code>, <code>panic</code> or indexing</li>
       </ul>
     </TealCallout>
     <TealCallout label="Types">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-1 mt-1"
+        style="font-size:1.2rem"
+      >
         <li>Newtypes that parse · typed errors</li>
         <li>A question has no field for SQL</li>
       </ul>
     </TealCallout>
     <TealCallout label="Verification">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-1 mt-1"
+        style="font-size:1.2rem"
+      >
         <li>Fuzzing: tokens, keys, catalogs, SQL</li>
         <li>Golden suite per adapter</li>
         <li>Every new test red before green</li>
       </ul>
     </TealCallout>
     <TealCallout label="Supply chain">
-      <ul class="text-neutral-700 list-disc pl-6 space-y-1 mt-1" style="font-size:1.2rem">
+      <ul
+        class="text-neutral-700 list-disc pl-6 space-y-1 mt-1"
+        style="font-size:1.2rem"
+      >
         <li>Hermetic nix build · static musl</li>
         <li>cargo-deny · osv-scanner</li>
         <li>Signed images · SBOM · SLSA</li>
@@ -477,24 +601,55 @@ Security is the product, not a layer, so each rule is held by a type, a lint, a 
 -->
 
 ---
-layout: dark-closing
----
 
-<div class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 grid gap-8" style="grid-template-columns:1fr auto">
+```yaml
+layout: dark-closing
+```
+
+<div
+  class="relative z-10 h-full max-w-6xl mx-auto px-16 py-12 grid gap-8"
+  style="grid-template-columns:1fr auto"
+>
   <div class="flex flex-col justify-between">
     <div class="space-y-5">
-      <div class="eyebrow-light" style="font-size:1rem;letter-spacing:0.16em">Join the sovereign semantic data experience</div>
-      <h1 class="slide-title text-white" style="font-size:4.5rem">Build it with us</h1>
-      <p class="lead-dark" style="font-size:1.6rem">Run an example · open an issue · send a pull request</p>
-      <a href="https://telekom.github.io/sutura/latest/" class="block text-teal-300 hover:text-teal-200" style="font-size:2rem">telekom.github.io/sutura</a>
-      <p class="lead-dark" style="font-size:1.2rem"><span class="text-teal-300 font-semibold">Roadmap:</span> agentic BI - BI tool (persistent object model) + MCP + sutura</p>
+      <div class="eyebrow-light" style="font-size:1rem;letter-spacing:0.16em">
+        Join the sovereign semantic data experience
+      </div>
+      <h1 class="slide-title text-white" style="font-size:4.5rem">
+        Build it with us
+      </h1>
+      <p class="lead-dark" style="font-size:1.6rem">
+        Run an example · open an issue · send a pull request
+      </p>
+      <a
+        href="https://telekom.github.io/sutura/latest/"
+        class="block text-teal-300 hover:text-teal-200"
+        style="font-size:2rem"
+      >telekom.github.io/sutura</a>
+      <p class="lead-dark" style="font-size:1.2rem">
+        <span class="text-teal-300 font-semibold">Roadmap:</span> agentic BI - BI tool (persistent object model) + MCP + sutura
+      </p>
     </div>
-    <div class="mono-label" style="color:rgba(94,234,212,0.78);font-size:1rem">Apache-2.0</div>
+    <div class="mono-label" style="color:rgba(94,234,212,0.78);font-size:1rem">
+      Apache-2.0
+    </div>
   </div>
   <div class="flex flex-col items-end justify-between">
-    <img src="/shared/sutura.svg" alt="sutura" class="object-contain" style="height:9rem" />
-    <a href="https://telekom.github.io/sutura/latest/" class="block bg-white rounded-lg p-3">
-      <img src="/docs-qr.svg" alt="QR code: telekom.github.io/sutura" style="width:10rem;height:10rem;image-rendering:pixelated" />
+    <img
+      src="/shared/sutura.svg"
+      alt="sutura"
+      class="object-contain"
+      style="height:9rem"
+    />
+    <a
+      href="https://telekom.github.io/sutura/latest/"
+      class="block bg-white rounded-lg p-3"
+    >
+      <img
+        src="/docs-qr.svg"
+        alt="QR code: telekom.github.io/sutura"
+        style="width:10rem;height:10rem;image-rendering:pixelated"
+      />
     </a>
   </div>
 </div>

@@ -64,11 +64,7 @@
     // page is excluded rather than the constant rewritten.
     "docs/implementation-plan-identity-and-services.md",
     "docs/where-identity-is-proven.md",
-    "test-infra/README.md",
-    // A Slidev deck: `---` separates slides and opens each slide's frontmatter, and dprint reads
-    // `layout: light` between two `---` lines as a heading, which turns the slide into text.
-    // Measured on this deck. The HTML in it is also rewrapped, which no slide needs.
-    "slides/*/slides.md"
+    "test-infra/README.md"
   ],
   // Empty on purpose: `nix/dprint.nix` supplies the three plugins as store paths.
   "plugins": []
