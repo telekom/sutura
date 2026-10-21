@@ -198,8 +198,10 @@ exclude_docs: |
 # with one emoji, written as a literal character that the browser font draws.
 #
 # Replaces `{{ sutura_version }}` with the version in Cargo.toml, so a release edits one line.
+# `slides.py` copies the built decks into the site.
 hooks:
   - docs/.tools/version.py
+  - docs/.tools/slides.py
 
 nav:
   - 📖 User Guide:
@@ -246,6 +248,7 @@ nav:
       - Metrics layer: examples/metrics-layer.md
       - Federated: examples/federated.md
       - The local chat demo: demo.md
+      - Slides: slides.md
   - 📚 Reference:
       - Configuration: configuration.md
       - Verifying a release: verifying-a-release.md

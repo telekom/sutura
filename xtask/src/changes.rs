@@ -170,7 +170,20 @@ const AREAS: &[Area] = &[
 
 /// Paths that cannot affect a build. Deliberately short: everything else is either an area
 /// or unclassified, and unclassified fails open.
-const DOCS_ONLY: &[&str] = &["**/*.md", "docs/**", "LICENSE", "NOTICE", ".gitattributes", ".gitignore"];
+///
+/// `slides/**` is the meetup deck's sources: `checks.slides` builds them with nix and `docs.yml`
+/// starts on the same paths, so no cargo gate reads them. `nix/slides.nix` needs no line: `nix/**`
+/// already lands it in `deps_closure`, which sets no `rust` and only starts the dependency-cache job
+/// (a limit - that job still runs for a deck-only diff). `docs/.tools/slides.py` sits under `docs/**`.
+const DOCS_ONLY: &[&str] = &[
+    "**/*.md",
+    "docs/**",
+    "slides/**",
+    "LICENSE",
+    "NOTICE",
+    ".gitattributes",
+    ".gitignore",
+];
 
 /// CI configuration changes the pipeline itself, so nothing may be skipped on the strength
 /// of a classification the change may have just altered.
@@ -778,6 +791,33 @@ mod tests {
         assert!(!r.run_all, "docs must not fan out: {:?}", r.reasons);
         assert!(r.areas.is_empty());
         assert_eq!(r.docs_only.len(), 3);
+    }
+
+    #[test]
+    fn a_deck_only_change_skips_the_rust_gates() {
+        let r = classify(&paths(&[
+            "slides/2026-introducing-sutura/package.json",
+            "slides/2026-introducing-sutura/package-lock.json",
+            "slides/2026-introducing-sutura/slides.md",
+            "slides/2026-introducing-sutura/theme/style.css",
+            "slides/2026-introducing-sutura/public/docs-qr.svg",
+            "nix/slides.nix",
+            "docs/slides.md",
+            "docs/.tools/slides.py",
+        ]));
+        assert!(!r.run_all, "the deck must not fan out: {:?}", r.reasons);
+        assert!(r.unclassified.is_empty(), "{:?}", r.unclassified);
+        assert!(!r.needs("rust") && !r.needs("build") && !r.needs("api"), "{:?}", r.areas);
+    }
+
+    #[test]
+    fn a_deck_change_beside_crates_still_needs_the_rust_gates() {
+        let r = classify(&paths(&[
+            "slides/2026-introducing-sutura/package.json",
+            "crates/sutura-domain/src/lib.rs",
+        ]));
+        assert!(!r.run_all, "the deck path must not be what runs everything: {:?}", r.reasons);
+        assert!(r.areas.contains("rust"), "{:?}", r.areas);
     }
 
     #[test]
