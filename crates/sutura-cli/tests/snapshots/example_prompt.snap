@@ -117,16 +117,14 @@ Every reason you can be given, and what to do about each:
   the same question again. If the SAME question is refused again immediately after a fresh window
   starts, its own estimate is over the ceiling by itself - waiting will never help that case, and
   narrowing the question is the only remedy.
-- **plan_spans_too_many_sources** - answering would need to read from more data systems than this
-  deployment serves (two at most).
-  Nothing you can change. Report it to a person - it is a fact about how the metric is defined, and
-  retrying or trying a different dimension will not avoid it.
+- **plan_needs_too_many_lookup_legs** - answering would need more lookup legs than this deployment
+  serves (three at most).
+  Ask for dimensions from fewer remote relationships: each one reads its own data system, so drop
+  the ones you can do without.
 - **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the
   dimension on the second data system, or report it to a person.
-- **federation_link_ambiguous** - a remote dimension joins through more than one relationship.
-  Nothing you can change. Report it: it is a fact about how the metric is defined.
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **federation_link_type_mismatch** - the crossing relationship joins two columns the catalog
@@ -156,6 +154,9 @@ Every reason you can be given, and what to do about each:
   Nothing you can change in the question. Report it: it is a fact about where the models live.
 - **cross_model_ratio_without_shared_dimension** - not grouped by only a shared dimension.
   Group only by a dimension both fact models link to; if the metric has none, report it.
+- **cross_model_ratio_needs_one_lookup_leg** - a two-fact ratio grouped by dimensions that need more
+  than one lookup leg.
+  Group only by dimensions of one remote model; if you need both, report it.
 - **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

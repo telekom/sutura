@@ -30,8 +30,7 @@ const QUERY: Subject = Subject {
     // model loads and is refused at plan time rather than mis-planned against the wrong table.
     // 24 since `telekom/sutura#967` ADDED `FederationLinkCompound`: a relationship crossing into a
     // remote data system with more than one join key is refused under its own name rather than
-    // under `FederationLinkAmbiguous`, which means two RELATIONSHIPS crossing at once and would
-    // tell a caller something untrue about one correctly declared compound key. 26:
+    // under its own name, because the combiner links two legs on a single column. 26:
     // `github.com/telekom/sutura#968` added `MetricsSpanDifferentModels` and
     // `MultiMetricNotExecutable` for a question naming more than one metric. 27: this diff
     // removed `MultiMetricNotExecutable` (every multi-metric question that shares model, time,
@@ -57,7 +56,10 @@ const QUERY: Subject = Subject {
     // pull-up REMOVED `MeasureDoesNotFederate` - a distinct count across two sources is answered
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
-    // kinds is refused at plan time.
+    // kinds is refused at plan time. 32 still, since `telekom/sutura#1342`'s planner: `PlanNeedsTooManyLookupLegs`
+    // replaced `PlanSpansTooManySources` (a straight substitution), `FederationLinkAmbiguous` was
+    // DELETED (two relationships into one remote model are two lookup legs), and
+    // `CrossModelRatioNeedsOneLookupLeg` was ADDED for a ratio that would need more than one.
     variants: variants(32),
 };
 

@@ -218,13 +218,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  again. Retrying it unchanged returns this same refusal"
             ),
         ),
-        // 409. A question spanning more than two data systems is answerable in principle and this
-        // deployment will not answer it: each source is a separate identity to satisfy, and a plan
-        // that runs partly as somebody else is the failure the whole design is arranged against.
-        // Two are served - that is what the status does NOT say.
-        RefusalReason::PlanSpansTooManySources { sources, limit } => (
+        // 409. A question needing more lookup legs than the cap is answerable in principle and this
+        // deployment will not answer it: each leg's source is a separate identity to satisfy, and a
+        // plan that runs partly as somebody else is the failure the whole design is arranged against.
+        // Up to the cap is served - that is what the status does NOT say.
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => (
             StatusCode::CONFLICT,
-            format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
+            format!("answering this would read {legs} lookup legs, and a plan reads {limit} at most"),
         ),
         // A question that would need federation execution this deployment cannot do yet, a link shape
         // the combiner does not express, a measure that cannot recombine, an ill-formed federated
@@ -233,7 +233,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // its own small function below `refused` - split out once `github.com/telekom/sutura#967`'s
         // `FederationLinkCompound` pushed this match over `clippy::too_many_lines`.
         RefusalReason::FederationNotExecutable => (StatusCode::CONFLICT, federation_not_executable()),
-        RefusalReason::FederationLinkAmbiguous { ref source } => (StatusCode::CONFLICT, federation_link_ambiguous(source)),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
@@ -387,6 +386,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
             (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
         }
+        // 409, the status `CrossModelRatioSpansSources` gets: a shape this build does not serve, and
+        // not a grouping the caller got wrong.
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => (StatusCode::CONFLICT, needs_one_lookup_leg(metric)),
     };
     (
         status,
@@ -424,8 +426,11 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
     )
 }
 
-fn federation_link_ambiguous(source: &sutura_domain::model::SourceName) -> String {
-    format!("the dimensions on `{source}` join through more than one relationship")
+fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
+         lookup leg; group by dimensions of one remote model"
+    )
 }
 
 fn federation_link_compound(
@@ -461,7 +466,7 @@ fn federated_answer_not_well_formed() -> String {
     )
 }
 
-/// The same reasoning `PlanSpansTooManySources` uses: the question is well formed, the metric
+/// The same reasoning `PlanNeedsTooManyLookupLegs` uses: the question is well formed, the metric
 /// permits it, and this deployment cannot express it as one statement. That is a conflict between
 /// what was asked and how the tables it reads are named.
 ///
@@ -529,9 +534,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::TooManyFilters { .. }
         | RefusalReason::ResultTooLarge { .. }
         | RefusalReason::TimeRangeTooLong { .. }
-        | RefusalReason::PlanSpansTooManySources { .. }
+        | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
         | RefusalReason::FederationNotExecutable
-        | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
         | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
@@ -544,7 +548,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::TopOverUncertifiedRows { .. }
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
         | RefusalReason::CrossModelRatioSpansSources { .. }
-        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => None,
+        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
+        | RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => None,
     }
 }
 
@@ -715,9 +720,9 @@ mod tests {
                 "resources_exhausted",
             ),
             (
-                RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+                RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
                 StatusCode::CONFLICT,
-                "plan_spans_too_many_sources",
+                "plan_needs_too_many_lookup_legs",
             ),
         ];
         reasons.extend(every_reason_the_second_half());

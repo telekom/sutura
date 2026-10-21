@@ -16,13 +16,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_not_executable",
         ),
         (
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
-            StatusCode::CONFLICT,
-            "federation_link_ambiguous",
-        ),
-        (
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
@@ -132,6 +125,11 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             },
             StatusCode::UNPROCESSABLE_ENTITY,
             "cross_model_ratio_without_shared_dimension",
+        ),
+        (
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg { metric: metric() },
+            StatusCode::CONFLICT,
+            "cross_model_ratio_needs_one_lookup_leg",
         ),
     ]
 }

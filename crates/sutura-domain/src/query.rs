@@ -227,17 +227,15 @@ pub enum RefusalReason {
     /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
     /// reflect into a message that reaches a log, a UI and an agent's context.
     TimeRangeTooLong { days: i32, limit: i32 },
-    /// The plan would need to read from more than the deployment serves.
+    /// The plan would need more lookup legs than one answer may carry.
     ///
-    /// Refused rather than run in parts, because each data system is a separate identity to satisfy,
-    /// and a plan that runs partly as somebody else is the failure this design exists to prevent.
-    ///
-    /// **Exactly two is served** - a question that spans two sources is split into two legs and
-    /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-    /// executes it where the registered adapter can run a leg and otherwise refuses it as
-    /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
-    /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
-    PlanSpansTooManySources { sources: usize, limit: usize },
+    /// Refused rather than run in parts, because each leg's data system is a separate identity to
+    /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+    /// prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+    /// model through two relationships count twice, and a chain that crosses twice spends two. The
+    /// "too many" is a named count against [`MAX_LOOKUP_LEGS`]. Narrowable: ask for fewer remote
+    /// dimensions.
+    PlanNeedsTooManyLookupLegs { legs: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute
     /// a leg.
     ///
@@ -263,21 +261,11 @@ pub enum RefusalReason {
     /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
     /// capability and nothing else.
     FederationNotExecutable,
-    /// The question's remote dimensions join the metric's own through more than one relationship.
-    ///
-    /// The combiner links the two legs on a single column; two relationships on one remote data
-    /// system would need two link columns, which the lookup leg does not carry. Refused rather than
-    /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
-    /// many sources are involved.
-    FederationLinkAmbiguous { source: SourceName },
     /// The relationship crossing into the remote data system declares more than one join key.
     ///
-    /// **Distinct from [`FederationLinkAmbiguous`](Self::FederationLinkAmbiguous), which names two
-    /// relationships crossing at once.** This is one relationship, correctly declared - a compound
-    /// key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
-    /// combiner links two legs on a single column, and a compound key would need one per column,
-    /// which the lookup leg's shape does not carry. Named for what is actually true rather than
-    /// reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+    /// One relationship, correctly declared - a compound key is exactly what `telekom/sutura#967`
+    /// exists to allow inside one data system - but the combiner links two legs on a single column,
+    /// and a compound key would need one per column, which the lookup leg's shape does not carry.
     FederationLinkCompound {
         source: SourceName,
         relationship: RelationshipName,
@@ -543,6 +531,12 @@ pub enum RefusalReason {
     /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
     /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
+    /// A cross-model ratio asked by dimensions that need more than one lookup leg.
+    ///
+    /// The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+    /// is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
+    /// lifts it. Narrowable: group by the dimensions of one remote model.
+    CrossModelRatioNeedsOneLookupLeg { metric: MetricName },
 }
 
 /// What a tool call produced.
@@ -730,11 +724,8 @@ mod tests {
                 bound: ResultBound::Rows { limit: 10_000 },
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
@@ -780,6 +771,9 @@ mod tests {
             RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
+            },
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
             },
         ]
     }

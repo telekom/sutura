@@ -542,6 +542,12 @@ pub enum FederatedPlanError {
     /// shape as a type.
     #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
     FactKeyNotShared { label: String },
+    /// The lookup legs are not a list [`LookupLegs`] parses.
+    ///
+    /// Unreachable through the one production splitter, which counts the legs against the cap before
+    /// it builds them and sorts each after the leg it joins onto.
+    #[error(transparent)]
+    Lookups(#[from] LookupLegsError),
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

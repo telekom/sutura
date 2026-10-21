@@ -131,17 +131,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::TimeRangeTooLong { days, limit } => {
             format!("the period asked about is {days} days; at most {limit} are allowed")
         }
-        RefusalReason::PlanSpansTooManySources { sources, limit } => {
-            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most")
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => {
+            format!(
+                "this question would read {legs} lookup legs, and one answer reads {limit} at most; ask for dimensions from fewer remote relationships"
+            )
         }
         RefusalReason::FederationNotExecutable => String::from(
             "this deployment has no adapter that can execute one half of a question spanning two \
              data systems. Nothing you can change in the question helps and this is not an outage \
              to retry; ask without the dimension on the second data system, or report it.",
-        ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => format!(
-            "the dimensions on `{source}` join through more than one relationship, and the two \
-             legs link on a single column"
         ),
         RefusalReason::FederationLinkCompound {
             ref source,
@@ -249,6 +247,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
         RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => spans_sources(metric, model),
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => needs_one_lookup_leg(metric),
     };
     (code, detail)
 }
@@ -266,6 +265,14 @@ fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domai
         "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
          than the metric's own, so both facts cannot join its shared calendar. Nothing you can change \
          in the question helps; report it to the person you are acting for."
+    )
+}
+
+/// Written for an agent: this one IS narrowable, so the sentence says how.
+fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
+         lookup leg. Group by dimensions of one remote model."
     )
 }
 
@@ -334,11 +341,8 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
@@ -384,6 +388,7 @@ mod tests {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
             },
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg { metric: metric() },
         ]
     }
 

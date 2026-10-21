@@ -103,9 +103,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::ResourcesExhausted {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
-        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
         RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkAmbiguous { source: source("geo") },
         RefusalReason::FederationLinkCompound {
             source: source("geo"),
             relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
@@ -145,6 +144,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             metric: metric("revenue_per_customer"),
             model: model("customers"),
         },
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+            metric: metric("revenue_per_customer"),
+        },
     ];
     for reason in &all {
         // No wildcard: a variant added to the enum does not compile until it is named here.
@@ -164,9 +166,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::TooManyFilters { .. }
             | RefusalReason::ResultTooLarge { .. }
             | RefusalReason::TimeRangeTooLong { .. }
-            | RefusalReason::PlanSpansTooManySources { .. }
+            | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
             | RefusalReason::FederationNotExecutable
-            | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
@@ -180,7 +181,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::TopOverUncertifiedRows { .. }
             | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
             | RefusalReason::CrossModelRatioSpansSources { .. }
-            | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => {}
+            | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
+            | RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => {}
         }
     }
     all

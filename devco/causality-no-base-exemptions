@@ -51,3 +51,9 @@ each_lookup_leg_that_does_not_answer_ends_the_answer_with_no_rows # in plan/fede
 three_lookup_legs_dry_run_once_each # in federated/tests/dry_run_count_test.rs, which names `InternalLabel::Link(usize)` and `LookupLegs`, new in this change; killed when the cut's legs are taken three at most
 three_lookup_legs_and_a_chain_combine_on_their_own_links # in combine/tests/fan_in.rs, a module new in this change; killed when every lookup leg is joined onto the fact
 a_second_lookup_leg_with_two_rows_for_one_link_value_is_ambiguous # in combine/tests/fan_in.rs, a module new in this change; killed when only the first lookup leg is checked for an ambiguous link
+a_chain_that_crosses_and_comes_back_is_planned_as_two_federated_legs # in plan/tests.rs, which names `RefusalReason::PlanNeedsTooManyLookupLegs`, new in this change, so its base tree does not build; killed when `Lookups::of` keeps only a chain's first crossing
+a_chain_that_crosses_and_on_to_a_third_system_is_planned_as_two_federated_legs # in plan/tests.rs, whose base tree does not build; killed when `Lookups::of` keeps only a chain's first crossing
+dimensions_on_two_other_systems_are_planned_as_two_lookup_legs_on_the_fact # in plan/tests.rs, whose base tree does not build; killed when the fact leg projects only the first link
+a_filter_on_one_lookup_leg_makes_only_that_leg_inner # in plan/tests.rs, whose base tree does not build; killed when `lookup_legs` takes include_unmatched from the whole question's filters
+a_question_that_needs_four_lookup_legs_is_refused_with_the_count # in plan/tests.rs, whose base tree does not build; killed when `plan` admits `MAX_LOOKUP_LEGS + 1` legs
+a_cross_model_ratio_over_two_lookup_legs_is_refused_by_name # in plan/tests/federation.rs, which names `RefusalReason::CrossModelRatioNeedsOneLookupLeg`, new in this change; killed when the ratio's `lookups.len() > 1` refusal in `plan` is `&& false`

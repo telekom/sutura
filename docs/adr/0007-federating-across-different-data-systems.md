@@ -1764,3 +1764,34 @@ values, and both are dates, so no type check sees it. Such a ratio is refused as
 - The type check reads the catalog and not the data. A truncated key over an origin declared as an
   integer reads as a date: it is refused as a mismatch against a text or an integer target and
   planned against a date target, and a refusal names the declared types.
+
+## Twentieth amendment, 2026-10-21: the planner builds the lookup legs the plan carries
+
+The *Eighteenth amendment* left the planner making one lookup leg. This amendment builds the
+planner half of the *Seventeenth amendment* (`telekom/sutura#1342`), and it does not change the
+decision.
+
+- **Built.** The planner makes one lookup leg for each distinct path of crossing relationships. A
+  chain crosses wherever a hop lands on another data system than the hop before it, and each crossing
+  opens a leg: a leg joins onto the fact leg when the crossing leaves the metric's own system, and onto
+  the leg the earlier crossing opened otherwise. Legs are sorted by path, so a leg's parent comes
+  before it and its link label does not depend on the order the caller listed dimensions. A leg
+  joins as LEFT unless a filter reads one of its dimensions, for each leg and not once for the plan.
+  A dimension is read from the leg of its last crossing, so a chain that crosses and comes back is
+  planned as federated legs and never as one statement.
+- **Refusals changed.** `PlanNeedsTooManyLookupLegs { legs, limit }` replaces
+  `PlanSpansTooManySources`. `CrossModelRatioNeedsOneLookupLeg { metric }` is new: a cross-model
+  ratio still joins its second fact on one link. `FederationLinkAmbiguous`, `HopCrossesSource` and
+  `ChainLeavesItsSource` are deleted with their cells. The wire codes `plan_spans_too_many_sources`
+  and `federation_link_ambiguous` no longer exist, which is a breaking change.
+- **Not built.** A cross-model ratio over more than one lookup leg (`github.com/telekom/sutura#1493`).
+
+**Limits.**
+
+- The cells assert the shape of the plan. No cell here runs a plan the planner made with more than
+  one lookup leg through the combiner; the combiner is measured on plans built by hand
+  (*Eighteenth amendment*).
+- A leg is read whole, as before. The cap of three and the working-set ceiling are the only bounds
+  on bytes, and neither was measured for a plan that reads three sources.
+- Two crossings that start from one model by different relationships are two legs and are not
+  merged, even when they land on one remote model.

@@ -183,7 +183,7 @@ impl PlanJoin {
     /// what a multi-project estate looks like, and it is one statement, one job and one credential -
     /// a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
     /// so where a source count decides between one statement, a split and
-    /// `PlanSpansTooManySources`.
+    /// `PlanNeedsTooManyLookupLegs`.
     ///
     /// **A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
     /// than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an

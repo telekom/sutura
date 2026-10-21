@@ -156,8 +156,8 @@ was minted for this call, which is the honest answer for a question refused befo
 asked.
 
 A plan reads from the sources a `Compiled::Federated` answer spans, or from a single source for a
-`Compiled::Planned` one (a question spanning three or more is refused at plan time by
-`crate::query::RefusalReason::PlanSpansTooManySources`), so the source set is a name a reader
+`Compiled::Planned` one (a question needing more lookup legs than the cap is refused at plan time by
+`crate::query::RefusalReason::PlanNeedsTooManyLookupLegs`), so the source set is a name a reader
 already has from the bundle.
 
 ### `trait AuditSink`
@@ -6674,7 +6674,7 @@ than completeness:** a fact table in one dataset joined to a dimension table in 
 what a multi-project estate looks like, and it is one statement, one job and one credential -
 a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
 so where a source count decides between one statement, a split and
-`PlanSpansTooManySources`.
+`PlanNeedsTooManyLookupLegs`.
 
 **A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
 than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
@@ -8897,6 +8897,10 @@ Why a federated plan could not be built.
   Reached only by direct construction: `plan()` refuses a question grouped by a dimension
   only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
   shape as a type.
+- `Lookups` - The lookup legs are not a list `LookupLegs` parses.
+
+  Unreachable through the one production splitter, which counts the legs against the cap before
+  it builds them and sorts each after the leg it joins onto.
 
 ##### Implements
 
@@ -10743,16 +10747,14 @@ somebody else's input.
   Carries the two day counts and nothing from the caller's text, which is what makes it safe to
   log: a day count is derived from parsed dates, so there is no caller-controlled string to
   reflect into a message that reaches a log, a UI and an agent's context.
-- `PlanSpansTooManySources` - The plan would need to read from more than the deployment serves.
+- `PlanNeedsTooManyLookupLegs` - The plan would need more lookup legs than one answer may carry.
 
-  Refused rather than run in parts, because each data system is a separate identity to satisfy,
-  and a plan that runs partly as somebody else is the failure this design exists to prevent.
-
-  **Exactly two is served** - a question that spans two sources is split into two legs and
-  combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-  executes it where the registered adapter can run a leg and otherwise refuses it as
-  `FederationNotExecutable`). So this is the bound on
-  an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+  Refused rather than run in parts, because each leg's data system is a separate identity to
+  satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+  prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+  model through two relationships count twice, and a chain that crosses twice spends two. The
+  "too many" is a named count against `MAX_LOOKUP_LEGS`. Narrowable: ask for fewer remote
+  dimensions.
 - `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
 
   **A fact about the two adapters this answer would run on, read per LEG.** `Warehouses<W>`
@@ -10776,20 +10778,11 @@ somebody else's input.
   build unable to run a leg, or did sutura fail to assemble a plan it had already decided on*.
   That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
   capability and nothing else.
-- `FederationLinkAmbiguous` - The question's remote dimensions join the metric's own through more than one relationship.
-
-  The combiner links the two legs on a single column; two relationships on one remote data
-  system would need two link columns, which the lookup leg does not carry. Refused rather than
-  guess a link, and named as a link ambiguity rather than a source count: it is not that too
-  many sources are involved.
 - `FederationLinkCompound` - The relationship crossing into the remote data system declares more than one join key.
 
-  **Distinct from `FederationLinkAmbiguous`, which names two
-  relationships crossing at once.** This is one relationship, correctly declared - a compound
-  key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
-  combiner links two legs on a single column, and a compound key would need one per column,
-  which the lookup leg's shape does not carry. Named for what is actually true rather than
-  reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+  One relationship, correctly declared - a compound key is exactly what `telekom/sutura#967`
+  exists to allow inside one data system - but the combiner links two legs on a single column,
+  and a compound key would need one per column, which the lookup leg's shape does not carry.
 - `FederationLinkTypeMismatch` - The two columns the crossing relationship joins are declared as different kinds of value.
 
   Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -11025,6 +11018,11 @@ somebody else's input.
   else, and the second fact `model` declares its own relationship into it on the column the
   first fact links through, truncated to the same grain or not at all. Narrowable: group by a
   dimension both facts link to.
+- `CrossModelRatioNeedsOneLookupLeg` - A cross-model ratio asked by dimensions that need more than one lookup leg.
+
+  The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+  is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
+  lifts it. Narrowable: group by the dimensions of one remote model.
 
 #### Methods
 

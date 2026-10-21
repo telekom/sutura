@@ -124,27 +124,11 @@ pub enum CompileFailure {
     NotBound(#[from] IncoherentBindings),
     /// A2: the splitter ran with no remote dimension to join the fact leg through.
     ///
-    /// Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when exactly one
-    /// remote source exists and a remote dimension has a join by construction, so nothing provokes
-    /// this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
-    /// limit: 2 }` a caller could not have narrowed their way out of.
+    /// Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when a lookup leg
+    /// exists and a remote dimension has a join by construction, so nothing provokes this either. A
+    /// caller cannot narrow their way out of it, which is why it is no `RefusalReason`.
     #[error("the federated splitter found no remote dimension to join the fact leg through")]
     NoRemoteJoin,
-    /// A chain that crossed onto another data system and then left it reached the plan stage.
-    ///
-    /// The bundle should not have assembled: `sutura_domain::catalog` refuses such a chain at load,
-    /// naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
-    /// buys is the thing the load check alone did not have - a second reader of the same rule, on
-    /// the path where getting it wrong renders another data system's table into one statement under
-    /// a certified metric name. `crate::plan::PlanError::ChainLeavesItsSource` carries the report.
-    #[error(
-        "metric {metric} reaches dimension {dimension} through a chain that leaves the data system it crossed to at hop {hop}"
-    )]
-    ChainLeavesItsSource {
-        metric: MetricName,
-        dimension: sutura_domain::model::DimensionName,
-        hop: usize,
-    },
     /// The splitter carried a cross-model ratio's second-fact leaves with no second fact model or
     /// calendar model resolved for them. Same limit as `NoRemoteJoin`: `plan` dispatches such a
     /// ratio only once `resolve` has already looked up both, so nothing provokes this either -
@@ -212,9 +196,6 @@ pub fn compile(
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
         Err(PlanError::NotBound(cause)) => Err(cause.into()),
         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
-        Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
-            Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })
-        }
         Err(PlanError::NoSecondFactModel) => Err(CompileFailure::NoSecondFactModel),
     }
 }

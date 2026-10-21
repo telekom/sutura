@@ -1,12 +1,13 @@
 diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+index b9486230c..a22ba9b78 100644
 --- a/crates/sutura-semantic/src/plan/federated.rs
 +++ b/crates/sutura-semantic/src/plan/federated.rs
-@@ -41,7 +41,7 @@
+@@ -50,7 +50,7 @@ pub(super) fn federated_plan(
      let own_table = model.table_name();
  
      // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
 -    let federation = Federation::of_metric(closed, model.name());
 +    let federation = Federation::of(closed);
-     // One remote data system (more are refused upstream); its dimensions must all cross through one
-     // relationship, because the combiner links the legs on a single column - and a remote
-     // dimension's CROSSING hop is what the link is: the hop that lands on the remote system. The
+     // The guard below is unreachable - `plan` calls this only with at least one lookup leg - but a
+     // panic here would be reachable from a catalog plus a question, so it refuses instead.
+     //
