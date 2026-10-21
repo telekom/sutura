@@ -834,7 +834,7 @@ mod truncated_link {
 
     #[track_caller]
     fn renders_and_parses(dialect: Dialect, target: polyglot_sql::DialectType) {
-        let link = || ResultLabel::internal(InternalLabel::Link);
+        let link = || ResultLabel::internal(InternalLabel::Link(0));
         let usage_date = || column(FACT_TABLE, "usage_date");
         let render = |key| {
             generate_leg(&fact_leg(key), dialect).unwrap_or_else(|e| panic!("the link would not render for {dialect}: {e}"))
