@@ -97,16 +97,15 @@ pub(crate) struct RawSource {
     /// refusal for the kinds that need it, and what refuses it for the kinds that do not.
     #[serde(default)]
     pub(crate) data_dir: Option<String>,
-    /// The project a `bigquery` source's jobs are billed to. Required for `kind: bigquery`.
-    ///
-    /// **Declared and never inferred**, for the reason `crate::sources::placement::BillingProject`
-    /// gives: the project is a path segment of the request that submits a job, so there is nothing to
-    /// infer it from - and a federated identity has none of its own.
+    /// The removed per-source payer, refused at load in favour of `billing`.
     #[serde(default)]
     pub(crate) billing_project: Option<String>,
-    /// The dataset an unqualified table name resolves in. Required for `kind: bigquery`.
+    /// The removed default dataset, refused at load: a table path names its project and dataset.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
+    /// Who a `bigquery` source's jobs are billed to.
+    #[serde(default)]
+    pub(crate) billing: Option<RawBilling>,
     /// The most one query job on a `bigquery` source may be billed for scanning. Required for
     /// `kind: bigquery`.
     ///
@@ -275,6 +274,26 @@ where
 
 /// A `delegation` key, absent or as read.
 type Hops = Option<Vec<RawDelegation>>;
+
+/// A `bigquery` source's `billing` block, as read.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawBilling {
+    #[serde(default)]
+    pub(crate) by_group: Vec<RawBillingGroup>,
+    #[serde(default)]
+    pub(crate) caller_may_name: bool,
+    #[serde(default)]
+    pub(crate) service_account_project: Option<String>,
+}
+
+/// One `billing.by_group` entry: a group claim value and the project its members are billed to.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawBillingGroup {
+    pub(crate) group: String,
+    pub(crate) project: String,
+}
 
 /// One source's delegation exchange, as read. Every key is required, so a missing one is serde's
 /// refusal naming it. `client_secret_file` is a PATH: the secret is read by the composition root.

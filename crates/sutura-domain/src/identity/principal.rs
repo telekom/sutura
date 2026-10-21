@@ -640,7 +640,8 @@ impl PrincipalChain {
 
 #[cfg(test)]
 mod tests {
-    use super::{Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId};
+    use super::{Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, Subject, SubjectId, TaskId};
+    use crate::identity::RequestContext;
 
     fn actor(raw: &str) -> Actor {
         Actor::parse(raw).expect("a test actor is an actor")

@@ -146,6 +146,8 @@ impl RefusalReason {
             Self::ResourcesExhausted { .. } => "resources_exhausted",
             Self::CredentialUnavailable { .. } => "credential_unavailable",
             Self::SourceRefused { .. } => "source_refused",
+            Self::BillToNotAllowed { .. } => "bill_to_not_allowed",
+            Self::NoBillingProject { .. } => "no_billing_project",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",

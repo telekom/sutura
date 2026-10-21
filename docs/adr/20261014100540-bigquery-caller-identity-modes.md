@@ -111,3 +111,56 @@ record above does not hold.
   degrades to `identity_unavailable`: still a refusal, never an answer.
 - **A `google_login` source needs a `direct` inbound deployment**, for the reason a delegation
   does: the broker request sends the caller's own inbound token, which only `direct` verifies.
+
+## Second amendment, 2026-10-14: how mode c reads the address and runs the job
+
+**Status of the amendment: accepted** (issue #1439). Mode c is built, with these decisions the
+record above does not hold.
+
+- **The address is parsed and never normalised.** sutura keeps `email` as written: at most 254
+  bytes of printable ASCII, one `@` between a non-empty local part and a non-empty domain. No case
+  fold, no alias and no trimming, so the account a query runs as is the one the identity provider
+  named. A value that does not parse, or an `email_verified` that is not the JSON boolean `true`,
+  gives no address. The token itself still verifies: the claim is read only by a
+  `domain_delegation` source.
+- **No address, no query.** A caller without a verified address is refused at a
+  `domain_delegation` source. The `sub` and the caller's token are never used in its place.
+- **One function sets the three options of a job together**: the delegating account as the
+  impersonation target, the `bigquery` scope, and the address as the subject. No auth type is set,
+  so the base credential is the deployment's own application default credentials, which need
+  `iam.serviceAccounts.signJwt` on the delegating account. sutura's configuration holds no key, but
+  the deployment holds a credential that can act as any user in the domain for that scope.
+- **Only a `domain_delegation` source accepts a principal switch.** At every other BigQuery source a
+  principal is still refused with `NoPrincipalSwitch`.
+
+## Third amendment, 2026-10-15: each job is billed to its caller's project
+
+**Status of the amendment: accepted** (issue #1439). A `bigquery` source has no `billing_project`
+and no `dataset`; both keys are refused at load with a message naming the key that replaces them.
+
+- **A caller-run source** (modes a, b and c) names each job's billing project in this order:
+  1. the project of the first `billing.by_group` entry whose group the caller's verified `groups`
+     claim holds. The list order is the operator's, so a caller in several mapped groups always
+     gets the same project, and a group the list does not name adds nothing;
+  2. else the one project of every table the query reads;
+  3. else the project the caller names in the `Sutura-Bill-To` header or the MCP `bill_to`
+     argument, read only when the source sets `billing.caller_may_name: true`. A value that is not
+     a billing account name is refused before the question runs: on `/v1` with a 400
+     `unusable_bill_to` that names the header, on MCP with an invalid-params error that names
+     `bill_to`. A value that is one but is not a project id is refused with `bill_to_not_allowed`
+     when this step is reached: a 403 on `/v1`, a refused tool result with that code on MCP;
+  4. else the query is refused with `no_billing_project`, and nothing runs.
+
+  A payer named on a source without `billing.caller_may_name: true` is refused with
+  `bill_to_not_allowed`, also beside a mapped group or a one-project question: it is never dropped.
+  Where the source does take one, steps 1 and 2 come first, so a named payer can be replaced
+  without an answer that says so.
+- **A shared source bills to its service account's project**, because there the service account is
+  the caller. `billing.service_account_project` is required on a shared `bigquery` source and refused
+  on a caller-run one; `billing.by_group` and `billing.caller_may_name` are refused on a shared one.
+  sutura reads no credential to find that project: the operator declares it.
+- **The deployment's own project never pays for a caller-run job.** No step above falls back to it.
+- **No location is sent.** BigQuery runs a query job where the tables it reads are.
+
+Why: one source project made every caller need `bigquery.jobs.create` in a project they do not
+otherwise hold, and billed one project for every caller's queries.

@@ -1728,7 +1728,7 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
-        run: nix run .#e2e-datahub-adbc -- --no-capture
+        run: nix run .#e2e-datahub-adbc -- --no-capture --no-fail-fast
       - name: Remove credential
         if: always()
         run: rm -f "$RUNNER_TEMP/bq-key.json"

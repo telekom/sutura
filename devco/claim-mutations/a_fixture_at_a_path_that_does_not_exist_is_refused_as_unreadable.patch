@@ -1,11 +1,10 @@
 diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
-index 36bdc1b24..4eb54cf84 100644
 --- a/crates/sutura-exec-bigquery/src/lib.rs
 +++ b/crates/sutura-exec-bigquery/src/lib.rs
-@@ -472,10 +472,7 @@ where
+@@ -466,10 +466,7 @@
      /// with the file measures the importer; what shows the rows landed is a query over them.
      #[cfg(feature = "fixtures")]
-     pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<T::Error> {
+     pub fn load_fixture(&self, table: &QualifiedTable, csv: &std::path::Path) -> Loaded<T::Error> {
 -        let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable {
 -            path: csv.display().to_string(),
 -            cause,

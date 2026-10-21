@@ -27,7 +27,7 @@
 //!
 //! The same argument covers the identifiers, and it is #78's: the header is a CSV line interpolated
 //! into `CREATE TABLE`, so every name is parsed as a [`ColumnName`] first and the table as a
-//! [`TableName`] by its caller.
+//! [`QualifiedTable`] by its caller.
 //!
 //! # Why the whole load is ONE statement
 //!
@@ -57,7 +57,7 @@
 //! tuples would let `GoogleSQL` infer them, and inferring `INT64` for a column whose fixture happens to hold no decimal is how a
 //! type drifts between the two sides of a differential.
 
-use sutura_domain::model::{ColumnName, InvalidIdentifier, TableName};
+use sutura_domain::model::{ColumnName, InvalidIdentifier, QualifiedTable};
 
 /// Every column type this importer will declare.
 ///
@@ -260,15 +260,14 @@ impl Fixture {
     /// One `CREATE OR REPLACE TABLE ... AS SELECT * FROM UNNEST([...])`. The module header says why
     /// it is one statement and why the first element carries the explicit `STRUCT` type.
     ///
-    /// The table is named UNQUALIFIED, so it resolves in the job's `defaultDataset` - the same
-    /// resolution every statement this adapter renders relies on, which is what keeps a dataset name
-    /// out of a statement and therefore out of any log.
+    /// The table is named in full, `project.dataset.table`: there is no default dataset to resolve a
+    /// shorter path in.
     ///
     /// **Every statement sets [`EXPIRATION_HOURS`] as the table's `expiration_timestamp`, and the
     /// module header says why that is part of correctness rather than tidiness:** a cancelled runner
     /// (which `panic = "abort"` makes irreversible) never runs the explicit DROP, so the expiration
     /// is the only thing that guarantees the next run is not asked to clean up a table this one left.
-    pub(crate) fn create_statement(&self, table: &TableName) -> String {
+    pub(crate) fn create_statement(&self, table: &QualifiedTable) -> String {
         let declared: Vec<String> = self
             .columns
             .iter()
@@ -283,7 +282,7 @@ impl Fixture {
             "CREATE OR REPLACE TABLE `{}` \
              OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL {} HOUR)) \
              AS SELECT * FROM UNNEST([STRUCT<{}>",
-            table.as_str(),
+            table,
             EXPIRATION_HOURS,
             declared.join(", ")
         );
@@ -300,14 +299,14 @@ impl Fixture {
         out
     }
 
-    /// The statement that removes the table, named unqualified like the load.
+    /// The statement that removes the table, named in full like the load.
     ///
     /// The DROP is the tidy half of cleanup; [`Self::create_statement`]'s expiration is the
     /// guarantee half. The caller submits it after the corpus, and the endpoint's `accessDenied`
     /// surface is identical to the load's - the grant that lets this leg create a table is the same
     /// `bigquery.tables.delete` a DROP needs.
-    pub(crate) fn drop_statement(table: &TableName) -> String {
-        format!("DROP TABLE IF EXISTS `{}`", table.as_str())
+    pub(crate) fn drop_statement(table: &QualifiedTable) -> String {
+        format!("DROP TABLE IF EXISTS `{table}`")
     }
 }
 
@@ -420,6 +419,12 @@ where
         #[source]
         cause: FixtureNotUsable,
     },
+    /// The fixture table names no project, or no project bills its job.
+    #[error("no project bills the fixture table's job")]
+    Unbilled {
+        #[source]
+        cause: crate::BigQueryError<E>,
+    },
     /// The endpoint refused the load.
     #[error("the endpoint did not load the fixture table")]
     Endpoint {
@@ -443,6 +448,8 @@ pub type Dropped<E> = Result<(), FixtureNotLoaded<E>>;
 
 #[cfg(test)]
 mod tests {
+    use sutura_domain::model::QualifiedTable;
+
     use super::{ColumnType, FixtureNotUsable, read_fixture};
 
     const ROWS: &str = "month,subscription_key,status,mrr_cents,churned_in_month,data_gb\n\
@@ -459,11 +466,11 @@ mod tests {
     #[test]
     fn the_statement_declares_the_struct_once_and_carries_every_row() {
         let fixture = read_fixture(ROWS).expect("the fixture headers are column names");
-        let table = sutura_domain::model::TableName::parse("fct").expect("a table name parses");
+        let table = QualifiedTable::parse("acme-data.fixtures.fct").expect("a table path parses");
         let sql = fixture.create_statement(&table);
         assert!(
             sql.starts_with(
-                "CREATE OR REPLACE TABLE `fct` \
+                "CREATE OR REPLACE TABLE `acme-data.fixtures.fct` \
                  OPTIONS (expiration_timestamp = TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)) \
                  AS SELECT * FROM UNNEST([STRUCT<`month` DATE, \
                  `subscription_key` INT64, `status` STRING, `mrr_cents` INT64, \
@@ -485,7 +492,7 @@ mod tests {
     #[test]
     fn a_one_column_fixture_renders_every_later_row_as_a_struct() {
         let fixture = read_fixture("month\n2026-01-01\n2026-02-01\n").expect("a valid header");
-        let table = sutura_domain::model::TableName::parse("dim_calendar").expect("a table name parses");
+        let table = QualifiedTable::parse("acme-data.fixtures.dim_calendar").expect("a table path parses");
         let sql = fixture.create_statement(&table);
         assert!(
             sql.ends_with("STRUCT<`month` DATE>(DATE '2026-01-01'), STRUCT(DATE '2026-02-01')])"),
@@ -494,23 +501,20 @@ mod tests {
     }
 
     #[test]
-    fn the_drop_names_the_table_unqualified_and_is_idempotent() {
-        let table = sutura_domain::model::TableName::parse("fct").expect("a table name parses");
+    fn the_drop_names_the_table_in_full_and_is_idempotent() {
+        let table = QualifiedTable::parse("acme-data.fixtures.fct").expect("a table path parses");
         let sql = super::Fixture::drop_statement(&table);
-        assert_eq!(sql, "DROP TABLE IF EXISTS `fct`");
+        assert_eq!(sql, "DROP TABLE IF EXISTS `acme-data.fixtures.fct`");
     }
 
     #[test]
     fn no_statement_may_omit_the_expiration() {
-        // The table name is a committed fixture name plus a per-run suffix, so it carries no dataset
-        // or project. The expiration is what guarantees a cancelled run leaves nothing behind after
-        // a bounded interval - see the module header for why that is part of correctness.
+        // The expiration is what guarantees a cancelled run leaves nothing behind after a bounded
+        // interval - see the module header for why that is part of correctness.
         let fixture = read_fixture(ROWS).expect("the fixture headers are column names");
-        let table = sutura_domain::model::TableName::parse("fct").expect("a table name parses");
+        let table = QualifiedTable::parse("acme-data.fixtures.fct").expect("a table path parses");
         let sql = fixture.create_statement(&table);
         assert!(sql.contains("OPTIONS (expiration_timestamp ="), "{sql}");
-        assert!(!sql.contains("`project"), "{sql}");
-        assert!(!sql.contains("`dataset"), "{sql}");
     }
 
     #[test]

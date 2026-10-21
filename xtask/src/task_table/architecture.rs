@@ -268,11 +268,11 @@ pub(crate) const TASKS: &[Task] = &[
             seeds: &[
                 (
                     "crates/sutura-domain/src/query.rs",
-                    "pub enum RefusalReason {\n    R0,\n    R1,\n    R2,\n    R3,\n    R4,\n    R5,\n    R6,\n    R7,\n    R8,\n    R9,\n    R10,\n    R11,\n    R12,\n    R13,\n    R14,\n    R15,\n    R16,\n    R17,\n    R18,\n    R19,\n    R20,\n    R21,\n    R22,\n    R23,\n    R24,\n    R25,\n    R26,\n    R27,\n    R28,\n    R29,\n    R30,\n    R31,\n}\n",
+                    "pub enum RefusalReason {\n    R0,\n    R1,\n    R2,\n    R3,\n    R4,\n    R5,\n    R6,\n    R7,\n    R8,\n    R9,\n    R10,\n    R11,\n    R12,\n    R13,\n    R14,\n    R15,\n    R16,\n    R17,\n    R18,\n    R19,\n    R20,\n    R21,\n    R22,\n    R23,\n    R24,\n    R25,\n    R26,\n    R27,\n    R28,\n    R29,\n    R30,\n    R31,\n    R32,\n    R33,\n}\n",
                 ),
                 (
                     "crates/sutura-config/src/settings/posture.rs",
-                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n    S22,\n    S23,\n    S24,\n}\n",
+                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n    S22,\n    S23,\n}\n",
                 ),
                 (
                     "crates/sutura-domain/src/pinned.rs",
@@ -292,7 +292,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),

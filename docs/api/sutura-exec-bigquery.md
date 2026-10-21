@@ -90,13 +90,14 @@ credential is a posture disagreement before any transport sees it.
 adapter set the driver's `bigquery.impersonate.target_principal` from the DEPLOYMENT's own
 credentials - so the connection was the deployment's, the subject's credential was nowhere in
 the chain, and leg 1 was the only barrier. The architecture decision's fifth amendment records it, and
-`JobIdentity` has no spelling for it: a principal switch is unrepresentable here, not refused at
-runtime.
+no fallback reaches a deployment-vouched identity.
 
-**So a `Presented::SubjectPrincipal` is refused.** It is the same POSTURE as an assertion to
-the domain, so `Presented::agrees_with` passes it and only this adapter can say it has no
-mechanism - `BigQueryError::NoPrincipalSwitch`. `GoogleSQL` has no proxy-user or `SET ROLE`
-equivalent either, so there is nothing to build it out of.
+**So a `Presented::SubjectPrincipal` is refused, except at a `domain_delegation` source.** It
+is the same POSTURE as an assertion to the domain, so `Presented::agrees_with` passes it and
+only this adapter can say it has no mechanism - `BigQueryError::NoPrincipalSwitch`. A source
+that opted in to domain-wide delegation runs it as the caller's verified address
+(the architecture decision), and its transport says so through
+`JobTransport::delegates_by_address`. `GoogleSQL` has no proxy-user or `SET ROLE` equivalent.
 
 **And because leg 1 still gates who may be federated at all, two of ITS limits bound this.**
 `sutura-http`'s inbound gate bounds a gateway assertion's replay *window* and binds nothing to a
@@ -134,19 +135,17 @@ an owned `#[source]`.
 
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
-- `UnresolvableConnection` - A table path could not be resolved against this connection, or the resolved tables - taken together - answer to one identifier the statement cannot tell apart.
-
-  **Unreachable in practice**: see `UnresolvableConnection`'s own documentation for why. A
-  typed variant rather than a panic for the same reason every other "unreachable" case in
-  this workspace is one - the input reaching it is not bounded by the type system alone.
-- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and no transport here has a spelling for one.
+- `TableNamesNoProject` - A table path names no project, and this source has no default to resolve it against.
+- `NoPayer` - A job no caller stated a payer for reads no single project, and no service account bills it.
+- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, at a source that does not run one through domain-wide delegation.
 
   **Reinstated, and the reason is the mechanism reversal rather than a revert.** For two rounds
   this adapter delivered exactly that shape, through the driver's `target_principal` option and
   the deployment's own application default credentials - so the connection was the
   deployment's and the subject's credential was nowhere in the chain. The owner rejected it,
   so `crate::transport::JobIdentity` carries one subject arm now and this refusal is what a
-  broker presenting the other one gets. Accepting it would submit the job under the
+  broker presenting the other one gets, except at a `domain_delegation` source. Accepting it
+  anywhere else would submit the job under the
   credential the transport already holds while provenance, read off this source's posture,
   reported the answer as impersonated.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
@@ -193,7 +192,7 @@ composition, and a generic keeps the transport's own error type visible in `BigQ
 ### Methods
 
 ```rust
-pub fn drop_table(&self, table: &TableName) -> Dropped<<T as >::Error>
+pub fn drop_table(&self, table: &QualifiedTable) -> Dropped<<T as >::Error>
 ```
 
 Removes one table from the connection's dataset.
@@ -224,7 +223,7 @@ still unverified by either cell; this only compares what an already-answered pre
 carried against the declaration.
 
 ```rust
-pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
+pub fn load_fixture(&self, table: &QualifiedTable, csv: &std::path::Path) -> Loaded<<T as >::Error>
 ```
 
 Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
@@ -252,20 +251,19 @@ parse's count and not the dataset's - nothing reads the table back - so a caller
 with the file measures the importer; what shows the rows landed is a query over them.
 
 ```rust
-pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self
+pub const fn new(source: SourceName, posture: SourcePosture, billing: JobBilling, transport: T) -> Self
 ```
 
 Opens a dataset.
 
 **Every argument is required and none has a default**, which is the shape the port asks for and
 the reason is different for each: a defaulted posture would be a claim about who a query runs
-as that nobody made, and a defaulted billing project would be a project somebody else pays
-for. The billing project is the caller's to supply because there is nothing to infer it from -
-it is a path segment of the request that submits a job, and a federated identity has no project
-of its own.
+as that nobody made, and a defaulted payer would be a project somebody else pays for.
+`JobBilling` is who each job bills; there is no default dataset, so every table names its
+project.
 
 ```rust
-pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
+pub const fn over_adbc(source: SourceName, posture: SourcePosture, billing: JobBilling, driver: adbc::DriverLocation, impersonation: adbc::Impersonation, max_bytes_billed: adbc::BytesBilledCeiling) -> Self
 ```
 
 Opens a dataset over the ADBC transport.
@@ -287,7 +285,7 @@ NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a diffe
 this adapter still does not reach.
 
 ```rust
-pub fn session_user(&self, presented: &Presented) -> Result<SessionUser, BigQueryError<<T as >::Error>>
+pub fn session_user(&self, presented: &Presented, bill_to: &BillTo) -> Result<SessionUser, BigQueryError<<T as >::Error>>
 ```
 
 Who this data system says the leg presenting `presented` is executing AS.
@@ -318,20 +316,20 @@ nothing that federates.
 `BigQueryError::NoIdentityInTheAnswer` where the answer is not one row of one text cell.
 Nothing here quotes what came back: see that variant.
 
+It reads no table, so it bills `bill_to`'s group project, else a shared source's service
+account project, else is refused `BigQueryError::NoPayer`.
+
 ### Implements
 
 `Debug`, `Warehouse`
 
-## `use UnresolvableConnection`
+## `use JobBilling`
 
-Why this connection's own billing project could not be read as the domain's project vocabulary.
+Who this source's jobs bill, as the composition root read it from the source's `billing` block.
 
-**Unreachable in practice, and a typed branch rather than an `.expect()` because a panic here
-would be reachable from a live query, not just a catalog file.**
-`sutura_config::sources::placement::BillingProject::parse` accepts 6 to 30 characters of
-`[a-z0-9-]`, starting with a letter and never ending in a hyphen - a strict subset of what
-`ProjectName::parse` accepts, so a billing project that reached this adapter at all already
-satisfies it.
+## `use TableNamesNoProject`
+
+A table path with no project, which nothing here resolves against a default.
 
 ## `use SessionUser`
 
@@ -400,10 +398,10 @@ it declares. `identity` is where that decision lives and is asserted, and `subje
 federation's mechanism and its exposure are written down.
 
 **A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
-one thing this transport must never do, and the reason there is no third state. The mechanism
-this replaced - an impersonation target minted from the deployment's own credentials - has no
-spelling in `crate::transport::JobIdentity` any more, so it is unrepresentable rather than
-refused.
+one thing this transport must never do. The one exception is opt-in per source: a
+`domain_delegation` source runs the caller's verified address through the delegating account,
+with the deployment's own credentials as the base, and `crate::transport::JobIdentity::AsAddress`
+is the only arm that reaches it.
 
 # The values
 
@@ -581,6 +579,13 @@ created (`go/record_reader.go`'s `runQuery`), and the link names the project, lo
 gate - private fields in a child module, so a `DriverMessage { .. }` in `super` is `E0451`.
 Only `driver_message.rs` itself can skip `of`.
 
+### `use DelegatingAccount`
+
+A user-managed service account's address, `<account>@<project>.iam.gserviceaccount.com`.
+
+Parsed here, where it is sent, as well as where it is declared - for `WorkloadPool::parse`'s
+reason.
+
 ### `use Impersonation`
 
 Whether this source impersonates at all, and how when it does.
@@ -589,6 +594,10 @@ Whether this source impersonates at all, and how when it does.
 source is opened shared or impersonating - `sutura_config` refuses a caller-identity block on a
 shared entry and refuses its absence on an impersonating one - so which of these a transport
 holds is decided once, at composition, from a value an operator wrote.
+
+### `use UnusableDelegatingAccount`
+
+Why a value is not a service-account address. The value is never quoted.
 
 ### `use UnusablePool`
 
@@ -744,7 +753,7 @@ reads as exactly the regression it would be.
 #### Variants
 
 - `Port` - A request-time call's own `Deadline`. `Warehouse::dry_run`/`execute` build this arm, and only this arm - see `JobRequest::new`'s own doc, which carries the limit: the ADBC transport sends what is left of it as the job's `jobTimeoutMs`, a server-side stop.
-- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no TIME bound at all: the database options it sets are `bigquery.project_id` and `bigquery.dataset_id`, plus the three an impersonating leg chains for the credential document (`adbc::identity`'s `credential_options`), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. **It is not the only bound, and the earlier *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is why it is not in the list above.
+- `Boot` - The boot path: no caller, no request timeout. `verify_anchor`, a fixture load or drop, and the identity read build this arm. This used to add *the ADBC driver opens a fresh window under its own configured bounds instead*, and this process configures no TIME bound at all: the database options it sets are `bigquery.project_id` plus the identity options `adbc::identity` chains for the leg (`credential_options`, `access_token_options` or `delegation_options`), and none of them is a window - so whatever window exists is the driver's own default and is not ours to state. **It is not the only bound, and the earlier *no bound at all* overstated that:** `bigquery.query.max_bytes_billed` is set on every statement this transport submits, which bounds what a job may SPEND and says nothing about how long it may take. It is an `OptionStatement` rather than an `OptionDatabase`, which is why it is not in the list above.
 
 #### Implements
 
@@ -758,17 +767,15 @@ pub enum JobIdentity<'job>
 
 Which identity one job is to be executed as.
 
-**TWO variants, and the second one is the whole of leg 2.** A round of this type carried three -
-a bearer, and a PRINCIPAL the data system was asked to become on a connection the DEPLOYMENT
-authenticated. The owner rejected that mechanism, so the arm is gone rather than deprecated: a
-question answered under the deployment's identity while provenance reported it as the asker's has
-no spelling here, which is what makes `Warehouse::IMPERSONATION` a fact about the code.
+**Three variants.** `AsSubject` is leg 2: the subject's own credential. `AsAddress` is the
+deployment vouching for a verified address, and only a transport that declares
+`JobTransport::delegates_by_address` is ever handed one.
 
-**The domain still presents four shapes** (`sutura_domain::identity::Presented`), so the
-mapping is 4 -> 2 and not one to one: `BigQueryWarehouse::job_identity` is where two of them
-become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be delivered* is a
-transport's fact and `Presented::agrees_with` passes all three subject shapes - they are one
-POSTURE.
+**The domain presents four shapes** (`sutura_domain::identity::Presented`), so the mapping is
+not one to one: `BigQueryWarehouse::job_identity` is where a sign-in, and a principal switch at
+any other transport, become a refusal (`BigQueryError::NoPrincipalSwitch`), because *can this be
+delivered* is a transport's fact and `Presented::agrees_with` passes all three subject shapes -
+they are one POSTURE.
 
 `Copy`, because every arm is a borrow: it is read out of a request and matched on, never stored.
 
@@ -788,6 +795,7 @@ POSTURE.
   principal is the linked Google account. `BigQuery` evaluates its grants and row policies
   against that principal. Nothing on either path runs the question under the deployment's
   identity, and there is no second hop to another account.
+- `AsAddress` - The address the asking subject's identity provider verified, for a transport that runs it through domain-wide delegation: the DEPLOYMENT vouches for it, and Google never sees the subject's own credential. Built only where `JobTransport::delegates_by_address` is `true`.
 
 #### Implements
 
@@ -818,17 +826,6 @@ pub const fn deadline(&self) -> JobDeadline
 
 Which clock this call answers to. See `JobDeadline` and the constructor's own doc for what
 each arm means to the transport's own submit.
-
-```rust
-pub const fn default_dataset(&self) -> &DatasetId
-```
-
-The dataset the statement's unqualified table names resolve in.
-
-**This is why the generated statement needs no qualifying**, and it is the reason the fourth
-dialect changed nothing about how a table is rendered: the endpoint's request carries a default
-dataset beside the SQL, so a bare backticked table name resolves there. The generator emits the
-same shape it emits for every other dialect.
 
 ```rust
 pub const fn identity(&self) -> JobIdentity<'_>

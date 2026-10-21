@@ -174,8 +174,15 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "One governed question, as a tool call carries it.\n\nThe six fields are the whole input surface of this deployment. There is no field for SQL, a\ntable, a filter expression or a row-id list, and an argument naming one is a parse error rather\nthan a key that gets ignored.",
+  "description": "One governed question, as a tool call carries it.\n\nThe seven fields are the whole input surface of this deployment. There is no field for SQL, a\ntable, a filter expression or a row-id list, and an argument naming one is a parse error rather\nthan a key that gets ignored.",
   "properties": {
+    "bill_to": {
+      "description": "The billing account to run this question's jobs under. Taken only by a source whose\ndeployment sets `billing.caller_may_name`; on any other source the question is refused.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "dimensions": {
       "default": [],
       "description": "What to group the answer by. At most four, and each must be a dimension the metric declares.",

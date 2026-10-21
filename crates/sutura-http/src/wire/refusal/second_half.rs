@@ -95,6 +95,20 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "source_refused",
         ),
         (
+            RefusalReason::BillToNotAllowed {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "bill_to_not_allowed",
+        ),
+        (
+            RefusalReason::NoBillingProject {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "no_billing_project",
+        ),
+        (
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
             StatusCode::UNPROCESSABLE_ENTITY,
             "deadline_exceeded",

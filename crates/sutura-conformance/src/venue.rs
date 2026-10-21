@@ -56,6 +56,8 @@
 pub enum Fixture<W> {
     /// It stood up. What an in-process or in-memory adapter always answers.
     Standing(W),
+    /// It stood up, and addresses the corpus table only under this qualifier.
+    Located(W, sutura_domain::model::TableQualifier),
     /// The environment this adapter needs is not here, so nothing was asked of it.
     Absent(Missing),
 }
@@ -70,11 +72,18 @@ impl<W> Fixture<W> {
         Self::Standing(warehouse)
     }
 
+    /// It stood up, and reads the corpus table under `at`: for a data system that addresses no
+    /// table by its bare name.
+    #[inline]
+    pub const fn located(warehouse: W, at: sutura_domain::model::TableQualifier) -> Self {
+        Self::Located(warehouse, at)
+    }
+
     /// The reason it did not, where it did not.
     #[inline]
     pub const fn missing(&self) -> Option<&Missing> {
         match *self {
-            Self::Standing(_) => None,
+            Self::Standing(_) | Self::Located(..) => None,
             Self::Absent(ref why) => Some(why),
         }
     }
@@ -87,7 +96,9 @@ impl<F, L, C> Fixture<(F, L, C)> {
     /// are absent.
     pub fn federated(fact: Fixture<F>, lookup: Fixture<L>, combiner: impl FnOnce() -> C) -> Self {
         match (fact, lookup) {
-            (Fixture::Standing(fact), Fixture::Standing(lookup)) => Self::Standing((fact, lookup, combiner())),
+            (Fixture::Standing(fact) | Fixture::Located(fact, _), Fixture::Standing(lookup) | Fixture::Located(lookup, _)) => {
+                Self::Standing((fact, lookup, combiner()))
+            }
             (Fixture::Absent(missing), _) | (_, Fixture::Absent(missing)) => Self::Absent(missing),
         }
     }

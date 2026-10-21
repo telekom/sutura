@@ -226,6 +226,23 @@ const CREDENTIAL_UNAVAILABLE: Guide = Guide {
              it, and you cannot.",
 };
 
+const BILL_TO_NOT_ALLOWED: Guide = Guide {
+    reason: "bill_to_not_allowed",
+    meaning: "the request named who pays, and a source the question reaches bills no job to a payer \
+              named on the request - nothing ran",
+    remedy: "Ask again without naming a payer. Who may name one is this deployment's setting, not \
+             something the question can change.",
+};
+
+const NO_BILLING_PROJECT: Guide = Guide {
+    reason: "no_billing_project",
+    meaning: "no payer could be decided for a source's job: no group of the caller's is mapped to a \
+              billing project, the question reads more than one project, and no payer was named - nothing \
+              ran",
+    remedy: "Ask a question over the tables of one project, or name a payer where the source allows one. \
+             Which groups map to a payer is this deployment's setting.",
+};
+
 const SOURCE_REFUSED: Guide = Guide {
     reason: "source_refused",
     meaning: "the data system itself refused the question because the identity it would run as is \
@@ -353,6 +370,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
+    &BILL_TO_NOT_ALLOWED,
+    &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
 ];
 
@@ -394,6 +413,8 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
+        RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,
+        RefusalReason::NoBillingProject { .. } => &NO_BILLING_PROJECT,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
