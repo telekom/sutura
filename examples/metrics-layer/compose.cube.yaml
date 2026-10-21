@@ -1,0 +1,121 @@
+# The identity provider, Cube and the TLS proxy of the metrics-layer example, on top of compose.yaml
+# (DataHub). setup.sh writes COMPOSE_FILE to .env, so `docker compose` reads both files. Run
+# ./setup.sh first. Every port binds 127.0.0.1 only: the secrets setup.sh writes to .env and the
+# user passwords in keycloak/realm.json are for a local demo and must never be reachable from
+# another host.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    environment:
+      # The admin console: http://127.0.0.1:8180/admin, user admin, the password in .env.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?run ./setup.sh first}
+      # The issuer in every token, the one conf/*.yaml and Cube name. Nothing fetches this URL:
+      # sutura reads the keys from .local/jwks.json and Cube reads them from this service.
+      KC_HOSTNAME: https://localhost:8443
+      KC_HOSTNAME_ADMIN: http://127.0.0.1:8180
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      # realm.json reads them as ${SUTURA_EXCHANGE_SECRET} and ${SUTURA_DEPLOYMENT_SECRET}.
+      SUTURA_EXCHANGE_SECRET: ${SUTURA_EXCHANGE_SECRET:?run ./setup.sh first}
+      SUTURA_DEPLOYMENT_SECRET: ${SUTURA_DEPLOYMENT_SECRET:?run ./setup.sh first}
+    ports:
+      - 127.0.0.1:8180:8080
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -c
+        - "{ printf 'HEAD /health/ready HTTP/1.0\\r\\n\\r\\n' >&0; grep 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.7-alpine
+    environment:
+      CLICKHOUSE_USER: sutura
+      CLICKHOUSE_PASSWORD: ${CUBE_DB_PASSWORD:?run ./setup.sh first}
+    volumes:
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "clickhouse-client --user sutura --password \"$$CLICKHOUSE_PASSWORD\" -q 'SELECT count() FROM default.orders' || exit 1",
+      ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # Cube verifies each request's token with the keys of the realm, and the claims of the token are
+  # the security context. It accepts only the issuer of the realm and the audience `cube`.
+  cube:
+    image: cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    environment:
+      CUBEJS_DB_TYPE: clickhouse
+      CUBEJS_DB_HOST: clickhouse
+      CUBEJS_DB_PORT: "8123"
+      CUBEJS_DB_NAME: default
+      CUBEJS_DB_USER: sutura
+      CUBEJS_DB_PASS: ${CUBE_DB_PASSWORD:?run ./setup.sh first}
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_TELEMETRY: "false"
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      CUBEJS_JWK_URL: http://keycloak:8080/realms/metrics-layer/protocol/openid-connect/certs
+      CUBEJS_JWT_ALGS: RS256
+      CUBEJS_JWT_ISSUER: https://localhost:8443/realms/metrics-layer
+      CUBEJS_JWT_AUDIENCE: cube
+    volumes:
+      - ./cube/model.yml:/cube/conf/model/metrics_layer.yml:ro
+    healthcheck:
+      # The image carries `node` and no `curl` or `wget`.
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # Cube serves plain HTTP, and sutura sends a caller's token only over `https`. This proxy answers
+  # `https://cube.example.com` (a certificate for that name, issued by the CA in .local/cube-ca.pem)
+  # and forwards to Cube; sutura reaches it with `--add-host cube.example.com:127.0.0.1`.
+  cube-tls:
+    image: nginx:1.29-alpine
+    depends_on:
+      cube:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:443:443
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./.tls:/tls:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Adds what sutura reads from the realm to the loader: .local/jwks.json, .local/exchange-secret
+  # and .local/cube-token.
+  loader:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+      SUTURA_EXCHANGE_SECRET: ${SUTURA_EXCHANGE_SECRET:?run ./setup.sh first}
+      SUTURA_DEPLOYMENT_SECRET: ${SUTURA_DEPLOYMENT_SECRET:?run ./setup.sh first}

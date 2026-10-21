@@ -1,7 +1,9 @@
 """One-shot loader for the metrics-layer example. Python standard library only.
 
 Writes the `orders` and `customers` datasets, their relationship and the certified metric
-`revenue` into DataHub, and a DataHub token for sutura to /out/datahub-token.
+`revenue` into DataHub, and a DataHub token for sutura to /out/datahub-token. With KEYCLOAK_URL set
+it also writes what sutura reads from the realm: /out/jwks.json, /out/exchange-secret and a token of
+the `sutura-deployment` client at /out/cube-token.
 """
 
 import base64
@@ -12,6 +14,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 GMS = os.environ["DATAHUB_GMS_URL"]
@@ -235,6 +238,36 @@ def metrics():
     ]
 
 
+def realm(path, form=None):
+    url = f"{os.environ['KEYCLOAK_URL']}/realms/metrics-layer/protocol/openid-connect/{path}"
+    data = None if form is None else urllib.parse.urlencode(form).encode()
+    with urllib.request.urlopen(url, data, timeout=30) as answer:
+        return json.load(answer)
+
+
+def write_out(name, text):
+    with open(f"{OUT}/{name}", "w") as file:
+        file.write(text)
+
+
+def keycloak():
+    keys = [key for key in realm("certs")["keys"] if key.get("use") == "sig"]
+    if not keys:
+        sys.exit("the realm publishes no signing key")
+    write_out("jwks.json", json.dumps({"keys": keys}))
+    write_out("exchange-secret", os.environ["SUTURA_EXCHANGE_SECRET"])
+    deployment = realm(
+        "token",
+        {
+            "grant_type": "client_credentials",
+            "client_id": "sutura-deployment",
+            "client_secret": os.environ["SUTURA_DEPLOYMENT_SECRET"],
+        },
+    )
+    write_out("cube-token", deployment["access_token"])
+    print(f"wrote the realm's {len(keys)} signing key(s) and the deployment's token")
+
+
 def load():
     with open(f"{OUT}/datahub-token", "w") as file:
         file.write(personal_access_token("sutura", hours=24))
@@ -267,3 +300,5 @@ def load():
 
 if __name__ == "__main__":
     load()
+    if "KEYCLOAK_URL" in os.environ:
+        keycloak()
