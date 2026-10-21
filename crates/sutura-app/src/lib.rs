@@ -281,14 +281,13 @@ pub enum FederationMiswired {
         /// `Error::source` chain - `SourceAlreadyOpen::at`'s own reason.
         at: sutura_domain::model::SourceName,
     },
-    /// The two leg results did not resolve to one of each side.
+    /// The leg results did not stand for the plan's legs.
     ///
-    /// `FederatedPlan::legs` returns the fact leg and the lookup leg by construction, so a pair
-    /// built from it is one of each.
-    #[error("the two leg results are not one fact leg and one lookup leg")]
-    LegsAreNotOneOfEach {
+    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order.
+    #[error("the leg results do not stand for the federated plan's legs")]
+    LegsMiswired {
         #[source]
-        cause: sutura_domain::plan::LegsAreNotOneOfEach,
+        cause: sutura_domain::plan::LegsMiswired,
     },
     /// A leg was run that is not among the cut's own legs: one that already ran, or one the cut
     /// never held.

@@ -1,12 +1,17 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -352,8 +352,8 @@ pub trait FederationCombiner {
-                 Err(_refused) => (fact, runner.run(plan.lookup())),
-             }
+@@ -367,13 +367,13 @@
+                 .collect();
+             (fact, looked_up)
          });
 -        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
-         let lookup = LegResult::of(plan.lookup(), lookup.map_err(ExecuteError::Leg)?);
+         let looked_up = lookups
+             .into_iter()
+             .zip(looked_up)
+             .map(|(leg, answered)| answered.map(|batches| LegResult::of(leg, batches)))
+             .collect::<Result<Vec<_>, _>>()
+             .map_err(ExecuteError::Leg)?;
 +        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
          let second_fact = plan
              .second_fact()

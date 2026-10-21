@@ -940,6 +940,23 @@ pub fn lookup_on_disk() -> std::path::PathBuf
 
 The federated lookup table on a filesystem, written as `on_disk` writes the corpus.
 
+### `fn region_codes_on_disk`
+
+```rust
+pub fn region_codes_on_disk() -> std::path::PathBuf
+```
+
+The region codes table on a filesystem, written as `on_disk` writes the corpus. A federated
+binding attaches it to the fact's engine.
+
+### `fn region_codes_table`
+
+```rust
+pub fn region_codes_table() -> sutura_domain::model::TableName
+```
+
+The table `region_codes_on_disk` holds, on the fact's own source.
+
 ### `fn lookup_source`
 
 ```rust
@@ -1007,7 +1024,7 @@ the raw day would answer two. The rows are literals from the fixture (800 + 1450
 pub fn federated_cases() -> Vec<FederatedCase>
 ```
 
-Every federated question in the corpus, read from its `.case` file.
+Every federated question in the corpus: one per `.case` file, then the fan-in plans built in code.
 
 ### `constant TABLE`
 

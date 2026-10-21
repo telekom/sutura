@@ -97,7 +97,7 @@ async fn cut(
     (ceiling_bytes, working_set): (u64, WorkingSet),
 ) -> Result<LogicalPlan, CombineError> {
     match (arm, legs) {
-        (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, *legs, context, ceiling_bytes, working_set).await,
+        (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, legs, context, ceiling_bytes, working_set).await,
         (Arm::Local(local), ArmLegs::Local { metric, batches }) if *metric == arm.metric() => {
             local_plan(local, grouped, context, batches).await
         }
@@ -239,8 +239,8 @@ mod tests {
     use sutura_domain::plan::leg::{LegPlan, LegTerm};
     use sutura_domain::plan::{
         AnswerKey, Arm, ArmLegs, DrillAcrossCombiner as _, DrillAcrossPlan, FederatedAnswerRefusal, FederatedPlan,
-        FederationCombiner as _, InternalLabel, LegResult, LocalArm, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm,
-        ResultLabel, StatementTables, labels,
+        FederationCombiner as _, InternalLabel, LegResult, Legs, LocalArm, LookupLegs, PlanBindings, PlanBucket, PlanColumn,
+        PlanKey, PlanTerm, ResultLabel, StatementTables, labels,
     };
     use sutura_domain::warehouse::arrow::of_row_set;
     use sutura_domain::warehouse::{Accumulating, Real, ResultBatches, ResultBudget, RowSet, Value};
@@ -279,7 +279,7 @@ mod tests {
 
     fn link_key() -> PlanKey {
         PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link),
+            ResultLabel::internal(InternalLabel::Link(0)),
             PlanColumn::new(table(FACT), column("customer_key")),
         )
     }
@@ -365,15 +365,24 @@ mod tests {
             bucket(),
             fact_leg(name, vec![link_key()], &federation),
             None,
-            lookup,
-            true,
+            LookupLegs::one(lookup, true),
             federation,
-            vec![AnswerKey::lookup(ResultLabel::dimension(
-                &DimensionName::parse("region").expect("a test dimension"),
-            ))],
+            vec![AnswerKey::lookup(
+                0,
+                ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension")),
+            )],
         )
         .expect("a test joined plan");
         (Arm::Joined(Box::new(plan.clone())), plan)
+    }
+
+    /// One result per leg of `plan`, in the plan's order.
+    fn results_of(plan: &FederatedPlan, every: [ResultBatches; 2]) -> Vec<LegResult> {
+        plan.legs()
+            .into_iter()
+            .zip(every)
+            .map(|(leg, batches)| LegResult::of(leg, batches))
+            .collect()
     }
 
     fn leaf() -> String {
@@ -487,29 +496,24 @@ mod tests {
     fn a_joined_arm_and_a_local_arm_merge_under_one_plan() {
         let (arm, plan) = joined("revenue");
         let drill = plan_of(vec![arm, local("visits")]);
-        let fact = LegResult::of(
-            plan.fact(),
-            batches(
-                [InternalLabel::Link.label(), String::from(TIME_BUCKET_LABEL), leaf()],
-                vec![
-                    [text("c1"), text("2026-06"), Value::Integer(100)],
-                    [text("c2"), text("2026-06"), Value::Integer(200)],
-                ],
-            ),
+        let fact = batches(
+            [InternalLabel::Link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
+            vec![
+                [text("c1"), text("2026-06"), Value::Integer(100)],
+                [text("c2"), text("2026-06"), Value::Integer(200)],
+            ],
         );
-        let lookup = LegResult::of(
-            plan.lookup(),
-            of_row_set(
-                &RowSet::new(
-                    vec![InternalLabel::Link.label(), String::from("region")],
-                    vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]],
-                )
-                .expect("a test lookup"),
+        let lookup = of_row_set(
+            &RowSet::new(
+                vec![InternalLabel::Link(0).label(), String::from("region")],
+                vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]],
             )
-            .expect("a lookup converts"),
-        );
+            .expect("a test lookup"),
+        )
+        .expect("a lookup converts");
         let visits = leg(vec![(text("north"), 7), (text("south"), 3)]);
-        let legs = sutura_domain::plan::Legs::of(&fact, &lookup).expect("one of each");
+        let results = results_of(&plan, [fact, lookup]);
+        let legs = Legs::assign(&plan, &results).expect("one result per leg");
         let answered = combiner()
             .merge(
                 &drill,
@@ -578,9 +582,8 @@ mod tests {
         let plan = plan_of(vec![local("revenue"), local("visits")]);
         let revenue = leg(vec![(text("north"), 1)]);
         let (_, joined_plan) = joined("revenue");
-        let fact = LegResult::of(joined_plan.fact(), revenue.clone());
-        let lookup = LegResult::of(joined_plan.lookup(), revenue.clone());
-        let legs = sutura_domain::plan::Legs::of(&fact, &lookup).expect("one of each");
+        let results = results_of(&joined_plan, [revenue.clone(), revenue.clone()]);
+        let legs = Legs::assign(&joined_plan, &results).expect("one result per leg");
 
         let none = combiner().merge(&plan, &[], UNBOUNDED).expect_err("no results for two arms");
         let one = merged(&plan, &[&revenue], UNBOUNDED).expect_err("one result for two arms");

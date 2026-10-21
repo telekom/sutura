@@ -19,7 +19,7 @@ use crate::warehouse::ResultBatches;
 /// the variants line up with the plan's arms, and whether a local arm's metric is the arm's own, is
 /// the combiner's to check: a slice cannot say. A joined arm's [`Legs`] carry a side and not a metric, so
 /// two joined arms' results are not told apart here.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ArmLegs<'a> {
     /// The fact and lookup results of an [`Arm::Joined`](crate::plan::Arm::Joined).
     Joined(Legs<'a>),

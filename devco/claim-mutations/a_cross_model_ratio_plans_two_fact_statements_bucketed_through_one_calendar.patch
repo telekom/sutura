@@ -7,7 +7,7 @@ diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semant
          bucket: bucket.clone(),
 -        keys: vec![PlanKey::new(
 +        keys: vec![PlanKey::truncated(
-             ResultLabel::internal(InternalLabel::Link),
+             ResultLabel::internal(InternalLabel::Link(0)),
              PlanColumn::new(second.table_name().clone(), link_key.origin().clone()),
 +            sutura_domain::model::Grain::Month,
          )],

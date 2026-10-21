@@ -22,17 +22,21 @@
 //! signature - the argument is
 //! `crate::warehouse::arrow`'s and it was paid there.
 //!
-//! # What the shape buys, which is that the two legs cannot be swapped
+//! # What the shape buys, which is that a fact and a lookup result cannot be swapped
 //!
 //! A combiner taking `(&ResultBatches, &ResultBatches)` has two arguments of one type whose swap
 //! compiles and answers a wrong number under a certified metric name - the fact leg's measure
-//! grouped by the lookup leg's keys. [`Legs`] makes the swap unrepresentable rather than reviewed:
+//! grouped by the lookup leg's keys. [`Legs`] refuses the swap rather than leaving it to review:
 //! each leg's result is tagged with the side by [`LegResult::of`], which reads it off the
-//! [`LegPlan`] the leg was executed from and takes no side from its caller, and [`Legs::of`]
-//! assigns by that tag rather than by argument position. So the two can be handed over in either
-//! order and a pair that is not one of each does not build a value.
+//! [`LegPlan`] the leg was executed from and takes no side from its caller, and [`Legs::assign`]
+//! checks every tag against the side of the plan's leg at its position and the count of results
+//! against the plan's count of legs. **The limit:** two lookup results swapped with each other
+//! carry one tag, and so do the fact and the second fact ([`LegSide::Fact`]), so [`Legs::assign`]
+//! sees neither swap. The order of results within one side is held by
+//! [`FederationCombiner::execute`], which orders its results as [`FederatedPlan::legs`] does, and by
+//! nothing for a caller that builds [`Legs`] itself.
 
-use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide};
+use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, LookupLeg};
 use crate::plan::leg::LegPlan;
 use crate::warehouse::ResultBatches;
 
@@ -51,11 +55,17 @@ impl LegResult {
     /// One executed leg's result, under the side its plan names.
     #[must_use]
     pub const fn of(plan: &LegPlan, batches: ResultBatches) -> Self {
-        let side = match *plan {
+        Self {
+            side: Self::side_of(plan),
+            batches,
+        }
+    }
+
+    const fn side_of(plan: &LegPlan) -> LegSide {
+        match *plan {
             LegPlan::Fact { .. } => LegSide::Fact,
             LegPlan::Lookup { .. } => LegSide::Lookup,
-        };
-        Self { side, batches }
+        }
     }
 
     /// Which leg this result came from.
@@ -73,108 +83,103 @@ impl LegResult {
     }
 }
 
-/// Both legs' results, which cannot hold two of one side and cannot be built with them swapped.
+/// Every leg's result, assigned to the plan's legs, which cannot be built without every result.
 ///
-/// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a third result
-/// from a second fact model, joined above on the link and the time bucket. The combiner reads it
-/// through [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names.
+/// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
+/// second fact model, joined above on the link and the time bucket. The combiner reads it through
+/// [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names. Each lookup
+/// result arrives beside its [`LookupLeg`], which names the leg it joins onto.
 ///
 /// Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 /// for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
-/// so an owned pair would say *moved* about something that is shared either way.
-#[derive(Debug, Clone, Copy)]
+/// so an owned set would say *moved* about something that is shared either way.
+#[derive(Debug, Clone)]
 pub struct Legs<'a> {
     fact: &'a ResultBatches,
     second_fact: Option<&'a ResultBatches>,
-    lookup: &'a ResultBatches,
+    lookups: Vec<(&'a LookupLeg, &'a ResultBatches)>,
 }
 
 impl<'a> Legs<'a> {
-    /// The pair, assigned by each result's own tag rather than by the order they arrive in.
+    /// The results, one per [`FederatedPlan::legs`] entry and in that order, each checked against
+    /// the side of the leg it stands for.
     ///
     /// # Errors
     ///
-    /// [`LegsAreNotOneOfEach`] when both results name the same side.
-    pub const fn of(one: &'a LegResult, other: &'a LegResult) -> Result<Self, LegsAreNotOneOfEach> {
-        match (one.side(), other.side()) {
-            (LegSide::Fact, LegSide::Lookup) => Ok(Self {
-                fact: one.batches(),
-                second_fact: None,
-                lookup: other.batches(),
-            }),
-            (LegSide::Lookup, LegSide::Fact) => Ok(Self {
-                fact: other.batches(),
-                second_fact: None,
-                lookup: one.batches(),
-            }),
-            (side, _) => Err(LegsAreNotOneOfEach { both: side }),
+    /// [`LegsMiswired`] for a count of results that is not the plan's count of legs, and for a
+    /// result whose side is not its leg's.
+    pub fn assign(plan: &'a FederatedPlan, results: &'a [LegResult]) -> Result<Self, LegsMiswired> {
+        let legs = plan.legs();
+        if legs.len() != results.len() {
+            return Err(LegsMiswired::Count {
+                legs: legs.len(),
+                results: results.len(),
+            });
         }
-    }
-
-    /// The third leg: the second fact's batches, when the plan carries two fact models.
-    ///
-    /// # Errors
-    ///
-    /// [`LegsAreNotOneOfEach`] naming [`LegSide::Lookup`] when `second` is a lookup's result, so a
-    /// second lookup cannot be combined as if it were a fact.
-    #[inline]
-    pub const fn with_second_fact(self, second: Option<&'a LegResult>) -> Result<Self, LegsAreNotOneOfEach> {
-        match second {
-            None => Ok(self),
-            Some(second) => match second.side() {
-                LegSide::Fact => Ok(Self {
-                    second_fact: Some(second.batches()),
-                    ..self
-                }),
-                LegSide::Lookup => Err(LegsAreNotOneOfEach { both: LegSide::Lookup }),
-            },
+        if let Some((leg, result)) = legs
+            .iter()
+            .zip(results)
+            .find(|&(leg, result)| LegResult::side_of(leg) != result.side())
+        {
+            return Err(LegsMiswired::WrongSide {
+                expected: LegResult::side_of(leg),
+                found: result.side(),
+            });
         }
+        let (facts, lookups) = results.split_at(results.len() - plan.lookups().legs().len());
+        let [fact, second_fact @ ..] = facts else {
+            return Err(LegsMiswired::Count {
+                legs: legs.len(),
+                results: results.len(),
+            });
+        };
+        Ok(Self {
+            fact: fact.batches(),
+            second_fact: second_fact.first().map(LegResult::batches),
+            lookups: plan
+                .lookups()
+                .legs()
+                .iter()
+                .zip(lookups.iter().map(LegResult::batches))
+                .collect(),
+        })
     }
 
     /// The metric's own leg: its keys, its time bucket and its carried leaves.
     #[inline]
     #[must_use]
-    pub const fn fact(self) -> &'a ResultBatches {
+    pub const fn fact(&self) -> &'a ResultBatches {
         self.fact
     }
 
     /// The second fact leg, when the plan carries two fact models.
     #[inline]
     #[must_use]
-    pub const fn second_fact(self) -> Option<&'a ResultBatches> {
+    pub const fn second_fact(&self) -> Option<&'a ResultBatches> {
         self.second_fact
     }
 
-    /// The second data system's leg: the remote keys the answer groups by.
+    /// Each lookup leg beside its result, in plan order.
     #[inline]
     #[must_use]
-    pub const fn lookup(self) -> &'a ResultBatches {
-        self.lookup
+    pub fn lookups(&self) -> &[(&'a LookupLeg, &'a ResultBatches)] {
+        &self.lookups
     }
 }
 
-/// Two leg results that name the same side, so there is no pair to combine.
+/// Leg results that do not stand for the plan's legs, so there is nothing to combine.
 ///
-/// Unreachable through `sutura_app`'s federated path, which builds one [`LegResult`] per
-/// [`FederatedPlan::legs`] entry. Typed anyway rather than assumed away: it is the one thing
-/// [`Legs::of`] cannot answer, and a silent choice between two facts would combine a leg with itself.
+/// Unreachable through [`FederationCombiner::execute`], which builds one [`LegResult`] per
+/// [`FederatedPlan::legs`] entry. Typed anyway rather than assumed away: a silent choice would
+/// combine a leg with the wrong rows, or read a missing leg as a leg with no match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("both leg results name the {both:?} leg, so there is no pair to combine")]
-pub struct LegsAreNotOneOfEach {
-    both: LegSide,
-}
-
-impl LegsAreNotOneOfEach {
-    /// The side both results claimed.
-    ///
-    /// An accessor rather than a `pub` field, which `xtask check-boundaries`'s API-shape rule holds
-    /// for every library type here: a public field lets a struct literal build the value the
-    /// constructor would have rejected, and this one is only ever minted by [`Legs::of`].
-    #[inline]
-    #[must_use]
-    pub const fn both(self) -> LegSide {
-        self.both
-    }
+pub enum LegsMiswired {
+    /// The plan runs `legs` legs and `results` results arrived.
+    #[error("the plan runs {legs} legs and {results} results arrived")]
+    Count { legs: usize, results: usize },
+    /// A result stands where the plan runs a leg of the other side.
+    #[error("a {found:?} leg's result stands where the plan runs a {expected:?} leg")]
+    WrongSide { expected: LegSide, found: LegSide },
 }
 
 /// The legs a federated plan runs at their sources, and the plan the combine runs above them.
@@ -187,12 +192,9 @@ pub struct Cut<'p> {
 }
 
 impl<'p> Cut<'p> {
-    /// Every leg of the cut, each once: the fact, the lookup, then the second fact if the plan has
-    /// one.
+    /// Every leg of the cut, each once, in [`FederatedPlan::legs`] order.
     pub fn legs(&self) -> impl Iterator<Item = &'p LegPlan> + use<'p> {
-        [self.plan.fact(), self.plan.lookup()]
-            .into_iter()
-            .chain(self.plan.second_fact())
+        self.plan.legs().into_iter()
     }
 }
 
@@ -221,8 +223,8 @@ pub trait LegRunner {
 pub enum ExecuteError<L, C> {
     /// A leg did not answer. The runner's own error, unchanged.
     Leg(L),
-    /// The leg results were not one of each side: this workspace's own defect.
-    Miswired(LegsAreNotOneOfEach),
+    /// The leg results did not stand for the plan's legs: this workspace's own defect.
+    Miswired(LegsMiswired),
     /// The combine failed, which [`FederationCombiner`]'s two predicates classify.
     Combine(C),
 }
@@ -274,10 +276,11 @@ pub trait FederationCombiner {
     /// same thing to whoever responds to them.
     type Error: core::error::Error + 'static;
 
-    /// One answer's rows from two legs' results.
+    /// One answer's rows from every leg's result.
     ///
-    /// The fact and lookup results are joined on the link column both legs project under
-    /// [`InternalLabel::Link`](crate::plan::InternalLabel::Link), grouped by the answer's keys in
+    /// Each lookup result is joined onto the result of the leg it names, on the link column both
+    /// project under that lookup leg's [`InternalLabel::Link`](crate::plan::InternalLabel::Link),
+    /// in the direction its [`LookupLeg::include_unmatched`] names, then grouped by the answer's keys in
     /// the order [`FederatedPlan::keys`] gives them and by the fact leg's time bucket,
     /// re-aggregated by each carried leaf's own
     /// [`Carried::combine`](crate::federation::Carried::combine), and divided through the
@@ -320,11 +323,13 @@ pub trait FederationCombiner {
 
     /// Runs the cut's legs through `runner`, then [`Self::combine`]s their results.
     ///
-    /// The fact leg runs on this thread while the lookup leg runs beside it on one scoped thread,
-    /// and a second fact runs after both. Scoped, so the runner and the plan are borrowed and
-    /// nothing is cloned. If the OS refuses the thread, the lookup leg runs after the fact leg on
-    /// this thread. The fact leg's error wins over the lookup leg's, both over the second fact's,
-    /// and every leg's over the combine's.
+    /// The fact leg runs on this thread while each lookup leg runs beside it on a scoped thread of
+    /// its own, and a second fact runs after all of them. Scoped, so the runner and the plan are
+    /// borrowed and nothing is cloned. If the OS refuses a thread, that lookup leg runs after the
+    /// fact leg on this thread. The fact leg's error wins over every lookup leg's, an earlier lookup
+    /// leg's over a later one's, all of them over the second fact's, and every leg's over the
+    /// combine's. A leg that did not answer ends the answer, so the combine never reads a missing
+    /// leg as a leg with no match.
     ///
     /// Provided, for the reason [`Self::plan`] is.
     ///
@@ -337,31 +342,47 @@ pub trait FederationCombiner {
         R::Error: Send,
     {
         let plan = cut.plan;
-        let (fact, lookup) = std::thread::scope(|scope| {
-            let lookup = std::thread::Builder::new()
-                .name(String::from("federated-lookup-leg"))
-                .spawn_scoped(scope, || runner.run(plan.lookup()));
+        let lookups: Vec<&LegPlan> = plan.lookups().legs().iter().map(LookupLeg::leg).collect();
+        let (fact, looked_up) = std::thread::scope(|scope| {
+            #[expect(clippy::needless_collect, reason = "every lookup leg starts before the fact leg runs")]
+            let started: Vec<_> = lookups
+                .iter()
+                .map(|&leg| {
+                    std::thread::Builder::new()
+                        .name(String::from("federated-lookup-leg"))
+                        .spawn_scoped(scope, move || runner.run(leg))
+                        .map_err(|_refused| leg)
+                })
+                .collect();
             let fact = runner.run(plan.fact());
-            match lookup {
-                Ok(thread) => match thread.join() {
-                    Ok(lookup) => (fact, lookup),
-                    // A panicking leg aborts the process under `panic = "abort"`, so this arm is
-                    // reachable only in an unwinding test build. There is no leg outcome to return.
-                    Err(panic) => std::panic::resume_unwind(panic),
-                },
-                Err(_refused) => (fact, runner.run(plan.lookup())),
-            }
+            let looked_up: Vec<_> = started
+                .into_iter()
+                .map(|thread| match thread {
+                    Ok(thread) => match thread.join() {
+                        Ok(lookup) => lookup,
+                        // A panicking leg aborts the process under `panic = "abort"`, so this arm is
+                        // reachable only in an unwinding test build. There is no leg outcome to return.
+                        Err(panic) => std::panic::resume_unwind(panic),
+                    },
+                    Err(leg) => runner.run(leg),
+                })
+                .collect();
+            (fact, looked_up)
         });
         let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
-        let lookup = LegResult::of(plan.lookup(), lookup.map_err(ExecuteError::Leg)?);
+        let looked_up = lookups
+            .into_iter()
+            .zip(looked_up)
+            .map(|(leg, answered)| answered.map(|batches| LegResult::of(leg, batches)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ExecuteError::Leg)?;
         let second_fact = plan
             .second_fact()
             .map(|leg| runner.run(leg).map(|batches| LegResult::of(leg, batches)))
             .transpose()
             .map_err(ExecuteError::Leg)?;
-        let legs = Legs::of(&fact, &lookup)
-            .and_then(|legs| legs.with_second_fact(second_fact.as_ref()))
-            .map_err(ExecuteError::Miswired)?;
+        let results: Vec<LegResult> = core::iter::once(fact).chain(second_fact).chain(looked_up).collect();
+        let legs = Legs::assign(plan, &results).map_err(ExecuteError::Miswired)?;
         self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
     }
 }
@@ -415,7 +436,7 @@ impl FederationCombiner for RefusingCombiner {
 
 #[cfg(test)]
 mod tests {
-    use super::{LegResult, Legs};
+    use super::LegResult;
     use crate::model::{QualifiedTable, SourceName, TableName};
     use crate::plan::federated::LegSide;
     use crate::plan::leg::LegPlan;
@@ -474,39 +495,10 @@ mod tests {
         }
     }
 
-    /// **The swap, which is what this pair of types exists for.** Handed over in either order the
-    /// pair resolves the same way, because the side comes off each result's own plan rather than
-    /// off the argument position - so the mistake that would group the fact leg's measure by the
-    /// lookup leg's keys is not expressible rather than caught in review.
-    #[test]
-    fn the_pair_resolves_the_same_way_in_either_order() {
-        let fact = LegResult::of(&fact_plan(), batches("0_leaf_0"));
-        let lookup = LegResult::of(&lookup_plan(), batches("region"));
-        let forwards = Legs::of(&fact, &lookup).expect("one of each is a pair");
-        let backwards = Legs::of(&lookup, &fact).expect("one of each is a pair, in either order");
-        assert_eq!(forwards.fact().schema(), backwards.fact().schema());
-        assert_eq!(forwards.lookup().schema(), backwards.lookup().schema());
-        assert_ne!(
-            forwards.fact().schema(),
-            forwards.lookup().schema(),
-            "the two fixture results differ, so the assertion above is not vacuous"
-        );
-    }
-
     /// The side is read off the plan and is never taken from a caller.
     #[test]
     fn a_leg_result_takes_its_side_from_the_plan_it_was_executed_from() {
         assert_eq!(LegResult::of(&fact_plan(), batches("x")).side(), LegSide::Fact);
         assert_eq!(LegResult::of(&lookup_plan(), batches("x")).side(), LegSide::Lookup);
-    }
-
-    /// Two of one side is the one thing the pair cannot answer, and it refuses rather than
-    /// combining a leg with itself.
-    #[test]
-    fn two_results_of_one_side_are_not_a_pair() {
-        let one = LegResult::of(&fact_plan(), batches("a"));
-        let other = LegResult::of(&fact_plan(), batches("b"));
-        let refused = Legs::of(&one, &other).expect_err("two facts are not a pair");
-        assert_eq!(refused.both(), LegSide::Fact);
     }
 }

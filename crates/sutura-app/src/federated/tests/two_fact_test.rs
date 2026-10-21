@@ -34,7 +34,7 @@ fn two_fact_plan_of(
     let column = |n: &str| ColumnName::parse(n).expect("a test column");
     let link = |table: &TableName| {
         PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link),
+            ResultLabel::internal(InternalLabel::Link(0)),
             PlanColumn::new(table.clone(), column("customer_key")),
         )
     };
@@ -103,12 +103,12 @@ fn two_fact_plan_of(
         calendar,
         fact,
         Some(second_fact),
-        lookup,
-        true,
+        sutura_domain::plan::LookupLegs::one(lookup, true),
         federation,
-        vec![AnswerKey::lookup(ResultLabel::dimension(
-            &DimensionName::parse("region").expect("a test dimension"),
-        ))],
+        vec![AnswerKey::lookup(
+            0,
+            ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension")),
+        )],
     )
     .expect("a valid three-source two-fact plan")
 }
@@ -125,7 +125,7 @@ fn fact_rows(leaf: usize, rows: &[Dated<'_>]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
         vec![
-            InternalLabel::Link.label(),
+            InternalLabel::Link(0).label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
             InternalLabel::Leaf(leaf).label(),
         ],
@@ -140,7 +140,7 @@ fn fact_rows(leaf: usize, rows: &[Dated<'_>]) -> RowSet {
 fn region_rows(rows: &[(&str, &str)]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
-        vec![InternalLabel::Link.label(), String::from("region")],
+        vec![InternalLabel::Link(0).label(), String::from("region")],
         rows.iter()
             .map(|&(link, region)| vec![Value::Text(link.into()), Value::Text(region.into())])
             .collect(),
