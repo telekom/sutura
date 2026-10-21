@@ -155,8 +155,8 @@ incident can ask how much life the credential that read these rows had left. `No
 was minted for this call, which is the honest answer for a question refused before the broker was
 asked.
 
-A plan reads from the sources a `Compiled::Federated` answer spans, or from a single source for a
-`Compiled::Planned` one (a question spanning three or more is refused at plan time by
+A plan reads from the sources a `Compiled::Federated` or `Compiled::DrillAcross` answer spans, or from
+a single source for a `Compiled::Planned` one (a question spanning three or more is refused at plan time by
 `crate::query::RefusalReason::PlanSpansTooManySources`), so the source set is a name a reader
 already has from the bundle.
 
@@ -6923,7 +6923,8 @@ pub struct PlannedMeasure
 
 One metric's share of a query's select list, and its own definitional guard.
 
-A multi-metric question answers one grouped statement with one certified column per metric.
+A multi-metric question that shares one statement answers one grouped statement with one certified
+column per metric; one that cannot is an arm per metric (see `DrillAcrossPlan`).
 Each column is that metric's measure, computed only over the rows its OWN required filters
 admit - and that restriction is folded into the measure's conditional aggregation rather than
 into the shared `WHERE`, because a `WHERE` applies to every column at once and would let one
@@ -8419,13 +8420,13 @@ cannot be joined: two arms whose keys, bucket or time range differ, one metric t
 carrying a `top`, or more legs than `MAX_LEGS`. A `top` cuts its arm before the join, so that arm
 answers a null for each group it cut that another arm has, and the answer reads that null as "no
 rows"; a `top` for the whole question, for example by period after the join, is not built here.
-The plan names no join and no engine; the combine is a port's concern. Nothing builds this plan
-yet, so no question reaches it.
+The plan names no join and no engine; the combine is a port's concern. `sutura_semantic` builds
+it for a question over several metrics that cannot share one statement.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
 refusal a caller sees, `RefusalReason::QuestionNeedsTooManyLegs`,
-is declared; the planner that raises it does not read the cap yet.
+is raised by the planner when `DrillAcrossPlan::new` refuses a plan over the cap.
 
 The architecture decision records the decision and its limits.
 
@@ -8451,6 +8452,12 @@ pub fn bucket(&self) -> &PlanBucket
 ```
 
 The time bucket this arm groups by.
+
+```rust
+pub fn fact(&self) -> &LegPlan
+```
+
+The fact leg, which is `Arm::legs`' first.
 
 ```rust
 pub fn keys(&self) -> Vec<&str>
@@ -10743,13 +10750,6 @@ somebody else's input.
 #### Variants
 
 - `MetricUnknown` - No metric of that name is in the pinned bundle.
-- `MetricsSpanDifferentModels` - A question named more than one metric, and two of them do not declare the same model or the same time column.
-
-  **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
-  physical tables have no shared `FROM`, and two metrics on one table but two different time
-  columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
-  metric named against the first, so the pair reported is always the first metric and the
-  first one that disagreed with it, never a third-party guess at which is "wrong".
 - `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
 - `DimensionNotConformed` - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for `first` and `other`.
 
@@ -10763,12 +10763,6 @@ somebody else's input.
   Each leg is held whole before the answers are merged, so the leg count bounds held memory
   the way `TooManyMetrics` bounds the statement.
 - `DuplicateMetricName` - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
-- `MultiMetricFederationNotExecutable` - A question named more than one metric and also reached a remote dimension.
-
-  **A multi-metric question never federates.** The combiner links exactly two legs on one
-  column and produces one measure column; there is no shape here for several certified
-  columns arriving through a join. Refused by name, naming every metric asked, rather than
-  silently answered as though only the first metric had been named.
 - `MultiMetricTopNotExecutable` - A question named more than one metric and also asked for `top`.
 
   **`top` names no metric to rank by**, and the two rendering paths disagree about which

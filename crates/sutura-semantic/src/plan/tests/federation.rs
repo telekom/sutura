@@ -341,89 +341,6 @@ fn a_multi_metric_plan_keeps_each_required_filter_on_its_own_measure() {
     );
 }
 
-/// A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
-/// sharing a model puts them on one data system, but `federated_plan` reads only the FIRST named
-/// metric, so a multi-metric question that also reaches a remote dimension must be refused before
-/// dispatch rather than silently planned as a federated answer over only that first metric.
-#[test]
-fn a_multi_metric_question_reaching_a_remote_dimension_is_refused_by_name() {
-    let facts = model("facts", "local", &["amount_cents", "subscription_key", "customer_key", "day"]);
-    let customers = model("customers", "remote", &["customer_key", "region_code"]);
-    let facts_customer = relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key"));
-
-    let revenue = Metric::new(
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        Vec::new(),
-        column("day"),
-        BTreeSet::from([Grain::Month]),
-        vec![declared("region", "region_code", &["facts_customer"])],
-        None,
-        Description::default(),
-        Audience::Open,
-    )
-    .expect("no dimensions to duplicate");
-
-    let subs = Metric::new(
-        MetricName::parse("subs").expect("a test metric is a metric"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
-            Aggregate::CountDistinct,
-            column("subscription_key"),
-        ))),
-        Vec::new(),
-        column("day"),
-        BTreeSet::from([Grain::Month]),
-        Vec::new(),
-        None,
-        Description::default(),
-        Audience::Open,
-    )
-    .expect("no dimensions to duplicate");
-
-    let region = revenue
-        .dimension(&dimension_name("region"))
-        .expect("the metric declares this dimension");
-
-    let resolution = Resolution {
-        metric: &revenue,
-        metrics: vec![&revenue, &subs],
-        model: &facts,
-        grain: Grain::Month,
-        range: TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range"),
-        keys: vec![ResolvedDimension {
-            dimension: region,
-            join: Some(vec![ResolvedJoin {
-                relationship: &facts_customer,
-                model: &customers,
-            }]),
-        }],
-        filters: Vec::new(),
-        top: None,
-        cross: None,
-    };
-
-    let Err(refused) = plan(&resolution) else {
-        panic!("a multi-metric question reaching a remote dimension must be refused, not federated");
-    };
-    assert!(
-        matches!(
-            refused,
-            PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable { ref metrics })
-                if *metrics == vec![
-                    MetricName::parse("revenue").expect("a test metric is a metric"),
-                    MetricName::parse("subs").expect("a test metric is a metric"),
-                ]
-        ),
-        "expected MultiMetricFederationNotExecutable naming both metrics, got {refused:?}"
-    );
-}
-
 // No separate no-calendar cell: `a_ratio_term_naming_another_model_is_refused_with_a_remote_dimension_too`
 // above is that fixture and asserts `CrossModelRatioWithoutSharedCalendar`.
 
@@ -472,24 +389,6 @@ fn the_no_calendar_refusal_reads_the_calendar_of_the_ratio_it_found() {
                 if metric.as_str() == "revenue_per_customer"
         ),
         "the ratio without a calendar is refused by name, got {refused:?}"
-    );
-}
-
-/// The ratio declares a calendar this time, but `resolve` reads the second fact off the FIRST
-/// metric only and a multi-metric question never federates - so it is refused, never planned as
-/// one statement over the ratio's own table.
-#[test]
-fn a_cross_model_ratio_beside_another_metric_is_refused_by_name() {
-    let corpus = TwoSources::new();
-    let (revenue, ratio) = revenue_beside_a_ratio(true);
-    let refused = plan(&corpus.asking(vec![&revenue, &ratio], false)).err();
-    assert!(
-        matches!(
-            refused,
-            Some(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable { ref metrics }))
-                if metrics.len() == 2
-        ),
-        "a cross-model ratio beside another metric is refused, got {refused:?}"
     );
 }
 

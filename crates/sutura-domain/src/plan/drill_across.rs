@@ -11,13 +11,13 @@
 //! carrying a `top`, or more legs than [`MAX_LEGS`]. A `top` cuts its arm before the join, so that arm
 //! answers a null for each group it cut that another arm has, and the answer reads that null as "no
 //! rows"; a `top` for the whole question, for example by period after the join, is not built here.
-//! The plan names no join and no engine; the combine is a port's concern. Nothing builds this plan
-//! yet, so no question reaches it.
+//! The plan names no join and no engine; the combine is a port's concern. `sutura_semantic` builds
+//! it for a question over several metrics that cannot share one statement.
 //!
 //! **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 //! memory a question can hold grows with its leg count. [`MAX_LEGS`] bounds it at construction. The
 //! refusal a caller sees, [`RefusalReason::QuestionNeedsTooManyLegs`](crate::query::RefusalReason),
-//! is declared; the planner that raises it does not read the cap yet.
+//! is raised by the planner when [`DrillAcrossPlan::new`] refuses a plan over the cap.
 //!
 //! `docs/adr/20261018144926-drill-across-for-several-metrics` records the decision and its limits.
 
@@ -148,6 +148,14 @@ impl Arm {
         match self {
             Self::Joined(plan) => plan.metric(),
             Self::Local(arm) => &arm.metric,
+        }
+    }
+
+    /// The fact leg, which is [`Arm::legs`]' first.
+    pub fn fact(&self) -> &LegPlan {
+        match self {
+            Self::Joined(plan) => plan.fact(),
+            Self::Local(arm) => &arm.fact,
         }
     }
 

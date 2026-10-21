@@ -61,6 +61,7 @@ A refusal is a variant here rather than an `Err`, which is the same choice
   The two legs execute against their own sources and the combiner behind
   `FederationCombiner` turns the batches
   back into one answer above them.
+- `DrillAcross` - The question named several metrics, and each is answered by its own arm: one fact leg, or a fact leg beside a lookup leg. The combiner behind `DrillAcrossCombiner` joins the arms above them.
 - `Refused` - The question was refused, and this is why.
 
 ### Methods
@@ -119,6 +120,7 @@ as a refusal a caller would retry.
 - `Bundle` - The pinned bundle names a model or a relationship it does not hold.
 - `AuthoredSqlNotPlanned` - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.
 - `NotAssembled` - A two-source plan this workspace compiled and could not then assemble.
+- `NotAssembledAcross` - A drill-across plan this workspace compiled from arms it could not then assemble.
 - `NotBound` - A plan this workspace compiled whose predicates and parameters did not resolve each other.
 - `NoRemoteJoin` - A2: the splitter ran with no remote dimension to join the fact leg through.
 
@@ -200,6 +202,8 @@ The absence variants should be unreachable: `Definitions::assemble` checks every
 cross-references before a bundle exists. They are written out rather than reached with an
 `expect` because a panic path here is reachable from a catalog file, and the no-panic ban is not
 conditional on another check having been right.
+
+## `use DrillAcrossPlan`
 
 ## `use FederatedPlan`
 

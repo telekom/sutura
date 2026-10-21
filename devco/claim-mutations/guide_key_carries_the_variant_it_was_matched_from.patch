@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-app/src/prompt/refusal.rs b/crates/sutura-app/src/prompt/refusal.rs
-index 2b5df19fd..e3ce1c14d 100644
 --- a/crates/sutura-app/src/prompt/refusal.rs
 +++ b/crates/sutura-app/src/prompt/refusal.rs
-@@ -368,7 +368,7 @@ pub(super) const GUIDES: &[&Guide] = &[
+@@ -369,7 +369,7 @@
  /// surface. Moved rather than copied, so there is still exactly one match.
  pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
      match *reason {
 -        RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
 +        RefusalReason::MetricUnknown { .. } => &TOO_MANY_METRICS,
-         RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
          RefusalReason::TooManyMetrics { .. } => &TOO_MANY_METRICS,
          RefusalReason::DuplicateMetricName { .. } => &DUPLICATE_METRIC_NAME,
+         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,

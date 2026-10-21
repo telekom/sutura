@@ -60,8 +60,10 @@ const QUERY: Subject = Subject {
     // kinds is refused at plan time. 34 since `BillToNotAllowed` and `NoBillingProject`: a job whose
     // payer was named where none is taken, or cannot be decided, is refused before it runs. 36 since
     // `DimensionNotConformed` and `QuestionNeedsTooManyLegs`, declared ahead of the planner that
-    // raises them.
-    variants: variants(36),
+    // raises them. 34 since that planner RETIRED `MetricsSpanDifferentModels` and
+    // `MultiMetricFederationNotExecutable`: a question over several metrics is planned as one arm
+    // each and joined above, so neither shape is refused.
+    variants: variants(34),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

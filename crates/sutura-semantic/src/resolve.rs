@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{Definitions, Dimension, Metric, Model, Relationship};
-use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
+use sutura_domain::model::{ColumnName, DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::RowCeiling;
@@ -62,14 +62,24 @@ pub(crate) struct ResolvedFilter<'a> {
     pub(crate) value: ResolvedFilterValue,
 }
 
+/// A question whose every name resolved, as one whole and, for several metrics, as each metric alone.
+///
+/// **`per_metric` is empty for one metric, and for several it holds one single-metric [`Resolution`]
+/// each, in question order.** A dimension resolves against the metric that declares it: the same name
+/// can reach another model, or another column, for another metric, so no metric's keys stand for
+/// the rest. [`conformed`] has already refused the question when they differ. `whole` is the first
+/// metric's resolution over the whole set, which is what the one-statement path reads.
+pub(crate) struct Resolved<'a> {
+    pub(crate) whole: Resolution<'a>,
+    pub(crate) per_metric: Vec<Resolution<'a>>,
+}
+
 /// A question whose every name resolved.
 ///
-/// **`metric` stays the first entry of `metrics`, and nothing else solves.** A plan reads `metric`
-/// as the primary measure (the first label) and `metrics` as the whole set; every later entry
-/// exists so this function validates a multi-metric question exactly as it validates one - every
-/// metric's grain, every requested dimension against every metric, every filter value against
-/// every metric's own allowlist - and the plan stage then turns the whole set into one grouped
-/// statement with one certified column per metric.
+/// **`metric` stays the first entry of `metrics`.** A plan reads `metric` as the primary measure
+/// (the first label) and `metrics` as the whole set. This function validates a multi-metric question
+/// exactly as it validates one - every metric's grain, every requested dimension against every
+/// metric, every filter value against every metric's own allowlist.
 pub(crate) struct Resolution<'a> {
     pub(crate) metric: &'a Metric,
     pub(crate) metrics: Vec<&'a Metric>,
@@ -147,11 +157,10 @@ impl From<RefusalReason> for ResolveError {
 }
 
 /// Looks up everything a question names.
-pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: RowCeiling) -> Result<Resolution<'a>, ResolveError> {
+pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: RowCeiling) -> Result<Resolved<'a>, ResolveError> {
     // A metric outside the view is absent HERE, which is the whole mechanism: there is no second
     // branch downstream that could disagree about which metrics exist. Looked up in the caller's
-    // own order - `metrics[0]` is the "first" `MetricsSpanDifferentModels`/`GrainNotSupported` (a
-    // per-metric refusal below) will ever report a mismatch against.
+    // own order - `metrics[0]` is the "first" `DimensionNotConformed` will ever report a mismatch against.
     let mut metrics: Vec<&Metric> = Vec::with_capacity(query.metrics().len());
     for name in query.metrics() {
         let found = view
@@ -187,28 +196,6 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         reason = "`query.metrics()` is a `NonEmpty`, so `metrics` holds at least one entry"
     )]
     let metric = metrics[0];
-    let definitions = view.pinned().definitions();
-    let model = definitions
-        .model(metric.model())
-        .ok_or_else(|| BundleInconsistent::NoSuchModel {
-            metric: metric.name().clone(),
-            model: metric.model().clone(),
-        })?;
-
-    // Every later metric must share the first one's model AND its time column - two metrics on one
-    // model can still declare two different time columns, and a shared bucket over an ambiguous
-    // column is not a smaller question, it is a different one. Compared against the FIRST metric
-    // only, never pairwise among the rest, so the refusal always names one metric a caller wrote
-    // and the one metric it disagreed with, never a third metric's opinion about the other two.
-    for other in metrics.iter().skip(1) {
-        if other.model() != metric.model() || other.time_column() != metric.time_column() {
-            return Err(RefusalReason::MetricsSpanDifferentModels {
-                first: metric.name().clone(),
-                other: other.name().clone(),
-            }
-            .into());
-        }
-    }
 
     for named in &metrics {
         if !named.supports_grain(query.grain()) {
@@ -277,7 +264,6 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
     }
 
     let mut seen: BTreeSet<&DimensionName> = BTreeSet::new();
-    let mut keys = Vec::with_capacity(query.dimensions().len());
     for name in query.dimensions() {
         if !seen.insert(name) {
             return Err(RefusalReason::DuplicateDimension { dimension: name.clone() }.into());
@@ -293,7 +279,6 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
                 .into());
             }
         }
-        keys.push(resolve_dimension(view.pinned(), metric, name)?);
     }
 
     // A separate `seen` set from the group-by keys: filtering on a dimension that is also grouped by
@@ -307,7 +292,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         .into());
     }
     let mut filtered: BTreeSet<&DimensionName> = BTreeSet::new();
-    let mut filters = Vec::with_capacity(query.filters().len());
+    let mut values = Vec::with_capacity(query.filters().len());
     for filter in query.filters() {
         if !filtered.insert(filter.dimension()) {
             return Err(RefusalReason::DuplicateDimension {
@@ -343,25 +328,61 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
                 }
             }
         }
-        let resolved = resolve_dimension(view.pinned(), metric, filter.dimension())?;
-        let value = match filter {
+        values.push(match filter {
             Filter::Eq { value, .. } => ResolvedFilterValue::Eq(String::from(value.as_str())),
             Filter::In { values, .. } => ResolvedFilterValue::In(values.map(|v| String::from(v.as_str()))),
             Filter::NotIn { values, .. } => ResolvedFilterValue::NotIn(values.map(|v| String::from(v.as_str()))),
-        };
-        filters.push(ResolvedFilter {
-            dimension: resolved,
-            value,
         });
     }
 
-    // Every name, grain, dimension and filter value checked - `metric`'s own resolution above,
-    // plus every later metric's model/time-column agreement and every metric's grain/dimension/
-    // filter-value checks in the loops above. The plan stage then turns the whole set into one
-    // grouped statement with one certified column per metric (see
-    // [`crate::plan::mono_plan`], `guards_and_shared` for how each metric's own required
-    // filters become that metric's guard rather than a leaked `WHERE` term).
-    let cross = cross_model(metric, definitions)?;
+    // Every name, grain, dimension and filter value checked. Each metric then resolves its own
+    // dimensions, so a multi-metric question is planned from what each metric reaches.
+    let per_metric = if metrics.len() > 1 {
+        let each = metrics
+            .iter()
+            .map(|&each| resolution_of(query, view, each, vec![each], &values))
+            .collect::<Result<Vec<_>, _>>()?;
+        conformed(&each)?;
+        each
+    } else {
+        Vec::new()
+    };
+    let whole = resolution_of(query, view, metric, metrics, &values)?;
+    Ok(Resolved { whole, per_metric })
+}
+
+/// `metrics` resolved together over `values`, the dimensions looked up against `metric`.
+fn resolution_of<'a>(
+    query: &Query,
+    view: &ScopedView<'a>,
+    metric: &'a Metric,
+    metrics: Vec<&'a Metric>,
+    values: &[ResolvedFilterValue],
+) -> Result<Resolution<'a>, ResolveError> {
+    let pinned = view.pinned();
+    let definitions = pinned.definitions();
+    let model = definitions
+        .model(metric.model())
+        .ok_or_else(|| BundleInconsistent::NoSuchModel {
+            metric: metric.name().clone(),
+            model: metric.model().clone(),
+        })?;
+    let keys = query
+        .dimensions()
+        .iter()
+        .map(|name| resolve_dimension(pinned, metric, name))
+        .collect::<Result<Vec<_>, _>>()?;
+    let filters = query
+        .filters()
+        .iter()
+        .zip(values)
+        .map(|(filter, value)| {
+            resolve_dimension(pinned, metric, filter.dimension()).map(|dimension| ResolvedFilter {
+                dimension,
+                value: value.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(Resolution {
         metric,
         metrics,
@@ -371,8 +392,48 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
         keys,
         filters,
         top: query.top(),
-        cross,
+        cross: cross_model(metric, definitions)?,
     })
+}
+
+/// Refuses a question whose grouped or filtered dimension does not end on the same model and column
+/// for every metric: reading the first metric's column for all of them would label another metric's
+/// numbers with a grouping it never computed.
+///
+/// Compared against the FIRST metric only, never pairwise among the rest, so the refusal names one
+/// metric the caller wrote and the one it disagreed with. The check is structural - two columns that
+/// mean the same thing but are two copies are refused too.
+fn conformed(each: &[Resolution<'_>]) -> Result<(), RefusalReason> {
+    let Some((first, others)) = each.split_first() else {
+        return Ok(());
+    };
+    for other in others {
+        let filters = first
+            .filters
+            .iter()
+            .zip(&other.filters)
+            .map(|(wanted, got)| (&wanted.dimension, &got.dimension));
+        for (wanted, got) in first.keys.iter().zip(&other.keys).chain(filters) {
+            if ends(first.metric, wanted) != ends(other.metric, got) {
+                return Err(RefusalReason::DimensionNotConformed {
+                    dimension: wanted.dimension.name().clone(),
+                    first: first.metric.name().clone(),
+                    other: other.metric.name().clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The model and column a dimension is read from: the last hop's model, or the metric's own.
+fn ends<'a>(metric: &'a Metric, reached: &ResolvedDimension<'a>) -> (&'a ModelName, &'a ColumnName) {
+    let landed = reached
+        .join
+        .as_ref()
+        .and_then(|hops| hops.last())
+        .map_or_else(|| metric.model(), |hop| hop.model.name());
+    (landed, reached.dimension.column())
 }
 
 /// The [`CrossModel`] a metric's cross-model ratio needs, when it names another model and declares

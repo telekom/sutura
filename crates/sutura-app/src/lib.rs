@@ -36,7 +36,7 @@ use sutura_domain::identity::{
 };
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::{Executable, FederationCombiner, RowCeilings};
+use sutura_domain::plan::{DrillAcrossCombiner, Executable, FederationCombiner, RowCeilings};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::billed::Billed;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -44,7 +44,7 @@ use sutura_domain::warehouse::{PreFlight, UnreadableCell, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
 pub(crate) use crate::bounds::{exceeds_response_bound, exceeds_row_cap};
-use crate::federated::answer_federated;
+use crate::federated::{answer_drill_across, answer_federated};
 pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
 
 // The two "too much data" checks `answer` and `federated::answer_federated` both apply to a result
@@ -375,6 +375,11 @@ impl Answered {
         }
     }
 
+    /// A refusal decided with a checked grant in hand.
+    const fn refused(credentials: &BoundToTheRequest, reason: RefusalReason) -> Self {
+        Self::under(credentials, ToolOutcome::Refusal { reason })
+    }
+
     /// An outcome decided with a checked grant in hand.
     ///
     /// Takes the grant rather than the deadline, so a call site cannot pass one credential's outcome
@@ -465,7 +470,7 @@ where
     W::Error: Send,
     B: CredentialBroker,
     B::Error: Send,
-    C: FederationCombiner,
+    C: DrillAcrossCombiner,
     C::Error: Send,
 {
     let pinned = definitions.get();
@@ -478,6 +483,20 @@ where
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Federated { plan } => {
             return answer_federated(
+                (pinned, definitions.schemas().digest()),
+                &plan,
+                context,
+                broker,
+                warehouses,
+                combiner,
+                working_set_bytes,
+                deadline,
+                ledger,
+                row_ceilings,
+            );
+        }
+        Compiled::DrillAcross { plan } => {
+            return answer_drill_across(
                 (pinned, definitions.schemas().digest()),
                 &plan,
                 context,
@@ -576,8 +595,7 @@ where
     // record. A budget already spent here means the pre-flight is refused before the data system is
     // asked at all - the same shape `still_usable_at` below gives the credential's own expiry.
     if deadline.remaining_at(Instant::now()).is_none() {
-        let reason = deadline_exceeded(deadline);
-        return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+        return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
     }
     let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
     let preflight = match warehouse
@@ -588,8 +606,7 @@ where
         Err(Err(reason)) => return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason })),
         Err(Ok(cause)) => {
             if warehouse.deadline_exceeded(&cause) {
-                let reason = deadline_exceeded(deadline);
-                return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
+                return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
             }
             if warehouse.source_refused(&cause) {
                 return Ok(Answered::under(
@@ -631,12 +648,7 @@ where
     // networked data system spends part of it, so a budget with time left when this function began
     // may have none by the time execution would start.
     if deadline.remaining_at(Instant::now()).is_none() {
-        return Ok(Answered::under(
-            &credentials,
-            ToolOutcome::Refusal {
-                reason: deadline_exceeded(deadline),
-            },
-        ));
+        return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
     }
     // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
     // governance outcome - the question is well formed and this deployment will not spend more than
@@ -702,12 +714,7 @@ where
             // the adapter reports - Postgres now stops on the deadline itself (`SET LOCAL
             // statement_timeout`); the engine and BigQuery still do not.
             if warehouse.deadline_exceeded(&cause) {
-                return Ok(Answered::under(
-                    &credentials,
-                    ToolOutcome::Refusal {
-                        reason: deadline_exceeded(deadline),
-                    },
-                ));
+                return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
             }
             // The same guard one more step out: the DATA SYSTEM refused the statement because the
             // identity it ran it as may not ask it - an authorization decision, not a transient

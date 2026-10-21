@@ -85,7 +85,7 @@ use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::{FederationCombiner, RowCeilings};
+use sutura_domain::plan::{DrillAcrossCombiner, RowCeilings};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -490,7 +490,7 @@ where
     S: AuditSink + Send + Sync + 'static,
     B: CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
-    C: FederationCombiner + Send + Sync + 'static,
+    C: DrillAcrossCombiner + Send + Sync + 'static,
     C::Error: Send + Sync,
 {
     /// Loads one catalog through its port, re-runs every anchor against `warehouse`, and returns a
@@ -616,7 +616,7 @@ where
     S: AuditSink + Send + Sync + 'static,
     B: CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
-    C: FederationCombiner + Send + Sync + 'static,
+    C: DrillAcrossCombiner + Send + Sync + 'static,
     C::Error: Send + Sync,
 {
     fn definitions(&self) -> Arc<PinnedDefinitions> {

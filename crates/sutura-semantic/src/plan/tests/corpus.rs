@@ -114,7 +114,7 @@ impl Corpus {
 pub(super) fn federated_by(corpus: &Corpus, by: &str) -> Box<sutura_domain::plan::FederatedPlan> {
     match plan(&corpus.asking(vec![corpus.key(by)])).expect("this resolution plans") {
         Plan::Federated(planned) => planned,
-        Plan::Mono(_) => panic!("a dimension on another data system is a federated plan"),
+        Plan::Mono(_) | Plan::DrillAcross(_) => panic!("a dimension on another data system is a federated plan"),
     }
 }
 
