@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Runs one example the way its README says, and checks the answer to the question it asks.
+# Runs one example the way its README says, and checks the answer to its question.
 #
 #   example-smoke.sh single-player|federated
 #
@@ -8,16 +8,16 @@
 # proves the example against that RELEASE, never against the commit under test. Linux only: the
 # examples serve on the host network, which Docker Desktop turns off by default.
 #
-# Both examples answer one question over the same CSV rows, so one expectation serves both. The
-# `null` row is the subscription whose customer `dim_customer` does not contain.
+# Each example is compared with a different expectation: single-player with the answer block of its
+# walkthrough page `docs/examples/single-player.md` (section 5); federated asks the question its
+# README posts (`examples/federated/README.md`), whose expected rows are a measured run over the CSV
+# rows of `examples/single-player/data`, since neither the README nor `docs/examples/federated.md`
+# shows an answer. The `null` row is the subscription whose customer `dim_customer` does not contain.
 set -euo pipefail
 
 example=${1:?usage: example-smoke.sh single-player|federated}
 version=${SUTURA_VERSION:-latest}
 cd "$(dirname "$0")/../../examples/$example"
-
-question='{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
-expected='{"outcome":"answer","columns":["segment","period","recurring_revenue"],"rows":[["business","2026-06-01","66630"],["consumer","2026-06-01","123119"],["null","2026-06-01","4999"],["wholesale","2026-06-01","7373"]]}'
 
 serve=
 cleanup() {
@@ -35,9 +35,13 @@ trap cleanup EXIT
 
 case "$example" in
   single-player)
+    question='{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
+    expected='{"outcome":"answer","columns":["region","period","recurring_revenue"],"rows":[["central","2026-06-01","51739"],["east","2026-06-01","32598"],["north","2026-06-01","42157"],["null","2026-06-01","4999"],["south","2026-06-01","21203"],["west","2026-06-01","49425"]]}'
     SUTURA_VERSION=$version docker compose up --detach
     ;;
   federated)
+    question='{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
+    expected='{"outcome":"answer","columns":["segment","period","recurring_revenue"],"rows":[["business","2026-06-01","66630"],["consumer","2026-06-01","123119"],["null","2026-06-01","4999"],["wholesale","2026-06-01","7373"]]}'
     ./setup.sh
     docker compose up --detach --wait postgres clickhouse datahub
     docker compose run --rm federated-loader
@@ -62,4 +66,4 @@ if [ "$actual" != "$expected" ]; then
   printf 'expected %s\nactual   %s\n' "$expected" "$actual" >&2
   exit 1
 fi
-echo "$example answered the README question with the expected rows"
+echo "$example answered its question with the expected rows"

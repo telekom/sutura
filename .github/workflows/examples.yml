@@ -1,9 +1,14 @@
-# Runs the runnable examples and checks the answer each README promises.
+# Runs the runnable examples and compares the answer to one question each with expected rows (see
+# .github/scripts/example-smoke.sh for where each expectation comes from).
 #
 # ON CHANGE ONLY: the paths below, on a pull request and on a push to `main`, and no schedule. The
 # push run is what shows the job green on `main`. `merge_group` is absent on purpose: it takes no
 # `paths` filter (see `ci.yml`), so a queue entry would run this job on every change, and nothing
 # in the queue waits for it - it is not in `ci-aggregate`.
+#
+# HELD BY REVIEW ALONE (no gate checks these; a mutation of each stays green): `permissions:
+# contents: read`, `persist-credentials: false`, no secret in the job, no `merge_group` or
+# `schedule` trigger, and the job's own files (this workflow and the script) in both `paths` lists.
 #
 # WHAT IT PROVES, AND NOT: the example runs from a Linux amd64 runner against the RELEASED image
 # (`SUTURA_VERSION`, unset is `latest`), not against the commit. A catalog or setting the release
@@ -11,8 +16,8 @@
 # `multi-player` needs Google credentials, and `metrics-layer` and `cube` do not run to an answer
 # on `main` yet: none of the three is in the matrix.
 #
-# Not a required context. It becomes one only once it is green on `main`; the way is listed in
-# `devco/required-contexts`.
+# Not a required context. It may become one, on the owner's word, once it is green on `main`; the
+# way is listed in `devco/required-contexts`.
 name: examples
 
 on:
@@ -20,14 +25,12 @@ on:
     branches: [main]
     paths:
       - "examples/**"
-      - "compose.services.yaml"
       - "docs/examples/**"
       - ".github/workflows/examples.yml"
       - ".github/scripts/example-smoke.sh"
   pull_request:
     paths:
       - "examples/**"
-      - "compose.services.yaml"
       - "docs/examples/**"
       - ".github/workflows/examples.yml"
       - ".github/scripts/example-smoke.sh"
