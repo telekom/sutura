@@ -425,7 +425,7 @@ mod tests {
     }
 
     fn link() -> PlanKey {
-        key(ResultLabel::internal(InternalLabel::Link(0)), "customer_key")
+        key(ResultLabel::internal(InternalLabel::link(0)), "customer_key")
     }
 
     /// A metric reaching `region` on another source: answers by `product_family`, then `region`.

@@ -233,7 +233,7 @@ impl FederatedPlan {
                     source_name: leg.source().clone(),
                 });
             }
-            let link = InternalLabel::Link(position).label();
+            let link = InternalLabel::link(position).label();
             for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
                 if !leg_has_key(on, &link) {
                     return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
@@ -246,7 +246,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let link = InternalLabel::Link(0).label();
+        let link = InternalLabel::link(0).label();
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {

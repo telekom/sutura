@@ -151,7 +151,7 @@ fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
     };
     let table = TableName::parse("fct_subscription_monthly").expect("a test table");
     let tablecol = |n: &str| PlanColumn::new(table.clone(), ColumnName::parse(n).expect("a test column"));
-    let link = |leg: usize| PlanKey::new(ResultLabel::internal(InternalLabel::Link(leg)), tablecol("customer_key"));
+    let link = |leg: usize| PlanKey::new(ResultLabel::internal(InternalLabel::link(leg)), tablecol("customer_key"));
     let bucket = || PlanBucket::new(ResultLabel::bucket(), Grain::Month, tablecol("month"));
     let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(
         Aggregate::Sum,
@@ -211,7 +211,7 @@ fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
 #[test]
 fn three_lookup_legs_dry_run_once_each() {
     use sutura_domain::plan::InternalLabel;
-    let link = |leg: usize| InternalLabel::Link(leg).label();
+    let link = |leg: usize| InternalLabel::link(leg).label();
     let shared = shared();
     let fact_rows = RowSet::new(
         vec![

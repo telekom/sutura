@@ -124,7 +124,7 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 /// each venue establishes, and which two targets are still parser-only.
 fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link(0)),
+        ResultLabel::internal(InternalLabel::link(0)),
         column(table_name, "customer_key"),
     )
 }
@@ -794,7 +794,7 @@ fn a_fact_leg_with_no_terms_projects_keys_rather_than_a_count() {
         for name in [
             String::from("subscription_key"),
             String::from("customer_key"),
-            InternalLabel::Link(0).label(),
+            InternalLabel::link(0).label(),
         ] {
             assert!(
                 query.sql().contains(&format!("{quote}{name}{quote}")),
@@ -834,7 +834,7 @@ mod truncated_link {
 
     #[track_caller]
     fn renders_and_parses(dialect: Dialect, target: polyglot_sql::DialectType) {
-        let link = || ResultLabel::internal(InternalLabel::Link(0));
+        let link = || ResultLabel::internal(InternalLabel::link(0));
         let usage_date = || column(FACT_TABLE, "usage_date");
         let render = |key| {
             generate_leg(&fact_leg(key), dialect).unwrap_or_else(|e| panic!("the link would not render for {dialect}: {e}"))

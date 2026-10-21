@@ -60,7 +60,7 @@ fn oversized_lookup_rows() -> RowSet {
     let oversized = "x".repeat(ceiling + 1);
     let row = |link: &str| vec![Value::Text(link.into()), Value::Text(oversized.clone())];
     RowSet::new(
-        vec![InternalLabel::Link(0).label(), "region".into()],
+        vec![InternalLabel::link(0).label(), "region".into()],
         vec![row("c1"), row("c2")],
     )
     .expect("a well-formed test lookup result")
@@ -165,7 +165,7 @@ fn mismatched_fact_rows() -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
-            InternalLabel::Link(0).label(),
+            InternalLabel::link(0).label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
             InternalLabel::Leaf(0).label(),
         ],
@@ -200,7 +200,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
     let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
     let dimension = |n: &str| DimensionName::parse(n).expect("a test dimension");
     let key = |n: &str| PlanKey::new(ResultLabel::dimension(&dimension(n)), tablecol(n));
-    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), tablecol("customer_key"));
+    let link = || PlanKey::new(ResultLabel::internal(InternalLabel::link(0)), tablecol("customer_key"));
     let bucket = |c: &str| PlanBucket::new(ResultLabel::bucket(), Grain::Month, PlanColumn::new(table.clone(), column(c)));
 
     let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));

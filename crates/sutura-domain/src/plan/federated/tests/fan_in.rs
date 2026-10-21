@@ -16,7 +16,7 @@ use crate::warehouse::arrow::of_rows;
 
 fn link(leg: usize) -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link(leg)),
+        ResultLabel::internal(InternalLabel::link(leg)),
         PlanColumn::new(table(FACT), column("customer_key")),
     )
 }
@@ -136,7 +136,7 @@ fn a_lookup_leg_whose_parent_does_not_project_its_link_is_refused() {
         refused,
         Err(FederatedPlanError::KeyNotOnLeg {
             side: crate::plan::LegAt::Lookup(0),
-            label: InternalLabel::Link(1).label(),
+            label: InternalLabel::link(1).label(),
         })
     );
 }
