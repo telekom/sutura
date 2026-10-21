@@ -28,12 +28,12 @@ docker compose run --rm loader
 `setup.sh` needs `openssl` on the host.
 
 `setup.sh` writes `COMPOSE_FILE` to `.env`, so `docker compose` reads `compose.yaml` and
-`compose.cube.yaml` together, and the CA and certificate of the proxy. The certificates are valid for
-30 days: delete `.tls` and run `./setup.sh` again to issue new ones. Keycloak imports
-`keycloak/realm.json` on `127.0.0.1:8180`. Cube serves `cube/model.yml` over ClickHouse, verifies
-each token with the keys of the realm, and answers through the proxy on `127.0.0.1:443`.
-`just dev-up-cube` starts the same services for this repository's tests, in the `cube` profile of
-`compose.services.yaml`.
+`compose.cube.yaml` together. It also issues the CA and certificate of the proxy. They are valid
+for 30 days: delete `.tls`, run `./setup.sh` again, run `docker compose restart cube-tls`, and
+start sutura again. Keycloak imports `keycloak/realm.json` on `127.0.0.1:8180`. Cube serves
+`cube/model.yml` over ClickHouse, verifies each token with the keys of the realm, and answers
+through the proxy on `127.0.0.1:443`. `just dev-up-cube` starts the same services for this
+repository's tests, in the `cube` profile of `compose.services.yaml`.
 
 The loader writes the files that sutura reads from `/run/sutura` to `.local`: `datahub-token`,
 `jwks.json` (the keys of the realm), `exchange-secret`, and `cube-token`, a token of the

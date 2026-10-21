@@ -104,8 +104,9 @@ docker compose run --rm loader
 
 `setup.sh` writes the secrets to `.env`, with `COMPOSE_FILE` so that `docker compose` reads both
 files, and the CA and certificate of the proxy. The certificates are valid for 30 days: delete
-`.tls` and run `./setup.sh` again to issue new ones. The loader writes the `orders` and `customers`
-datasets, the relationship `orders_to_customer` and the metric `revenue` into DataHub. It also
+`.tls`, run `./setup.sh` again, run `docker compose restart cube-tls`, and start sutura again. The
+loader writes the `orders` and `customers` datasets, the relationship `orders_to_customer` and the
+metric `revenue` into DataHub. It also
 writes the files that sutura reads from `/run/sutura` to `.local`: the DataHub token `datahub-token`
 (the catalog `token_file` in both settings files), `jwks.json` with the keys of the realm,
 `exchange-secret`, and `cube-token`, a token of the `sutura-deployment` client. The realm issues
