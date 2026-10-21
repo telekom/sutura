@@ -23,7 +23,7 @@ fn on(table_name: &str, column: &str) -> PlanColumn {
 }
 
 fn link(leg: usize, table_name: &str, column: &str) -> PlanKey {
-    PlanKey::new(ResultLabel::internal(InternalLabel::Link(leg)), on(table_name, column))
+    PlanKey::new(ResultLabel::internal(InternalLabel::link(leg)), on(table_name, column))
 }
 
 fn dimension(name: &str) -> ResultLabel {

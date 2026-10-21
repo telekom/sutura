@@ -176,7 +176,7 @@ pub(super) async fn combine_plan(
     // Each lookup leg joins onto the leg it names on its own link label, in plan order, so the leg
     // it names is already in the relation.
     for (position, (lookup, table)) in plan.lookups().legs().iter().zip(LOOKUP_TABLES).enumerate() {
-        let link = InternalLabel::Link(position).label();
+        let link = InternalLabel::link(position).label();
         let kind = if lookup.include_unmatched() {
             JoinType::Left
         } else {

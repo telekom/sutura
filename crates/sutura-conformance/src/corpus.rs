@@ -492,7 +492,7 @@ pub fn truncated_link_leg_case_at(at: Option<&TableQualifier>) -> LegCase {
         tables: StatementTables::only(located(at)),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
         keys: vec![PlanKey::truncated(
-            ResultLabel::internal(InternalLabel::Link(0)),
+            ResultLabel::internal(InternalLabel::link(0)),
             column("day"),
             Grain::Month,
         )],
