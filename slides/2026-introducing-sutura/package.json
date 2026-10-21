@@ -1,0 +1,14 @@
+{
+  "name": "sutura-slides-2026-introducing-sutura",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "slidev build --base ./",
+    "predev": "mkdir -p public/shared && cp ../../docs/assets/architecture.html ../../docs/assets/deployment.html ../../docs/assets/sutura.svg public/shared/",
+    "dev": "slidev --open --port 5555"
+  },
+  "dependencies": {
+    "@slidev/cli": "^52.14.2",
+    "vue": "^3.5.32"
+  }
+}

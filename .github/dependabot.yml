@@ -63,3 +63,18 @@ updates:
       each-across-directories:
         patterns: ["*"]
         group-by: dependency-name
+
+  # The meetup deck's one npm dependency graph. A bump changes `package-lock.json` and so the
+  # `npmDepsHash` in `nix/slides.nix`, which Dependabot cannot write: `nix build .#slides` names
+  # the new hash, and the PR takes it from there.
+  - package-ecosystem: npm
+    directory: "/slides/2026-introducing-sutura"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "build"
+    groups:
+      slides:
+        patterns: ["*"]
