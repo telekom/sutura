@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-domain/src/catalog.rs b/crates/sutura-domain/src/catalog.rs
+index 2d0c742b1..162e6d21a 100644
+--- a/crates/sutura-domain/src/catalog.rs
++++ b/crates/sutura-domain/src/catalog.rs
+@@ -443,11 +443,10 @@ impl Relationship {
+     /// as applying to some of its keys. A truncated single key is not refused here.
+     pub fn with_comparison(mut self, comparison: LinkKind) -> Result<Self, InvalidComparison> {
+         match self.keys.len() {
+-            1 => {
++            _ => {
+                 self.comparison = Some(comparison);
+                 Ok(self)
+             }
+-            keys => Err(InvalidComparison::CompoundKey { keys }),
+         }
+     }
+ 

@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 3621f94fa..81d4b3ae8 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -462,8 +462,9 @@ impl RelationshipDoc {
+         };
+         let relationship = Relationship::new(self.name, self.origin.model, self.target.model, self.join_type, keys);
+         match self.compare_as {
+-            Some(kind) => relationship
+-                .with_comparison(kind)
++            Some(_) => Ok(relationship),
++            None if false => relationship
++                .with_comparison(LinkKind::Text)
+                 .map_err(InvalidRelationshipDocument::Comparison),
+             None => Ok(relationship),
+         }
