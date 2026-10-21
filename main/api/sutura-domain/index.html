@@ -8715,14 +8715,14 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-427-86"><a id="__codelineno-427-86" name="__codelineno-427-86" href="#__codelineno-427-86"></a>
 </span><span id="__span-427-87"><a id="__codelineno-427-87" name="__codelineno-427-87" href="#__codelineno-427-87"></a>### `use ExecuteError`
 </span><span id="__span-427-88"><a id="__codelineno-427-88" name="__codelineno-427-88" href="#__codelineno-427-88"></a>
-</span><span id="__span-427-89"><a id="__codelineno-427-89" name="__codelineno-427-89" href="#__codelineno-427-89"></a>Why `FederationCombiner::execute` gave no answer.
+</span><span id="__span-427-89"><a id="__codelineno-427-89" name="__codelineno-427-89" href="#__codelineno-427-89"></a>Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 </span><span id="__span-427-90"><a id="__codelineno-427-90" name="__codelineno-427-90" href="#__codelineno-427-90"></a>
 </span><span id="__span-427-91"><a id="__codelineno-427-91" name="__codelineno-427-91" href="#__codelineno-427-91"></a>The combine runs only after every leg answered, so a leg's error wins over the combine's.
 </span><span id="__span-427-92"><a id="__codelineno-427-92" name="__codelineno-427-92" href="#__codelineno-427-92"></a>
 </span><span id="__span-427-93"><a id="__codelineno-427-93" name="__codelineno-427-93" href="#__codelineno-427-93"></a>### `use Executed`
 </span><span id="__span-427-94"><a id="__codelineno-427-94" name="__codelineno-427-94" href="#__codelineno-427-94"></a>
-</span><span id="__span-427-95"><a id="__codelineno-427-95" name="__codelineno-427-95" href="#__codelineno-427-95"></a>What `FederationCombiner::execute` returns, named so its signature is not a
-</span><span id="__span-427-96"><a id="__codelineno-427-96" name="__codelineno-427-96" href="#__codelineno-427-96"></a>`type_complexity` finding.
+</span><span id="__span-427-95"><a id="__codelineno-427-95" name="__codelineno-427-95" href="#__codelineno-427-95"></a>What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+</span><span id="__span-427-96"><a id="__codelineno-427-96" name="__codelineno-427-96" href="#__codelineno-427-96"></a>their signatures are not a `type_complexity` finding.
 </span><span id="__span-427-97"><a id="__codelineno-427-97" name="__codelineno-427-97" href="#__codelineno-427-97"></a>
 </span><span id="__span-427-98"><a id="__codelineno-427-98" name="__codelineno-427-98" href="#__codelineno-427-98"></a>### `use FederatedAnswerRefusal`
 </span><span id="__span-427-99"><a id="__codelineno-427-99" name="__codelineno-427-99" href="#__codelineno-427-99"></a>
@@ -9554,7 +9554,8 @@ The plan names no join and no engine; the combine is a port's concern. Nothing b
 yet, so no question reaches it.</p>
 <p><strong>The cap is a property of the plan.</strong> Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. <code>MAX_LEGS</code> bounds it at construction. The
-refusal a caller sees comes with the planner, which does not read the cap yet.</p>
+refusal a caller sees, <code>RefusalReason::QuestionNeedsTooManyLegs</code>,
+is declared; the planner that raises it does not read the cap yet.</p>
 <p>The architecture decision records the decision and its limits.</p>
 <h4 id="enum-arm"><code>enum Arm</code><a class="headerlink" href="#enum-arm" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-452-1"><a id="__codelineno-452-1" name="__codelineno-452-1" href="#__codelineno-452-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Arm</span>
@@ -9575,7 +9576,8 @@ refusal a caller sees comes with the planner, which does not read the cap yet.</
 <p>The answer's group-by labels in question order.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-455-1"><a id="__codelineno-455-1" name="__codelineno-455-1" href="#__codelineno-455-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">legs</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;</span><span class="n">LegPlan</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Every leg this arm runs.</p>
+<p>Every leg this arm runs, in the order <code>execute_across</code> runs them: a joined arm's
+<code>FederatedPlan::legs</code>.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-456-1"><a id="__codelineno-456-1" name="__codelineno-456-1" href="#__codelineno-456-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">measure_label</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The label this arm's measure is emitted under.</p>
@@ -9890,11 +9892,11 @@ built before this field existed.</p>
 <p><code>FederationCombiner::execute</code> takes it by value and only this crate builds one, so the value
 it takes came from <code>FederationCombiner::plan</code>. The type does not hold which legs run.</p>
 <h4 id="use-executeerror"><code>use ExecuteError</code><a class="headerlink" href="#use-executeerror" title="Permanent link">&para;</a></h4>
-<p>Why <code>FederationCombiner::execute</code> gave no answer.</p>
+<p>Why <code>FederationCombiner::execute</code> or <code>DrillAcrossCombiner::execute_across</code> gave no answer.</p>
 <p>The combine runs only after every leg answered, so a leg's error wins over the combine's.</p>
 <h4 id="use-executed"><code>use Executed</code><a class="headerlink" href="#use-executed" title="Permanent link">&para;</a></h4>
-<p>What <code>FederationCombiner::execute</code> returns, named so its signature is not a
-<code>type_complexity</code> finding.</p>
+<p>What <code>FederationCombiner::execute</code> and <code>DrillAcrossCombiner::execute_across</code> return, named so
+their signatures are not a <code>type_complexity</code> finding.</p>
 <h4 id="use-federationcombiner"><code>use FederationCombiner</code><a class="headerlink" href="#use-federationcombiner" title="Permanent link">&para;</a></h4>
 <p>Joins two legs' results and re-aggregates the answer above them.</p>
 <p><strong>The second driven port, declared beside <code>Warehouse</code> and
@@ -10266,7 +10268,7 @@ application, and an adapter still never calls another adapter. <code>sutura_app<
 <h5 id="enum-executeerror"><code>enum ExecuteError</code><a class="headerlink" href="#enum-executeerror" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-510-1"><a id="__codelineno-510-1" name="__codelineno-510-1" href="#__codelineno-510-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExecuteError</span><span class="o">&lt;</span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="n">C</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Why <code>FederationCombiner::execute</code> gave no answer.</p>
+<p>Why <code>FederationCombiner::execute</code> or <code>DrillAcrossCombiner::execute_across</code> gave no answer.</p>
 <p>The combine runs only after every leg answered, so a leg's error wins over the combine's.</p>
 <h6 id="variants_56">Variants<a class="headerlink" href="#variants_56" title="Permanent link">&para;</a></h6>
 <ul>
@@ -10326,7 +10328,7 @@ reached through this fake is a test that has drifted into the federated path, an
 loudly rather than passing over a fabricated number.</p>
 <p>Behind <code>fixtures</code>, so nothing published holds it.</p>
 <h6 id="implements_117">Implements<a class="headerlink" href="#implements_117" title="Permanent link">&para;</a></h6>
-<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>FederationCombiner</code></p>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>DrillAcrossCombiner</code>, <code>FederationCombiner</code></p>
 <h5 id="struct-nothingcombined"><code>struct NothingCombined</code><a class="headerlink" href="#struct-nothingcombined" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-513-1"><a id="__codelineno-513-1" name="__codelineno-513-1" href="#__codelineno-513-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">NothingCombined</span>
 </span></code></pre></div>
@@ -10334,8 +10336,8 @@ loudly rather than passing over a fabricated number.</p>
 <h6 id="implements_118">Implements<a class="headerlink" href="#implements_118" title="Permanent link">&para;</a></h6>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h5 id="type_alias-executed"><code>type_alias Executed</code><a class="headerlink" href="#type_alias-executed" title="Permanent link">&para;</a></h5>
-<p>What <code>FederationCombiner::execute</code> returns, named so its signature is not a
-<code>type_complexity</code> finding.</p>
+<p>What <code>FederationCombiner::execute</code> and <code>DrillAcrossCombiner::execute_across</code> return, named so
+their signatures are not a <code>type_complexity</code> finding.</p>
 <h4 id="module-label">Module <code>label</code><a class="headerlink" href="#module-label" title="Permanent link">&para;</a></h4>
 <p>The reserved label namespace, and the one function that assigns it.</p>
 <p>Its own module because it is what the splitter, the combiner and the leg goldens all read the
@@ -11211,6 +11213,15 @@ somebody else's input.</p>
   metric named against the first, so the pair reported is always the first metric and the
   first one that disagreed with it, never a third-party guess at which is "wrong".
 - <code>TooManyMetrics</code> - More metrics than <code>MAX_METRICS</code> one question may name together.
+- <code>DimensionNotConformed</code> - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for <code>first</code> and <code>other</code>.</p>
+<p><strong>A dimension only joins the metrics' answers when it ends on the same model and column for
+  every metric.</strong> Reading the first metric's column for all of them would label another
+  metric's numbers with a grouping it never computed. The check is structural: two columns
+  that mean the same thing but are two copies are refused too. Refused naming the dimension
+  and the first pair that disagree, never a guess at which of them is wrong.
+- <code>QuestionNeedsTooManyLegs</code> - A question needs more legs than one answer may run, counting every leg of every metric.</p>
+<p>Each leg is held whole before the answers are merged, so the leg count bounds held memory
+  the way <code>TooManyMetrics</code> bounds the statement.
 - <code>DuplicateMetricName</code> - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
 - <code>MultiMetricFederationNotExecutable</code> - A question named more than one metric and also reached a remote dimension.</p>
 <p><strong>A multi-metric question never federates.</strong> The combiner links exactly two legs on one
