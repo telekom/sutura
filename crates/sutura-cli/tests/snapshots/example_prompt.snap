@@ -129,9 +129,6 @@ Every reason you can be given, and what to do about each:
   Nothing you can change. Report it: it is a fact about how the metric is defined.
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
-- **federation_link_truncated** - the crossing relationship joins on a key truncated to a grain,
-  which the two legs do not carry.
-  Nothing you can change. Report it: it is a fact about how the relationship's key is declared.
 - **federation_link_type_mismatch** - the crossing relationship joins two columns the catalog
   declares as different kinds of value.
   Nothing you can change. Report it: it is a fact about how the two columns are declared.

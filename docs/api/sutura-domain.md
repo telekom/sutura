@@ -10736,13 +10736,6 @@ somebody else's input.
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
-- `FederationLinkTruncated` - The relationship crossing into the remote data system joins on a key truncated to a grain.
-
-  The combiner links the two legs on the raw column values, so a truncated key (`month_of(a.x) =
-  b.y`) would join each row to the wrong lookup row or to none. Refused before either leg runs
-  rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
-  narrowable by the caller: the key is the catalog's, and declaring an equality against a column
-  that already sits at the grain removes the refusal.
 - `FederationLinkTypeMismatch` - The two columns the crossing relationship joins are declared as different kinds of value.
 
   Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -10976,7 +10969,8 @@ somebody else's input.
   The two facts are aggregated in two statements and joined above on ONE link into a remote
   dimension's model, so the question groups and filters by that model's dimensions and nothing
   else, and the second fact `model` declares its own relationship into it on the column the
-  first fact links through. Narrowable: group by a dimension both facts link to.
+  first fact links through, truncated to the same grain or not at all. Narrowable: group by a
+  dimension both facts link to.
 
 #### Methods
 
