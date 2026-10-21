@@ -27,7 +27,10 @@ fn engine(source: SourceName, table: &TableName, csv: &std::path::Path) -> DataF
 }
 
 fn fact() -> DataFusionWarehouse {
-    engine(corpus::source(), &corpus::table(), &corpus::on_disk())
+    let fact = engine(corpus::source(), &corpus::table(), &corpus::on_disk());
+    fact.attach_csv(&corpus::region_codes_table(), &corpus::region_codes_on_disk())
+        .expect("the engine attaches the region codes a chain comes back to");
+    fact
 }
 
 fn lookup() -> DataFusionWarehouse {

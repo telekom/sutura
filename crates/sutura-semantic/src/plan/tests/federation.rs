@@ -7,7 +7,7 @@ use sutura_domain::catalog::{Audience, Description, DimensionValue, Metric};
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term};
 use sutura_domain::model::{Aggregate, Grain, MetricName, ModelName, TableName};
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{PlanBucket, PlanColumn, PlanPredicate, ResultLabel};
+use sutura_domain::plan::{KeyValue, PlanBucket, PlanColumn, PlanKey, PlanPredicate, ResultLabel};
 use sutura_domain::query::RefusalReason;
 
 use super::{
@@ -536,11 +536,11 @@ fn a_cross_model_ratio_plans_two_fact_statements_bucketed_through_one_calendar()
         "the second fact reads its own model's source"
     );
     assert_eq!(
-        second.keys().iter().map(|key| key.column().clone()).collect::<Vec<_>>(),
-        [PlanColumn::new(
+        second.keys().iter().map(PlanKey::value).collect::<Vec<_>>(),
+        [KeyValue::Column(&PlanColumn::new(
             TableName::parse("dim_visits").expect("a table"),
             column("customer_key")
-        )],
+        ))],
         "the second fact links through its own relationship's origin column"
     );
 }

@@ -139,7 +139,7 @@ use features::{Activation, BaseText, Trees};
 use no_base::Exemptions;
 use place::AddedTest;
 use plan::{Plan, Separable};
-use provenance::{Commit, Moved, Reach};
+use provenance::{Commit, Reach};
 use refusals::{
     report_deleted_tests, report_enabled_tests, report_head_failure, report_unclaimed_additions, report_unnamed_tests,
     report_unread_manifests, report_unreadable,
@@ -152,8 +152,8 @@ use remedies::{
 use reverted::Attempts;
 use runner::{Tree, cargo_test};
 use scoped::{Scan, Scoped};
-use stack::{Base, Parent};
-use worktree::{BaseState, add_base_worktree, apply, base_state, remove_worktree};
+use stack::Base;
+use worktree::{BaseState, GitFailed, add_base_worktree, apply, base_state, remove_worktree};
 
 /// Is this a Rust source path THIS workspace compiles?
 ///
@@ -202,9 +202,18 @@ fn prove(
     // Withdrawing it there would leave that test in a directory cargo no longer reads, and nextest
     // failing an empty filterset is a red about this partition rather than about the change.
     // The retry also takes every changed manifest and lockfile to base: `membership::Membership::attempts`.
-    let [reverting, holding] = membership::Membership::of(root, base, &separable.build_inputs).attempts(separable);
-    let first = base_state(root, base, &reverting);
-    let held = base_state(root, base, &holding);
+    let Ok([reverting, holding]) = membership::Membership::of(root, base, &separable.build_inputs)
+        .map(|membership| membership.attempts(separable))
+        .map_err(GitFailed::refuse)
+    else {
+        return Verdict::Fail;
+    };
+    let Ok((first, held)) = base_state(root, base, &reverting)
+        .and_then(|first| Ok((first, base_state(root, base, &holding)?)))
+        .map_err(GitFailed::refuse)
+    else {
+        return Verdict::Fail;
+    };
     let unreverted = separable.unreverted_from(&reverting);
 
     if first.restore.is_empty() {
@@ -254,7 +263,9 @@ fn prove(
     // *green on base* MEANS. A diff cannot tell a moved test from an added one, and the gate's
     // premise is about tests that were added: `provenance::Moved` asks the base commit instead.
     let named: Vec<&str> = scoped.tests().iter().map(AddedTest::name).collect();
-    let moved = already_there(root, base, &named, scoped.tests());
+    let Ok(moved) = worktree::already_there(root, base, &named, scoped.tests()).map_err(GitFailed::refuse) else {
+        return Verdict::Fail;
+    };
     report_moved(&moved);
     let (head_ok, head_out) = cargo_test(root, &shared_target, &only, Tree::Provisioned);
     if !head_ok {
@@ -285,24 +296,6 @@ fn prove(
     );
     remove_worktree(root, &wt);
     verdict
-}
-
-/// Which of the tests `named` the base commit already had, asked of git.
-///
-/// TWO CALLS AND NO DECISION HERE. The search is restricted to the `.rs` files THIS DIFF TOUCHED -
-/// deletions included, which is why the path list comes from git rather than from the parsed diff -
-/// because that is what a move looks like from the base side: the file the test came from lost
-/// those lines, so it is in the diff. Asking the whole tree instead would let one of this tree's
-/// duplicated test names answer yes about a genuinely new test. `provenance` owns both the patterns
-/// and the classification, so the direction it fails in is stated where it is decided.
-fn already_there(root: &Path, base: &Commit, named: &[&str], scoped: &[AddedTest]) -> Moved {
-    let paths: Vec<String> = worktree::touched(root, base)
-        .into_iter()
-        .filter(|path| is_compiled_rust(path))
-        .collect();
-    let found = worktree::search(root, base, &provenance::needles(named), &paths);
-    let edited: Vec<&str> = scoped.iter().filter(|test| test.is_edited()).map(AddedTest::name).collect();
-    Moved::of(named, &edited, &found)
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.
@@ -402,32 +395,11 @@ const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bo
     matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
 }
 
-/// The three git reads `stack::parent_of` needs, bound to this repository.
-///
-/// GLUE AND NO DECISION, and it is now glue with nothing in it to get wrong: the composition and
-/// every fallback moved into `stack::parent_of`, where fakes can drive them, and the choice is
-/// `stack::Base::of`. **Review found why that mattered.** This function used to carry the guard
-/// against a parent that is really this branch, spelled `parent == branch` - a NAME comparison for
-/// a hazard that is a COMMIT - and being untested is what let one spelling stand in for the input.
-/// It is `stack::Origin::Contains` now, keyed on HEAD's commit.
-fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
-    let metadata = |branch: &stack::BranchRef| worktree::branch_metadata(root, branch);
-    let merge_base = |earlier: &str, later: &str| worktree::merge_base(root, earlier, later);
-    stack::parent_of(
-        asked_for,
-        &stack::Reads {
-            branch: worktree::head_branch(root),
-            metadata: &metadata,
-            merge_base: &merge_base,
-        },
-    )
-}
-
 /// What the diff's manifest changes put into the build, asked of the two trees.
 ///
 /// The three readers [`features::Trees`] wants, and the pairing that matters is the first: a path
 /// the base does not HAVE is a new package whose base feature table is legitimately empty, while a
-/// path the base has and whose content did not come back is a refusal. `cat-file -e` and `show` are
+/// path the base has and whose content did not come back is a refusal. `ls-tree` and `show` are
 /// separate calls so those two are separate answers.
 ///
 /// The source listing is behind a `OnceCell` because most runs never need it: it is consulted only
@@ -442,12 +414,10 @@ fn stack_parent(root: &Path, asked_for: &Commit) -> Option<Parent> {
 /// refusal, a source gone from disk) nor the call that hands its result to [`sources_under`]. Both
 /// read the real repository, and no cell injects a census.
 fn feature_activation(root: &Path, at: &Commit, files: &[diff::ChangedFile], read: &regions::PostImage<'_>) -> Activation {
-    let base = |path: &str| {
-        if worktree::base_has(root, at, path) {
-            worktree::at_base(root, at, path).map_or(BaseText::Unreadable, BaseText::Text)
-        } else {
-            BaseText::Absent
-        }
+    let base = |path: &str| match worktree::base_has(root, at, path) {
+        Ok(true) => worktree::at_base(root, at, path).map_or(BaseText::Unreadable, BaseText::Text),
+        Ok(false) => BaseText::Absent,
+        Err(_) => BaseText::Unreadable,
     };
     let listing: std::cell::OnceCell<features::Listing> = std::cell::OnceCell::new();
     let census_listing = || {
@@ -519,16 +489,16 @@ fn sources_under(listing: &features::Listing, dir: &str) -> features::Listing {
 /// a test calls from a DIFFERENT file - is `super::edited`'s own stated limit.
 fn tests_only(
     root: &Path,
-    at: &Commit,
     files: &[diff::ChangedFile],
     separable: &Separable,
     read: &regions::PostImage<'_>,
     live: &live::Live,
+    messages: &str,
 ) -> Verdict {
     report_unreverted(&separable.build_inputs);
     match live.scan(Scan::of(files, &separable.test_files, read)) {
         Scan::Runnable(scoped) => {
-            let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) else {
+            let Some(claim) = claim::Claim::of(messages) else {
                 return report_unclaimed_additions(scoped.tests());
             };
             let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
@@ -562,7 +532,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // other venues resolved a merge base before calling; this recipe passed the ref through, so
     // the one venue a person runs by hand was the one that could measure the wrong commits.
     // Idempotent for a commit already behind HEAD, which is how scoping the gate per commit works.
-    let Some(asked_for) = Commit::parse(&worktree::merge_base(&root, &base, "HEAD")) else {
+    let Some(asked_for) = worktree::merge_base(&root, &base, "HEAD")
+        .ok()
+        .and_then(|text| Commit::parse(&text))
+    else {
         eprintln!("xtask test-causality: could not resolve a merge base between `{base}` and HEAD");
         eprintln!("  Fetch that ref, or name a commit this branch descends from.");
         return Verdict::Fail;
@@ -573,11 +546,13 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // review reproduced twice here. `merge_base` above already resolved HEAD, so this cannot
     // realistically fail; refusing is the fail-closed direction if it ever does, because the
     // alternative is deriving a base with the one guard that matters unable to run.
-    let Some(head) = Commit::parse(&worktree::head_commit(&root)) else {
+    let Some(head) = worktree::head_commit(&root).ok().and_then(|text| Commit::parse(&text)) else {
         eprintln!("xtask test-causality: could not resolve HEAD to one commit");
         return Verdict::Fail;
     };
-    let parent = stack_parent(&root, &asked_for);
+    let Ok(parent) = worktree::parent(&root, &asked_for).map_err(GitFailed::refuse) else {
+        return Verdict::Fail;
+    };
     let measured = Base::of(asked_for, &head, parent);
     let at = measured.at();
 
@@ -595,18 +570,23 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let Ok(exemptions) = Exemptions::read(&root).map_err(|e| eprintln!("xtask test-causality: FAILED - {e}")) else {
         return Verdict::Fail;
     };
-    if refusals::report_merged_trailers(&worktree::merges(&root, at)) == Verdict::Fail {
+    let Ok(range) = worktree::range(&root, at).map_err(GitFailed::refuse) else {
+        return Verdict::Fail;
+    };
+    if refusals::report_merged_trailers(&range.merges) == Verdict::Fail {
         return Verdict::Fail;
     }
-    let Some(live) = live::Live::read(&root, &worktree::messages(&root, at)) else {
+    let Some(live) = live::Live::read(&root, &range.messages) else {
         return Verdict::Fail;
     };
 
     // An added claim mutation no trailer declares is never applied - the fail-open of #970.
-    let touched = worktree::touched(&root, at);
-    let undeclared = claim::undeclared::undeclared(&touched, claim::Claim::of(&worktree::messages(&root, at)).as_ref(), |path| {
+    let Ok(undeclared) = claim::undeclared::undeclared(&range.touched, claim::Claim::of(&range.messages).as_ref(), |path| {
         worktree::base_has(&root, at, path)
-    });
+    })
+    .map_err(GitFailed::refuse) else {
+        return Verdict::Fail;
+    };
     if !undeclared.is_empty() {
         return claim::undeclared::report(&undeclared);
     }
@@ -655,10 +635,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     // a file this branch DELETED has no entry in it. Without the list a `git rm` of a test file
     // rides a claim that every changed line was accounted for, over lines nothing ever read.
     match relocation::decide(
-        Claim::of(&worktree::messages(&root, at).replace('\0', "\n")).as_ref(),
+        Claim::of(&range.messages.replace('\0', "\n")).as_ref(),
         &relocation::Changed {
             files: &files,
-            touched: &touched,
+            touched: &range.touched,
         },
         &Images {
             head: &working_tree,
@@ -681,7 +661,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // A COMMIT MAY WAIVE A NAMED DELETION, and the trailer is a CLAIM this CHECKS against
             // `removed_in`'s own answer - `super::weakens`'s own header carries why it mirrors
             // `Claim-Cell:` rather than a blanket override.
-            let waived = weakens::Waived::of(&worktree::messages(&root, at));
+            let waived = weakens::Waived::of(&range.messages);
             match report_deleted_tests(&deleted, &waived) {
                 Verdict::Pass => edited::callsite::separate(&files, &working_tree, &base_tree),
                 refused => return refused,
@@ -713,7 +693,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             // ignored) falls through to the unconsulted-declaration line unchanged: this arm
             // cannot build the `Scoped` value `claim::run` needs, so it has not reached the claim
             // arm either, and says so exactly as it did before this decision.
-            let claim = claim::Claim::of(&worktree::messages(&root, at));
+            let claim = claim::Claim::of(&range.messages);
             if let Some(ref declared) = claim
                 && let Scan::Runnable(scoped) = live.scan(Scan::of(&files, &inseparable, &working_tree))
             {
@@ -740,7 +720,17 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         }
         Plan::Separable(separable) => {
             edited::callsite::name(&separable.edited);
-            let verdict = separable_verdict(&root, at, &files, &separable, &working_tree, &base_tree, &exemptions, &live);
+            let verdict = separable_verdict(
+                &root,
+                at,
+                &files,
+                &separable,
+                &working_tree,
+                &base_tree,
+                &exemptions,
+                &live,
+                &range.messages,
+            );
             edited::callsite::cap(&separable.edited, verdict)
         }
     }
@@ -756,13 +746,14 @@ fn separable_verdict(
     base_tree: &regions::PostImage<'_>,
     exempt: &Exemptions,
     live: &live::Live,
+    messages: &str,
 ) -> Verdict {
     if separable.revert.is_empty() {
         // Same string check as the arm above: an incomplete claim declaration (trailer
         // committed, patch not) has an empty `revert` and lands here rather than at
         // `Plan::NotSeparable` too - `tests_only` reads the same declaration and now
         // consults it, rather than only mentioning that one exists.
-        return tests_only(root, at, files, separable, working_tree, live);
+        return tests_only(root, files, separable, working_tree, live, messages);
     }
     match live.scan(Scan::of(files, &separable.test_files, working_tree)) {
         Scan::Runnable(scoped) => {
@@ -811,7 +802,7 @@ fn separable_verdict(
                 working_tree,
                 base_tree,
             );
-            if let Some(claim) = claim::Claim::of(&worktree::messages(root, at)) {
+            if let Some(claim) = claim::Claim::of(messages) {
                 let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
                 let claim_verdict = claim::run(root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
                 // The declared cells' mutations must kill AND the undeclared additions

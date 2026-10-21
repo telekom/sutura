@@ -24,7 +24,7 @@ use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, 
 use datafusion::logical_expr::{Expr, cast, lit, when};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, TableName};
-use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm};
+use sutura_domain::plan::{KeyValue, PlanColumn, PlanKey, PlanMeasure, PlanPredicate, PlanTerm};
 use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
@@ -150,6 +150,15 @@ pub(crate) const fn unit(grain: Grain) -> &'static str {
 /// `generate.rs` casts for the same reason, which is what keeps the two agreeing.
 pub(crate) fn bucket_expression(grain: Grain, plan_column: &PlanColumn) -> Expr {
     cast(date_trunc(lit(unit(grain)), column(plan_column)), DataType::Date32)
+}
+
+/// What a key groups by: its column, or the column truncated by [`bucket_expression`]. A truncated
+/// key is named by its label, so it cannot collide with a bucket over the same column and grain.
+pub(crate) fn key_expression(key: &PlanKey) -> Expr {
+    match key.value() {
+        KeyValue::Column(over) => column(over),
+        KeyValue::Truncated { column: over, grain } => bucket_expression(grain, over).alias(key.label()),
+    }
 }
 
 /// One aggregate over one column.

@@ -210,29 +210,31 @@ where
 /// Selected for an adapter that declares `EXECUTES_LEGS`. The leg reads the same table over the same
 /// range as one of the whole-plan cases and must answer that case's rows, which is what makes it a
 /// conformance claim rather than a smoke test: an adapter with a leg-rendering path of its own has
-/// to land on the number the whole-plan path lands on.
+/// to land on the number the whole-plan path lands on. A second leg links on a key truncated to a
+/// month, so the adapter's own truncation runs in a leg; its rows are literals.
 ///
 /// Content only. See this module's header for why a leg gets no order assertion.
 pub fn a_leg_is_executed<W>(warehouse: &W) -> Conformed<W::Error>
 where
     W: Warehouse,
 {
-    let case = corpus::leg_case();
-    let answered = warehouse
-        .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
-        .map_err(|cause| Fault::NotAnswered {
+    for case in corpus::leg_cases() {
+        let answered = warehouse
+            .execute(Executable::Leg(case.leg()), &corpus::presented(), corpus::deadline())
+            .map_err(|cause| Fault::NotAnswered {
+                case: case.name().to_owned(),
+                cause,
+            })?
+            .to_rows()
+            .map_err(|cause| Fault::Unreadable {
+                case: case.name().to_owned(),
+                cause,
+            })?;
+        agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
             case: case.name().to_owned(),
-            cause,
-        })?
-        .to_rows()
-        .map_err(|cause| Fault::Unreadable {
-            case: case.name().to_owned(),
-            cause,
+            disagreement: Box::new(disagreement),
         })?;
-    agree_on_content(case.expected(), &answered, TOLERANCE).map_err(|disagreement| Fault::Content {
-        case: case.name().to_owned(),
-        disagreement: Box::new(disagreement),
-    })?;
+    }
     Ok(Outcome::Held)
 }
 
@@ -367,11 +369,15 @@ where
     Ok(Outcome::Held)
 }
 
-/// One federated case's combined rows: both legs, then the combine, then the decode.
+/// One federated case's combined rows: every leg, then the combine, then the decode.
+///
+/// A leg runs on the warehouse whose source it names: the fact warehouse for a leg on the fact's
+/// source, a lookup leg of a chain that comes back to it among them, and the lookup warehouse for
+/// every other leg.
 #[expect(
     clippy::expect_used,
     clippy::unwrap_in_result,
-    reason = "`FederatedPlan::new` refuses anything but one fact and one lookup leg, so `Legs::of` cannot refuse"
+    reason = "one result per `FederatedPlan::legs` entry, in order, is what `Legs::assign` takes, so it cannot refuse"
 )]
 fn combined<Fact, Lookup, Combiner>(
     federation: &(Fact, Lookup, Combiner),
@@ -388,15 +394,22 @@ where
         cause,
     };
     let plan = case.plan();
-    let fact_result = fact
-        .execute(Executable::Leg(plan.fact()), &corpus::presented(), corpus::deadline())
-        .map(|batches| LegResult::of(plan.fact(), batches))
-        .map_err(|cause| not_answered(Stage::Fact(cause)))?;
-    let lookup_result = lookup
-        .execute(Executable::Leg(plan.lookup()), &corpus::presented(), corpus::deadline())
-        .map(|batches| LegResult::of(plan.lookup(), batches))
-        .map_err(|cause| not_answered(Stage::Lookup(cause)))?;
-    let legs = Legs::of(&fact_result, &lookup_result).expect("a FederatedPlan's legs are one fact and one lookup");
+    let results = plan
+        .legs()
+        .into_iter()
+        .map(|leg| {
+            let answered = if leg.source() == plan.fact().source() {
+                fact.execute(Executable::Leg(leg), &corpus::presented(), corpus::deadline())
+                    .map_err(Stage::Fact)
+            } else {
+                lookup
+                    .execute(Executable::Leg(leg), &corpus::presented(), corpus::deadline())
+                    .map_err(Stage::Lookup)
+            };
+            answered.map(|batches| LegResult::of(leg, batches)).map_err(not_answered)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let legs = Legs::assign(plan, &results).expect("one result per leg of the plan, in its order");
     combiner
         .combine(plan, legs, WORKING_SET_BYTES)
         .map_err(|cause| not_answered(Stage::Combine(cause)))?

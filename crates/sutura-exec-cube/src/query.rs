@@ -18,7 +18,7 @@
 
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::Aggregate;
-use sutura_domain::plan::{PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{KeyValue, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 use sutura_domain::query::{TopBy, TopDirection};
 use sutura_domain::warehouse::ParamValue;
 
@@ -32,6 +32,8 @@ pub enum NotExpressible {
          which no one Cube query holds"
     )]
     TopAcrossMetricQueries,
+    #[error("the plan groups by a column truncated to a grain, which a Cube dimension does not name")]
+    TruncatedKey,
 }
 
 /// What one column of the answer is, for the decode.
@@ -82,7 +84,10 @@ impl CubeQuery {
         let mut columns = Vec::new();
         let mut dimensions = Vec::new();
         for key in plan.keys() {
-            let name = member(key.column());
+            let KeyValue::Column(over) = key.value() else {
+                return Err(NotExpressible::TruncatedKey);
+            };
+            let name = member(over);
             dimensions.push(serde_json::Value::String(name.clone()));
             columns.push(Column {
                 label: String::from(key.label()),
@@ -132,7 +137,7 @@ impl CubeQuery {
             order.extend(first.map(|first| serde_json::json!([first, direction])));
             rows = rows.min(top.n().get());
         }
-        order.extend(plan.keys().iter().map(|key| serde_json::json!([member(key.column()), "asc"])));
+        order.extend(dimensions.iter().map(|name| serde_json::json!([name, "asc"])));
         order.push(serde_json::json!([time, "asc"]));
         let query = |measures: &[String], filters: Vec<serde_json::Value>| {
             serde_json::json!({

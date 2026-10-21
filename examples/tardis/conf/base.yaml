@@ -1,0 +1,18 @@
+# sutura behind a gateway that sends its own signed assertion in `Authorization: Bearer`.
+# Replace each `<...>` value before serving; examples/tardis/README.md says where each one comes from.
+security:
+  inbound:
+    mode: "behind-gateway"
+    transit_header: "authorization"
+    # The `iss` of the gateway's assertion, byte for byte.
+    transit_issuer: "<gateway-issuer>"
+    # The `aud` of the gateway's assertion: an `https` URI, or a path that starts with one `/`.
+    transit_audience: "<audience>"
+    # A JWK set of the gateway's public signing keys, and nothing else.
+    key_set_file: "/etc/sutura/keys/gateway-jwks.json"
+    algorithms: ["RS256"]
+    # The `typ` in the header of the gateway's assertion.
+    transit_token_type: "JWT"
+    # The scopes of an assertion that has no `scope` claim. Every application that the gateway
+    # signs an assertion for gets them.
+    granted_scopes: ["sutura:catalog.read", "sutura:metrics.ask"]

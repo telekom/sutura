@@ -139,3 +139,171 @@ fn a_federated_answer_dry_runs_each_leg_exactly_once() {
         "an accepted two-leg answer dry-runs the lookup leg exactly once, even when the preflight accepts"
     );
 }
+
+/// A plan with three lookup legs, each on its own source, onto the fact leg.
+fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
+    use sutura_domain::model::{Aggregate, ColumnName, TableName};
+    use sutura_domain::plan::leg::{LegPlan, LegTerm};
+    use sutura_domain::plan::{
+        InternalLabel, LookupLeg, LookupLegs, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm, ResultLabel,
+        StatementTables, labels,
+    };
+    let table = TableName::parse("fct_subscription_monthly").expect("a test table");
+    let tablecol = |n: &str| PlanColumn::new(table.clone(), ColumnName::parse(n).expect("a test column"));
+    let link = |leg: usize| PlanKey::new(ResultLabel::internal(InternalLabel::Link(leg)), tablecol("customer_key"));
+    let bucket = || PlanBucket::new(ResultLabel::bucket(), Grain::Month, tablecol("month"));
+    let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+        Aggregate::Sum,
+        ColumnName::parse("amount_cents").expect("a test column"),
+    )));
+    let federation = sutura_domain::federation::Federation::of(&sum);
+    let terms = labels(&federation)
+        .into_iter()
+        .map(|label| {
+            LegTerm::new(
+                PlanTerm::CountIf {
+                    column: tablecol("amount_cents"),
+                },
+                ResultLabel::internal(label),
+            )
+        })
+        .collect();
+    let fact = LegPlan::Fact {
+        source: SourceName::parse("facts").expect("a test source"),
+        metric: metric(),
+        tables: StatementTables::only(table.clone()),
+        bucket: bucket(),
+        keys: vec![link(0), link(1), link(2)],
+        terms,
+        bindings: PlanBindings::none(),
+        range: june(),
+    };
+    let lookup = |leg: usize, on: &str| {
+        LookupLeg::onto_fact(
+            LegPlan::Lookup {
+                source: SourceName::parse(on).expect("a test source"),
+                table: table.clone().into(),
+                keys: vec![link(leg)],
+                bindings: PlanBindings::none(),
+            },
+            true,
+        )
+    };
+    let lookups =
+        LookupLegs::parse(vec![lookup(0, "geo"), lookup(1, "crm"), lookup(2, "ops")]).expect("three legs onto the fact");
+    sutura_domain::plan::FederatedPlan::new(
+        metric(),
+        ResultLabel::measure(&metric()),
+        bucket(),
+        fact,
+        None,
+        lookups,
+        federation,
+        Vec::new(),
+    )
+    .expect("a valid four-leg plan")
+}
+
+/// Three lookup legs count one dry-run each, beside the fact leg's one: the cut lists every lookup
+/// leg, and the credential request and the posture record name each source, or the answer would
+/// not be answered.
+#[test]
+fn three_lookup_legs_dry_run_once_each() {
+    use sutura_domain::plan::InternalLabel;
+    let link = |leg: usize| InternalLabel::Link(leg).label();
+    let shared = shared();
+    let fact_rows = RowSet::new(
+        vec![
+            link(0),
+            link(1),
+            link(2),
+            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+            InternalLabel::Leaf(0).label(),
+        ],
+        vec![vec![
+            Value::Text("c1".into()),
+            Value::Text("c1".into()),
+            Value::Text("c1".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]],
+    )
+    .expect("a well-formed test fact result");
+    let lookup_rows = |leg: usize| RowSet::new(vec![link(leg)], vec![vec![Value::Text("c1".into())]]).expect("a lookup result");
+    let sources = ["facts", "geo", "crm", "ops"].map(|name| SourceName::parse(name).expect("a test source"));
+    let [facts, geo, crm, ops] = sources.clone();
+    let warehouses = Warehouses::of(CountingDryRunLegsWarehouse::answering(facts, shared.clone(), fact_rows))
+        .and(CountingDryRunLegsWarehouse::answering(geo, shared.clone(), lookup_rows(0)))
+        .and_then(|registry| registry.and(CountingDryRunLegsWarehouse::answering(crm, shared.clone(), lookup_rows(1))))
+        .and_then(|registry| registry.and(CountingDryRunLegsWarehouse::answering(ops, shared, lookup_rows(2))))
+        .expect("four sources, one registry");
+
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &three_lookup_plan(),
+        &asked_by_a_person(),
+        &crate::tests_support::CountingBroker::default(),
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeilings::DEFAULT,
+    )
+    .expect("a federated answer is not an error")
+    .into_outcome();
+
+    assert!(
+        matches!(outcome, ToolOutcome::Answer { .. }),
+        "a four-leg answer is answered, not {outcome:?}"
+    );
+    for source in &sources {
+        assert_eq!(
+            warehouses.get(source).expect("every leg is registered").dry_runs(),
+            1,
+            "an accepted four-leg answer dry-runs the leg on {source} exactly once"
+        );
+    }
+}
+
+/// Every leg's capability is checked before any credential is minted: the last of three lookup
+/// legs cannot execute, so the answer is refused and the broker is never asked.
+#[test]
+fn a_three_lookup_answer_is_refused_before_minting_when_its_last_lookup_leg_cannot_execute() {
+    let shared = shared();
+    let [facts, geo, crm, ops] = ["facts", "geo", "crm", "ops"].map(|name| SourceName::parse(name).expect("a test source"));
+    let leg =
+        |source, result, can_execute_legs| AsymmetricLegWarehouse::answering(source, shared.clone(), result, can_execute_legs);
+    let warehouses = Warehouses::of(leg(facts, federated_fact_rows(), true))
+        .and(leg(geo, federated_lookup_rows(), true))
+        .and_then(|registry| registry.and(leg(crm, federated_lookup_rows(), true)))
+        .and_then(|registry| registry.and(leg(ops, federated_lookup_rows(), false)))
+        .expect("four sources, one registry");
+    let broker = crate::tests_support::CountingBroker::default();
+
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &three_lookup_plan(),
+        &asked_by_a_person(),
+        &broker,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeilings::DEFAULT,
+    )
+    .map(crate::Answered::into_outcome);
+
+    assert!(
+        matches!(
+            outcome,
+            Ok(ToolOutcome::Refusal {
+                reason: RefusalReason::FederationNotExecutable
+            })
+        ),
+        "one lookup leg cannot execute, so the answer is refused: {outcome:?}"
+    );
+    assert_eq!(broker.asked(), 0, "a refused answer mints no credential");
+}

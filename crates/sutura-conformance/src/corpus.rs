@@ -100,6 +100,8 @@
 )]
 
 mod case_files;
+/// The federated cases with more than one lookup leg.
+mod fan_in;
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -108,12 +110,12 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    FederatedPlan, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    FederatedPlan, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate,
+    PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::{ParamValue, RowSet};
+use sutura_domain::warehouse::{ParamValue, RowSet, Value};
 
 /// The data system name every plan in this corpus resolves to.
 const SOURCE: &str = "conformance";
@@ -124,6 +126,10 @@ pub const TABLE: &str = "conformance_events";
 /// The second source a federated case's lookup leg reads, and its one table.
 const LOOKUP_SOURCE: &str = "conformance_lookup";
 const LOOKUP_TABLE: &str = "conformance_regions";
+
+/// A table on the fact's own source that codes each region name, which a chain that crosses to the
+/// lookup source and comes back reads.
+const REGION_CODES_TABLE: &str = "conformance_region_codes";
 
 /// One question, and the answer to it.
 ///
@@ -309,6 +315,21 @@ pub fn lookup_on_disk() -> PathBuf {
     WRITTEN.clone()
 }
 
+/// The region codes table on a filesystem, written as [`on_disk`] writes the corpus. A federated
+/// binding attaches it to the fact's engine.
+#[must_use]
+pub fn region_codes_on_disk() -> PathBuf {
+    static WRITTEN: LazyLock<PathBuf> =
+        LazyLock::new(|| materialise(REGION_CODES_TABLE, include_str!("../corpus/conformance_region_codes.csv")));
+    WRITTEN.clone()
+}
+
+/// The table [`region_codes_on_disk`] holds, on the fact's own source.
+#[must_use]
+pub fn region_codes_table() -> TableName {
+    TableName::parse(REGION_CODES_TABLE).expect("the region codes table name is a name")
+}
+
 /// The source a federated case's lookup leg resolves to - never [`source`], because
 /// `FederatedPlan::new` refuses two legs on one source.
 #[must_use]
@@ -387,7 +408,13 @@ pub fn cases() -> Vec<Case> {
     case_files::load()
 }
 
-/// The one leg in the corpus.
+/// Every leg in the corpus: [`leg_case`] and [`truncated_link_leg_case`].
+#[must_use]
+pub fn leg_cases() -> [LegCase; 2] {
+    [leg_case(), truncated_link_leg_case()]
+}
+
+/// The leg that answers `total-by-region-and-day`'s rows.
 #[must_use]
 pub fn leg_case() -> LegCase {
     // The same shape as `total-by-region-and-day`, expressed as one source's share of an answer
@@ -418,6 +445,42 @@ pub fn leg_case() -> LegCase {
             range: range(),
         },
         expected: case.expected,
+    }
+}
+
+/// A leg whose link is `day` truncated to its month, bucketed by month over the same column.
+///
+/// Both days of the range fall in one month, so the leg answers ONE row: a link that grouped by
+/// the raw day would answer two. The rows are literals from the fixture (800 + 1450 cents).
+#[must_use]
+pub fn truncated_link_leg_case() -> LegCase {
+    let leg = LegPlan::Fact {
+        source: source(),
+        metric: metric("amount_total"),
+        tables: StatementTables::only(table()),
+        bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
+        keys: vec![PlanKey::truncated(
+            ResultLabel::internal(InternalLabel::Link(0)),
+            column("day"),
+            Grain::Month,
+        )],
+        terms: vec![LegTerm::new(
+            PlanTerm::Aggregate {
+                aggregate: Aggregate::Sum,
+                column: column("amount_cents"),
+            },
+            ResultLabel::measure(&metric("amount_total")),
+        )],
+        bindings: range_bindings(),
+        range: range(),
+    };
+    let month = || Value::Text(String::from("2026-01-01"));
+    let expected = RowSet::new(leg.result_labels(), vec![vec![month(), month(), Value::Integer(2250)]])
+        .expect("one row of three cells under three labels");
+    LegCase {
+        name: "total-by-month-linked-on-a-truncated-day",
+        leg,
+        expected,
     }
 }
 
@@ -510,10 +573,12 @@ impl FederatedCase {
     }
 }
 
-/// Every federated question in the corpus, read from its `.case` file.
+/// Every federated question in the corpus: one per `.case` file, then the fan-in plans built in code.
 #[must_use]
 pub fn federated_cases() -> Vec<FederatedCase> {
-    case_files::load_federated()
+    let mut cases = case_files::load_federated();
+    cases.extend(fan_in::cases());
+    cases
 }
 
 #[cfg(test)]

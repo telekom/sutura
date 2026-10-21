@@ -1701,3 +1701,21 @@ a third lookup leg (risk 3).
   *Alternatives considered*), a crossing with a compound key (`github.com/telekom/sutura#1490`), a
   cross-model ratio with more than one lookup leg (`github.com/telekom/sutura#1493`), an optional
   source at boot, a cap that an operator can set, and a change to the working-set ceiling.
+
+## Eighteenth amendment, 2026-10-19: the plan carries up to three lookup legs, and the planner still makes one
+
+The *Seventeenth amendment*'s Limits say "Nothing is built". That sentence is false now. It is left
+as written.
+
+- **Built** (part of `telekom/sutura#1342`). `LookupLegs`, in
+  `crates/sutura-domain/src/plan/federated/lookup.rs`, parses one to `MAX_LOOKUP_LEGS` lookup legs.
+  Each `LookupLeg` names the leg it joins onto - the fact leg or an earlier lookup leg - and its own
+  `include_unmatched`. Each lookup leg has its own link label. `Legs::assign` hands a combiner every
+  leg's result, and refuses a count of results that differs from the plan's legs. The DataFusion
+  combiner joins each lookup leg onto the leg it names. The conformance corpus holds a plan with
+  three lookup legs and a plan whose second lookup leg joins onto its first, and
+  `crates/sutura-conformance/tests/federated_bound.rs` runs both.
+- **Not built.** The planner still makes one lookup leg. `HopCrossesSource` and
+  `ChainLeavesItsSource` still refuse a chain that crosses twice, and `PlanNeedsTooManyLookupLegs`
+  and `CrossModelRatioNeedsOneLookupLeg` do not exist. A plan with more than one lookup leg is built
+  only by a test.

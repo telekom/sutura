@@ -252,7 +252,7 @@ fn revenue_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
                 ResultLabel::dimension(&DimensionName::parse("channel_name").expect("a dimension")),
                 col("channels", "channel_name"),
             ),
-            PlanKey::new(ResultLabel::internal(InternalLabel::Link), col("orders", "customer_id")),
+            PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), col("orders", "customer_id")),
         ],
         terms: vec![LegTerm::new(
             PlanTerm::Aggregate {
@@ -283,7 +283,7 @@ fn region_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         )
         .expect("two tables"),
         keys: vec![
-            PlanKey::new(ResultLabel::internal(InternalLabel::Link), col("customers", "id")),
+            PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), col("customers", "id")),
             PlanKey::new(
                 ResultLabel::dimension(&DimensionName::parse("region_name").expect("a dimension")),
                 col("regions", "region_name"),
@@ -321,7 +321,7 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         .expect("two tables"),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("calendar", "order_date")),
         keys: vec![PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link),
+            ResultLabel::internal(InternalLabel::Link(0)),
             col("refunds", "order_id"),
         )],
         terms: vec![LegTerm::new(
@@ -642,4 +642,32 @@ fn a_leg_over_a_metric_the_senders_own_pin_does_not_define_cannot_be_written() {
         range,
     };
     assert!(matches!(to_wire(&churn, &sender), Err(NotSendable::Digest(_))));
+}
+
+#[test]
+fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
+    let sender = pinned(ORDINARY);
+    let (leg, _) = region_leg(&sender);
+    let LegPlan::Lookup {
+        source,
+        table,
+        keys,
+        bindings,
+    } = leg
+    else {
+        panic!("a lookup leg");
+    };
+    let month = PlanKey::truncated(
+        ResultLabel::internal(InternalLabel::Link(0)),
+        col("customers", "id"),
+        Grain::Month,
+    );
+    let lookup = LegPlan::Lookup {
+        source,
+        table,
+        keys: std::iter::once(month).chain(keys.into_iter().skip(1)).collect(),
+        bindings,
+    };
+    let refused = to_wire(&lookup, &sender);
+    assert!(matches!(refused, Err(NotSendable::KeyTruncated { .. })), "{refused:?}");
 }

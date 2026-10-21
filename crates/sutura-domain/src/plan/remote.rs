@@ -27,7 +27,7 @@ use crate::calendar::TimeRange;
 use crate::definitions::NotDigestible;
 use crate::model::{DimensionName, Grain, QualifiedTable, RelationshipName, SourceName};
 use crate::pinned::{MetricDigest, PinnedDefinitions};
-use crate::plan::{InternalLabel, LegPlan, PlanColumn, PlanFilter, PlanKey, PlanTerm, ResultLabel};
+use crate::plan::{InternalLabel, KeyValue, LegPlan, PlanColumn, PlanFilter, PlanKey, PlanTerm, ResultLabel};
 use crate::warehouse::ParamValue;
 
 mod certify;
@@ -153,6 +153,9 @@ pub enum NotSendable {
     /// A result label the receiver could not read back.
     #[error(transparent)]
     Label(#[from] InvalidWireLabel),
+    /// A key truncated to a grain: the wire carries a key's column and not its grain.
+    #[error("the key `{label}` is truncated to a grain, which a leg on the wire does not carry")]
+    KeyTruncated { label: String },
 }
 
 /// The leg as the sender writes it, with the digest of its metric read off the sender's own pin.
@@ -160,12 +163,17 @@ pub enum NotSendable {
 /// The digest is [`PinnedDefinitions::metric_digest`], never a value the caller supplies, so what
 /// a leg claims about its metric is what the sender planned under.
 pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, NotSendable> {
-    let keys = |keys: &[PlanKey]| -> Result<Vec<WireKey>, InvalidWireLabel> {
+    let keys = |keys: &[PlanKey]| -> Result<Vec<WireKey>, NotSendable> {
         keys.iter()
             .map(|key| {
+                let KeyValue::Column(column) = key.value() else {
+                    return Err(NotSendable::KeyTruncated {
+                        label: key.label().to_owned(),
+                    });
+                };
                 Ok(WireKey {
                     label: WireLabel::parse(key.label())?,
-                    column: key.column().clone(),
+                    column: column.clone(),
                 })
             })
             .collect()
