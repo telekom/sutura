@@ -1,0 +1,17 @@
+diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
+--- a/crates/sutura-sql/src/generate.rs
++++ b/crates/sutura-sql/src/generate.rs
+@@ -657,8 +657,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
+     let mut projection = Vec::with_capacity(plan.keys().len().saturating_add(plan.measures().len()).saturating_add(1));
+     let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
+     for key in plan.keys() {
+-        projection.push(aliased(key_expr(key, dialect), key.label())?);
+-        grouping.push(key_expr(key, dialect));
++        let raw = match key.value() {
++            KeyValue::Column(over) | KeyValue::Truncated { column: over, .. } => column(over),
++        };
++        projection.push(aliased(raw.clone(), key.label())?);
++        grouping.push(raw);
+     }
+     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
+     grouping.push(bucket_expr.clone());

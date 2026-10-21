@@ -4,8 +4,8 @@
 //! the 1000-line gate, and the gate's answer to that is to split the file rather than to shorten
 //! the fix. A pure move - nothing here changed with the split.
 
-use super::translate::{aggregate_expr, literal, measure_expression, unit};
-use super::{DataFusionError, DataFusionWarehouse, column};
+use super::translate::{aggregate_expr, column, literal, measure_expression, unit};
+use super::{DataFusionError, DataFusionWarehouse};
 use datafusion::arrow::array::{ArrayRef, BooleanArray, Date32Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::record_batch::RecordBatch;

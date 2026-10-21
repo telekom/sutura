@@ -64,6 +64,7 @@ use std::path::Path;
 
 use super::plan::Separable;
 use super::provenance::Commit;
+use super::worktree::{GitFailed, base_has, deleted};
 
 /// What this branch ADDED to the workspace and what it DELETED, asked of git once and answered per
 /// attempt.
@@ -89,15 +90,17 @@ impl Membership {
     /// right about - hold it at HEAD, or a dependency this branch added goes missing from a test
     /// that needs it. One the base does not have may be a member whose sources the reconstruction
     /// is about to remove.
-    pub(super) fn of(root: &Path, base: &Commit, inputs: &[String]) -> Self {
-        Self {
-            added: inputs
-                .iter()
-                .filter(|path| !super::worktree::base_has(root, base, path))
-                .cloned()
-                .collect(),
-            deleted: super::worktree::deleted(root, base),
+    pub(super) fn of(root: &Path, base: &Commit, inputs: &[String]) -> Result<Self, GitFailed> {
+        let mut added = Vec::new();
+        for path in inputs {
+            if !base_has(root, base, path)? {
+                added.push(path.clone());
+            }
         }
+        Ok(Self {
+            added,
+            deleted: deleted(root, base)?,
+        })
     }
 
     /// One attempt's file list: what it reverts, plus the membership a withdrawn crate takes.
@@ -309,7 +312,7 @@ mod tests {
 
     /// [`Membership::reverting`]'s own half, over the real git answer `Membership::of` gives:
     /// which changed build inputs exist at base is asked of git (`worktree::base_has` runs
-    /// `git cat-file -e`), not asserted by a test double. The composition the attempt list needs
+    /// `git ls-tree`), not asserted by a test double. The composition the attempt list needs
     /// is then held end to end - the reverted files come first, the withdrawn membership is
     /// appended once each, and a file already reverting is NOT named twice - because the caller
     /// (`causality::run`) hands this list straight to the checkout, and a duplicate path there
@@ -347,7 +350,7 @@ mod tests {
         let _base = Commit::parse(&String::from_utf8_lossy(&out.stdout)).expect("one commit");
 
         // The branch ADDED the oracle crate's manifest, so `Membership::of` reads it as new - the
-        // base commit's tree has no `crates/sutura-exec-oracle/Cargo.toml` to `cat-file -e`. The
+        // base commit's tree has no `crates/sutura-exec-oracle/Cargo.toml` for `ls-tree` to list. The
         // app manifest is the CONTRAST: the base HAS it, so it must not read as added - otherwise
         // its file at HEAD would hold the withdrawal and the crate's absence would not resolve.
         let added_manifest = String::from("crates/sutura-exec-oracle/Cargo.toml");
@@ -369,16 +372,19 @@ mod tests {
         let out = git(&dir, &["rev-parse", "HEAD"]);
         let base = Commit::parse(&String::from_utf8_lossy(&out.stdout)).expect("one commit");
         let inputs = paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-app/Cargo.toml", &added_manifest]);
-        assert!(base_has(&dir, &base, "Cargo.toml"), "the fixture committed a root manifest");
         assert!(
-            base_has(&dir, &base, "crates/sutura-app/Cargo.toml"),
+            base_has(&dir, &base, "Cargo.toml").unwrap(),
+            "the fixture committed a root manifest"
+        );
+        assert!(
+            base_has(&dir, &base, "crates/sutura-app/Cargo.toml").unwrap(),
             "the app manifest exists at base"
         );
         assert!(
-            !base_has(&dir, &base, &added_manifest),
+            !base_has(&dir, &base, &added_manifest).unwrap(),
             "the added manifest must be absent at base"
         );
-        let membership = super::Membership::of(&dir, &base, &inputs);
+        let membership = super::Membership::of(&dir, &base, &inputs).unwrap();
 
         // The attempt already reverts the lockfile; the membership must not name it twice.
         let reverting = paths(&["Cargo.lock", "crates/sutura-app/src/lib.rs"]);

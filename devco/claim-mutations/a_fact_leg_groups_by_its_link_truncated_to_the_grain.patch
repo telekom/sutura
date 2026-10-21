@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
+--- a/crates/sutura-sql/src/generate.rs
++++ b/crates/sutura-sql/src/generate.rs
+@@ -418,7 +418,7 @@
+ fn key_expr(key: &PlanKey, dialect: Dialect) -> Expr {
+     match key.value() {
+         KeyValue::Column(over) => column(over),
+-        KeyValue::Truncated { column: over, grain } => bucket_expr(grain, over, dialect),
++        KeyValue::Truncated { column: over, grain: _ } => column(over),
+     }
+ }
+ 
