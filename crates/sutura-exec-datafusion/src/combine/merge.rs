@@ -607,8 +607,11 @@ mod tests {
         assert_eq!(combiner().answer_not_well_formed(&wrong), None, "ours, never the question's");
     }
 
+    /// One leg row's two text cells and its total.
+    type Row<'a> = (&'a str, &'a str, i64);
+
     /// A local arm's leg result with one row per `(region, period, total)`.
-    fn periods(rows: Vec<(&str, &str, i64)>) -> ResultBatches {
+    fn periods(rows: Vec<Row<'_>>) -> ResultBatches {
         batches(
             [String::from("region"), String::from(TIME_BUCKET_LABEL), leaf()],
             rows.into_iter()
@@ -640,7 +643,7 @@ mod tests {
             local_by("revenue", &["region", "tier"]),
             local_by("visits", &["region", "tier"]),
         ]);
-        let pairs = |rows: Vec<(&str, &str, i64)>| {
+        let pairs = |rows: Vec<Row<'_>>| {
             batches(
                 [
                     String::from("region"),
