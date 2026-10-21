@@ -48,6 +48,9 @@ services:
     environment:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ${FEDERATED_PASSWORD:?run ./setup.sh first}
+      # The entrypoint chowns `user_files`, which Docker creates for the read-only seed file below,
+      # and that fails on the mount. The server only reads the file.
+      CLICKHOUSE_DO_NOT_CHOWN: "1"
     ports:
       - 127.0.0.1:8123:8123
     volumes:

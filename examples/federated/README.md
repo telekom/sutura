@@ -23,13 +23,14 @@ docker compose up -d --wait postgres clickhouse datahub
 docker compose run --rm federated-loader
 ```
 
-Every port binds `127.0.0.1` only. Start sutura in a second terminal. `conf/base.yaml` reads the files
+Every port binds `127.0.0.1` only. Start sutura in a second terminal. The image tag ends in `-musl`:
+that image carries the Postgres driver, and the plain tag does not. `conf/base.yaml` reads the files
 in `.local` from `/run/sutura`, and `SUTURA_CONFIG_DIR` names the directory that holds `base.yaml`:
 
 ```sh
 docker run --rm --network host --user "$(id -u):$(id -g)" \
   -v "$PWD/conf:/conf:ro" -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/conf \
-  ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest} serve
+  ghcr.io/telekom/sutura:${SUTURA_VERSION:-latest}-musl serve
 ```
 
 Post the question:

@@ -300,8 +300,7 @@ mod tests {
     }
 
     /// **The mutation this half exists for, domain side**: an edge reachable only through the
-    /// SATELLITE's own graph - `fuzz/Cargo.toml`'s `[patch]` table constructs exactly this in the
-    /// real tree, and this fixture is the same shape without shelling out to cargo.
+    /// SATELLITE's own graph, built as a fixture without shelling out to cargo.
     #[test]
     fn a_domain_tree_reaching_a_disallowed_crate_is_a_violation() {
         let evaluation = evaluate("fuzz/Cargo.toml", &meta(&["serde", "tokio"], &[])).expect("resolves");

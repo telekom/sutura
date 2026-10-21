@@ -113,7 +113,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb", "vendor/utoipa-swagger-ui"]
+exclude = ["vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.9.0"
@@ -613,7 +613,7 @@ tracing-log = "0.2"
 # in the artifact. `vendored` takes the archive from a crate that embeds it instead.
 utoipa = { version = "6", features = ["preserve_order"] }
 utoipa-axum = "0.3"
-utoipa-swagger-ui = { version = "10", default-features = false, features = ["axum", "vendored"] }
+utoipa-swagger-ui = { version = "10.0.2", default-features = false, features = ["axum", "vendored"] }
 
 # The agent-facing transport, and the schema derive the tool surface is generated from.
 #
@@ -872,13 +872,6 @@ missing_assert_message = "allow"
 #   string_add_assign
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
-
-# `utoipa-swagger-ui` needs an 8.x `zip` for its build script, and every 8.x release is yanked. The
-# vendored copy asks for a 9.x one; `VENDOR.md` has the source fix and the condition for deleting
-# this patch. `fuzz/Cargo.toml` carries the same entry, because it is a
-# separate workspace and a root `[patch]` does not reach it.
-[patch.crates-io]
-utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui" }
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because

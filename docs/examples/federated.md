@@ -65,13 +65,14 @@ these services binds to `127.0.0.1` only.
 
 Start sutura in a second terminal. It stays in the foreground. `SUTURA_CONFIG_DIR` names the
 directory that holds `base.yaml`, and the container reads the files in `.local` as its own user. It
-uses the host network, as in the [single player](single-player.md) example:
+uses the host network, as in the [single player](single-player.md) example. The image tag ends in
+`-musl`: that image carries the Postgres driver, and the plain tag does not:
 
 ```sh
 export SUTURA_VERSION={{ sutura_version }}
 docker run --rm --network host --user "$(id -u):$(id -g)" \
   -v "$PWD/conf:/conf:ro" -v "$PWD/.local:/run/sutura:ro" -e SUTURA_CONFIG_DIR=/conf \
-  ghcr.io/telekom/sutura:$SUTURA_VERSION serve
+  ghcr.io/telekom/sutura:$SUTURA_VERSION-musl serve
 ```
 
 Post the question:

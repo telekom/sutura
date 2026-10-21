@@ -144,7 +144,7 @@ const EXACT_SUM_PRECISION: u8 = 76;
 
 /// Why a combine could not be assembled.
 ///
-/// Split the way the port's two predicates read it: the four caller-facing arms are deterministic
+/// Split the way the port's two predicates read it: the caller-facing arms are deterministic
 /// refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 /// engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 /// driver's metadata and a label the splitter assigned - and never a cell.
@@ -231,6 +231,30 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
+    /// The relationship declares how its keys compare, and these two legs' link columns are not a
+    /// pair that declaration joins.
+    ///
+    /// Not [`Self::LinkTypeMismatch`], which says no row can match: two text legs under a declared
+    /// integer can, so it is the declaration that no longer fits the data.
+    #[error(
+        "the relationship declares its keys as {declared}, and a fact leg of {fact} with a lookup leg of {lookup} is not a pair that joins"
+    )]
+    LinkKindsNotJoined {
+        declared: &'static str,
+        fact: &'static str,
+        lookup: &'static str,
+    },
+    /// A link value could not be read as the kind the relationship declares for it.
+    ///
+    /// Carries the two kinds and never the value: Arrow's own message names it, and a join key is
+    /// exactly the caller data this workspace keeps out of a message. The whole answer is refused
+    /// rather than the row dropped, because a dropped row is a number that looks right.
+    #[error("a {side} leg's link value could not be read as {to}, which the relationship declares; the column holds {from}")]
+    LinkValueNotCast {
+        side: &'static str,
+        from: &'static str,
+        to: &'static str,
+    },
     /// A link value maps to more than one lookup row, or to more than one second-fact row in one
     /// bucket, which would double every measure under it.
     ///
@@ -487,6 +511,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::FloatLinkKey { .. } => Some(FederatedAnswerRefusal::FloatLinkKey),
             CombineError::AmbiguousLink => Some(FederatedAnswerRefusal::AmbiguousLink),
             CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
+            CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
+            CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
