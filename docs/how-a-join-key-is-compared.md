@@ -34,7 +34,9 @@ split is the whole of the design:
    `ColumnType` text, case-folded and before any parameter list, and answers a kind
    or nothing. For a type it does not know, or a column that declares no type, it
    answers nothing. The plan then does not refuse, and steps 1 and 2 below decide.
-   Only two known and different kinds are refused.
+   Only two known and different kinds are refused. A key truncated to a grain is the
+   exception on the fact side: the fact leg groups it as a date, so it reads as `Date`
+   whatever its origin is declared as.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
    either leg's rows are read

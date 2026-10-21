@@ -7384,6 +7384,21 @@ two.
 
 One metric's share of a drill-across question.
 
+### `use ArmLegs`
+
+One arm's leg results, in the shape its `Arm` takes.
+
+The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
+A local arm's result is tagged with the metric of the fact leg it came from, because two local arms'
+results share a shape and a swap would answer one metric's number under the other's name. Whether
+the variants line up with the plan's arms, and whether a local arm's metric is the arm's own, is
+the combiner's to check: a slice cannot say. A joined arm's `Legs` carry a side and not a metric, so
+two joined arms' results are not told apart here.
+
+### `use DrillAcrossCombiner`
+
+Joins every arm of a `DrillAcrossPlan` on the answer's keys and time bucket.
+
 ### `use DrillAcrossPlan`
 
 Two or more `Arm`s that share one set of keys, one bucket grain and one time range.
@@ -8584,6 +8599,21 @@ Why a drill-across plan, or one of its arms, could not be built.
 ##### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `use ArmLegs`
+
+One arm's leg results, in the shape its `Arm` takes.
+
+The variant is the arm's, so a joined arm's two legs cannot be handed over as a local arm's one.
+A local arm's result is tagged with the metric of the fact leg it came from, because two local arms'
+results share a shape and a swap would answer one metric's number under the other's name. Whether
+the variants line up with the plan's arms, and whether a local arm's metric is the arm's own, is
+the combiner's to check: a slice cannot say. A joined arm's `Legs` carry a side and not a metric, so
+two joined arms' results are not told apart here.
+
+#### `use DrillAcrossCombiner`
+
+Joins every arm of a `DrillAcrossPlan` on the answer's keys and time bucket.
 
 #### `constant MAX_LEGS`
 
@@ -10793,13 +10823,6 @@ somebody else's input.
   combiner links two legs on a single column, and a compound key would need one per column,
   which the lookup leg's shape does not carry. Named for what is actually true rather than
   reused from the ambiguity case, so a caller is not told two relationships exist when one does.
-- `FederationLinkTruncated` - The relationship crossing into the remote data system joins on a key truncated to a grain.
-
-  The combiner links the two legs on the raw column values, so a truncated key (`month_of(a.x) =
-  b.y`) would join each row to the wrong lookup row or to none. Refused before either leg runs
-  rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
-  narrowable by the caller: the key is the catalog's, and declaring an equality against a column
-  that already sits at the grain removes the refusal.
 - `FederationLinkTypeMismatch` - The two columns the crossing relationship joins are declared as different kinds of value.
 
   Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -11032,7 +11055,8 @@ somebody else's input.
   The two facts are aggregated in two statements and joined above on ONE link into a remote
   dimension's model, so the question groups and filters by that model's dimensions and nothing
   else, and the second fact `model` declares its own relationship into it on the column the
-  first fact links through. Narrowable: group by a dimension both facts link to.
+  first fact links through, truncated to the same grain or not at all. Narrowable: group by a
+  dimension both facts link to.
 
 #### Methods
 

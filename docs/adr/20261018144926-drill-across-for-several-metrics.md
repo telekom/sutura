@@ -5,7 +5,7 @@ description: A question that names several metrics runs one arm per metric and j
 
 # Drill across for several metrics
 
-Status: **accepted**. The plan type is built. The planner, the combine and the answer path are not.
+Status: **accepted**. The plan type and the DataFusion merge are built. The planner and the answer path are not.
 
 ## The question
 
@@ -54,11 +54,38 @@ a set of arms that cannot be joined, with a typed error each:
 A local arm refuses a leg that is not a fact leg, terms that are not its federation's leaves, a leaf
 on another model, and an answer key (or a distinct count's key) the leg does not project.
 
+## The combiner
+
+`DrillAcrossCombiner::merge` (`sutura-domain`) is a supertrait of `FederationCombiner`, so the error
+and the two classifying predicates are the two-leg combine's. `DataFusionCombiner` implements it.
+
+- **One session, one plan.** Each arm is cut to a logical plan (a joined arm by the plan the two-leg
+  combine runs, a local arm by one aggregate over its fact leg), and the plans are joined left to
+  right into one plan that runs once. The working-set ceiling is the question's, not each arm's.
+- **The join is FULL on every key and the bucket, a null equal to a null.** It is
+  `NullEquality::NullEqualsNull` on `join_detailed` at the pinned DataFusion; a plain `=` would answer
+  a null key two arms share as two rows. A group one arm lacks answers null under that arm.
+- **A key or a bucket of another Arrow kind is refused.** `FederatedAnswerRefusal::KeyKindMismatch` for
+  a key, `BucketKindMismatch` for the bucket; never a cast, because a text `"01"` and an integer `1`
+  are one group under a cast. The types are read off each arm's cut plan before the join, so a key on a
+  joined arm's lookup leg is compared too, and the refusal carries the two Arrow type names and the
+  label, never a key value. A kind is the join key's own, so `Utf8` and `LargeUtf8` are one.
+- **Leg results that are not the plan's arms** are `ArmsMiswired`: this workspace's defect. A count
+  that is not the plan's, a variant that is not the arm's, and a local arm's result tagged with another
+  metric are checked. A joined arm's two legs carry a side and no metric, so two joined arms' results
+  are not told apart by the port.
+
+Limits: a key type that is not a join-key type (a float, a timestamp) must be identical across arms,
+so two timestamp units are refused though they could join. A declared cast across arms is not honoured.
+The ceiling bounds the merge's operators, as
+for the two-leg combine, not the leg results the caller already holds. Only local arms and one joined
+arm over in-memory legs are measured; no served question reaches `merge`.
+
 ## What is not built
 
 - **No planner builds this plan.** Both refusals above still fire, and no question reaches it.
-- **No combine.** The `FederationCombiner` port gains no method here. A method with no implementor
-  is not a port, so the join arrives with the DataFusion combiner that implements it.
+- **No leg running.** `merge` takes the leg results; running the legs, one mint and one charge for
+  every leg is the answer path's.
 - **No conformance check, and no `QuestionNeedsTooManyLegs` refusal.** The plan type holds the cap;
   the refusal text a caller sees comes with the planner.
 - **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,

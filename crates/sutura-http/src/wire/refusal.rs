@@ -59,7 +59,7 @@ use axum::http::StatusCode;
 use sutura_domain::query::{RefusalReason, ResultBound};
 
 use super::RefusalBody;
-use link::{federation_link_ambiguous, federation_link_compound, link_type_mismatch, truncated_link};
+use link::{federation_link_ambiguous, federation_link_compound, link_type_mismatch};
 
 /// The status, the code and the sentence for one refusal.
 ///
@@ -239,7 +239,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             ref source,
             ref relationship,
         } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
-        RefusalReason::FederationLinkTruncated { ref relationship } => (StatusCode::CONFLICT, truncated_link(relationship)),
         RefusalReason::FederationLinkTypeMismatch {
             ref relationship,
             fact_type: ref fact,
@@ -515,7 +514,6 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
-        | RefusalReason::FederationLinkTruncated { .. }
         | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }

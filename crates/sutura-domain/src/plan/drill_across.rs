@@ -20,6 +20,10 @@
 //!
 //! `docs/adr/20261018144926-drill-across-for-several-metrics` records the decision and its limits.
 
+mod merge;
+
+pub use merge::{ArmLegs, DrillAcrossCombiner};
+
 use crate::calendar::TimeRange;
 use crate::federation::Federation;
 use crate::model::{Grain, MetricName, SourceName};

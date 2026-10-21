@@ -282,14 +282,6 @@ pub enum RefusalReason {
         source: SourceName,
         relationship: RelationshipName,
     },
-    /// The relationship crossing into the remote data system joins on a key truncated to a grain.
-    ///
-    /// The combiner links the two legs on the raw column values, so a truncated key (`month_of(a.x) =
-    /// b.y`) would join each row to the wrong lookup row or to none. Refused before either leg runs
-    /// rather than answered wrongly. A same-source chain keeps its grain and is not refused. Not
-    /// narrowable by the caller: the key is the catalog's, and declaring an equality against a column
-    /// that already sits at the grain removes the refusal.
-    FederationLinkTruncated { relationship: RelationshipName },
     /// The two columns the crossing relationship joins are declared as different kinds of value.
     ///
     /// Decided from the catalog before either leg runs, and only when BOTH types are declared and
@@ -549,7 +541,8 @@ pub enum RefusalReason {
     /// The two facts are aggregated in two statements and joined above on ONE link into a remote
     /// dimension's model, so the question groups and filters by that model's dimensions and nothing
     /// else, and the second fact `model` declares its own relationship into it on the column the
-    /// first fact links through. Narrowable: group by a dimension both facts link to.
+    /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
+    /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
 }
 
@@ -745,9 +738,6 @@ mod tests {
             },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
-                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
-            },
-            RefusalReason::FederationLinkTruncated {
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
             },
             RefusalReason::FederationLinkTypeMismatch {

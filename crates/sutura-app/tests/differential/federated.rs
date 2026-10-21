@@ -105,6 +105,12 @@ mod leg_evidence;
 #[path = "federated/harness.rs"]
 mod harness;
 
+// A crossing key truncated to a grain (`telekom/sutura#1489`), answered. `#[cfg(test)]` on the
+// declaration for the reason the two-fact module below gives.
+#[cfg(test)]
+#[path = "federated/fiscal.rs"]
+mod fiscal;
+
 // The two-fact ratio (`telekom/sutura#780`). `#[cfg(test)]` on the declaration so `xtask
 // test-causality` reads it as a test module and keeps this file beside it; `pub(crate)` because
 // `tests/differential.rs`'s registry-wide cell calls into it.
@@ -440,46 +446,6 @@ fn two_sources_of_two_kinds_declaring_a_join_key_two_ways_are_refused_before_eit
         panic!("a join key declared as two kinds is refused, not answered: {outcome:?}");
     };
     assert_eq!(reason.code(), "federation_link_type_mismatch", "{reason:?}");
-}
-
-/// **A crossing relationship joining on a key truncated to a grain is refused by name before either
-/// leg runs, and the same question over the unedited catalog federates.**
-///
-/// The two legs link on raw column values, so the base answered over the untruncated key. The case
-/// rewrites ONE declaration - `subscription_customer`'s plain pair becomes a `keys:` list whose entry
-/// carries a grain - and nothing else, so the control and the refusal differ in that key alone.
-#[test]
-fn a_crossing_relationship_with_a_truncated_key_is_refused_before_either_leg_runs() {
-    let control = harness::compiled_dimensions(&harness::bundle(&derived().two_source), "region");
-    assert!(
-        matches!(control, Compiled::Federated { .. }),
-        "the control declares the key plainly and must federate, not {control:?}"
-    );
-
-    let corpus = corpus::remote_products("federation-link-truncated", "source: local");
-    let relationship = corpus.two_source.join("relationships/subscription_customer.md");
-    let text = std::fs::read_to_string(&relationship).expect("the derived catalog has the relationship");
-    let plain = "origin:\n  model: subscriptions\n  column: customer_key\ntarget:\n  model: customers\n  column: customer_key\n";
-    assert_eq!(
-        text.matches(plain).count(),
-        1,
-        "subscription_customer no longer declares its key as one plain pair, so this case would derive nothing"
-    );
-    std::fs::write(
-        &relationship,
-        text.replace(
-            plain,
-            "origin:\n  model: subscriptions\ntarget:\n  model: customers\nkeys:\n  - { origin: customer_key, grain: month, target: customer_key }\n",
-        ),
-    )
-    .expect("the derived catalog is writable");
-
-    let refused = harness::compiled_dimensions(&harness::bundle(&corpus.two_source), "region");
-    let Compiled::Refused { reason } = refused else {
-        panic!("a crossing key truncated to a grain is refused, not planned: {refused:?}");
-    };
-    assert_eq!(reason.code(), "federation_link_truncated", "{reason:?}");
-    assert!(format!("{reason:?}").contains("subscription_customer"), "{reason:?}");
 }
 
 /// **Two engines whose DATA reads one join key as an integer and as text refuse the question, once

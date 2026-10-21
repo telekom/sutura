@@ -1,3 +1,4 @@
 # Generated on this machine by setup.sh and the loader. Never commit them.
 .env
 .local/
+.tls/

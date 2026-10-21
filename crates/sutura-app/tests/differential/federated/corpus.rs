@@ -514,6 +514,65 @@ fn a_cube_measure_answers_the_two_fact_ratio_its_metric_does() {
 
 const TWO_FACT_CUBE: &str = "---\nkind: cube\nname: tickets\nmodel: subscriptions\ntime_column: month\ngrains: [month]\ndimensions:\n  - name: region\n    column: region\n    via: subscription_customer\n    values: [central, east, north, south, west]\n    description: Where the customer is.\nmeasures:\n  - name: per_subscription\n    measure:\n      ratio:\n        numerator: { aggregate: sum, column: tickets, model: tickets }\n        denominator: { aggregate: count, column: subscription_key }\n        zero_denominator: yields_null\n    shared_calendar: calendar\n    audience: open\n---\nSupport tickets opened per subscription-month, declared as a cube's measure.\n";
 
+/// Where the lookup sits: `local` beside the fact, or `geo`, the second data system.
+const MONTHS: &str = "---\nkind: model\nname: fiscal_months\nsource: SOURCE\ntable: dim_fiscal_month\ncolumns:\n  - name: month\n    type: DATE\n    description: The first day of the month.\n    nullable: false\n  - name: fiscal_quarter\n    type: VARCHAR\n    description: The fiscal quarter the month falls in.\n    nullable: false\nprimary_key: [month]\n---\nOne row per month, naming the fiscal quarter it belongs to.\n";
+
+const MONTHS_ROWS: &str = "month,fiscal_quarter\n2026-05-01,FY26-Q4\n2026-06-01,FY26-Q4\n2026-07-01,FY27-Q1\n";
+
+/// A usage day links to the month it falls in: the key truncates `usage_date` to a month.
+const USAGE_MONTH: &str = "---\nkind: relationship\nname: usage_fiscal_month\norigin:\n  model: daily_usage\ntarget:\n  model: fiscal_months\nkeys:\n  - { origin: usage_date, grain: month, target: month }\njoin_type: many_to_one\n---\nA usage day to the fiscal month it falls in.\n";
+
+const VOICE: &str = "---\nkind: metric\nname: voice_by_fiscal_quarter\nmodel: daily_usage\nmeasure:\n  simple: { aggregate: sum, column: voice_min }\ntime_column: usage_date\ngrains: [day, month]\naudience: open\ndimensions:\n  - name: fiscal_quarter\n    column: fiscal_quarter\n    via: usage_fiscal_month\n    values: [FY26-Q4, FY27-Q1]\n    description: The fiscal quarter the usage day falls in.\n---\nOutgoing voice minutes.\n";
+
+/// The second fact's own link: when its ticket was opened, truncated to the month it falls in.
+const TICKET_MONTH: &str = "---\nkind: relationship\nname: ticket_fiscal_month\norigin:\n  model: tickets\ntarget:\n  model: fiscal_months\nkeys:\n  - { origin: opened_on, grain: month, target: month }\njoin_type: many_to_one\n---\nA ticket to the fiscal month it was opened in.\n";
+
+const SUBSCRIPTION_MONTH: &str = "---\nkind: relationship\nname: subscription_fiscal_month\norigin:\n  model: subscriptions\ntarget:\n  model: fiscal_months\nkeys:\n  - { origin: month, grain: month, target: month }\njoin_type: many_to_one\n---\nThe first fact's link to the same month, truncated as the second fact's is.\n";
+
+const TICKETS_PER_SUBSCRIPTION: &str = "---\nkind: metric\nname: tickets_per_subscription_by_fiscal_quarter\nmodel: subscriptions\nmeasure:\n  ratio:\n    numerator: { aggregate: sum, column: tickets, model: tickets }\n    denominator: { aggregate: count, column: subscription_key }\n    zero_denominator: yields_null\ntime_column: month\ngrains: [month]\nshared_calendar: calendar\ndimensions:\n  - name: fiscal_quarter\n    column: fiscal_quarter\n    via: subscription_fiscal_month\n    values: [FY26-Q4, FY27-Q1]\n    description: The fiscal quarter the month falls in.\naudience: open\n---\nSupport tickets opened per subscription-month.\n";
+
+pub(crate) const TWO_FACT_BY_QUARTER: &str = "metrics: [tickets_per_subscription_by_fiscal_quarter]\ngrain: month\nrange:\n  start: 2026-05-01\n  end: 2026-07-01\ndimensions: [fiscal_quarter]\n";
+
+/// Usage on `2026-06-30` and `2026-07-01`: two months and two quarters, a day apart. The shared
+/// corpus's usage stops at mid-June, so these rows are the only ones the question's range reads.
+const USAGE_ROWS: &str = "2026-06-30,1001,1.0,7.5\n2026-06-30,1002,1.0,2.5\n2026-07-01,1001,1.0,4.0\n";
+
+/// The second fact, rewritten with the day each ticket was opened. Two months, two tickets each.
+const TICKET_ROWS: &str = "month,customer_key,tickets,opened_on\n2026-05-01,2,4,2026-05-17\n2026-05-01,5,3,2026-05-02\n\
+     2026-06-01,1,2,2026-06-30\n2026-06-01,2,3,2026-06-03\n";
+
+/// The shared corpus beside a lookup of months, the one source and the two-source catalog over it.
+///
+/// Fresh per call, under `stem`, so a cell that edits a document edits its own copy.
+pub(crate) fn with_fiscal_months(stem: &str) -> Derived {
+    let derived = derive_into(stem);
+    apply(&derived.data.join("fct_usage_daily.csv"), &Edit::Appended(USAGE_ROWS));
+    write(&derived.data.join("dim_fiscal_month.csv"), MONTHS_ROWS);
+    write(&derived.data.join("fct_ticket_monthly.csv"), TICKET_ROWS);
+    for (catalog, source) in [(&derived.one_source, "local"), (&derived.two_source, "geo")] {
+        write(&catalog.join("models/fiscal_months.md"), &MONTHS.replace("SOURCE", source));
+        write(&catalog.join("relationships/usage_fiscal_month.md"), USAGE_MONTH);
+        write(&catalog.join("relationships/ticket_fiscal_month.md"), TICKET_MONTH);
+        write(
+            &catalog.join("relationships/subscription_fiscal_month.md"),
+            SUBSCRIPTION_MONTH,
+        );
+        write(&catalog.join("metrics/voice_by_fiscal_quarter.md"), VOICE);
+        write(
+            &catalog.join("metrics/tickets_per_subscription_by_fiscal_quarter.md"),
+            TICKETS_PER_SUBSCRIPTION,
+        );
+        apply(
+            &catalog.join("models/tickets.md"),
+            &Edit::Rewrite {
+                find: "    nullable: false\n---\nThe second fact:",
+                with: "    nullable: false\n  - name: opened_on\n    type: DATE\n    description: The day the ticket was opened.\n    nullable: false\n---\nThe second fact:",
+            },
+        );
+    }
+    derived
+}
+
 /// One data directory and two catalogs over it, derived under `stem`.
 ///
 /// Per PROCESS because the runner gives each test its own: two processes deriving into one

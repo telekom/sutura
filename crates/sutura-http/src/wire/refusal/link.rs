@@ -12,12 +12,6 @@ pub(super) fn federation_link_compound(source: &SourceName, relationship: &Relat
     format!("`{relationship}` crossing into `{source}` declares more than one join key")
 }
 
-pub(super) fn truncated_link(relationship: &RelationshipName) -> String {
-    format!(
-        "`{relationship}` crossing into the second data system joins on a key truncated to a grain, which the two legs do not carry"
-    )
-}
-
 pub(super) fn link_type_mismatch(relationship: &RelationshipName, fact: &QuotedColumnType, lookup: &QuotedColumnType) -> String {
     format!(
         "`{relationship}` joins a column declared {fact} to one declared {lookup}, two kinds of value \

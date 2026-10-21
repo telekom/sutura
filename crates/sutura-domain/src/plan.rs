@@ -43,7 +43,9 @@ mod anchor_tests;
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
 pub use crate::plan::ceiling::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCeilings};
-pub use crate::plan::drill_across::{Arm, DrillAcrossPlan, DrillAcrossPlanError, LocalArm, MAX_LEGS};
+pub use crate::plan::drill_across::{
+    Arm, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, DrillAcrossPlanError, LocalArm, MAX_LEGS,
+};
 pub use crate::plan::federated::{
     AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
     InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, LookupLeg, LookupLegs, LookupLegsError,
