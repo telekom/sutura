@@ -779,4 +779,139 @@ mod tests {
         let keyed = LocalArm::new(leg(vec![key(leaf_label, "customer_key")]), distinct(), answer_keys());
         assert!(keyed.is_ok(), "the leaf's key is on the leg: {keyed:?}");
     }
+
+    /// What [`execute_across`](super::DrillAcrossCombiner::execute_across) hands a combiner and the runner.
+    mod execute_across {
+        use std::cell::{Cell, RefCell};
+
+        use super::{DrillAcrossPlan, joined, joined_over_two_facts, local};
+        use crate::plan::federated::{ExecuteError, FederationCombiner, LegRunner, Legs};
+        use crate::plan::{ArmLegs, DrillAcrossCombiner, LegPlan, NothingCombined, RefusingCombiner};
+        use crate::warehouse::ResultBatches;
+        use crate::warehouse::arrow::of_rows;
+
+        fn batches() -> ResultBatches {
+            of_rows(&[String::from("x")], &[]).expect("an empty result of one column is well formed")
+        }
+
+        /// Records each leg it runs, and fails the leg at `fail_at` when there is one.
+        struct Runner {
+            ran: RefCell<Vec<LegPlan>>,
+            fail_at: Option<usize>,
+        }
+
+        impl Runner {
+            fn answering() -> Self {
+                Self {
+                    ran: RefCell::default(),
+                    fail_at: None,
+                }
+            }
+        }
+
+        impl LegRunner for Runner {
+            type Error = usize;
+
+            fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error> {
+                let mut ran = self.ran.borrow_mut();
+                ran.push(leg.clone());
+                if self.fail_at == Some(ran.len()) {
+                    return Err(ran.len());
+                }
+                Ok(batches())
+            }
+        }
+
+        /// Records the shape of every arm it is handed, and the ceiling.
+        #[derive(Default)]
+        struct Recording {
+            shapes: RefCell<Vec<&'static str>>,
+            merges: Cell<usize>,
+            ceiling: Cell<u64>,
+        }
+
+        impl FederationCombiner for Recording {
+            type Error = NothingCombined;
+
+            fn combine(&self, _: &super::FederatedPlan, _: Legs<'_>, _: u64) -> Result<ResultBatches, Self::Error> {
+                Err(NothingCombined)
+            }
+
+            fn working_set_exhausted(&self, _: &Self::Error) -> Option<u64> {
+                None
+            }
+
+            fn answer_not_well_formed(&self, _: &Self::Error) -> Option<crate::plan::FederatedAnswerRefusal> {
+                None
+            }
+        }
+
+        impl DrillAcrossCombiner for Recording {
+            fn merge(
+                &self,
+                _: &DrillAcrossPlan,
+                arms: &[ArmLegs<'_>],
+                working_set_bytes: u64,
+            ) -> Result<ResultBatches, Self::Error> {
+                self.merges.set(self.merges.get() + 1);
+                self.ceiling.set(working_set_bytes);
+                self.shapes.borrow_mut().extend(arms.iter().map(|arm| match arm {
+                    ArmLegs::Joined(legs) if legs.second_fact().is_some() => "joined with a second fact",
+                    ArmLegs::Joined(_) => "joined",
+                    ArmLegs::Local { .. } => "local",
+                }));
+                Ok(batches())
+            }
+        }
+
+        #[test]
+        fn every_leg_runs_once_in_the_plans_order_and_the_merge_gets_each_arm_in_its_own_shape() {
+            let plan = DrillAcrossPlan::new(joined("revenue"), local("usage"), Vec::new()).expect("two arms over one key set");
+            let (runner, combiner) = (Runner::answering(), Recording::default());
+            combiner.execute_across(&plan, &runner, 4096).expect("every leg answers");
+            let expected: Vec<LegPlan> = plan.legs().into_iter().cloned().collect();
+            assert_eq!(*runner.ran.borrow(), expected);
+            assert_eq!(*combiner.shapes.borrow(), ["joined", "local"]);
+            assert_eq!((combiner.merges.get(), combiner.ceiling.get()), (1, 4096));
+        }
+
+        #[test]
+        fn a_second_fact_runs_after_its_arms_lookup_and_reaches_the_merge() {
+            let plan = DrillAcrossPlan::new(
+                joined_over_two_facts("revenue", "2026-01-01", "2026-02-01"),
+                joined_over_two_facts("usage", "2026-01-01", "2026-02-01"),
+                Vec::new(),
+            )
+            .expect("two arms over one key set");
+            let (runner, combiner) = (Runner::answering(), Recording::default());
+            combiner.execute_across(&plan, &runner, 1).expect("every leg answers");
+            assert_eq!(runner.ran.borrow().len(), 6);
+            assert_eq!(*combiner.shapes.borrow(), ["joined with a second fact"; 2]);
+        }
+
+        #[test]
+        fn the_first_leg_to_fail_ends_the_run_before_a_later_leg_or_the_merge() {
+            let plan = DrillAcrossPlan::new(joined("revenue"), local("usage"), Vec::new()).expect("two arms over one key set");
+            let runner = Runner {
+                fail_at: Some(2),
+                ..Runner::answering()
+            };
+            let combiner = Recording::default();
+            let failure = combiner.execute_across(&plan, &runner, 1).expect_err("the second leg fails");
+            assert!(matches!(failure, ExecuteError::Leg(2)), "{failure:?}");
+            assert_eq!(runner.ran.borrow().len(), 2);
+            assert_eq!(combiner.merges.get(), 0);
+        }
+
+        #[test]
+        fn a_merge_that_fails_is_the_combine_error_after_every_leg_ran() {
+            let plan = DrillAcrossPlan::new(joined("revenue"), local("usage"), Vec::new()).expect("two arms over one key set");
+            let runner = Runner::answering();
+            let failure = RefusingCombiner
+                .execute_across(&plan, &runner, 1)
+                .expect_err("the refusing combiner merges nothing");
+            assert!(matches!(failure, ExecuteError::Combine(NothingCombined)), "{failure:?}");
+            assert_eq!(runner.ran.borrow().len(), 3);
+        }
+    }
 }

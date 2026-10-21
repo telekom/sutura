@@ -10692,6 +10692,16 @@ somebody else's input.
   metric named against the first, so the pair reported is always the first metric and the
   first one that disagreed with it, never a third-party guess at which is "wrong".
 - `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
+- `DimensionNotConformed` - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for `first` and `other`.
+
+  **A dimension only joins the metrics' answers when every metric means the same thing by
+  it.** Reading the first metric's column for all of them would label another metric's
+  numbers with a grouping it never computed. Refused naming the dimension and the first pair
+  that disagree, never a guess at which of them is wrong.
+- `QuestionNeedsTooManyLegs` - A question needs more legs than one answer may run, counting every leg of every metric.
+
+  Each leg is held whole before the answers are merged, so the leg count bounds held memory
+  the way `TooManyMetrics` bounds the statement.
 - `DuplicateMetricName` - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
 - `MultiMetricFederationNotExecutable` - A question named more than one metric and also reached a remote dimension.
 

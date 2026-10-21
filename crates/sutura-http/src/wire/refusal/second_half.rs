@@ -3,13 +3,27 @@
 //! same private items that module does.
 
 use axum::http::StatusCode;
-use sutura_domain::model::{MetricName, SourceName, TableName};
+use sutura_domain::model::{DimensionName, MetricName, SourceName, TableName};
 use sutura_domain::query::RefusalReason;
 
 use super::tests::{Expected, metric};
 
 pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
     vec![
+        (
+            RefusalReason::DimensionNotConformed {
+                dimension: DimensionName::parse("region").expect("a test dimension is a dimension"),
+                first: metric(),
+                other: MetricName::parse("margin").expect("a test metric is a metric"),
+            },
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "dimension_not_conformed",
+        ),
+        (
+            RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
+            StatusCode::CONFLICT,
+            "question_needs_too_many_legs",
+        ),
         (
             RefusalReason::FederationNotExecutable,
             StatusCode::CONFLICT,
