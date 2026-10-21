@@ -193,6 +193,12 @@ impl FederatedPlan {
     /// the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
     /// for two legs to disagree about, and the constructor requires each lookup leg and the leg it
     /// joins onto to project its own.
+    ///
+    /// **A lookup leg's link parts are the run it projects, and nothing else says how many.** Parts
+    /// `0..n` of its position are the key parts of the relationship that crosses to it, so the leg it
+    /// joins onto (and, for the first leg, the second fact) must project the same run. A part the
+    /// run does not include, on either leg, is refused rather than ignored: the leg would group by a
+    /// column nothing joins on and change the answer's grain.
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
@@ -233,10 +239,24 @@ impl FederatedPlan {
                     source_name: leg.source().clone(),
                 });
             }
-            let link = InternalLabel::link(position).label();
+            let parts = link_parts(leg, position).max(1);
             for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
-                if !leg_has_key(on, &link) {
-                    return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
+                if let Some(label) = (0..parts)
+                    .map(|part| link_label(position, part))
+                    .find(|label| !leg_has_key(on, label))
+                {
+                    return Err(FederatedPlanError::KeyNotOnLeg { side, label });
+                }
+                let in_run = |label: &str| (0..parts).any(|part| link_label(position, part) == label);
+                if let Some(key) = on
+                    .keys()
+                    .iter()
+                    .find(|key| InternalLabel::is_link_of(position, key.label()) && !in_run(key.label()))
+                {
+                    return Err(FederatedPlanError::LinkPartNotOnLookup {
+                        side,
+                        label: String::from(key.label()),
+                    });
                 }
             }
         }
@@ -246,7 +266,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let link = InternalLabel::link(0).label();
+        let links = lookup_links(&lookups, 0);
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -261,16 +281,21 @@ impl FederatedPlan {
             if shared == 0 {
                 return Err(FederatedPlanError::FactsShareNoKey);
             }
-            if !leg_has_key(second, &link) {
+            if let Some(label) = links.iter().find(|label| !leg_has_key(second, label)) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
                     side: LegAt::Fact,
-                    label: link,
+                    label: label.clone(),
                 });
             }
             // Each fact groups by the link and nothing else. A key only one fact carries would
             // group that fact alone, fan the other's rows out across it, and answer a null key for
             // every row only the other fact reached - the chasm trap and a NULL-padded dimension.
-            if let Some(extra) = fact.keys().iter().chain(second.keys()).find(|key| key.label() != link) {
+            if let Some(extra) = fact
+                .keys()
+                .iter()
+                .chain(second.keys())
+                .find(|key| !links.iter().any(|link| key.label() == link))
+            {
                 return Err(FederatedPlanError::FactKeyNotShared {
                     label: String::from(extra.label()),
                 });
@@ -449,6 +474,15 @@ impl FederatedPlan {
         &self.lookups
     }
 
+    /// The labels the lookup leg at `leg` is joined on, one per key part of its relationship, in key
+    /// order. Empty when there is no such leg.
+    ///
+    /// Derived from the lookup leg, which [`Self::new`] required to project parts `0..n` and the
+    /// leg it joins onto to project the same run.
+    pub fn link_labels(&self, leg: usize) -> Vec<String> {
+        lookup_links(&self.lookups, leg)
+    }
+
     /// The metric this answer is measured in.
     pub const fn metric(&self) -> &MetricName {
         &self.metric
@@ -542,6 +576,32 @@ pub enum FederatedPlanError {
     /// shape as a type.
     #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
     FactKeyNotShared { label: String },
+    /// A leg projects a link part that the lookup leg it is joined to does not.
+    ///
+    /// The leg would group by a column nothing joins on, which splits one link value's rows and
+    /// changes the answer's grain. **Reached only by direct construction:** the one production
+    /// splitter projects a part on both legs or on neither.
+    #[error("the {side:?} leg projects the link part `{label}`, which the lookup leg it joins does not")]
+    LinkPartNotOnLookup { side: LegAt, label: String },
+}
+
+/// The label of key part `part` of the lookup leg at `leg`.
+fn link_label(leg: usize, part: usize) -> String {
+    InternalLabel::Link { leg, part }.label()
+}
+
+/// How many link parts `leg` projects as the lookup leg at `position`: the run `0..n` from part 0.
+fn link_parts(leg: &LegPlan, position: usize) -> usize {
+    (0..leg.keys().len())
+        .take_while(|&part| leg_has_key(leg, &link_label(position, part)))
+        .count()
+}
+
+/// The link labels of the lookup leg at `leg` among `lookups`, in key order.
+fn lookup_links(lookups: &LookupLegs, leg: usize) -> Vec<String> {
+    lookups.legs().get(leg).map_or_else(Vec::new, |lookup| {
+        (0..link_parts(lookup.leg(), leg)).map(|part| link_label(leg, part)).collect()
+    })
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

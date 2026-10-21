@@ -32,6 +32,10 @@ mod ranking;
 #[cfg(test)]
 mod fan_in;
 
+/// A relationship with more than one key: one link column per key part.
+#[cfg(test)]
+mod link_parts;
+
 #[test]
 fn a_plan_with_two_legs_on_one_source_does_not_construct() {
     // The constructor is the newtype convention: a plan that is not a fact leg beside a lookup

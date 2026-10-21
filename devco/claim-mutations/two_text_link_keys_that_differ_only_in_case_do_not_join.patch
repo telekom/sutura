@@ -6,16 +6,16 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-ex
  use datafusion::arrow::datatypes::DataType;
  use datafusion::common::{Column, JoinType, TableReference};
 -use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
-+use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif, lower};
++use datafusion::functions::expr_fn::{abs, coalesce, isnan, lower, nullif};
  use datafusion::functions_aggregate::expr_fn::{count_distinct, max, min, sum};
  use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
  use datafusion::prelude::SessionContext;
-@@ -182,7 +182,7 @@
-         } else {
-             JoinType::Inner
-         };
--        let on = qualified(table_at(lookup.onto(), &link)?, &link).eq(qualified(table, &link));
-+        let on = lower(qualified(table_at(lookup.onto(), &link)?, &link)).eq(lower(qualified(table, &link)));
+@@ -188,7 +188,7 @@ pub(super) async fn combine_plan(
+         let on = plan
+             .link_labels(position)
+             .iter()
+-            .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
++            .map(|link| Ok(lower(qualified(table_at(lookup.onto(), link)?, link)).eq(lower(qualified(table, link)))))
+             .collect::<Result<Vec<Expr>, CombineError>>()?;
          builder = builder
-             .join_on(scan(context, table).await?, kind, [on])
-             .map_err(|cause| CombineError::Build { cause })?;
+             .join_on(scan(context, table).await?, kind, on)

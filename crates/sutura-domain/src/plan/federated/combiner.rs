@@ -278,8 +278,9 @@ pub trait FederationCombiner {
 
     /// One answer's rows from every leg's result.
     ///
-    /// Each lookup result is joined onto the result of the leg it names, on the link column both
-    /// project under that lookup leg's [`InternalLabel::Link`](crate::plan::InternalLabel::Link),
+    /// Each lookup result is joined onto the result of the leg it names, on every link column both
+    /// project under that lookup leg's [`InternalLabel::Link`](crate::plan::InternalLabel::Link)
+    /// (one per key part, [`FederatedPlan::link_labels`]),
     /// in the direction its [`LookupLeg::include_unmatched`] names, then grouped by the answer's keys in
     /// the order [`FederatedPlan::keys`] gives them and by the fact leg's time bucket,
     /// re-aggregated by each carried leaf's own

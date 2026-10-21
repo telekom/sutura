@@ -144,6 +144,13 @@ impl InternalLabel {
         Self::Link { leg, part: 0 }
     }
 
+    /// Whether `text` spells a link label of the lookup leg at `leg`, of any part.
+    #[must_use]
+    pub fn is_link_of(leg: usize, text: &str) -> bool {
+        text.strip_prefix(&format!("{leg}{LINK}"))
+            .is_some_and(|part| part.is_empty() || part.strip_prefix('_').is_some_and(|n| n.parse::<usize>().is_ok()))
+    }
+
     /// The text this label carries in a leg's result.
     ///
     /// The one place the reserved namespace is spelled. A caller that needs it as a column name

@@ -457,16 +457,17 @@ async fn arm_plan(
         .zip(LOOKUP_TABLES)
         .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
         .collect::<Result<Vec<_>, CombineError>>()?;
-    // Each lookup leg's link kind agrees with the leg it joins onto, on its own link label.
+    // Each lookup leg's link kinds agree with the leg it joins onto, part by part.
     for (position, &(leg, _, _, ref schema)) in lookups.iter().enumerate() {
-        let link = InternalLabel::link(position).label();
-        let onto = match leg.onto() {
-            LegAt::Fact => &fact,
-            LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
-        };
-        agreeing_link(onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        for link in plan.link_labels(position) {
+            let onto = match leg.onto() {
+                LegAt::Fact => &fact,
+                LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
+            };
+            agreeing_link(onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        }
     }
-    let link = InternalLabel::link(0).label();
+    let links = plan.link_labels(0);
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
     // joined above on the link and the bucket, so its link kind must agree with the first.
     let second_fact = match (plan.second_fact(), legs.second_fact()) {
@@ -474,13 +475,15 @@ async fn arm_plan(
         (Some(_), None) => {
             return Err(CombineError::MissingColumn {
                 side: SECOND_FACT,
-                label: link.clone(),
+                label: links.first().cloned().unwrap_or_default(),
             });
         }
         (None, _) => None,
     };
     if let Some(second) = &second_fact {
-        agreeing_link(fact.link_kind(&link)?, second.link_kind(&link)?)?;
+        for link in &links {
+            agreeing_link(fact.link_kind(link)?, second.link_kind(link)?)?;
+        }
     }
     let leaves = leaf_labels(plan.federation(), &fact, second_fact.as_ref())?;
     fact.projects(plan.bucket_label())?;
@@ -506,20 +509,22 @@ async fn arm_plan(
         register(context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
     }
 
-    // Each lookup leg on its own link, a leg that joins onto an earlier lookup leg among them.
+    // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
+    // among them: a value repeated on one part alone is not a repeated tuple.
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
-        let own = InternalLabel::link(position).label();
-        refuse_ambiguous_link(context, table, &[&own], ceiling_bytes, working_set).await?;
+        let own = plan.link_labels(position);
+        let on: Vec<&str> = own.iter().map(String::as_str).collect();
+        refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
     }
     // The second fact is joined on the link AND the bucket, so a second row for one pair fans
     // every first-fact row under it out exactly as a second lookup row would.
     if second_fact.is_some() {
-        let on = [link.as_str(), plan.bucket_label()];
+        let on: Vec<&str> = links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &link, &leaves, second_table).await
+    combine_plan(plan, context, &links, &leaves, second_table).await
 }
 
 /// A session whose operators reserve against `working_set`: the one pool a question's combine has.

@@ -7611,7 +7611,7 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 ### `use LegAt`
 
@@ -8711,6 +8711,16 @@ pub const fn link_comparison(&self) -> Option<LinkKind>
 The comparison the link declares, or `None` for equality of kind.
 
 ```rust
+pub fn link_labels(&self, leg: usize) -> Vec<String>
+```
+
+The labels the lookup leg at `leg` is joined on, one per key part of its relationship, in key
+order. Empty when there is no such leg.
+
+Derived from the lookup leg, which `Self::new` required to project parts `0..n` and the
+leg it joins onto to project the same run.
+
+```rust
 pub const fn lookups(&self) -> &LookupLegs
 ```
 
@@ -8745,6 +8755,12 @@ produced two fact columns under one label. It is now `InternalLabel::Link`, a co
 the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
 for two legs to disagree about, and the constructor requires each lookup leg and the leg it
 joins onto to project its own.
+
+**A lookup leg's link parts are the run it projects, and nothing else says how many.** Parts
+`0..n` of its position are the key parts of the relationship that crosses to it, so the leg it
+joins onto (and, for the first leg, the second fact) must project the same run. A part the
+run does not include, on either leg, is refused rather than ignored: the leg would group by a
+column nothing joins on and change the answer's grain.
 
 ```rust
 pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet>
@@ -8897,6 +8913,11 @@ Why a federated plan could not be built.
   Reached only by direct construction: `plan()` refuses a question grouped by a dimension
   only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
   shape as a type.
+- `LinkPartNotOnLookup` - A leg projects a link part that the lookup leg it is joined to does not.
+
+  The leg would group by a column nothing joins on, which splits one link value's rows and
+  changes the answer's grain. **Reached only by direct construction:** the one production
+  splitter projects a part on both legs or on neither.
 
 ##### Implements
 
@@ -9151,7 +9172,7 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 #### `use labels`
 
@@ -9628,14 +9649,22 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 ###### Variants
 
-- `Link` - The column the lookup leg at this position is joined on, in its result and in the result of the leg it joins onto.
+- `Link` - One column the lookup leg at `leg` is joined on, in its result and in the result of the leg it joins onto: key part `part` of the relationship that crosses to it, in key order.
+
+  A relationship with one key has the one part `0`. `InternalLabel::link` spells it.
 - `Leaf` - One carried leaf of the measure, by its position in carried order.
 
 ###### Methods
+
+```rust
+pub fn is_link_of(leg: usize, text: &str) -> bool
+```
+
+Whether `text` spells a link label of the lookup leg at `leg`, of any part.
 
 ```rust
 pub fn label(self) -> String
@@ -9645,6 +9674,12 @@ The text this label carries in a leg's result.
 
 The one place the reserved namespace is spelled. A caller that needs it as a column name
 takes it from here, so no call site holds a second copy of the spelling.
+
+```rust
+pub const fn link(leg: usize) -> Self
+```
+
+The first (and, for a one-key relationship, only) link column of the lookup leg at `leg`.
 
 ###### Implements
 
