@@ -164,13 +164,24 @@ the source called the column - and `LinkKind::declared` reads it only to refuse.
 
 ### No comparability declaration on a relationship
 
-`Relationship` carries a name, two models, a join type, and join keys - and no
-field saying the two sides are comparable
-(`crates/sutura-domain/src/catalog.rs:402-408`). A catalog author has no way to
-declare that an `INTEGER` here and a `NUMBER(38)` there are intended to join, so
-the runtime check is the only thing that holds the pair. The declaration half of
-ADR 0007's open question - option (b) in `telekom/sutura#138` - is still open and is
-tracked in `telekom/sutura#1482`. This page does not close it.
+A relationship can declare how its two keys compare, with the field `comparison`
+(markdown: `compare_as:`, one of `exact_integer`, `exact_decimal`, `text`, `date`,
+`boolean`; it names the kind BOTH keys compare AS). Exactly two casts are admitted:
+text read as an exact integer, and an exact integer widened to an exact decimal. A
+cast leg needs an anchor leg of the declared kind, so two text legs under a declared
+`exact_integer` are refused. Text to decimal, date and boolean are not admitted: text
+to decimal rounds a longer fraction, text to date applies an offset and drops a time,
+a decimal to an integer drops its fraction. The combiner reads the declaration off the
+plan (`FederatedPlan::link_comparison`): a pair the declaration does not join is
+refused as `LinkKindsNotJoined`, a value that does not cast is refused as
+`LinkValueNotCast`, carrying kinds only and never the value; no value becomes NULL.
+
+Limits: the splitter does not yet write the declaration onto the plan, and the
+plan-time check and the load check do not read it yet, so no served question carries
+one; the declaration applies to the first lookup leg and to a second fact leg, not to
+a later lookup leg; DataHub reads none; a text value past i64 is refused; the cast leg
+is a second copy of one column held outside the memory pool. The cells are in
+`crates/sutura-exec-datafusion/src/combine/tests.rs` and `combine/tests/refusals.rs`.
 
 ### Case and whitespace on a text key
 
@@ -189,6 +200,10 @@ with a null remote side. An inner join drops it. Both orders are held, so a fold
 trim on one side only fails too. Leading whitespace, a tab and a newline are not held. Each cell has a committed mutation under
 `devco/claim-mutations/` that folds or trims the key before the join, and each fails
 under it.
+
+The rule holds for an undeclared pair; a text key under a declared `exact_integer` is
+read by the cast, so leading zeros are dropped (`01001` and `1001` are one key). What
+else the cast accepts, such as surrounding spaces, is Arrow's and is not pinned here.
 
 Limits. The combiner already behaved this way, so the cells pin it and do not change
 it. They run the combiner over in-memory legs: what a source returns for a key is not
