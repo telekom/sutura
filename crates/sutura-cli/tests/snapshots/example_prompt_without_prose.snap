@@ -63,8 +63,8 @@ Every reason you can be given, and what to do about each:
   Ask about each metric separately - one at a time executes.
 - **too_many_metrics** - more metrics than one question may carry.
   Ask two narrower questions instead.
-- **dimension_not_conformed** - a dimension means something else for one of the named metrics, so it
-  cannot group both.
+- **dimension_not_conformed** - a dimension does not end on the same model and column for two of the
+  named metrics, so it cannot be used for both.
   Ask for those metrics separately, or leave that dimension out.
 - **duplicate_metric_name** - the same metric was sent twice in one question.
   Send it once - refused rather than de-duplicated.

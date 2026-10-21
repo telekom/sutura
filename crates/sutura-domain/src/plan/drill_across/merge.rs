@@ -52,10 +52,12 @@ pub trait DrillAcrossCombiner: FederationCombiner {
 
     /// Runs every leg of `plan` through `runner`, then [`Self::merge`]s their results.
     ///
-    /// Arm by arm, each arm's legs in the order [`Arm::legs`] names them, one leg at a time: the
-    /// answer's latency is the sum of its legs', which the question's own deadline still bounds. The
-    /// first leg to fail ends the run and no leg after it starts, and every leg's error wins over the
-    /// merge's. Provided, for the reason [`FederationCombiner::plan`] is.
+    /// Arm by arm, each arm's legs in the order [`Arm::legs`] names them, which is the order
+    /// [`Legs::assign`] takes its results in, one leg at a time: the answer's latency is the sum of its
+    /// legs', and the runner holds any deadline. A local arm's result is tagged with the arm's own
+    /// metric, the leg that ran being the arm's. The first leg to fail ends the run and no leg after it
+    /// starts, and every leg's error wins over the merge's. Provided, for the reason
+    /// [`FederationCombiner::plan`] is.
     ///
     /// # Errors
     ///

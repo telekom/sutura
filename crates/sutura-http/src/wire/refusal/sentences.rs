@@ -24,15 +24,15 @@ pub(super) fn multi_metric_top_not_executable(metrics: &[MetricName]) -> String 
 
 pub(super) fn dimension_not_conformed(dimension: &DimensionName, first: &MetricName, other: &MetricName) -> String {
     format!(
-        "`{dimension}` does not mean the same thing for `{first}` and `{other}`, so it cannot group \
-         both; ask for them separately, or leave `{dimension}` out"
+        "`{dimension}` does not end on the same model and column for `{first}` and `{other}`, so it \
+         cannot be used for both; ask for them separately, or leave `{dimension}` out"
     )
 }
 
 pub(super) fn too_many_legs(legs: usize, limit: usize) -> String {
     format!(
         "answering this would run {legs} queries against the data systems and one question runs \
-         {limit} at most; ask for fewer metrics, or for fewer at a time"
+         {limit} at most; ask for fewer metrics at a time"
     )
 }
 
