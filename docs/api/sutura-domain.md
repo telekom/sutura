@@ -10542,6 +10542,9 @@ The leg as the sender writes it, with the digest of its metric read off the send
 The digest is `PinnedDefinitions::metric_digest`, never a value the caller supplies, so what
 a leg claims about its metric is what the sender planned under.
 
+A key truncated to a grain is refused as `NotSendable::KeyTruncated`: a wire key carries its
+column and not its grain, so the receiver would group by the raw column and answer wrongly.
+
 #### `use LegNotCertified`
 
 Why this node does not run a leg it was sent.

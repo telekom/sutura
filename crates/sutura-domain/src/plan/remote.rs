@@ -162,6 +162,9 @@ pub enum NotSendable {
 ///
 /// The digest is [`PinnedDefinitions::metric_digest`], never a value the caller supplies, so what
 /// a leg claims about its metric is what the sender planned under.
+///
+/// A key truncated to a grain is refused as [`NotSendable::KeyTruncated`]: a wire key carries its
+/// column and not its grain, so the receiver would group by the raw column and answer wrongly.
 pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, NotSendable> {
     let keys = |keys: &[PlanKey]| -> Result<Vec<WireKey>, NotSendable> {
         keys.iter()
