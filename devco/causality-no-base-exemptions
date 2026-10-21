@@ -55,3 +55,17 @@ a_listed_directory_is_read_without_its_slashes_being_guessed # new module docs/u
 a_line_that_is_not_a_whole_directory_is_refused_rather_than_ignored # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when the `ok_or_else` refusal in `directories` is replaced by `.unwrap_or_default()`
 only_pages_under_a_listed_directory_are_exempt_from_the_orphan_rule # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when `pages_within` returns every page or none
 a_listed_page_is_no_orphan_and_an_unlisted_one_still_is # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when `pages_within` returns the empty set
+generated_pages_with_no_dead_destination_are_read_in_full # shares api_links.rs with the `check` it pins; base `task_table/prose.rs` registers `api_links::run`, which the diff deletes, so the base run does not compile; killed when `check` returns `Err` for no page or `Ok` over unread pages
+a_dead_destination_on_a_generated_page_names_the_page_and_the_line # same file as `api_links::check`, absent at base; killed when `sweep` stops pushing `scan`'s findings
+a_directory_with_no_page_is_a_refusal_and_not_a_clean_sweep # same file as `api_links::check`, absent at base; killed when `pages` returns an empty set instead of an error
+pages_without_the_generated_header_are_not_the_generators_output # same file as `api_links::check`, absent at base; killed when the `found.generated == 0` refusal is `&& false`
+a_generator_that_allows_another_scheme_disagrees_with_this_scan # same file as `api_links::check`, absent at base; killed when the `generator != mine` refusal is `&& false`
+a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page # same file as `api_links::finding`, absent at base; killed when the `names_no_page` arm is `&& false`
+a_library_crate_the_generator_wrote_no_page_for_is_named # same file as `missing_pages`, absent at base; killed when `missing_pages` returns an empty list
+pages_are_kept_only_where_a_destination_is_named # same file as `keep`, absent at base; killed when `keep` copies with no destination named
+only_a_path_under_the_pages_directory_is_a_tracked_page # new module api_docs/owner.rs, declared in api_docs.rs which the base run reverts; killed when `pages_in` matches every path
+a_locally_generated_page_is_prose_and_starts_no_gate # same file as the `api` area in changes.rs, whose pattern the diff removes; killed when `docs/api/**` is put back in the area
+an_oversized_generated_looking_page_is_capped_like_any_other_file # same file as `oversized` in text.rs, whose signature the diff changes, so the base does not compile it; killed when the cap is skipped for a generated marker
+a_withdrawn_wording_is_refused_in_a_doc_comment_and_in_no_other_line_of_rust # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `tree_problems` passes `text_files` instead of `docs` to `contradicted_claims`
+a_task_and_a_recipe_that_do_not_exist_are_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when the two reference checks are passed `text_files`
+a_path_that_does_not_exist_is_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `dead_paths` is passed `text_files`

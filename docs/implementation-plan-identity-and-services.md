@@ -1009,6 +1009,7 @@ economise.
    | `check-vendor-count` | `VENDOR.md`'s mimalloc row, `Cargo.toml` and `REUSE.toml` |
    | `check-shared-client` | `Cargo.lock` |
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
+   | `check-api-pages-untracked` | the ABSENCE of any tracked path under `docs/api/`, from the repository file listing |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-unsafe` | the root manifest's `members` list, then every crate root each member's layout produces under `crates/`, `xtask/` and `dev/` - for `#![forbid(unsafe_code)]` - plus every `.rs` under those members for an `expect`/`allow` of the same lint |

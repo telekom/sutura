@@ -99,6 +99,8 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/$SUTURA_DOC_OUT"
     struct Observed {
         output: Output,
         ledger: String,
+        /// What the run left in the directory it was told to keep the pages in, if anything.
+        kept: Option<String>,
     }
 
     fn executable(path: &Path, shell: &str, body: &str) {
@@ -178,6 +180,7 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/$SUTURA_DOC_OUT"
             .env("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "fixture-backend")
             .env("SUTURA_API_DOCS_PROFILE", "ci")
             .env("SUTURA_API_DOCS_PYTHON", &renderer)
+            .env("SUTURA_API_DOCS_KEEP", root.join("kept"))
             .env("SUTURA_DOC_CASE", case)
             .env("SUTURA_DOC_METADATA", metadata.to_string())
             .env("SUTURA_DOC_LEDGER", &ledger)
@@ -190,10 +193,12 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/$SUTURA_DOC_OUT"
             .env_remove("BASH_ENV")
             .output();
         let calls = std::fs::read_to_string(ledger);
+        let kept = std::fs::read_to_string(root.join("kept/doc-library.md")).ok();
         drop(tree);
         Observed {
             output: output.expect("run the real gate"),
             ledger: calls.expect("read the invocation ledger"),
+            kept,
         }
     }
 
@@ -259,6 +264,17 @@ printf '%s' "$SUTURA_DOC_PAGE" >"$3/$SUTURA_DOC_OUT"
         assert_eq!(observed.output.status.code(), Some(0), "{observed:?}");
         let stdout = String::from_utf8(observed.output.stdout).expect("verdict");
         assert!(stdout.contains("1 page(s) generated and read"), "{stdout}");
+    }
+
+    /// The nix check publishes through this: a clean run leaves the pages it judged where it is told,
+    /// and a refused one leaves nothing a workflow could copy.
+    #[test]
+    fn a_clean_run_keeps_its_pages_and_a_refused_run_keeps_none() {
+        let clean = observe("clean");
+        assert_eq!(clean.kept.as_deref(), Some(PAGE), "{clean:?}");
+        let refused = observe("dead-link");
+        assert_eq!(refused.output.status.code(), Some(1), "{refused:?}");
+        assert_eq!(refused.kept, None, "{refused:?}");
     }
 
     /// A destination mkdocs publishes dead is a finding on the page it came from, before any publish.

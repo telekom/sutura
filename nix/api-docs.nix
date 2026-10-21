@@ -12,10 +12,11 @@
 # `just api` reaches it with nothing but nix, from outside any dev shell.
 { pkgs, toolchain }:
 
-# WRITES the API pages into `docs/api/`, which git ignores. The docs workflow runs it on `main` and
-# on a `v*` tag before the site build, and `just api` runs it for a reader who wants the pages
-# locally. `checks.api-docs` is the gate that proves they generate; the two must run one flag list,
-# so both get their tools from here: `toolchain` above and a stdlib interpreter out of nixpkgs.
+# WRITES the API pages into `docs/api/`, which git ignores, for a reader who runs `just api`. The
+# docs workflow does NOT run it: it builds `checks.api-docs` in the nix sandbox and copies the pages
+# that derivation leaves under `$out`, so no build script runs beside its write token.
+# `checks.api-docs` is the gate that proves they generate; the two must run one flag list, so both
+# get their tools from here: `toolchain` above and a stdlib interpreter out of nixpkgs.
 #
 # An app rather than a check, because a check cannot write to the source tree - the point
 # of this one is to leave the pages where mkdocs reads them. It exists because

@@ -223,8 +223,7 @@
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
         cargoWrapper = import ./nix/cargo-wrapper.nix { inherit pkgs toolchain; };
 
-        # WRITES the API pages - into the ignored `docs/api/`, for `just api` and for the docs workflow's
-        # publish step - and `checks.api-docs` below is the gate that proves they generate: the two
+        # WRITES the API pages - into the ignored `docs/api/`, for `just api` - and `checks.api-docs` below is the gate that proves they generate: the two
         # must run one flag list, which is why one file defines the writer. In `nix/api-docs.nix` because this file was at
         # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
         # rest, including why the seam is here rather than at the checks.
@@ -927,6 +926,7 @@
             src = wholeTree;
             pnameSuffix = "-api-docs";
             doCheck = false;
+            doInstallCargoArtifacts = false;
             nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.python3 ];
             SUTURA_API_DOCS_PYTHON = "${pkgs.python3}/bin/python3";
             buildPhaseCargoCommand = ''
@@ -941,7 +941,16 @@
               CARGO="${toolchain}/bin/cargo" \
               PATH="${toolchain}/bin:$PATH" \
               SUTURA_API_DOCS_PROFILE="$CARGO_PROFILE" \
+              SUTURA_API_DOCS_KEEP="$out/pages" \
                 "$xtask" check-api-docs
+            '';
+            # THE PAGES THE GATE JUDGED, left under `$out/pages` for the docs workflow to copy into
+            # `docs/api`. Built here rather than by `nix run .#api-docs` so that the dependency
+            # closure's build scripts run in this sandbox and not in the one job that holds a write
+            # token, and from the artifacts `ciArtifacts` already holds. A run that refused its pages
+            # leaves none, and the derivation fails first.
+            installPhaseCommand = ''
+              test -f "$out/pages/index.md"
             '';
           });
 
@@ -1547,7 +1556,7 @@
             exec ${self.packages.${system}.xtask}/bin/xtask "$@"
           '');
         };
-        # `just api`, and the docs workflow's publish step. The writer for what `checks.api-docs` proves generates.
+        # `just api`. The writer for what `checks.api-docs` proves generates.
         apps.api-docs = {
           type = "app";
           program = "${apiDocsWriter}/bin/sutura-api-docs";

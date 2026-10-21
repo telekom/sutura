@@ -695,7 +695,7 @@ unsafe_code = "deny"
 # Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
 # `just lint`.
 #
-# THE VENUE IS `cargo doc`, run by `just api`, by the docs workflow's publish step and by `checks.api-docs` - AND NOTHING ELSE. The
+# THE VENUE IS `cargo doc`, run by `just api` and by `checks.api-docs`, which the docs workflow builds to publish - AND NOTHING ELSE. The
 # doctest lane is NOT one, measured rather than assumed after this comment claimed it was:
 # `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never runs the
 # link-resolution pass, so one crate with one unresolvable link and one real doctest is exit 0 with

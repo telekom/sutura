@@ -1,8 +1,8 @@
 //! Does the API reference still generate, and can mkdocs follow every link on it?
 //!
-//! `docs/api/*.md` is GENERATED and committed nowhere. The docs workflow writes it with
-//! `nix run .#api-docs` on `main` and on a `v*` tag, and `just api` writes it for a reader who
-//! wants it locally. Rustdoc JSON is nightly-only, and the whole tree already builds on the single
+//! `docs/api/*.md` is GENERATED and committed nowhere. The docs workflow builds it from
+//! `checks.api-docs`, which leaves the pages it judged in `$out`, on `main` and on a `v*` tag, and
+//! `just api` writes it for a reader who wants it locally. Rustdoc JSON is nightly-only, and the whole tree already builds on the single
 //! pinned nightly, so generating it needs nothing beyond that same toolchain.
 //!
 //! A page nobody commits cannot go stale, so there is nothing left to compare against. What a
@@ -57,6 +57,9 @@ mod lints;
 /// Whether `just api` hands rustdoc the same flags this gate does.
 mod writer;
 
+/// Whether a generated page has crept back into git.
+pub(crate) mod owner;
+
 /// Where `just api` and the publish run write the pages, relative to the repo root.
 ///
 /// The scan names a finding by this path, because it is where a reader finds the page on the
@@ -83,6 +86,13 @@ pub(crate) const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 /// For the one caller that cannot use pixi: a Nix build sandbox has no network, so it cannot
 /// materialise a pixi environment. See [`python_command`].
 const PYTHON_ENV: &str = "SUTURA_API_DOCS_PYTHON";
+
+/// Names a directory to leave the generated pages in, once the run has judged them clean.
+///
+/// For the one caller that has to publish them: the nix check, whose `$out` the docs workflow
+/// copies into `docs/api`. Building the pages in that sandbox is what keeps the dependency closure's
+/// build scripts away from the job that holds a write token. Unset means nothing is kept.
+const KEEP_ENV: &str = "SUTURA_API_DOCS_KEEP";
 
 /// Names the cargo profile the `cargo doc` child compiles under.
 ///
@@ -234,6 +244,7 @@ fn check(root: &Path) -> Result<Outcome, String> {
         drop(std::fs::remove_dir_all(&scratch));
         return Err(error);
     }
+    let keep_in = std::env::var(KEEP_ENV).ok();
     let mut problems = missing_pages(&scratch, &packages);
     let links = match api_links::check(root, &scratch) {
         Ok(read) => Some(read),
@@ -243,8 +254,14 @@ fn check(root: &Path) -> Result<Outcome, String> {
         }
     };
 
+    let kept = if problems.is_empty() {
+        keep(&scratch, keep_in.as_deref())
+    } else {
+        Ok(())
+    };
     // Best-effort: a scratch directory left behind is untidy, not a verdict.
     drop(std::fs::remove_dir_all(&scratch));
+    kept?;
     Ok(Outcome {
         problems,
         links,
@@ -586,6 +603,25 @@ fn scratch_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Copy every generated page into `destination`, when the caller named one.
+///
+/// A PARAMETER and not a read of the environment, for the reason [`profile_args`] gives. An empty
+/// name counts as unset, for the same reason: an unexpanded shell variable is a plumbing mistake.
+fn keep(generated: &Path, destination: Option<&str>) -> Result<(), String> {
+    let Some(destination) = destination.filter(|name| !name.is_empty()) else {
+        return Ok(());
+    };
+    let destination = Path::new(destination);
+    std::fs::create_dir_all(destination).map_err(|error| format!("could not create {}: {error}", destination.display()))?;
+    let entries = std::fs::read_dir(generated).map_err(|error| format!("could not read {}: {error}", generated.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("could not list {}: {error}", generated.display()))?;
+        let to = destination.join(entry.file_name());
+        std::fs::copy(entry.path(), &to).map_err(|error| format!("could not keep {}: {error}", to.display()))?;
+    }
+    Ok(())
+}
+
 /// Every library crate the generator wrote no page for.
 ///
 /// It read the rustdoc JSON and produced nothing, which is a generator bug. Named per crate so the
@@ -612,7 +648,9 @@ fn report(problems: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{colliding_json, is_lib_target, json_file_name, library_packages, missing_pages, profile_args, python_command};
+    use super::{
+        colliding_json, is_lib_target, json_file_name, keep, library_packages, missing_pages, profile_args, python_command,
+    };
     use std::collections::BTreeSet;
 
     #[test]
@@ -686,6 +724,19 @@ mod tests {
             missing_pages(tree.root(), &BTreeSet::from([String::from("sutura-domain")])),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn pages_are_kept_only_where_a_destination_is_named() {
+        let tree = crate::scratch_tree::Tree::of("api-docs-keep", &[("out/a.md", b"a\n"), ("out/index.md", b"i\n")]);
+        let out = tree.root().join("out");
+        let kept = tree.root().join("kept");
+        keep(&out, None).expect("nothing to do");
+        keep(&out, Some("")).expect("an empty name is unset");
+        assert!(!kept.exists(), "no destination named, so nothing was written");
+        keep(&out, kept.to_str()).expect("keep");
+        assert_eq!(std::fs::read(kept.join("a.md")).expect("a page"), b"a\n");
+        assert_eq!(std::fs::read(kept.join("index.md")).expect("the index"), b"i\n");
     }
 
     #[test]

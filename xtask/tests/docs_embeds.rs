@@ -185,3 +185,34 @@ fn a_published_page_citing_a_decision_record_by_number_is_refused_naming_the_pag
         assert!(output.status.success(), "{}", said(&output));
     }
 }
+
+#[test]
+fn a_generated_page_under_a_directory_not_in_nav_is_no_orphan_and_another_page_still_is() {
+    let root = site("not-in-nav", "# Architecture\n\n[home](index.md)\n", None);
+    std::fs::create_dir_all(root.join("docs/api")).expect("the fixture's generated directory");
+    std::fs::write(root.join("docs/api/sutura-domain.md"), "# sutura-domain\n").expect("a generated page");
+    let without = check_docs(&root);
+    let text = said(&without);
+    assert_eq!(
+        without.status.code(),
+        Some(1),
+        "an unlisted generated page is an orphan: {text}"
+    );
+    assert!(text.contains("docs/api/sutura-domain.md"), "{text}");
+
+    let nav = root.join("mkdocs.yml");
+    let mut config = std::fs::read_to_string(&nav).expect("the fixture config");
+    config.push_str("not_in_nav: |\n  /api/\n");
+    std::fs::write(&nav, config).expect("the fixture config");
+    let listed = check_docs(&root);
+    assert!(listed.status.success(), "{}", said(&listed));
+
+    std::fs::write(root.join("docs/orphan.md"), "# Orphan\n").expect("an orphan page");
+    let orphaned = check_docs(&root);
+    let text = said(&orphaned);
+    assert_eq!(orphaned.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("docs/orphan.md") && !text.contains("docs/api/sutura-domain.md"),
+        "{text}"
+    );
+}

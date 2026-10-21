@@ -120,6 +120,20 @@ pub(crate) const TASKS: &[Task] = &[
         run: api_docs::run,
     },
     Task {
+        // `Reads::Code` and the hygiene sweep, `check-attribution-owner`'s shape and reasons: it reads
+        // the file listing, needs no compiler, and holds an ABSENCE - the generator is the API
+        // reference's only owner - that `.gitignore` alone cannot, since a tracked file ignores it.
+        name: "check-api-pages-untracked",
+        description: "no generated API page is tracked under docs/api",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[("docs/api/sutura-domain.md", "<!-- GENERATED FILE - do not edit. -->\n")],
+            in_scope: Some("docs/api/sutura-domain.md"),
+            paired: None,
+        },
+        run: api_docs::owner::run,
+    },
+    Task {
         // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the
         // Rust that reaches for them. A `docs/*.md`-only diff can change neither.
         name: "check-examples",

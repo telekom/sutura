@@ -43,8 +43,8 @@
 # one workflow" is a cost claim, and it does not outrank linting the thing that decides what gets
 # linted.
 #
-# **THE SECOND EXCEPTION IS THE API REFERENCE.** `publish` writes `docs/api/` with `nix run .#api-docs`
-# before the site build, because no page of it is committed, so a push to `main` that changes a
+# **THE SECOND EXCEPTION IS THE API REFERENCE.** `publish` builds `docs/api/` with `nix build` on
+# `checks.api-docs` before the site build, because no page of it is committed, so a push to `main` that changes a
 # library crate's source, the manifest, the generator or the nightly pin starts this workflow as well
 # as `ci.yml`. A tag always builds. A pull request does not build the pages: `checks.api-docs` in
 # `ci.yml` proves they generate and that no link on them is dead, and what it cannot prove - that
@@ -92,7 +92,11 @@ on:
       - ".github/workflows/docs.yml"
       # The API reference is generated from these at publish, so an edit to one republishes it.
       - "crates/*/src/**"
+      - "dev/src/**"
       - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
+      - "dev/Cargo.toml"
       - "nix/api-docs.nix"
       - "devco/rust-toolchain-nightly.toml"
   pull_request:
@@ -239,8 +243,8 @@ jobs:
   publish:
     if: github.event_name != 'pull_request'
     runs-on: rust-mcp-16core
-    # The first run compiles the workspace's rustdoc units cold, which `checks.api-docs` never does
-    # here: it inherits warm artifacts from the cache.
+    # `checks.api-docs` inherits the dependency closure from the substituters. If they do not hold it,
+    # the first run compiles every rustdoc unit cold, which is what the extra hour is for.
     timeout-minutes: 120
     # Deploy the site to gh-pages, and nothing else. Not `pages`, not `id-token` - those existed
     # only for actions/deploy-pages, which this no longer uses.
@@ -326,12 +330,19 @@ jobs:
       # cannot disagree about the flags. `--strict` is the flag that matters: without it mkdocs
       # warns about a broken link and publishes anyway.
       #
-      # The API reference is written first, because mkdocs reads `docs/api/` and nothing commits it.
-      # The app brings its own nightly toolchain, which is why this job needs no Rust setup, and
-      # it fails the job on a rustdoc error or a generator error, so nothing is deployed over a
-      # reference that did not generate. `mkdocs.yml` lists the directory under `not_in_nav`.
-      - name: Generate the API reference
-        run: nix run .#api-docs
+      # The API reference is built first, because mkdocs reads `docs/api/` and nothing commits it.
+      # It is a nix BUILD, and that is the point: the dependency closure's build scripts and proc
+      # macros run in the nix sandbox, not as the runner user in a clone whose `.git/config` holds
+      # this job's write token. The derivation is `checks.api-docs`, which leaves the pages it judged
+      # under `$out/pages`, so it fails the job on a rustdoc error, a generator error or a dead
+      # link and nothing is deployed over a reference that did not generate. `mkdocs.yml` lists the
+      # directory under `not_in_nav`.
+      - name: Build the API reference
+        run: |
+          set -eu
+          pages=$(nix build .#checks.x86_64-linux.api-docs --no-link --print-out-paths)
+          mkdir docs/api
+          cp -r --no-preserve=mode "$pages/pages/." docs/api/
 
       - name: Build the site
         env:

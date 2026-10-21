@@ -301,8 +301,9 @@ def unfollowable(written: str) -> bool:
     rustdoc keeps the link for a reader of `cargo doc`; the page keeps the text.
 
     THE LIMIT: with no scheme, only a `::` spelling is dropped. A single-segment `](Foo)` is
-    indistinguishable from a relative link to a page, so it is left alone and `mkdocs --strict`
-    aborts on it - `just docs` inside `just validate` is the venue that says so.
+    indistinguishable from a relative link to a page, so it is left alone here and `cargo xtask
+    check-api-docs` resolves it against the pages this wrote, which is the only pre-merge venue:
+    `mkdocs --strict` aborts on it in the publish job.
     """
     dest = link_destination(written)
     try:

@@ -456,10 +456,12 @@ panic-free.
   sibling variant, and a claim written across two sentences - the window is one sentence, because a
   window of the doc BLOCK reports `sutura-exec-bigquery`'s own module header, which states the value
   correctly and discusses the other variant fourteen lines down.
-  **The coverage that left with the committed pages:** the wording rules in `CONTRADICTED` read
-  prose files only, and a doc comment used to reach them through its committed `docs/api/` page.
-  Nothing commits a page now, so a forbidden wording inside a doc comment is held by review alone;
-  only a constant's claim and what a program prints are read in the Rust source.
+  **Doc comments are read directly now.** A doc comment used to reach the wording, task, recipe and
+  path rules through its committed `docs/api/` page. No page is committed, so `guidance::DOC_COMMENTS`
+  (`crates/*/src` and `dev/src`) feeds the `///` and `//!` lines of those files through
+  `absences::prose` into `stale`, `CONTRADICTED`, `WITHDRAWN`, the task and recipe citations and the
+  path citations. **`counts` and `hosts` do not read them**: a number or a host named in a doc comment
+  is outside both, and they never read a `//` line, a block comment or a string literal.
 - **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
   The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
   on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over
