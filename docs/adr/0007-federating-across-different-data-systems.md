@@ -1727,7 +1727,9 @@ The *Sixteenth amendment* refused a crossing relationship whose key truncates it
 refusal: `FederationLinkTruncated` and its code `federation_link_truncated` no longer exist. The
 sixteenth amendment stays as written, and so does the *Seventeenth amendment*'s sentence *a key
 truncated to a grain (`FederationLinkTruncated`, until `github.com/telekom/sutura#1489` carries the
-grain into the leg)*, which this amendment makes past.
+grain into the leg)*, which this amendment makes past. The *Eighteenth amendment* did not touch
+this: the planner still makes one lookup leg, so the key truncated here is the one link that leg
+joins on.
 
 **Decision: the fact leg truncates the link at its source.** A `PlanKey` may carry a grain, and the
 fact leg's link key then groups by the origin column truncated to it, through the function a time
