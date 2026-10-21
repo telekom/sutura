@@ -59,7 +59,7 @@ use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
-use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanPredicate, QueryPlan};
+use sutura_domain::plan::{KeyValue, LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanKey, PlanPredicate, QueryPlan};
 use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
@@ -414,6 +414,14 @@ fn bucket_expr(grain: Grain, over: &PlanColumn, dialect: Dialect) -> Expr {
     builder::func(function, arguments).cast("DATE")
 }
 
+/// What a key groups by: its column, or the column truncated by [`bucket_expr`].
+fn key_expr(key: &PlanKey, dialect: Dialect) -> Expr {
+    match key.value() {
+        KeyValue::Column(over) => column(over),
+        KeyValue::Truncated { column: over, grain } => bucket_expr(grain, over, dialect),
+    }
+}
+
 /// Every join a plan declared, added to the statement.
 ///
 /// A LEFT join, always, and this was a bug before it was a decision.
@@ -649,8 +657,8 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     let mut projection = Vec::with_capacity(plan.keys().len().saturating_add(plan.measures().len()).saturating_add(1));
     let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
     for key in plan.keys() {
-        projection.push(aliased(column(key.column()), key.label())?);
-        grouping.push(column(key.column()));
+        projection.push(aliased(key_expr(key, dialect), key.label())?);
+        grouping.push(key_expr(key, dialect));
     }
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
     grouping.push(bucket_expr.clone());
@@ -780,8 +788,8 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
     let mut projection = Vec::with_capacity(leg.keys().len().saturating_add(1));
     let mut grouping = Vec::with_capacity(leg.keys().len().saturating_add(1));
     for key in leg.keys() {
-        projection.push(aliased(column(key.column()), key.label())?);
-        grouping.push(column(key.column()));
+        projection.push(aliased(key_expr(key, dialect), key.label())?);
+        grouping.push(key_expr(key, dialect));
     }
 
     // THE rendering arm. A third leg shape does not compile until it says what it projects.

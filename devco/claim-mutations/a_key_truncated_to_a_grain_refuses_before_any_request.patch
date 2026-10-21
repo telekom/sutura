@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-cube/src/query.rs b/crates/sutura-exec-cube/src/query.rs
+--- a/crates/sutura-exec-cube/src/query.rs
++++ b/crates/sutura-exec-cube/src/query.rs
+@@ -84,8 +84,10 @@
+         let mut columns = Vec::new();
+         let mut dimensions = Vec::new();
+         for key in plan.keys() {
+-            let KeyValue::Column(over) = key.value() else {
+-                return Err(NotExpressible::TruncatedKey);
++            let over = match key.value() {
++                KeyValue::Column(over) => over,
++                KeyValue::Truncated { .. } if false => return Err(NotExpressible::TruncatedKey),
++                KeyValue::Truncated { column, .. } => column,
+             };
+             let name = member(over);
+             dimensions.push(serde_json::Value::String(name.clone()));
