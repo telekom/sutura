@@ -810,6 +810,7 @@ mod tests {
                 }
             }
 
+            /// Fails the leg equal to `leg`, so a leg both arms hold, as their lookup, cannot be targeted.
             fn failing_on(leg: &LegPlan) -> Self {
                 Self {
                     fail_on: Some(leg.clone()),
@@ -935,15 +936,15 @@ mod tests {
         }
 
         #[test]
-        fn a_failing_leg_of_a_later_arm_ends_the_run_before_its_second_fact_or_the_merge() {
+        fn a_failing_fact_of_a_later_arm_ends_the_run_before_its_lookup_and_second_fact_or_the_merge() {
             let plan = two_facts_twice();
-            let runner = Runner::failing_on(joined_arm(&plan, 1).lookups().legs()[0].leg());
+            let runner = Runner::failing_on(joined_arm(&plan, 1).fact());
             let combiner = Recording::default();
             let failure = combiner
                 .execute_across(&plan, &runner, 1)
-                .expect_err("the later arm's lookup fails");
-            assert!(matches!(failure, ExecuteError::Leg(5)), "{failure:?}");
-            assert_eq!(runner.ran.borrow().len(), 5);
+                .expect_err("the later arm's fact fails");
+            assert!(matches!(failure, ExecuteError::Leg(4)), "{failure:?}");
+            assert_eq!(runner.ran.borrow().len(), 4);
             assert_eq!(combiner.merges.get(), 0);
         }
 

@@ -104,6 +104,6 @@ All of this is tracked in `github.com/telekom/sutura#1471`.
   The working-set ceiling is not a process memory bound.
 - **Two arms that reach one remote dimension run its lookup twice.** The charge is conservative, not
   exact. Sharing a leg is a later change.
-- **Arms run one after another,** so the latency is their sum. The question's deadline still bounds it.
+- **Arms run one after another,** so the latency is their sum. A deadline is the leg runner's to hold.
 - **The plan type cannot check that two arms read the same real-world thing.** Whether a dimension is
   conformed is the planner's check, on the catalog's declared model and column.
