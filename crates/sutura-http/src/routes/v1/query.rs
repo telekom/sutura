@@ -111,12 +111,18 @@ const TAG: &str = "query";
                            `outcome: refusal`.",
             body = OutcomeBody
         ),
-        (status = 400, description = "The body is not a modelled question. The detail names the field.", body = crate::problem::ProblemBody),
+        (
+            status = 400,
+            description = "The body is not a modelled question (`not_a_question`; the detail names \
+                           the field), or `Sutura-Bill-To` is not a billing account name \
+                           (`unusable_bill_to`).",
+            body = crate::problem::ProblemBody
+        ),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "FOUR THINGS, and the body shape tells the first two from the others - \
-                           `outcome: refusal` for the first two, `code` with no `outcome` for the \
+            description = "FIVE THINGS, and the body shape tells the first three from the others - \
+                           `outcome: refusal` for the first three, `code` with no `outcome` for the \
                            other two.\n\n\
                            REFUSED ABOUT THE METRIC (`outcome: refusal`): the catalog does not \
                            permit this of this metric. `code` says which: \
@@ -131,6 +137,10 @@ const TAG: &str = "query";
                            under its own identity instead. The missing grant is THERE and not here, \
                            so re-authenticating with this service changes nothing and neither does \
                            a narrower question.\n\n\
+                           REFUSED ABOUT THE PAYER (`outcome: refusal`, `code: \
+                           bill_to_not_allowed`): the data system this metric reads does not bill \
+                           a job to the payer this request states, such as one `Sutura-Bill-To` \
+                           names. Nothing ran.\n\n\
                            FAILED (`code: insufficient_scope`): your credential IS valid and does \
                            not carry the scope this operation requires; the detail names it. It \
                            says nothing about any metric - a caller who is granted the scope gets \
@@ -243,9 +253,11 @@ pub(crate) async fn ask(
     // a per-request value through, and this one cannot be reached by anything a caller writes
     // because nothing a caller sends can insert a request extension.
     Extension(deadline): Extension<Deadline>,
+    headers: axum::http::HeaderMap,
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
+    let payer = named_payer(&headers)?;
     let query = match Query::try_from(body) {
         Err(crate::wire::MalformedQuestion::Refused(reason)) => return Ok(Outcome::from(&ToolOutcome::Refusal { reason })),
         parsed => parsed.map_err(|cause| match cause {
@@ -282,7 +294,7 @@ pub(crate) async fn ask(
     let surface = state.surface();
     // What `establish_asked` already derived, and nothing the caller *sent*. Cloned rather than
     // borrowed: the closure below moves onto the blocking pool and outlives this extractor's value.
-    let context = asked.context().clone();
+    let context = asked.context().clone().naming(payer);
     // `spawn_carrying_span` rather than `tokio::task::spawn_blocking`, and the bare call is now on
     // the `disallowed-methods` list in `clippy.toml`: the pool thread has no current span, so a
     // bare spawn writes every line the engine emits outside this request. The three lines that fix
@@ -346,6 +358,27 @@ pub(crate) async fn ask(
     // and that response line already carries it.
     Ok(Outcome::from(&outcome))
 }
+
+/// The payer `Sutura-Bill-To` names, if the request sends one.
+///
+/// # Errors
+///
+/// [`Failure::UnusableBillTo`] for a value that is not a billing account name.
+fn named_payer(headers: &axum::http::HeaderMap) -> Result<Option<sutura_domain::identity::BillingAccount>, Failure> {
+    headers
+        .get(BILL_TO)
+        .map(|value| {
+            sutura_domain::identity::BillingAccount::parse(&String::from_utf8_lossy(value.as_bytes())).map_err(|cause| {
+                Failure::UnusableBillTo {
+                    cause: crate::problem::UnusableBillTo::NotAnAccount(cause),
+                }
+            })
+        })
+        .transpose()
+}
+
+/// The header a caller names its payer in.
+pub(super) const BILL_TO: &str = "sutura-bill-to";
 
 /// Turns a shed question into the response, and says so once in the log.
 ///
@@ -777,5 +810,37 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
         assert!(body.contains(r#""code":"identity_not_linked""#), "{body}");
+    }
+
+    async fn ask_billing(payer: &str) -> (StatusCode, String) {
+        let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the test settings load");
+        let app = crate::testing::serving(
+            bundle(),
+            crate::testing::fake_warehouse(),
+            crate::testing::broker(),
+            settings,
+            None,
+        );
+        let mut request = crate::testing::request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
+        drop(request.headers_mut().insert(
+            "sutura-bill-to",
+            axum::http::HeaderValue::from_str(payer).expect("a test header value is a header value"),
+        ));
+        crate::testing::call(&app, request).await
+    }
+
+    #[tokio::test]
+    async fn a_bill_to_header_that_is_not_an_account_is_a_400_naming_the_header() {
+        let (status, body) = ask_billing("sales dev").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body.contains(r#""code":"unusable_bill_to""#), "{body}");
+        assert!(body.contains("Sutura-Bill-To") && !body.contains("sales dev"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn a_payer_named_on_a_source_that_bills_none_is_refused_never_dropped() {
+        let (status, body) = ask_billing("caller-pays-1").await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.contains(r#""code":"bill_to_not_allowed""#), "{body}");
     }
 }

@@ -2,7 +2,9 @@
 # examples/multi-player/compose.yaml, and a loader that writes the example's catalog into it. Run
 # ./setup.sh first. Every port binds 127.0.0.1 only: the secrets setup.sh writes to .env are for a
 # local demo and must never be reachable from another host.
-# Keycloak, Cube and ClickHouse are the `cube` profile of compose.services.yaml: `just dev-up-cube`.
+# Keycloak, Cube and ClickHouse are in compose.cube.yaml, which `docker compose` reads with this file
+# (setup.sh writes COMPOSE_FILE). `just dev-up-cube` starts the same services for this repository's
+# tests, in the `cube` profile of compose.services.yaml.
 
 x-datahub-backend-environment: &datahub-backend-environment
   DATAHUB_GMS_HOST: datahub-gms

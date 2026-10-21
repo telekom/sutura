@@ -25,6 +25,7 @@ documentation, guidance, fixtures - which no dependency check can see.
 
 | `docs/assets/architecture.html`, `docs/assets/deployment.html` | `github.com/tt-a1i/archify` | MIT | `73aaa0696e8f72c232ea710e6fa94fd953f3e773` | 2026-10-08 | **Generated, then trimmed.** archify rendered the SVG from the `.archify.json` file beside each page. The page keeps only that SVG and the colour tokens and SVG classes it uses from archify's viewer template. Dropped: the viewer script, the export tools and the embedded font, so the page is small and loads nothing from another origin. The hover script and the page around the SVG are ours. |
 | `overrides/.icons/brand/*.svg` | the five products named in `overrides/.icons/brand/SOURCES.md` | Apache-2.0, MIT, or none published | the URL and the SHA-256 in that file | 2026-10-09 | **Copied unchanged**, bar the final newline that text hygiene adds to `bitol.svg`. Each is the product's own logo, shown on the integrations cards. `cargo xtask check-docs` refuses an icon with an element outside plain SVG drawing, an event attribute, an escape sequence or a reference that leaves the document. |
+| `slides/2026-introducing-sutura/theme/**` | `github.com/anam-org/metaxy` (`slides/2026-introducing-metaxy/theme`) | Apache-2.0 | `833784259111d361e9668db2babf3eea5d996bbc` | 2026-10-21 | **Copied**, with two changes to `style.css`: the `@import` of a font stylesheet from another origin is removed, so the deck loads nothing at build or view time and the fonts fall back to system fonts; and the em dashes in its comments are hyphens, as the text hygiene gate requires. Every layout and component the deck does not use (`deep.vue`) is left out. The upstream licence has no `NOTICE` file and names no copyright holder. Keep in sync by hand; nothing detects an upstream change. |
 
 ## Acknowledged prior art
 
@@ -109,7 +110,8 @@ Five source-level adaptations, recorded here so nothing is silent:
   beside any impersonation option is refused (impersonation would swap it for the deployment's own
   credential), and a subject without a target principal is refused. The patch adds
   `token_options_test.go`, which the build's check phase runs on a host that can run its target.
-  Nothing in sutura sets these options yet.
+  sutura sets the token for a `google_login` source and the subject for a `domain_delegation`
+  source.
   Upstream issue:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
   upstream ships both options.

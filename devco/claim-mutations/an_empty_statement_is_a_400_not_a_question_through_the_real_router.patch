@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-http/src/routes/v1/run_sql.rs b/crates/sutura-http/src/routes/v1/run_sql.rs
 --- a/crates/sutura-http/src/routes/v1/run_sql.rs
 +++ b/crates/sutura-http/src/routes/v1/run_sql.rs
-@@ -100,8 +100,9 @@ pub(crate) async fn run_sql(
- ) -> Result<RunSqlOutcome, Failure> {
-     let Json(body) = body.map_err(|rejection| crate::problem::rejected(&rejection))?;
+@@ -108,8 +108,9 @@
+         });
+     }
      // `harness/run_sql.rs` pins this path's status and code, not its detail's bytes.
 -    let statement = RawStatement::try_from(body).map_err(|RawMalformedStatement::Statement { cause }| Failure::NotAQuestion {
 -        detail: crate::problem::Detail::of(&cause),

@@ -126,6 +126,12 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::SourceRefused {
             source: source("warehouse"),
         },
+        RefusalReason::BillToNotAllowed {
+            source: source("warehouse"),
+        },
+        RefusalReason::NoBillingProject {
+            source: source("warehouse"),
+        },
         RefusalReason::CredentialUnavailable {
             source: source("warehouse"),
         },
@@ -174,6 +180,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::PlanTablesShareAnIdentifier { .. }
             | RefusalReason::SourceUnavailable { .. }
             | RefusalReason::SourceRefused { .. }
+            | RefusalReason::BillToNotAllowed { .. }
+            | RefusalReason::NoBillingProject { .. }
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
             | RefusalReason::DeadlineExceeded { .. }

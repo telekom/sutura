@@ -42,8 +42,7 @@ use std::path::PathBuf;
 use crate::security::DeploymentIdentity;
 use crate::sources::caller_identity::{CallerIdentity, CallerIdentityBlocks, InvalidDelegatingAccount};
 use crate::sources::placement::{
-    BillingProject, DatasetId, InvalidHostName, InvalidOracleServiceName, InvalidResourceName, InvalidSocketDirectory,
-    SourcePlacement,
+    InvalidHostName, InvalidOracleServiceName, InvalidResourceName, InvalidSocketDirectory, SourcePlacement,
 };
 use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{
@@ -55,6 +54,8 @@ use sutura_domain::source::{
     VerificationIdentity,
 };
 
+/// Who a `bigquery` source's jobs are billed to.
+pub mod billing;
 /// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
 pub mod caller_identity;
 /// The `clickhouse` entry's own keys, read and refused.
@@ -528,6 +529,13 @@ pub enum InvalidSourceRegistry {
          named by their verified subject - remove the key"
     )]
     ImpersonateRemoved { alias: SourceName },
+    /// A source's `billing` block, or a removed payer key, is not usable.
+    #[error("`sources.{alias}` does not declare who pays for its jobs usably")]
+    Billing {
+        alias: SourceName,
+        #[source]
+        cause: crate::sources::billing::InvalidBilling,
+    },
     /// An `oracle`, `clickhouse` or `cube` source's `delegation` is missing, misplaced, or declared
     /// over a plaintext channel.
     #[error("`sources.{alias}.delegation` is not usable")]
@@ -631,7 +639,7 @@ pub enum InvalidSourceRegistry {
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
 ///
-/// A newtype over the map rather than the map, so [`Self::parse_declared`] is the only way one
+/// A newtype over the map rather than the map, so [`Self::parse_billed`] is the only way one
 /// comes into existence and the duplicate-alias refusal cannot be skipped by building the map
 /// directly.
 ///
@@ -649,7 +657,7 @@ pub struct SourceRegistry {
 ///
 /// `pub(crate)`, with `pub(crate)` fields, for the reason `crate::raw`'s shapes are private: it is the
 /// *unparsed* form, so a public one would be a second door into [`SourceRegistry`] that skips nothing
-/// and proves nothing. That makes [`SourceRegistry::parse_declared`] crate-visible too - `Settings::parse` is
+/// and proves nothing. That makes [`SourceRegistry::parse_billed`] crate-visible too - `Settings::parse` is
 /// the only caller, which is what makes the refusals unskippable.
 #[derive(Debug, Clone)]
 pub(crate) struct RawSourceEntry<'raw> {
@@ -717,8 +725,21 @@ impl SourceRegistry {
     /// to single-user and be exempted from the acknowledgement it most needs.
     ///
     /// Each entry travels with its [`CallerIdentityBlocks`].
+    #[cfg(test)]
     pub(crate) fn parse_declared<'entry, 'raw>(
         entries: impl IntoIterator<Item = (&'entry RawSourceEntry<'raw>, CallerIdentityBlocks<'raw>)>,
+        mode: Option<&DeploymentIdentity>,
+    ) -> Result<Self, InvalidSourceRegistry>
+    where
+        'raw: 'entry,
+    {
+        Self::parse_billed(entries, &BTreeMap::new(), mode)
+    }
+
+    /// Every entry, each with its `billing` block keyed by its alias as written.
+    pub(crate) fn parse_billed<'entry, 'raw>(
+        entries: impl IntoIterator<Item = (&'entry RawSourceEntry<'raw>, CallerIdentityBlocks<'raw>)>,
+        billing: &BTreeMap<&str, &crate::raw::RawBilling>,
         mode: Option<&DeploymentIdentity>,
     ) -> Result<Self, InvalidSourceRegistry>
     where
@@ -736,7 +757,7 @@ impl SourceRegistry {
                     written: String::from(entry.written),
                 });
             }
-            let configured = parse_entry(&alias, entry, blocks, mode)?;
+            let configured = parse_entry(&alias, entry, blocks, billing.get(entry.written).copied(), mode)?;
             drop(by_alias.insert(alias, configured));
         }
         Ok(Self { by_alias })
@@ -777,20 +798,21 @@ impl SourceRegistry {
 
 /// Reads one entry, given the alias it was written under.
 ///
-/// Split out of [`SourceRegistry::parse_declared`] so each half stays under the complexity
+/// Split out of [`SourceRegistry::parse_billed`] so each half stays under the complexity
 /// threshold, and because the two halves are two questions: the loop asks *which sources are
 /// there*, and this asks *what does one of them say*.
 fn parse_entry(
     alias: &SourceName,
     entry: &RawSourceEntry<'_>,
     blocks: CallerIdentityBlocks<'_>,
+    billing: Option<&crate::raw::RawBilling>,
     mode: Option<&DeploymentIdentity>,
 ) -> Result<ConfiguredSource, InvalidSourceRegistry> {
     let kind = SourceKind::parse(entry.kind).map_err(|cause| InvalidSourceRegistry::Kind {
         alias: alias.clone(),
         cause,
     })?;
-    let placement = parse_placement(alias, kind, entry)?;
+    let placement = parse_placement(alias, kind, entry, billing)?;
     let acknowledgement = match entry.acknowledged_because {
         None | Some("") => None,
         Some(text) => Some(

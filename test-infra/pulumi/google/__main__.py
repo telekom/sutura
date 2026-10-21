@@ -584,6 +584,54 @@ if google_login_user:
     )
 
 
+# Mode c (`domain_delegation`): a query runs as a domain user's Google account, which a delegating
+# service account acts as. Optional - unset, nothing is created, and no CI job runs mode c.
+#
+# The stack creates the delegating account (no key: the deployment's own credential signs as it),
+# lets the CI service account - the identity every BigQuery CI job runs as, from `ci_key` - sign as
+# it (`iam.serviceAccounts.signJwt`, through `roles/iam.serviceAccountTokenCreator` on this account
+# only), and grants the test user the three BigQuery grants a principal gets above. **What it cannot
+# create** (see the README): the domain-wide delegation itself, which a Workspace or Cloud Identity
+# super administrator authorizes in the Admin console for the exported client id and scope.
+domain_delegation_user = cfg.get("domain_delegation_user")
+if domain_delegation_user:
+    dwd_sa = gcp.serviceaccount.Account(
+        "dwd-sa",
+        account_id=sutura_name(cfg, "dwd"),
+        display_name="sutura BigQuery domain-wide delegation",
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+    )
+    gcp.serviceaccount.IAMMember(
+        "dwd-ci-token-creator",
+        service_account_id=dwd_sa.name,
+        role="roles/iam.serviceAccountTokenCreator",
+        member=ci_sa.member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider),
+    )
+    dwd_member = f"user:{domain_delegation_user}"
+    for role in ("jobUser", "readSessionUser"):
+        gcp.projects.IAMMember(
+            f"dwd-user-{role.lower()}",
+            project=project,
+            role=f"roles/bigquery.{role}",
+            member=dwd_member,
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=API_BOOTSTRAP
+            ),
+        )
+    gcp.bigquery.DatasetIamMember(
+        "dwd-user-dataviewer",
+        dataset_id=ci_dataset,
+        role="roles/bigquery.dataViewer",
+        member=dwd_member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+    )
+    # What the Admin console asks for, and what a `domain_delegation` source names.
+    pulumi.export("dwd_email", dwd_sa.email)
+    pulumi.export("dwd_client_id", dwd_sa.unique_id)
+    pulumi.export("dwd_scope", "https://www.googleapis.com/auth/bigquery")
+    pulumi.export("dwd_user", domain_delegation_user)
+
 # --------------------------------------------------------------------------- #
 # Outputs - the values the CI job and sutura-config consume. Keys are secrets.
 # --------------------------------------------------------------------------- #

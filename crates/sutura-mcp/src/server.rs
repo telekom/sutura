@@ -502,6 +502,8 @@ where
                 let turn = Turn::of(&self.admission, &context);
                 // Times a refusal made while the arguments are read; `answer` times the rest.
                 let arrived = Instant::now();
+                let payer = crate::wire::payer(request.arguments.as_ref())
+                    .map_err(|error| RenderedCause::of(&error).into_error_data())?;
                 let query = match question(request)? {
                     QuestionAdmission::Query(query) => query,
                     QuestionAdmission::Refused(reason) => {
@@ -515,7 +517,7 @@ where
                 // `'static`, while `asked` may borrow this call's own `context` under `PerRequest` -
                 // `sutura_app::Asked`'s own module documentation gives the same reason for why it is
                 // `Clone` at all.
-                let asked_as = asked.context().clone();
+                let asked_as = asked.context().clone().naming(payer);
                 // Where `/v1` writes the line: after the arguments parse, before the slot wait.
                 question::received(&self.request, &query, &asked_as);
                 tokio::select! {

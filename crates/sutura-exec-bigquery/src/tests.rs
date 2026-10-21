@@ -13,7 +13,7 @@
 //! `docs/adr/0018` records that it has not been.
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{BillTo, Presented};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, TableName};
 use sutura_domain::plan::{
     Executable, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
@@ -38,8 +38,8 @@ mod refusals;
 mod results;
 
 use fakes::{
-    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, impersonating_posture, leg_of,
-    one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
+    Broken, ListingRefused, Paged, Recording, Refusing, TimedOut, a_subject_token, day, group_pays, impersonating_posture,
+    leg_of, one_column, open, other_posture, plan, plan_in_dataset, shared_posture, source, test_deadline,
 };
 
 // -------------------------------------------------------------------------------- tests ----
@@ -77,9 +77,8 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
     assert!(asked.statement.contains("`fct_subscription_monthly`"), "{}", asked.statement);
     assert!(asked.statement.contains("MONTH)"), "{}", asked.statement);
     assert!(!asked.statement.contains('"'), "{}", asked.statement);
-    // And the request carries where it is billed and where a bare table resolves.
+    // And the request carries where it is billed.
     assert_eq!(asked.project, "acme-analytics");
-    assert_eq!(asked.dataset, "warehouse");
     // **F1: the port's own `Deadline` has to cross into `JobRequest` unmangled.** `execute` builds
     // `JobDeadline::Port(deadline)` and nothing else - a call site that silently handed the boot
     // path's `JobDeadline::Boot` instead (the exact regression `docs/adr/0029`'s BigQuery slice
@@ -89,27 +88,19 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
 }
 
 #[test]
-fn a_table_naming_its_dataset_and_no_project_still_names_a_project_on_the_wire() {
-    // **What `crate::resolve::resolve` closes, at the boundary that actually reaches the wire.**
-    // Rendered as-is, `sales.fct_subscription_monthly` would leave BigQuery's own request-level
-    // default to fill the missing project in - silently, and not necessarily where the model
-    // actually lives. Resolving the plan before it renders means the STATEMENT says which
-    // project, so a reviewer of the SQL text does not have to trust a request field beside it.
+fn a_table_naming_its_dataset_and_no_project_is_refused_before_the_wire() {
+    // No default dataset or project resolves a shorter path, so the job is refused before a
+    // statement is sent rather than left for `BigQuery` to resolve somewhere.
     let warehouse = open(Recording::empty(), shared_posture());
     let plan = plan_in_dataset();
-    drop(
-        warehouse
-            .execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline())
-            .expect("the fake answers"),
-    );
-    let seen = warehouse.transport.seen.borrow();
-    let asked = seen.first().expect("the transport was asked once");
+    let refused = warehouse.execute(Executable::Query(&plan), &leg_of(&shared_posture()), test_deadline());
     assert!(
-        asked
-            .statement
-            .contains("`acme-analytics`.`sales`.`fct_subscription_monthly`"),
-        "the connection's own project was not filled in:\n{}",
-        asked.statement
+        matches!(refused, Err(BigQueryError::TableNamesNoProject { .. })),
+        "{refused:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "a refused path reached the endpoint"
     );
 }
 
@@ -188,7 +179,7 @@ fn a_session_users_debug_is_redacted_but_explicit_access_and_display_preserve_th
     for answer in ["user@example.com", " USER@EXAMPLE.COM "] {
         let warehouse = open(Recording::answering(answered_as(answer)), shared_posture());
         let who = warehouse
-            .session_user(&leg_of(&shared_posture()))
+            .session_user(&leg_of(&shared_posture()), &BillTo::Unstated)
             .expect("the fake answers one identity");
         assert_eq!(who.as_str(), answer);
         assert_eq!(format!("{who}"), answer);
@@ -214,7 +205,7 @@ fn the_identity_read_goes_out_under_the_subjects_own_bearer_and_carries_no_value
     );
     let token = "exchanged-for-principal-a";
     let who = warehouse
-        .session_user(&a_subject_token(token))
+        .session_user(&a_subject_token(token), &group_pays())
         .expect("the fake answers one identity");
     assert_eq!(who.as_str(), "principal-a@example.com");
     let seen = warehouse.transport.seen.borrow();
@@ -234,7 +225,7 @@ fn the_identity_read_under_a_shared_source_sends_no_bearer_of_its_own() {
     // is neither principal* a thing that venue can find out rather than assume.
     let warehouse = open(Recording::answering(answered_as("ci@example.com")), shared_posture());
     let who = warehouse
-        .session_user(&leg_of(&shared_posture()))
+        .session_user(&leg_of(&shared_posture()), &BillTo::Unstated)
         .expect("the fake answers one identity");
     assert_eq!(who.as_str(), "ci@example.com");
     let seen = warehouse.transport.seen.borrow();
@@ -276,7 +267,7 @@ fn an_identity_read_that_is_not_one_identity_is_refused_and_the_refusal_quotes_n
     for answer in [two_rows, identity_column(vec![None]), two_columns] {
         let warehouse = open(Recording::answering(answer), impersonating_posture());
         let refused = warehouse
-            .session_user(&a_subject_token("exchanged-for-principal-a"))
+            .session_user(&a_subject_token("exchanged-for-principal-a"), &group_pays())
             .expect_err("an answer that is not one identity is a refusal");
         assert!(matches!(refused, BigQueryError::NoIdentityInTheAnswer { .. }), "{refused:?}");
         let said = refused.to_string();
@@ -304,7 +295,7 @@ fn an_identity_read_whose_credential_disagrees_with_the_posture_reaches_no_endpo
     // subject's token is refused here exactly as `execute` refuses it, and nothing is sent.
     let warehouse = open(Recording::empty(), shared_posture());
     let refused = warehouse
-        .session_user(&a_subject_token("exchanged-for-principal-a"))
+        .session_user(&a_subject_token("exchanged-for-principal-a"), &group_pays())
         .expect_err("a subject's token at a shared source disagrees with the posture");
     assert!(
         matches!(refused, BigQueryError::PresentedDisagreesWithPosture { .. }),
@@ -483,7 +474,10 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
     sutura_domain::plan::LegPlan::Fact {
         source: source(),
         metric: MetricName::parse("mrr").expect("a test metric is a metric"),
-        tables: sutura_domain::plan::StatementTables::only(table.clone()),
+        tables: sutura_domain::plan::StatementTables::only(
+            sutura_domain::model::QualifiedTable::parse("acme-analytics.sales.fct_subscription_monthly")
+                .expect("a test table path parses"),
+        ),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("month")),
         keys: vec![PlanKey::new(
             ResultLabel::dimension(&DimensionName::parse("region").expect("a test dimension is a dimension")),

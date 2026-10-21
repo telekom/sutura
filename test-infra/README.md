@@ -253,6 +253,24 @@ API is shut down. Do these by hand, with your own values for the placeholders:
    `client_id: sutura`, `client_secret_file: <path>`, on a deployment with
    `security.inbound.mode: direct` whose issuer is `<realm>`.
 
+## Mode c (`domain_delegation`): what is manual
+
+With `domain_delegation_user` set, the stack creates the delegating service account, grants the
+CI service account `roles/iam.serviceAccountTokenCreator` on that account only, and grants the user
+its BigQuery roles. It exports `dwd_email`, `dwd_client_id` and `dwd_scope`. Domain-wide delegation
+is not a Google Cloud resource, so do it by hand:
+
+1. **Google Admin console** (a super administrator of the Workspace or Cloud Identity account):
+   Security → Access and data control → API controls → Manage Domain Wide Delegation → Add new.
+   Client ID: the `dwd_client_id` output. OAuth scopes: `https://www.googleapis.com/auth/bigquery`
+   only.
+2. **The identity provider**: users must not be able to edit their own email address, and the
+   tokens sutura verifies carry `email` and `email_verified`. In Keycloak: Realm settings → User
+   profile → `email` → Permission, and remove `user` from **Who can edit**.
+3. **sutura**: a `bigquery` source with `posture: impersonation-at-source` and
+   `domain_delegation.delegating_account: <dwd_email>`, on a deployment whose own application
+   default credentials are the CI service account.
+
 ## Caveats
 
 - **Preview is green against pulumi_gcp 9.35.1** (`+14 to create`: the two API-enabling

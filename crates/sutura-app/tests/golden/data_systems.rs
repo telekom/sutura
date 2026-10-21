@@ -1,7 +1,9 @@
 //! What a data system decides, expanded over every registered one.
 //!
-//! The bundle comes from `adapters::ReferenceCatalog` throughout: which catalog read it does not
-//! change what a data system does with the plan, and the catalog axis is what makes that true.
+//! The bundle comes from `adapters::ReferenceCatalog`'s example catalog throughout, through
+//! `adapters::load_on`: which catalog read it does not change what a data system does with the plan,
+//! and the catalog axis is what makes that true. A system that resolves no bare table reads it with
+//! each table named the way it resolves one.
 
 use sutura_app::{answer, verify_anchors};
 use sutura_domain::pinned::AnchorCheck;
@@ -9,13 +11,12 @@ use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::Executable;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
-use sutura_domain::warehouse::{PreFlight, RowSet};
+use sutura_domain::warehouse::{PreFlight, RowSet, Warehouse as _};
 use sutura_semantic::{Compiled, compile};
 
+use crate::adapters::bigquery::BIGQUERY_TABLES;
 use crate::adapters::exemptions::{Exempt, excused};
-use crate::adapters::{
-    BIGQUERY_TABLES, DataSystemUnderTest, ReferenceCatalog, data_root, load, open, questions, read_question, runs_here, stem,
-};
+use crate::adapters::{DataSystemUnderTest, catalog_root, data_root, load_on, open, questions, read_question, runs_here, stem};
 
 use crate::shared::{chain, question, settings, stable};
 
@@ -35,7 +36,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let report = verify_anchors(&pinned, &warehouse);
     settings(W::NAME).bind(|| {
@@ -74,7 +75,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
     for path in questions() {
@@ -154,7 +155,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     // The ADAPTER and not a registry, deliberately: `dry_run` is a port method and this test is about
     // the port. A registry is a lookup, so routing through it here would be asserting the lookup twice
     // and the pre-flight once.
@@ -236,7 +237,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
     let total_of = |file: &str| -> f64 {
@@ -325,7 +326,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
 
@@ -434,7 +435,7 @@ where
     if !runs_here::<W>() {
         return;
     }
-    let pinned = load::<ReferenceCatalog>();
+    let pinned = load_on::<W>();
     let warehouse = open::<W>(&pinned);
     let probes = !excused(W::NAME, Exempt::KeyProbe);
     let definitions = pinned.definitions();
@@ -537,7 +538,7 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         <BigQuery as DataSystemUnderTest>::available(),
         "SUTURA_BQ_DATASET is unset, so there is no dataset to provision"
     );
-    let warehouse = crate::adapters::bigquery_warehouse(crate::adapters::source());
+    let (warehouse, qualifier) = crate::adapters::bigquery::bigquery_provisioned(crate::adapters::source());
     let mut committed: Vec<String> = std::fs::read_dir(data_root())
         .expect("the example data directory reads")
         .map(|entry| entry.expect("a directory entry is readable").path())
@@ -568,7 +569,10 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
                 csv
             },
         );
-        let table = sutura_domain::model::TableName::parse(name).expect("a dataset table is named");
+        let table = sutura_domain::model::QualifiedTable::new(
+            Some(qualifier.clone()),
+            sutura_domain::model::TableName::parse(name).expect("a dataset table is named"),
+        );
         let loaded = warehouse
             .load_fixture(&table, &csv)
             .unwrap_or_else(|e| panic!("{table} did not load:\n{}", chain(&e)));
@@ -580,7 +584,7 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         );
         eprintln!("provisioned {table}: the importer parsed {loaded} rows");
     }
-    if let Err(error) = warehouse.session_user(&crate::adapters::presented()) {
+    if let Err(error) = warehouse.session_user(&crate::adapters::presented(), &sutura_domain::identity::BillTo::Unstated) {
         let said = chain(&error);
         assert!(
             !said.contains("bigquery.readsessions.create"),
@@ -590,6 +594,48 @@ fn the_bigquery_dataset_holds_the_example_corpus() {
         );
         panic!("the CI identity loaded the corpus and could not read through the driver:\n{said}");
     }
+}
+
+/// **Every corpus plan a `bigquery` cell runs names its project**, offline: the bundle
+/// `bigquery::qualified_bundle` gives those cells, over a warehouse built as theirs is, is billed
+/// and rendered for every question - which the bare example catalog is not, since this source has no
+/// default project. `dry_run` declines before the driver loads, so no dataset is reached. **The
+/// limit:** that the provisioned dataset holds these paths is the live job's to show.
+#[test]
+fn every_corpus_plan_on_bigquery_names_the_project_it_bills() {
+    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
+    let project = ProjectId::parse("ci-project").expect("a project id parses");
+    let dataset = DatasetId::parse("corpus").expect("a dataset id parses");
+    let pinned =
+        crate::adapters::bigquery::qualified_bundle(&catalog_root(), &crate::adapters::bigquery::qualifier(&project, &dataset));
+    let warehouse = crate::adapters::bigquery::warehouse_billing(
+        crate::adapters::source(),
+        project,
+        sutura_exec_bigquery::adbc::DriverLocation::parse("/nonexistent/libadbc_driver_bigquery.so")
+            .expect("an absolute path is a driver location"),
+    );
+    let mut planned = 0_usize;
+    for path in questions() {
+        let compiled = compile(
+            &read_question(&path),
+            &ScopedView::everything(&pinned),
+            sutura_domain::plan::RowCeiling::DEFAULT,
+        )
+        .expect("the corpus compiles");
+        let Compiled::Planned { ref plan } = compiled else {
+            continue;
+        };
+        let answered = warehouse
+            .dry_run(
+                Executable::Query(plan),
+                &crate::adapters::presented(),
+                crate::adapters::deadline(),
+            )
+            .unwrap_or_else(|e| panic!("{} was rejected by bigquery:\n{}", stem(&path), chain(&e)));
+        assert_eq!(answered, PreFlight::NotAsked, "{}", stem(&path));
+        planned = planned.saturating_add(1);
+    }
+    assert!(planned > 0, "no corpus question planned, so this billed nothing");
 }
 
 /// **The `bigquery` open refuses a table the dataset does not hold**, offline: the check runs before
