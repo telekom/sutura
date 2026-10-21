@@ -619,14 +619,6 @@ fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
             &["region"][..],
             "visits",
         ),
-        (
-            Placed {
-                calendar_on: "remote",
-                ..ONE_SOURCE
-            },
-            &["region"][..],
-            "calendar",
-        ),
     ] {
         let reason = refusal(ask(&two_facts(&placed), by));
         assert!(
@@ -650,4 +642,33 @@ fn a_calendar_over_a_fact_s_own_table_is_refused_rather_than_joined() {
         matches!(reason, RefusalReason::PlanTablesShareAnIdentifier { ref table } if table.as_str() == "dim_visits"),
         "expected PlanTablesShareAnIdentifier naming dim_visits, got {reason:?}"
     );
+}
+
+/// Each fact leg joins the calendar listed on ITS source. One listed for another source, reachable
+/// from both facts and sorting before the real one, is joined by neither - which holds `resolve`'s
+/// choice by source.
+#[test]
+fn a_calendar_listed_on_another_source_is_joined_by_no_fact_leg() {
+    let plan = federated(ask(
+        &two_facts(&Placed {
+            unused_calendar_on: Some("remote"),
+            ..ONE_SOURCE
+        }),
+        &["region"],
+    ));
+    for leg in [
+        plan.fact(),
+        plan.second_fact().expect("a cross-model ratio carries a second fact leg"),
+    ] {
+        let LegPlan::Fact { tables, .. } = leg else {
+            panic!("a fact leg");
+        };
+        let joined: Vec<&str> = tables.joins().iter().map(|join| join.table().name().as_str()).collect();
+        assert_eq!(
+            joined,
+            ["dim_calendar"],
+            "{} joins the calendar on its own source",
+            leg.table_name().as_str()
+        );
+    }
 }

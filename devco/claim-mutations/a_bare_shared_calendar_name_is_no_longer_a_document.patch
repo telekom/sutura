@@ -1,0 +1,31 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 144f58643..7276ccb64 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -603,10 +603,25 @@ pub struct MetricDoc {
+     /// system a fact lives on - [`Metric::with_shared_calendars`], checked at load by the domain.
+     /// A list: a bare model name is a type error, not a one-calendar shorthand. Absent on a
+     /// one-model metric.
+-    #[serde(default)]
++    #[serde(default, deserialize_with = "one_or_many")]
+     shared_calendar: Option<Vec<ModelName>>,
+ }
+ 
++#[derive(serde::Deserialize)]
++#[serde(untagged)]
++enum OneOrMany {
++    One(ModelName),
++    Many(Vec<ModelName>),
++}
++
++fn one_or_many<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Vec<ModelName>>, D::Error> {
++    use serde::Deserialize;
++    Ok(Option::<OneOrMany>::deserialize(deserializer)?.map(|any| match any {
++        OneOrMany::One(model) => vec![model],
++        OneOrMany::Many(models) => models,
++    }))
++}
++
+ /// Why a metric document cannot become a metric.
+ ///
+ /// Only what belongs to the DOCUMENT: the conversions this file performs that the domain's own

@@ -166,7 +166,7 @@ the source called the column - and `LinkKind::declared` reads it only to refuse.
 
 `Relationship` carries a name, two models, a join type, and join keys - and no
 field saying the two sides are comparable
-(`crates/sutura-domain/src/catalog.rs:402-408`). A catalog author has no way to
+(`crates/sutura-domain/src/catalog.rs:404-410`). A catalog author has no way to
 declare that an `INTEGER` here and a `NUMBER(38)` there are intended to join, so
 the runtime check is the only thing that holds the pair. The declaration half of
 ADR 0007's open question - option (b) in `telekom/sutura#138` - is still open and is

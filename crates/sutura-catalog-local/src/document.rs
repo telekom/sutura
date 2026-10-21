@@ -21,8 +21,8 @@ use sutura_domain::calendar::TimeRange;
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
     Anchor, AnchorValue, Column, ColumnRefusal, Description, Dimension, DimensionValue, InconsistentDefinitions,
-    InvalidComparison, InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidViaChain, JoinKey, JoinKeys, Metric,
-    Model, Relationship, ViaChain,
+    InvalidComparison, InvalidDescription, InvalidDimensionValue, InvalidJoinKeys, InvalidSharedCalendars, InvalidViaChain,
+    JoinKey, JoinKeys, Metric, Model, Relationship, SharedCalendars, ViaChain,
 };
 use sutura_domain::expression::{AuthoredSql, Computation, InvalidComputation};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
@@ -607,10 +607,12 @@ pub struct MetricDoc {
     /// `!Tag` nobody authoring a catalog file spells; the unit variant `open` needs no adapter.
     #[serde(with = "serde_norway::with::singleton_map")]
     audience: AudienceDoc,
-    /// The conformed calendar model a cross-model ratio buckets both facts through -
-    /// [`Metric::with_shared_calendar`], checked at load by the domain. Absent on a one-model metric.
+    /// The conformed calendar models a cross-model ratio buckets its facts through, one per data
+    /// system a fact lives on - [`Metric::with_shared_calendars`], checked at load by the domain.
+    /// A list: a bare model name is a type error, not a one-calendar shorthand. Absent on a
+    /// one-model metric.
     #[serde(default)]
-    shared_calendar: Option<ModelName>,
+    shared_calendar: Option<Vec<ModelName>>,
 }
 
 /// Why a metric document cannot become a metric.
@@ -665,6 +667,13 @@ pub enum InvalidMetricDocument {
         #[source]
         cause: InvalidAudienceDeclaration,
     },
+    /// The `shared_calendar:` list is empty or names a model twice.
+    #[error("metric {metric}'s shared calendar list is not usable")]
+    SharedCalendars {
+        metric: MetricName,
+        #[source]
+        cause: InvalidSharedCalendars,
+    },
     /// A dimension's `via:` chain names nothing.
     ///
     /// The domain's `ViaChain::of` refuses the empty chain; this is where the refusal learns which
@@ -682,7 +691,14 @@ pub enum InvalidMetricDocument {
 
 impl MetricDoc {
     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
-        let shared_calendar = self.shared_calendar;
+        let shared_calendars = self
+            .shared_calendar
+            .map(SharedCalendars::parse)
+            .transpose()
+            .map_err(|cause| InvalidMetricDocument::SharedCalendars {
+                metric: self.name.clone(),
+                cause,
+            })?;
         // A vector, handed on as a vector. This loop used to build a map and refuse a repeat in it,
         // which was a check the DataHub adapter did not have - see `InvalidMetricDocument`.
         let mut dimensions: Vec<Dimension> = Vec::with_capacity(self.dimensions.len());
@@ -722,8 +738,8 @@ impl MetricDoc {
             description,
             audience,
         )
-        .map(|metric| match shared_calendar {
-            Some(calendar) => metric.with_shared_calendar(calendar),
+        .map(|metric| match shared_calendars {
+            Some(calendars) => metric.with_shared_calendars(calendars),
             None => metric,
         })
         .map_err(|cause| InvalidMetricDocument::Inconsistent(Box::new(cause)))
@@ -733,3 +749,7 @@ impl MetricDoc {
 #[cfg(test)]
 #[path = "document/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "document/relationship_tests.rs"]
+mod relationship_tests;

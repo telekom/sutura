@@ -297,7 +297,7 @@ pub const MAX_COLUMN_TYPE_CHARS: usize = 512;
 /// `"character varying"`, `"NUMERIC(38,9)"`.
 ///
 /// **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
-/// `LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+/// `LinkKind::declared`, which reads it to REFUSE a federated join or a pair of shared calendars across kinds and nothing else,
 /// and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
 /// absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 /// treating it as one, and review is what holds this claim, not a type-level guarantee. Stated

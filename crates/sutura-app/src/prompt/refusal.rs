@@ -55,6 +55,18 @@ const TOO_MANY_METRICS: Guide = Guide {
     remedy: "Ask two narrower questions instead.",
 };
 
+const DIMENSION_NOT_CONFORMED: Guide = Guide {
+    reason: "dimension_not_conformed",
+    meaning: "a dimension does not end on the same model and column for two of the named metrics, so it cannot be used for both",
+    remedy: "Ask for those metrics separately, or leave that dimension out.",
+};
+
+const QUESTION_NEEDS_TOO_MANY_LEGS: Guide = Guide {
+    reason: "question_needs_too_many_legs",
+    meaning: "answering would run more queries against the data systems than one question may",
+    remedy: "Ask for fewer metrics at a time.",
+};
+
 const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
@@ -323,6 +335,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
+    &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
     &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
@@ -346,6 +359,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // not narrow.
     &BUDGET_EXHAUSTED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
+    &QUESTION_NEEDS_TOO_MANY_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
@@ -396,6 +410,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
+        RefusalReason::DimensionNotConformed { .. } => &DIMENSION_NOT_CONFORMED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
         RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
         RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
@@ -405,6 +420,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
+        RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,

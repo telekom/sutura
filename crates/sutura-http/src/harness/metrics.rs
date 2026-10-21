@@ -16,7 +16,8 @@ use sutura_config::Environment;
 use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{
-    AnchorPlan, Executable, FederatedAnswerRefusal, FederatedPlan, FederationCombiner, Legs, NothingCombined,
+    AnchorPlan, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, Executable, FederatedAnswerRefusal, FederatedPlan,
+    FederationCombiner, Legs, NothingCombined,
 };
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::arrow::of_rows;
@@ -108,6 +109,7 @@ sutura_refusals_total{reason="cross_model_ratio_spans_sources"} 0
 sutura_refusals_total{reason="cross_model_ratio_without_shared_calendar"} 0
 sutura_refusals_total{reason="cross_model_ratio_without_shared_dimension"} 0
 sutura_refusals_total{reason="deadline_exceeded"} 0
+sutura_refusals_total{reason="dimension_not_conformed"} 0
 sutura_refusals_total{reason="dimension_not_filterable"} 0
 sutura_refusals_total{reason="dimension_not_permitted"} 0
 sutura_refusals_total{reason="dimension_value_not_allowed"} 0
@@ -126,6 +128,7 @@ sutura_refusals_total{reason="multi_metric_top_not_executable"} 0
 sutura_refusals_total{reason="no_billing_project"} 0
 sutura_refusals_total{reason="plan_spans_too_many_sources"} 0
 sutura_refusals_total{reason="plan_tables_share_an_identifier"} 0
+sutura_refusals_total{reason="question_needs_too_many_legs"} 0
 sutura_refusals_total{reason="resources_exhausted"} 0
 sutura_refusals_total{reason="result_too_large"} 0
 sutura_refusals_total{reason="source_refused"} 0
@@ -644,6 +647,17 @@ impl FederationCombiner for CombinesTo {
 
     fn answer_not_well_formed(&self, _error: &Self::Error) -> Option<FederatedAnswerRefusal> {
         None
+    }
+}
+
+impl DrillAcrossCombiner for CombinesTo {
+    fn merge(
+        &self,
+        _plan: &DrillAcrossPlan,
+        _arms: &[ArmLegs<'_>],
+        _working_set_bytes: u64,
+    ) -> Result<ResultBatches, Self::Error> {
+        Err(NothingCombined)
     }
 }
 

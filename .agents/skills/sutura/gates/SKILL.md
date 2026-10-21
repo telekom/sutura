@@ -461,7 +461,8 @@ panic-free.
   (`crates/*/src` and `dev/src`) feeds the `///` and `//!` lines of those files through
   `absences::prose` into `stale`, `CONTRADICTED`, `WITHDRAWN`, the task and recipe citations and the
   path citations. **`counts` and `hosts` do not read them**: a number or a host named in a doc comment
-  is outside both, and they never read a `//` line, a block comment or a string literal.
+  is outside both. No wording, task, recipe or path rule treats a `//` line, a block comment or a
+  string literal as a place a claim is made.
 - **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
   The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
   on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over

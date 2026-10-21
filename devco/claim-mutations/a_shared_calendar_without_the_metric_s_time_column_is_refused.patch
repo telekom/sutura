@@ -1,22 +1,17 @@
-diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
-index d95464a2e..e54ff2547 100644
---- a/crates/sutura-domain/src/catalog/consistency.rs
-+++ b/crates/sutura-domain/src/catalog/consistency.rs
-@@ -558,17 +558,6 @@ impl Definitions {
-                     });
-                 }
-             }
--            // The column both legs bucket and bound by is the metric's time column on the calendar.
--            if models
--                .get(calendar)
--                .is_some_and(|model| !model.has_column(&metric.time_column))
--            {
--                return Err(InconsistentDefinitions::UnknownTimeColumn {
--                    metric: metric.name.clone(),
--                    model: calendar.clone(),
--                    column: metric.time_column.clone(),
--                });
--            }
-         }
-         Ok(())
-     }
+diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
+index db0c502d5..69876e589 100644
+--- a/crates/sutura-domain/src/catalog/calendar.rs
++++ b/crates/sutura-domain/src/catalog/calendar.rs
+@@ -112,11 +112,7 @@ pub(super) fn check(
+     let mut typed: Option<(&Model, LinkKind)> = None;
+     for calendar in on_source.values() {
+         let Some(column) = calendar.column(&metric.time_column) else {
+-            return Err(InconsistentDefinitions::UnknownTimeColumn {
+-                metric: metric.name.clone(),
+-                model: calendar.name.clone(),
+-                column: metric.time_column.clone(),
+-            });
++            continue;
+         };
+         match (typed, column.data_type().and_then(LinkKind::declared)) {
+             (Some((first, seen)), Some(declared)) if seen != declared => {

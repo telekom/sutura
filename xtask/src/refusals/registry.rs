@@ -58,8 +58,10 @@ const QUERY: Subject = Subject {
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
     // kinds is refused at plan time. 34 since `BillToNotAllowed` and `NoBillingProject`: a job whose
-    // payer was named where none is taken, or cannot be decided, is refused before it runs.
-    variants: variants(34),
+    // payer was named where none is taken, or cannot be decided, is refused before it runs. 36 since
+    // `DimensionNotConformed` and `QuestionNeedsTooManyLegs`, declared ahead of the planner that
+    // raises them.
+    variants: variants(36),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

@@ -60,7 +60,7 @@ a_dead_destination_on_a_generated_page_names_the_page_and_the_line # same file a
 a_directory_with_no_page_is_a_refusal_and_not_a_clean_sweep # same file as `api_links::check`, absent at base; killed when `pages` returns an empty set instead of an error
 pages_without_the_generated_header_are_not_the_generators_output # same file as `api_links::check`, absent at base; killed when the `found.generated == 0` refusal is `&& false`
 a_generator_that_allows_another_scheme_disagrees_with_this_scan # same file as `api_links::check`, absent at base; killed when the `generator != mine` refusal is `&& false`
-a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page # same file as `api_links::finding`, absent at base; killed when the `names_no_page` arm is `&& false`
+a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page # same file as `api_links::unresolved`, absent at base; killed when `names_no_page` returns false
 a_library_crate_the_generator_wrote_no_page_for_is_named # same file as `missing_pages`, absent at base; killed when `missing_pages` returns an empty list
 pages_are_kept_only_where_a_destination_is_named # same file as `keep`, absent at base; killed when `keep` copies with no destination named
 only_a_path_under_the_pages_directory_is_a_tracked_page # new module api_docs/owner.rs, declared in api_docs.rs which the base run reverts; killed when `pages_in` matches every path

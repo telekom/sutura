@@ -339,8 +339,8 @@ pub(in crate::guidance) fn spans(text: &str) -> Vec<&str> {
 
 mod references;
 
-/// The library source whose doc comments are published on the API reference: every first-party
-/// crate under `crates/` and the `dev` support crate.
+/// The library source whose public doc comments the API reference publishes, and whose private ones
+/// are read here too: every first-party crate under `crates/` and the `dev` support crate.
 const DOC_COMMENTS: &[&str] = &["crates/*/src/**/*.rs", "dev/src/**/*.rs"];
 
 fn stale_phrases(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {

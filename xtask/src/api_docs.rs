@@ -60,7 +60,8 @@ mod writer;
 /// Whether a generated page has crept back into git.
 pub(crate) mod owner;
 
-/// Where `just api` and the publish run write the pages, relative to the repo root.
+/// Where `just api` writes the pages, and where the publish run copies the ones it built, relative to
+/// the repo root.
 ///
 /// The scan names a finding by this path, because it is where a reader finds the page on the
 /// site and under `just api`; the scan itself reads a temporary directory.
@@ -186,9 +187,9 @@ fn check(root: &Path) -> Result<Outcome, String> {
     // resolvable doc link from an unresolvable one, so generating pages from it and reporting
     // them clean would be a green verdict over a question nobody asked. See `lints`.
     let arming = lints::check(root, &metadata)?;
-    // SECOND precondition, and an `Err` for the same reason: `just api` and the publish run use the
-    // writer, and a writer passing other flags produces pages from a rustdoc run whose
-    // question was not the one asked here. See `writer`.
+    // SECOND precondition, and an `Err` for the same reason: `just api` uses the writer, and a writer
+    // passing other flags produces pages from a rustdoc run whose question was not the one asked
+    // here. The publish run does not use it - it copies what this check kept. See `writer`.
     let flags = writer::check(root)?;
     let packages = library_packages(&metadata)?;
     let binaries = binary_targets(&metadata)?;

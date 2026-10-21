@@ -12,8 +12,9 @@ the pages, never on the query path - the same standing as `.agents/skills-sync.p
 standard library only, so the pixi interpreter is all it needs.
 
 WHY THE PAGES ARE NOT COMMITTED. A committed generated page rots silently and bloats every diff
-that touches a doc comment. The docs workflow writes them with `nix run .#api-docs` on `main` and
-on a `v*` tag, before the site build, and `just api` writes them into the ignored `docs/api/`.
+that touches a doc comment. The docs workflow builds them in the nix sandbox (`checks.api-docs`
+leaves the pages it judged under `$out`) on `main` and on a `v*` tag, before the site build, and
+`just api` writes them into the ignored `docs/api/`.
 
     WHAT HOLDS THAT: `cargo xtask check-api-docs` generates every page into a temporary
     directory and scans its links, so a doc comment that would break the publish run fails on

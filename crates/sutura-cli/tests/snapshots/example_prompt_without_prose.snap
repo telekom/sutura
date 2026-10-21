@@ -63,6 +63,9 @@ Every reason you can be given, and what to do about each:
   Ask about each metric separately - one at a time executes.
 - **too_many_metrics** - more metrics than one question may carry.
   Ask two narrower questions instead.
+- **dimension_not_conformed** - a dimension does not end on the same model and column for two of the
+  named metrics, so it cannot be used for both.
+  Ask for those metrics separately, or leave that dimension out.
 - **duplicate_metric_name** - the same metric was sent twice in one question.
   Send it once - refused rather than de-duplicated.
 - **multi_metric_federation_not_executable** - this build does not federate several metrics, and the
@@ -121,6 +124,9 @@ Every reason you can be given, and what to do about each:
   deployment serves (two at most).
   Nothing you can change. Report it to a person - it is a fact about how the metric is defined, and
   retrying or trying a different dimension will not avoid it.
+- **question_needs_too_many_legs** - answering would run more queries against the data systems than
+  one question may.
+  Ask for fewer metrics at a time.
 - **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the

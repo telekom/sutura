@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 12 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 13 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -57,6 +57,13 @@
 
 use axum::http::StatusCode;
 use sutura_domain::query::{RefusalReason, ResultBound};
+
+mod sentences;
+
+use sentences::{
+    credential_unavailable, dimension_not_conformed, multi_metric_federation_not_executable, multi_metric_top_not_executable,
+    resources_exhausted, too_many_legs,
+};
 
 use super::RefusalBody;
 use link::{federation_link_ambiguous, federation_link_compound, link_type_mismatch};
@@ -97,6 +104,16 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::TooManyMetrics { requested, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("{requested} metrics were asked for and the maximum is {limit}"),
+        ),
+        // 422, with its predecessor `MetricsSpanDifferentModels`: every metric exists and the request is
+        // well formed, and a dimension that does not end on the same model and column for each cannot serve both.
+        RefusalReason::DimensionNotConformed {
+            ref dimension,
+            ref first,
+            ref other,
+        } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            dimension_not_conformed(dimension, first, other),
         ),
         // 422. Well formed, and not a question: the caller believes something about the second
         // occurrence that we do not, which is why the domain refuses rather than deduplicating.
@@ -210,15 +227,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         //
         // The sentence names the ceiling because that is a configured number and safe to hand back,
         // and names nothing about what the question demanded - see the domain variant for why.
-        RefusalReason::ResourcesExhausted { ceiling_bytes } => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            format!(
-                "answering this needed more working memory than this deployment's ceiling of \
-                 {ceiling_bytes} bytes, and it was refused rather than allowed to exhaust the \
-                 process; narrow the period, group by fewer dimensions or add a filter and ask \
-                 again. Retrying it unchanged returns this same refusal"
-            ),
-        ),
+        RefusalReason::ResourcesExhausted { ceiling_bytes } => {
+            (StatusCode::UNPROCESSABLE_ENTITY, resources_exhausted(ceiling_bytes))
+        }
         // 409. A question spanning more than two data systems is answerable in principle and this
         // deployment will not answer it: each source is a separate identity to satisfy, and a plan
         // that runs partly as somebody else is the failure the whole design is arranged against.
@@ -227,6 +238,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             StatusCode::CONFLICT,
             format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
         ),
+        // 409, with `PlanSpansTooManySources`: answerable in principle, and this deployment will not
+        // run that many queries for one question.
+        RefusalReason::QuestionNeedsTooManyLegs { legs, limit } => (StatusCode::CONFLICT, too_many_legs(legs, limit)),
         // A question that would need federation execution this deployment cannot do yet, a link shape
         // the combiner does not express, a measure that cannot recombine, an ill-formed federated
         // answer, or two tables sharing an identifier - all 409, because none of them is a data system
@@ -251,7 +265,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             (StatusCode::CONFLICT, multi_metric_federation_not_executable(metrics))
         }
         // 409. `top` names no metric to rank by once there is more than one.
-        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => multi_metric_top_not_executable(metrics),
+        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => {
+            (StatusCode::CONFLICT, multi_metric_top_not_executable(metrics))
+        }
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
         // the plan's data system against the adapter this process opened - so today's cause is a
@@ -278,15 +294,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // data system's to say; guessing it here would be this deployment holding a second opinion
         // about somebody else's authorization, and it would tell a caller something about a data
         // system they were just refused access to.
-        RefusalReason::CredentialUnavailable { ref source } => (
-            StatusCode::FORBIDDEN,
-            format!(
-                "you have no credential at the data system `{source}`, so this deployment will not \
-                 read it on your behalf - and it will not read it as itself instead. This is not \
-                 about the token you presented to this service: the missing grant is at that data \
-                 system. Asking the same question again returns this same refusal"
-            ),
-        ),
+        RefusalReason::CredentialUnavailable { ref source } => (StatusCode::FORBIDDEN, credential_unavailable(source)),
         // 403, and this is the DATA SYSTEM itself refusing the executed statement at the
         // identity/authorization level - the query-time sibling of the boot-time
         // `preflight_was_refused` split. It used to reach here as `ServiceError::Warehouse` and
@@ -459,32 +467,6 @@ fn plan_tables_share_an_identifier() -> String {
     )
 }
 
-/// The metrics a refusal names, comma-joined - catalog-authored names, safe to echo back.
-fn joined_metric_names(metrics: &[sutura_domain::model::MetricName]) -> String {
-    metrics
-        .iter()
-        .map(sutura_domain::model::MetricName::as_str)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn multi_metric_federation_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
-    format!(
-        "{} were asked together, and the question also reaches a dimension on another data system; \
-         this build does not federate several metrics",
-        joined_metric_names(metrics)
-    )
-}
-
-/// `409`, with the metrics asked together with `top`.
-fn multi_metric_top_not_executable(metrics: &[sutura_domain::model::MetricName]) -> (StatusCode, String) {
-    let sentence = format!(
-        "{} were asked together with `top`, which names no metric to rank by",
-        joined_metric_names(metrics)
-    );
-    (StatusCode::CONFLICT, sentence)
-}
-
 /// How long until a refusal's own window makes the same question answerable again, where that is a
 /// fact this replica can name rather than a guess.
 ///
@@ -498,6 +480,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         RefusalReason::MetricUnknown { .. }
         | RefusalReason::MetricsSpanDifferentModels { .. }
         | RefusalReason::TooManyMetrics { .. }
+        | RefusalReason::DimensionNotConformed { .. }
+        | RefusalReason::QuestionNeedsTooManyLegs { .. }
         | RefusalReason::DuplicateMetricName { .. }
         | RefusalReason::MultiMetricFederationNotExecutable { .. }
         | RefusalReason::MultiMetricTopNotExecutable { .. }
@@ -755,7 +739,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 12 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 13 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

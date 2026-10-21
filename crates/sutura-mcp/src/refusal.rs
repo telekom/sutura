@@ -50,22 +50,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::TooManyMetrics { requested, limit } => {
             format!("{requested} metrics were asked for; at most {limit} are allowed")
         }
-        RefusalReason::DuplicateMetricName { ref metric } => format!("`{metric}` is listed more than once"),
-        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => {
-            let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
-            format!(
-                "{} were asked together, and the question also reaches a dimension on another data \
-                 system; this build does not federate several metrics",
-                names.join(", ")
-            )
+        RefusalReason::DimensionNotConformed {
+            ref dimension,
+            ref first,
+            ref other,
+        } => dimension_not_conformed(dimension, first, other),
+        RefusalReason::QuestionNeedsTooManyLegs { legs, limit } => question_needs_too_many_legs(legs, limit),
+        RefusalReason::DuplicateMetricName { ref metric } => {
+            format!("`{metric}` is listed more than once")
         }
-        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => {
-            let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
-            format!(
-                "{} were asked together with `top`, which names no metric to rank by",
-                names.join(", ")
-            )
-        }
+        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => multi_metric_federation_not_executable(metrics),
+        RefusalReason::MultiMetricTopNotExecutable { ref metrics } => multi_metric_top_not_executable(metrics),
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
         }
@@ -251,6 +246,44 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     (code, detail)
 }
 
+fn metric_names(metrics: &[sutura_domain::model::MetricName]) -> String {
+    let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
+    names.join(", ")
+}
+
+fn multi_metric_federation_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
+    format!(
+        "{} were asked together, and the question also reaches a dimension on another data system; this build does not \
+         federate several metrics",
+        metric_names(metrics)
+    )
+}
+
+fn multi_metric_top_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
+    format!(
+        "{} were asked together with `top`, which names no metric to rank by",
+        metric_names(metrics)
+    )
+}
+
+fn dimension_not_conformed(
+    dimension: &sutura_domain::model::DimensionName,
+    first: &sutura_domain::model::MetricName,
+    other: &sutura_domain::model::MetricName,
+) -> String {
+    format!(
+        "`{dimension}` does not end on the same model and column for `{first}` and `{other}`, so it \
+         cannot be used for both; ask for them separately, or leave `{dimension}` out"
+    )
+}
+
+fn question_needs_too_many_legs(legs: usize, limit: usize) -> String {
+    format!(
+        "answering this would run {legs} queries against the data systems and one question runs \
+         {limit} at most; ask for fewer metrics at a time"
+    )
+}
+
 fn compound_link(source: &sutura_domain::model::SourceName, relationship: &sutura_domain::model::RelationshipName) -> String {
     format!(
         "the relationship `{relationship}` crossing into `{source}` declares more than one join key, and the two legs \
@@ -314,6 +347,12 @@ mod tests {
                 other: MetricName::parse("margin").expect("a test metric is a metric"),
             },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::DimensionNotConformed {
+                dimension: dimension(),
+                first: metric(),
+                other: MetricName::parse("margin").expect("a test metric is a metric"),
+            },
+            RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName { metric: metric() },
             RefusalReason::MultiMetricFederationNotExecutable {
                 metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],

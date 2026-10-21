@@ -18,7 +18,7 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. 12 refusal reasons land on `422`,
+//! convention are `429` and `408`, and no refusal maps to either. 13 refusal reasons land on `422`,
 //! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
@@ -162,12 +162,13 @@ const TAG: &str = "query";
         (
             status = 409,
             description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
-                           and this deployment will not answer it, so `code` says which of five \
+                           and this deployment will not answer it, so `code` says which of six \
                            things stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
                            systems. `plan_spans_too_many_sources`: it would read from more data \
-                           systems than one answer may. `federation_link_ambiguous`: the remote \
-                           dimensions join through more than one relationship. \
+                           systems than one answer may. `question_needs_too_many_legs`: it would run \
+                           more queries against the data systems than one answer may. \
+                           `federation_link_ambiguous`: the remote dimensions join through more than one relationship. \
                            `federation_link_compound`: the one relationship crossing into the \
                            second data system declares more than one join key, and the combiner \
                            links two legs on a single column. `federation_link_type_mismatch`: the \

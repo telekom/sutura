@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
+index a906ff94d..f028c1a2c 100644
+--- a/crates/sutura-domain/src/catalog/calendar.rs
++++ b/crates/sutura-domain/src/catalog/calendar.rs
+@@ -97,7 +97,7 @@ pub(super) fn check(
+         };
+         let joins = relationships
+             .values()
+-            .any(|rel| rel.origin_model() == &fact.name && rel.target_model() == &calendar.name);
++            .any(|rel| rel.origin_model() == &fact.name && calendars.iter().any(|listed| listed == rel.target_model()));
+         if !joins {
+             return Err(InconsistentDefinitions::SharedCalendarNotReachable {
+                 metric: metric.name.clone(),

@@ -55,6 +55,12 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             requested: 9,
             limit: MAX_METRICS,
         },
+        RefusalReason::DimensionNotConformed {
+            dimension: dimension("region"),
+            first: metric("revenue"),
+            other: metric("margin"),
+        },
+        RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
         RefusalReason::DuplicateMetricName {
             metric: metric("revenue"),
         },
@@ -158,6 +164,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             RefusalReason::MetricUnknown { .. }
             | RefusalReason::MetricsSpanDifferentModels { .. }
             | RefusalReason::TooManyMetrics { .. }
+            | RefusalReason::DimensionNotConformed { .. }
+            | RefusalReason::QuestionNeedsTooManyLegs { .. }
             | RefusalReason::DuplicateMetricName { .. }
             | RefusalReason::MultiMetricFederationNotExecutable { .. }
             | RefusalReason::MultiMetricTopNotExecutable { .. }

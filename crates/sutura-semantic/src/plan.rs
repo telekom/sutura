@@ -210,7 +210,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // never planned against the metric's own table. The calendar read is the metric `cross_model_term` found, never `resolution.metric`'s: in a
     // multi-metric question they differ, and the first metric's calendar says nothing about another's.
     if let Some((cross_metric, model)) = cross_model_term(resolution) {
-        if cross_metric.shared_calendar().is_none() {
+        if cross_metric.shared_calendars().is_none() {
             return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: cross_metric.name().clone(),
                 model: model.clone(),
@@ -228,12 +228,13 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             return Err(PlanError::NoSecondFactModel);
         };
         // Each fact leg joins the calendar inside its own statement, and a statement reads one
-        // source - so the second fact and the calendar sit on the metric's.
+        // source - so the second fact sits on the metric's. The calendar is the one listed on the
+        // metric's own source, so it does by construction.
         let own = resolution.model.source();
-        if let Some(off) = [cross.second, cross.calendar].into_iter().find(|m| m.source() != own) {
+        if cross.second.source() != own {
             return Err(PlanError::Refused(RefusalReason::CrossModelRatioSpansSources {
                 metric: cross_metric.name().clone(),
-                model: off.name().clone(),
+                model: cross.second.name().clone(),
             }));
         }
         // The two facts are combined above on ONE link into a remote dimension, so the question

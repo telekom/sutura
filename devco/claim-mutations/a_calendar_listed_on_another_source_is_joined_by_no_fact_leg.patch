@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-semantic/src/resolve.rs b/crates/sutura-semantic/src/resolve.rs
+index 38444811c..fcb6fa339 100644
+--- a/crates/sutura-semantic/src/resolve.rs
++++ b/crates/sutura-semantic/src/resolve.rs
+@@ -404,7 +404,7 @@ fn cross_model<'a>(metric: &'a Metric, definitions: &'a Definitions) -> Result<O
+         calendars
+             .iter()
+             .filter_map(|name| definitions.model(name))
+-            .find(|calendar| calendar.source() == source)
++            .find(|calendar| calendar.source() == source || true)
+             .ok_or_else(|| BundleInconsistent::SharedCalendarNotJoined {
+                 metric: metric.name().clone(),
+                 model: from.clone(),
