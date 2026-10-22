@@ -1603,6 +1603,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#integration-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#sizing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2656,6 +2667,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#integration-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#sizing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2946,6 +2968,71 @@ the deployment.</p>
 <p>Callers can share one dataset, because BigQuery applies each caller's own grants and row access
 policies to the query.</p>
 </div>
+<h2 id="integration-modes">Integration modes<a class="headerlink" href="#integration-modes" title="Permanent link">&para;</a></h2>
+<p>An <code>impersonation-at-source</code> source declares one of three modes. A <code>shared-service-user</code> source
+declares none. The table compares the four. <code>workload_identity</code> has two rows: with <code>delegation</code>, and
+without it.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Runs as</th>
+<th>Operator setup</th>
+<th>Operational advantage</th>
+<th>Operational challenge</th>
+<th>Security advantage</th>
+<th>Security limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#identity"><code>shared-service-user</code></a></td>
+<td>The process's application default credentials</td>
+<td>Set <code>billing.service_account_project</code>. In <code>multi-user</code> mode, also set <code>acknowledged_because</code></td>
+<td>Callers need no grants of their own</td>
+<td>One identity bills and reads for every caller</td>
+<td>The mode sends no caller token to Google</td>
+<td>BigQuery cannot tell callers apart</td>
+</tr>
+<tr>
+<td><a href="#identity"><code>workload_identity</code></a> with <code>delegation</code></td>
+<td>The caller's own principal in the pool</td>
+<td>Set up a pool, a client and a secret file per hop, and <code>direct</code> inbound</td>
+<td>Callers need no Google account</td>
+<td>Each caller needs a pool principal and grants</td>
+<td>No service account at any step</td>
+<td>The pool provider must accept only the pool audience</td>
+</tr>
+<tr>
+<td><a href="#settings"><code>workload_identity</code></a> without <code>delegation</code></td>
+<td>The caller's own principal in the pool</td>
+<td>Set up a pool. With <code>direct</code> inbound, write <code>inbound_token_at_pool: accepted</code></td>
+<td>Callers need no Google account. No hop and no client secret</td>
+<td>Each caller needs a pool principal and grants</td>
+<td>No service account at any step</td>
+<td>The pool gets the token that sutura verified, as it is. With <code>direct</code> inbound, the pool provider must accept the audience of sutura itself</td>
+</tr>
+<tr>
+<td><a href="#settings"><code>google_login</code></a></td>
+<td>The caller's linked Google account</td>
+<td>Set up the broker endpoint and <code>direct</code> inbound</td>
+<td>Grants that name Google accounts apply as they are</td>
+<td>Each caller links an account. A long job can outlive the token</td>
+<td>Grants on the caller's own Google account decide</td>
+<td>The identity provider keeps the Google token</td>
+</tr>
+<tr>
+<td><a href="#settings"><code>domain_delegation</code></a></td>
+<td>The Google account with the caller's verified email</td>
+<td>Authorize the delegating account and grant <code>signJwt</code> on it</td>
+<td>Grants that name Google accounts apply as they are. Callers link no account</td>
+<td>The identity provider must not let users edit their own email. sutura cannot check this</td>
+<td>Each caller keeps their own Google grants</td>
+<td>The deployment vouches for the caller. The delegating account can act as any user in the domain</td>
+</tr>
+</tbody>
+</table>
+<p>A caller that a mode cannot run is refused. No mode falls back to another.</p>
 <h2 id="sizing">Sizing<a class="headerlink" href="#sizing" title="Permanent link">&para;</a></h2>
 <p>One result has at most 1 000 000 rows and 256 MiB. A time column must be <code>DATE</code>: sutura refuses
 <code>TIMESTAMP</code> and <code>DATETIME</code> time columns. <code>governance.per_replica_spend_ceiling</code> cannot be used with
