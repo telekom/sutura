@@ -192,6 +192,17 @@ mod tests {
     }
 
     #[test]
+    fn two_draws_from_the_os_differ_and_neither_is_all_zero() {
+        // The production draw, and the only cell over it: a draw that wrote nothing would label
+        // every request's jobs with one id of zeros. Two equal draws happen with probability 2^-128.
+        let (mut first, mut second) = ([0_u8; 16], [0_u8; 16]);
+        super::from_the_os(&mut first).expect("this host supplies randomness");
+        super::from_the_os(&mut second).expect("this host supplies randomness");
+        assert_ne!(first, [0_u8; 16], "a draw left the id all zero");
+        assert_ne!(first, second, "two draws gave one id");
+    }
+
+    #[test]
     fn two_ids_from_one_process_differ() {
         // The only property the counter has to have. Asserted over a handful rather than one pair,
         // so a `fetch_add` replaced by a load would not pass on the first two happening to differ.
