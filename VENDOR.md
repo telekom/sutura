@@ -116,8 +116,10 @@ Six source-level adaptations, recorded here so nothing is silent:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
   upstream ships both options.
 - **A query can start with `jobs.query`.** `nix/bigquery-adbc-jobs-query.patch` adds the database
-  option `bigquery.query.through_jobs_query`. Set to `true`, every query starts with `jobs.query`
-  instead of `jobs.insert`; the driver then follows the job it names with `jobs.get` and reads the
+  option `bigquery.query.through_jobs_query`. Set to `true`, a statement run by `ExecuteQuery` or
+  `ExecuteUpdate` starts with `jobs.query` instead of `jobs.insert` (`ExecuteSchema`'s dry run and
+  the session and transaction statements still use `jobs.insert`; sutura calls neither); the
+  driver then follows the job it names with `jobs.get` and reads the
   rows through the Storage Read API as before. A `bigquery.readonly` token can make those calls and
   not `jobs.insert` or `jobs.cancel` - measured on 2026-10-22 with a service account's own token,
   not a domain-wide-delegation token, so the delegated principal type is not measured. The request

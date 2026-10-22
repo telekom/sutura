@@ -102,7 +102,7 @@ buildGoModule {
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryNotABoolRefused'
+    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused'
     GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
     cat "$TMPDIR/go-test.log"
     # `-run` passes when a name stops matching, so every listed name has to pass.

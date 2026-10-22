@@ -67,7 +67,7 @@
 
 --- /dev/null
 +++ b/jobs_query.go
-@@ -0,0 +1,182 @@
+@@ -0,0 +1,184 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -102,8 +102,10 @@
 +	"google.golang.org/api/option"
 +)
 +
-+// OptionQueryThroughJobsQuery, set to "true" on the database, starts every query
-+// with jobs.query instead of jobs.insert. Google accepts jobs.query, jobs.get,
++// OptionQueryThroughJobsQuery, set to "true" on the database, starts a statement
++// run by ExecuteQuery or ExecuteUpdate with jobs.query instead of jobs.insert;
++// ExecuteSchema's dry run and the session and transaction statements still use
++// jobs.insert. Google accepts jobs.query, jobs.get,
 +// jobs.getQueryResults and the Storage Read API from a token scoped to
 +// bigquery.readonly, and refuses it jobs.insert and jobs.cancel. jobs.query takes
 +// no client-chosen job ID, so a statement cut off before jobs.query answers
@@ -252,7 +254,7 @@
 +}
 --- /dev/null
 +++ b/jobs_query_test.go
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,236 @@
 +package bigquery
 +
 +import (
@@ -277,6 +279,7 @@
 +type seenRequest struct {
 +	method, path string
 +	body         map[string]any
++	auth         string
 +}
 +
 +// queryThrough runs sql on a fake endpoint that answers every call with answer and returns what
@@ -293,7 +296,7 @@
 +			var body map[string]any
 +			_ = json.Unmarshal(raw, &body)
 +			mu.Lock()
-+			seen = append(seen, seenRequest{r.Method, strings.TrimPrefix(r.URL.Path, "/bigquery/v2/projects/test-project"), body})
++			seen = append(seen, seenRequest{r.Method, strings.TrimPrefix(r.URL.Path, "/bigquery/v2/projects/test-project"), body, r.Header.Get("Authorization")})
 +			mu.Unlock()
 +		}
 +		answer(w, r)
@@ -392,6 +395,9 @@
 +	if want := []string{"POST /queries", "GET /jobs/j1", "GET /queries/j1"}; len(calls) < len(want) || !slices.Equal(calls[:len(want)], want) || slices.Contains(calls, "POST /jobs") {
 +		t.Fatalf("requests %v, want %v first and no jobs.insert", calls, want)
 +	}
++	if got[0].auth != "Bearer caller-token" {
++		t.Errorf("jobs.query authorized as %q, want the connection's own token", got[0].auth)
++	}
 +	body := got[0].body
 +	params, _ := json.Marshal(body["queryParameters"])
 +	for key, want := range map[string]string{"query": `"SELECT ?"`, "maximumBytesBilled": `"1000"`, "jobTimeoutMs": `"5000"`, "useLegacySql": "false"} {
@@ -460,6 +466,24 @@
 +	var adbcErr adbc.Error
 +	if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusInternal || !strings.Contains(adbcErr.Msg, "without a job") {
 +		t.Fatalf("got %v, want Internal naming the missing job", err)
++	}
++}
++
++func TestThroughJobsQueryWithAnEmptyJobIdRefused(t *testing.T) {
++	answer := func(w http.ResponseWriter, r *http.Request) {
++		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/queries") {
++			_, _ = io.WriteString(w, `{"jobReference":{"projectId":"test-project","location":"EU"},"jobComplete":true}`)
++			return
++		}
++		notFound(w, r)
++	}
++	got, _, _, err := queryThrough(t, "true", answer, func(adbc.StatementWithContext) {})
++	var adbcErr adbc.Error
++	if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusInternal || !strings.Contains(adbcErr.Msg, "without a job") {
++		t.Fatalf("got %v, want Internal naming the missing job", err)
++	}
++	if len(got) != 1 {
++		t.Fatalf("requests %+v, want jobs.query alone", got)
 +	}
 +}
 +
