@@ -1835,7 +1835,9 @@ holds for an undeclared pair only, and an undeclared pair is compared exactly, a
   grain is a date to the combiner, so the declared kind must reach a date.
 - **Not built.** DataHub carries no such field upstream, so a DataHub relationship declares none. No
   HTTP code changed. The prompt-guide entry of `federation_link_type_mismatch` now says "kinds of
-  value that do not join"; the 409 and MCP texts still say the two kinds can never match.
+  value that do not join"; the 409 and MCP texts still say the two kinds can never match. The guide
+  says what a refused pair means and does not name the declaration (`compare_as`), so a caller is
+  not told the declaration exists.
 
 **Limits.**
 
