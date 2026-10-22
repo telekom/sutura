@@ -88,6 +88,7 @@ fn asked(mut served: Served) -> Asked {
 }
 
 /// `user:password` as an HTTP `Basic` header carries it.
+#[cfg(feature = "clickhouse")]
 fn basic(user: &str, password: &str) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"))
@@ -229,8 +230,10 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line() {
     assert!(leaked.is_empty(), "a source password was logged: {leaked:?}");
 }
 
-/// The example catalog, copied beside `case`'s configuration directory without any `anchor:` block:
-/// the binary re-runs every anchor at boot, against tables an empty Oracle does not hold.
+/// The example catalog, copied beside `case`'s configuration directory without any `anchor:` block.
+///
+/// **Known not to boot yet:** a bundle with no anchor is refused as unfaithful, and the tier holds
+/// none of the tables the boot checks read.
 #[cfg(feature = "oracle")]
 fn unanchored_catalog(case: &str) -> std::path::PathBuf {
     let root = crate::harness::derived_beside(&crate::harness::config_path(case));
@@ -260,10 +263,11 @@ fn unanchored_catalog(case: &str) -> std::path::PathBuf {
     catalog
 }
 
-/// The served binary against the compose Oracle tier (`just oracle-acceptance`): the same password
-/// sent for real, and the same absence asserted, as the Postgres cell. The tier holds none of the
-/// example's tables, so the question is refused when it is asked; the login witness is that the
-/// binary booted on the right password and was refused on [`CANARY`] under otherwise identical settings.
+/// The served binary against the compose Oracle tier (`just oracle-acceptance`). The tier's password
+/// is sent by the answering process and looked for in its replies and lines; [`CANARY`] is sent only
+/// by the deployment that must refuse to start, and looked for in that refusal. The login witness is
+/// that the first booted on the right password and the second was refused under otherwise identical
+/// settings.
 #[cfg(feature = "oracle")]
 #[test]
 #[ignore = "requires just oracle-acceptance"]
@@ -277,6 +281,10 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
         required("SUTURA_DEV_USER"),
         required("SUTURA_DEV_PASSWORD"),
         required("SUTURA_ORACLE_TIER_CA"),
+    );
+    assert!(
+        password.len() >= RUN,
+        "the tier's password is shorter than {RUN} characters, so it cannot be searched for; the acceptance task generates one"
     );
     let case = "source-password-oracle-tier";
     let canary = format!("{case}-canary");
@@ -309,8 +317,8 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
     ));
     let [v1, _, mcp] = &replies;
     assert!(
-        v1.status >= 400,
-        "the tier holds none of the example's tables, so the question must be refused, or what it said below is not an error path:\n{}\n{}",
+        v1.status >= 400 && mcp.status == 200 && mcp.json()["result"]["isError"].as_bool() == Some(true),
+        "the question must be refused over both surfaces, or what each said below is not an error path:\n{}\n{}",
         v1.body,
         mcp.body
     );
@@ -330,13 +338,11 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
         lines.iter().any(|line| line.contains(TRACE_LEVEL)),
         "no `trace` line was captured, so the capture is not a record of everything logged"
     );
-    // A password shorter than `RUN` cannot be searched for: the tier's default fixture password is
-    // one, and as a whole word it would match every line the binary writes.
-    let mut secrets = vec![("the wrong password", CANARY)];
-    if password.len() >= RUN {
-        secrets.push(("the right password", &password));
-    }
-    let leaked = found(&secrets, &replies, &lines);
+    let leaked = found(
+        &[("the right password", &password), ("the wrong password", CANARY)],
+        &replies,
+        &lines,
+    );
     assert!(leaked.is_empty(), "a source password was sent back or logged: {leaked:?}");
 }
 

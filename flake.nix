@@ -1214,14 +1214,14 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             bash nix/oracle-tier-tls.sh
+            export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
+            export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
             cargo run -q -p xtask -- dev-up --with oracle
             export SUTURA_DEV_REQUIRE_TIER=1
             export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
-            export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
-            export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
-            cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
+            cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
+            exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
           '');
         };
 
