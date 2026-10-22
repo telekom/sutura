@@ -105,8 +105,9 @@ distinct source, a pre-flight of every leg and one summed charge before any leg 
 
 - **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,
   for example by period after the join, is not built here.
-- **No calendar per source.** A cross-model ratio whose calendar is on another source stays refused
-  (`docs/adr/0002`). It is a separate decision with its own amendment.
+- **No second fact on another source.** A metric lists one calendar per source (`docs/adr/0002`, sixth
+  amendment), but a cross-model ratio whose second fact is on another source than the metric's own
+  stays refused (`CrossModelRatioSpansSources`). It is a separate decision with its own amendment.
 
 All of this is tracked in `github.com/telekom/sutura#1471`.
 
