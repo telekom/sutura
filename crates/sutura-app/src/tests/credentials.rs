@@ -56,6 +56,29 @@ fn a_subject_with_no_credential_is_refused_rather_than_downgraded() {
 }
 
 #[test]
+fn an_address_outside_the_delegated_domains_is_its_own_refusal() {
+    let (validated, registry, question) = ready();
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::RefusesTheAddress,
+        &registry,
+    )
+    .expect("a refusal is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::AddressOutsideDomains { ref source },
+            } if *source == self::source()
+        ),
+        "{outcome:?}"
+    );
+}
+
+#[test]
 fn a_broker_that_could_not_be_reached_is_a_failure_and_not_a_refusal() {
     // The split `docs/adr/0008` part 6 draws, asserted rather than described: "this subject may
     // not reach that source" is a governance outcome in the `Ok`, and "the authorization server

@@ -56,7 +56,8 @@ use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use sutura_config::{
-    ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement, TokenType,
+    ClaimName, ClientId, ExtraScopeClaims, ProofLifetime, RequiredTokenType, SigningAlgorithm, TokenAudience, TokenRequirement,
+    TokenType,
 };
 use sutura_domain::identity::{
     Actor, ActorChain, ClientClaim, ClientClaims, InvalidPrincipalId, PrincipalChain, Subject, VerifiedAddress,
@@ -381,6 +382,9 @@ pub struct TokenValidator {
     max_lifetime: Option<ProofLifetime>,
     /// The assertions admitted once, where single use is declared - `docs/adr/20261015094920`.
     seen: Option<SeenAssertions>,
+    /// The claim the caller's address is read from, where the operator declared one; `None` reads
+    /// `email` beside `email_verified: true`.
+    address_claim: Option<ClaimName>,
 }
 
 impl TokenValidator {
@@ -420,6 +424,7 @@ impl TokenValidator {
                 .max_lifetime()
                 .filter(|_| requirement.single_use())
                 .map(|ceiling| SeenAssertions::new(CAPACITY, entry_window(ceiling))),
+            address_claim: requirement.address_claim().declared().cloned(),
         }
     }
 
@@ -464,7 +469,10 @@ impl TokenValidator {
         // signature, an issuer and an audience do not distinguish an access token from an ID token.
         self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
-        let address = address_of(&claims);
+        let address = self.address_claim.as_ref().map_or_else(
+            || address_of(&claims),
+            |claim| crate::inbound::address::declared_address(token, claim),
+        );
         self.within_the_lifetime_ceiling(&claims)?;
         self.issued_to_another_client(&claims)?;
         // The single construction of a verified subject: both the masked id a record renders and the

@@ -136,6 +136,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::CredentialUnavailable {
             source: source("warehouse"),
         },
+        RefusalReason::AddressOutsideDomains {
+            source: source("warehouse"),
+        },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
@@ -187,6 +190,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::NoBillingProject { .. }
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
+            | RefusalReason::AddressOutsideDomains { .. }
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
             | RefusalReason::TopOverUncertifiedRows { .. }

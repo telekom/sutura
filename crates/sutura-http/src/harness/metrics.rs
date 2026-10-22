@@ -102,6 +102,7 @@ sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
 sutura_questions_total{code="unusable_bill_to"} 0
 # TYPE sutura_refusals_total counter
+sutura_refusals_total{reason="address_outside_domains"} 0
 sutura_refusals_total{reason="bill_to_not_allowed"} 0
 sutura_refusals_total{reason="budget_exhausted"} 0
 sutura_refusals_total{reason="credential_unavailable"} 0

@@ -86,20 +86,31 @@ token, and the sutura client must be allowed to retrieve it. sutura gives the to
 it is and does not refresh it during a query.
 
 With `domain_delegation`, the query runs as the Google account with the caller's verified email
-address. The deployment vouches for the caller: sutura takes the address from the `email` claim of
-the caller's verified token, and only when `email_verified` is `true`. sutura uses the address as
-it is written. A caller without a verified address is refused. The deployment's own application
-default credentials sign as the delegating account, which acts as that address with the scope
-`https://www.googleapis.com/auth/bigquery`. These are its keys:
+address. The deployment vouches for the caller: by default sutura takes the address from the `email`
+claim of the caller's verified token, and only when `email_verified` is `true`. sutura uses the
+address as it is written. A caller without a verified address is refused. The deployment's own
+application default credentials sign as the delegating account, which acts as that address with the
+scope `https://www.googleapis.com/auth/bigquery`. These are its keys:
 
 | Key                                    | Type   | Meaning                                                            |
 | -------------------------------------- | ------ | ------------------------------------------------------------------ |
 | `domain_delegation.delegating_account` | string | The service account: `<account>@<project>.iam.gserviceaccount.com` |
+| `domain_delegation.address_domains`    | list   | Optional. The only domains that the source runs a caller as        |
+
+With `address_domains`, sutura refuses a caller whose address is in no listed domain with
+`address_outside_domains` (`403`), before it gets a credential for any source. A domain matches
+only as a whole, and ASCII case is ignored: for `example.com`, `user@Example.com` matches, and
+`user@sub.example.com` and `user@evil-example.com` do not. Write an internationalized domain in its
+ASCII (`xn--`) form. An empty list is refused at start.
+
+`security.inbound.address_claim` can name another claim than `email` for the address. See
+[The caller's address](../identity.md#the-callers-address).
 
 `domain_delegation` has these requirements:
 
-- The identity provider must not let users edit their own email address. A user who can set their
-  email to another person's address runs queries as that person.
+- The identity provider must not let users edit their own email address, or the claim that
+  `address_claim` names. A user who can set it to another person's address runs queries as that
+  person. `address_domains` limits this to the listed domains and does not remove it.
 - A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
   for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery` only.
 - The deployment's own identity has `iam.serviceAccounts.signJwt` on the delegating account (the

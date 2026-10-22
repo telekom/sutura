@@ -321,6 +321,7 @@ fn announce_identity(settings: &Settings) {
             );
             announce_token_class(inbound);
             announce_grant(inbound);
+            announce_address_claim(inbound);
         }
     }
 }
@@ -335,6 +336,20 @@ fn announce_grant(inbound: &InboundIdentity) {
         granted_scopes = %grant,
         "SCOPES ARE GRANTED BY CONFIGURATION: every assertion with no `scope` claim is granted these, \
          whoever its subject is. An assertion that states a `scope` is granted only that"
+    );
+}
+
+/// The line a deployment that reads the caller's address from a declared claim must not miss: a
+/// `domain_delegation` source runs each caller as whatever address that claim holds.
+fn announce_address_claim(inbound: &InboundIdentity) {
+    let Some(claim) = inbound.requirement().address_claim().declared() else {
+        return;
+    };
+    tracing::warn!(
+        address_claim = %claim,
+        "THE CALLER'S ADDRESS IS READ FROM A DECLARED CLAIM: a `domain_delegation` source runs each \
+         caller as the address in this claim, with no `email_verified` beside it. The operator \
+         accepted that the issuer verifies it and users cannot change it"
     );
 }
 

@@ -164,3 +164,29 @@ and no `dataset`; both keys are refused at load with a message naming the key th
 
 Why: one source project made every caller need `bigquery.jobs.create` in a project they do not
 otherwise hold, and billed one project for every caller's queries.
+
+## Fourth amendment, 2026-10-22: a declared address claim and a domain limit
+
+**Status of the amendment: accepted** (issue #1554). Two issuers that sutura documents never send
+`email_verified`: Entra ID, and a gateway that names the user in `sub`. With them mode c refused
+every caller.
+
+- **The claim is declared at `security.inbound.address_claim`**, because it is a property of the
+  issuer, not of a source. Absent, empty or `email` is the default above: `email`, only beside
+  `email_verified: true`. Any other claim is read with no verification flag, so it starts only
+  beside `accept_address_claim: true`, and each start logs one `WARN`. The acknowledgement states
+  that the issuer verifies the claim and users cannot change it; sutura cannot check either.
+- **The declared claim is read from the signed payload a second time**, after the signature
+  verified, by a reader that keeps only that one key. The default path deserializes what it did
+  before. A claim that occurs more than once, escaped spellings included, gives no address: reading
+  either value would choose which one to believe. The address is parsed as the second amendment
+  states.
+- **`domain_delegation.address_domains` limits the addresses a source runs as**, whatever claim
+  they come from. A domain matches whole, ASCII case ignored (RFC 4343), never by suffix. An address
+  outside the list is refused with its own refusal, `address_outside_domains`, decided by the
+  broker before any credential is minted or exchanged for any source. An empty list is refused at
+  load.
+
+The limit: the address parse is the one the second amendment states, so `<a@example.com>` parses.
+`address_domains` never matches its domain; without that key it reaches Google as the subject, and
+no test here observes what Google answers.

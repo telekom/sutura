@@ -55,6 +55,12 @@ impl VerifiedAddress {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The part after the one `@`, as written.
+    #[must_use]
+    pub fn domain(&self) -> &str {
+        self.0.split_once('@').map_or("", |(_, domain)| domain)
+    }
 }
 
 impl core::fmt::Debug for VerifiedAddress {
@@ -96,5 +102,6 @@ mod tests {
             VerifiedAddress::parse("first.last+tag@example.com").expect("an address")
         );
         assert_eq!(format!("{parsed:?}"), "VerifiedAddress(..)");
+        assert_eq!(parsed.domain(), "Example.COM");
     }
 }

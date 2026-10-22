@@ -163,8 +163,9 @@ where
         // vocabulary is closed over what this PR's one adapter can provoke, and a future
         // per-subject-credential raw adapter is what would earn a dedicated one. Until `run_sql`
         // gets `federation_allowed`, one variant has no producer: no adapter provokes
-        // `PlanSpansMoreThanOneSource` yet.
-        Agreed::Refused { .. } => {
+        // `PlanSpansMoreThanOneSource` yet. An address outside a source's `address_domains` is the
+        // same refusal here: the raw vocabulary has no variant for it.
+        Agreed::Refused { .. } | Agreed::AddressOutsideDomains { .. } => {
             return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal {
                 reason: RawRefusalReason::SourceRefused,
             }));
