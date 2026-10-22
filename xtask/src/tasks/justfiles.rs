@@ -11,7 +11,10 @@
 
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "no reader goes through it yet; the next change routes them")
+    expect(
+        dead_code,
+        reason = "no reader goes through it yet; the change that adds one deletes this attribute by hand"
+    )
 )]
 
 use std::fmt;
