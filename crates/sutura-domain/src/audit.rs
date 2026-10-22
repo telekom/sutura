@@ -61,8 +61,10 @@
 //! asked.
 //!
 //! A plan reads from the sources a `Compiled::Federated` or `Compiled::DrillAcross` answer spans, or from a
-//! single source for a `Compiled::Planned` one (a question needing more lookup legs than the cap is refused at
-//! plan time by [`crate::query::RefusalReason::PlanNeedsTooManyLookupLegs`]), so the source set is a name a reader
+//! single source for a `Compiled::Planned` one (a question needing more lookup legs than the cap, or reading
+//! more data systems than one answer may, is refused at plan time by
+//! [`crate::query::RefusalReason::PlanNeedsTooManyLookupLegs`] and
+//! [`crate::query::RefusalReason::PlanSpansTooManySources`]), so the source set is a name a reader
 //! already has from the bundle.
 
 use crate::identity::{ClientClaims, Expiry, PrincipalChain};

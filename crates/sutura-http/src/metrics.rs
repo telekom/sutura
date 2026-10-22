@@ -111,6 +111,7 @@ const REFUSAL_REASONS: &[Label] = &[
     label("multi_metric_top_not_executable"),
     label("no_billing_project"),
     label("plan_needs_too_many_lookup_legs"),
+    label("plan_spans_too_many_sources"),
     label("plan_tables_share_an_identifier"),
     label("question_needs_too_many_legs"),
     label("resources_exhausted"),

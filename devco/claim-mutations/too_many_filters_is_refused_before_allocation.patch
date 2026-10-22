@@ -10,4 +10,4 @@ index a358668e8..cdf39066e 100644
 +            Self::TooManyFilters { .. } => "killed",
              Self::ResultTooLarge { .. } => "result_too_large",
              Self::TimeRangeTooLong { .. } => "time_range_too_long",
-             Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
+             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",

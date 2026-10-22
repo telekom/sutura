@@ -26,17 +26,19 @@
 //! [`labels`](sutura_domain::plan::labels) - named by the splitter and read back by the combiner,
 //! so the two can never disagree.
 
+use std::collections::BTreeSet;
+
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::Metric;
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{MetricName, ModelName, RelationshipName, TableName};
+use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket,
     PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     plan_measure, plan_required_filter,
 };
-use sutura_domain::query::{MAX_LOOKUP_LEGS, RefusalReason};
+use sutura_domain::query::{MAX_LOOKUP_LEGS, MAX_SOURCES, RefusalReason};
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
@@ -171,12 +173,32 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     let (measure, lookups) = prechecked(resolution)?;
     match lookups.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1..=MAX_LOOKUP_LEGS => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure, &lookups)?))),
+        1..=MAX_LOOKUP_LEGS => {
+            let planned = federated_plan(resolution, measure, &lookups)?;
+            bounded_sources(planned.sources())?;
+            Ok(Plan::Federated(Box::new(planned)))
+        }
         legs => Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
             legs,
             limit: MAX_LOOKUP_LEGS,
         })),
     }
+}
+
+/// Refuses a plan that reads more distinct data systems than one answer may.
+///
+/// The one count for the one-statement path and for a drill-across: the sources are the set the broker
+/// mints credentials for, so a source two legs read counts once. One fact leg and [`MAX_LOOKUP_LEGS`]
+/// lookup legs read four at most, so only a drill-across can be refused here.
+pub(super) fn bounded_sources<'a>(sources: impl Iterator<Item = &'a SourceName>) -> Result<(), PlanError> {
+    let sources = sources.collect::<BTreeSet<_>>().len();
+    if sources > MAX_SOURCES {
+        return Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
+            sources,
+            limit: MAX_SOURCES,
+        }));
+    }
+    Ok(())
 }
 
 /// Turns a resolved question into a plan: the one statement when every metric reads the same

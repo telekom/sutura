@@ -1781,12 +1781,15 @@ decision.
   joins as LEFT unless a filter reads one of its dimensions, for each leg and not once for the plan.
   A dimension is read from the leg of its last crossing, so a chain that crosses and comes back is
   planned as federated legs and never as one statement.
-- **Refusals changed.** `PlanNeedsTooManyLookupLegs { legs, limit }` replaces
-  `PlanSpansTooManySources`. `CrossModelRatioNeedsOneLookupLeg { metric }` is raised by the planner
-  for the first time (it was declared before): a cross-model ratio still joins its second fact on one
-  link. `FederationLinkAmbiguous`, `HopCrossesSource` and
-  `ChainLeavesItsSource` are deleted with their cells. The wire codes `plan_spans_too_many_sources`
-  and `federation_link_ambiguous` no longer exist, which is a breaking change.
+- **Refusals changed.** `PlanNeedsTooManyLookupLegs { legs, limit }` is raised for a fourth lookup
+  leg. `PlanSpansTooManySources { sources, limit }` stays, against a limit of four distinct data
+  systems and not two, and the *Seventeenth amendment*'s deletion of it is not carried out: a
+  question over several metrics runs an arm each, every arm brings its own legs, and only the count
+  of distinct sources bounds the credentials one answer mints. `CrossModelRatioNeedsOneLookupLeg {
+  metric }` is raised by the planner for the first time (it was declared before): a cross-model
+  ratio still joins its second fact on one link. `FederationLinkAmbiguous`, `HopCrossesSource` and
+  `ChainLeavesItsSource` are deleted with their cells. The wire code `federation_link_ambiguous` no
+  longer exists, which is a breaking change.
 - **Not built.** A cross-model ratio over more than one lookup leg (`github.com/telekom/sutura#1493`).
 
 **Limits.**
@@ -1794,6 +1797,10 @@ decision.
 - The cells assert the shape of the plan. No cell here runs a plan the planner made with more than
   one lookup leg through the combiner; the combiner is measured on plans built by hand
   (*Eighteenth amendment*).
+- One answer reads at most four distinct data systems (`MAX_SOURCES`), one metric or several, held
+  by one check on the plan's sources after the plan is built. A source two legs read counts once. One
+  metric reaches four at most by its own cap of three lookup legs, so only several metrics are
+  refused by it. It is a constant for now, not a setting.
 - A leg is read whole, as before. The cap of three and the working-set ceiling are the only bounds
   on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
 - Two crossings that start from one model by different relationships are two legs and are not

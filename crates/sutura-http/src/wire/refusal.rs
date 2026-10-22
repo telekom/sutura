@@ -228,6 +228,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // plan that runs partly as somebody else is the failure the whole design is arranged against.
         // Up to the cap is served - that is what the status does NOT say.
         RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => (StatusCode::CONFLICT, too_many_lookup_legs(legs, limit)),
+        // 409. A question reading more data systems than one answer may is answerable in principle and
+        // this deployment will not answer it: each data system is a separate identity to satisfy.
+        RefusalReason::PlanSpansTooManySources { sources, limit } => (
+            StatusCode::CONFLICT,
+            format!("answering this would read from {sources} data systems, and one answer reads from {limit} at most"),
+        ),
         // 409, with `PlanNeedsTooManyLookupLegs`: answerable in principle, and this deployment will not
         // run that many queries for one question.
         RefusalReason::QuestionNeedsTooManyLegs { legs, limit } => (StatusCode::CONFLICT, too_many_legs(legs, limit)),
@@ -487,6 +493,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::TooManyFilters { .. }
         | RefusalReason::ResultTooLarge { .. }
         | RefusalReason::TimeRangeTooLong { .. }
+        | RefusalReason::PlanSpansTooManySources { .. }
         | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkCompound { .. }
@@ -667,6 +674,11 @@ mod tests {
                 },
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "resources_exhausted",
+            ),
+            (
+                RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
+                StatusCode::CONFLICT,
+                "plan_spans_too_many_sources",
             ),
             (
                 RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },

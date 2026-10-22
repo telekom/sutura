@@ -152,6 +152,14 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
              returns the same refusal - the ceiling is a configured number, not an outage.",
 };
 
+const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
+    reason: "plan_spans_too_many_sources",
+    meaning: "answering would need to read from more data systems than one answer may (four at \
+              most)",
+    remedy: "Nothing you can change. Report it to a person - it is a fact about how the metric is \
+             defined, and retrying or trying a different dimension will not avoid it.",
+};
+
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
     reason: "federated_answer_not_well_formed",
     meaning: "answering this across two data systems hit a division by zero, a join key that \
@@ -342,6 +350,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // cannot act on at all: there IS a move, and it is unique among every entry here - wait, do
     // not narrow.
     &BUDGET_EXHAUSTED,
+    &PLAN_SPANS_TOO_MANY_SOURCES,
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
@@ -408,6 +417,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
+        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,

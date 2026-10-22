@@ -117,6 +117,10 @@ Every reason you can be given, and what to do about each:
   the same question again. If the SAME question is refused again immediately after a fresh window
   starts, its own estimate is over the ceiling by itself - waiting will never help that case, and
   narrowing the question is the only remedy.
+- **plan_spans_too_many_sources** - answering would need to read from more data systems than one
+  answer may (four at most).
+  Nothing you can change. Report it to a person - it is a fact about how the metric is defined, and
+  retrying or trying a different dimension will not avoid it.
 - **question_needs_too_many_legs** - answering would run more queries against the data systems than
   one question may.
   Ask for fewer metrics at a time.

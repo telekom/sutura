@@ -165,8 +165,9 @@ const TAG: &str = "query";
                            and this deployment will not answer it, so `code` says which of the \
                            things below stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
-                           systems. `plan_needs_too_many_lookup_legs`: it would read more lookup \
-                           legs than one answer may. `question_needs_too_many_legs`: it would run \
+                           systems. `plan_spans_too_many_sources`: it would read more distinct data \
+                           systems than one answer may. `plan_needs_too_many_lookup_legs`: it would \
+                           read more lookup legs than one answer may. `question_needs_too_many_legs`: it would run \
                            more queries against the data systems than one answer may. \
                            `cross_model_ratio_needs_one_lookup_leg`: a ratio over two fact models \
                            would need more than one lookup leg. \

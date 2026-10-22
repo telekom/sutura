@@ -118,6 +118,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::TimeRangeTooLong { days, limit } => {
             format!("the period asked about is {days} days; at most {limit} are allowed")
         }
+        RefusalReason::PlanSpansTooManySources { sources, limit } => {
+            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most")
+        }
         RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => {
             format!(
                 "this question would read {legs} lookup legs, and one answer reads {limit} at most; ask for fewer dimensions that live in other data systems"
@@ -373,6 +376,7 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkCompound {

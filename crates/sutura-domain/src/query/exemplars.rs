@@ -102,6 +102,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::ResourcesExhausted {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
+        RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
         RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
         RefusalReason::FederationNotExecutable,
         RefusalReason::FederationLinkCompound {
@@ -172,6 +173,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::ResultTooLarge { .. }
             | RefusalReason::TimeRangeTooLong { .. }
             | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
+            | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::FederationNotExecutable
             | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }

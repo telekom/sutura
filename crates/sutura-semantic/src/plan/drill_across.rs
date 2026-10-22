@@ -19,15 +19,16 @@ use sutura_domain::query::{MAX_LOOKUP_LEGS, RefusalReason};
 
 use super::chain::{chain_joins, column_of};
 use super::federated::{federated_plan, leg_terms};
-use super::{Plan, PlanError, prechecked, predicates_and_params};
+use super::{Plan, PlanError, bounded_sources, prechecked, predicates_and_params};
 use crate::resolve::{Resolution, ResolvedFilter};
 
 /// An arm for `first`, `second` and each of `rest`, joined above.
 ///
 /// # Errors
 ///
-/// A refusal any one metric earns as a question of its own, and
-/// [`RefusalReason::QuestionNeedsTooManyLegs`] for a question over more legs than one answer may run.
+/// A refusal any one metric earns as a question of its own, [`RefusalReason::QuestionNeedsTooManyLegs`]
+/// for a question over more legs than one answer may run, and [`RefusalReason::PlanSpansTooManySources`]
+/// for arms that read more distinct data systems between them than one answer may.
 pub(super) fn plan(first: &Resolution<'_>, second: &Resolution<'_>, rest: &[Resolution<'_>]) -> Result<Plan, PlanError> {
     let rest = rest.iter().map(arm).collect::<Result<Vec<_>, _>>()?;
     let plan = DrillAcrossPlan::new(arm(first)?, arm(second)?, rest).map_err(|cause| match cause {
@@ -36,10 +37,11 @@ pub(super) fn plan(first: &Resolution<'_>, second: &Resolution<'_>, rest: &[Reso
         }
         other => PlanError::NotAssembledAcross(other),
     })?;
+    bounded_sources(plan.sources())?;
     Ok(Plan::DrillAcross(Box::new(plan)))
 }
 
-/// One metric's arm: joined through a lookup leg when it reaches one remote source, local when none.
+/// One metric's arm: joined through one to three lookup legs when it reaches other data systems, local when none.
 fn arm(resolution: &Resolution<'_>) -> Result<Arm, PlanError> {
     let (measure, lookups) = prechecked(resolution)?;
     match lookups.len() {

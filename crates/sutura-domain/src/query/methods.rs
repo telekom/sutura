@@ -134,6 +134,7 @@ impl RefusalReason {
             Self::TooManyFilters { .. } => "too_many_filters",
             Self::ResultTooLarge { .. } => "result_too_large",
             Self::TimeRangeTooLong { .. } => "time_range_too_long",
+            Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
             Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
             Self::PlanNeedsTooManyLookupLegs { .. } => "plan_needs_too_many_lookup_legs",
             Self::FederationNotExecutable => "federation_not_executable",

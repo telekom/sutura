@@ -63,10 +63,11 @@ const QUERY: Subject = Subject {
     // declared ahead of the planner change that raises them (`telekom/sutura#1342`). 36 since the
     // drill-across planner RETIRED `MetricsSpanDifferentModels` and
     // `MultiMetricFederationNotExecutable`: a question over several metrics is planned as one arm
-    // each and joined above, so neither shape is refused. 34 since the lookup-leg planner DELETED
-    // `PlanSpansTooManySources` (replaced by `PlanNeedsTooManyLookupLegs`) and
-    // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs).
-    variants: variants(34),
+    // each and joined above, so neither shape is refused. 35 since the lookup-leg planner DELETED
+    // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs);
+    // `PlanSpansTooManySources` stays and now counts the distinct data systems one answer reads
+    // against four.
+    variants: variants(35),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
