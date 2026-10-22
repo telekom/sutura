@@ -107,8 +107,8 @@ fn federating(
                 Some(google_login(&format!("sources.{alias}.google_login"), login, outbound)?),
             ));
         }
-        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(_)) => {
-            return Ok(broker.addressing(alias.clone()));
+        Some(sutura_config::sources::caller_identity::CallerIdentity::DomainDelegation(delegation)) => {
+            return Ok(broker.addressing(alias.clone(), delegation.address_domains().cloned()));
         }
         Some(sutura_config::sources::caller_identity::CallerIdentity::WorkloadIdentity(_)) | None => {}
     }

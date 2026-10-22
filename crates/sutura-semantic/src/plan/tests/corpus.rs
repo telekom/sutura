@@ -1,6 +1,8 @@
 //! The three-hop corpus the chain cells in [`super`] share: harness only, so every assertion stays in
 //! `plan/tests.rs`, which the causality gate holds because it adds the tests.
 
+use sutura_domain::plan::FederatedPlan;
+
 use super::*;
 
 /// `facts -> customers -> regions` beside `facts -> products -> brands`, with the three models the
@@ -26,6 +28,11 @@ impl Corpus {
     }
 
     pub(super) fn placed(customers: &str, regions: &str, brands: &str) -> Self {
+        Self::spread(customers, regions, "local", brands)
+    }
+
+    /// [`Self::placed`] with `products` placed too, so a question can cross four times.
+    pub(super) fn spread(customers: &str, regions: &str, products: &str, brands: &str) -> Self {
         Self {
             facts: model("facts", "local", &["amount_cents", "day", "customer_key", "product_key"]),
             reached: vec![
@@ -39,7 +46,7 @@ impl Corpus {
                 ),
                 (
                     relationship("facts_product", ("facts", "product_key"), ("products", "product_key")),
-                    model("products", "local", &["product_key", "family", "brand_key"]),
+                    model("products", products, &["product_key", "family", "brand_key"]),
                 ),
                 (
                     relationship("product_brand", ("products", "brand_key"), ("brands", "brand_key")),
@@ -111,11 +118,26 @@ impl Corpus {
 }
 
 /// The federated plan of a question grouped by `by`, over a corpus that puts a chain on a second system.
-pub(super) fn federated_by(corpus: &Corpus, by: &str) -> Box<sutura_domain::plan::FederatedPlan> {
+pub(super) fn federated_by(corpus: &Corpus, by: &str) -> Box<FederatedPlan> {
     match plan(&corpus.asking(vec![corpus.key(by)])).expect("this resolution plans") {
         Plan::Federated(planned) => planned,
         Plan::Mono(_) | Plan::DrillAcross(_) => panic!("a dimension on another data system is a federated plan"),
     }
+}
+
+/// Each lookup leg's source and the leg it joins onto, in plan order.
+pub(super) fn lookup_shape(planned: &FederatedPlan) -> Vec<(String, LegAt)> {
+    planned
+        .lookups()
+        .legs()
+        .iter()
+        .map(|lookup| (lookup.leg().source().as_str().to_owned(), lookup.onto()))
+        .collect()
+}
+
+/// The lookup leg at `at`.
+pub(super) fn lookup_at(planned: &FederatedPlan, at: usize) -> &LegPlan {
+    planned.lookups().legs().get(at).expect("the plan has this lookup leg").leg()
 }
 
 /// Where a key reads from: its table and its column.

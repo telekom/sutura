@@ -76,7 +76,7 @@
 
 use sutura_domain::pinned::NotValidated;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::{LegAt, RowCeiling};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_semantic::{Compiled, compile};
@@ -130,64 +130,64 @@ use corpus::{
 };
 use two_kinds::two_kinds;
 
-#[test]
-fn two_remote_sources_exceed_the_two_source_plan_limit() {
-    let corpus = remote_products("federation-three-sources", "source: inventory");
-    let one = harness::bundle(&corpus.one_source);
-    let three = harness::bundle(&corpus.two_source);
-    let [mono, customer, product, refused] = [
-        harness::compiled_dimensions(&one, "region, product_family"),
-        harness::compiled_dimensions(&three, "region"),
-        harness::compiled_dimensions(&three, "product_family"),
-        harness::compiled_dimensions(&three, "region, product_family"),
-    ];
-    assert_eq!(
-        [
-            matches!(mono, Compiled::Planned { .. }),
-            matches!(customer, Compiled::Federated { .. }),
-            matches!(product, Compiled::Federated { .. }),
-        ],
-        [true; 3],
-        "the whole question plans locally and each remote relationship alone can federate"
-    );
-    let Compiled::Refused {
-        reason: RefusalReason::PlanSpansTooManySources { sources, limit },
-    } = refused
-    else {
-        panic!("the combined question must refuse its three sources, not {refused:?}");
+/// The sources and the leg each lookup joins onto, for a question that compiled to a federated plan.
+fn lookup_sources(compiled: Compiled) -> Vec<(String, LegAt)> {
+    let Compiled::Federated { plan } = compiled else {
+        panic!("the question must federate, not {compiled:?}");
     };
-    assert_eq!((sources, limit), (3, 2));
+    plan.lookups()
+        .legs()
+        .iter()
+        .map(|lookup| (lookup.leg().source().as_str().to_owned(), lookup.onto()))
+        .collect()
 }
 
 #[test]
-fn two_relationships_on_one_remote_source_have_no_single_federation_link() {
-    let corpus = remote_products("federation-ambiguous-links", "source: geo");
+fn two_remote_sources_plan_one_lookup_leg_each() {
+    let corpus = remote_products("federation-three-sources", "source: inventory");
     let one = harness::bundle(&corpus.one_source);
-    let two = harness::bundle(&corpus.two_source);
-    let [mono, customer, product, same_link, refused] = [
-        harness::compiled_dimensions(&one, "region, product_family"),
-        harness::compiled_dimensions(&two, "region"),
-        harness::compiled_dimensions(&two, "product_family"),
-        harness::compiled_dimensions(&two, "region, segment"),
-        harness::compiled_dimensions(&two, "region, product_family"),
-    ];
-    assert_eq!(
-        [
-            matches!(mono, Compiled::Planned { .. }),
-            matches!(customer, Compiled::Federated { .. }),
-            matches!(product, Compiled::Federated { .. }),
-            matches!(same_link, Compiled::Federated { .. }),
-        ],
-        [true; 4],
-        "one-source, single-link and two-dimensions-on-one-link controls must remain supported"
+    let three = harness::bundle(&corpus.two_source);
+    let mono = harness::compiled_dimensions(&one, "region, product_family");
+    assert!(
+        matches!(mono, Compiled::Planned { .. }),
+        "the whole question plans locally: {mono:?}"
     );
-    let Compiled::Refused {
-        reason: RefusalReason::FederationLinkAmbiguous { source },
-    } = refused
-    else {
-        panic!("the combined question must refuse its two remote relationships, not {refused:?}");
-    };
-    assert_eq!(source.as_str(), LOOKUP_SOURCE);
+    let customer = lookup_sources(harness::compiled_dimensions(&three, "region"));
+    let product = lookup_sources(harness::compiled_dimensions(&three, "product_family"));
+    let both = lookup_sources(harness::compiled_dimensions(&three, "region, product_family"));
+    assert_eq!(
+        [customer.len(), product.len()],
+        [1, 1],
+        "each remote relationship alone is one leg"
+    );
+    assert_eq!(both.len(), 2, "the combined question reads both remote sources, one leg each");
+    assert!(
+        both.iter().all(|(_, onto)| *onto == LegAt::Fact),
+        "each leg joins onto the fact leg: {both:?}"
+    );
+}
+
+#[test]
+fn two_relationships_on_one_remote_source_plan_two_lookup_legs() {
+    let corpus = remote_products("federation-ambiguous-links", "source: geo");
+    let two = harness::bundle(&corpus.two_source);
+    let [customer, product, same_link, both] = [
+        lookup_sources(harness::compiled_dimensions(&two, "region")),
+        lookup_sources(harness::compiled_dimensions(&two, "product_family")),
+        lookup_sources(harness::compiled_dimensions(&two, "region, segment")),
+        lookup_sources(harness::compiled_dimensions(&two, "region, product_family")),
+    ]
+    .map(|legs| legs.len());
+    assert_eq!(
+        [customer, product, same_link, both],
+        [1, 1, 1, 2],
+        "two dimensions on one relationship share a leg, two relationships read the source twice"
+    );
+    let legs = lookup_sources(harness::compiled_dimensions(&two, "region, product_family"));
+    assert!(
+        legs.iter().all(|(source, _)| source == LOOKUP_SOURCE),
+        "both legs read {LOOKUP_SOURCE}: {legs:?}"
+    );
 }
 
 /// `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce. Case 1 had

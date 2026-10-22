@@ -39,6 +39,8 @@
 //!   for the pool to verify, and nothing to fall back to.
 //! - **A caller whose verified name is the deployment's own user at a switching source** -
 //!   refused: switching to that user would answer as the deployment.
+//! - **An address outside an addressing source's `address_domains`** - refused by its own name,
+//!   before any exchange for any source.
 //!
 //! # The limit, beside the claim
 //!
@@ -47,7 +49,7 @@
 //! refuses the assertion or a principal with no grant surfaces on the FIRST QUESTION by that
 //! subject, never at boot.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use sutura_domain::identity::{
     BillTo, CredentialBroker, CredentialsDoNotCoverThePlan, Delegation, DelegationFailed, Expiry, LegCredentials, Minted,
@@ -101,8 +103,9 @@ pub struct DeclaredPrincipalBroker {
     /// token they sign in with.
     switching: BTreeMap<SourceName, Switching>,
     authenticating: BTreeMap<SourceName, Delegation>,
-    /// Each source that runs a caller as the address their identity provider verified.
-    addressing: BTreeSet<SourceName>,
+    /// Each source that runs a caller as the address their identity provider verified, and the only
+    /// domains it does so for.
+    addressing: BTreeMap<SourceName, Option<crate::sources::address_domains::AddressDomains>>,
     /// Who pays for a `bigquery` source's caller-run jobs.
     billing: BTreeMap<SourceName, crate::sources::billing::SourceBilling>,
 }
@@ -166,10 +169,11 @@ impl DeclaredPrincipalBroker {
 
     /// Declares one `domain_delegation` source, presented each caller's verified address as the
     /// principal the source runs as. A caller with no verified address is refused: the deployment
-    /// vouches for the address, so there is no other identity to fall back to.
+    /// vouches for the address, so there is no other identity to fall back to. With `domains`, an
+    /// address outside them is refused as [`Minted::AddressOutsideDomains`].
     #[must_use]
-    pub fn addressing(mut self, at: SourceName) -> Self {
-        let _newly_declared = self.addressing.insert(at);
+    pub fn addressing(mut self, at: SourceName, domains: Option<crate::sources::address_domains::AddressDomains>) -> Self {
+        drop(self.addressing.insert(at, domains));
         self
     }
 
@@ -226,7 +230,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 && !self.federating.contains_key(source)
                 && !self.switching.contains_key(source)
                 && !self.authenticating.contains_key(source)
-                && !self.addressing.contains(source)
+                && !self.addressing.contains_key(source)
             {
                 return Ok(Minted::Refused { source: source.clone() });
             }
@@ -263,10 +267,13 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 deadlines.push(Expiry::NothingExpires);
                 continue;
             }
-            if self.addressing.contains(source) {
+            if let Some(domains) = self.addressing.get(source) {
                 let (Some(_), Some(address)) = (key, context.address()) else {
                     return Ok(Minted::Refused { source: source.clone() });
                 };
+                if domains.as_ref().is_some_and(|domains| !domains.admits(address)) {
+                    return Ok(Minted::AddressOutsideDomains { source: source.clone() });
+                }
                 drop(presented.insert(source.clone(), Presented::SubjectPrincipal { name: address.into() }));
                 deadlines.push(assertion_expires.unwrap_or(Expiry::NothingExpires));
                 continue;
@@ -403,7 +410,7 @@ mod addressing {
     }
 
     fn addressing() -> DeclaredPrincipalBroker {
-        DeclaredPrincipalBroker::empty().addressing(warehouse())
+        DeclaredPrincipalBroker::empty().addressing(warehouse(), None)
     }
 
     #[test]

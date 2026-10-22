@@ -601,6 +601,8 @@ pub(crate) enum FixedBroker {
     GrantsShared,
     /// Grants nothing for any source, which is the refusal.
     RefusesEverything,
+    /// Refuses the first source because the caller's address is outside its `address_domains`.
+    RefusesTheAddress,
     /// Cannot be reached at all - the `Err` side, which must not become a refusal.
     Unreachable,
     /// Grants the asker's own credential material, which a shared-only adapter cannot use.
@@ -656,6 +658,12 @@ impl CredentialBroker for FixedBroker {
                     return Err(BrokerUnreachable);
                 };
                 return Ok(Minted::Refused { source: first.clone() });
+            }
+            Self::RefusesTheAddress => {
+                let Some(first) = sources.iter().next() else {
+                    return Err(BrokerUnreachable);
+                };
+                return Ok(Minted::AddressOutsideDomains { source: first.clone() });
             }
             // A source that is not in `sources`, which is the whole of the defect: the name reaching
             // the caller as a refusal was never asked about.

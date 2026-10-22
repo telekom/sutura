@@ -61,12 +61,12 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 mod sentences;
 
 use sentences::{
-    credential_unavailable, dimension_not_conformed, multi_metric_top_not_executable, resources_exhausted, too_many_legs,
-    too_many_lookup_legs,
+    address_outside_domains, credential_unavailable, dimension_not_conformed, multi_metric_top_not_executable,
+    resources_exhausted, too_many_legs, too_many_lookup_legs,
 };
 
 use super::RefusalBody;
-use link::{federation_link_ambiguous, federation_link_compound, link_type_mismatch};
+use link::{federation_link_compound, link_type_mismatch};
 
 /// The status, the code and the sentence for one refusal.
 ///
@@ -223,21 +223,20 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::ResourcesExhausted { ceiling_bytes } => {
             (StatusCode::UNPROCESSABLE_ENTITY, resources_exhausted(ceiling_bytes))
         }
-        // 409. A question spanning more than two data systems is answerable in principle and this
-        // deployment will not answer it: each source is a separate identity to satisfy, and a plan
-        // that runs partly as somebody else is the failure the whole design is arranged against.
-        // Two are served - that is what the status does NOT say.
+        // 409. A question needing more lookup legs than the cap is answerable in principle and this
+        // deployment will not answer it: each leg's source is a separate identity to satisfy, and a
+        // plan that runs partly as somebody else is the failure the whole design is arranged against.
+        // Up to the cap is served - that is what the status does NOT say.
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => (StatusCode::CONFLICT, too_many_lookup_legs(legs, limit)),
+        // 409. A question reading more data systems than one answer may is answerable in principle and
+        // this deployment will not answer it: each data system is a separate identity to satisfy.
         RefusalReason::PlanSpansTooManySources { sources, limit } => (
             StatusCode::CONFLICT,
-            format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
+            format!("answering this would read from {sources} data systems, and one answer reads from {limit} at most"),
         ),
-        // 409, with `PlanSpansTooManySources`: answerable in principle, and this deployment will not
+        // 409, with `PlanNeedsTooManyLookupLegs`: answerable in principle, and this deployment will not
         // run that many queries for one question.
         RefusalReason::QuestionNeedsTooManyLegs { legs, limit } => (StatusCode::CONFLICT, too_many_legs(legs, limit)),
-        // 409, the status `PlanSpansTooManySources` gets: a question needing more lookup legs than
-        // the cap is answerable in principle and this deployment will not answer it, for the same
-        // reason - each leg's source is a separate identity to satisfy.
-        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => (StatusCode::CONFLICT, too_many_lookup_legs(legs, limit)),
         // A question that would need federation execution this deployment cannot do yet, a link shape
         // the combiner does not express, a measure that cannot recombine, an ill-formed federated
         // answer, or two tables sharing an identifier - all 409, because none of them is a data system
@@ -245,7 +244,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // its own small function below `refused` - split out once `github.com/telekom/sutura#967`'s
         // `FederationLinkCompound` pushed this match over `clippy::too_many_lines`.
         RefusalReason::FederationNotExecutable => (StatusCode::CONFLICT, federation_not_executable()),
-        RefusalReason::FederationLinkAmbiguous { ref source } => (StatusCode::CONFLICT, federation_link_ambiguous(source)),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
@@ -288,6 +286,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // about somebody else's authorization, and it would tell a caller something about a data
         // system they were just refused access to.
         RefusalReason::CredentialUnavailable { ref source } => (StatusCode::FORBIDDEN, credential_unavailable(source)),
+        // 403, the status `CredentialUnavailable` gets: who the caller is decides it, and no
+        // narrower question changes the address their identity provider sends.
+        RefusalReason::AddressOutsideDomains { ref source } => (StatusCode::FORBIDDEN, address_outside_domains(source)),
         // 403, and this is the DATA SYSTEM itself refusing the executed statement at the
         // identity/authorization level - the query-time sibling of the boot-time
         // `preflight_was_refused` split. It used to reach here as `ServiceError::Warehouse` and
@@ -451,7 +452,7 @@ fn federated_answer_not_well_formed() -> String {
     )
 }
 
-/// The same reasoning `PlanSpansTooManySources` uses: the question is well formed, the metric
+/// The same reasoning `PlanNeedsTooManyLookupLegs` uses: the question is well formed, the metric
 /// permits it, and this deployment cannot express it as one statement. That is a conflict between
 /// what was asked and how the tables it reads are named.
 ///
@@ -498,7 +499,6 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::PlanSpansTooManySources { .. }
         | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
         | RefusalReason::FederationNotExecutable
-        | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
         | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
@@ -506,6 +506,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceUnavailable { .. }
         | RefusalReason::ResourcesExhausted { .. }
         | RefusalReason::CredentialUnavailable { .. }
+        | RefusalReason::AddressOutsideDomains { .. }
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::BillToNotAllowed { .. }
         | RefusalReason::NoBillingProject { .. }
@@ -679,7 +680,7 @@ mod tests {
                 "resources_exhausted",
             ),
             (
-                RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+                RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
                 StatusCode::CONFLICT,
                 "plan_spans_too_many_sources",
             ),

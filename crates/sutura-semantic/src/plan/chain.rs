@@ -1,80 +1,178 @@
-//! What a dimension chain IS, read off a resolution: which data system it ends on, which table
-//! qualifies each hop's origin column, and which hop - if any - leaves the system the chain crossed to.
+//! What a dimension chain IS, read off a resolution: which data systems it crosses, which table
+//! qualifies each hop's origin column, and which lookup legs a question needs.
 //!
 //! **A module rather than six functions in `plan.rs`, and the seam is the concept.** Every plan
 //! shape asks the same questions of a chain, and the whole-answer path and the fact leg each
 //! answered the second one with their own copy of the loop - which is how one of them came to
 //! qualify every hop by the metric's table. One reader, two callers.
 //!
-//! **A chain crosses one data system boundary, at any hop.** The hops before the crossing join on
-//! the metric's own source, the crossing hop is the federated plan's link, and the hops after it join
-//! inside the lookup leg - [`crossing`] cuts a chain into those three.
+//! **A chain crosses a data system boundary at every hop that lands on another system than the hop
+//! before it.** [`cut`] splits a chain there. The hops before the first crossing join on the
+//! metric's own source; each crossing hop is the link of one lookup leg, and the hops after it join
+//! inside that leg until the next crossing. [`Lookups`] gathers those legs for the whole question.
 //!
-//! Nothing here renders and nothing here refuses: [`chain_leaving_its_crossing`] reports what it
-//! found and `super::plan` decides what that is. The module is private and sits under `plan`, so
-//! the dependency runs inward only - it reads `crate::resolve` and `sutura_domain`, and neither
-//! reads it.
+//! Nothing here renders and nothing here refuses: `super::plan` decides what a count of legs is.
+//! The module is private and sits under `plan`, so the dependency runs inward only - it reads
+//! `crate::resolve` and `sutura_domain`, and neither reads it.
+
+use std::collections::BTreeMap;
+use std::iter::once;
+use std::slice::Iter;
 
 use sutura_domain::catalog::{JoinKey, Model, Relationship};
-use sutura_domain::model::{DimensionName, SourceName, TableName};
+use sutura_domain::model::{RelationshipName, TableName};
 use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
 
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
 
-/// A chain cut at the hop that crosses onto another data system.
-pub(super) struct Crossing<'r, 'a> {
-    /// The hops on the metric's own source, which the fact leg joins.
-    pub(super) before: &'r [ResolvedJoin<'a>],
-    /// The hop that lands on the other system: the link the lookup leg carries.
+/// A crossing hop and the hops after it that stay on the data system it landed on.
+pub(super) struct Segment<'r, 'a> {
+    /// The model the crossing hop leaves.
+    pub(super) origin: &'a Model,
+    /// The hop that lands on another data system: the link of one lookup leg.
     pub(super) hop: &'r ResolvedJoin<'a>,
-    /// The hops after it, which join inside the lookup leg.
+    /// The hops after it up to the next crossing, which join inside that lookup leg.
     pub(super) after: &'r [ResolvedJoin<'a>],
 }
 
-/// Where `hops` leaves `own`, or `None` for a chain that never does.
-pub(super) fn crossing<'r, 'a>(hops: &'r [ResolvedJoin<'a>], own: &SourceName) -> Option<Crossing<'r, 'a>> {
-    let at = hops.iter().position(|hop| hop.model.source() != own)?;
-    let (before, rest) = hops.split_at(at);
-    let (hop, after) = rest.split_first()?;
-    Some(Crossing { before, hop, after })
+/// A chain cut at every hop that crosses onto another data system.
+pub(super) struct Cut<'r, 'a> {
+    /// The hops on the metric's own source, which the fact leg joins.
+    pub(super) before: &'r [ResolvedJoin<'a>],
+    /// One segment per crossing, in chain order.
+    pub(super) segments: Vec<Segment<'r, 'a>>,
 }
 
-/// The first chain that leaves the data system it crossed to, and which hop does it.
+/// Where `hops` leaves each data system it reaches, or `None` for a chain that never leaves `own`'s.
 ///
-/// A chain may cross from the metric's source at any hop, and every hop after the crossing must land
-/// on the system it crossed to. A later hop that lands anywhere else - back on the metric's source, or
-/// on a third - is a chain neither plan shape can render, and [`is_remote`] reads the first of those
-/// as local. The hop number is 1-based, so it matches the load-time report a catalog author reads.
-pub(super) fn chain_leaving_its_crossing<'a>(resolution: &Resolution<'a>) -> Option<(&'a DimensionName, usize)> {
-    let own = resolution.model.source();
-    every_dimension(resolution).find_map(|resolved| {
-        let hops = resolved.join.as_ref()?;
-        let cut = crossing(hops, own)?;
-        let landed = cut.hop.model.source();
-        let (offset, _) = cut.after.iter().enumerate().find(|(_, hop)| hop.model.source() != landed)?;
-        // Hops before the crossing, the crossing itself, the offset into what follows it, 1-based.
-        let hop = cut.before.len().saturating_add(2).saturating_add(offset);
-        Some((resolved.dimension.name(), hop))
+/// `None` is also what an out-of-range slice would give, which no chain built from `hops` itself can
+/// produce: the starts are indices into `hops` and each end is the next start or `hops.len()`.
+pub(super) fn cut<'r, 'a>(hops: &'r [ResolvedJoin<'a>], own: &'a Model) -> Option<Cut<'r, 'a>> {
+    let mut at = own;
+    let mut starts: Vec<(usize, &'a Model)> = Vec::new();
+    for (index, hop) in hops.iter().enumerate() {
+        if hop.model.source() != at.source() {
+            starts.push((index, at));
+        }
+        at = hop.model;
+    }
+    let &(first, _) = starts.first()?;
+    let ends = starts.iter().skip(1).map(|&(next, _)| next).chain(once(hops.len()));
+    let segments = starts
+        .iter()
+        .zip(ends)
+        .map(|(&(start, origin), end)| {
+            let (hop, after) = hops.get(start..end)?.split_first()?;
+            Some(Segment { origin, hop, after })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(Cut {
+        before: hops.get(..first)?,
+        segments,
     })
 }
 
-/// Every dimension that sits on a data system other than the metric's own.
-pub(super) fn every_remote_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterator<Item = &'r ResolvedDimension<'a>> {
-    let own = resolution.model.source();
-    every_dimension(resolution).filter(move |dim| is_remote(dim, own))
+/// One lookup leg of a question: the crossing that opens it, and the joins its own statement makes.
+pub(super) struct LookupShape<'r, 'a> {
+    /// Every crossing relationship from the metric's own data system to this leg, this leg's own last.
+    path: Vec<&'a RelationshipName>,
+    /// The hop that lands on this leg's data system.
+    pub(super) crossing: &'r ResolvedJoin<'a>,
+    /// The model that hop leaves: it sits on the parent leg, and its column is the link's origin.
+    pub(super) origin: &'a Model,
+    /// The lookup leg this one joins onto, or `None` for the fact leg.
+    pub(super) parent: Option<usize>,
+    /// The joins after the crossing hop, for every chain that reaches this leg.
+    pub(super) joins: Vec<PlanJoin>,
 }
 
-/// Whether a dimension sits on a data system other than `own`.
+/// Every lookup leg a question needs, one per distinct path of crossing relationships.
 ///
-/// The LAST hop decides: a chain crosses at most once and stays where it crossed to, so a chain whose
-/// last hop is on another system crossed, and one whose last hop is local never left - which is why a
-/// chain that crossed and came back has to be refused before this is asked.
-pub(super) fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
-    dimension
-        .join
-        .as_ref()
-        .and_then(|hops| hops.last())
-        .is_some_and(|hop| hop.model.source() != own)
+/// **A leg is one crossing relationship reached one way, and two dimensions that reach one remote
+/// model through two relationships read it in two legs.** The legs are sorted by path, and a path
+/// sorts after its own prefix, so a leg's parent always comes before it - which is the order
+/// `LookupLegs::parse` requires - and the order, with every link label it names, is a function of
+/// the catalog and not of the order the caller listed their dimensions.
+pub(super) struct Lookups<'r, 'a> {
+    own: &'a Model,
+    shapes: Vec<LookupShape<'r, 'a>>,
+}
+
+struct Draft<'r, 'a> {
+    crossing: &'r ResolvedJoin<'a>,
+    origin: &'a Model,
+    joins: Vec<Vec<PlanJoin>>,
+}
+
+impl<'r, 'a> Lookups<'r, 'a> {
+    pub(super) fn of(resolution: &'r Resolution<'a>) -> Self {
+        let own = resolution.model;
+        let mut drafts: BTreeMap<Vec<&'a RelationshipName>, Draft<'r, 'a>> = BTreeMap::new();
+        for resolved in every_dimension(resolution) {
+            let Some(cut) = resolved.join.as_deref().and_then(|hops| cut(hops, own)) else {
+                continue;
+            };
+            let mut path: Vec<&'a RelationshipName> = Vec::new();
+            for segment in &cut.segments {
+                path.push(segment.hop.relationship.name());
+                drafts
+                    .entry(path.clone())
+                    .or_insert_with(|| Draft {
+                        crossing: segment.hop,
+                        origin: segment.origin,
+                        joins: Vec::new(),
+                    })
+                    .joins
+                    .push(walk(segment.after, segment.hop.model.table_name()));
+            }
+        }
+        let paths: Vec<Vec<&'a RelationshipName>> = drafts.keys().cloned().collect();
+        let shapes = drafts
+            .into_iter()
+            .map(|(path, draft)| LookupShape {
+                parent: path
+                    .split_last()
+                    .and_then(|(_, up)| paths.iter().position(|earlier| earlier.as_slice() == up)),
+                path,
+                crossing: draft.crossing,
+                origin: draft.origin,
+                joins: unique_chains(draft.joins.into_iter()),
+            })
+            .collect();
+        Self { own, shapes }
+    }
+
+    pub(super) const fn len(&self) -> usize {
+        self.shapes.len()
+    }
+
+    pub(super) const fn is_empty(&self) -> bool {
+        self.shapes.is_empty()
+    }
+
+    pub(super) fn first(&self) -> Option<&LookupShape<'r, 'a>> {
+        self.shapes.first()
+    }
+
+    pub(super) fn iter(&self) -> Iter<'_, LookupShape<'r, 'a>> {
+        self.shapes.iter()
+    }
+
+    /// The lookup leg a dimension is read from, or `None` for a dimension on the metric's own source.
+    ///
+    /// The LAST crossing decides: a chain that crossed and came back is read from the leg it came
+    /// back through, and never from the fact leg.
+    pub(super) fn index_of(&self, dimension: &ResolvedDimension<'_>) -> Option<usize> {
+        let cut = dimension.join.as_deref().and_then(|hops| cut(hops, self.own))?;
+        self.shapes.iter().position(|shape| {
+            shape.path.len() == cut.segments.len()
+                && shape
+                    .path
+                    .iter()
+                    .zip(&cut.segments)
+                    .all(|(name, segment)| *name == segment.hop.relationship.name())
+        })
+    }
 }
 
 /// One [`PlanJoin`] per hop of every chain the question reaches, for both plan shapes.
@@ -88,25 +186,13 @@ pub(super) fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> 
 /// grouping where it happens to have one by the same name. Reproduced both ways against `DuckDB`.
 ///
 /// A chain stops at its crossing hop. On the fact leg that hop is the link the lookup leg carries
-/// instead, and the hops after it are [`lookup_joins`]; on the whole-answer path no such hop exists,
+/// instead, and the hops after it are the lookup leg's joins ([`Lookups`]); on the whole-answer path no such hop exists,
 /// because `plan` dispatches there only for a question with no remote dimension. So a chain that
 /// crossed never contributes a join to the statement it has left.
-pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName, own_source: &SourceName) -> Vec<PlanJoin> {
+pub(super) fn chain_joins(resolution: &Resolution<'_>, own_table: &TableName) -> Vec<PlanJoin> {
     unique_chains(every_dimension(resolution).filter_map(|resolved| {
-        let hops = resolved.join.as_ref()?;
-        Some(walk(crossing(hops, own_source).map_or(hops, |cut| cut.before), own_table))
-    }))
-}
-
-/// One [`PlanJoin`] per hop that follows the crossing, for the lookup leg's statement.
-///
-/// The first of them starts at the crossing hop's own table, which is the lookup leg's `FROM`. The
-/// sort and the deduplication are [`chain_joins`]', through one function, so the two statements'
-/// join order is a function of the plan in the same way.
-pub(super) fn lookup_joins(resolution: &Resolution<'_>, own_source: &SourceName) -> Vec<PlanJoin> {
-    unique_chains(every_dimension(resolution).filter_map(|resolved| {
-        let cut = crossing(resolved.join.as_ref()?, own_source)?;
-        Some(walk(cut.after, cut.hop.model.table_name()))
+        let hops = resolved.join.as_deref()?;
+        Some(walk(cut(hops, resolution.model).map_or(hops, |cut| cut.before), own_table))
     }))
 }
 

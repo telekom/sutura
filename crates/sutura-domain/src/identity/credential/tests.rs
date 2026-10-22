@@ -270,6 +270,20 @@ fn a_grant_is_checked_against_the_request_in_four_directions_and_one_call() {
             .expect("a refusal about a source the request named is an answer"),
         Agreed::Refused { ref source } if source == &self::source("local")
     ));
+    assert_eq!(
+        Minted::AddressOutsideDomains {
+            source: source("elsewhere")
+        }
+        .agreeing_with(&a_person(), &sources, NOON)
+        .unwrap_err(),
+        CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { at: source("elsewhere") }
+    );
+    assert!(matches!(
+        Minted::AddressOutsideDomains { source: source("local") }
+            .agreeing_with(&a_person(), &sources, NOON)
+            .expect("an address refusal about a source the request named is an answer"),
+        Agreed::AddressOutsideDomains { ref source } if source == &self::source("local")
+    ));
 
     // And the honest grant passes all four, so none of the above is passing against a guard that
     // refuses everything.

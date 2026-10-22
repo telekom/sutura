@@ -368,15 +368,21 @@ mod tests {
         }
 
         fn served(case: &str) -> Served {
+            served_with(case, "", "")
+        }
+
+        /// [`served`], with `inbound` appended to the `security.inbound` block and `delegation` to
+        /// the `domain_delegation` block.
+        fn served_with(case: &str, inbound: &str, delegation: &str) -> Served {
             let issuer =
                 MockIssuer::generating("https://issuer.example.com", "https://sutura.example.com", "k1").expect("a key pair");
             let published = PublishedKeySet::of(&issuer, case).expect("the key set publishes");
             let overlay = format!(
                 "security:\n  identity: \"multi-user\"\n  inbound:\n    mode: \"direct\"\n    resource: \"{}\"\n    \
-                 authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n\
+                 authorization_server: \"{}\"\n    key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n{inbound}\
                  sources:\n  ledger:\n    kind: \"bigquery\"\n    \
                  max_bytes_billed: 1073741824\n    posture: \"impersonation-at-source\"\n    \
-                 domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n",
+                 domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n{delegation}",
                 issuer.audience(),
                 issuer.issuer(),
                 published.path().display(),
@@ -482,6 +488,53 @@ mod tests {
                 assert!(body.contains("credential_unavailable"), "{verified:?}: {body}");
                 assert_eq!(jobs.try_iter().count(), 0, "{verified:?}: no job reaches the source ({body})");
             }
+        }
+
+        /// An Entra ID access token: the user in `upn`, no `email_verified`.
+        fn entra_caller() -> Token {
+            let scopes = sutura_app::Capability::every()
+                .map(sutura_app::Capability::scope)
+                .collect::<Vec<_>>()
+                .join(" ");
+            Token::for_subject("AAAAAAAAAAAAAAAAAAAAAIkzqFVrSaSaFHy782bbtaQ")
+                .granting(&scopes)
+                .claiming("upn", serde_json::json!(ADDRESS))
+        }
+
+        #[tokio::test]
+        async fn an_entra_shaped_token_runs_as_its_upn_only_where_the_claim_is_declared() {
+            let declared = served_with(
+                "domain-delegation-upn",
+                "    address_claim: \"upn\"\n    accept_address_claim: true\n",
+                "",
+            );
+            let token = declared.issuer.mint(&entra_caller()).expect("a signed token");
+            let (status, body) = query(declared.app, &token).await;
+            let seen: Vec<Option<String>> = declared.jobs.try_iter().collect();
+            assert!(!seen.is_empty(), "the question must reach the source ({status}: {body})");
+            assert!(seen.iter().all(|job| job.as_deref() == Some(ADDRESS)), "{seen:?}");
+            let Served { app, issuer, jobs, .. } = served("domain-delegation-upn-undeclared");
+            let token = issuer.mint(&entra_caller()).expect("a signed token");
+            let (status, body) = query(app, &token).await;
+            assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "{body}");
+            assert!(body.contains("credential_unavailable"), "{body}");
+            assert_eq!(jobs.try_iter().count(), 0, "no job reaches the source ({body})");
+        }
+
+        #[tokio::test]
+        async fn an_address_outside_the_delegated_domains_is_refused_before_the_source() {
+            let outside = served_with("domain-delegation-outside", "", "      address_domains: [\"example.org\"]\n");
+            let token = outside.issuer.mint(&caller(Some(true))).expect("a signed token");
+            let (status, body) = query(outside.app, &token).await;
+            assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "{body}");
+            assert!(body.contains("address_outside_domains"), "{body}");
+            assert_eq!(outside.jobs.try_iter().count(), 0, "no job reaches the source ({body})");
+            let inside = served_with("domain-delegation-inside", "", "      address_domains: [\"example.com\"]\n");
+            let token = inside.issuer.mint(&caller(Some(true))).expect("a signed token");
+            let (status, body) = query(inside.app, &token).await;
+            let seen: Vec<Option<String>> = inside.jobs.try_iter().collect();
+            assert!(!seen.is_empty(), "a listed domain reaches the source ({status}: {body})");
+            assert!(seen.iter().all(|job| job.as_deref() == Some(ADDRESS)), "{seen:?}");
         }
     }
 }

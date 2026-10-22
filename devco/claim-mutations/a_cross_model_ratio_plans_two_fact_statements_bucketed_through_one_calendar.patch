@@ -1,17 +1,17 @@
 diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+index b9486230c..d324a7e07 100644
 --- a/crates/sutura-semantic/src/plan/federated.rs
 +++ b/crates/sutura-semantic/src/plan/federated.rs
-@@ -388,10 +388,10 @@
+@@ -405,7 +405,11 @@ fn second_fact_leg(
          metric: resolution.metric.name().clone(),
          tables,
          bucket: bucket.clone(),
--        keys: vec![origin_key(
+-        keys: vec![origin_key(link_label(0), second.table_name(), link_key)],
 +        keys: vec![PlanKey::truncated(
-             ResultLabel::internal(InternalLabel::link(0)),
--            second.table_name(),
--            link_key,
++            link_label(0),
 +            PlanColumn::new(second.table_name().clone(), link_key.origin().clone()),
 +            sutura_domain::model::Grain::Month,
-         )],
++        )],
          terms: second_terms,
          bindings: super::range_only(resolution.range, bucket.column())?,
+         range: resolution.range,

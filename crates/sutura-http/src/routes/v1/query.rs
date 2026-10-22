@@ -162,13 +162,15 @@ const TAG: &str = "query";
         (
             status = 409,
             description = "REFUSED - `outcome: refusal`. The question is answerable in principle \
-                           and this deployment will not answer it, so `code` says which of six \
-                           things stands in the way. `federation_not_executable`: this build has no \
+                           and this deployment will not answer it, so `code` says which of the \
+                           things below stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
-                           systems. `plan_spans_too_many_sources`: it would read from more data \
-                           systems than one answer may. `question_needs_too_many_legs`: it would run \
+                           systems. `plan_spans_too_many_sources`: it would read more distinct data \
+                           systems than one answer may. `plan_needs_too_many_lookup_legs`: it would \
+                           read more lookup legs than one answer may. `question_needs_too_many_legs`: it would run \
                            more queries against the data systems than one answer may. \
-                           `federation_link_ambiguous`: the remote dimensions join through more than one relationship. \
+                           `cross_model_ratio_needs_one_lookup_leg`: a ratio over two fact models \
+                           would need more than one lookup leg. \
                            `federation_link_compound`: the one relationship crossing into the \
                            second data system declares more than one join key, and the combiner \
                            links two legs on a single column. `federation_link_type_mismatch`: the \

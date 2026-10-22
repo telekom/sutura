@@ -30,13 +30,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "federation_not_executable",
         ),
         (
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
-            StatusCode::CONFLICT,
-            "federation_link_ambiguous",
-        ),
-        (
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
@@ -93,6 +86,13 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             },
             StatusCode::FORBIDDEN,
             "credential_unavailable",
+        ),
+        (
+            RefusalReason::AddressOutsideDomains {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "address_outside_domains",
         ),
         (
             RefusalReason::SourceRefused {

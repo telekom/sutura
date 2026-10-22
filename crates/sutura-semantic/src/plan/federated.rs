@@ -1,4 +1,5 @@
-//! The federated splitter: a two-source question becomes a fact leg and a lookup leg.
+//! The federated splitter: a question over several data systems becomes a fact leg and up to
+//! [`MAX_LOOKUP_LEGS`](sutura_domain::query::MAX_LOOKUP_LEGS) lookup legs.
 //!
 //! **A module rather than three functions in `plan.rs`, and the seam is the same one `chain`
 //! documents: one concept, one file, one reader.** Split out under `cargo xtask max-lines`'s limit:
@@ -7,7 +8,7 @@
 //! this crate already had a name for - move the code, not compress it.
 //!
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
-//! [`federated_plan`] only once it has already decided there is exactly one remote source.
+//! [`federated_plan`] only once it has already decided there is at least one lookup leg, and at most the cap.
 
 use sutura_domain::catalog::{ColumnType, JoinKey, Model, Relationship};
 use sutura_domain::federation::{Carried, Federation};
@@ -15,27 +16,32 @@ use sutura_domain::measure::Measure;
 use sutura_domain::model::{ColumnName, SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    FederatedPlan, InternalLabel, LegPlan, LinkKind, PlanBucket, PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel,
-    StatementTables, labels,
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LinkKind, LookupLeg, LookupLegs, PlanBucket,
+    PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
-use super::chain::{chain_joins, column_of, crossing, every_remote_dimension, hop_join, is_remote, lookup_joins};
+use super::chain::{Lookups, chain_joins, column_of, hop_join};
 use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 
-/// Splits a two-source question into a fact leg and a lookup leg.
+/// Splits a question over several data systems into a fact leg and its lookup legs.
 ///
-/// The metric's own rows (and any same-source dimension) form the fact leg; everything on the one
-/// remote data system forms the lookup leg. The link between them is the crossing relationship's join
-/// column, grouped into the fact leg and projected from the lookup leg under the same label - so the
-/// combiner can find it. A chain's hops before the crossing join on the fact leg and its hops after
-/// it join inside the lookup leg. A measure that cannot decompose (a distinct count) is pulled up: the fact leg
-/// carries its column as one more key and the combine counts the distinct values above.
-// The splitter builds both legs, their keys, their filters and the link in one pass over the
+/// The metric's own rows (and any same-source dimension) form the fact leg; each crossing
+/// relationship forms one lookup leg ([`Lookups`]). A leg's link is the crossing relationship's join
+/// column, projected from the leg that holds its origin - the fact leg, or the lookup leg an earlier
+/// crossing opened - and from the leg it opens, under the same label, so the combiner can find it. A
+/// chain's hops before its first crossing join on the fact leg, and its hops after a crossing join
+/// inside that crossing's leg. A measure that cannot decompose (a distinct count) is pulled up: the
+/// fact leg carries its column as one more key and the combine counts the distinct values above.
+// The splitter builds every leg, their keys, their filters and the links in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
-pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<FederatedPlan, PlanError> {
+pub(super) fn federated_plan(
+    resolution: &Resolution<'_>,
+    closed: &Measure,
+    lookups: &Lookups<'_, '_>,
+) -> Result<FederatedPlan, PlanError> {
     let metric = resolution.metric;
     let model = resolution.model;
     // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
@@ -45,87 +51,53 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
 
     // `of_metric`, not `of`: a term naming the metric's own model stays on the first fact leg.
     let federation = Federation::of_metric(closed, model.name());
-    // One remote data system (more are refused upstream); its dimensions must all cross through one
-    // relationship, because the combiner links the legs on a single column - and a remote
-    // dimension's CROSSING hop is what the link is: the hop that lands on the remote system. The
-    // hops before it are same-source joins of the fact leg, and the hops after it are joins of the
-    // lookup leg. The guards below are unreachable - `plan` calls this only for exactly one remote
-    // source, and a remote dimension has a crossing by construction - but a panic here would be
-    // reachable from a catalog plus a question, so they refuse instead.
+    // The guard below is unreachable - `plan` calls this only with at least one lookup leg - but a
+    // panic here would be reachable from a catalog plus a question, so it refuses instead.
     //
-    // A2: neither guard fabricates a `RefusalReason` any more - see `PlanError::NoRemoteJoin`.
-    let Some(first_remote) = every_remote_dimension(resolution).next() else {
+    // A2: it fabricates no `RefusalReason` - see `PlanError::NoRemoteJoin`.
+    let Some(first) = lookups.first() else {
         return Err(PlanError::NoRemoteJoin);
     };
-    let Some(first) = first_remote.join.as_ref().and_then(|hops| crossing(hops, model.source())) else {
-        return Err(PlanError::NoRemoteJoin);
-    };
-    let first_join = first.hop;
-    let relationship = first_join.relationship;
-    let remote_path = first_join.model.table();
-    let remote_table = first_join.model.table_name();
-    let remote_source = first_join.model.source();
-    // The fact leg's table that holds the link's origin column: the one the crossing hop starts at,
-    // which is the metric's own table when the chain crosses at its first hop. Every dimension
-    // crossing through this relationship starts it from the same model, so one table serves them all.
-    let link_model = first.before.last().map_or(model, |hop| hop.model);
-    let link_table = link_model.table_name();
-    for dim in every_remote_dimension(resolution) {
-        let Some(cut) = dim.join.as_ref().and_then(|hops| crossing(hops, model.source())) else {
-            continue;
-        };
-        if cut.hop.relationship.name() != relationship.name() {
-            return Err(PlanError::Refused(RefusalReason::FederationLinkAmbiguous {
-                source: remote_source.clone(),
-            }));
-        }
+    // One link per lookup leg: the combiner links two legs on a single column, so a leg's crossing
+    // relationship must declare exactly one key, and its two columns must be kinds that compare.
+    let mut crossing_keys: Vec<&JoinKey> = Vec::with_capacity(lookups.len());
+    for leg in lookups.iter() {
+        let relationship = leg.crossing.relationship;
+        crossing_keys.push(one_crossing_key(relationship, leg.crossing.model.source())?);
+        // Decided from the catalog's declared types before either leg runs, which is what makes the
+        // refusal free: the combiner's own check needs both legs' schemas, which means running them.
+        link_types_agree(relationship, leg.origin, leg.crossing.model)?;
     }
 
-    // **The link's label is reserved, and it used to be the physical join column's text.** That text
+    // **A link's label is reserved, and it used to be the physical join column's text.** That text
     // is a legal dimension name, and it sat in the same result namespace as the public dimension
     // labels beside it - so a metric with a legal dimension named `customer_key`, backed by a
     // different column, produced two fact columns under one label and the combiner refused the
     // answer. `InternalLabel` is a namespace a question cannot spell into; the dimension stays legal.
-    let link_label = ResultLabel::internal(InternalLabel::link(0));
 
-    let crossing_key = one_crossing_key(relationship, remote_source)?;
-    // Decided from the catalog's declared types before either leg runs, which is what makes the
-    // refusal free: the combiner's own check needs both legs' schemas, which means running them.
-    link_types_agree(relationship, link_model, first_join.model)?;
-
-    // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
-    // joined to it above.
+    // The fact leg groups by its local dimension keys plus the origin of each link it carries, so the
+    // lookup legs can be joined to it above.
     let mut fact_keys: Vec<PlanKey> = Vec::new();
-    for key in resolution.keys.iter().filter(|key| !is_remote(key, model.source())) {
+    for key in resolution.keys.iter().filter(|key| lookups.index_of(key).is_none()) {
         fact_keys.push(PlanKey::new(
             ResultLabel::dimension(key.dimension.name()),
             column_of(key, own_table),
         ));
     }
-    fact_keys.push(origin_key(link_label.clone(), link_table, crossing_key));
-
-    // The lookup leg projects the join target plus the remote dimension keys.
-    let mut lookup_keys: Vec<PlanKey> = vec![PlanKey::new(
-        link_label,
-        PlanColumn::new(remote_table.clone(), crossing_key.target().clone()),
-    )];
-    for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
-        lookup_keys.push(PlanKey::new(
-            ResultLabel::dimension(key.dimension.name()),
-            column_of(key, remote_table),
-        ));
+    for (at, (leg, key)) in lookups
+        .iter()
+        .zip(&crossing_keys)
+        .enumerate()
+        .filter(|(_, (leg, _))| leg.parent.is_none())
+    {
+        fact_keys.push(origin_key(link_label(at), leg.origin.table_name(), key));
     }
 
     // Filters split by which leg owns the column they constrain.
     let local_filters: Vec<&ResolvedFilter> = resolution
         .filters
         .iter()
-        .filter(|filter| !is_remote(&filter.dimension, model.source()))
-        .collect();
-    let remote_filters: Vec<&ResolvedFilter> = resolution
-        .filters
-        .iter()
-        .filter(|filter| is_remote(&filter.dimension, model.source()))
+        .filter(|filter| lookups.index_of(&filter.dimension).is_none())
         .collect();
 
     // `telekom/sutura#780`: a cross-model ratio buckets and bounds both fact legs on the shared
@@ -136,7 +108,6 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         .map_or(own_table, |cross| cross.calendar.table_name());
     let time_column = PlanColumn::new(time_table.clone(), metric.time_column().clone());
     let fact_bindings = super::predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
-    let lookup_bindings = super::requested_for(&remote_filters, remote_table)?;
 
     // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads, each column
     // qualified by the table its own leg reads.
@@ -148,7 +119,7 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // `JOIN` on this leg's statement; the hops after it are the lookup leg's joins, built below. Same
     // builder as the whole-answer path: two copies of "one join per hop, qualified by the previous
     // hop's target" is how one of them came to be qualified by the metric's table instead.
-    let mut joins = chain_joins(resolution, own_table, model.source());
+    let mut joins = chain_joins(resolution, own_table);
     if let Some(cross) = resolution.cross.as_ref() {
         joins.push(hop_join(cross.own_to_calendar, own_table, cross.calendar));
     }
@@ -171,24 +142,18 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     // The answer's group-by keys in question order, each naming which leg's result it is read from.
     // Question order is the mono path's column order too, so a federated answer aligns with a
     // single-source one (and with a future federated differential that reads rows by position).
-    let answer_keys: Vec<sutura_domain::plan::AnswerKey> = resolution
+    let answer_keys: Vec<AnswerKey> = resolution
         .keys
         .iter()
         .map(|key| {
             let label = ResultLabel::dimension(key.dimension.name());
-            if is_remote(key, model.source()) {
-                sutura_domain::plan::AnswerKey::lookup(0, label)
-            } else {
-                sutura_domain::plan::AnswerKey::fact(label)
-            }
+            lookups
+                .index_of(key)
+                .map_or_else(|| AnswerKey::fact(label.clone()), |leg| AnswerKey::lookup(leg, label.clone()))
         })
         .collect();
 
-    // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it does.
-    // `docs/adr/0009` decides the direction.
-    let include_unmatched = remote_filters.is_empty();
-
-    let fact = sutura_domain::plan::LegPlan::Fact {
+    let fact = LegPlan::Fact {
         source: model.source().clone(),
         metric: metric.name().clone(),
         tables: fact_tables,
@@ -199,30 +164,14 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         range: resolution.range,
     };
 
-    // **The lookup leg's tables are the same checked set as the fact leg's, for the same reason:** a
-    // chain that crossed and carries on joins inside this statement, so two tables answering to one
-    // identifier there would render one implicit alias.
-    let lookup_tables =
-        StatementTables::parse(remote_path.clone(), lookup_joins(resolution, model.source())).map_err(|ambiguous| {
-            RefusalReason::PlanTablesShareAnIdentifier {
-                table: ambiguous.alias().clone(),
-            }
-        })?;
-    let lookup = sutura_domain::plan::LegPlan::Lookup {
-        source: remote_source.clone(),
-        table: lookup_tables,
-        keys: lookup_keys,
-        bindings: lookup_bindings,
-    };
-
-    let second_fact = second_fact_leg(resolution, first_join, &bucket, second_terms)?;
+    let second_fact = second_fact_leg(resolution, first.crossing, &bucket, second_terms)?;
     let plan = FederatedPlan::new(
         metric.name().clone(),
         ResultLabel::measure(metric.name()),
         bucket,
         fact,
         second_fact,
-        sutura_domain::plan::LookupLegs::one(lookup, include_unmatched),
+        lookup_legs(resolution, lookups, &crossing_keys)?,
         federation,
         answer_keys,
     )?;
@@ -293,12 +242,78 @@ pub(super) fn leg_terms(
     (terms, second_terms)
 }
 
-/// The one key a crossing relationship links the two legs on, refusing a compound one.
+/// The label a lookup leg's link travels under, on the leg that opens it and the leg it joins onto.
+fn link_label(leg: usize) -> ResultLabel {
+    ResultLabel::internal(InternalLabel::link(leg))
+}
+
+/// One lookup leg per crossing path, each joined onto the leg that holds its link's origin.
+///
+/// A leg groups by its own link, the origin of each link a later leg joins onto it through, and the
+/// dimensions read from it. LEFT when the leg carries no filter (an unmatched row survives), INNER
+/// when it does: `docs/adr/0009` decides the direction, for each leg and not once for the plan.
+fn lookup_legs(
+    resolution: &Resolution<'_>,
+    lookups: &Lookups<'_, '_>,
+    crossing_keys: &[&JoinKey],
+) -> Result<LookupLegs, PlanError> {
+    let mut legs: Vec<LookupLeg> = Vec::with_capacity(lookups.len());
+    for (at, (shape, key)) in lookups.iter().zip(crossing_keys).enumerate() {
+        let table = shape.crossing.model.table_name();
+        let mut keys = vec![PlanKey::new(
+            link_label(at),
+            PlanColumn::new(table.clone(), key.target().clone()),
+        )];
+        for (child, (later, later_key)) in lookups
+            .iter()
+            .zip(crossing_keys)
+            .enumerate()
+            .filter(|(_, (later, _))| later.parent == Some(at))
+        {
+            keys.push(origin_key(link_label(child), later.origin.table_name(), later_key));
+        }
+        for dimension in resolution
+            .keys
+            .iter()
+            .filter(|dimension| lookups.index_of(dimension) == Some(at))
+        {
+            keys.push(PlanKey::new(
+                ResultLabel::dimension(dimension.dimension.name()),
+                column_of(dimension, table),
+            ));
+        }
+        let filters: Vec<&ResolvedFilter> = resolution
+            .filters
+            .iter()
+            .filter(|filter| lookups.index_of(&filter.dimension) == Some(at))
+            .collect();
+        // The lookup leg's tables are the same checked set as the fact leg's, for the same reason: a
+        // chain that crossed and carries on joins inside this statement, so two tables answering to
+        // one identifier there would render one implicit alias.
+        let tables = StatementTables::parse(shape.crossing.model.table().clone(), shape.joins.clone()).map_err(|ambiguous| {
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: ambiguous.alias().clone(),
+            }
+        })?;
+        let leg = LegPlan::Lookup {
+            source: shape.crossing.model.source().clone(),
+            table: tables,
+            keys,
+            bindings: super::requested_for(&filters, table)?,
+        };
+        let include_unmatched = filters.is_empty();
+        legs.push(match shape.parent {
+            None => LookupLeg::onto_fact(leg, include_unmatched),
+            Some(parent) => LookupLeg::onto_lookup(leg, parent, include_unmatched),
+        });
+    }
+    Ok(LookupLegs::parse(legs).map_err(FederatedPlanError::from)?)
+}
+
+/// The one key a crossing relationship links its two legs on, refusing a compound one.
 ///
 /// The combiner links the legs on ONE column under ONE label, so a compound crossing key would need
-/// a label per key: refused BY NAME as `FederationLinkCompound` rather than reused from
-/// `FederationLinkAmbiguous`, which names two RELATIONSHIPS crossing at once and would tell a caller
-/// something untrue about one correctly declared relationship. A key truncated to a grain is one
+/// a label per key: refused BY NAME as `FederationLinkCompound`. A key truncated to a grain is one
 /// column too: the fact leg truncates it at the source ([`origin_key`]) and the lookup leg
 /// projects the target as it is.
 fn one_crossing_key<'r>(relationship: &'r Relationship, source: &SourceName) -> Result<&'r JoinKey, PlanError> {
@@ -406,11 +421,7 @@ fn second_fact_leg(
         metric: resolution.metric.name().clone(),
         tables,
         bucket: bucket.clone(),
-        keys: vec![origin_key(
-            ResultLabel::internal(InternalLabel::link(0)),
-            second.table_name(),
-            link_key,
-        )],
+        keys: vec![origin_key(link_label(0), second.table_name(), link_key)],
         terms: second_terms,
         bindings: super::range_only(resolution.range, bucket.column())?,
         range: resolution.range,

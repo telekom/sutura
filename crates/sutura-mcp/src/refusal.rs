@@ -131,10 +131,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              data systems. Nothing you can change in the question helps and this is not an outage \
              to retry; ask without the dimension on the second data system, or report it.",
         ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => format!(
-            "the dimensions on `{source}` join through more than one relationship, and the two \
-             legs link on a single column"
-        ),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
@@ -188,6 +184,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              this deployment will not read it under its own identity instead. Nothing you can \
              change in the question helps and retrying will not either. Say so, and say that \
              access to `{source}` is what would be needed."
+        ),
+        RefusalReason::AddressOutsideDomains { ref source } => format!(
+            "the address the identity provider gives the person you are acting for is outside the \
+             domains the data system `{source}` is delegated for, and this deployment will not read \
+             it under its own identity instead. Nothing you can change in the question helps and \
+             retrying will not either. Say so."
         ),
         // Written for an agent: this is the data system itself saying no about WHO asked, not a
         // credential the caller is missing. There is no retry that succeeds and no narrower
@@ -380,12 +382,9 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
@@ -420,6 +419,9 @@ mod tests {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::AddressOutsideDomains {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },

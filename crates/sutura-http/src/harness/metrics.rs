@@ -103,6 +103,7 @@ sutura_questions_total{code="unauthorized"} 0
 sutura_questions_total{code="unavailable"} 0
 sutura_questions_total{code="unusable_bill_to"} 0
 # TYPE sutura_refusals_total counter
+sutura_refusals_total{reason="address_outside_domains"} 0
 sutura_refusals_total{reason="bill_to_not_allowed"} 0
 sutura_refusals_total{reason="budget_exhausted"} 0
 sutura_refusals_total{reason="credential_unavailable"} 0
@@ -118,7 +119,6 @@ sutura_refusals_total{reason="dimension_value_not_allowed"} 0
 sutura_refusals_total{reason="duplicate_dimension"} 0
 sutura_refusals_total{reason="duplicate_metric_name"} 0
 sutura_refusals_total{reason="federated_answer_not_well_formed"} 0
-sutura_refusals_total{reason="federation_link_ambiguous"} 0
 sutura_refusals_total{reason="federation_link_compound"} 0
 sutura_refusals_total{reason="federation_link_type_mismatch"} 0
 sutura_refusals_total{reason="federation_not_executable"} 0

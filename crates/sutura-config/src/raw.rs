@@ -246,6 +246,22 @@ pub(crate) struct RawGoogleLogin {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawDomainDelegation {
     pub(crate) delegating_account: String,
+    /// The only domains a caller is run as. Absent: every verified address. Written with no value:
+    /// refused, as an empty list is.
+    #[serde(default, deserialize_with = "null_domains_as_empty")]
+    pub(crate) address_domains: RawDomains,
+}
+
+/// An `address_domains` key, absent or as written.
+type RawDomains = Option<Vec<String>>;
+
+/// An `address_domains` key written with no value reads as an empty list rather than as an absent
+/// key, so it is refused as the empty list is.
+fn null_domains_as_empty<'de, D>(deserializer: D) -> Result<RawDomains, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <RawDomains as serde::Deserialize>::deserialize(deserializer).map(|written| Some(written.unwrap_or_default()))
 }
 
 /// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty
@@ -492,6 +508,10 @@ pub(crate) struct RawOutbound {
 /// `crate::settings::parse_inbound`.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "three are an operator's acceptance by name and one a switch, each read once at load"
+)]
 pub(crate) struct RawInbound {
     /// `direct` or `behind-gateway`. **Required**, and there is no default because both would be
     /// wrong - see `crate::inbound`.
@@ -565,6 +585,14 @@ pub(crate) struct RawInbound {
     /// `behind-gateway`: admit each assertion once, by its `jti`. Off by default - `docs/adr/20261015094920`.
     #[serde(default)]
     pub(crate) transit_single_use: bool,
+    /// Both modes: the claim a `domain_delegation` source reads the caller's address from. Absent
+    /// means `email` beside `email_verified: true`.
+    #[serde(default)]
+    pub(crate) address_claim: Option<String>,
+    /// Both modes: the operator's by-name acceptance of a claim other than `email`, without which it
+    /// does not start.
+    #[serde(default)]
+    pub(crate) accept_address_claim: bool,
 }
 
 #[derive(serde::Deserialize)]

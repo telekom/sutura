@@ -1,7 +1,8 @@
-//! Three leg-level refusals, split out of `super` (the `federated::tests` module) for that file's
-//! own `max-lines` reason - not for thematic tidiness, so `use super::*` reaches every fixture
-//! (`federated_plan`, `federated_fact_rows`, `federated_lookup_rows`, `FEDERATED_BUDGET`,
-//! `answer_federated` itself) exactly as these tests read them before the move.
+//! Refusals a federated answer reaches before or at a leg, split out of `super` (the
+//! `federated::tests` module) for that file's own `max-lines` reason - not for thematic tidiness, so
+//! `use super::*` reaches every fixture (`federated_plan`, `federated_fact_rows`,
+//! `federated_lookup_rows`, `FEDERATED_BUDGET`, `answer_federated` itself) exactly as these tests
+//! read them before the move.
 
 use super::*;
 
@@ -365,5 +366,44 @@ fn when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced() {
             } if at == "facts"
         ),
         "the FACT leg's transient failure wins, not {failure:?}"
+    );
+}
+
+#[test]
+fn a_federated_address_outside_the_delegated_domains_is_its_own_refusal() {
+    let shared = shared();
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("facts").expect("a test source"),
+        shared.clone(),
+        federated_fact_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        SourceName::parse("geo").expect("a test source"),
+        shared,
+        federated_lookup_rows(),
+    ))
+    .expect("two sources, one registry");
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &federated_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::RefusesTheAddress,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::RowCeilings::DEFAULT,
+    )
+    .expect("a refusal is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::AddressOutsideDomains { .. }
+            }
+        ),
+        "{outcome:?}"
     );
 }

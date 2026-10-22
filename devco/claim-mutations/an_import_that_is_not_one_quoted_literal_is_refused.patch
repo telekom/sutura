@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..ba33c8687 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -175,7 +175,7 @@ fn quoted(rest: &str) -> Option<&str> {
+     let quote = rest.chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+     let (literal, after) = rest.get(1..)?.split_once(quote)?;
+     let after = after.trim();
+-    (!literal.contains('\\') && (after.is_empty() || after.starts_with('#'))).then_some(literal)
++    (!literal.contains('\\') && after.len() < usize::MAX).then_some(literal)
+ }
+ 
+ #[cfg(test)]

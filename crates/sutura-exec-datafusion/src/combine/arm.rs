@@ -99,7 +99,7 @@ pub(super) fn qualified(table: &str, label: &str) -> Expr {
 pub(super) async fn combine_plan(
     plan: &FederatedPlan,
     context: &SessionContext,
-    link: &str,
+    links: &[String],
     leaves: &[Leaf],
     second_table: Option<&str>,
 ) -> Result<LogicalPlan, CombineError> {
@@ -120,10 +120,12 @@ pub(super) async fn combine_plan(
     if let Some(table) = second_table {
         let second = scan(context, table).await?;
         let bucket = plan.bucket_label();
-        let on = [
-            qualified(FACT_TABLE, link).eq(qualified(table, link)),
-            qualified(FACT_TABLE, bucket).eq(qualified(table, bucket)),
-        ];
+        let on: Vec<Expr> = links
+            .iter()
+            .map(String::as_str)
+            .chain([bucket])
+            .map(|label| qualified(FACT_TABLE, label).eq(qualified(table, label)))
+            .collect();
         if let Some(aggregate) = plan
             .federation()
             .carried()
@@ -141,12 +143,14 @@ pub(super) async fn combine_plan(
             .join_on(second, JoinType::Full, on)
             .map_err(|cause| CombineError::Build { cause })?;
         let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
-        let mut columns = vec![
-            coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
-            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
-        ];
+        let mut columns: Vec<Expr> = links
+            .iter()
+            .map(String::as_str)
+            .chain([bucket])
+            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(table, label)]).alias(label))
+            .collect();
         for (qualifier, field) in joined.schema().iter() {
-            if field.name() == link || field.name() == bucket {
+            if field.name() == bucket || links.contains(field.name()) {
                 continue;
             }
             let column = Expr::Column(Column::new(qualifier.cloned(), field.name()));
@@ -176,15 +180,18 @@ pub(super) async fn combine_plan(
     // Each lookup leg joins onto the leg it names on its own link label, in plan order, so the leg
     // it names is already in the relation.
     for (position, (lookup, table)) in plan.lookups().legs().iter().zip(LOOKUP_TABLES).enumerate() {
-        let link = InternalLabel::link(position).label();
         let kind = if lookup.include_unmatched() {
             JoinType::Left
         } else {
             JoinType::Inner
         };
-        let on = qualified(table_at(lookup.onto(), &link)?, &link).eq(qualified(table, &link));
+        let on = plan
+            .link_labels(position)
+            .iter()
+            .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
+            .collect::<Result<Vec<Expr>, CombineError>>()?;
         builder = builder
-            .join_on(scan(context, table).await?, kind, [on])
+            .join_on(scan(context, table).await?, kind, on)
             .map_err(|cause| CombineError::Build { cause })?;
     }
 

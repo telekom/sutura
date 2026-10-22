@@ -481,6 +481,65 @@ fn a_delegating_account_without_the_service_account_domain_is_refused_at_boot() 
 }
 
 #[test]
+fn address_domains_are_carried_and_an_empty_list_is_refused_at_boot() {
+    let delegation = |domains: &str| {
+        format!(
+            "    domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n      \
+             address_domains: {domains}\n"
+        )
+    };
+    let settings = Settings::load(&on_direct_inbound(&delegation("[\"example.com\"]"))).expect("a listed domain loads");
+    let alias = sutura_domain::model::SourceName::parse("warehouse").expect("a source name");
+    let Some(crate::sources::caller_identity::CallerIdentity::DomainDelegation(declared)) = settings
+        .sources()
+        .get(&alias)
+        .and_then(crate::ConfiguredSource::caller_identity)
+    else {
+        panic!("the domain_delegation block is carried");
+    };
+    let address = sutura_domain::identity::VerifiedAddress::parse("a@example.com").expect("an address");
+    assert!(declared.address_domains().is_some_and(|domains| domains.admits(&address)));
+    let error = Settings::load(&on_direct_inbound(&delegation("[]"))).expect_err("an empty list refuses every caller");
+    let SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(
+        matches!(
+            *cause,
+            crate::sources::InvalidSourceRegistry::AddressDomains {
+                cause: crate::sources::address_domains::InvalidAddressDomains::Empty,
+                ..
+            }
+        ),
+        "{cause:?}"
+    );
+}
+
+#[test]
+fn an_address_domains_key_with_no_value_is_refused_as_an_empty_list_is() {
+    for written in ["", "~", "null"] {
+        let block = format!(
+            "    domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n      \
+             address_domains: {written}\n"
+        );
+        let error = Settings::load(&on_direct_inbound(&block)).expect_err("a key with no value is not an absent key");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal for {written:?}, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::AddressDomains {
+                    cause: crate::sources::address_domains::InvalidAddressDomains::Empty,
+                    ..
+                }
+            ),
+            "{written:?}: {cause:?}"
+        );
+    }
+}
+
+#[test]
 fn a_google_login_source_boots_on_a_direct_deployment() {
     let direct = |block: &str| {
         Sources::defaults(Environment::Development).with_overlay(format!(

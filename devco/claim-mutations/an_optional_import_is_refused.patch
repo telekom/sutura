@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..09fe53f38 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -135,7 +135,7 @@ fn keyword(line: &str) -> (&str, bool) {
+         .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-')))
+         .unwrap_or(line.len());
+     let (word, rest) = line.split_at(cut);
+-    let optional = rest.starts_with('?');
++    let optional = rest.starts_with('?') && !rest.starts_with("?\"");
+     let spaced = rest.is_empty() || rest.starts_with([' ', '\t', '"', '\'']);
+     if matches!(word, "import" | "mod") && (optional || spaced) {
+         (word, optional)

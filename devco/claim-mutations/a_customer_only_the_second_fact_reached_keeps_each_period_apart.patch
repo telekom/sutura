@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
 --- a/crates/sutura-exec-datafusion/src/combine/arm.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
-@@ -585,7 +585,7 @@
-         let leaf_labels: Vec<&str> = leaves.iter().map(|leaf| leaf.0.as_str()).collect();
-         let mut columns = vec![
-             coalesce(vec![qualified(FACT_TABLE, link), qualified(table, link)]).alias(link),
--            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(table, bucket)]).alias(bucket),
-+            coalesce(vec![qualified(FACT_TABLE, bucket), qualified(FACT_TABLE, bucket)]).alias(bucket),
-         ];
+@@ -147,7 +147,7 @@ pub(super) async fn combine_plan(
+             .iter()
+             .map(String::as_str)
+             .chain([bucket])
+-            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(table, label)]).alias(label))
++            .map(|label| coalesce(vec![qualified(FACT_TABLE, label), qualified(if label == bucket { FACT_TABLE } else { table }, label)]).alias(label))
+             .collect();
          for (qualifier, field) in joined.schema().iter() {
-             if field.name() == link || field.name() == bucket {
+             if field.name() == bucket || links.contains(field.name()) {

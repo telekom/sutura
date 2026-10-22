@@ -56,7 +56,7 @@ All entries must have the same `version`. A key that sutura does not know is an 
 Cube runs its warehouse query with the database identity in its own driver settings
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
 
-A federated question reads two data systems. Each one runs its part, and DataFusion joins the
+A federated question reads several data systems. Each one runs its part, and DataFusion joins the
 parts. Cube cannot run a part of a federated question. ClickHouse runs a part only as its shared
 user or with a caller's `delegation` token, never through `EXECUTE AS`.
 

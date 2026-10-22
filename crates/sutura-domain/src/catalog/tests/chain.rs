@@ -169,17 +169,8 @@ fn a_chain_may_stay_on_the_system_it_crossed_to() {
 }
 
 #[test]
-fn a_chain_that_crosses_to_a_data_system_and_on_to_a_third_is_refused() {
-    assert_eq!(
-        chain_placed("local", "elsewhere", "third").unwrap_err(),
-        InconsistentDefinitions::HopCrossesSource {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-            relationship: relationship_name("customers_regions"),
-            own: SourceName::parse("local").expect("a test source is a source"),
-            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
-        }
-    );
+fn a_chain_may_cross_to_a_data_system_and_on_to_a_third() {
+    drop(chain_placed("local", "elsewhere", "third").expect("a chain that crosses twice assembles"));
 }
 
 /// `orders` → `customers` → `regions` → `countries`, each placed on the source given: the fixture
@@ -218,45 +209,15 @@ fn four_hops_placed(customers: &str, regions: &str, countries: &str) -> Result<D
 }
 
 #[test]
-fn a_chain_that_crosses_at_a_later_hop_and_then_leaves_is_refused() {
-    // Hop 2 crosses onto `elsewhere`, so hop 3 landing on `third` leaves the system it crossed to. The
-    // refusal names hop 3's relationship and the system the chain crossed to: a check that only
-    // recognised a crossing at hop 1 would never know hop 2 crossed and would accept it.
-    assert_eq!(
-        four_hops_placed("local", "elsewhere", "third").unwrap_err(),
-        InconsistentDefinitions::HopCrossesSource {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("country"),
-            relationship: relationship_name("regions_countries"),
-            own: SourceName::parse("local").expect("a test source is a source"),
-            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
-        }
-    );
+fn a_chain_may_cross_at_a_later_hop_and_then_leave() {
+    drop(four_hops_placed("local", "elsewhere", "third").expect("a chain that crosses at hop 2 and again at hop 3 assembles"));
 }
 
 #[test]
-fn a_chain_that_crosses_a_data_system_and_comes_back_is_refused() {
-    // The hole the target-only comparison left, and it was a WRONG ANSWER rather than an error:
-    // `customers` sits on `elsewhere` and `regions` back on `local`, so hop 2's TARGET is local and
-    // a check reading the target alone accepted the chain. `sutura_semantic` reads a chain's source
-    // off its LAST hop, so this loaded as a purely local dimension and the whole-answer plan put
-    // `elsewhere`'s table into one `local` statement - under a certified metric name, with no
-    // refusal anywhere. Hop 2's target is compared with the system hop 1 crossed to, which is what
-    // catches it.
+fn a_chain_may_cross_a_data_system_and_come_back() {
     let (mut models, relationships) = three_models();
     models[1] = model("customers", "elsewhere", &["id", "region_code"]);
-    assert_eq!(
-        Definitions::assemble(models, relationships, vec![chain_metric()]).unwrap_err(),
-        InconsistentDefinitions::HopCrossesSource {
-            metric: metric_name("revenue"),
-            dimension: dimension_name("region"),
-            relationship: relationship_name("customers_regions"),
-            own: SourceName::parse("local").expect("a test source is a source"),
-            // `elsewhere` is where hop 1 crossed to, and hop 2 leaves it: the field names the system
-            // the chain left.
-            target_source: SourceName::parse("elsewhere").expect("a test source is a source"),
-        }
-    );
+    drop(Definitions::assemble(models, relationships, vec![chain_metric()]).expect("a chain that crosses and returns assembles"));
 }
 
 #[test]
