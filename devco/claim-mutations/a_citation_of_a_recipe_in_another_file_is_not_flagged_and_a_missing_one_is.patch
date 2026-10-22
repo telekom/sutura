@@ -1,0 +1,17 @@
+diff --git a/xtask/src/tasks.rs b/xtask/src/tasks.rs
+index 95a41f592..4f10b3cb9 100644
+--- a/xtask/src/tasks.rs
++++ b/xtask/src/tasks.rs
+@@ -377,7 +377,11 @@ fn scan_broke(set: &[Source]) -> Vec<String> {
+ /// recipe in another is not dead.
+ fn problems(set: &[Source]) -> Vec<String> {
+     let recipes = located(set);
+-    let names: BTreeSet<&str> = recipes.iter().map(|(_, r)| r.name.as_str()).collect();
++    let names: BTreeSet<&str> = recipes
++        .iter()
++        .filter(|(file, _)| *file == set[0].path.as_path())
++        .map(|(_, r)| r.name.as_str())
++        .collect();
+     let scopes: Vec<Scope> = recipes.iter().map(|(_, r)| scope_of(r)).collect();
+ 
+     // A task that verifies the whole workspace, by name. What the rule below accepts as "the

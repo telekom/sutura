@@ -19,7 +19,8 @@
 //! recipe, so widening the compile without widening the sentence fails, and so does pointing at a
 //! task that does not exist or is not actually a workspace check.
 //!
-//! The justfile's scope and citation rules:
+//! The justfile's scope and citation rules, over the root `justfile` and the files it imports
+//! (`justfiles::read`), each finding naming the file and line:
 //!
 //! * **states its scope** - a recipe whose cargo VERIFICATION line narrows to named packages
 //!   prints every one of those names.
@@ -50,15 +51,22 @@
 //! forwarded arguments, environment, package, ignored-test mode or live identity behavior.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
 use crate::workflows;
+use justfiles::Source;
 
-/// The task names a developer types live here.
-const JUSTFILE: &str = "justfile";
+/// The justfile set, or `None` after printing why it was refused: a reader that cannot open the
+/// set has judged nothing, and the callers turn `None` into a failure.
+fn read_set(root: &Path) -> Option<Vec<Source>> {
+    justfiles::read(root)
+        .inspect_err(|refused| eprintln!("xtask: {refused}"))
+        .ok()
+}
 
-/// The recipe names in this repo's justfile, or `None` when it could not be read.
+/// The recipe names in this repo's justfile and the files it imports, or `None` when they could not be read.
 ///
 /// Exposed for the citation checkers that are not this gate. `check-guidance` reads the remedy text
 /// in `xtask/src/guidance/claims/contradicted.rs` and, since `github.com/telekom/sutura#243`, every
@@ -66,8 +74,13 @@ const JUSTFILE: &str = "justfile";
 /// only parser in the workspace that knows what a recipe header looks like, and a second copy of it
 /// is the transcription this module's header objects to.
 pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
-    let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
-    Some(recipes(&text).into_iter().map(|recipe| recipe.name).collect())
+    let set = read_set(root)?;
+    Some(
+        set.iter()
+            .flat_map(|source| recipes(&source.text))
+            .map(|recipe| recipe.name)
+            .collect(),
+    )
 }
 
 /// The body lines of one recipe, or `None` when the justfile or the recipe is not there.
@@ -93,9 +106,9 @@ pub(crate) fn recipe_names(root: &std::path::Path) -> Option<BTreeSet<String>> {
 /// attribute when that lands.
 #[cfg(test)]
 pub(crate) fn recipe_body(root: &std::path::Path, name: &str) -> Option<Vec<String>> {
-    let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
-    recipes(&text)
-        .into_iter()
+    let set = read_set(root)?;
+    set.iter()
+        .flat_map(|source| recipes(&source.text))
         .find(|recipe| recipe.name == name)
         .map(|recipe| recipe.body)
 }
@@ -126,6 +139,17 @@ struct Scope {
     narrowed: BTreeSet<String>,
     /// Did any verification line cover the whole workspace?
     covers_workspace: bool,
+}
+
+/// Every recipe in the set, with the file it is declared in.
+fn located(set: &[Source]) -> Vec<(&Path, Recipe)> {
+    set.iter()
+        .flat_map(|source| {
+            recipes(&source.text)
+                .into_iter()
+                .map(move |recipe| (source.path.as_path(), recipe))
+        })
+        .collect()
 }
 
 /// Split the file into recipes.
@@ -323,8 +347,8 @@ fn unescaped_backticks(text: &str) -> Vec<(usize, String)> {
 /// repo's justfile and not of the rules: a small justfile with no citation in it is not a defect,
 /// while this one losing its recipes, its cargo lines or its citations means the parser stopped
 /// reading and a gate that reads nothing passes everything. Tested on its own for the same reason.
-fn scan_broke(text: &str) -> Vec<String> {
-    let recipes = recipes(text);
+fn scan_broke(set: &[Source]) -> Vec<String> {
+    let recipes = located(set);
     if recipes.is_empty() {
         return vec![String::from(
             "parsed no recipes out of the justfile - the scan is broken, not the file",
@@ -333,14 +357,14 @@ fn scan_broke(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     if !recipes
         .iter()
-        .map(scope_of)
+        .map(|(_, recipe)| scope_of(recipe))
         .any(|scope| scope.covers_workspace || !scope.narrowed.is_empty())
     {
         out.push(String::from(
             "found no cargo verification line in any recipe - the scan is broken, not the file",
         ));
     }
-    if citations(text).is_empty() {
+    if set.iter().all(|source| citations(&source.text).is_empty()) {
         out.push(String::from(
             "parsed no `just <task>` citation out of the justfile - the scan is broken, not the file",
         ));
@@ -348,11 +372,13 @@ fn scan_broke(text: &str) -> Vec<String> {
     out
 }
 
-/// The three rules, over the text of one justfile. Returns one message per violation.
-fn problems(text: &str) -> Vec<String> {
-    let recipes = recipes(text);
-    let names: BTreeSet<&str> = recipes.iter().map(|r| r.name.as_str()).collect();
-    let scopes: Vec<Scope> = recipes.iter().map(scope_of).collect();
+/// The rules, over the justfile and its imports. One message per violation, each naming the file
+/// and line it is in. A recipe name is a name across the whole set, so a citation in one file of a
+/// recipe in another is not dead.
+fn problems(set: &[Source]) -> Vec<String> {
+    let recipes = located(set);
+    let names: BTreeSet<&str> = recipes.iter().map(|(_, r)| r.name.as_str()).collect();
+    let scopes: Vec<Scope> = recipes.iter().map(|(_, r)| scope_of(r)).collect();
 
     // A task that verifies the whole workspace, by name. What the rule below accepts as "the
     // wider gate" is derived from the recipes rather than listed here, so renaming `lint` moves
@@ -360,11 +386,11 @@ fn problems(text: &str) -> Vec<String> {
     let workspace_gates: BTreeSet<&str> = recipes
         .iter()
         .zip(&scopes)
-        .filter_map(|(recipe, scope)| scope.covers_workspace.then_some(recipe.name.as_str()))
+        .filter_map(|((_, recipe), scope)| scope.covers_workspace.then_some(recipe.name.as_str()))
         .collect();
 
     let mut out = Vec::new();
-    for (recipe, scope) in recipes.iter().zip(&scopes) {
+    for ((file, recipe), scope) in recipes.iter().zip(&scopes) {
         if scope.narrowed.is_empty() {
             continue;
         }
@@ -374,10 +400,11 @@ fn problems(text: &str) -> Vec<String> {
         for package in &scope.narrowed {
             if !says(package) {
                 out.push(format!(
-                    "justfile:{}: `just {}` compiles {package} and only {} package(s), and its \
+                    "{}:{}: `just {}` compiles {package} and only {} package(s), and its \
                      output never says so\n      \
                      a passing run then reads as a passing workspace - print the scope, the way \
                      `cargo xtask fmt` and `cargo xtask check-crap` do",
+                    file.display(),
                     recipe.line,
                     recipe.name,
                     scope.narrowed.len()
@@ -392,9 +419,10 @@ fn problems(text: &str) -> Vec<String> {
         if !points_wider && !scope.covers_workspace {
             let wider: Vec<&str> = workspace_gates.iter().copied().collect();
             out.push(format!(
-                "justfile:{}: `just {}` is narrowed and its output names no task that covers the \
+                "{}:{}: `just {}` is narrowed and its output names no task that covers the \
                  whole workspace\n      \
                  cite one in a backtick span, so the reader is told where the wider check is: {}",
+                file.display(),
                 recipe.line,
                 recipe.name,
                 wider.join(", ")
@@ -402,20 +430,23 @@ fn problems(text: &str) -> Vec<String> {
         }
     }
 
-    for (line, name) in citations(text) {
-        if !names.contains(name.as_str()) {
+    for source in set {
+        let file = source.path.display();
+        for (line, name) in citations(&source.text) {
+            if !names.contains(name.as_str()) {
+                out.push(format!(
+                    "{file}:{line}: `just {name}` names no recipe - it was renamed, deleted or never existed"
+                ));
+            }
+        }
+
+        for (line, raw) in unescaped_backticks(&source.text) {
             out.push(format!(
-                "justfile:{line}: `just {name}` names no recipe - it was renamed, deleted or never existed"
+                "{file}:{line}: an unescaped backtick runs as a command substitution rather than \
+                 printing - `set -euo pipefail` cannot see it fail, so the recipe continues at exit 0\n      \
+                 escape it (\\`), move it inside single quotes, or write it as $(...) instead: {raw}"
             ));
         }
-    }
-
-    for (line, raw) in unescaped_backticks(text) {
-        out.push(format!(
-            "justfile:{line}: an unescaped backtick runs as a command substitution rather than \
-             printing - `set -euo pipefail` cannot see it fail, so the recipe continues at exit 0\n      \
-             escape it (\\`), move it inside single quotes, or write it as $(...) instead: {raw}"
-        ));
     }
 
     out
@@ -508,11 +539,11 @@ fn app_commands(flake: &str) -> Vec<AppCommands> {
         .collect()
 }
 
-fn filter_pairs(just: &str, flake: &str) -> (usize, Vec<String>) {
-    let recipes = recipes(just);
+fn filter_pairs(just: &[Source], flake: &str) -> (usize, Vec<String>) {
+    let recipes = located(just);
     let local: Vec<_> = recipes
         .iter()
-        .map(|r| (r.name.as_str(), nextest_lines(&r.body.join("\n"))))
+        .map(|(_, r)| (r.name.as_str(), nextest_lines(&r.body.join("\n"))))
         .collect();
     let apps = app_commands(flake);
     let filtered = |commands: &[String]| commands.iter().any(|line| line.split_whitespace().any(|word| word == "-E"));
@@ -560,12 +591,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-scope: could not determine the repo root");
         return Verdict::Fail;
     };
-    let path = root.join(JUSTFILE);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => {
-            eprintln!("xtask check-scope: could not read {}: {error}", path.display());
-            eprintln!("  A gate that cannot read the file it judges has judged nothing.");
+    let set = match justfiles::read(&root) {
+        Ok(set) => set,
+        Err(refused) => {
+            eprintln!("xtask check-scope: {refused}");
+            eprintln!("  A gate that cannot read the files it judges has judged nothing.");
             return Verdict::Fail;
         }
     };
@@ -577,16 +607,15 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         }
     };
 
-    let mut found = scan_broke(&text);
-    found.extend(problems(&text));
-    let (pairs, filters) = filter_pairs(&text, &flake);
+    let mut found = scan_broke(&set);
+    found.extend(problems(&set));
+    let (pairs, filters) = filter_pairs(&set, &flake);
     found.extend(filters);
     if found.is_empty() {
-        let recipes = recipes(&text);
         println!(
             "xtask check-scope: ok - {} recipe(s), {} citation(s), {pairs} literal nextest filter pair(s)",
-            recipes.len(),
-            citations(&text).len()
+            located(&set).len(),
+            set.iter().map(|source| citations(&source.text).len()).sum::<usize>()
         );
         return Verdict::Pass;
     }
@@ -604,13 +633,34 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 pub(crate) mod justfiles;
 
 #[cfg(test)]
+mod imported;
+
+#[cfg(test)]
 mod test_only;
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{citations, cited_task, has_unescaped_backtick, problems, recipes, scope_of};
+    use std::path::PathBuf;
+
+    use super::{Source, citations, cited_task, has_unescaped_backtick, recipes, scope_of};
+
+    /// One file named `justfile`, the set a repo with no import reads as.
+    fn one(text: &str) -> Vec<Source> {
+        vec![Source {
+            path: PathBuf::from("justfile"),
+            text: String::from(text),
+        }]
+    }
+
+    fn problems(text: &str) -> Vec<String> {
+        super::problems(&one(text))
+    }
+
+    fn scan_broke(text: &str) -> Vec<String> {
+        super::scan_broke(&one(text))
+    }
 
     /// A justfile with the shape the rules are about: one narrowed recipe that states its scope
     /// and points at the wider one, and the wider one itself.
@@ -770,8 +820,6 @@ lint:
 
     #[test]
     fn an_empty_file_is_a_broken_scan_rather_than_a_clean_one() {
-        use super::scan_broke;
-
         // The failure mode a text-scanning gate is most prone to: passing by reading nothing.
         // Three ways this parser could stop reading, and each has to be loud rather than green.
         let found = scan_broke("");
@@ -874,8 +922,8 @@ lint:
         // The rules judge the real file, not only fixtures. This is the test that was RED before
         // `just check` printed its scope, and it is what fails if the notice is deleted later.
         let root = super::repo::root().expect("the repo root is discoverable");
-        let text = std::fs::read_to_string(root.join(super::JUSTFILE)).expect("the justfile is readable");
-        assert_eq!(super::scan_broke(&text), Vec::<String>::new());
-        assert_eq!(problems(&text), Vec::<String>::new());
+        let set = super::justfiles::read(&root).expect("the justfile set is readable");
+        assert_eq!(super::scan_broke(&set), Vec::<String>::new());
+        assert_eq!(super::problems(&set), Vec::<String>::new());
     }
 }

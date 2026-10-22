@@ -171,3 +171,32 @@ fn the_scope_gate_refuses_incomplete_or_unreadable_literal_pairs() {
     let message = String::from_utf8(unreadable.stderr).expect("text diagnostic");
     assert!(message.contains("could not read flake.nix"), "{message}");
 }
+
+#[test]
+fn the_scope_gate_reads_a_recipe_declared_in_an_imported_file() {
+    let just = format!("import \"just/docs.just\"\n{JUST}");
+    let check = |tag: &str, imported: &str| {
+        let tree = Tree::of(
+            &format!("task-filters-import-{tag}"),
+            &[
+                ("Cargo.toml", b"[workspace]\n" as &[u8]),
+                ("justfile", just.as_bytes()),
+                ("flake.nix", FLAKE.as_bytes()),
+                ("just/docs.just", imported.as_bytes()),
+            ],
+        );
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .arg("check-scope")
+            .current_dir(tree.root())
+            .env_clear()
+            .output()
+            .expect("run the real gate without a shell or venue command")
+    };
+    let clean = check("clean", "docs-list:\n    echo hi\n");
+    assert_eq!(clean.status.code(), Some(0), "{clean:?}");
+    let refused = check("backtick", "docs-list:\n    echo \"banner: `exit 7`\"\n");
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let message = String::from_utf8(refused.stderr).expect("text diagnostic");
+    assert!(message.contains("just/docs.just:2:"), "{message}");
+    assert!(message.contains("command substitution"), "{message}");
+}
