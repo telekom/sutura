@@ -1,1 +1,0 @@
-import{B as e,L as t,y as n}from"./modules/shiki-CLWvtuQJ.js";import{rt as r}from"./index-F9n5ZJkc.js";var i={class:`slide-light h-full w-full overflow-hidden`},a={__name:`light`,setup(a){let{$slidev:o,$nav:s,$clicksContext:c,$clicks:l,$page:u,$renderContext:d,$frontmatter:f}=r();return(r,a)=>(t(),n(`div`,i,[e(r.$slots,`default`)]))}};export{a as t};
