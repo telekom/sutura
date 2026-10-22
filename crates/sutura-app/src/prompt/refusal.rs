@@ -194,6 +194,12 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
              about how you asked.",
 };
 
+const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
+    reason: "plan_needs_too_many_lookup_legs",
+    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
+};
+
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
     reason: "federation_not_executable",
     meaning: "this deployment has no adapter that can execute one half of a question spanning two data \
@@ -322,6 +328,12 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
     remedy: "Group only by a dimension both fact models link to; if the metric has none, report it.",
 };
 
+const CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG: Guide = Guide {
+    reason: "cross_model_ratio_needs_one_lookup_leg",
+    meaning: "a two-fact ratio grouped by dimensions that need more than one lookup leg",
+    remedy: "Group only by dimensions of one remote model; if you need both, report it.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -360,6 +372,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &BUDGET_EXHAUSTED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &QUESTION_NEEDS_TOO_MANY_LEGS,
+    &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
@@ -382,6 +395,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
     &CROSS_MODEL_RATIO_SPANS_SOURCES,
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
+    &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &BILL_TO_NOT_ALLOWED,
@@ -421,6 +435,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
+        RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
@@ -438,6 +453,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
         RefusalReason::CrossModelRatioSpansSources { .. } => &CROSS_MODEL_RATIO_SPANS_SOURCES,
         RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
     }
 }
 

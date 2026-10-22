@@ -256,6 +256,15 @@ pub enum RefusalReason {
     /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
     /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
     PlanSpansTooManySources { sources: usize, limit: usize },
+    /// The plan would need more lookup legs than one answer may carry.
+    ///
+    /// Refused rather than run in parts, because each leg's data system is a separate identity to
+    /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+    /// prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+    /// model through two relationships count twice, and a chain that crosses twice spends two. The
+    /// "too many" is a named count against [`MAX_LOOKUP_LEGS`]. Narrowable: ask for fewer remote
+    /// dimensions.
+    PlanNeedsTooManyLookupLegs { legs: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute
     /// a leg.
     ///
@@ -563,6 +572,12 @@ pub enum RefusalReason {
     /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
     /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
+    /// A cross-model ratio asked by dimensions that need more than one lookup leg.
+    ///
+    /// The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+    /// is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
+    /// lifts it. Narrowable: group by the dimensions of one remote model.
+    CrossModelRatioNeedsOneLookupLeg { metric: MetricName },
 }
 
 /// What a tool call produced.
@@ -757,6 +772,7 @@ mod tests {
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
             RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source"),
@@ -806,6 +822,9 @@ mod tests {
             RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
+            },
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
             },
         ]
     }

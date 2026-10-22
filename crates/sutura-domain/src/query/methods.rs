@@ -138,6 +138,7 @@ impl RefusalReason {
             Self::TimeRangeTooLong { .. } => "time_range_too_long",
             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
             Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
+            Self::PlanNeedsTooManyLookupLegs { .. } => "plan_needs_too_many_lookup_legs",
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
@@ -156,6 +157,7 @@ impl RefusalReason {
             Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
             Self::CrossModelRatioSpansSources { .. } => "cross_model_ratio_spans_sources",
             Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
+            Self::CrossModelRatioNeedsOneLookupLeg { .. } => "cross_model_ratio_needs_one_lookup_leg",
         }
     }
 }
