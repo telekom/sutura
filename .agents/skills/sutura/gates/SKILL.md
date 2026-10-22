@@ -159,7 +159,7 @@ unset them.** No gate can see a build somewhere else, which is exactly why it is
 `just test-only '<nextest filterset>'` is `just test` handed a filterset (`-E`), with no doctest leg: use it for
 a kill table, one mutation per run, with `NEXTEST_PROFILE=nofailfast` for a complete table. An empty filterset runs
 everything, and a filtered green verifies only what it selects (`just validate` is the gate).
-`xtask/src/tasks/test_only.rs` holds that `test-only` carries no command of its own and compares `test`'s whole body.
+`xtask/src/tasks/test_only.rs` holds that `test-only` carries no command of its own and compares `test`'s every non-comment line (the shebang included).
 
 **Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
 doctest and clippy hook entries run the same `cargo` as the corresponding `just` tasks - there is no
