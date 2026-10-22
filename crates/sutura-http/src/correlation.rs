@@ -75,8 +75,17 @@ fn seed() -> u64 {
 /// caller's header being refused.
 #[must_use]
 pub fn fresh() -> CorrelationId {
-    CorrelationId::minted(COUNTER.fetch_add(1, Ordering::Relaxed))
+    CorrelationId::minted(next())
 }
+
+/// The next value of this process's counter.
+fn next() -> u64 {
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+/// The counter value minted for one request's job labels, beside the id its span carries.
+#[derive(Clone)]
+pub(crate) struct Minted(pub(crate) u64);
 
 /// The caller's identifier if it sent a usable one, and a fresh one otherwise.
 ///
@@ -112,14 +121,16 @@ pub fn from_headers(headers: &HeaderMap) -> CorrelationId {
     }
 }
 
-/// Resolves the request's id ONCE, as a request extension, ahead of the span.
+/// Resolves the request's two ids ONCE, as request extensions, ahead of the span.
 ///
-/// [`from_headers`] mints a fresh id on every call without a usable header, so the span, the
-/// request context and through it a data system's job labels read this one extension rather than
-/// each resolving their own.
+/// The span's id is [`from_headers`]', so an ingress log and this one name the same request. The
+/// request context gets a [`Minted`] one instead, and through it every job label and the audit
+/// record: a caller's header is caller-chosen text, and a label is readable by every principal that
+/// can list the billing project's jobs. The audit line carries both, which is what joins them.
 pub(crate) async fn resolve(mut request: Request, next: Next) -> Response {
     let id = from_headers(request.headers());
     drop(request.extensions_mut().insert(id));
+    let _replaced = request.extensions_mut().insert(Minted(self::next()));
     next.run(request).await
 }
 

@@ -456,7 +456,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
                         .latency_unit(tower_http::LatencyUnit::Millis),
                 ),
         )
-        // Outside the span, so the span and the request context read one resolved id.
+        // Outside the span, so the span's id and the request context's minted one are resolved once.
         .layer(axum::middleware::from_fn(crate::correlation::resolve))
         // The final outer boundary sees every terminal response, including one produced by a layer
         // above the handler. Route plus method identifies the governed question capability; typed

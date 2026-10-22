@@ -126,11 +126,12 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
 }
 
 #[test]
-fn the_request_s_correlation_id_reaches_the_audit_line_as_its_job_label() {
-    // One resolution per request: the span's id is the one the request context carries, so the
-    // audit line names the value the request's data-system jobs are labelled with. Uppercase does
-    // not fit a label, so it is the normalised form - the first eight hex digits of its SHA-256.
-    let app = app(settings(Environment::Development, ""));
+fn a_caller_s_correlation_header_stays_in_the_span_and_never_reaches_a_job_label() {
+    // The span keeps the caller's id, so an ingress log still joins. The job is labelled with an id
+    // this process minted, and the audit line writes that same id - so the job joins its record and
+    // a label never holds caller text, which every principal listing the project's jobs can read.
+    let (warehouses, held) = crate::testing::warehouse_that_can_be_held();
+    let app = super::fixtures::over(crate::testing::bundle(), warehouses, settings(Environment::Development, ""));
     let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
     request
         .headers_mut()
@@ -142,7 +143,16 @@ fn the_request_s_correlation_id_reaches_the_audit_line_as_its_job_label() {
         .find(|line| line["msg"].as_str().is_some_and(|msg| msg.ends_with("answered")))
         .unwrap_or_else(|| panic!("no audit line was written: {rendered}"));
     assert_eq!(answered["correlation"], "Ingress-42_abc", "{answered}");
-    assert_eq!(answered["sutura_correlation"], "ingress-42_abc-3d6fea0f", "{answered}");
+    let labelled = answered["sutura_correlation"].as_str().unwrap_or_default().to_owned();
+    assert!(
+        labelled.len() == 16 && labelled.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        "the label is not a minted id: {answered}"
+    );
+    assert_eq!(
+        held.labelled(),
+        Some(labelled.as_str()),
+        "the job and its audit record do not name one id"
+    );
 }
 
 #[test]

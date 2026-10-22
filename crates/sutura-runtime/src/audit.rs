@@ -407,14 +407,13 @@ mod tests {
 
     #[test]
     fn a_record_carries_the_labels_its_jobs_were_given() {
-        use sutura_domain::identity::{ClientClaim, ClientClaims, CorrelationId, RequestContext};
+        use sutura_domain::identity::{ClientClaim, ClientClaims, RequestContext};
         use sutura_domain::warehouse::labels::JobLabels;
 
         let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
             .naming_client(ClientClaims::of(Some(ClientClaim::read(Some("claude-code"))), None))
-            .correlated(CorrelationId::parse("Ingress-42").expect("a test id is an id"));
+            .correlated(42);
         let labels = JobLabels::of(&context);
-        let [_, _, (_, correlation)] = labels.pairs();
         let outcome = an_answer_on_a_shared_source();
         let rendered = crate::testing::capture(|| {
             TracingAuditSink::new().record(&CallRecord::of(context.chain(), &outcome, None).labelled(&labels));
@@ -422,14 +421,10 @@ mod tests {
         for field in [
             String::from("\"sutura_client\":\"claude-code\""),
             String::from("\"sutura_actor\":\"\""),
-            format!("\"sutura_correlation\":\"{correlation}\""),
+            String::from("\"sutura_correlation\":\"000000000000002a\""),
         ] {
             assert!(rendered.contains(&field), "{field} is not on the line: {rendered}");
         }
-        assert!(
-            correlation.starts_with("ingress-42-"),
-            "the record holds the label value: {correlation}"
-        );
         let unlabelled = written(context.chain());
         assert!(unlabelled.contains("\"sutura_correlation\":\"\""), "{unlabelled}");
     }

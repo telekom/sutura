@@ -25,7 +25,7 @@ use crate::identity::{CorrelationId, RequestContext};
 pub const CLIENT: &str = "sutura_client";
 /// The key naming the immediate actor of the token's `act` chain, in its masked form.
 pub const ACTOR: &str = "sutura_actor";
-/// The key naming the request's correlation id.
+/// The key naming the id this process minted for the request - never the caller's own.
 pub const CORRELATION: &str = "sutura_correlation";
 
 /// The longest label value.
@@ -111,7 +111,7 @@ impl JobLabels {
 #[cfg(test)]
 mod tests {
     use super::{JobLabels, LabelValue, MAX_VALUE};
-    use crate::identity::{Actor, ActorChain, ClientClaim, ClientClaims, CorrelationId, PrincipalChain, RequestContext, Subject};
+    use crate::identity::{Actor, ActorChain, ClientClaim, ClientClaims, PrincipalChain, RequestContext, Subject};
 
     fn normalised(raw: &str) -> String {
         LabelValue::normalised(raw).as_str().to_owned()
@@ -157,14 +157,14 @@ mod tests {
         );
         let context = RequestContext::of(chain)
             .naming_client(ClientClaims::of(None, Some(ClientClaim::read(Some("claude-code")))))
-            .correlated(CorrelationId::parse("c-1").expect("an id"));
+            .correlated(1);
         // The immediate actor's masked form `a***`, normalised.
         assert_eq!(
             JobLabels::of(&context).pairs(),
             [
                 ("sutura_client", "claude-code"),
                 ("sutura_actor", "a___-d27ffc08"),
-                ("sutura_correlation", "c-1"),
+                ("sutura_correlation", "0000000000000001"),
             ]
         );
         let bare = JobLabels::of(&RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)));

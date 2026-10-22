@@ -7,8 +7,8 @@
 //! read.
 //!
 //! **Not globally unique, not a trace id, not an authentication signal.** A caller may name its own
-//! value, so two requests can carry the same one; a reader joins on it together with time and
-//! principal, never on it alone.
+//! value for the log; the one a request context carries is always [`CorrelationId::minted`], so a
+//! job label never holds caller text.
 
 /// The longest value accepted from a caller.
 ///
