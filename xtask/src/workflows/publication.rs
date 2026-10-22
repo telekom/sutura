@@ -81,6 +81,7 @@
 
 use std::path::Path;
 
+use super::sources::in_scope_text;
 use super::{scorecard, step};
 
 /// The runner labels `api.scorecard.dev` accepts on the job that runs the action.
@@ -113,7 +114,14 @@ type Step = (String, Option<String>);
 /// A `Vec` rather than a `Verdict`, for [`scorecard::problems`]' reason: one gate prints one
 /// verdict.
 pub(super) fn problems(root: &Path) -> Vec<String> {
-    let workflow = std::fs::read_to_string(root.join(scorecard::WORKFLOW)).unwrap_or_default();
+    let workflow = match in_scope_text(&root.join(scorecard::WORKFLOW)) {
+        Ok(text) => text.unwrap_or_default(),
+        Err(why) => {
+            return vec![format!(
+                "the workflow could not be read, so none of the API's rules were checked: {why}"
+            )];
+        }
+    };
 
     // NOTHING TO HOLD WHERE NOTHING IS SENT, which is the same conditional `scorecard::problems`
     // draws around the dated record: these rules are the API's, and a workflow that does not
@@ -417,6 +425,16 @@ mod tests {
             .replace("publish_results: true", "publish_results: false")
             .replace("runs-on: ubuntu-latest", "runs-on: rust-mcp");
         assert!(found(&quiet).is_empty(), "{:?}", found(&quiet));
+    }
+
+    #[test]
+    fn an_unreadable_scorecard_workflow_is_a_refusal_and_not_a_workflow_that_sends_nothing() {
+        let tree = crate::scratch_tree::Tree::of("publication-unreadable", &[(".github/workflows/scorecard.yml/keep", b"")]);
+        let refusals = problems(tree.root());
+        assert!(
+            matches!(refusals.as_slice(), [one] if one.contains(scorecard::WORKFLOW)),
+            "{refusals:?}"
+        );
     }
 
     #[test]
