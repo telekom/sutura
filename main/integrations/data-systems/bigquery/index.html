@@ -2872,7 +2872,7 @@ address. The deployment vouches for the caller: by default sutura takes the addr
 claim of the caller's verified token, and only when <code>email_verified</code> is <code>true</code>. sutura uses the
 address as it is written. A caller without a verified address is refused. The deployment's own
 application default credentials sign as the delegating account, which acts as that address with the
-scope <code>https://www.googleapis.com/auth/bigquery</code>. These are its keys:</p>
+read-only scope <code>https://www.googleapis.com/auth/bigquery.readonly</code> only. These are its keys:</p>
 <table>
 <thead>
 <tr>
@@ -2907,13 +2907,22 @@ ASCII (<code>xn--</code>) form. An empty list is refused at start.</p>
   <code>address_claim</code> names. A user who can set it to another person's address runs queries as that
   person. <code>address_domains</code> limits this to the listed domains and does not remove it.</li>
 <li>A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
-  for domain-wide delegation, with the scope <code>https://www.googleapis.com/auth/bigquery</code> only.</li>
+  for domain-wide delegation, with the scope <code>https://www.googleapis.com/auth/bigquery.readonly</code>
+  only.</li>
 <li>The deployment's own identity has <code>iam.serviceAccounts.signJwt</code> on the delegating account (the
   role <code>roles/iam.serviceAccountTokenCreator</code>, granted on that account only).</li>
 <li>Each caller's Google account has its own BigQuery grants. The delegating account can act as any
   user in the domain, so protect the deployment's credential as you protect the domain's
   administrator.</li>
 </ul>
+<p>The read-only scope limits what that credential can do as a user. Google refuses it <code>jobs.insert</code>,
+so it cannot start a load, copy or extract job. Google also refuses a <code>CREATE TABLE</code>, <code>INSERT</code>,
+<code>UPDATE</code> or <code>DROP TABLE</code> statement that it sends through <code>jobs.query</code>. sutura starts each query
+with <code>jobs.query</code> and reads the rows through the Storage Read API, which the scope allows.</p>
+<p>Google also refuses it <code>jobs.cancel</code>, so sutura cannot cancel a <code>domain_delegation</code> job. When the
+caller's deadline ends and sutura stops waiting, the job runs on until it ends or until BigQuery
+stops it at the job timeout sutura sent. <code>max_bytes_billed</code> still caps the bytes it bills. Nothing
+caps its slot time.</p>
 <p>The musl and glibc release binaries link the BigQuery driver. In the development shell, a <code>cargo</code>
 build can select the feature:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
@@ -3024,11 +3033,11 @@ without it.</p>
 <tr>
 <td><a href="#settings"><code>domain_delegation</code></a></td>
 <td>The Google account with the caller's verified email</td>
-<td>Authorize the delegating account and grant <code>signJwt</code> on it</td>
+<td>Authorize the delegating account for <code>bigquery.readonly</code> only and grant <code>signJwt</code> on it</td>
 <td>Grants that name Google accounts apply as they are. Callers link no account</td>
 <td>The identity provider must not let users edit their own email. sutura cannot check this</td>
-<td>Each caller keeps their own Google grants</td>
-<td>The deployment vouches for the caller. The delegating account can act as any user in the domain</td>
+<td>Each caller keeps their own Google grants. The token has only the read-only scope: Google refuses it <code>jobs.insert</code>, so it cannot start a load, copy or extract job</td>
+<td>The deployment vouches for the caller. The delegating account can act as any user in the domain. sutura cannot cancel its jobs: a job runs on after the deadline, and <code>max_bytes_billed</code> caps its bytes</td>
 </tr>
 </tbody>
 </table>
