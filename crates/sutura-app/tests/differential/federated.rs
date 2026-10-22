@@ -503,6 +503,93 @@ fn two_engines_whose_data_reads_a_join_key_two_ways_refuse_once_the_legs_have_ru
     );
 }
 
+/// Declares `customers.customer_key` as `declared` and `subscription_customer` as comparing its keys
+/// as `compare_as`, in `catalog`.
+fn declaring_the_customer_key(catalog: &std::path::Path, declared: &str, compare_as: &str) {
+    let rewrite = |at: &str, find: &str, with: &str| {
+        let path = catalog.join(at);
+        let text = std::fs::read_to_string(&path).expect("the derived catalog has the document");
+        assert_eq!(text.matches(find).count(), 1, "{at} no longer holds exactly one {find:?}");
+        std::fs::write(&path, text.replace(find, with)).expect("the derived catalog is writable");
+    };
+    rewrite(
+        "models/customers.md",
+        "  - name: customer_key\n    type: BIGINT\n",
+        &format!("  - name: customer_key\n    type: {declared}\n"),
+    );
+    rewrite(
+        "relationships/subscription_customer.md",
+        "join_type: many_to_one\n",
+        &format!("join_type: many_to_one\ncompare_as: {compare_as}\n"),
+    );
+}
+
+/// **A relationship that declares its keys compare as an integer plans against a key the catalog
+/// calls text, and answers what one source answers** (`telekom/sutura#1482`).
+///
+/// Without the declaration `BIGINT` against `VARCHAR` is `federation_link_type_mismatch`, which the
+/// cell above holds. The declaration reaches the combiner through the plan, so the two legs'
+/// integer keys meet an integer anchor. **What this does not reach:** the CSV reader types both keys
+/// as integers, so no cast runs here; `sutura-exec-datafusion`'s combine cells hold the cast.
+#[test]
+fn a_declared_integer_comparison_plans_over_a_text_declared_key_and_answers_as_one_source_does() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let corpus = corpus::remote_products("declared-exact-integer", "source: local");
+    for catalog in [&corpus.one_source, &corpus.two_source] {
+        declaring_the_customer_key(catalog, "VARCHAR", "exact_integer");
+    }
+    let rows = |outcome: Result<ToolOutcome, String>| match outcome {
+        Ok(ToolOutcome::Answer { rows, .. }) => rows,
+        other => panic!("a declared comparison answers, not {other:?}"),
+    };
+    let one = harness::one_source(harness::bundle(&corpus.one_source));
+    let two = harness::two_engines(harness::bundle(&corpus.two_source));
+    let whole = rows(harness::answered(&one, &query, name, &combiner));
+    let split = rows(harness::answered(&two, &query, name, &combiner));
+    let tolerance = sutura_domain::warehouse::agreement::RealTolerance::DIFFERENTIAL;
+    if let Err(d) = sutura_domain::warehouse::agreement::agree_on_content(&whole, &split, tolerance) {
+        panic!("one source and two answered different rows under a declared comparison - {d}");
+    }
+    if let Err(d) = sutura_domain::warehouse::agreement::agree_on_order(&whole, &split, tolerance) {
+        panic!("one source and two answered in different orders under a declared comparison - {d}");
+    }
+}
+
+/// **A declaration the data contradicts is refused once the legs have run, and never widened.**
+///
+/// The catalog says the dimension's key is a scale-nine decimal and the relationship compares the
+/// keys as an exact decimal, so the plan accepts the pair. The data reads both keys as integers, and
+/// a decimal declaration needs one leg that IS a decimal to anchor the cast: the combiner refuses
+/// the answer as `link_kinds_not_joined` rather than joining what the declaration did not name.
+#[test]
+fn a_declared_decimal_comparison_over_two_integer_legs_is_refused_once_the_legs_have_run() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let corpus = corpus::remote_products("declared-exact-decimal", "source: local");
+    declaring_the_customer_key(&corpus.two_source, "NUMERIC(38,9)", "exact_decimal");
+    let two = harness::two_engines(harness::bundle(&corpus.two_source));
+    let outcome = harness::answered(&two, &query, name, &combiner);
+    let Ok(ToolOutcome::Refusal { reason }) = outcome else {
+        panic!("a decimal declaration over two integer legs is refused, not {outcome:?}");
+    };
+    assert_eq!(
+        reason,
+        RefusalReason::FederatedAnswerNotWellFormed {
+            federated: sutura_domain::plan::FederatedAnswerRefusal::LinkKindsNotJoined,
+        },
+        "the runtime arm, not the plan-time one: {reason:?}"
+    );
+}
+
 /// **A zero denominator in ONE subgroup, and the neighbours it must not reach.**
 ///
 /// The differential above proves the two sides AGREE on this answer; without this, the agreement

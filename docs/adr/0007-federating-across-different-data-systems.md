@@ -1805,3 +1805,46 @@ decision.
   on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
 - Two crossings that start from one model by different relationships are two legs and are not
   merged, even when they land on one remote model.
+
+## Twenty-first amendment, 2026-10-22: a relationship may declare how its keys compare, and the plan and the load check read it
+
+The *Fifteenth amendment* left "a field on `Relationship` that says the two sides are comparable"
+open (`telekom/sutura#1482`). It is built. That amendment's rule that a text key compares exactly now
+holds for an undeclared pair only, and an undeclared pair is compared exactly, as before.
+
+- **The declaration.** A relationship with one key may declare `comparison`, written `compare_as:` in
+  a markdown relationship document: one of `exact_integer`, `exact_decimal`, `text`, `date`,
+  `boolean`, the kind both keys compare AS. A compound key refuses it. No declaration is equality of
+  kind, and no digest of an existing catalog moves.
+- **Two casts, closed.** A key of the declared kind needs no cast. The combiner reads a text key as an
+  exact integer, and an exact integer as an exact decimal, and no other pair: text to a decimal
+  rounds a longer fraction, text to a date applies an offset and drops a time, and a decimal to an
+  integer drops its fraction. A cast leg needs an anchor leg of the declared kind. A value that does
+  not cast refuses the answer (`LinkValueNotCast`), and no value becomes `NULL`.
+- **Three places read it, one rule.** `LinkKind::joins` decides at all three. At load, a declaration
+  the declared column types contradict refuses the catalog
+  (`InconsistentDefinitions::RelationshipComparisonContradicted`). At plan time, `link_types_agree`
+  joins the two declared kinds under the declaration, so `BIGINT` against `NUMERIC(38,9)` plans
+  under `exact_decimal`. At run time, `agreeing_link` joins the two legs' kinds under the
+  declaration the plan carries (`FederatedPlan::link_comparison`), and refuses a pair it does not
+  join as `LinkKindsNotJoined`.
+- **One declaration, one link.** The combiner honours the declaration for the first lookup leg's
+  link and for a second fact leg, and compares every later lookup leg exactly. The planner writes
+  the first lookup leg's crossing relationship's declaration onto the plan and checks every later
+  leg without one, so a plan never accepts a pair the run refuses as `LinkTypeMismatch`. A
+  key truncated to a grain is a date to the combiner, so the declared kind must reach a date.
+- **Not built.** DataHub carries no such field upstream, so a DataHub relationship declares none. No
+  refusal text, HTTP code or prompt-guide entry changed: the 409 text of
+  `federation_link_type_mismatch` still says the two kinds can never match.
+
+**Limits.**
+
+- The load check reads declared types only. A column with no declared type, or one the classifier
+  does not know, passes, and the run decides. No boot check reads the source's real schema.
+- A declaration on a later lookup leg's relationship is checked at load and then ignored by the plan.
+- One text value that does not cast refuses the whole answer, even a row an inner join would have
+  dropped. The operator corrects the data or removes the declaration.
+- The differential cells read both keys as integers off the example CSVs, so they hold the plan,
+  the carried declaration and the run refusal, not a cast. The casts are held by the combiner's own
+  cells over in-memory legs.
+- The cast reads text the way Arrow does: a sign, leading zeros and surrounding spaces are one key.

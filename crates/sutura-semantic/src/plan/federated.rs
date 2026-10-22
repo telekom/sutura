@@ -61,12 +61,14 @@ pub(super) fn federated_plan(
     // One link per lookup leg: the combiner links two legs on a single column, so a leg's crossing
     // relationship must declare exactly one key, and its two columns must be kinds that compare.
     let mut crossing_keys: Vec<&JoinKey> = Vec::with_capacity(lookups.len());
-    for leg in lookups.iter() {
+    for (at, leg) in lookups.iter().enumerate() {
         let relationship = leg.crossing.relationship;
         crossing_keys.push(one_crossing_key(relationship, leg.crossing.model.source())?);
         // Decided from the catalog's declared types before either leg runs, which is what makes the
         // refusal free: the combiner's own check needs both legs' schemas, which means running them.
-        link_types_agree(relationship, leg.origin, leg.crossing.model)?;
+        // The combiner reads a declaration for the first lookup leg only, so only that leg's check does.
+        let declared = relationship.comparison().filter(|_| at == 0);
+        link_types_agree(relationship, declared, leg.origin, leg.crossing.model)?;
     }
 
     // **A link's label is reserved, and it used to be the physical join column's text.** That text
@@ -174,7 +176,8 @@ pub(super) fn federated_plan(
         lookup_legs(resolution, lookups, &crossing_keys)?,
         federation,
         answer_keys,
-    )?;
+    )?
+    .with_link_comparison(first.crossing.relationship.comparison());
     // A `top` still ranks the answer, just above the combine - the splitter's one case,
     // `github.com/telekom/sutura#777`'s case 2. A federated `top` is never pushed into a leg's own
     // statement; every federated `top` ranks after the combine instead.
@@ -340,14 +343,24 @@ fn declared_type<'m>(model: &'m Model, column: &ColumnName) -> Option<&'m Column
     model.column(column)?.data_type()
 }
 
-/// Refuses a crossing whose two key columns are declared as different kinds of value.
+/// Refuses a crossing whose two key columns are declared as kinds that do not join.
+///
+/// With no `declared` comparison two kinds join when they are equal. A relationship's own comparison is
+/// passed for the first lookup leg alone, because the combiner honours a declaration on that leg's
+/// link only and compares every later leg exactly: a plan that accepted a pair the run refuses would
+/// fail as `LinkTypeMismatch` after both legs ran.
 ///
 /// **Only when both types are declared and both are known, and everything else defers.** A column
 /// with no declared type, or a type [`LinkKind::declared`] does not classify, says nothing about
 /// whether the keys can match, so the combiner's check over the legs' real schemas decides it
 /// later exactly as before. A refusal here is a claim about the catalog and not about the data: a
 /// catalog that mis-declares a key refuses a join that would have matched.
-fn link_types_agree(relationship: &Relationship, fact_side: &Model, lookup_side: &Model) -> Result<(), PlanError> {
+fn link_types_agree(
+    relationship: &Relationship,
+    declared: Option<LinkKind>,
+    fact_side: &Model,
+    lookup_side: &Model,
+) -> Result<(), PlanError> {
     let key = relationship.keys().first();
     let (Some(fact), Some(lookup)) = (
         declared_type(fact_side, key.origin()),
@@ -355,14 +368,8 @@ fn link_types_agree(relationship: &Relationship, fact_side: &Model, lookup_side:
     ) else {
         return Ok(());
     };
-    // A truncated origin reaches the combiner as the date `bucket_expr` casts it to, whatever type it is declared as.
-    let fact_kind = if key.grain().is_some() {
-        Some(LinkKind::Date)
-    } else {
-        LinkKind::declared(fact)
-    };
-    match (fact_kind, LinkKind::declared(lookup)) {
-        (Some(on_fact), Some(on_lookup)) if on_fact != on_lookup => {
+    match (LinkKind::of_origin(key, fact), LinkKind::declared(lookup)) {
+        (Some(on_fact), Some(on_lookup)) if !LinkKind::joins(declared, on_fact, on_lookup) => {
             Err(PlanError::Refused(RefusalReason::FederationLinkTypeMismatch {
                 relationship: relationship.name().clone(),
                 fact_type: QuotedColumnType::from(fact),

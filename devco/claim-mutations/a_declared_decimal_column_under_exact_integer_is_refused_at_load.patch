@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index d8ba5257b..38796826d 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -805,7 +805,7 @@ fn comparison_contradicted(declared: LinkKind, relationship: &Relationship, from
+         .and_then(LinkKind::declared);
+     match (origin, target) {
+         (Some(origin), Some(target)) => !LinkKind::joins(Some(declared), origin, target),
+-        (Some(known), None) | (None, Some(known)) => !declared.reaches(known),
++        (Some(_), None) | (None, Some(_)) => false,
+         (None, None) => false,
+     }
+ }
