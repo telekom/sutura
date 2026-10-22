@@ -51,3 +51,21 @@ each_lookup_leg_that_does_not_answer_ends_the_answer_with_no_rows # in plan/fede
 three_lookup_legs_dry_run_once_each # in federated/tests/dry_run_count_test.rs, which names `InternalLabel::Link(usize)` and `LookupLegs`, new in this change; killed when the cut's legs are taken three at most
 three_lookup_legs_and_a_chain_combine_on_their_own_links # in combine/tests/fan_in.rs, a module new in this change; killed when every lookup leg is joined onto the fact
 a_second_lookup_leg_with_two_rows_for_one_link_value_is_ambiguous # in combine/tests/fan_in.rs, a module new in this change; killed when only the first lookup leg is checked for an ambiguous link
+a_listed_directory_is_read_without_its_slashes_being_guessed # new module docs/unlisted.rs, declared in docs.rs which the base run reverts, so it is not compiled there; killed when `directories` ignores the block
+a_line_that_is_not_a_whole_directory_is_refused_rather_than_ignored # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when the `ok_or_else` refusal in `directories` is replaced by `.unwrap_or_default()`
+only_pages_under_a_listed_directory_are_exempt_from_the_orphan_rule # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when `pages_within` returns every page or none
+a_listed_page_is_no_orphan_and_an_unlisted_one_still_is # new module docs/unlisted.rs, declared in docs.rs which the base run reverts; killed when `pages_within` returns the empty set
+generated_pages_with_no_dead_destination_are_read_in_full # shares api_links.rs with the `check` it pins; base `task_table/prose.rs` registers `api_links::run`, which the diff deletes, so the base run does not compile; killed when `check` returns `Err` for no page or `Ok` over unread pages
+a_dead_destination_on_a_generated_page_names_the_page_and_the_line # same file as `api_links::check`, absent at base; killed when `sweep` stops pushing `scan`'s findings
+a_directory_with_no_page_is_a_refusal_and_not_a_clean_sweep # same file as `api_links::check`, absent at base; killed when `pages` returns an empty set instead of an error
+pages_without_the_generated_header_are_not_the_generators_output # same file as `api_links::check`, absent at base; killed when the `found.generated == 0` refusal is `&& false`
+a_generator_that_allows_another_scheme_disagrees_with_this_scan # same file as `api_links::check`, absent at base; killed when the `generator != mine` refusal is `&& false`
+a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page # same file as `api_links::unresolved`, absent at base; killed when `names_no_page` returns false
+a_library_crate_the_generator_wrote_no_page_for_is_named # same file as `missing_pages`, absent at base; killed when `missing_pages` returns an empty list
+pages_are_kept_only_where_a_destination_is_named # same file as `keep`, absent at base; killed when `keep` copies with no destination named
+only_a_path_under_the_pages_directory_is_a_tracked_page # new module api_docs/owner.rs, declared in api_docs.rs which the base run reverts; killed when `pages_in` matches every path
+an_oversized_generated_looking_page_is_capped_like_any_other_file # same file as `oversized` in text.rs, whose signature the diff changes, so the base does not compile it; killed when the cap is skipped for a generated marker
+a_withdrawn_wording_is_refused_in_a_doc_comment_and_in_no_other_line_of_rust # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `tree_problems` passes `text_files` instead of `docs` to `contradicted_claims`
+a_task_and_a_recipe_that_do_not_exist_are_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when the two reference checks are passed `text_files`
+a_path_that_does_not_exist_is_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `dead_paths` is passed `text_files`
+a_single_segment_destination_on_a_generated_page_fails_the_directory_scan # same file as `api_links::sweep`, absent at base; killed when `sweep` stops extending its findings with `unresolved`

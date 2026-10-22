@@ -289,10 +289,10 @@ panic-free.
   **Cost as a range, because one machine's number was 2x off on the next:** ~2s wall once the env
   exists (4.0s and 2.0s measured, mkdocs ~2.7s of it), tens of seconds to materialise it (23s and
   51s, both with a warm package cache; a cold cache downloads the env and needs a network).
-- **A page can be CORRECTLY GENERATED and still not render, and that is what the byte-compare cannot
-  see.** `check-api-docs` compares the committed pages against a fresh generation, so a generator
-  emitting an unrenderable link *consistently* passes it - `just api` produced no diff on #352 while
-  `mkdocs build --strict` aborted. What the strict build says and rustdoc does not: rustdoc RESOLVED
+- **A page can be CORRECTLY GENERATED and still not render, and that is what generating it cannot
+  see.** The byte-compare `check-api-docs` used to run, over pages that were then committed, passed
+  a generator emitting an unrenderable link *consistently* - `just api` produced no diff on #352 while
+  `mkdocs build --strict` aborted. The link scan inside `check-api-docs` reads the destinations now. What the strict build says and rustdoc does not: rustdoc RESOLVED
   the link and was clean under both spellings, so `rustdoc::broken_intra_doc_links` would not have
   caught it either. **The discriminator is `urlsplit` inside mkdocs.** A URL scheme is
   `[a-zA-Z][a-zA-Z0-9+.-]*`, so `](crate::plan::QueryPlan)` parses as a URL with the scheme `crate`
@@ -301,9 +301,9 @@ panic-free.
   changing one character: `suturadomain::…` builds in 1.68s. So the two are one defect and the
   tolerated spelling is a rename away from the fatal one - every crate here is `sutura-…`, i.e.
   `sutura_…` as a path. The generator drops such a destination and keeps the text now, and
-  `check-api-links` is the rule over the output; the 78 dead hrefs #321 counted are gone with it.
+  that scan is the rule over the output; the 78 dead hrefs #321 counted are gone with it.
 - **Ask the RENDERER's question, not a well-formedness question that resembles it.** The first
-  version of `check-api-links` decided by validating every segment of a destination as a Rust
+  version of that scan decided by validating every segment of a destination as a Rust
   identifier, which is not what mkdocs asks - and review measured **five shapes that published a
   dead href at exit 0 with the gate green**: `](crate::plan::run())`, plus an `#anchor`, a `?query`,
   a `/path` and a non-ASCII segment. The verdict even counted them (`18 link destination(s), no Rust
@@ -319,8 +319,8 @@ panic-free.
   `https://` that 404s is nobody's rule). And rustdoc's own unresolved links - 15 of them, #321's
   first class - are #360, still open.
 - **A DESTINATION total could not be this gate's floor, and finding out why is the transferable
-  part.** 11 of the 13 destinations under `docs/api/` are on the one hand-written page; the 16
-  generated pages contribute 2 between them, and the point of the rewrite is to drive that to zero.
+  part.** 11 of the 13 destinations under `docs/api/` were on the one hand-written page then; the 16
+  generated pages contributed 2 between them, and the point of the rewrite is to drive that to zero.
   So `continue`-ing after the marker count left **16 of 17 pages unscanned with the verdict green**
   and the total moving by 2 - `.take(1)` again. A per-page destination floor is impossible (a clean
   generated page has none), so the floor is the pages themselves: `scanned == pages.len()`, and the
@@ -442,7 +442,7 @@ panic-free.
   argument for the constant check. A published page said an adapter's `IMPERSONATION` was
   `NoPlaceForASubject` while the constant declared `PerSubjectCredential`; the sentence went false
   when a constant three commits away in another file changed, so no recorded wording could have
-  forbidden it, and `just api` then regenerated the page from the doc comment faithfully -
+  forbidden it, and the API reference then republished the doc comment faithfully -
   **regeneration is not verification.** What holds it now RESOLVES rather than matches: for a
   sentence naming a constant by intra-doc link and a sibling variant of that constant's enum, the
   declaration is read out of the tree and the sentence has to name the variant it holds. **The
@@ -456,6 +456,13 @@ panic-free.
   sibling variant, and a claim written across two sentences - the window is one sentence, because a
   window of the doc BLOCK reports `sutura-exec-bigquery`'s own module header, which states the value
   correctly and discusses the other variant fourteen lines down.
+  **Doc comments are read directly now.** A doc comment used to reach the wording, task, recipe and
+  path rules through its committed `docs/api/` page. No page is committed, so `guidance::DOC_COMMENTS`
+  (`crates/*/src` and `dev/src`) feeds the `///` and `//!` lines of those files through
+  `absences::prose` into `stale`, `CONTRADICTED`, `WITHDRAWN`, the task and recipe citations and the
+  path citations. **`counts` and `hosts` do not read them**: a number or a host named in a doc comment
+  is outside both. No wording, task, recipe or path rule treats a `//` line, a block comment or a
+  string literal as a place a claim is made.
 - **A `just` task cited in a printed Rust string is checked; a raw command line there is not.**
   The scope split is deliberate and was measured before it was taken. What judges a SENTENCE stays
   on prose files, because a rule table written in Rust holds the phrases it forbids and a scan over

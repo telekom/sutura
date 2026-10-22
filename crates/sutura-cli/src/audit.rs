@@ -1,7 +1,7 @@
 //! The record the `query` command writes, driven through the command itself.
 //!
 //! **Its own `#[cfg(test)]` module, and the reason is the causality gate rather than tidiness.**
-//! `cargo xtask causality` reconstructs the baseline by reverting every changed file that added no
+//! `cargo xtask test-causality` reconstructs the baseline by reverting every changed file that added no
 //! test, so a test written into `commands.rs` beside the fix it proves would be held at HEAD with
 //! the fix and could never be red against the base behaviour. Here the two are separate files and
 //! the proof is mechanical.

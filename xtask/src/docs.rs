@@ -33,6 +33,8 @@
 //! exits 0, measured. [`links`] carries the rule, the measurement, the `--8<--` includes it
 //! follows to find a page's real body, and the syntax it still does not read.
 //!
+//! A directory `not_in_nav` lists is exempt from the orphan rule - [`unlisted`] says why, and what stays checked.
+//!
 //! A `src` that names no file is the fourth. [`embeds`] holds an `<iframe>`, an `<img>` and a
 //! markdown image to a file under the docs directory, and carries what it does not read.
 //!
@@ -66,6 +68,7 @@ mod exclude;
 mod icons;
 mod links;
 mod site_links;
+mod unlisted;
 
 pub(crate) use links::names_a_decision_record;
 
@@ -530,8 +533,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .filter_map(|line| nav_target(line))
         .map(String::from)
         .collect();
-    let present = match pages(&root, &docs_dir) {
-        Ok(present) => present,
+    let (present, listed) = match pages(&root, &docs_dir).and_then(|found| {
+        let listed = unlisted::pages_within(&found, &unlisted::directories(&config)?);
+        Ok((found, listed))
+    }) {
+        Ok(both) => both,
         Err(why) => {
             eprintln!("xtask check-docs: FAILED - {why}");
             return Verdict::Fail;
@@ -543,7 +549,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         problems: exclusion_problems,
     } = exclude::resolve(&patterns, &present, &nav, &docs_dir);
 
-    let mut found = problems(&nav, &present, &excluded, &docs_dir);
+    let mut found = problems(&nav, &present, &excluded.union(&listed).cloned().collect(), &docs_dir);
     found.extend(exclusion_problems);
     let (snippets, snippet_problems) = snippet_problems(&config);
     found.extend(snippet_problems);

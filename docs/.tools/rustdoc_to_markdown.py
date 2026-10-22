@@ -7,18 +7,19 @@ second search box rather than one. mkdocstrings solves the same problem for Pyth
 STRUCTURED data and emitting pages; rustdoc JSON is the structured data for Rust, so the same
 shape works here. The pages this writes are indexed by the site's own search.
 
-WHY IT IS PYTHON. It is maintenance-time tooling that runs when somebody regenerates the pages,
-never on a gate and never on the query path - the same standing as `.agents/skills-sync.py`. It
-uses the standard library only, so the pixi interpreter is all it needs.
+WHY IT IS PYTHON. It is build-time tooling that runs when the docs workflow or `just api` writes
+the pages, never on the query path - the same standing as `.agents/skills-sync.py`. It uses the
+standard library only, so the pixi interpreter is all it needs.
 
-WHY THE PAGES ARE COMMITTED. rustdoc JSON is nightly-only. This repository pins a nightly for
-the cranelift backend, but CI has stable and nothing else, so a docs job cannot produce the
-JSON. Committing the output is the same arrangement as the ms-rust skill files: one owner, a
-header saying so, and never hand-edited.
+WHY THE PAGES ARE NOT COMMITTED. A committed generated page rots silently and bloats every diff
+that touches a doc comment. The docs workflow builds them in the nix sandbox (`checks.api-docs`
+leaves the pages it judged under `$out`) on `main` and on a `v*` tag, before the site build, and
+`just api` writes them into the ignored `docs/api/`.
 
-    WHAT HOLDS THAT: `cargo xtask check-api-docs` regenerates every page into a temporary
-    directory and byte-compares, so a page that falls behind its sources fails rather than
-    reads as current. It is a nix check, and `just api` is the fix it names.
+    WHAT HOLDS THAT: `cargo xtask check-api-docs` generates every page into a temporary
+    directory and scans its links, so a doc comment that would break the publish run fails on
+    the pull request. It is a nix check; it does not run `mkdocs`, so it cannot promise the
+    published site builds under `--strict`.
 
 USAGE, from the repository root, inside the dev shell so `cargo` is the pinned nightly:
 
@@ -27,11 +28,10 @@ USAGE, from the repository root, inside the dev shell so `cargo` is the pinned n
     pixi run --frozen python docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
 
 One invocation for the whole workspace, and not one per package: features resolve once, so the
-JSON is the same JSON `check-api-docs` compares against. Rendering a single page from it is fine.
+JSON is the same JSON `check-api-docs` generates from. Rendering a single page from it is fine.
 
-The output directory defaults to `docs/api`. Every page it writes must be in the `nav` in
-`mkdocs.yml`, because `cargo xtask check-docs` fails on a page no nav entry names - which is the
-check that catches a new crate whose page nobody added.
+The output directory defaults to `docs/api`, which `mkdocs.yml` lists under `not_in_nav`: the pages
+are in no nav entry, and `index.md`, which this also writes, is the way into them.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ HEADER = (
     "<!-- GENERATED FILE - do not edit.\n"
     "     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.\n"
     "     Edit the doc comments in the crate source instead, then regenerate.\n"
-    "     The commands are on the API reference landing page. -->\n"
+    "     Nothing commits this page; `just api` writes it. -->\n"
 )
 
 # Auto traits and blanket impls rustdoc synthesises for every type. Listing them says nothing
@@ -255,7 +255,7 @@ def render_function(name: str, inner: dict) -> str:
 INTRA_DOC_LINK = re.compile(r"\[(`[^`\n]+`)\](?!\()")
 
 # The schemes a real link may carry. **Mirrors `REAL_SCHEMES` in `xtask/src/api_links.rs`**, which
-# is the gate over this file's output - and `cargo xtask check-api-links` fails if the two lists
+# is the scan over this file's output - and `cargo xtask check-api-docs` fails if the two lists
 # disagree, because a scheme this dropped and the gate allowed would silently delete a working
 # link from a page.
 REAL_SCHEMES = ("http", "https")
@@ -302,8 +302,9 @@ def unfollowable(written: str) -> bool:
     rustdoc keeps the link for a reader of `cargo doc`; the page keeps the text.
 
     THE LIMIT: with no scheme, only a `::` spelling is dropped. A single-segment `](Foo)` is
-    indistinguishable from a relative link to a page, so it is left alone and `mkdocs --strict`
-    aborts on it - `just docs` inside `just validate` is the venue that says so.
+    indistinguishable from a relative link to a page, so it is left alone here and `cargo xtask
+    check-api-docs` resolves it against the pages this wrote, which is the only pre-merge venue:
+    `mkdocs --strict` aborts on it in the publish job.
     """
     dest = link_destination(written)
     try:
@@ -454,12 +455,10 @@ def struct_or_enum_body(doc: Doc, page: Page, item: dict, level: int) -> None:
             traits.append(name + render_args(trait.get("args")))
 
     if methods:
-        # Sorted, because `cargo xtask check-api-docs` byte-compares a fresh generation against
-        # the committed pages. `methods` was collected in the order of `Struct.impls`, which is
-        # a rustdoc-internal list, and then in item order within each impl - stable in practice
-        # on a given nightly and given source, but nothing guarantees it across either. A
-        # non-deterministic generator turns that gate into a coin flip, which is worse than no
-        # gate. `traits` below was already sorted for the same reason.
+        # Sorted so a page reads the same on every run. `methods` was collected in the order of
+        # `Struct.impls`, which is a rustdoc-internal list, and then in item order within each
+        # impl - stable in practice on a given nightly and given source, but nothing guarantees it
+        # across either. `traits` below was already sorted for the same reason.
         methods.sort(key=lambda method: method["name"] or "")
         page.heading(level, "Methods")
         for method in methods:
@@ -544,19 +543,31 @@ def render_crate(data: dict, crate_name: str) -> str:
     page.add(f"# {crate_name}")
     page.add()
     # NO VERSION in this line, deliberately. It used to print `crate_version`, which made the
-    # committed page a second copy of the number in Cargo.toml - and `check-api-docs` byte-
-    # compares, so a release bump alone turned the page stale and failed the NEXT pull request
-    # to run the gate. That happened: v0.2.0 shipped and the following PR went red on a page
-    # whose doc comments nobody had touched.
-    #
-    # Keeping the two in sync was the alternative, and it needs the nightly toolchain and this
-    # generator wired into the release path - machinery to maintain a duplicate. Dropping the
-    # duplicate is cheaper and cannot drift. The site carries the version already: mike
-    # publishes one docs tree per release and its selector names them.
+    # page a second copy of the number in Cargo.toml: while pages were committed, a release bump
+    # alone turned every one stale and failed the NEXT pull request (v0.2.0 shipped and the
+    # following PR went red on a page whose doc comments nobody had touched). The site carries
+    # the version already: mike publishes one docs tree per release and its selector names them.
     page.add(f"The public API of `{crate_name}`, rendered from rustdoc JSON.")
     page.add()
     page.docs(root.get("docs"))
     render_module(doc, page, doc.root, 2)
+    return page.render()
+
+
+def render_index(crate_names: list[str]) -> str:
+    """The landing page: a link to every page written. No nav lists them, so this is the way in."""
+    page = Page()
+    page.add(HEADER.rstrip("\n"))
+    page.add()
+    page.add("# API reference")
+    page.add()
+    page.add(
+        "The public Rust API, one page per library crate, generated from rustdoc JSON when the "
+        "site is built. Edit the doc comments in the crate source, never a page."
+    )
+    page.add()
+    for name in sorted(crate_names):
+        page.add(f"- [{name}]({name}.md)")
     return page.render()
 
 
@@ -566,7 +577,7 @@ def selftest_fixture() -> dict:
     Mirrors the measured rustdoc JSON shape behind #470: the `use` item's OUTER `name` and
     `docs` are null, everything public lives on the target (`inner.use.name`, `inner.use.id`).
     Built by hand because the measured case - a local `pub use` out of a private module - is
-    exactly what the committed crates receive; a glob or cross-crate re-export is deliberately
+    exactly what the workspace crates receive; a glob or cross-crate re-export is deliberately
     out of the coverage this fixture claims.
     """
     target_id = "fixture-widget"
@@ -647,8 +658,9 @@ def selftest_fixture() -> dict:
 
 
 def selftest() -> None:
-    """The behavioral fixture: a public re-export renders its name and target docs, and a
-    variant's prose publishes in full rather than its first paragraph alone.
+    """The behavioral fixture: a public re-export renders its name and target docs, a
+    variant's prose publishes in full rather than its first paragraph alone, and the landing
+    page links every crate.
 
     Fails on the broken renderer - which prints `use None` for an item with null outer name and
     docs and never reaches the target - and passes once the re-export is wired to `inner.use`.
@@ -672,6 +684,8 @@ def selftest() -> None:
         "The architecture decision's reasons hold, as the architecture decision does,"
         " and the architecture decision refusal fires." in text
     ), text
+    index = render_index(["sutura-b", "sutura-a"])
+    assert "- [sutura-a](sutura-a.md)\n- [sutura-b](sutura-b.md)\n" in index, index
 
 
 def main(argv: list[str]) -> int:
@@ -679,7 +693,7 @@ def main(argv: list[str]) -> int:
         selftest()
         print(
             "rustdoc_to_markdown: ok - a public re-export renders its name and target docs, "
-            "and a variant's prose publishes in full"
+            "a variant's prose publishes in full, and the landing page links every crate"
         )
         return 0
     if len(argv) < 2:
@@ -695,16 +709,19 @@ def main(argv: list[str]) -> int:
         raise SystemExit("no rustdoc JSON file given")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    crate_names = []
     for path in inputs:
         data = json.loads(path.read_text(encoding="utf-8"))
         # `sutura_domain.json` documents the crate `sutura-domain`. rustdoc names the file after
         # the crate's Rust identifier; the page is named after the package, which is what a
         # reader looks for in the nav and in Cargo.toml.
         crate_name = path.stem.replace("_", "-")
+        crate_names.append(crate_name)
         text = render_crate(data, crate_name)
         target = out_dir / f"{crate_name}.md"
         target.write_bytes(text.encode("utf-8"))
         print(f"wrote {target} ({len(text.splitlines())} lines)")
+    (out_dir / "index.md").write_bytes(render_index(crate_names).encode("utf-8"))
     return 0
 
 

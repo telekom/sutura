@@ -55,13 +55,6 @@ CHANGELOG.md
 # in an exemption list is how a reader concludes a gate is watching something it is not.
 docs/generated/*
 
-# The API reference pages, written by `nix run .#api-docs` from rustdoc JSON and byte-compared
-# by `cargo xtask check-api-docs`. Their length is a function of how much public surface a crate
-# has and how well it is documented, so a line budget here would be a budget on doc comments.
-# Editing one by hand is already caught: every page carries a generated-file header and the gate
-# regenerates and compares.
-docs/api/*.md
-
 # Decision records. An ADR's length is a function of the decision it carries - the options weighed,
 # the measurements that decided it, and what was tried and rejected. Splitting one across files makes
 # it LESS reviewable, because a decision has to be readable in one place, and the failure the cap

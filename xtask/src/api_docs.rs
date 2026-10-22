@@ -1,63 +1,55 @@
-//! Are the committed API reference pages still what the generator produces?
+//! Does the API reference still generate, and can mkdocs follow every link on it?
 //!
-//! `docs/api/*.md` are GENERATED files that are also COMMITTED. Committed because rustdoc JSON
-//! is nightly-only, so the pages have to exist as files rather than be produced on the way to
-//! publishing - and the whole tree already builds on the single pinned nightly, so generating
-//! them needs nothing beyond that same toolchain.
+//! `docs/api/*.md` is GENERATED and committed nowhere. The docs workflow builds it from
+//! `checks.api-docs`, which leaves the pages it judged in `$out`, on `main` and on a `v*` tag, and
+//! `just api` writes it for a reader who wants it locally. Rustdoc JSON is nightly-only, and the whole tree already builds on the single
+//! pinned nightly, so generating it needs nothing beyond that same toolchain.
 //!
-//! A committed generated file rots silently. A doc comment changes, the page does not, and the
-//! stale page reads as current - nothing in the pipeline could tell the difference. This gate
-//! is what fails when that happens, and it is the whole difference between "generated docs" and
-//! "generated docs you can trust".
+//! A page nobody commits cannot go stale, so there is nothing left to compare against. What a
+//! pull request can still prove - and what this gate fails on - is that the publish run WOULD
+//! succeed: rustdoc accepts every doc comment, the generator renders every library crate, and no
+//! link on a rendered page is one `mkdocs build --strict` would abort on or publish dead.
 //!
-//! HOW: produce the rustdoc JSON, run the generator into a temporary directory, byte-compare
-//! against what is committed. Two properties fall out of that shape, and both are why it is
-//! this shape rather than a cleverer one:
+//! HOW: produce the rustdoc JSON, run the generator into a temporary directory, require a page for
+//! every library crate, and hand that directory to [`crate::api_links`]. Two properties are why it
+//! is this shape rather than a cleverer one:
 //!
-//!   * IT IS SELF-SCOPING. A change that touches only private code regenerates to identical
-//!     output and passes. So this gate needs no model of which Rust changes reach the public
-//!     surface, and therefore cannot get that model wrong. Resist adding one: a heuristic that
-//!     decides a change "cannot affect the docs" is a heuristic that will one day be wrong
-//!     silently, which is the exact failure this gate exists to remove.
-//!   * IT NOW ALSO JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is
-//!     forbidden in the workspace lint table, so the `cargo doc` line below fails on a link
-//!     rustdoc cannot resolve - 15 of those were warnings behind exit 0 until
-//!     `github.com/telekom/sutura#360`. **This is the only venue that enforces it**: the doctest
-//!     lane does not, measured. This check also documents each binary-only target, without
-//!     rendering API pages for it; `lints` states that scope. A lint also cannot say
-//!     whether it was ARMED, so that submodule asserts the table exists and that every workspace
-//!     member inherits it, before a single crate is documented. That is a precondition rather
-//!     than a finding: an unarmed run compares pages nobody judged. The test that holds the
-//!     precondition is over THIS function rather than over that module - see
-//!     `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which exists
-//!     because deleting the call and handing `check` a literal left every test in `lints` green.
-//!     **And a lint cannot say what it was pointed AT**: rustdoc runs no link-resolution pass over
-//!     an item it is not documenting, so the same armed `forbid` was exit 0 over 33 unresolvable
-//!     links inside private modules - `github.com/telekom/sutura#327`.
+//!   * IT JUDGES THE DOC LINKS, and not by looking at them. `broken_intra_doc_links` is forbidden in
+//!     the workspace lint table, so the `cargo doc` line below fails on a link rustdoc cannot
+//!     resolve - 15 of those were warnings behind exit 0 until `github.com/telekom/sutura#360`.
+//!     **This is the only venue that enforces it**: the doctest lane does not, measured. This
+//!     check also documents each binary-only target, without rendering API pages for it; `lints`
+//!     states that scope. A lint also cannot say whether it was ARMED, so that submodule asserts
+//!     the table exists and that every workspace member inherits it, before a single crate is
+//!     documented. The test that holds the precondition is over THIS function rather than over that
+//!     module - see `check_refuses_before_documenting_anything_when_the_lint_is_not_armed`, which
+//!     exists because deleting the call and handing `check` a literal left every test in `lints`
+//!     green. **And a lint cannot say what it was pointed AT**: rustdoc runs no link-resolution pass
+//!     over an item it is not documenting, so the same armed `forbid` was exit 0 over 33
+//!     unresolvable links inside private modules - `github.com/telekom/sutura#327`.
 //!     `--document-private-items` is what points it at them, `writer` is what keeps `just api`
-//!     passing the identical flag, and the visibility filter in the generator is why no private
-//!     item reaches a page.
-//!   * IT IS THE SAME CODE PATH. The `cargo doc` line and the generator script are the ones
-//!     the `api` recipe in the justfile runs. A gate that reimplemented the rendering could
-//!     disagree with `just api`, and then the fix its own message asks for would not make it
-//!     pass. Never inline the rendering here.
+//!     passing the identical flag, and the visibility filter in the generator is why no private item
+//!     reaches a page.
+//!   * IT IS THE SAME CODE PATH. The `cargo doc` line and the generator script are the ones the
+//!     publish run uses. A gate that reimplemented the rendering could pass where the publish run
+//!     fails. Never inline the rendering here.
 //!
-//! RUSTDOC JSON NEEDS NIGHTLY. `--output-format json` is an unstable rustdoc option, and the
-//! whole toolchain is nightly now - the shell's bare cargo and every gate run the pinned nightly
-//! (devco/rust-toolchain-nightly.toml) - so it is not a special case next to gates that ran on a
-//! different channel. `flake.nix` hands the check a nightly `$CARGO` and a `CARGO_TARGET_DIR` of
-//! its own so the docs never share artifacts with another run's, and `SUTURA_API_DOCS_PROFILE` so
-//! its compile is at opt-level 0.
+//! **The limit, next to the claim.** This proves the pages GENERATE and carry no dead destination.
+//! It does not prove `mkdocs build --strict` accepts them - pixi cannot run in the nix sandbox this
+//! gate runs in - so a duplicate anchor or a malformed table can still fail the publish job after
+//! merge, and no pull request shows what a page looks like.
 //!
-//! Every gate runs on the nightly toolchain now, so the `cargo doc` line here needs no
-//! wrapping or un-wrapping rationale. It is `Kind::Standalone` because `cargo xtask hygiene` is a
-//! cheap sweep that should run on hosts with no Rust nightly at all.
+//! RUSTDOC JSON NEEDS NIGHTLY. `--output-format json` is an unstable rustdoc option, and the whole
+//! toolchain is nightly - the shell's bare cargo and every gate run the pinned nightly
+//! (devco/rust-toolchain-nightly.toml). `flake.nix` hands the check a nightly `$CARGO` and a
+//! `CARGO_TARGET_DIR` of its own so the docs never share artifacts with another run's, and
+//! `SUTURA_API_DOCS_PROFILE` so its compile is at opt-level 0. It is `Kind::Standalone` because
+//! `cargo xtask hygiene` is a cheap sweep that should run on hosts with no Rust nightly at all.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::Verdict;
-use crate::repo;
+use crate::{Verdict, api_links, repo};
 
 /// Whether the rustdoc run below is armed to judge doc links at all.
 mod lints;
@@ -65,28 +57,29 @@ mod lints;
 /// Whether `just api` hands rustdoc the same flags this gate does.
 mod writer;
 
-/// Where the committed pages live, relative to the repo root.
+/// Whether a generated page has crept back into git.
+pub(crate) mod owner;
+
+/// Where `just api` writes the pages, and where the publish run copies the ones it built, relative to
+/// the repo root.
 ///
-/// Shared with `check-api-links`, which reads the same directory. Two spellings of one directory
-/// is how a gate ends up scanning somewhere the generator no longer writes.
+/// The scan names a finding by this path, because it is where a reader finds the page on the
+/// site and under `just api`; the scan itself reads a temporary directory.
 pub(crate) const PAGES_DIR: &str = "docs/api";
 
 /// The generator, relative to the repo root.
 ///
-/// Run as a script rather than reimplemented, so this gate and `just api` cannot disagree
+/// Run as a script rather than reimplemented, so this gate and the publish run cannot disagree
 /// about what a page should contain.
 ///
-/// Shared with `check-api-links`, which reads the same file for a different reason: the two hold
-/// one list of real URL schemes between them, in two languages, and that gate compares them.
+/// Shared with [`crate::api_links`], which reads the same file for a different reason: the two hold
+/// one list of real URL schemes between them, in two languages, and that scan compares them.
 pub(crate) const GENERATOR: &str = "docs/.tools/rustdoc_to_markdown.py";
 
 /// The first line of the header every generated page carries.
 ///
-/// Used to tell a generated page from a hand-written one, which is how a page left behind by a
-/// renamed crate is found. `docs/api/index.md` is hand-written and carries no such header.
-///
-/// Shared with `check-api-links`, where it is the FLOOR: a scan of that directory finding no
-/// generated page at all is a failure rather than a clean sweep.
+/// Shared with [`crate::api_links`], where it is the FLOOR: a scan of the generator's output
+/// finding no generated page at all is a failure rather than a clean sweep.
 pub(crate) const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 
 /// Names an interpreter to run the generator with, bypassing pixi.
@@ -94,6 +87,13 @@ pub(crate) const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 /// For the one caller that cannot use pixi: a Nix build sandbox has no network, so it cannot
 /// materialise a pixi environment. See [`python_command`].
 const PYTHON_ENV: &str = "SUTURA_API_DOCS_PYTHON";
+
+/// Names a directory to leave the generated pages in, once the run has judged them clean.
+///
+/// For the one caller that has to publish them: the nix check, whose `$out` the docs workflow
+/// copies into `docs/api`. Building the pages in that sandbox is what keeps the dependency closure's
+/// build scripts away from the job that holds a write token. Unset means nothing is kept.
+const KEEP_ENV: &str = "SUTURA_API_DOCS_KEEP";
 
 /// Names the cargo profile the `cargo doc` child compiles under.
 ///
@@ -113,11 +113,7 @@ const PYTHON_ENV: &str = "SUTURA_API_DOCS_PYTHON";
 /// disagreeing is the failure this module's header is about.
 const PROFILE_ENV: &str = "SUTURA_API_DOCS_PROFILE";
 
-/// How much of a differing line to print. Long enough to recognise, short enough that a
-/// hundred-column signature does not wrap the verdict into unreadability.
-const EXCERPT_CHARS: usize = 90;
-
-/// `xtask check-api-docs` - regenerate the API pages and byte-compare against the committed ones.
+/// `xtask check-api-docs` - generate the API pages into a temporary directory and scan them.
 pub(crate) fn run(args: &[String]) -> Verdict {
     if !args.is_empty() {
         eprintln!("xtask check-api-docs: takes no arguments");
@@ -134,7 +130,13 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             Verdict::Fail
         }
         Ok(outcome) if outcome.problems.is_empty() => {
-            println!("xtask check-api-docs: ok - the committed pages match a fresh generation");
+            println!("xtask check-api-docs: ok - the API reference generates, and mkdocs can follow every link on it");
+            if let Some(read) = &outcome.links {
+                println!(
+                    "  {} page(s) generated and read, {} link destination(s), {} URL scheme(s) agreed with the generator",
+                    read.pages, read.destinations, read.schemes
+                );
+            }
             println!(
                 "  doc links: `broken_intra_doc_links` = {}, {} member(s) declared in Cargo.toml, \
                  {} resolved by cargo metadata, {} inheriting",
@@ -157,12 +159,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 /// What one run of this gate found, and what it was armed with while finding it.
 ///
 /// The arming travels back with the problems rather than being printed where it is read: a
-/// verdict that says the pages match without saying the rustdoc run behind them judged its links
+/// verdict that says the pages generate without saying the rustdoc run behind them judged its links
 /// is the shape this pair exists to make impossible.
 #[derive(Debug)]
 struct Outcome {
-    /// Pages that disagree with a fresh generation, or that nothing accounts for.
+    /// A library crate with no generated page, or a page mkdocs cannot follow a link on.
     problems: Vec<String>,
+    /// What the link scan read, when it found nothing.
+    links: Option<api_links::Read>,
     /// The doc-link lint's level, and the three counts that say it reached every member.
     arming: lints::Arming,
     /// Binary-only targets the workspace run documented for links, not generated pages.
@@ -171,7 +175,7 @@ struct Outcome {
     flags: Vec<String>,
 }
 
-/// Regenerate every library crate's page and collect what disagrees.
+/// Generate every library crate's page into a temporary directory and collect what is wrong.
 ///
 /// `Err` is reserved for "the check could not be performed" - a missing generator, a rustdoc
 /// that refused to run. That is deliberately NOT reported as a clean repo: a gate that cannot
@@ -180,12 +184,12 @@ struct Outcome {
 fn check(root: &Path) -> Result<Outcome, String> {
     let metadata = crate::cargo_metadata(&["--no-deps"])?;
     // FIRST, and it is an `Err` rather than a problem: an unarmed rustdoc run cannot tell a
-    // resolvable doc link from an unresolvable one, so regenerating pages from it and reporting
-    // that they match would be a green verdict over a question nobody asked. See `lints`.
+    // resolvable doc link from an unresolvable one, so generating pages from it and reporting
+    // them clean would be a green verdict over a question nobody asked. See `lints`.
     let arming = lints::check(root, &metadata)?;
-    // SECOND precondition, and an `Err` for the same reason: the fix this gate names is
-    // `just api`, and a writer passing other flags produces pages from a rustdoc run whose
-    // question was not the one asked here. See `writer`.
+    // SECOND precondition, and an `Err` for the same reason: `just api` uses the writer, and a writer
+    // passing other flags produces pages from a rustdoc run whose question was not the one asked
+    // here. The publish run does not use it - it copies what this check kept. See `writer`.
     let flags = writer::check(root)?;
     let packages = library_packages(&metadata)?;
     let binaries = binary_targets(&metadata)?;
@@ -203,7 +207,9 @@ fn check(root: &Path) -> Result<Outcome, String> {
 
     let generator = root.join(GENERATOR);
     if !generator.is_file() {
-        return Err(format!("{GENERATOR} does not exist - there is nothing to compare against"));
+        return Err(format!(
+            "{GENERATOR} does not exist - there is nothing to generate the pages with"
+        ));
     }
     selftest_renderer(root, &generator)?;
 
@@ -235,21 +241,31 @@ fn check(root: &Path) -> Result<Outcome, String> {
     }
 
     let scratch = scratch_dir()?;
-    let generated = generate(root, &generator, &inputs, &scratch);
-    let mut problems = Vec::new();
-    if let Err(error) = generated {
+    if let Err(error) = generate(root, &generator, &inputs, &scratch) {
         drop(std::fs::remove_dir_all(&scratch));
         return Err(error);
     }
-    for package in &packages {
-        compare(root, &scratch, package, &mut problems);
-    }
-    problems.extend(orphan_pages(root, &packages));
+    let keep_in = std::env::var(KEEP_ENV).ok();
+    let mut problems = missing_pages(&scratch, &packages);
+    let links = match api_links::check(root, &scratch) {
+        Ok(read) => Some(read),
+        Err(found) => {
+            problems.extend(found.iter().map(|finding| format!("  {finding}")));
+            None
+        }
+    };
 
+    let kept = if problems.is_empty() {
+        keep(&scratch, keep_in.as_deref())
+    } else {
+        Ok(())
+    };
     // Best-effort: a scratch directory left behind is untidy, not a verdict.
     drop(std::fs::remove_dir_all(&scratch));
+    kept?;
     Ok(Outcome {
         problems,
+        links,
         arming,
         binaries: binaries.len(),
         flags,
@@ -390,7 +406,7 @@ fn json_file_name(package: &str) -> String {
 /// Package names are unique, but a `[[bin]] name` is not bound to its package's - so a binary
 /// CAN be named after a library crate, and rustdoc names its JSON after the Rust identifier
 /// rather than the package. Nothing else in this module would notice: the generator would render
-/// the binary's surface onto the library's page and the byte comparison would call it a drift.
+/// the binary's surface onto the library's page, which no later step could tell from the real one.
 /// It is a refusal and not a workaround: the two are units of one cargo invocation, so there is
 /// no ordering left to impose that would make a shared file name safe.
 fn colliding_json<'a>(packages: &BTreeSet<String>, binaries: &'a BinaryTargets) -> Option<(&'a str, &'a str)> {
@@ -477,17 +493,16 @@ fn profile_args(profile: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Run the generator's own behavioral fixture, once, before any page is compared.
+/// Run the generator's own behavioral fixture, once, before any page is generated.
 ///
-/// `check-api-docs` byte-compares the committed pages against a fresh generation, which proves
-/// the pages are CURRENT - and, as `github.com/telekom/sutura#470` measured, does NOT prove the
-/// renderer INCLUDES the documentation an item carries. A `pub use` re-export carries its public
+/// A generation that succeeds proves the pages RENDER - and, as `github.com/telekom/sutura#470`
+/// measured, does NOT prove the renderer INCLUDES the documentation an item carries. A `pub use` re-export carries its public
 /// name and its docs on the TARGET (`inner.use.name`, `inner.use.id`), not on the re-export item
 /// itself, and the renderer used to print a literal `use None` for it with the gate green. The
 /// generator's `--self-test` renders a hand-built re-export fixture and asserts the caller-visible
 /// name and the target's documentation appear, so a future renderer regression fails here even if
-/// every crate happened to change. It is the same script and the same pixi/python interpreter as
-/// [`generate`], because the gate and the fix must exercise the same code path.
+/// no crate's documentation happened to exercise it. It is the same script and the same pixi/python
+/// interpreter as [`generate`], because the gate and the publish run must exercise the same code path.
 ///
 /// **The fixture asserts more than one property, so the refusal below may not name the one that
 /// failed.** It also holds that an enum variant's prose is published in FULL: the renderer used to
@@ -540,7 +555,7 @@ fn python_command(interpreter: Option<&str>) -> (String, Vec<String>) {
     )
 }
 
-/// Render every JSON input into `out`, using the committed generator script.
+/// Render every JSON input into `out`, using the generator script.
 fn generate(root: &Path, generator: &Path, inputs: &[PathBuf], out: &Path) -> Result<(), String> {
     let override_path = std::env::var(PYTHON_ENV).ok();
     let (program, mut argv) = python_command(override_path.as_deref());
@@ -549,7 +564,7 @@ fn generate(root: &Path, generator: &Path, inputs: &[PathBuf], out: &Path) -> Re
         argv.push(argument(input)?);
     }
     // The script takes the output directory as an optional last argument and defaults to
-    // `docs/api`. Passing one is what keeps this gate read-only over the committed pages.
+    // `docs/api`. Passing one is what keeps this gate from writing into the working tree.
     argv.push(argument(out)?);
 
     let status = std::process::Command::new(&program)
@@ -589,150 +604,53 @@ fn scratch_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Compare one crate's committed page against the freshly generated one.
-fn compare(root: &Path, generated_dir: &Path, package: &str, problems: &mut Vec<String>) {
-    let page = root.join(PAGES_DIR).join(format!("{package}.md"));
-    let fresh = generated_dir.join(format!("{package}.md"));
-
-    let Ok(generated) = std::fs::read(&fresh) else {
-        problems.push(format!(
-            "  {package}: the generator wrote no page for this crate. It read the rustdoc \
-             JSON and produced nothing, which is a generator bug rather than a stale page."
-        ));
-        return;
-    };
-    let Ok(committed) = std::fs::read(&page) else {
-        problems.push(format!(
-            "  {}: missing. A library crate exists with no committed page.",
-            relative(root, &page)
-        ));
-        return;
-    };
-    if committed == generated {
-        return;
-    }
-
-    match first_difference(&committed, &generated) {
-        Some(difference) => problems.push(format!(
-            "  {}: differs, first at line {}\n      committed: {}\n      generated: {}",
-            relative(root, &page),
-            difference.line,
-            difference.committed,
-            difference.generated
-        )),
-        // Equal line by line but not byte for byte: only the trailing newline can differ.
-        None => problems.push(format!(
-            "  {}: differs in trailing bytes only - a missing or extra final newline.",
-            relative(root, &page)
-        )),
-    }
-}
-
-/// A page under `docs/api/` that carries the generated header but that no library crate
-/// accounts for.
+/// Copy every generated page into `destination`, when the caller named one.
 ///
-/// Renaming or deleting a library crate otherwise leaves its page behind, still headed
-/// "GENERATED FILE", still in the nav, describing a crate that no longer exists. The
-/// byte-compare cannot see that: it only ever looks at pages it expects.
-fn orphan_pages(root: &Path, expected: &BTreeSet<String>) -> Vec<String> {
-    let dir = root.join(PAGES_DIR);
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return vec![format!("  {}: cannot be read", relative(root, &dir))];
+/// A PARAMETER and not a read of the environment, for the reason [`profile_args`] gives. An empty
+/// name counts as unset, for the same reason: an unexpanded shell variable is a plumbing mistake.
+fn keep(generated: &Path, destination: Option<&str>) -> Result<(), String> {
+    let Some(destination) = destination.filter(|name| !name.is_empty()) else {
+        return Ok(());
     };
-
-    let mut problems = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let is_markdown = path.extension().and_then(std::ffi::OsStr::to_str) == Some("md");
-        let stem = path.file_stem().and_then(std::ffi::OsStr::to_str).map(String::from);
-        let Some(stem) = stem.filter(|_| is_markdown) else {
-            continue;
-        };
-        if expected.contains(&stem) {
-            continue;
-        }
-        // Hand-written pages live here too - the landing page among them - so the header is
-        // what decides, not the file name.
-        if std::fs::read_to_string(&path).is_ok_and(|text| text.starts_with(GENERATED_MARKER)) {
-            problems.push(format!(
-                "  {}: generated, but `{stem}` is not a library crate in this workspace.\n      \
-                 A renamed or deleted crate leaves its page behind; delete it and its nav entry.",
-                relative(root, &path)
-            ));
-        }
+    let destination = Path::new(destination);
+    std::fs::create_dir_all(destination).map_err(|error| format!("could not create {}: {error}", destination.display()))?;
+    let entries = std::fs::read_dir(generated).map_err(|error| format!("could not read {}: {error}", generated.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("could not list {}: {error}", generated.display()))?;
+        let to = destination.join(entry.file_name());
+        std::fs::copy(entry.path(), &to).map_err(|error| format!("could not keep {}: {error}", to.display()))?;
     }
-    problems.sort_unstable();
-    problems
+    Ok(())
 }
 
-/// Where two files first disagree, and what each says there.
-struct Difference {
-    line: usize,
-    committed: String,
-    generated: String,
-}
-
-/// The first line at which two files differ.
+/// Every library crate the generator wrote no page for.
 ///
-/// A line number and an excerpt rather than a full diff: the reader's next action is `just api`,
-/// not a manual edit, so the message needs to prove the pages disagree and say where - not
-/// describe every change.
-fn first_difference(committed: &[u8], generated: &[u8]) -> Option<Difference> {
-    let committed = String::from_utf8_lossy(committed);
-    let generated = String::from_utf8_lossy(generated);
-    let mut left = committed.lines();
-    let mut right = generated.lines();
-    let mut number = 0_usize;
-    loop {
-        number += 1;
-        match (left.next(), right.next()) {
-            // Both sides ran out together, so every line agreed.
-            (None, None) => return None,
-            (was, now) if was == now => {}
-            (was, now) => {
-                return Some(Difference {
-                    line: number,
-                    committed: excerpt(was),
-                    generated: excerpt(now),
-                });
-            }
-        }
-    }
-}
-
-/// One line, shortened, or a marker for "this file already ended".
-fn excerpt(line: Option<&str>) -> String {
-    match line {
-        None => String::from("(end of file)"),
-        Some(text) if text.chars().count() > EXCERPT_CHARS => {
-            let mut out: String = text.chars().take(EXCERPT_CHARS).collect();
-            out.push_str("...");
-            out
-        }
-        Some(text) => String::from(text),
-    }
-}
-
-/// A repo-relative path for a message, falling back to the absolute one.
-fn relative(root: &Path, path: &Path) -> String {
-    repo::relative(root, path).unwrap_or_else(|| path.display().to_string())
+/// It read the rustdoc JSON and produced nothing, which is a generator bug. Named per crate so the
+/// finding says which input to look at, and checked against the set derived from `cargo metadata`
+/// so a second library crate cannot arrive with no page and no failure.
+fn missing_pages(generated: &Path, packages: &BTreeSet<String>) -> Vec<String> {
+    packages
+        .iter()
+        .filter(|package| !generated.join(format!("{package}.md")).is_file())
+        .map(|package| format!("  {package}: the generator wrote no page for this crate"))
+        .collect()
 }
 
 fn report(problems: &[String]) {
-    eprintln!("xtask check-api-docs: the committed API pages are not what the generator produces\n");
+    eprintln!("xtask check-api-docs: the API reference does not generate cleanly\n");
     for problem in problems {
         eprintln!("{problem}");
     }
     eprintln!();
-    eprintln!("Run `just api` and commit what it writes.");
+    eprintln!("Run `just api` to write the pages under {PAGES_DIR}/ and see the generator's own output.");
     eprintln!("The text comes from the doc comments in the crate sources. Edit those, never a page:");
-    eprintln!("every page carries a header saying so, and the next regeneration discards the edit.");
+    eprintln!("nothing commits a page, so the next generation discards the edit.");
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        colliding_json, excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command,
+        colliding_json, is_lib_target, json_file_name, keep, library_packages, missing_pages, profile_args, python_command,
     };
     use std::collections::BTreeSet;
 
@@ -741,7 +659,7 @@ mod tests {
         // The binary and library rustdoc runs share one target directory - that sharing is what
         // stops the binary phase rebuilding the closure - so a binary whose Rust identifier
         // matches a library crate's would overwrite that crate's page input after it was
-        // collected. Nothing downstream could tell that from a drifted page.
+        // collected. Nothing downstream could tell that from the real page.
         let packages = BTreeSet::from([String::from("sutura-domain"), String::from("sutura-app")]);
         let collides = BTreeSet::from([(String::from("sutura-cli"), String::from("sutura_domain"))]);
         assert_eq!(
@@ -791,45 +709,35 @@ mod tests {
     }
 
     #[test]
-    fn identical_files_have_no_first_difference() {
-        let text = b"# a\n\nbody\n";
-        assert!(first_difference(text, text).is_none());
+    fn a_library_crate_the_generator_wrote_no_page_for_is_named() {
+        let tree = crate::scratch_tree::Tree::of(
+            "api-docs-missing",
+            &[("sutura-domain.md", b"page\n"), ("index.md", b"index\n")],
+        );
+        let packages = BTreeSet::from([String::from("sutura-domain"), String::from("sutura-app")]);
+        let missing = missing_pages(tree.root(), &packages);
+        assert_eq!(missing.len(), 1, "{missing:?}");
+        assert!(
+            missing[0].contains("sutura-app"),
+            "the crate is what the reader looks for: {missing:?}"
+        );
+        assert_eq!(
+            missing_pages(tree.root(), &BTreeSet::from([String::from("sutura-domain")])),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
-    fn a_changed_line_is_located() {
-        let committed = b"# a\nold text\ntail\n";
-        let generated = b"# a\nnew text\ntail\n";
-        let found = first_difference(committed, generated).expect("they differ");
-        assert_eq!(found.line, 2, "the line number is what sends the reader to the right place");
-        assert_eq!(found.committed, "old text");
-        assert_eq!(found.generated, "new text");
-    }
-
-    #[test]
-    fn a_truncated_file_reports_the_end() {
-        let committed = b"one\ntwo\n";
-        let generated = b"one\n";
-        let found = first_difference(committed, generated).expect("they differ");
-        assert_eq!(found.line, 2);
-        assert_eq!(found.committed, "two");
-        assert_eq!(found.generated, "(end of file)");
-    }
-
-    #[test]
-    fn a_trailing_newline_difference_has_no_differing_line() {
-        // `lines()` cannot see it, which is why `compare` has a branch for `None` rather than
-        // treating it as "equal". The byte comparison is the authority.
-        assert!(first_difference(b"one\n", b"one").is_none());
-    }
-
-    #[test]
-    fn a_long_line_is_shortened_but_still_recognisable() {
-        let long = "x".repeat(200);
-        let shortened = excerpt(Some(&long));
-        assert!(shortened.len() < long.len());
-        assert!(shortened.ends_with("..."));
-        assert!(shortened.starts_with("xxxx"));
+    fn pages_are_kept_only_where_a_destination_is_named() {
+        let tree = crate::scratch_tree::Tree::of("api-docs-keep", &[("out/a.md", b"a\n"), ("out/index.md", b"i\n")]);
+        let out = tree.root().join("out");
+        let kept = tree.root().join("kept");
+        keep(&out, None).expect("nothing to do");
+        keep(&out, Some("")).expect("an empty name is unset");
+        assert!(!kept.exists(), "no destination named, so nothing was written");
+        keep(&out, kept.to_str()).expect("keep");
+        assert_eq!(std::fs::read(kept.join("a.md")).expect("a page"), b"a\n");
+        assert_eq!(std::fs::read(kept.join("index.md")).expect("the index"), b"i\n");
     }
 
     #[test]

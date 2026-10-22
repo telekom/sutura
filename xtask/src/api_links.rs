@@ -1,4 +1,4 @@
-//! No page under `docs/api/` may carry a link destination mkdocs cannot follow.
+//! No generated API page may carry a link destination mkdocs cannot follow.
 //!
 //! A rustdoc intra-doc link written inline - `` [`Foo`](crate::path::Foo) `` - carries a
 //! destination only rustdoc can resolve, and the generator used to copy it into the published
@@ -21,47 +21,49 @@
 //!   `mkdocs build --strict` **ABORTS**: *"contains an unrecognized relative link
 //!   `sutura_domain::plan::LegPlan`, it was left as is"*. That shipped on #352 with every local
 //!   gate green, which is #356. **The site build is the holder of that class** - it is loud where
-//!   the first class is silent - and `just docs` runs inside `just validate` for that reason.
+//!   the first class is silent - but no pull request builds a generated page, so this scan resolves
+//!   the shape the site build would abort on against the pages the generator wrote.
 //!
 //! So the two are one defect, and the tolerated half is a rename away from the fatal half: every
 //! crate here is `sutura-x`, i.e. `sutura_x` as a path. Confirmed by changing one character:
 //! `suturadomain::plan::LegPlan` builds in 1.68s, and restoring the underscore aborts.
 //!
-//! **What holds it, and why this gate exists as well.** `docs/.tools/rustdoc_to_markdown.py`
+//! **What holds it, and why this scan exists as well.** `docs/.tools/rustdoc_to_markdown.py`
 //! classifies a destination the same way and drops it, keeping the text, so a page cannot be
 //! GENERATED with one - rustdoc keeps the link for a reader of `cargo doc` and the page keeps the
-//! code span. This gate is the rule over the OUTPUT: it fails however the destination got there,
-//! which covers the hand-written `docs/api/index.md` that no byte-compare regenerates, a page
-//! hand-edited in place, and the rewrite itself being deleted or narrowed.
+//! code span. This scan is the rule over the OUTPUT: it fails however the destination got there,
+//! which covers the rewrite itself being deleted or narrowed. It runs inside `check-api-docs`, over
+//! the pages that run generates into a temporary directory, because no page is committed to read.
 //!
 //! **The limits, next to the claim.**
 //!
-//! * **A scheme-less destination is the SITE BUILD's class, not this gate's.** This gate speaks up
-//!   only for the `::` spelling, where it can name the line before mkdocs names the file. A
-//!   single-segment `` [`Foo`](Foo) `` is a Rust path this gate calls a relative link, because it
-//!   is indistinguishable from one; `--strict` aborts on it, measured.
+//! * **A scheme-less destination is resolved, not guessed at.** The `::` spelling is a finding
+//!   whatever the page set. A single-segment `` [`Foo`](Foo) `` is indistinguishable from a link to a
+//!   page by its shape, so a second pass looks it up in the pages the generator wrote: a name in
+//!   that set is a page link, and a name outside it is a finding, which is what `--strict` aborts
+//!   on, measured. A destination with a `/` is not resolved - it names a page this scan was not given.
 //! * **A destination whose scheme IS real is not judged further.** An `https://` target that 404s
 //!   is nobody's rule here.
-//! * SCOPE is `docs/api/`. A dead-scheme destination on any other page under `docs/` is not held
-//!   here - `check-docs` owns links on the hand-written pages, and there are none to hold today
-//!   (measured 2026-09-06: zero outside `docs/api/`, and `http`/`https` are the only schemes any
-//!   page in this tree writes).
+//! * SCOPE is the generated pages. A dead-scheme destination on any other page under `docs/` is not
+//!   held here - `check-docs` owns links on the hand-written pages, and there are none to hold today
+//!   (measured 2026-09-06: zero outside the generated pages, and `http`/`https` are the only schemes
+//!   any page in this tree writes).
 //! * It says nothing about whether rustdoc RESOLVED the link. rustdoc was clean under both
 //!   spellings on #352, so `rustdoc::broken_intra_doc_links` would not have caught that defect and
 //!   this gate does not catch an unresolved link either - #360.
 //! * It reads destinations, not targets: a nav entry, an anchor and a reference-style link
 //!   definition are all somebody else's rule or nobody's.
-//! * **ONE shape the generator leaves and this gate then fails**, so `just api` is not the fix for
-//!   it: link text that itself contains a `]`, which the rewrite's text pattern stops at. Verified
-//!   by calling `clean_docs` over it. A title and an angle-bracketed destination used to be in
-//!   this list and are now rewritten, because the generator classifies rather than pattern-matches
-//!   the destination. The message this gate prints names both fixes for that reason.
+//! * **ONE shape the generator leaves and this scan then fails**: link text that itself contains a
+//!   `]`, which the rewrite's text pattern stops at. Verified by calling `clean_docs` over it. A
+//!   title and an angle-bracketed destination used to be in this list and are now rewritten, because
+//!   the generator classifies rather than pattern-matches the destination. The fix is the doc
+//!   comment the finding's line came from.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::api_docs::{GENERATED_MARKER, GENERATOR, PAGES_DIR};
-use crate::{Verdict, markdown, repo};
+use crate::markdown;
 
 /// One finding: the page, the line, and the destination as written.
 #[derive(Debug)]
@@ -188,10 +190,11 @@ fn fate(written: &str) -> Fate {
 /// Why this destination is a finding, or `None` when it is not one.
 ///
 /// Two arms, and they are the two answers `urlsplit` gives. The second is deliberately NARROW: a
-/// scheme-less destination is the site build's class, and `::` is the one shape this gate claims
-/// there, because no page or asset in this tree is named with one - so a `::` where a page path
-/// belongs is a Rust path, and naming its line beats mkdocs naming only the file. If a file is
-/// ever named with `::`, this reports a legitimate link, and that is the direction to fail in.
+/// scheme-less destination is the site build's class, and `::` is the one shape this function
+/// claims there, because no page or asset in this tree is named with one - so a `::` where a page
+/// path belongs is a Rust path, and naming its line beats mkdocs naming only the file. If a file is
+/// ever named with `::`, this reports a legitimate link, and that is the direction to fail in. A
+/// single segment needs the generated page set to judge, which is [`unresolved`]'s.
 fn finding(written: &str) -> Option<&'static str> {
     match fate(written) {
         Fate::DeadScheme => {
@@ -200,10 +203,39 @@ fn finding(written: &str) -> Option<&'static str> {
         Fate::Relative if destination(written).contains("::") => {
             Some("is a Rust path where a page path belongs, which aborts `mkdocs build --strict`")
         }
-        // One arm and two reasons: a real scheme is a real URL, and a scheme-less destination
-        // with no `::` is a page path, which is `check-docs`' concern and not this gate's.
         Fate::Url | Fate::Relative => None,
     }
+}
+
+/// Is this scheme-less destination one segment that is not a generated page?
+///
+/// A fragment or a query alone names the page it is on, and a destination with a `/` names a page
+/// this scan was not given. A `::` spelling is [`finding`]'s already.
+fn names_no_page(dest: &str, known: &BTreeSet<String>) -> bool {
+    let path = dest.split(['#', '?']).next().unwrap_or_default();
+    !path.is_empty() && !path.contains('/') && !path.contains("::") && !known.contains(path)
+}
+
+/// Every scheme-less single-segment destination on a page that names no page the generator wrote.
+///
+/// A second pass beside [`scan`], which has no page set: `mkdocs build --strict` aborts on such a
+/// destination, and no pull request builds a generated page. A page [`scan`] could not lex is its
+/// refusal to report, so it yields nothing here.
+fn unresolved(page: &str, text: &str, known: &BTreeSet<String>) -> Vec<Finding> {
+    let Ok(lines) = markdown::prose(text) else {
+        return Vec::new();
+    };
+    markdown::destinations(&lines)
+        .iter()
+        .filter(|found| fate(found.text) == Fate::Relative && names_no_page(destination(found.text), known))
+        .map(|found| Finding {
+            page: String::from(page),
+            detail: format!(
+                "line {}: `]({})` names no page the generator wrote, which aborts `mkdocs build --strict`",
+                found.line, found.text
+            ),
+        })
+        .collect()
 }
 
 /// What one page's destinations say, or why the page could not be judged.
@@ -233,26 +265,28 @@ fn scan(page: &str, text: &str) -> Result<PageScan, Finding> {
     })
 }
 
-/// Every `*.md` in the pages directory, sorted.
+/// Every `*.md` in the generated directory, sorted.
 ///
-/// `Err` when the directory cannot be listed at all: the subject of this gate is the generated
-/// pages, and a scan that cannot find where they live must not answer.
-fn pages(root: &Path) -> Result<BTreeSet<String>, String> {
-    let dir = root.join(PAGES_DIR);
-    let entries = std::fs::read_dir(&dir).map_err(|error| format!("could not read {PAGES_DIR}: {error}"))?;
+/// `Err` when the directory cannot be listed at all: the subject of this scan is the generated
+/// pages, and a scan that cannot find where they were written must not answer.
+fn pages(dir: &Path) -> Result<BTreeSet<String>, String> {
+    let entries = std::fs::read_dir(dir).map_err(|error| format!("could not read {}: {error}", dir.display()))?;
     let mut found = BTreeSet::new();
     for entry in entries {
-        let entry = entry.map_err(|error| format!("could not read an entry under {PAGES_DIR}: {error}"))?;
+        let entry = entry.map_err(|error| format!("could not read an entry under {}: {error}", dir.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         // Case-SENSITIVE, through `extension` rather than a suffix test: mkdocs matches `*.md`
         // and a `.MD` file is not a page it renders, so treating one as a page would put this
-        // gate's scope out of step with the site's.
+        // scan's scope out of step with the site's.
         if Path::new(&name).extension().is_some_and(|ext| ext == "md") {
             found.insert(name);
         }
     }
     if found.is_empty() {
-        return Err(format!("{PAGES_DIR} holds no `.md` page - there is nothing here to check"));
+        return Err(format!(
+            "{} holds no `.md` page - there is nothing here to check",
+            dir.display()
+        ));
     }
     Ok(found)
 }
@@ -263,9 +297,9 @@ struct Sweep {
     findings: Vec<Finding>,
     /// Pages read END TO END. **The floor**, and the only honest one available here.
     ///
-    /// A DESTINATION total cannot be the floor and reviewing this gate proved it: 11 of the 13
-    /// destinations in this directory are on the hand-written `index.md`, the 16 generated pages
-    /// contribute 2 between them, and the whole point of the rewrite is to drive that to zero. So
+    /// A DESTINATION total cannot be the floor and reviewing this gate proved it: while the landing
+    /// page was hand-written, 11 of the 13 destinations in this directory were on it, the 16 generated
+    /// pages contributed 2 between them, and the whole point of the rewrite is to drive that to zero. So
     /// a `continue` after the marker count left 16 of 17 pages unscanned with the total moving by
     /// 2 and the verdict green - the `.take(1)` shape `../gates` records against `check-docs`,
     /// where a repo-wide link total was satisfied with 51 of 52 pages unread. A per-page
@@ -278,7 +312,7 @@ struct Sweep {
     destinations: usize,
 }
 
-fn sweep(root: &Path, pages: &BTreeSet<String>) -> Sweep {
+fn sweep(dir: &Path, pages: &BTreeSet<String>) -> Sweep {
     let mut out = Sweep {
         findings: Vec::new(),
         scanned: 0,
@@ -287,7 +321,7 @@ fn sweep(root: &Path, pages: &BTreeSet<String>) -> Sweep {
     };
     for page in pages {
         let rel = format!("{PAGES_DIR}/{page}");
-        let Ok(text) = std::fs::read_to_string(root.join(PAGES_DIR).join(page)) else {
+        let Ok(text) = std::fs::read_to_string(dir.join(page)) else {
             out.findings.push(Finding {
                 page: rel,
                 detail: String::from("is not readable, so its links were never scanned"),
@@ -302,6 +336,7 @@ fn sweep(root: &Path, pages: &BTreeSet<String>) -> Sweep {
                 out.scanned = out.scanned.saturating_add(1);
                 out.destinations = out.destinations.saturating_add(read.destinations);
                 out.findings.extend(read.findings);
+                out.findings.extend(unresolved(&rel, &text, pages));
             }
             Err(refusal) => out.findings.push(refusal),
         }
@@ -309,87 +344,57 @@ fn sweep(root: &Path, pages: &BTreeSet<String>) -> Sweep {
     out
 }
 
-/// `xtask check-api-links` - no published API page links to a Rust path.
-pub(crate) fn run(args: &[String]) -> Verdict {
-    if !args.is_empty() {
-        eprintln!("xtask check-api-links: takes no arguments");
-        return Verdict::Usage;
-    }
-    let Some(root) = repo::root() else {
-        eprintln!("xtask check-api-links: could not determine the repo root");
-        return Verdict::Fail;
-    };
+/// What a clean scan read, for the verdict line.
+#[derive(Debug)]
+pub(crate) struct Read {
+    /// Pages read end to end, which equals the pages found.
+    pub(crate) pages: usize,
+    /// Destinations examined.
+    pub(crate) destinations: usize,
+    /// URL schemes the two allowlists agree on.
+    pub(crate) schemes: usize,
+}
 
-    let pages = match pages(&root) {
-        Ok(pages) => pages,
-        Err(reason) => {
-            eprintln!("xtask check-api-links: FAILED - {reason}");
-            return Verdict::Fail;
-        }
-    };
-    let generator = match generator_schemes(&root) {
-        Ok(schemes) => schemes,
-        Err(reason) => {
-            eprintln!("xtask check-api-links: FAILED - {reason}");
-            return Verdict::Fail;
-        }
-    };
+/// Scan every page in `dir`, the generator's output, for a destination mkdocs cannot follow.
+///
+/// `Err` carries every reason the answer is not "clean", already worded: a finding, a page that
+/// could not be read, a floor that was not met, or a scheme list the generator disagrees with.
+pub(crate) fn check(root: &Path, dir: &Path) -> Result<Read, Vec<String>> {
+    let pages = pages(dir).map_err(|reason| vec![reason])?;
+    let generator = generator_schemes(root).map_err(|reason| vec![reason])?;
     let mine: Vec<String> = REAL_SCHEMES.iter().map(|s| String::from(*s)).collect();
     if generator != mine {
-        eprintln!("xtask check-api-links: FAILED - the two scheme allowlists disagree");
-        eprintln!("  this gate:   {mine:?}");
-        eprintln!("  {GENERATOR}: {generator:?}");
-        eprintln!("  A scheme on one side only either deletes a working link from a page or fails");
-        eprintln!("  a gate whose own fix cannot change it. Add it to both, or to neither.");
-        return Verdict::Fail;
+        return Err(vec![format!(
+            "the two scheme allowlists disagree: this scan {mine:?}, {GENERATOR} {generator:?}. A scheme on one \
+             side only either deletes a working link from a page or fails a scan whose own fix cannot change \
+             it. Add it to both, or to neither."
+        )]);
     }
-    let found = sweep(&root, &pages);
+    let found = sweep(dir, &pages);
 
     // FINDINGS FIRST, and the order is a fix rather than a preference: with the floors ahead of
     // it, a directory of unreadable pages reported "no page carries the generated header" and
     // named none of them.
     if !found.findings.is_empty() {
-        report(&found.findings);
-        return Verdict::Fail;
+        return Err(found.findings.iter().map(|f| format!("{} {}", f.page, f.detail)).collect());
     }
     if found.scanned != pages.len() {
-        eprintln!(
-            "xtask check-api-links: FAILED - read {} of {} page(s) and reported nothing about the rest",
+        return Err(vec![format!(
+            "read {} of {} page(s) and reported nothing about the rest - a page neither scanned nor reported is a page this verdict does not cover",
             found.scanned,
             pages.len()
-        );
-        eprintln!("  A page neither scanned nor reported is a page this verdict does not cover.");
-        return Verdict::Fail;
+        )]);
     }
     if found.generated == 0 {
-        eprintln!("xtask check-api-links: FAILED - no page under {PAGES_DIR} carries the generated header");
-        eprintln!("  The generated pages ARE the subject of this gate. `just api` writes them.");
-        return Verdict::Fail;
+        return Err(vec![String::from(
+            "no page carries the generated header - the generator's own output IS the subject of this scan, so a directory with none of it was not read",
+        )]);
     }
-    println!(
-        "xtask check-api-links: ok - {} of {} page(s) read, {} generated, {} link destination(s), every one a URL mkdocs can follow ({} scheme(s), agreed with the generator)",
-        found.scanned,
-        pages.len(),
-        found.generated,
-        found.destinations,
-        mine.len()
-    );
-    Verdict::Pass
-}
-
-/// Every finding, then BOTH fixes - because which one applies depends on the page.
-fn report(findings: &[Finding]) {
-    eprintln!("xtask check-api-links: FAILED");
-    for finding in findings {
-        eprintln!("  {} {}", finding.page, finding.detail);
-    }
-    eprintln!();
-    eprintln!("A Rust path is not a URL. Write the intra-doc link in the BRACKET form instead -");
-    eprintln!("[`crate::path::Foo`] - which rustdoc resolves and the generator renders as a code span.");
-    eprintln!();
-    eprintln!("On a GENERATED page the fix is `just api`, which rewrites it from the doc comment. On");
-    eprintln!("the hand-written docs/api/index.md, and where the rewrite cannot reach the link (link");
-    eprintln!("text holding a `]`), the fix is the source line this names.");
+    Ok(Read {
+        pages: pages.len(),
+        destinations: found.destinations,
+        schemes: mine.len(),
+    })
 }
 
 #[cfg(test)]
@@ -513,5 +518,89 @@ mod tests {
         // a green verdict over an unread page - the defect `xtask/src/docs/links.rs` records.
         let refusal = scan("docs/api/x.md", "```rust\nfn f() {}\n").expect_err("an unclosed fence must refuse");
         assert!(refusal.detail.contains("could not be lexed"), "{}", refusal.detail);
+    }
+
+    const GENERATOR_WITH_SCHEMES: &[u8] = b"REAL_SCHEMES = (\"http\", \"https\")\n";
+    const HEADER: &str = "<!-- GENERATED FILE - do not edit. -->\n";
+
+    fn checked(name: &str, page: &str, text: &str, generator: &[u8]) -> Result<super::Read, Vec<String>> {
+        let path = format!("out/{page}");
+        let tree = crate::scratch_tree::Tree::of(
+            name,
+            &[
+                (path.as_str(), text.as_bytes()),
+                ("docs/.tools/rustdoc_to_markdown.py", generator),
+            ],
+        );
+        super::check(tree.root(), &tree.root().join("out"))
+    }
+
+    #[test]
+    fn generated_pages_with_no_dead_destination_are_read_in_full() {
+        let page = format!("{HEADER}\nSee [the domain](sutura-domain.md).\n");
+        let read = checked("api-links-clean", "sutura-domain.md", &page, GENERATOR_WITH_SCHEMES).expect("clean");
+        assert_eq!((read.pages, read.destinations, read.schemes), (1, 1, 2));
+    }
+
+    #[test]
+    fn a_dead_destination_on_a_generated_page_names_the_page_and_the_line() {
+        let page = format!("{HEADER}\nSee [`Q`](crate::plan::QueryPlan).\n");
+        let problems = checked("api-links-dead", "sutura-domain.md", &page, GENERATOR_WITH_SCHEMES).expect_err("dead");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("sutura-domain.md") && problems[0].contains("line 3"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_directory_with_no_page_is_a_refusal_and_not_a_clean_sweep() {
+        let problems = checked("api-links-empty", "notes.txt", "x", GENERATOR_WITH_SCHEMES).expect_err("empty");
+        assert!(problems[0].contains("holds no `.md` page"), "{problems:?}");
+    }
+
+    #[test]
+    fn pages_without_the_generated_header_are_not_the_generators_output() {
+        let problems = checked("api-links-headless", "a.md", "plain\n", GENERATOR_WITH_SCHEMES).expect_err("headless");
+        assert!(problems[0].contains("no page carries the generated header"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_generator_that_allows_another_scheme_disagrees_with_this_scan() {
+        let page = format!("{HEADER}\nplain\n");
+        let generator = b"REAL_SCHEMES = (\"http\", \"https\", \"mailto\")\n";
+        let problems = checked("api-links-schemes", "a.md", &page, generator).expect_err("disagree");
+        assert!(problems[0].contains("allowlists disagree"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_single_segment_destination_on_a_generated_page_fails_the_directory_scan() {
+        let page = format!("{HEADER}\nSee [`F`](LegPlan).\n");
+        let problems = checked("api-links-unresolved", "sutura-domain.md", &page, GENERATOR_WITH_SCHEMES)
+            .expect_err("a destination naming no generated page");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("sutura-domain.md") && problems[0].contains("line 3"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page() {
+        let known: std::collections::BTreeSet<String> = ["sutura-domain.md", "index.md"]
+            .iter()
+            .map(|page| String::from(*page))
+            .collect();
+        let found = |body: &str| super::unresolved("docs/api/x.md", &format!("A page.\n\n{body}\n"), &known).len();
+        assert_eq!(found("[`F`](LegPlan)"), 1, "a Rust path in a page link's shape");
+        assert_eq!(found("[`F`](LegPlan#fields)"), 1, "an anchor does not make it a page");
+        assert_eq!(found("[`F`](other-crate.md)"), 1, "a page nobody generated");
+        assert_eq!(found("[`F`](sutura-domain.md#a-plan)"), 0);
+        assert_eq!(found("[`F`](../concepts.md) [`G`](#own-anchor)"), 0);
+        assert_eq!(
+            found("[`F`](sutura_domain::plan::Leg)"),
+            0,
+            "the `::` spelling is `finding`'s, not counted twice"
+        );
     }
 }

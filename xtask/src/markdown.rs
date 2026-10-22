@@ -284,7 +284,7 @@ fn destination_end(after: &str) -> Option<usize> {
 /// Every inline link destination in `lines`, in source order.
 ///
 /// ONE owner for the `](` walk, because two gates want it: `check-docs` resolves a destination
-/// against the pages on disk, and `check-api-links` asks what mkdocs would do with it. It reads
+/// against the pages on disk, and `api_links` asks what mkdocs would do with it. It reads
 /// the PROSE half, so a page documenting a link inside a fence is not making one.
 ///
 /// A destination is returned as written, title and all - `](a.md 'titled')` is one destination of

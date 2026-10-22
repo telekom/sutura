@@ -925,13 +925,13 @@ jobs:
         run: nix build .#checks.x86_64-linux.doctest -L
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
-      # COMMITTED. rustdoc JSON (`--output-format json`) is nightly-only, so this is its own
-      # flake output rather than a fold into an ordinary check: the output packages its own
-      # rustdoc JSON generator and its own interpreter, run with `--all-features`. A committed
-      # generated file rots silently, so this regenerates them and byte-compares: a doc
-      # comment that changed without a regeneration fails here instead of publishing a stale
-      # page as current. Locally the same gate is `cargo xtask check-api-docs`, and the fix
-      # it asks for is `just api`.
+      # committed nowhere: the docs workflow writes them on `main`. rustdoc JSON
+      # (`--output-format json`) is nightly-only, so this is its own flake output rather than a
+      # fold into an ordinary check: the output packages its own rustdoc JSON generator and its
+      # own interpreter, run with `--all-features`. This generates the pages into a temporary
+      # directory and scans their links, so a doc comment that would break that publish run fails
+      # here, before merge. Locally the same gate is `cargo xtask check-api-docs`, and `just api`
+      # writes the pages for a reader.
       #
       # rustdoc JSON is unstable nightly-only, which is the whole reason this step is a flake
       # output of its own rather than one of the checks above: the generator needs a nightly
@@ -941,12 +941,11 @@ jobs:
       # devco/rust-toolchain-nightly.toml. The step stays separate for the packaging of the
       # generator and interpreter, not because the rest of the tree is stable.
       #
-      # `api` is set by classify for a library crate's sources, for the generator, for the
-      # committed pages, and for the manifests - the pages are generated with `--all-features`,
-      # so a feature or a dependency can add a public re-export with no doc comment touched. The
-      # gate is self-scoping on top of that: a change touching only private code regenerates to
-      # identical output and passes, so nothing here has to guess which Rust changes reach the
-      # public surface.
+      # `api` is set by classify for a library crate's sources, for the generator, and for the
+      # manifests - the pages are generated with `--all-features`, so a feature or a dependency can
+      # add a public re-export with no doc comment touched. Nothing here guesses which Rust changes
+      # reach the public surface: a change touching only private code generates clean pages and
+      # passes.
       - name: API reference pages
         if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L

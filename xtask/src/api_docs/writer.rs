@@ -26,8 +26,8 @@
 //! **Why the selection matters just as much.** `--workspace --all-features` resolves features
 //! once over every member. `-p <one> --all-features` resolves them for one, which is a different
 //! set for every shared dependency - so a writer that documented packages one at a time could
-//! hand the generator JSON the gate's own run would never produce, and the byte comparison would
-//! be against the wrong build. It is also the resolution `sutura-deps` is built under, which is
+//! hand the generator JSON the gate's own run would never produce, and the pages would
+//! be judged from the wrong build. It is also the resolution `sutura-deps` is built under, which is
 //! what makes the warm artifacts reusable; that is a cost argument rather than a correctness one
 //! and is recorded in `flake.nix`, not here.
 //!

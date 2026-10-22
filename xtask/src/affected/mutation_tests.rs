@@ -100,7 +100,6 @@ fn a_new_adapter_mutation_and_its_derived_files_select_only_that_adapter() {
             DATAHUB,
             "crates/sutura-catalog-datahub/src/tests.rs",
             ARTIFACT,
-            "docs/api/sutura-catalog-datahub.md",
         ],
     );
     assert!(!cats.core, "an adapter mutation is attributable: {cats:?}");
