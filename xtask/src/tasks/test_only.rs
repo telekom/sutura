@@ -3,6 +3,7 @@
 //! `test-only` is a dependency-only header over `test`, so it cannot carry a cargo line of its own
 //! that drifts: the filter is the only difference. `test`'s doctest leg runs only with no filter,
 //! because nextest runs no doctests and a filterset cannot select them.
+//! `test`'s whole command list is compared, so a same-meaning rewrite of one of its lines is red too.
 //! Limit: this reads the justfile's text, so it holds the wiring and the commands, not what
 //! `nix/with-tier.sh` or nextest then do with them.
 
@@ -46,14 +47,15 @@ fn the_filtered_task_is_test_handed_a_filterset_and_nothing_else() {
 
 #[test]
 fn the_test_task_adds_the_filter_to_one_nextest_line_and_skips_doctests_under_it() {
-    let body = commands("test");
-    assert_eq!(body.iter().filter(|line| line.starts_with("cargo nextest")).count(), 1);
-    assert!(
-        body.iter().any(|line| line == NEXTEST),
-        "the nextest line lost `--all-features` or the filter: {body:?}"
-    );
-    assert!(
-        body.iter().any(|line| line == DOCTEST),
-        "the doctest leg runs under a filterset, which nextest cannot apply to it: {body:?}"
+    assert_eq!(
+        commands("test"),
+        [
+            "set -euo pipefail",
+            "source nix/with-tier.sh",
+            "sutura_tier_up",
+            "export SUTURA_DEV_RELAXED_TOLERANCE=1",
+            NEXTEST,
+            DOCTEST,
+        ],
     );
 }

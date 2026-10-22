@@ -147,9 +147,6 @@ bare `cargo` used to be a cranelift nightly while the gates ran on a separate st
 a hand-written line diverged twice; the stable/nightly split is gone, so that half no longer
 applies - the shell's bare `cargo` IS what the gates and CI run.)
 
-`just test-only '<nextest filterset>'` is `just test` handed a filterset (`-E`), with no doctest leg: use it for
-a kill table, one mutation per run. `xtask/src/tasks/test_only.rs` holds that `test-only` carries no command of its own.
-
 Another part of the shell environment still **follows cargo into other checkouts and breaks builds
 there**: if a developer has opted into cranelift, `CARGO_UNSTABLE_CODEGEN_BACKEND` and
 `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` are set, and the two DuckDB path variables are
@@ -158,6 +155,11 @@ shell aborted with an uncaught foreign exception behind millions of unwind-table
 cranelift's unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is
 green with the four unset. **A red run from this shell in another repo is unexplained until you
 unset them.** No gate can see a build somewhere else, which is exactly why it is written down.
+
+`just test-only '<nextest filterset>'` is `just test` handed a filterset (`-E`), with no doctest leg: use it for
+a kill table, one mutation per run, with `NEXTEST_PROFILE=nofailfast` for a complete table. An empty filterset runs
+everything, and a filtered green verifies only what it selects (`just validate` is the gate).
+`xtask/src/tasks/test_only.rs` holds that `test-only` carries no command of its own and compares `test`'s whole body.
 
 **Local Rust gates run on the shell's nightly cargo, matching CI.** The formatter, changed-package,
 doctest and clippy hook entries run the same `cargo` as the corresponding `just` tasks - there is no

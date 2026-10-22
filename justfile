@@ -110,7 +110,7 @@ test $filter='':
     cargo nextest run --workspace --all-features ${filter:+-E "$filter"}
     [ -n "$filter" ] || cargo test --doc --workspace --all-features
 
-# `just test` restricted by one nextest filterset: `just test-only 'test(/^acceptance::/)'`.
+# `just test` restricted by one nextest filterset, e.g. `just test-only 'test(/^acceptance::/)'`; an empty one runs everything.
 test-only filter: (test filter)
 
 # NOT a gate: not in `just validate`, not in `just gates`, not in `ci` - `github.com/telekom/
