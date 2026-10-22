@@ -11,7 +11,7 @@
 
 use std::fmt;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// Why the justfile set could not be read.
 #[derive(Debug)]
@@ -66,9 +66,7 @@ pub fn text(root: &Path) -> Result<String, Refused> {
         .collect();
     for literal in imports {
         let path = PathBuf::from(&literal);
-        let plain = literal.split('/').all(|part| !matches!(part, "" | "." | ".."))
-            && path.components().all(|part| matches!(part, Component::Normal(_)));
-        if !plain {
+        if !literal.split('/').all(|part| !matches!(part, "" | "." | "..")) {
             return Err(Refused::Outside { path });
         }
         let imported = read(root, path)?;
