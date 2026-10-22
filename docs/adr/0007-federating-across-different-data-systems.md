@@ -1780,8 +1780,9 @@ decision.
   A dimension is read from the leg of its last crossing, so a chain that crosses and comes back is
   planned as federated legs and never as one statement.
 - **Refusals changed.** `PlanNeedsTooManyLookupLegs { legs, limit }` replaces
-  `PlanSpansTooManySources`. `CrossModelRatioNeedsOneLookupLeg { metric }` is new: a cross-model
-  ratio still joins its second fact on one link. `FederationLinkAmbiguous`, `HopCrossesSource` and
+  `PlanSpansTooManySources`. `CrossModelRatioNeedsOneLookupLeg { metric }` is raised by the planner
+  for the first time (it was declared before): a cross-model ratio still joins its second fact on one
+  link. `FederationLinkAmbiguous`, `HopCrossesSource` and
   `ChainLeavesItsSource` are deleted with their cells. The wire codes `plan_spans_too_many_sources`
   and `federation_link_ambiguous` no longer exist, which is a breaking change.
 - **Not built.** A cross-model ratio over more than one lookup leg (`github.com/telekom/sutura#1493`).
