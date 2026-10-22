@@ -438,6 +438,13 @@ mod tests {
     }
 
     #[test]
+    fn an_absent_scorecard_workflow_sends_nothing() {
+        let tree = crate::scratch_tree::Tree::of("publication-absent", &[]);
+        let refusals = problems(tree.root());
+        assert!(refusals.is_empty(), "{refusals:?}");
+    }
+
+    #[test]
     fn every_refusal_reason_is_reached_through_the_entry_point() {
         assert!(found(CLEAN).is_empty(), "{:?}", found(CLEAN));
 

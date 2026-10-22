@@ -1,0 +1,12 @@
+diff --git a/xtask/src/workflows/sources.rs b/xtask/src/workflows/sources.rs
+index a97f22cd9..866e59429 100644
+--- a/xtask/src/workflows/sources.rs
++++ b/xtask/src/workflows/sources.rs
+@@ -72,7 +72,6 @@ pub(crate) fn in_scope_dir(path: &Path) -> Result<Vec<std::path::PathBuf>, Strin
+                     .map_err(|why| format!("{}: {why}", path.display()))
+             })
+             .collect(),
+-        Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+         Err(why) => Err(format!("{}: {why}", path.display())),
+     }
+ }

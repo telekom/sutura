@@ -418,6 +418,12 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_tree_without_a_nix_directory_is_still_scanned() {
+        let tree = tree("inconclusive-no-nix", None);
+        assert!(sources(tree.root()).is_some(), "an absent nix directory is not a broken scan");
+    }
+
     /// The declared site with this label.
     fn site(label: &str) -> &'static Site {
         SITES.iter().find(|one| one.label == label).expect("a declared site")
