@@ -57,7 +57,8 @@ fn metrics_reaching_a_remote_dimension_are_one_joined_arm_each() {
 }
 
 /// `revenue` beside a cross-model ratio over `visits`, both by `region` on `customers`: the ratio is
-/// an arm with a second fact leg beside the plain metric's two.
+/// an arm with a second fact leg beside the plain metric's two. The same pair with no dimension is
+/// refused by name, not planned as one statement.
 #[test]
 fn a_cross_model_ratio_beside_another_metric_is_an_arm_with_its_second_fact() {
     let corpus = TwoSources::new();
@@ -80,21 +81,23 @@ fn a_cross_model_ratio_beside_another_metric_is_an_arm_with_its_second_fact() {
         },
     )
     .with_shared_calendar(ModelName::parse("calendar").expect("a test model is a model"));
-    let ratio_alone = Resolution {
-        cross: Some(CrossModel {
-            second: &visits,
-            calendar: &calendar,
-            own_to_calendar: &facts_calendar,
-            second_to_calendar: &visits_calendar,
-            second_relationships: vec![&visits_customer],
-        }),
-        ..corpus.asking(vec![&ratio], true)
+    let resolved = |by_region: bool| {
+        let ratio_alone = Resolution {
+            cross: Some(CrossModel {
+                second: &visits,
+                calendar: &calendar,
+                own_to_calendar: &facts_calendar,
+                second_to_calendar: &visits_calendar,
+                second_relationships: vec![&visits_customer],
+            }),
+            ..corpus.asking(vec![&ratio], by_region)
+        };
+        Resolved {
+            whole: corpus.asking(vec![&revenue, &ratio], by_region),
+            per_metric: vec![corpus.asking(vec![&revenue], by_region), ratio_alone],
+        }
     };
-    let both = Resolved {
-        whole: corpus.asking(vec![&revenue, &ratio], true),
-        per_metric: vec![corpus.asking(vec![&revenue], true), ratio_alone],
-    };
-    let planned = across(plan_resolved(&both));
+    let planned = across(plan_resolved(&resolved(true)));
     let seconds: Vec<bool> = planned
         .arms()
         .iter()
@@ -105,6 +108,18 @@ fn a_cross_model_ratio_beside_another_metric_is_an_arm_with_its_second_fact() {
         .collect();
     assert_eq!(seconds, [false, true], "only the ratio reads a second fact");
     assert_eq!(planned.legs().len(), 5, "two legs for the sum and three for the ratio");
+    // With no remote dimension the ratio has no link to join its two facts on, so it is refused by name.
+    let flat = plan_resolved(&resolved(false));
+    assert!(
+        matches!(
+            flat,
+            Err(PlanError::Refused(
+                RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
+            ))
+        ),
+        "{:?}",
+        flat.err()
+    );
 }
 
 #[test]
