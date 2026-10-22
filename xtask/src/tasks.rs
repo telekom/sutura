@@ -602,6 +602,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 #[cfg(test)]
+pub(crate) mod justfiles;
+
+#[cfg(test)]
 mod test_only;
 
 #[cfg(test)]

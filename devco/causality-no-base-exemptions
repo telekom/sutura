@@ -84,3 +84,14 @@ a_withdrawn_wording_is_refused_in_a_doc_comment_and_in_no_other_line_of_rust # n
 a_task_and_a_recipe_that_do_not_exist_are_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when the two reference checks are passed `text_files`
 a_path_that_does_not_exist_is_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `dead_paths` is passed `text_files`
 a_single_segment_destination_on_a_generated_page_fails_the_directory_scan # same file as `api_links::sweep`, absent at base; killed when `sweep` stops extending its findings with `unresolved`
+a_justfile_with_no_import_reads_as_that_file_alone # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `read` returns no root file
+the_root_and_each_import_are_returned_flat_in_order # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `read` returns the root only
+an_import_it_cannot_open_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `load` turns an unreadable file into an empty text
+a_missing_root_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `load` turns an unreadable file into an empty text
+a_mod_line_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when the `mod` arm of `directives` is skipped
+an_optional_import_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when the `import?` arm of `directives` is skipped
+an_import_inside_an_imported_file_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `held_by_the_root` is not called on an imported file
+a_mod_inside_an_imported_file_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `held_by_the_root` drops its `mod` arm
+an_import_outside_the_root_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `ImportPath::parse` accepts every path
+an_import_that_is_not_one_quoted_literal_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `quoted` ignores what follows the closing quote
+an_indented_import_and_a_recipe_named_like_one_are_not_directives # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `keyword` matches a prefix instead of the whole token
