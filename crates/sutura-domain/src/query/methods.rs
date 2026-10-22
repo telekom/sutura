@@ -121,10 +121,8 @@ impl RefusalReason {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::MetricUnknown { .. } => "metric_unknown",
-            Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
             Self::TooManyMetrics { .. } => "too_many_metrics",
             Self::DuplicateMetricName { .. } => "duplicate_metric_name",
-            Self::MultiMetricFederationNotExecutable { .. } => "multi_metric_federation_not_executable",
             Self::MultiMetricTopNotExecutable { .. } => "multi_metric_top_not_executable",
             Self::GrainNotSupported { .. } => "grain_not_supported",
             Self::DimensionNotPermitted { .. } => "dimension_not_permitted",

@@ -22,6 +22,7 @@ use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilt
 use crate::{CompileFailure, Compiled};
 
 mod corpus;
+mod drill_across;
 mod federation;
 mod link_types;
 mod two_sources;
@@ -82,7 +83,7 @@ fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
 fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
     match plan(resolution).expect("this resolution plans") {
         Plan::Mono(query) => query,
-        Plan::Federated(_) => panic!("every model here is local, so the plan is one statement"),
+        Plan::Federated(_) | Plan::DrillAcross(_) => panic!("every model here is local, so the plan is one statement"),
     }
 }
 
@@ -289,7 +290,7 @@ fn the_legs_and_their_links_do_not_depend_on_the_order_the_dimensions_are_asked(
     let planned =
         |by: [&str; 2]| match plan(&corpus.asking(by.iter().map(|name| corpus.key(name)).collect())).expect("this plans") {
             Plan::Federated(planned) => planned,
-            Plan::Mono(_) => panic!("dimensions on other data systems are a federated plan"),
+            Plan::Mono(_) | Plan::DrillAcross(_) => panic!("dimensions on other data systems are a federated plan"),
         };
     let (forward, reverse) = (planned(["region", "brand"]), planned(["brand", "region"]));
     assert_eq!(lookup_shape(&forward), lookup_shape(&reverse));

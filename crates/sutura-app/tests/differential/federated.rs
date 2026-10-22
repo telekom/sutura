@@ -118,6 +118,12 @@ mod fiscal;
 #[path = "federated/two_fact.rs"]
 pub(crate) mod two_fact;
 
+// A question over several metrics, an arm each (`telekom/sutura#1471`). `#[cfg(test)]` on the
+// declaration for the same reason.
+#[cfg(test)]
+#[path = "federated/multi_metric.rs"]
+mod multi_metric;
+
 use corpus::{
     A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated,
     with_a_text_key, with_null_keys,

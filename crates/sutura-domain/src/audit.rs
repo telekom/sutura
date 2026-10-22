@@ -60,9 +60,9 @@
 //! was minted for this call, which is the honest answer for a question refused before the broker was
 //! asked.
 //!
-//! A plan reads from the sources a `Compiled::Federated` answer spans, or from a single source for a
-//! `Compiled::Planned` one (a question needing more lookup legs than the cap is refused at plan time by
-//! [`crate::query::RefusalReason::PlanNeedsTooManyLookupLegs`]), so the source set is a name a reader
+//! A plan reads from the sources a `Compiled::Federated` or `Compiled::DrillAcross` answer spans, or from a
+//! single source for a `Compiled::Planned` one (a question needing more lookup legs than the cap is refused at
+//! plan time by [`crate::query::RefusalReason::PlanNeedsTooManyLookupLegs`]), so the source set is a name a reader
 //! already has from the bundle.
 
 use crate::identity::{ClientClaims, Expiry, PrincipalChain};

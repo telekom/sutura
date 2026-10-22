@@ -93,10 +93,8 @@ lint:
     # The cheap structural gates, seconds not minutes.
     cargo run -q -p xtask -- hygiene
 
-# `--doc` is separate because nextest does not run doctests.
-
-# Run the tests.
-test:
+# Run the tests, or with a nextest filterset only the tests it selects.
+test $filter='':
     #!/usr/bin/env bash
     set -euo pipefail
     # The SAME nixpkgs Postgres `checks.nextest` uses, so the postgres cells RUN here rather than skip.
@@ -109,8 +107,11 @@ test:
     # other lanes' own `just test`/`just validate` share these cores, and `checks.nextest`'s nix
     # sandbox (what CI runs) declares no such thing, so it stays on the strict number by default.
     export SUTURA_DEV_RELAXED_TOLERANCE=1
-    cargo nextest run --workspace --all-features
-    cargo test --doc --workspace --all-features
+    cargo nextest run --workspace --all-features ${filter:+-E "$filter"}
+    [ -n "$filter" ] || cargo test --doc --workspace --all-features
+
+# `just test` restricted by one nextest filterset, e.g. `just test-only 'test(/^acceptance::/)'`; an empty one runs everything.
+test-only filter: (test filter)
 
 # NOT a gate: not in `just validate`, not in `just gates`, not in `ci` - `github.com/telekom/
 # sutura#915`. A benchmark that fails a build on noise is worse than no benchmark; this produces a

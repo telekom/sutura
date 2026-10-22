@@ -1623,7 +1623,9 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
   `CrossModelRatioSpansSources`. That is a shape this amendment does not build, and not a wrong answer.
   `github.com/telekom/sutura#1493` lifts it.
-- A multi-metric question still never federates (`MultiMetricFederationNotExecutable`).
+- A multi-metric question that does not share one statement is an arm per metric
+  (`20261018144926-drill-across-for-several-metrics.md`). Each arm is planned over its own lookup legs
+  and is refused above three, and `QuestionNeedsTooManyLegs` bounds the whole answer.
 - Two lookup legs may read one source, so the cap counts legs and not sources. That is the case for
   a chain that comes back to a system it left.
 

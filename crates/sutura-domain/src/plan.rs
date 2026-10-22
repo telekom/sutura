@@ -386,7 +386,8 @@ pub enum PlanMeasure {
 
 /// One metric's share of a query's select list, and its own definitional guard.
 ///
-/// A multi-metric question answers one grouped statement with one certified column per metric.
+/// A multi-metric question that shares one statement answers one grouped statement with one certified
+/// column per metric; one that cannot is an arm per metric (see [`DrillAcrossPlan`]).
 /// Each column is that metric's measure, computed only over the rows its OWN required filters
 /// admit - and that restriction is folded into the measure's conditional aggregation rather than
 /// into the shared `WHERE`, because a `WHERE` applies to every column at once and would let one

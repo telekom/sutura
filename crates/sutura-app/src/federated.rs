@@ -36,8 +36,6 @@
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
-use std::marker::PhantomData;
-
 use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
@@ -68,6 +66,19 @@ pub(crate) enum LegError<E, Q, C> {
     Refusal(RefusalReason),
     /// Anything else - a dead data system, a mis-wired source - leaves as the typed error.
     Failure(ServiceError<E, Q, C>),
+}
+
+/// What a leg's error concludes the question with, over the same three error types.
+pub(crate) type Concluded<E, Q, C> = Result<Answered, ServiceError<E, Q, C>>;
+
+impl<E, Q, C> LegError<E, Q, C> {
+    /// A refusal is the answer, under the credentials the leg ran with; a failure leaves as an error.
+    pub(crate) fn answered_under(self, credentials: &BoundToTheRequest) -> Concluded<E, Q, C> {
+        match self {
+            Self::Refusal(reason) => Ok(Answered::refused(credentials, reason)),
+            Self::Failure(error) => Err(error),
+        }
+    }
 }
 
 impl<E, Q, C> From<ServiceError<E, Q, C>> for LegError<E, Q, C> {
@@ -134,31 +145,11 @@ where
 {
     // Every leg's data system, so a missing one is the same refusal the mono path gives before any
     // credential is minted. Read off `FederatedPlan::legs`, the one list of the plan's legs, so no
-    // lookup leg can be left out here, of the credential request or of the posture record. Looked up
-    // BEFORE the capability gate below, for the reason the gate itself is now per-instance rather
-    // than per-type: there is no adapter to ask about a source nobody opened.
-    let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
-        return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
+    // lookup leg can be left out here, of the credential request or of the posture record.
+    let (fact_warehouse, other_legs) = match warehoused(warehouses, plan.fact(), plan.legs().into_iter().skip(1)) {
+        Ok(found) => found,
+        Err(declined) => return Ok(*declined),
     };
-    let other_legs = match plan
-        .legs()
-        .into_iter()
-        .skip(1)
-        .map(|leg| warehouses.get(leg.source()).map(|warehouse| (leg, warehouse)).ok_or(leg))
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(other_legs) => other_legs,
-        Err(leg) => return Ok(Answered::declined_before_minting(source_unavailable(leg.source()))),
-    };
-    // The capability gate, PER LEG: a heterogeneous registry - one closed-enum variant per LINKED
-    // kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
-    // each leg's own instance rather than one `W::EXECUTES_LEGS` for the whole build. Refuses
-    // before minting or running anything, whichever leg cannot run.
-    if !fact_warehouse.executes_legs() || other_legs.iter().any(|&(_, warehouse)| !warehouse.executes_legs()) {
-        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-            reason: RefusalReason::FederationNotExecutable,
-        }));
-    }
     let executed_as = executed_as_of::<_, B, C>(plan.fact(), fact_warehouse, &other_legs)?;
     // **No verdict over the two postures, and `docs/adr/0040` is why the one that stood here is
     // gone.** It refused an answer whose legs decided identity differently - and BigQuery was then the
@@ -182,25 +173,9 @@ where
     //
     // One mint over the whole set, exactly like the mono path: the broker answers for every source
     // this answer reads, and `agreeing_with` compares that answer against this request.
-    // A source two legs read is asked for once: a `SourceSet` holds each source once.
-    let requested = other_legs
-        .iter()
-        .fold(SourceSet::of(plan.fact().source().clone()), |requested, &(leg, _)| {
-            requested.and(leg.source().clone())
-        });
-    let minted = broker
-        .mint(context, &requested)
-        .map_err(|cause| ServiceError::Broker { cause })?;
-    let credentials = match minted
-        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
-        .map_err(|cause| ServiceError::Credentials { cause })?
-    {
-        Agreed::Refused { source } => {
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::CredentialUnavailable { source },
-            }));
-        }
-        Agreed::Granted { credentials } => credentials,
+    let credentials = match credentials_for::<W, B, C>(broker, context, plan.fact(), &other_legs) {
+        Ok(credentials) => credentials,
+        Err(done) => return *done,
     };
 
     // **The cut, then the charge, then the legs** (`docs/adr/20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md`
@@ -218,10 +193,7 @@ where
     };
     let charged = match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
         Ok(charged) => charged,
-        Err(LegError::Refusal(reason)) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(LegError::Failure(error)) => return Err(error),
+        Err(error) => return error.answered_under(&credentials),
     };
     // **The legs run through the combiner, which calls back into `run_leg` through the leg runner
     // port**, so each leg keeps its credential, deadline and refusal mapping here. The combiner runs
@@ -231,51 +203,11 @@ where
     // a started lookup leg, which still runs, billed at the source under the caller's identity.
     //
     // **The combine.** The row cap applies to the ANSWER and not to a leg - a leg carries none - and
-    // a leg's refusal wins over a combine failure. The two governance outcomes are taken off the
-    // combiner's error FIRST, in the order the mono path asks its own adapter: the ceiling, then a
-    // deterministic refusal about what the legs returned, then this workspace's own defect.
-    let runner = LegsAtTheirSources::<W, B, C> {
-        charged,
-        warehouses,
-        credentials: &credentials,
-        deadline,
-        span: tracing::Span::current(),
-        ports: PhantomData,
-    };
-    let assembled = match combiner.execute(cut, &runner, working_set_bytes) {
+    // a leg's refusal wins over a combine failure; see [`settled`].
+    let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, &credentials, deadline);
+    let assembled = match settled::<W, B, C>(combiner, &credentials, combiner.execute(cut, &runner, working_set_bytes)) {
         Ok(batches) => batches,
-        Err(ExecuteError::Leg(LegError::Refusal(reason))) => {
-            return Ok(Answered::under(&credentials, ToolOutcome::Refusal { reason }));
-        }
-        Err(ExecuteError::Leg(LegError::Failure(error))) => return Err(error),
-        Err(ExecuteError::Miswired(cause)) => {
-            return Err(ServiceError::Miswired {
-                cause: crate::FederationMiswired::LegsMiswired { cause },
-            });
-        }
-        Err(ExecuteError::Combine(cause)) => {
-            if let Some(ceiling_bytes) = combiner.working_set_exhausted(&cause) {
-                return Ok(Answered::under(
-                    &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
-                    },
-                ));
-            }
-            // D19 + A4: a deterministic combine failure - the same plan against the same legs fails
-            // again - is a governance refusal and not a data-system outage, so a caller is never
-            // told to retry one. `None` is this workspace's own wiring, which stays an internal
-            // `ServiceError` because no caller caused it and none can fix it.
-            if let Some(federated) = combiner.answer_not_well_formed(&cause) {
-                return Ok(Answered::under(
-                    &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::FederatedAnswerNotWellFormed { federated },
-                    },
-                ));
-            }
-            return Err(ServiceError::Combine { cause });
-        }
+        Err(done) => return *done,
     };
     // The presentation edge for a two-source answer, and the only decode on this path: the legs
     // stayed Arrow all the way into the combine, so one call turns the ANSWER into the rows the
@@ -297,14 +229,169 @@ where
             executed_as,
         );
     }
+    bounded_answer::<W, B, C>(
+        answer,
+        row_ceilings,
+        &credentials,
+        (pinned, schema_digest),
+        executed_as,
+        [plan.metric()],
+    )
+}
+
+/// The answer a step ends the question with, boxed so an `Err` of it is not paid on every `Ok`.
+type Ended<W, B, C> = Box<Answering<W, B, C>>;
+
+/// The fact leg's adapter and every other leg beside its own, or the refusal that is the answer.
+type Warehoused<'a, W> = Result<(&'a W, Vec<(&'a LegPlan, &'a W)>), Box<Answered>>;
+
+/// The credentials a mint granted, or the answer that stops the question.
+type Credentialed<W, B, C> = Result<BoundToTheRequest, Ended<W, B, C>>;
+
+/// What a combine produced, or the answer that stops the question.
+type Settled<W, B, C> = Result<ResultBatches, Ended<W, B, C>>;
+
+/// What a combiner's `execute` or `execute_across` returned, over this path's own leg errors.
+type Ran<W, B, C> = Result<
+    ResultBatches,
+    ExecuteError<
+        LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>,
+        <C as FederationCombiner>::Error,
+    >,
+>;
+
+/// Every leg beside the adapter its source opened, or the refusal that is the answer before anything
+/// is minted: a source nobody opened, or an adapter that runs no leg.
+///
+/// Asked of each leg's own adapter INSTANCE: a heterogeneous registry - one closed-enum variant per
+/// LINKED kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
+/// each leg's instance rather than one `W::EXECUTES_LEGS` for the whole build, and refuses whichever
+/// leg cannot run. Looked up BEFORE that gate: there is no adapter to ask about a source nobody opened.
+fn warehoused<'a, W>(
+    warehouses: &'a Warehouses<W>,
+    fact: &'a LegPlan,
+    others: impl IntoIterator<Item = &'a LegPlan>,
+) -> Warehoused<'a, W>
+where
+    W: Warehouse,
+{
+    let unavailable = |leg: &LegPlan| Box::new(Answered::declined_before_minting(source_unavailable(leg.source())));
+    let fact_warehouse = warehouses.get(fact.source()).ok_or_else(|| unavailable(fact))?;
+    let others = others
+        .into_iter()
+        .map(|leg| {
+            warehouses
+                .get(leg.source())
+                .map(|warehouse| (leg, warehouse))
+                .ok_or_else(|| unavailable(leg))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if !fact_warehouse.executes_legs() || others.iter().any(|&(_, warehouse)| !warehouse.executes_legs()) {
+        return Err(Box::new(Answered::declined_before_minting(ToolOutcome::Refusal {
+            reason: RefusalReason::FederationNotExecutable,
+        })));
+    }
+    Ok((fact_warehouse, others))
+}
+
+/// One mint over every source the legs read, compared with the request, or the answer that stops here.
+///
+/// A source two legs read is asked for once: a `SourceSet` holds each source once.
+fn credentials_for<W, B, C>(
+    broker: &B,
+    context: &RequestContext,
+    fact: &LegPlan,
+    others: &[(&LegPlan, &W)],
+) -> Credentialed<W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let requested = others
+        .iter()
+        .fold(SourceSet::of(fact.source().clone()), |requested, &(leg, _)| {
+            requested.and(leg.source().clone())
+        });
+    let minted = broker
+        .mint(context, &requested)
+        .map_err(|cause| Box::new(Err(ServiceError::Broker { cause })))?;
+    match minted
+        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
+        .map_err(|cause| Box::new(Err(ServiceError::Credentials { cause })))?
+    {
+        Agreed::Refused { source } => Err(Box::new(Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+            reason: RefusalReason::CredentialUnavailable { source },
+        })))),
+        Agreed::Granted { credentials } => Ok(credentials),
+    }
+}
+
+/// What a combine produced, or the answer a failure of it is.
+///
+/// A leg's refusal wins over a combine failure. The two governance outcomes are taken off the
+/// combiner's error FIRST, in the order the mono path asks its own adapter: the ceiling, then a
+/// deterministic refusal about what the legs returned, then this workspace's own defect.
+fn settled<W, B, C>(combiner: &C, credentials: &BoundToTheRequest, executed: Ran<W, B, C>) -> Settled<W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let cause = match executed {
+        Ok(batches) => return Ok(batches),
+        Err(ExecuteError::Leg(error)) => return Err(Box::new(error.answered_under(credentials))),
+        Err(ExecuteError::Miswired(cause)) => {
+            return Err(Box::new(Err(ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegsMiswired { cause },
+            })));
+        }
+        Err(ExecuteError::Combine(cause)) => cause,
+    };
+    if let Some(ceiling_bytes) = combiner.working_set_exhausted(&cause) {
+        return Err(Box::new(Ok(Answered::refused(
+            credentials,
+            RefusalReason::ResourcesExhausted { ceiling_bytes },
+        ))));
+    }
+    // D19 + A4: a deterministic combine failure - the same plan against the same legs fails
+    // again - is a governance refusal and not a data-system outage, so a caller is never
+    // told to retry one. `None` is this workspace's own wiring, which stays an internal
+    // `ServiceError` because no caller caused it and none can fix it.
+    Err(Box::new(combiner.answer_not_well_formed(&cause).map_or_else(
+        || Err(ServiceError::Combine { cause }),
+        |federated| {
+            Ok(Answered::refused(
+                credentials,
+                RefusalReason::FederatedAnswerNotWellFormed { federated },
+            ))
+        },
+    )))
+}
+
+/// A combined answer held to the federated row cap and the response bound, then certified for
+/// `metrics`.
+fn bounded_answer<'m, W, B, C>(
+    answer: RowSet,
+    row_ceilings: RowCeilings,
+    credentials: &BoundToTheRequest,
+    (pinned, schema_digest): (&PinnedDefinitions, &SchemaDigest),
+    executed_as: ExecutedAs,
+    metrics: impl IntoIterator<Item = &'m MetricName>,
+) -> Answering<W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
     let federated_ceiling = row_ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
-        return Ok(too_many_rows(&credentials, federated_ceiling));
+        return Ok(too_many_rows(credentials, federated_ceiling));
     }
     // The same third bound the mono-source path checks, over the COMBINED result.
     if let Some(limit_bytes) = exceeds_response_bound(&answer) {
         return Ok(Answered::under(
-            &credentials,
+            credentials,
             ToolOutcome::Refusal {
                 reason: RefusalReason::ResultTooLarge {
                     bound: ResultBound::Encoded { limit_bytes },
@@ -313,31 +400,30 @@ where
         ));
     }
     Ok(Answered::under(
-        &credentials,
+        credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, schema_digest, executed_as, plan.metric())?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, metrics)?,
             rows: answer,
         },
     ))
 }
 
-/// The provenance for a federated leg's single metric, or the typed cause a splitter or registry
-/// invariant that changed would leave behind.
+/// The provenance for the metrics a federated answer was formed over, or the typed cause a splitter
+/// or registry invariant that changed would leave behind.
 ///
-/// Its own function rather than a `map_err` closure repeated at [`answer_federated`]'s and
+/// Its own function rather than a `map_err` closure repeated at [`bounded_answer`]'s and
 /// [`ranked_answer`]'s exit points: a federated plan names exactly one metric (`FederatedPlan::metric`
-/// is a field, not a first-of-several), so there is one certification to compute and two places
-/// that need it.
+/// is a field, not a first-of-several) and a drill-across plan names one per arm.
 type Certified<E, M, C> = Result<Provenance, ServiceError<E, M, C>>;
 
-fn certified_provenance<E, M, C>(
+fn certified_provenance<'m, E, M, C>(
     pinned: &PinnedDefinitions,
     schema_digest: &SchemaDigest,
     executed_as: ExecutedAs,
-    metric: &MetricName,
+    metrics: impl IntoIterator<Item = &'m MetricName>,
 ) -> Certified<E, M, C> {
     pinned
-        .provenance_for(schema_digest, executed_as, [metric])
+        .provenance_for(schema_digest, executed_as, metrics)
         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })
 }
 
@@ -410,7 +496,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, schema_digest, executed_as, plan.metric())?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, [plan.metric()])?,
             rows: ranked,
         },
     ))
@@ -451,6 +537,8 @@ where
     )
 }
 
+mod across;
+pub(crate) use across::answer_drill_across;
 pub(crate) use leg::{LegsAtTheirSources, preflight_and_charge};
 mod leg;
 

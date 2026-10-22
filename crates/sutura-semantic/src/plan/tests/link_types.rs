@@ -187,7 +187,7 @@ fn refused_declaring(fact: Option<&str>, lookup: Option<&str>, inner: bool) -> O
 fn refused(typed: &Typed, inner: bool) -> Option<RefusalReason> {
     match plan(&typed.asking(inner)) {
         Ok(Plan::Federated(_)) => None,
-        Ok(Plan::Mono(_)) => panic!("a crossing between data systems does not plan as one statement"),
+        Ok(Plan::Mono(_) | Plan::DrillAcross(_)) => panic!("a crossing between data systems does not plan as one statement"),
         Err(PlanError::Refused(reason)) => Some(reason),
         Err(other) => panic!("a crossing plans as federated or is refused, not {other:?}"),
     }

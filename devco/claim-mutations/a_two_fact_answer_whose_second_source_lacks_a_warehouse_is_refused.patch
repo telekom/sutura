@@ -1,13 +1,13 @@
 diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
 --- a/crates/sutura-app/src/federated.rs
 +++ b/crates/sutura-app/src/federated.rs
-@@ -137,6 +137,9 @@
-     // lookup leg can be left out here, of the credential request or of the posture record. Looked up
-     // BEFORE the capability gate below, for the reason the gate itself is now per-instance rather
-     // than per-type: there is no adapter to ask about a source nobody opened.
+@@ -146,6 +146,9 @@
+     // Every leg's data system, so a missing one is the same refusal the mono path gives before any
+     // credential is minted. Read off `FederatedPlan::legs`, the one list of the plan's legs, so no
+     // lookup leg can be left out here, of the credential request or of the posture record.
 +    if let Some(leg) = plan.lookups().legs().iter().map(|lookup| lookup.leg()).find(|leg| leg.source() != plan.fact().source()) {
 +        return Ok(Answered::declined_before_minting(source_unavailable(leg.source())));
 +    }
-     let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
-         return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
-     };
+     let (fact_warehouse, other_legs) = match warehoused(warehouses, plan.fact(), plan.legs().into_iter().skip(1)) {
+         Ok(found) => found,
+         Err(declined) => return Ok(*declined),
