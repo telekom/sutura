@@ -1,0 +1,13 @@
+diff --git a/dev/src/justfile.rs b/dev/src/justfile.rs
+index f53fd144c..f41b02e58 100644
+--- a/dev/src/justfile.rs
++++ b/dev/src/justfile.rs
+@@ -68,7 +68,7 @@ pub fn text(root: &Path) -> Result<String, Refused> {
+         whole.push('\n');
+         whole.push_str(&imported);
+     }
+-    Ok(whole)
++    Ok(String::new())
+ }
+ 
+ fn read(root: &Path, path: PathBuf) -> Result<String, Refused> {
