@@ -2342,8 +2342,8 @@ session-lifecycle limits in the sixth are unchanged (`crates/sutura-exec-oracle/
 Of its three TLS statements, the driver's refusal over anything but `tcps`
 (`vendor/rust-oracledb/src/client/mod.rs:627-628`) and the adapter's refusal of every redirect
 (`crates/sutura-exec-oracle/src/lib.rs:42-45`) are unchanged. The settings-parse refusal the sixth
-states for an impersonating source now covers every `oracle` source, loopback included (#1446,
-`crates/sutura-config/src/sources/oracle.rs:17-23`).
+states for an impersonating source now covers every `oracle` source, loopback included, in a build
+with the `oracle` feature (#1446, `crates/sutura-config/src/sources/oracle.rs:17-23`, `89-91`).
 
 **The vendored driver exposes an end-user security context, and what a server does with its roles is
 unmeasured.** `EndUserSecurityContext`, its builder and `EndUserIdentity` are public
@@ -2356,7 +2356,7 @@ quotes a vendor text, "the application itself does not define or control the rol
 driver's own text calls data roles "granted to the application", and says the database maps them to the
 roles in the identity provider (`vendor/rust-oracledb/doc/connection_handling.md:752-761`). Whether
 the two conflict depends on what the server resolves from the token and from `data_roles()`, and no
-cell here presents a token or a context to a server.
+cell here presents a token or a context to a database.
 
 **What ships, and what is not built.** An `impersonation-at-source` Oracle source opens one session per
 question (`crates/sutura-exec-oracle/src/lib.rs:433-441`) with the last hop's token
@@ -2368,6 +2368,6 @@ over `tcps` and with a server capability bit (`vendor/rust-oracledb/src/client/m
 it and writes it on every round trip until it is cleared (`client/mod.rs:504-507`, `582-584`), and
 nothing under `vendor/rust-oracledb/src/pool` references it. **The limit:** no venue here provisions an
 Oracle that accepts a token (`docs/where-identity-is-proven.md`, the row for the shipped Oracle
-source), and no cell presents a token or an end-user security context to a server. The `oracle-tier` job
+source), and no cell presents a token or an end-user security context to a database. The `oracle-tier` job
 reaches a live Oracle with a password login only. So whether a database accepts the shipped token
 path, and whether a 26ai context would apply any grant, are both unmeasured.
