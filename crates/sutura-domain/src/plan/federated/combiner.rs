@@ -10,8 +10,8 @@
 //! step 3 reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
 //! Flight or ADBC* - so this is the port arriving, not a new invention.
 //!
-//! A path in backticks rather than a Markdown link, and that is not style: `just api` republishes
-//! this header at `docs/api/sutura-domain.md`, where `mkdocs --strict` resolves a relative link
+//! A path in backticks rather than a Markdown link, and that is not style: the API reference republishes
+//! this header on `sutura-domain`'s generated page, where `mkdocs --strict` resolves a relative link
 //! against the PUBLISHED page's directory rather than this file's - and fails the build.
 //!
 //! **The domain names no engine, and that is the constraint the trait is shaped by.**

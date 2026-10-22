@@ -139,7 +139,7 @@ pub(super) struct Scan {
 
 /// Every inline link target in the prose, as written.
 ///
-/// The walk is [`crate::markdown::destinations`], shared with `check-api-links` rather than
+/// The walk is [`crate::markdown::destinations`], shared with `api_links` rather than
 /// written twice: this gate resolves a target against the pages on disk and that one asks whether
 /// it is a Rust path, and a second copy of "where does a destination start and end" is a second
 /// answer to that question. The line number it carries is dropped here - this gate reports the

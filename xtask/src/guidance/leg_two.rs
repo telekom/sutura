@@ -48,9 +48,10 @@
 //! and that is the limit: an overstatement there rests on review. Five of the sites this rule's own wordings were harvested from were doc comments
 //! (`sutura-exec-bigquery`'s `principal.rs` and `transport.rs`, `sutura-cli`'s `serve/broker.rs`,
 //! `sutura-config`'s `sources/workload_identity.rs` and `raw.rs`), and widening to doc comments
-//! holds them where it held nothing before. Widening `contradicted_claims` to `files` was priced
-//! and declined for `in_scope`'s reason; what is added instead is a wording per sentence found,
-//! which at least holds the SIBLINGS of a corrected page.
+//! holds them where it held nothing before. `contradicted_claims`, the phrase rules, the task and
+//! recipe citations and the path citations read the doc comments of `crates/*/src` and `dev/src`
+//! through the same `prose` (`guidance::DOC_COMMENTS`); every other `.rs` stays out, for
+//! `in_scope`'s reason, because `xtask`'s own rule tables hold the phrases they forbid.
 //!
 //! It reaches no `.py` and no commit message either - nothing in `check-guidance` reads git
 //! history.

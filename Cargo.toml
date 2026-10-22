@@ -695,7 +695,7 @@ unsafe_code = "deny"
 # Doc links, and this table is read by RUSTDOC ONLY - never by `cargo build`, `cargo clippy` or
 # `just lint`.
 #
-# THE VENUE IS `cargo rustdoc`, run by `just api` and by `checks.api-docs` - AND NOTHING ELSE. The
+# THE VENUE IS `cargo doc`, run by `just api` and by `checks.api-docs`, which the docs workflow builds to publish - AND NOTHING ELSE. The
 # doctest lane is NOT one, measured rather than assumed after this comment claimed it was:
 # `cargo test --doc` does hand rustdoc the flag, but rustdoc's `--test` mode never runs the
 # link-resolution pass, so one crate with one unresolvable link and one real doctest is exit 0 with
@@ -708,8 +708,8 @@ unsafe_code = "deny"
 # link-resolution pass over one at all: one unresolvable link inside a private module is exit 0
 # without the flag and exit 101 with it, same tree, same level. That hole held 33 errors across ten
 # of nineteen packages behind a green gate - `github.com/telekom/sutura#327`, which also carries
-# why the flag cannot be a check-only argument: the writer `just api` runs is the fix the gate
-# names, so `xtask/src/api_docs/writer.rs` holds the two invocations to one flag list.
+# why the flag cannot be a check-only argument: the writer renders the pages the gate judged, so
+# `xtask/src/api_docs/writer.rs` holds the two invocations to one flag list.
 #
 # `cargo xtask check-api-docs` asserts this entry exists and that every workspace member inherits
 # it, because a lint nothing arms is a lint that reports nothing.
@@ -732,8 +732,8 @@ unsafe_code = "deny"
 # WHAT IT DOES NOT HOLD:
 #
 #   * whether a RESOLVED link reaches a reader. rustdoc was clean under both spellings of the
-#     destination that aborted the site build on `#352`; `cargo xtask check-api-links` and
-#     `mkdocs build --strict` own that class, and neither can see an unresolved one.
+#     destination that aborted the site build on `#352`; `cargo xtask check-api-docs`' link scan
+#     and `mkdocs build --strict` own that class, and neither can see an unresolved one.
 #   * `private_intra_doc_links`, 74 of them here and several deliberate - a public item pointing at
 #     the private thing that implements it. Denying this one without answering that one is fine;
 #     conflating them is not. They are WARNINGS the two venues print, because a private target is

@@ -127,6 +127,10 @@ Every reason you can be given, and what to do about each:
 - **question_needs_too_many_legs** - answering would run more queries against the data systems than
   one question may.
   Ask for fewer metrics at a time.
+- **plan_needs_too_many_lookup_legs** - answering would need more lookup legs than this deployment
+  serves (three at most).
+  Ask for fewer dimensions that live in other data systems; each join into another data system costs
+  one lookup leg, and three is the most.
 - **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the
@@ -162,6 +166,9 @@ Every reason you can be given, and what to do about each:
   Nothing you can change in the question. Report it: it is a fact about where the models live.
 - **cross_model_ratio_without_shared_dimension** - not grouped by only a shared dimension.
   Group only by a dimension both fact models link to; if the metric has none, report it.
+- **cross_model_ratio_needs_one_lookup_leg** - a two-fact ratio grouped by dimensions that need more
+  than one lookup leg.
+  Group only by dimensions of one remote model; if you need both, report it.
 - **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

@@ -125,6 +125,11 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::PlanSpansTooManySources { sources, limit } => {
             format!("this question would read from {sources} data systems, and one answer reads from {limit} at most")
         }
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => {
+            format!(
+                "this question would read {legs} lookup legs, and one answer reads {limit} at most; ask for fewer dimensions that live in other data systems"
+            )
+        }
         RefusalReason::FederationNotExecutable => String::from(
             "this deployment has no adapter that can execute one half of a question spanning two \
              data systems. Nothing you can change in the question helps and this is not an outage \
@@ -242,6 +247,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
         RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => spans_sources(metric, model),
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => needs_one_lookup_leg(metric),
     };
     (code, detail)
 }
@@ -297,6 +303,14 @@ fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domai
         "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
          than the metric's own, so both facts cannot join its shared calendar. Nothing you can change \
          in the question helps; report it to the person you are acting for."
+    )
+}
+
+/// Written for an agent: this one IS narrowable, so the sentence says how.
+fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
+         lookup leg. Group by dimensions of one remote model."
     )
 }
 
@@ -386,6 +400,7 @@ mod tests {
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
             RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
@@ -441,6 +456,7 @@ mod tests {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
             },
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg { metric: metric() },
         ]
     }
 

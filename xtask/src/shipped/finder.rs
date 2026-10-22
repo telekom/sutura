@@ -8,7 +8,7 @@
 //!
 //! **Every gate-local pair in this tree sits ABOVE the discovery.** [`super::declaration::read`]
 //! compares the walk's own list against the map's keys, `guidance::pages` counts `read` against
-//! `offered`, `check-api-links` counts `scanned == pages.len()` - and all three are counted off
+//! `offered`, `api_links` counts `scanned == pages.len()` - and all three are counted off
 //! the map a discovery produced, so none of them can see a failure that happened before that map
 //! was populated. That is why both arms here are refusals at the point of READING, and why
 //! [`MUST_JUDGE`] asks for files by name instead of counting them.
@@ -117,7 +117,7 @@ fn entries_in(dir: &std::path::Path, label: &str) -> Result<Vec<std::fs::DirEntr
 /// cannot answer yes by reading the workflows. Generalises `nix_files`' `flake.nix` rule.
 ///
 /// **It is checked HERE rather than in `declaration::read`, and that placement is the point.**
-/// Every gate-local pair in this tree - this one, `guidance::pages`, `check-api-links` - compares
+/// Every gate-local pair in this tree - this one, `guidance::pages`, `api_links` - compares
 /// two things counted off the map the discovery produced, so it sits ABOVE the discovery and
 /// cannot see a failure that happened before the map was populated. This is the one arm that is
 /// about the map itself.

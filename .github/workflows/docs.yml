@@ -43,6 +43,13 @@
 # one workflow" is a cost claim, and it does not outrank linting the thing that decides what gets
 # linted.
 #
+# **THE SECOND EXCEPTION IS THE API REFERENCE.** `publish` builds `docs/api/` with `nix build` on
+# `checks.api-docs` before the site build, because no page of it is committed, so a push to `main` that changes a
+# library crate's source, the manifest, the generator or the nightly pin starts this workflow as well
+# as `ci.yml`. A tag always builds. A pull request does not build the pages: `checks.api-docs` in
+# `ci.yml` proves they generate and that no link on them is dead, and what it cannot prove - that
+# `mkdocs --strict` accepts them - is first measured by this job's run on `main`, after merge.
+#
 # Two jobs, split by what they are allowed to do rather than by what they compute. `verify` runs
 # on a pull request with a read-only token; `publish` runs only from `main` or a `v*` tag and is
 # the only thing holding `contents: write`. Each builds the site itself, because handing an
@@ -83,6 +90,15 @@ on:
       - "LICENSE"
       - "NOTICE"
       - ".github/workflows/docs.yml"
+      # The API reference is generated from these at publish, so an edit to one republishes it.
+      - "crates/*/src/**"
+      - "dev/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
+      - "dev/Cargo.toml"
+      - "nix/api-docs.nix"
+      - "devco/rust-toolchain-nightly.toml"
   pull_request:
     paths:
       - "**/*.md"
@@ -216,8 +232,9 @@ jobs:
       # cannot disagree about the flags. `--strict` is the flag that matters: without it mkdocs
       # warns about a broken link and publishes anyway.
       #
-      # No Rust toolchain here, deliberately. The API pages under docs/api/ are generated from
-      # rustdoc JSON and committed, because that output needs nightly and this runner has none.
+      # No Rust toolchain here, deliberately, and so no API pages: they are generated only at
+      # publish, and `checks.api-docs` in `ci.yml` is what proves a pull request leaves them
+      # generating. `mkdocs.yml` lists `docs/api/` under `not_in_nav`, so the site builds without it.
       - name: Build the site
         run: nix run .#pixi -- run --frozen -e docs docs
 
@@ -226,7 +243,9 @@ jobs:
   publish:
     if: github.event_name != 'pull_request'
     runs-on: rust-mcp-16core
-    timeout-minutes: 60
+    # `checks.api-docs` inherits the dependency closure from the substituters. If they do not hold it,
+    # the first run compiles every rustdoc unit cold, which is what the extra hour is for.
+    timeout-minutes: 120
     # Deploy the site to gh-pages, and nothing else. Not `pages`, not `id-token` - those existed
     # only for actions/deploy-pages, which this no longer uses.
     permissions:
@@ -311,8 +330,20 @@ jobs:
       # cannot disagree about the flags. `--strict` is the flag that matters: without it mkdocs
       # warns about a broken link and publishes anyway.
       #
-      # No Rust toolchain here, deliberately. The API pages under docs/api/ are generated from
-      # rustdoc JSON and committed, because that output needs nightly and this runner has none.
+      # The API reference is built first, because mkdocs reads `docs/api/` and nothing commits it.
+      # It is a nix BUILD, and that is the point: the dependency closure's build scripts and proc
+      # macros run in the nix sandbox, not as the runner user in a clone whose `.git/config` holds
+      # this job's write token. The derivation is `checks.api-docs`, which leaves the pages it judged
+      # under `$out/pages`, so it fails the job on a rustdoc error, a generator error or a dead
+      # link and nothing is deployed over a reference that did not generate. `mkdocs.yml` lists the
+      # directory under `not_in_nav`.
+      - name: Build the API reference
+        run: |
+          set -eu
+          pages=$(nix build .#checks.x86_64-linux.api-docs --no-link --print-out-paths)
+          mkdir docs/api
+          cp -r --no-preserve=mode "$pages/pages/." docs/api/
+
       - name: Build the site
         env:
           SUTURA_SLIDES_DIST: ${{ steps.slides.outputs.dist }}

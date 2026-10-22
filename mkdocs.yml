@@ -187,6 +187,13 @@ exclude_docs: |
   what-openmetadata-can-carry.md
   where-identity-is-proven.md
 
+# The API reference is generated into `docs/api/` by the docs workflow on `main` and on a `v*` tag, and
+# by `just api` on a laptop; no page of it is committed, so none can be in `nav`. `not_in_nav` is what
+# keeps `validation.omitted_files` below from failing `--strict` over them, and it reaches nothing on a
+# pull request, where the directory is absent. `cargo xtask check-docs` reads this block too.
+not_in_nav: |
+  /api/
+
 # Explicit, not derived from filenames. A nav that falls out of directory order reorders itself
 # when a page is added, and `cargo xtask check-docs` checks this list against the files on disk in
 # both directions.
@@ -253,45 +260,6 @@ nav:
       - Configuration: configuration.md
       - Verifying a release: verifying-a-release.md
       - Publishing the docs: publishing.md
-      - API:
-          - api/index.md
-          - sutura-domain: api/sutura-domain.md
-          - sutura-catalog-local: api/sutura-catalog-local.md
-          - sutura-catalog-datahub: api/sutura-catalog-datahub.md
-          - sutura-catalog-okf: api/sutura-catalog-okf.md
-          - sutura-catalog-datacontract: api/sutura-catalog-datacontract.md
-          - sutura-catalog-openmetadata: api/sutura-catalog-openmetadata.md
-          - sutura-catalog-cube: api/sutura-catalog-cube.md
-          - sutura-catalog-rdbms: api/sutura-catalog-rdbms.md
-          - sutura-catalog-wren: api/sutura-catalog-wren.md
-          - sutura-semantic: api/sutura-semantic.md
-          - sutura-sql: api/sutura-sql.md
-          - sutura-exec-datafusion: api/sutura-exec-datafusion.md
-          - sutura-exec-duckdb: api/sutura-exec-duckdb.md
-          - sutura-exec-bigquery: api/sutura-exec-bigquery.md
-          - sutura-exec-postgres: api/sutura-exec-postgres.md
-          - sutura-exec-clickhouse: api/sutura-exec-clickhouse.md
-          - sutura-exec-oracle: api/sutura-exec-oracle.md
-          - sutura-exec-cube: api/sutura-exec-cube.md
-          - sutura-adbc: api/sutura-adbc.md
-          - sutura-adbc-postgres: api/sutura-adbc-postgres.md
-          - sutura-oracle-connect: api/sutura-oracle-connect.md
-          - sutura-tls: api/sutura-tls.md
-          - sutura-http-client: api/sutura-http-client.md
-          - sutura-bounded-read: api/sutura-bounded-read.md
-          - sutura-app: api/sutura-app.md
-          - sutura-config: api/sutura-config.md
-          - sutura-runtime: api/sutura-runtime.md
-          - sutura-http: api/sutura-http.md
-          - sutura-mcp: api/sutura-mcp.md
-          # Dev tooling rather than shipped surface, and last for that reason. Both are here because
-          # they ARE libraries - `xtask`'s compose tier depends on `sutura-dev`'s `Scope` and two
-          # adapters' test targets depend on `sutura-conformance`'s pack signatures, so both are real
-          # contracts and a change to either belongs in a reviewable diff. Narrowing the gate instead
-          # was considered and rejected: every first-party crate is `publish = false`, so a `publish`
-          # predicate would exempt all of them and check nothing.
-          - sutura-conformance: api/sutura-conformance.md
-          - sutura-dev: api/sutura-dev.md
 
   - 🤝 Contributing:
       - Contributing: contributing.md
