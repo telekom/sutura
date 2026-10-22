@@ -144,7 +144,7 @@ fn every_exemption_names_a_registered_data_system_and_where_its_cell_runs_instea
     }
     registered!(data_systems: named);
     let justfile =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../justfile")).expect("the justfile reads");
+        sutura_dev::justfile::text(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).expect("the justfile set reads");
     for entry in EXEMPTIONS {
         assert!(
             registered.contains(&entry.system),

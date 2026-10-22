@@ -56,6 +56,9 @@
 //! agent proves it dials a plaintext or loopback target directly under an environment proxy, and
 //! the harness re-running a test under one is written once.
 //!
+//! [`justfile`] is the same argument for a cell that asserts on a recipe: the justfile and the files it
+//! imports as one text, so `sutura-dev` and `sutura-app` do not each parse it.
+//!
 //! [`tns_listener`] is the same argument for the crates that dial Oracle: they prove what a
 //! listener's answer to the CONNECT is refused for, against one fake.
 
@@ -64,6 +67,7 @@ pub mod discovery;
 pub mod env_proxy;
 #[cfg(feature = "mock-issuer")]
 pub mod issuer;
+pub mod justfile;
 pub mod provisioned;
 pub mod requirement;
 pub mod scope;
