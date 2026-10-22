@@ -29,17 +29,25 @@ fn invokes(text: &str) -> bool {
         .any(|line| line.contains(MARKER))
 }
 
+/// A site's text: the justfile is read with the files it imports.
+fn site_text(root: &Path, path: &str) -> Result<String, String> {
+    if path == "justfile" {
+        return crate::tasks::justfiles::text(root).map_err(|refused| refused.to_string());
+    }
+    std::fs::read_to_string(root.join(path)).map_err(|error| error.to_string())
+}
+
 /// One message per site under `root` that does not run [`MARKER`]. Empty is a pass.
 pub(super) fn gaps(root: &Path) -> Vec<String> {
     SITES
         .iter()
-        .filter_map(|(path, site)| match std::fs::read_to_string(root.join(path)) {
+        .filter_map(|(path, site)| match site_text(root, path) {
             Ok(text) if invokes(&text) => None,
             Ok(_) => Some(format!(
                 "{path} ({site}) does not run `{MARKER}` - that venue never judges fuzz/Cargo.lock"
             )),
-            Err(_) => Some(format!(
-                "{path} is unreadable - whether it judges fuzz/Cargo.lock could not be checked"
+            Err(reason) => Some(format!(
+                "{path} is unreadable ({reason}) - whether it judges fuzz/Cargo.lock could not be checked"
             )),
         })
         .collect()
@@ -54,6 +62,27 @@ mod tests {
     fn fuzz_deny_is_wired_everywhere_it_needs_to_be() {
         let Some(root) = repo::root() else { return };
         assert_eq!(gaps(&root), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_deny_marker_in_an_imported_gates_recipe_satisfies_the_fuzz_wiring_check() {
+        let marker = format!("    {MARKER} check\n");
+        let wired = |tag: &str, justfile: &str, gates: &str| {
+            crate::scratch_tree::Tree::of(
+                &format!("fuzz-deny-{tag}"),
+                &[
+                    ("flake.nix", marker.as_bytes()),
+                    ("nix/run-gate.sh", marker.as_bytes()),
+                    ("justfile", justfile.as_bytes()),
+                    ("just/gates.just", gates.as_bytes()),
+                ],
+            )
+        };
+        let imported = format!("gates:\n{marker}");
+        let tree = wired("imported", "import \"just/gates.just\"\n", &imported);
+        assert_eq!(gaps(tree.root()), Vec::<String>::new());
+        let tree = wired("silent", "import \"just/gates.just\"\n", "gates:\n    echo hi\n");
+        assert_eq!(gaps(tree.root()).len(), 1);
     }
 
     #[test]

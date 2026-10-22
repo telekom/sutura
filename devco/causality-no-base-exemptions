@@ -95,3 +95,10 @@ a_mod_inside_an_imported_file_is_refused # new module tasks/justfiles.rs, declar
 an_import_outside_the_root_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `ImportPath::parse` accepts every path
 an_import_that_is_not_one_quoted_literal_is_refused # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `quoted` ignores what follows the closing quote
 an_indented_import_and_a_recipe_named_like_one_are_not_directives # new module tasks/justfiles.rs, declared in tasks.rs which the base run reverts; killed when `keyword` matches a prefix instead of the whole token
+a_recipe_declared_only_in_an_imported_file_is_a_recipe_name # new module tasks/imported.rs, declared in tasks.rs which the base run reverts; killed when `recipe_names` reads the root file alone
+a_recipe_body_is_read_from_the_imported_file_that_declares_it # new module tasks/imported.rs, declared in tasks.rs which the base run reverts; killed when `recipe_body` reads the root file alone
+an_unescaped_backtick_in_an_imported_file_is_reported_with_that_file_and_line # new module tasks/imported.rs, and `problems` takes the set, absent at base; killed when `problems` scans the first file only
+a_citation_of_a_recipe_in_another_file_is_not_flagged_and_a_missing_one_is # new module tasks/imported.rs, and `problems` takes the set, absent at base; killed when `problems` takes names from the file a citation is in
+the_deny_marker_in_an_imported_gates_recipe_satisfies_the_fuzz_wiring_check # calls `gaps` over a scratch tree with an imported gates recipe; killed when `site_text` reads the justfile alone
+a_test_task_that_delegates_into_another_file_is_a_test_task # calls `test_tasks` over a scratch tree with an imported recipe; killed when `test_tasks` reads the justfile alone
+an_invocation_in_an_imported_file_is_found_under_that_file # calls `sources` over a scratch tree with an imported recipe; killed when `sources` reads the justfile alone

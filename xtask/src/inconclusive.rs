@@ -203,12 +203,25 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 ///
 /// `crate::workflows::sources` for the CI half, because a second walk over the same three places is
 /// a second answer to *where does CI invoke things from* - the drift that module's header records
-/// twice. The local half is the justfile, `devenv.nix`, `flake.nix` and `nix/*.nix`: absent is not
-/// legitimate for the justfile or the flake, so a read failure there is the scan breaking.
+/// twice. The local half is the justfile and the files it imports (each labelled by its path, so an
+/// invocation in an imported file is found under that file and needs a declared site there),
+/// `devenv.nix`, `flake.nix` and `nix/*.nix`: absent is not legitimate for the justfile or the
+/// flake, so a read failure there is the scan breaking.
 fn sources(root: &Path) -> Option<Vec<Source>> {
     let mut out = ci_sources(root)?;
 
-    for name in ["justfile", "devenv.nix", "flake.nix"] {
+    match crate::tasks::justfiles::read(root) {
+        Ok(set) => out.extend(set.into_iter().map(|file| Source {
+            label: file.path.display().to_string(),
+            text: file.text,
+        })),
+        Err(refused) => {
+            eprintln!("xtask check-inconclusive: {refused}");
+            return None;
+        }
+    }
+
+    for name in ["devenv.nix", "flake.nix"] {
         match std::fs::read_to_string(root.join(name)) {
             Ok(text) => out.push(Source {
                 label: String::from(name),
@@ -572,6 +585,29 @@ mod tests {
         // `$!` is the last background pid, not the status - a plausible typo that would make the
         // branch compare against something no gate produced.
         assert_eq!(captured_status("x -- test-causality || status=$!").as_deref(), None);
+    }
+
+    #[test]
+    fn an_invocation_in_an_imported_file_is_found_under_that_file() {
+        let tree = crate::scratch_tree::Tree::of(
+            "inconclusive-imported",
+            &[
+                (".github/workflows/ci.yml", b"jobs: {}\n"),
+                ("devenv.nix", b""),
+                ("flake.nix", b""),
+                ("justfile", b"import \"just/gates.just\"\n"),
+                (
+                    "just/gates.just",
+                    b"gate:\n    cargo run -q -p xtask -- test-causality --since HEAD~1\n",
+                ),
+            ],
+        );
+        let sources = super::sources(tree.root()).expect("the venue walk");
+        let found = invocations(&sources);
+        assert!(
+            found.iter().any(|one| one.label == "just/gates.just" && one.number == 2),
+            "the invocation in the imported file was not found"
+        );
     }
 
     #[test]

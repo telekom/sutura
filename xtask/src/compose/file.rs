@@ -416,9 +416,7 @@ fn every_nix_check_is_named_by_the_task_that_runs_them() {
     // ordinary CI, so `just ci` must NOT build them.
     let Some(root) = crate::repo::root() else { return };
     let Some(flake) = flake_text() else { return };
-    let Ok(justfile) = std::fs::read_to_string(root.join("justfile")) else {
-        return;
-    };
+    let justfile = crate::tasks::justfiles::text(&root).expect("the justfile set is readable");
 
     let release_only = ["one-binary", "shipped-features"];
     let declared: Vec<String> = crate::workflows::declared_block(&flake, "checks = {")

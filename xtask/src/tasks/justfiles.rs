@@ -105,6 +105,16 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Source>, Refused> {
     Ok(set)
 }
 
+/// The set as one text, for a reader that searches rather than parses: `\n` between files, so no
+/// file's last line runs into the next file's first.
+pub(crate) fn text(root: &Path) -> Result<String, Refused> {
+    Ok(read(root)?
+        .into_iter()
+        .map(|source| source.text)
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
 fn load(root: &Path, path: PathBuf) -> Result<Source, Refused> {
     match std::fs::read_to_string(root.join(&path)) {
         Ok(text) => Ok(Source { path, text }),
@@ -193,17 +203,15 @@ mod tests {
     #[test]
     fn the_root_and_each_import_are_returned_flat_in_order() {
         let root = "import \"just/gates.just\"\nimport 'dev.just' # the rest\na:\n    echo import \"x\"\n";
-        let set = read(
-            tree(
-                "flat",
-                &[("justfile", root), ("just/gates.just", "g:\n"), ("dev.just", "d:\n")],
-            )
-            .root(),
-        )
-        .expect("three files");
+        let tree = tree(
+            "flat",
+            &[("justfile", root), ("just/gates.just", "g:\n"), ("dev.just", "d:\n")],
+        );
+        let set = read(tree.root()).expect("three files");
         let paths: Vec<_> = set.iter().filter_map(|source| source.path.to_str()).collect();
         assert_eq!(paths, ["justfile", "just/gates.just", "dev.just"]);
         assert_eq!(set[1].text, "g:\n");
+        assert_eq!(super::text(tree.root()).expect("the text"), format!("{root}\ng:\n\nd:\n"));
     }
 
     #[test]

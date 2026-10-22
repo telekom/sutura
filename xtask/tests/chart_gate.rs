@@ -46,6 +46,25 @@ fn read(name: &str) -> String {
     std::fs::read_to_string(root().join(name)).unwrap_or_else(|error| panic!("{name} is readable: {error}"))
 }
 
+/// The justfile with the files it imports appended, because a recipe may live in any of them.
+///
+/// Reads the `import "<path>"` lines itself: `xtask`'s own reader is a module of the binary, not
+/// reachable from an integration test. Limit: it follows each import it finds and refuses none.
+fn justfile_set() -> String {
+    let mut text = read("justfile");
+    let imported: Vec<String> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("import "))
+        .filter_map(|rest| rest.split(['"', '\'']).nth(1))
+        .map(read)
+        .collect();
+    for file in imported {
+        text.push('\n');
+        text.push_str(&file);
+    }
+    text
+}
+
 /// The gate argument the hook and the task both hand to `nix/run-gate.sh`.
 const GATE: &str = "chart";
 
@@ -155,7 +174,7 @@ fn the_commit_hook_the_task_and_ci_all_build_the_one_chart_check() {
     // 5. THE CITABLE TASK IS THE SAME INVOCATION. `AGENTS.md` requires a `just` task rather than a
     //    command line, and `check-guidance` fails a citation of a task that does not exist - so
     //    every page that will cite this cites one recipe, and that recipe is not a third spelling.
-    let justfile = read("justfile");
+    let justfile = justfile_set();
     assert!(
         recipe(&justfile, GATE).lines().any(|line| line.trim() == ENTRY),
         "`just {GATE}` does not run `{ENTRY}`"
