@@ -412,7 +412,7 @@ mod tests {
 
         let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
             .naming_client(ClientClaims::of(Some(ClientClaim::read(Some("claude-code"))), None))
-            .correlated(42);
+            .correlated([0x2a; 16]);
         let labels = JobLabels::of(&context);
         let outcome = an_answer_on_a_shared_source();
         let rendered = crate::testing::capture(|| {
@@ -421,7 +421,7 @@ mod tests {
         for field in [
             String::from("\"sutura_client\":\"claude-code\""),
             String::from("\"sutura_actor\":\"\""),
-            String::from("\"sutura_correlation\":\"000000000000002a\""),
+            String::from("\"sutura_correlation\":\"2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\""),
         ] {
             assert!(rendered.contains(&field), "{field} is not on the line: {rendered}");
         }

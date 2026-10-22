@@ -25,7 +25,7 @@ use crate::identity::{CorrelationId, RequestContext};
 pub const CLIENT: &str = "sutura_client";
 /// The key naming the immediate actor of the token's `act` chain, in its masked form.
 pub const ACTOR: &str = "sutura_actor";
-/// The key naming the id this process minted for the request - never the caller's own.
+/// The key naming the random id drawn for the request - never the caller's own.
 pub const CORRELATION: &str = "sutura_correlation";
 
 /// The longest label value.
@@ -157,14 +157,14 @@ mod tests {
         );
         let context = RequestContext::of(chain)
             .naming_client(ClientClaims::of(None, Some(ClientClaim::read(Some("claude-code")))))
-            .correlated(1);
+            .correlated([0x11; 16]);
         // The immediate actor's masked form `a***`, normalised.
         assert_eq!(
             JobLabels::of(&context).pairs(),
             [
                 ("sutura_client", "claude-code"),
                 ("sutura_actor", "a___-d27ffc08"),
-                ("sutura_correlation", "0000000000000001"),
+                ("sutura_correlation", "11111111111111111111111111111111"),
             ]
         );
         let bare = JobLabels::of(&RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)));

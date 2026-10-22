@@ -125,32 +125,45 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     );
 }
 
-#[test]
-fn a_caller_s_correlation_header_stays_in_the_span_and_never_reaches_a_job_label() {
-    // The span keeps the caller's id, so an ingress log still joins. The job is labelled with an id
-    // this process minted, and the audit line writes that same id - so the job joins its record and
-    // a label never holds caller text, which every principal listing the project's jobs can read.
-    let (warehouses, held) = crate::testing::warehouse_that_can_be_held();
-    let app = super::fixtures::over(crate::testing::bundle(), warehouses, settings(Environment::Development, ""));
+/// One question with the caller's header, and the `answered` audit line it wrote.
+fn answered_with_a_caller_header(app: &axum::Router) -> serde_json::Value {
     let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
     request
         .headers_mut()
         .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
-    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, &app, request);
+    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, app, request);
     assert_eq!(status, StatusCode::OK, "{body}");
-    let answered = json_lines(&rendered)
+    json_lines(&rendered)
         .into_iter()
         .find(|line| line["msg"].as_str().is_some_and(|msg| msg.ends_with("answered")))
-        .unwrap_or_else(|| panic!("no audit line was written: {rendered}"));
-    assert_eq!(answered["correlation"], "Ingress-42_abc", "{answered}");
-    let labelled = answered["sutura_correlation"].as_str().unwrap_or_default().to_owned();
-    assert!(
-        labelled.len() == 16 && labelled.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
-        "the label is not a minted id: {answered}"
+        .unwrap_or_else(|| panic!("no audit line was written: {rendered}"))
+}
+
+#[test]
+fn a_caller_s_correlation_header_stays_in_the_span_and_never_reaches_a_job_label() {
+    // The span keeps the caller's id, so an ingress log still joins. The job is labelled with 128
+    // random bits drawn for the request, and the audit line writes that same id - so the job joins
+    // its record and a label never holds caller text, which every principal listing the project's
+    // jobs can read.
+    let (warehouses, held) = crate::testing::warehouse_that_can_be_held();
+    let app = super::fixtures::over(crate::testing::bundle(), warehouses, settings(Environment::Development, ""));
+    let first = answered_with_a_caller_header(&app);
+    let second = answered_with_a_caller_header(&app);
+    for answered in [&first, &second] {
+        assert_eq!(answered["correlation"], "Ingress-42_abc", "{answered}");
+        let labelled = answered["sutura_correlation"].as_str().unwrap_or_default();
+        assert!(
+            labelled.len() == 32 && labelled.chars().all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f')),
+            "the label is not 32 lowercase hex digits: {answered}"
+        );
+    }
+    assert_ne!(
+        first["sutura_correlation"], second["sutura_correlation"],
+        "two requests carrying one caller header share a job-label id"
     );
     assert_eq!(
         held.labelled(),
-        Some(labelled.as_str()),
+        first["sutura_correlation"].as_str(),
         "the job and its audit record do not name one id"
     );
 }

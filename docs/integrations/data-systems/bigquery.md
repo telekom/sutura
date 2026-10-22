@@ -179,17 +179,18 @@ the deployment.
 
 Each query job that sutura runs for a request has three labels, in every posture:
 
-| Label                | Value                                                                                                                 |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `sutura_client`      | The OAuth client of the caller's token: its `azp`, else its `client_id`. Empty if it has neither                      |
-| `sutura_actor`       | The immediate actor of the token's `act` claim, in the masked form of the audit record. Empty if it has none          |
-| `sutura_correlation` | An id that sutura makes for the request. It is never the caller's `x-correlation-id`. Empty if the surface makes none |
+| Label                | Value                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sutura_client`      | The OAuth client of the caller's token: its `azp`, else its `client_id`. Empty if it has neither                                           |
+| `sutura_actor`       | The immediate actor of the token's `act` claim, in the masked form of the audit record. Empty if it has none                               |
+| `sutura_correlation` | A random id that sutura makes for the request: 32 hex digits. It is never the caller's `x-correlation-id`. Empty if the surface makes none |
 
 The audit record of the request writes the same three values. Thus an auditor can join a job in
 the BigQuery audit log or in `INFORMATION_SCHEMA.JOBS` to the audit record on
 `sutura_correlation`, and see which agent asked for which user. The audit record also writes the
-caller's `x-correlation-id` as `correlation`, so it joins the logs of the caller too. The id is
-unique in one sutura process. With more than one replica, join on the time too.
+caller's `x-correlation-id` as `correlation`, so it joins the logs of the caller too. The id has
+128 random bits, so two requests have the same id only with a negligible probability, also across
+restarts and replicas.
 
 A label value has at most 63 characters: lowercase letters, digits, `_` and `-`. sutura keeps a
 value that fits. It changes a value that does not fit to its first 54 characters, in lowercase and

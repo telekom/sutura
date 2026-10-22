@@ -75,11 +75,11 @@ proof of impersonation.
   names the API is refused.
 - **BigQuery job labels name the agent, not the user, and join; they authorize nothing.**
   `sutura_domain::warehouse::labels::JobLabels::of(&RequestContext)` is the only constructor, so a
-  label holds the token's client, the MASKED immediate actor and an id this process MINTED for the
+  label holds the token's client, the MASKED immediate actor and 128 random bits DRAWN for the
   request, never a question's text - but `RequestContext`'s constructors are `pub`. The caller's
-  `x-correlation-id` stays in the span: `RequestContext::correlated` takes a counter value, not
-  text. The same values reach the audit line (`sutura_client`/`sutura_actor`/`sutura_correlation`).
-  Limits: the minted id is unique per process only (replicas can collide); only
+  `x-correlation-id` stays in the span: `RequestContext::correlated` takes `[u8; 16]`, not text. The same values reach the audit line (`sutura_client`/`sutura_actor`/`sutura_correlation`).
+  Limits: the id is unique with overwhelming probability, not by construction, and a host that
+  will not supply randomness labels none (a `WARN`, not a refusal); only
   `Warehouse::*_billed` carries labels, so the boot path and a plain `execute` (the conformance pack)
   send none; the read-back from `INFORMATION_SCHEMA.JOBS` runs only in CI's BigQuery job.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive

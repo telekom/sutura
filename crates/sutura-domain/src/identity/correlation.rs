@@ -7,7 +7,7 @@
 //! read.
 //!
 //! **Not globally unique, not a trace id, not an authentication signal.** A caller may name its own
-//! value for the log; the one a request context carries is always [`CorrelationId::minted`], so a
+//! value for the log; the one a request context carries is always [`CorrelationId::drawn`], so a
 //! job label never holds caller text.
 
 /// The longest value accepted from a caller.
@@ -48,6 +48,22 @@ impl CorrelationId {
     #[must_use]
     pub fn minted(counter: u64) -> Self {
         Self(format!("{counter:016x}"))
+    }
+
+    /// The id for 128 random bits a transport drew: 32 lowercase hex digits.
+    ///
+    /// Bytes and not text, so no caller value can become one. Unique only with overwhelming
+    /// probability: nothing here checks that the bits were random.
+    #[must_use]
+    pub fn drawn(bits: [u8; 16]) -> Self {
+        use core::fmt::Write as _;
+        Self(bits.iter().fold(String::with_capacity(32), |mut hex, byte| {
+            // Infallible into a `String`; a failure would leave a short id, which `parse` refuses.
+            if write!(hex, "{byte:02x}").is_err() {
+                hex.clear();
+            }
+            hex
+        }))
     }
 
     /// Reads a caller-supplied identifier: trimmed, then the length bounded, then each character
@@ -104,6 +120,18 @@ mod tests {
             assert_eq!(CorrelationId::parse(minted.as_str()), Ok(minted.clone()));
             assert_eq!(minted.as_str().len(), 16, "{minted}");
         }
+    }
+
+    #[test]
+    fn a_drawn_id_is_32_lowercase_hex_digits_this_process_would_read_back() {
+        let drawn = CorrelationId::drawn([0xAB; 16]);
+        assert_eq!(drawn.as_str(), "ab".repeat(16));
+        assert_eq!(
+            CorrelationId::drawn([0x01; 16]).as_str(),
+            "01".repeat(16),
+            "a leading zero is kept"
+        );
+        assert_eq!(CorrelationId::parse(drawn.as_str()), Ok(drawn));
     }
 
     #[test]

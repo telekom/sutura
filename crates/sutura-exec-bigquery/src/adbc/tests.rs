@@ -469,7 +469,7 @@ fn a_request_time_job_carries_exactly_the_three_labels_of_the_verified_caller_an
         .acting(ActorChain::of(Actor::parse("agent").expect("a test actor is an actor")));
     let context = RequestContext::of(chain)
         .naming_client(ClientClaims::of(Some(ClientClaim::read(Some("claude-code"))), None))
-        .correlated(1);
+        .correlated([0x11; 16]);
     let labels = JobLabels::of(&context);
     let project = project();
     let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
@@ -493,9 +493,9 @@ fn a_request_time_job_carries_exactly_the_three_labels_of_the_verified_caller_an
         vec![serde_json::json!({
             "sutura_client": "claude-code",
             "sutura_actor": "a___-d27ffc08",
-            "sutura_correlation": "0000000000000001",
+            "sutura_correlation": "11111111111111111111111111111111",
         })],
-        "the job's labels are not exactly the caller's client, masked actor and minted request id"
+        "the job's labels are not exactly the caller's client, masked actor and drawn request id"
     );
     // THE CONTROL: a request with no labels (the boot path) sends no labels option at all.
     let mut unlabelled = Recording::new();

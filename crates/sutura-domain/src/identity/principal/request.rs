@@ -163,7 +163,7 @@ pub struct RequestContext {
     groups: crate::identity::CallerGroups,
     /// The account the caller named on the request to be billed, if it named one.
     named_payer: Option<crate::identity::BillingAccount>,
-    /// The id this process minted for the request, where the transport minted one.
+    /// The id drawn for the request, where the transport drew one.
     correlation: Option<crate::identity::CorrelationId>,
 }
 
@@ -328,18 +328,18 @@ impl RequestContext {
         &self.client
     }
 
-    /// The same context, carrying the id this process minted for the request from its own counter.
+    /// The same context, carrying the id for 128 random bits the transport drew for this request.
     ///
-    /// A number and not a [`crate::identity::CorrelationId`], so a caller's `x-correlation-id`
-    /// cannot become the id a data-system job is labelled with.
+    /// Bytes and not a [`crate::identity::CorrelationId`], so a caller's `x-correlation-id` cannot
+    /// become the id a data-system job is labelled with.
     #[inline]
     #[must_use]
-    pub fn correlated(mut self, minted: u64) -> Self {
-        self.correlation = Some(crate::identity::CorrelationId::minted(minted));
+    pub fn correlated(mut self, drawn: [u8; 16]) -> Self {
+        self.correlation = Some(crate::identity::CorrelationId::drawn(drawn));
         self
     }
 
-    /// The id minted for the request. `None` on a surface that mints none (stdio, the CLI).
+    /// The id drawn for the request. `None` on a surface that draws none (stdio, the CLI).
     #[inline]
     pub const fn correlation(&self) -> Option<&crate::identity::CorrelationId> {
         self.correlation.as_ref()

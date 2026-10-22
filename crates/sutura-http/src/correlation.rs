@@ -75,17 +75,8 @@ fn seed() -> u64 {
 /// caller's header being refused.
 #[must_use]
 pub fn fresh() -> CorrelationId {
-    CorrelationId::minted(next())
+    CorrelationId::minted(COUNTER.fetch_add(1, Ordering::Relaxed))
 }
-
-/// The next value of this process's counter.
-fn next() -> u64 {
-    COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
-/// The counter value minted for one request's job labels, beside the id its span carries.
-#[derive(Clone)]
-pub(crate) struct Minted(pub(crate) u64);
 
 /// The caller's identifier if it sent a usable one, and a fresh one otherwise.
 ///
@@ -121,16 +112,37 @@ pub fn from_headers(headers: &HeaderMap) -> CorrelationId {
     }
 }
 
+/// 128 random bits drawn for one request's job labels, beside the id its span carries.
+#[derive(Clone)]
+pub(crate) struct Drawn(pub(crate) [u8; 16]);
+
 /// Resolves the request's two ids ONCE, as request extensions, ahead of the span.
 ///
 /// The span's id is [`from_headers`]', so an ingress log and this one name the same request. The
-/// request context gets a [`Minted`] one instead, and through it every job label and the audit
-/// record: a caller's header is caller-chosen text, and a label is readable by every principal that
-/// can list the billing project's jobs. The audit line carries both, which is what joins them.
+/// request context gets a [`Drawn`] one instead, and through it every job label and the audit
+/// record: a caller's header is caller-chosen text, and a label is readable by every principal
+/// that can list the billing project's jobs. Random rather than this counter, so the id does not
+/// repeat across restarts and replicas - with overwhelming probability, not by construction. The
+/// audit line carries both ids, which is what joins them.
+///
+/// **A host that will not supply randomness labels no id rather than refusing the question**: the
+/// label is for an audit join, not a guard, so the context gets none and a `WARN` says so.
 pub(crate) async fn resolve(mut request: Request, next: Next) -> Response {
     let id = from_headers(request.headers());
     drop(request.extensions_mut().insert(id));
-    let _replaced = request.extensions_mut().insert(Minted(self::next()));
+    let mut bits = [0_u8; 16];
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the per-request id a data-system job is labelled with; random so it joins one \
+                  audit record across restarts and replicas"
+    )]
+    let drawn = getrandom::fill(&mut bits);
+    match drawn {
+        Ok(()) => {
+            let _replaced = request.extensions_mut().insert(Drawn(bits));
+        }
+        Err(cause) => tracing::warn!(%cause, "no randomness for the request's job-label id; its jobs carry none"),
+    }
     next.run(request).await
 }
 

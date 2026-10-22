@@ -230,8 +230,8 @@ pub(crate) async fn establish_asked(
         },
     );
     let permitted = switched(permitted, state.settings().tools().run_sql_enabled());
-    let context = match request.extensions().get::<crate::correlation::Minted>() {
-        Some(&crate::correlation::Minted(minted)) => context.correlated(minted),
+    let context = match request.extensions().get::<crate::correlation::Drawn>() {
+        Some(&crate::correlation::Drawn(drawn)) => context.correlated(drawn),
         None => context,
     };
     drop(request.extensions_mut().insert(Asked::established(context, permitted)));
