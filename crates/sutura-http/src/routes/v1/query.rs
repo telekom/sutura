@@ -18,7 +18,7 @@
 //! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
 //! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
 //! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
-//! convention are `429` and `408`, and no refusal maps to either. 12 refusal reasons land on `422`,
+//! convention are `429` and `408`, and no refusal maps to either. 13 refusal reasons land on `422`,
 //! documented the other way round: "Clients that receive a `422` response should expect that
 //! repeating the request without modification will fail with the same error."
 //!
@@ -166,8 +166,10 @@ const TAG: &str = "query";
                            things below stands in the way. `federation_not_executable`: this build has no \
                            adapter that can execute one half of a question spanning two data \
                            systems. `plan_needs_too_many_lookup_legs`: it would read more lookup \
-                           legs than one answer may. `cross_model_ratio_needs_one_lookup_leg`: a \
-                           ratio over two fact models would need more than one lookup leg. \
+                           legs than one answer may. `question_needs_too_many_legs`: it would run \
+                           more queries against the data systems than one answer may. \
+                           `cross_model_ratio_needs_one_lookup_leg`: a ratio over two fact models \
+                           would need more than one lookup leg. \
                            `federation_link_compound`: the one relationship crossing into the \
                            second data system declares more than one join key, and the combiner \
                            links two legs on a single column. `federation_link_type_mismatch`: the \

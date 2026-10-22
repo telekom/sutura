@@ -6,13 +6,13 @@
 
 use std::sync::Arc;
 
-use datafusion::arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
+use datafusion::arrow::array::{Array as _, ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::federation::Federation;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::plan::leg::{LegPlan, LegTerm};
 use sutura_domain::plan::{
     AnswerKey, FederatedPlan, InternalLabel, LegResult, Legs, LookupLeg, PlanBindings, PlanBucket, PlanColumn, PlanKey, PlanTerm,
@@ -316,6 +316,85 @@ pub(super) fn failing_ratio_plan() -> FederatedPlan {
 
 pub(super) fn extreme_plan(aggregate: Aggregate, measure_name: &str) -> FederatedPlan {
     plan_for(measure_name, &Measure::Simple(term(aggregate, "mrr_cents")), true)
+}
+
+/// A cross-model ratio's plan: the fact leg's revenue over a second fact leg's count, and one lookup
+/// leg for the region. Both fact legs group by the link alone, the one key a second fact admits.
+pub(super) fn two_fact_plan() -> FederatedPlan {
+    let measure = Measure::Ratio {
+        numerator: term(Aggregate::Sum, "mrr_cents"),
+        denominator: Term::Aggregate(AggregatedColumn::on_model(
+            Aggregate::Count,
+            column("customer_key"),
+            ModelName::parse("visits").expect("a test model is a model"),
+        )),
+        zero_denominator: ZeroDenominator::Null,
+    };
+    let name = metric("revenue_per_visit");
+    let federation = Federation::of(&measure);
+    let fact_leg = |second: bool| LegPlan::Fact {
+        source: source(if second { "visits" } else { "facts" }),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(FACT)),
+        bucket: bucket(),
+        keys: vec![link_key()],
+        terms: labels(&federation)
+            .into_iter()
+            .zip(federation.carried())
+            .filter(|&(_, leaf)| leaf.model().is_some() == second)
+            .map(|(label, _)| {
+                LegTerm::new(
+                    PlanTerm::CountIf {
+                        column: PlanColumn::new(table(FACT), column("mrr_cents")),
+                    },
+                    ResultLabel::internal(label),
+                )
+            })
+            .collect(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    };
+    FederatedPlan::new(
+        name.clone(),
+        ResultLabel::measure(&name),
+        bucket(),
+        fact_leg(false),
+        Some(fact_leg(true)),
+        sutura_domain::plan::LookupLegs::one(lookup_leg(), true),
+        federation,
+        vec![AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region")))],
+    )
+    .expect("a test plan is a valid two-fact plan")
+}
+
+/// A fact leg's result with one row per link value: `A`, the link, the month and 100.
+pub(super) fn fact_linked(kind: DataType, links: ArrayRef) -> ResultBatches {
+    let rows = links.len();
+    typed(
+        vec![
+            ("product_family", DataType::Utf8),
+            (link().as_str(), kind),
+            (TIME_BUCKET_LABEL, DataType::Utf8),
+            (leaf(0).as_str(), DataType::Int64),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["A"; rows])),
+            links,
+            Arc::new(StringArray::from(vec!["2026-06"; rows])),
+            Arc::new(Int64Array::from(vec![100_i64; rows])),
+        ],
+        rows,
+    )
+}
+
+/// A lookup leg's result with one row per link value, all in the `north`.
+pub(super) fn lookup_linked(kind: DataType, links: ArrayRef) -> ResultBatches {
+    let rows = links.len();
+    typed(
+        vec![(link().as_str(), kind), ("region", DataType::Utf8)],
+        vec![links, Arc::new(StringArray::from(vec!["north"; rows]))],
+        rows,
+    )
 }
 
 /// A fact leg's result: a product family, a link value, the month bucket and one leaf.

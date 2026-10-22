@@ -999,8 +999,8 @@ derived from anything else here.
 
 **`data_type` is descriptive text.** It is a quote of what the source called the column -
 `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
-branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
-kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join or a pair of
+shared calendars across kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
 `ColumnType`'s own doc names review as what holds "never a cast", not the type system, because
 nothing here stops another reader of `Self::data_type` from treating it as one.
 
@@ -1735,11 +1735,11 @@ pub fn required_filters(&self) -> &[RequiredFilter]
 The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
-pub const fn shared_calendar(&self) -> Option<&ModelName>
+pub const fn shared_calendars(&self) -> Option<&SharedCalendars>
 ```
 
-The conformed calendar model both fact models of a cross-model ratio reach through a
-`via`, or `None` for a one-model metric that buckets through its own `time_column`.
+The conformed calendar models a cross-model ratio buckets its fact legs through, or `None` for
+a one-model metric that buckets through its own `time_column`.
 
 ```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
@@ -1753,16 +1753,25 @@ pub const fn time_column(&self) -> &ColumnName
 pub fn with_shared_calendar(self, calendar: ModelName) -> Self
 ```
 
-Declares the conformed calendar model both fact models of a cross-model ratio reach
-through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
-so every existing caller of `Metric::new` compiles unchanged - a one-model metric has
-no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+Declares the one calendar model a metric whose facts all sit on a single source buckets
+through: `Self::with_shared_calendars` over a one-model list.
 
-The name is checked at load by `Definitions::assemble`
-(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist,
-and both the metric's own model and every cross-model ratio term's model must reach it
-through a declared relationship. The builder does not check, because the relationships
-are cross-references only the assembled `Definitions` can see.
+```rust
+pub fn with_shared_calendars(self, calendars: SharedCalendars) -> Self
+```
+
+Declares the conformed calendar models a cross-model ratio buckets its fact legs through, one
+per data system a fact model lives on (`telekom/sutura#780`). A builder rather than a
+constructor argument, so every existing caller of `Metric::new` compiles unchanged - a
+one-model metric has no shared calendar, and its on-disk shape and digest do not move.
+
+The list is checked at load by `Definitions::assemble`
+(`InconsistentDefinitions::SharedCalendarNotReachable`,
+`InconsistentDefinitions::SharedCalendarsShareASource`,
+`InconsistentDefinitions::NoSharedCalendarOnSource`,
+`InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType`). The builder does not check,
+because the sources and relationships are cross-references only the assembled
+`Definitions` can see.
 
 #### Implements
 
@@ -1828,7 +1837,7 @@ A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"
 `"character varying"`, `"NUMERIC(38,9)"`.
 
 **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
-`LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+`LinkKind::declared`, which reads it to REFUSE a federated join or a pair of shared calendars across kinds and nothing else,
 and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
 absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
@@ -2020,6 +2029,21 @@ one note body is. Choosing the two together is the whole point of bounding eithe
 Counted in characters rather than bytes, for the reason
 `crate::knowledge`'s phrase limit gives: a value may be German or Greek text, and a limit in
 bytes would make one value legal in one language and not in another.
+
+### `use InvalidSharedCalendars`
+
+Why a list of shared calendars could not be built.
+
+### `use SharedCalendars`
+
+The calendar models a cross-model ratio buckets its fact legs through: one per data system a
+fact lives on (the architecture decision's sixth amendment).
+
+**Non-empty and repeat-free by construction.** That a listed model exists, sits on a source no
+other listed model sits on, and is reached from each fact model are cross-references, so
+`Definitions::assemble` checks them - the type holds only what it
+can see. Kept as a set, so the order an author lists them in does not move the definition digest.
+There is no `Deserialize`: an adapter owns how a document spells the list and converts.
 
 ### `use Definitions`
 
@@ -7439,14 +7463,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 ### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 ### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 ### `use FederatedAnswerRefusal`
 
@@ -8400,7 +8424,8 @@ yet, so no question reaches it.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
-refusal a caller sees comes with the planner, which does not read the cap yet.
+refusal a caller sees, `RefusalReason::QuestionNeedsTooManyLegs`,
+is declared; the planner that raises it does not read the cap yet.
 
 The architecture decision records the decision and its limits.
 
@@ -8437,7 +8462,8 @@ The answer's group-by labels in question order.
 pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg this arm runs.
+Every leg this arm runs, in the order `execute_across` runs them: a joined arm's
+`FederatedPlan::legs`.
 
 ```rust
 pub fn measure_label(&self) -> &str
@@ -8741,7 +8767,10 @@ legs a combiner runs all read it, so no lookup leg can be left out of one of the
 pub const fn link_comparison(&self) -> Option<LinkKind>
 ```
 
-The comparison the link declares, or `None` for equality of kind.
+The comparison the first link declares, or `None` for equality of kind.
+
+The combiner reads it for the first lookup leg's link and the second fact leg's, so whatever
+writes it names the first lookup leg's relationship.
 
 ```rust
 pub const fn lookups(&self) -> &LookupLegs
@@ -8948,14 +8977,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 #### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 #### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### `use FederationCombiner`
 
@@ -9452,7 +9481,7 @@ application, and an adapter still never calls another adapter. `sutura_app` impl
 pub enum ExecuteError<L, C>
 ```
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
@@ -9533,7 +9562,7 @@ Behind `fixtures`, so nothing published holds it.
 
 ###### Implements
 
-`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
+`Clone`, `Copy`, `Debug`, `Default`, `DrillAcrossCombiner`, `FederationCombiner`
 
 ##### `struct NothingCombined`
 
@@ -9549,8 +9578,8 @@ What `RefusingCombiner` answers with.
 
 ##### `type_alias Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### Module `label`
 
@@ -10729,6 +10758,17 @@ somebody else's input.
   metric named against the first, so the pair reported is always the first metric and the
   first one that disagreed with it, never a third-party guess at which is "wrong".
 - `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
+- `DimensionNotConformed` - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for `first` and `other`.
+
+  **A dimension only joins the metrics' answers when it ends on the same model and column for
+  every metric.** Reading the first metric's column for all of them would label another
+  metric's numbers with a grouping it never computed. The check is structural: two columns
+  that mean the same thing but are two copies are refused too. Refused naming the dimension
+  and the first pair that disagree, never a guess at which of them is wrong.
+- `QuestionNeedsTooManyLegs` - A question needs more legs than one answer may run, counting every leg of every metric.
+
+  Each leg is held whole before the answers are merged, so the leg count bounds held memory
+  the way `TooManyMetrics` bounds the statement.
 - `DuplicateMetricName` - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
 - `MultiMetricFederationNotExecutable` - A question named more than one metric and also reached a remote dimension.
 
@@ -11037,12 +11077,13 @@ somebody else's input.
   executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
   catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
   part of the metric's definition, not of the question.
-- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model or shared calendar sits on another data system than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model sits on another data system than the metric's own (`telekom/sutura#780`); `model` names it.
 
   Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-  so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-  model lives is the catalog's, not the question's. A calendar declared once per source is
-  the shape that would lift this, and it is not built.
+  so both facts share the metric's. Each source lists its own calendar (the architecture decision's sixth
+  amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+  lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+  own source is the shape that would lift this, and it is not built.
 - `CrossModelRatioWithoutSharedDimension` - A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
 
   The two facts are aggregated in two statements and joined above on ONE link into a remote

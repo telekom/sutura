@@ -56,13 +56,14 @@ const QUERY: Subject = Subject {
     // pull-up REMOVED `MeasureDoesNotFederate` - a distinct count across two sources is answered
     // from the distinct keys the fact leg carries, so no site raises it any more. 32 since
     // `FederationLinkTypeMismatch`: a crossing whose two declared key types are different known
-    // kinds is refused at plan time. 32 until `BillToNotAllowed` and `NoBillingProject`: a job whose
-    // payer was named where none is taken, or cannot be decided, is refused before it runs - 34.
-    // `telekom/sutura#1342`'s planner left the count unchanged: `PlanNeedsTooManyLookupLegs`
-    // replaced `PlanSpansTooManySources` (a straight substitution), `FederationLinkAmbiguous` was
-    // DELETED (two relationships into one remote model are two lookup legs), and
-    // `CrossModelRatioNeedsOneLookupLeg` was ADDED for a ratio that would need more than one.
-    variants: variants(34),
+    // kinds is refused at plan time. 34 since `BillToNotAllowed` and `NoBillingProject`: a job whose
+    // payer was named where none is taken, or cannot be decided, is refused before it runs. 36 since
+    // `DimensionNotConformed` and `QuestionNeedsTooManyLegs`, declared ahead of the planner that
+    // raises them. 38 since `PlanNeedsTooManyLookupLegs` and `CrossModelRatioNeedsOneLookupLeg`,
+    // declared ahead of the planner change that raises them (`telekom/sutura#1342`). 36 since that
+    // planner change DELETED `PlanSpansTooManySources` (replaced by `PlanNeedsTooManyLookupLegs`) and
+    // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs).
+    variants: variants(36),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

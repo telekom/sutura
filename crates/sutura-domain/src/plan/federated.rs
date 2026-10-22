@@ -126,7 +126,8 @@ pub struct FederatedPlan {
     /// truncates the combined answer after the combiner returns it. `None` when the
     /// question carries no `top`.
     top: Option<Top>,
-    /// How the link's two keys compare when the relationship declares it. `None` is equality of kind.
+    /// How the first link's two keys compare when its relationship declares it. `None` is equality of
+    /// kind. A later lookup leg's link is always compared exactly: one declaration, one link.
     #[serde(skip_serializing_if = "Option::is_none")]
     link_comparison: Option<LinkKind>,
 }
@@ -416,7 +417,10 @@ impl FederatedPlan {
         self
     }
 
-    /// The comparison the link declares, or `None` for equality of kind.
+    /// The comparison the first link declares, or `None` for equality of kind.
+    ///
+    /// The combiner reads it for the first lookup leg's link and the second fact leg's, so whatever
+    /// writes it names the first lookup leg's relationship.
     #[inline]
     pub const fn link_comparison(&self) -> Option<LinkKind> {
         self.link_comparison

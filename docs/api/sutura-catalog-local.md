@@ -607,6 +607,7 @@ happened.
   which document to open, and whoever renders it walks the chain for which character to look
   for. Reported per metric rather than per field because a metric document declares one anchor.
 - `Audience` - The `audience:` declaration is not a usable one - the architecture decision.
+- `SharedCalendars` - The `shared_calendar:` list is empty or names a model twice.
 - `EmptyChain` - A dimension's `via:` chain names nothing.
 
   The domain's `ViaChain::of` refuses the empty chain; this is where the refusal learns which
@@ -692,7 +693,7 @@ metric's name say which cube, if any, it came from - that grouping is not record
 What a measure cannot say is held by `deny_unknown_fields` on `MeasureDoc`: no `dimensions:`
 of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`.
 `hierarchies:` is refused by name on `CubeDoc` the same way: a roll-up order has no domain
-representation. A measure's `shared_calendar:` is its own, so a cross-model ratio can sit beside
+representation. A measure's `shared_calendar:` list is its own, so a cross-model ratio can sit beside
 one-model siblings whose metrics do not change.
 
 #### `struct CubeDoc`

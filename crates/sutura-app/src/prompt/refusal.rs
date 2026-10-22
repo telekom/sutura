@@ -55,6 +55,18 @@ const TOO_MANY_METRICS: Guide = Guide {
     remedy: "Ask two narrower questions instead.",
 };
 
+const DIMENSION_NOT_CONFORMED: Guide = Guide {
+    reason: "dimension_not_conformed",
+    meaning: "a dimension does not end on the same model and column for two of the named metrics, so it cannot be used for both",
+    remedy: "Ask for those metrics separately, or leave that dimension out.",
+};
+
+const QUESTION_NEEDS_TOO_MANY_LEGS: Guide = Guide {
+    reason: "question_needs_too_many_legs",
+    meaning: "answering would run more queries against the data systems than one question may",
+    remedy: "Ask for fewer metrics at a time.",
+};
+
 const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
@@ -152,12 +164,6 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
              returns the same refusal - the ceiling is a configured number, not an outage.",
 };
 
-const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
-    reason: "plan_needs_too_many_lookup_legs",
-    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
-    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
-};
-
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
     reason: "federated_answer_not_well_formed",
     meaning: "answering this across two data systems hit a division by zero, a join key that \
@@ -178,6 +184,12 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
              one statement, so a question without it is still answered. If every dimension you need \
              goes through it, report it to a person: it is a fact about where the tables live, not \
              about how you asked.",
+};
+
+const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
+    reason: "plan_needs_too_many_lookup_legs",
+    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
 };
 
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
@@ -321,6 +333,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
+    &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
     &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
@@ -343,6 +356,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // cannot act on at all: there IS a move, and it is unique among every entry here - wait, do
     // not narrow.
     &BUDGET_EXHAUSTED,
+    &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_COMPOUND,
@@ -394,6 +408,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
+        RefusalReason::DimensionNotConformed { .. } => &DIMENSION_NOT_CONFORMED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
         RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
         RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
@@ -402,6 +417,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
+        RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,

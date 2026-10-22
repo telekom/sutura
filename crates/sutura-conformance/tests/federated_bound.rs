@@ -80,7 +80,10 @@ mod stages {
     use sutura_conformance::execute::Stage;
     use sutura_domain::identity::Presented;
     use sutura_domain::model::SourceName;
-    use sutura_domain::plan::{AnchorPlan, Executable, FederatedAnswerRefusal, FederatedPlan, FederationCombiner, Legs};
+    use sutura_domain::plan::{
+        AnchorPlan, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, Executable, FederatedAnswerRefusal, FederatedPlan,
+        FederationCombiner, Legs,
+    };
     use sutura_domain::source::{ImpersonationCapability, SourcePosture};
     use sutura_domain::warehouse::deadline::Deadline;
     use sutura_domain::warehouse::{AnchorRows, ResultBatches, Warehouse};
@@ -141,6 +144,12 @@ mod stages {
 
         fn answer_not_well_formed(&self, _: &Self::Error) -> Option<FederatedAnswerRefusal> {
             None
+        }
+    }
+
+    impl DrillAcrossCombiner for FailingCombiner {
+        fn merge(&self, _: &DrillAcrossPlan, _: &[ArmLegs<'_>], _: u64) -> Result<ResultBatches, Self::Error> {
+            Err(NotAnswered)
         }
     }
 
