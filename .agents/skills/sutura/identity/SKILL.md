@@ -77,11 +77,17 @@ proof of impersonation.
   `sutura_domain::warehouse::labels::JobLabels::of(&RequestContext)` is the only constructor, so a
   label holds the token's client, the MASKED immediate actor and 128 random bits DRAWN for the
   request, never a question's text - but `RequestContext`'s constructors are `pub`. The caller's
-  `x-correlation-id` stays in the span: `RequestContext::correlated` takes `[u8; 16]`, not text. The same values reach the audit line (`sutura_client`/`sutura_actor`/`sutura_correlation`).
-  Limits: the id is unique with overwhelming probability, not by construction, and a host that
-  will not supply randomness labels none (a `WARN`, not a refusal); only
-  `Warehouse::*_billed` carries labels, so the boot path and a plain `execute` (the conformance pack)
-  send none; the read-back from `INFORMATION_SCHEMA.JOBS` runs only in CI's BigQuery job.
+  `x-correlation-id` stays in the span: `RequestContext::correlated` takes `[u8; 16]`, not
+  text. The same values reach the audit line
+  (`sutura_client`/`sutura_actor`/`sutura_correlation`).
+  Limits: the id is unique with overwhelming probability, not by construction; a host that will
+  not supply randomness refuses the request `503 no_randomness` before any job
+  (`sutura_http::correlation::resolve` and `capability::establish_asked`), the same rule the
+  federated loopback source keeps; only `Warehouse::*_billed` carries labels, so the boot path
+  and a plain `execute` (the conformance pack) send none; under `shared-service-user` the job's
+  principal is the deployment, so only the `sutura_correlation` join names the user; the
+  read-back from `INFORMATION_SCHEMA.JOBS` is a live cell of the `bigquery-conformance` CI job
+  that has no recorded run yet and fails while the `SUTURA_BQ_REGION` variable is unset.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.

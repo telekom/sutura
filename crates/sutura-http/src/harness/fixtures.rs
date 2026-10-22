@@ -129,6 +129,38 @@ pub(super) fn captured(format: sutura_config::LogFormat, app: &Router, request: 
     (status, body, sink.contents())
 }
 
+/// [`captured`], for a request whose lines are also written on the blocking pool.
+///
+/// `with_default` reaches the calling thread only, and the query handler answers through
+/// `sutura_runtime::spawn_carrying_span` - so the audit line is written on a pool thread. Each pool
+/// thread this runtime starts sets the same dispatcher as its default for as long as it lives.
+pub(super) fn captured_across_threads(app: &Router, request: Request<Body>) -> (StatusCode, String, String) {
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        sutura_config::LogFormat::Bunyan,
+        true,
+    );
+    let dispatch = tracing::Dispatch::new(
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber"),
+    );
+    let pool = dispatch.clone();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .on_thread_start(move || POOL_DEFAULT.with(|slot| *slot.borrow_mut() = Some(tracing::dispatcher::set_default(&pool))))
+        .build()
+        .expect("a test runtime builds");
+    let (status, body) = tracing::dispatcher::with_default(&dispatch, || runtime.block_on(call(app, request)));
+    (status, body, sink.contents())
+}
+
+thread_local! {
+    /// A blocking-pool thread's default dispatcher, dropped when the thread ends.
+    static POOL_DEFAULT: core::cell::RefCell<Option<tracing::dispatcher::DefaultGuard>> =
+        const { core::cell::RefCell::new(None) };
+}
+
 /// The lines of a captured buffer that are JSON objects, parsed.
 pub(super) fn json_lines(rendered: &str) -> Vec<serde_json::Value> {
     rendered

@@ -68,6 +68,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     label("identity_unavailable"),
     label("insufficient_scope"),
     label("internal"),
+    label("no_randomness"),
     label("not_a_question"),
     label("rate_limited"),
     REFUSED,
@@ -404,6 +405,7 @@ mod tests {
             Failure::IdentityUnavailable,
             Failure::IdentityNotLinked,
             Failure::AtCapacity { retry_after_seconds: 1 },
+            Failure::NoRandomness,
             Failure::UnusableBillTo {
                 cause: crate::problem::UnusableBillTo::RawStatement,
             },
@@ -425,7 +427,8 @@ mod tests {
                 | Failure::Unavailable
                 | Failure::IdentityUnavailable
                 | Failure::IdentityNotLinked
-                | Failure::AtCapacity { .. } => {}
+                | Failure::AtCapacity { .. }
+                | Failure::NoRandomness => {}
             }
             assert!(
                 super::QUESTION_CODES.contains(&sutura_runtime::metrics::label(failure.code())),

@@ -117,8 +117,8 @@ Six source-level adaptations, recorded here so nothing is silent:
   upstream ships both options.
 - **A statement option for the query job's labels.** `nix/bigquery-adbc-job-labels.patch` adds
   `bigquery.query.labels`, a JSON object of string keys to string values that the driver copies
-  into `QueryConfig.Labels`; an empty value clears them and anything that is not such an object is
-  refused as `InvalidArgument`. Unpatched, the driver lists labels as a todo and has no way to set
+  into `QueryConfig.Labels`; an empty value clears them and anything that is not such an object,
+  JSON `null` included, is refused as `InvalidArgument`. Unpatched, the driver lists labels as a todo and has no way to set
   them. The driver checks no label rule; `BigQuery` does. The patch adds `labels_test.go`, which
   the build's check phase runs on a host that can run its target. sutura sets it on every
   request-time job (`docs/integrations/data-systems/bigquery.md`). Drop it when upstream ships a

@@ -88,6 +88,50 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
 }
 
 #[test]
+fn a_billed_job_carries_the_requests_labels_and_a_plain_one_carries_none() {
+    use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
+    let warehouse = open(Recording::empty(), shared_posture());
+    let (plan, presented) = (plan(), leg_of(&shared_posture()));
+    let labels = sutura_domain::warehouse::labels::JobLabels::of(
+        &RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)).correlated([0x22; 16]),
+    );
+    let _accepted = warehouse
+        .dry_run_billed(
+            Executable::Query(&plan),
+            &presented,
+            &BillTo::Unstated,
+            &labels,
+            test_deadline(),
+        )
+        .expect("the fake answers");
+    drop(
+        warehouse
+            .execute_billed(
+                Executable::Query(&plan),
+                &presented,
+                &BillTo::Unstated,
+                &labels,
+                test_deadline(),
+            )
+            .expect("the fake answers"),
+    );
+    drop(
+        warehouse
+            .execute(Executable::Query(&plan), &presented, test_deadline())
+            .expect("the fake answers"),
+    );
+    let drawn = Some("22".repeat(16));
+    let seen: Vec<Option<String>> = warehouse
+        .transport
+        .seen
+        .borrow()
+        .iter()
+        .map(|asked| asked.correlation.clone())
+        .collect();
+    assert_eq!(seen, vec![drawn.clone(), drawn, None], "dry run, billed job, plain job");
+}
+
+#[test]
 fn a_table_naming_its_dataset_and_no_project_is_refused_before_the_wire() {
     // No default dataset or project resolves a shorter path, so the job is refused before a
     // statement is sent rather than left for `BigQuery` to resolve somewhere.

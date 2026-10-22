@@ -38,7 +38,7 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -116,6 +116,20 @@ pub fn from_headers(headers: &HeaderMap) -> CorrelationId {
 #[derive(Clone)]
 pub(crate) struct Drawn(pub(crate) [u8; 16]);
 
+/// Where a request's [`Drawn`] bits come from: [`from_the_os`], or a test's stand-in for a host
+/// that will not supply randomness.
+pub(crate) type Draw = fn(&mut [u8; 16]) -> Result<(), getrandom::Error>;
+
+/// The operating system's random source.
+pub(crate) fn from_the_os(bits: &mut [u8; 16]) -> Result<(), getrandom::Error> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the per-request id a data-system job is labelled with; random so it joins one \
+                  audit record across restarts and replicas"
+    )]
+    getrandom::fill(bits)
+}
+
 /// Resolves the request's two ids ONCE, as request extensions, ahead of the span.
 ///
 /// The span's id is [`from_headers`]', so an ingress log and this one name the same request. The
@@ -125,23 +139,18 @@ pub(crate) struct Drawn(pub(crate) [u8; 16]);
 /// repeat across restarts and replicas - with overwhelming probability, not by construction. The
 /// audit line carries both ids, which is what joins them.
 ///
-/// **A host that will not supply randomness labels no id rather than refusing the question**: the
-/// label is for an audit join, not a guard, so the context gets none and a `WARN` says so.
-pub(crate) async fn resolve(mut request: Request, next: Next) -> Response {
+/// **A host that will not supply randomness gets no [`Drawn`]**, and
+/// `crate::capability::establish_asked` refuses the request `503 no_randomness` before any job:
+/// under `shared-service-user` the label is the only thing that ties a job to its caller.
+pub(crate) async fn resolve(State(draw): State<Draw>, mut request: Request, next: Next) -> Response {
     let id = from_headers(request.headers());
     drop(request.extensions_mut().insert(id));
     let mut bits = [0_u8; 16];
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the per-request id a data-system job is labelled with; random so it joins one \
-                  audit record across restarts and replicas"
-    )]
-    let drawn = getrandom::fill(&mut bits);
-    match drawn {
+    match draw(&mut bits) {
         Ok(()) => {
             let _replaced = request.extensions_mut().insert(Drawn(bits));
         }
-        Err(cause) => tracing::warn!(%cause, "no randomness for the request's job-label id; its jobs carry none"),
+        Err(cause) => tracing::error!(%cause, "no randomness for the request's job-label id; refusing it"),
     }
     next.run(request).await
 }

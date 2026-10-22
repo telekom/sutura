@@ -131,7 +131,7 @@ fn answered_with_a_caller_header(app: &axum::Router) -> serde_json::Value {
     request
         .headers_mut()
         .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
-    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, app, request);
+    let (status, body, rendered) = super::fixtures::captured_across_threads(app, request);
     assert_eq!(status, StatusCode::OK, "{body}");
     json_lines(&rendered)
         .into_iter()

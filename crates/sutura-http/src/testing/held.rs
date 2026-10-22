@@ -61,12 +61,12 @@ impl Held {
         self.0.held.store(true, Ordering::SeqCst);
     }
 
-    /// Let whatever is waiting finish, so the blocking pool drains with the test.
     /// The `sutura_correlation` label of the first job run, if one ran.
     pub(crate) fn labelled(&self) -> Option<&str> {
         self.0.labelled.get().map(String::as_str)
     }
 
+    /// Let whatever is waiting finish, so the blocking pool drains with the test.
     pub(crate) fn release(&self) {
         self.0.held.store(false, Ordering::SeqCst);
     }

@@ -92,7 +92,7 @@ tower_governor = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
 tracing = { workspace = true }
 # 128 random bits per request for the id a data-system job is labelled with
-# (`correlation::resolve`), so the label joins one audit record across restarts and replicas. No
+# (`correlation::from_the_os`), so the label joins one audit record across restarts and replicas. No
 # new package in `Cargo.lock`: `sutura-exec-bigquery` already resolves this version.
 getrandom = { version = "0.4" }
 ureq = { workspace = true }

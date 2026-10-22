@@ -99,3 +99,7 @@ mod data_systems;
 #[cfg(test)]
 #[path = "golden/service.rs"]
 mod service;
+
+#[cfg(test)]
+#[path = "golden/job_labels.rs"]
+mod job_labels;

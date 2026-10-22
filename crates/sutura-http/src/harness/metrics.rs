@@ -92,6 +92,7 @@ sutura_questions_total{code="identity_not_linked"} 0
 sutura_questions_total{code="identity_unavailable"} 0
 sutura_questions_total{code="insufficient_scope"} 0
 sutura_questions_total{code="internal"} 0
+sutura_questions_total{code="no_randomness"} 0
 sutura_questions_total{code="not_a_question"} 0
 sutura_questions_total{code="rate_limited"} 0
 sutura_questions_total{code="refused"} 0

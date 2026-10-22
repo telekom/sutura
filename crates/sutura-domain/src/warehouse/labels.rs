@@ -1,8 +1,10 @@
 //! The labels a data-system job carries, naming who asked for it.
 //!
 //! Three fixed keys: the OAuth client the caller's token named, the immediate actor of its `act`
-//! chain, and the request's correlation id. **No subject** - the principal the job ran as already
-//! names the user, and every principal that can list the jobs of a project reads its labels.
+//! chain, and the request's correlation id. **No subject**: every principal that can list the jobs
+//! of a project reads its labels. Under `impersonation-at-source` the job's principal names the
+//! user; under `shared-service-user` it is the deployment, and only the correlation id, joined to
+//! the audit record, names the user.
 //!
 //! The values come only from a [`RequestContext`], never from a question: [`JobLabels::of`] is the
 //! one constructor. **The limit:** `RequestContext`'s own constructors are `pub`, so this holds for
@@ -127,6 +129,16 @@ mod tests {
         assert_eq!(normalised(""), "", "an absent claim is the empty value");
         let longest = "a".repeat(MAX_VALUE);
         assert_eq!(normalised(&longest), longest);
+    }
+
+    #[test]
+    fn a_label_value_is_at_most_sixty_three_characters() {
+        // Literal numbers, not `MAX_VALUE`: `BigQuery` refuses a 64-character value, whatever the
+        // constant says.
+        assert_eq!(normalised(&"a".repeat(63)), "a".repeat(63));
+        let over = normalised(&"a".repeat(64));
+        assert_eq!(over.len(), 63, "{over}");
+        assert!(over.starts_with(&format!("{}-", "a".repeat(54))), "{over}");
     }
 
     #[test]

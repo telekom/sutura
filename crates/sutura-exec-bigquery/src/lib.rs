@@ -147,6 +147,10 @@ pub use identity_read::SessionUser;
 mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{Dropped, FixtureNotLoaded, FixtureNotUsable, Loaded};
+#[cfg(feature = "fixtures")]
+mod jobs;
+#[cfg(feature = "fixtures")]
+pub use crate::jobs::{JobsRegion, NotAJobsRegion};
 
 use crate::transport::{JobDeadline, JobIdentity, JobRequest, JobTransport, ProjectId};
 
@@ -546,6 +550,20 @@ where
     /// account project, else is refused [`BigQueryError::NoPayer`].
     pub fn session_user(&self, presented: &Presented, bill_to: &BillTo) -> Mapped<SessionUser, T::Error> {
         identity_read::session_user(self, presented, bill_to)
+    }
+
+    /// The client and actor labels of each job in `region` of the billing project, in the last day,
+    /// whose correlation label is `correlation`: one row of two nullable text cells per job.
+    ///
+    /// Behind `fixtures` for [`Self::load_fixture`]'s reason. It runs as the transport's own
+    /// identity, which needs `bigquery.jobs.listAll` to see every principal's jobs.
+    ///
+    /// # Errors
+    ///
+    /// [`BigQueryError::NoPayer`], [`BigQueryError::Endpoint`] or [`BigQueryError::Unreadable`].
+    #[cfg(feature = "fixtures")]
+    pub fn job_labels(&self, region: &JobsRegion, correlation: &str) -> Mapped<RowSet, T::Error> {
+        jobs::labels(self, region, correlation)
     }
     /// A job's result, as a domain result set.
     ///

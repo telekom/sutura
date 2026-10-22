@@ -222,8 +222,10 @@ const TAG: &str = "query";
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,
-            description = "Worth retrying, and `code` says which of four things happened. \
-                           `unavailable`: the data system did not answer. `identity_unavailable`: \
+            description = "Worth retrying, and `code` says which of five things happened. \
+                           `unavailable`: the data system did not answer. `no_randomness`: the host \
+                           gave no randomness for the request's job-label id, so nothing ran. \
+                           `identity_unavailable`: \
                            the credential broker or the key set this deployment depends on did not \
                            answer, which is a different dependency being unwell and is diagnosed \
                            elsewhere. \
@@ -232,9 +234,9 @@ const TAG: &str = "query";
                            question was shed rather than queued - that response carries a \
                            `Retry-After` in seconds. `source_unavailable`: REFUSED - \
                            `outcome: refusal` - the data system the plan names could not be \
-                           reached as the calling subject. No `Retry-After` on the other three: \
-                           nothing here knows when a data system or an identity provider comes \
-                           back, and a guessed number would be a promise.",
+                           reached as the calling subject. No `Retry-After` on the other four: \
+                           nothing here knows when a data system, an identity provider or the \
+                           host's random source comes back, and a guessed number would be a promise.",
             body = crate::problem::ProblemBody
         ),
     )

@@ -299,6 +299,10 @@ mod two_fact_test;
 #[cfg(test)]
 mod dry_run_count_test;
 
+/// Both legs carry the request's job labels, split out for the same `max-lines` reason.
+#[cfg(test)]
+mod labels_test;
+
 /// The leg runner's refusal of a leg that is not among the cut's own legs, split out for the same
 /// `max-lines` reason; its counting fake lives there for the reason `dry_run_count_test` states.
 #[cfg(test)]
