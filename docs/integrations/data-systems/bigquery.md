@@ -89,8 +89,8 @@ With `domain_delegation`, the query runs as the Google account with the caller's
 address. The deployment vouches for the caller: sutura takes the address from the `email` claim of
 the caller's verified token, and only when `email_verified` is `true`. sutura uses the address as
 it is written. A caller without a verified address is refused. The deployment's own application
-default credentials sign as the delegating account, which acts as that address with the scope
-`https://www.googleapis.com/auth/bigquery`. These are its keys:
+default credentials sign as the delegating account, which acts as that address with the read-only
+scope `https://www.googleapis.com/auth/bigquery.readonly` only. These are its keys:
 
 | Key                                    | Type   | Meaning                                                            |
 | -------------------------------------- | ------ | ------------------------------------------------------------------ |
@@ -101,12 +101,22 @@ default credentials sign as the delegating account, which acts as that address w
 - The identity provider must not let users edit their own email address. A user who can set their
   email to another person's address runs queries as that person.
 - A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
-  for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery` only.
+  for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery.readonly`
+  only.
 - The deployment's own identity has `iam.serviceAccounts.signJwt` on the delegating account (the
   role `roles/iam.serviceAccountTokenCreator`, granted on that account only).
 - Each caller's Google account has its own BigQuery grants. The delegating account can act as any
   user in the domain, so protect the deployment's credential as you protect the domain's
   administrator.
+
+The read-only scope limits what that credential can do as a user. Google refuses it `jobs.insert`,
+so it cannot start a load, copy or extract job. sutura starts each query with `jobs.query` and reads
+the rows through the Storage Read API, which the scope allows.
+
+Google also refuses it `jobs.cancel`, so sutura cannot cancel a `domain_delegation` job. When the
+caller's deadline ends and sutura stops waiting, the job runs on until it ends or until BigQuery
+stops it at the job timeout sutura sent. `max_bytes_billed` still caps the bytes it bills. Nothing
+caps its slot time.
 
 The musl and glibc release binaries link the BigQuery driver. In the development shell, a `cargo`
 build can select the feature:

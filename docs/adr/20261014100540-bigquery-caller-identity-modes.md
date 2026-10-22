@@ -164,3 +164,25 @@ and no `dataset`; both keys are refused at load with a message naming the key th
 
 Why: one source project made every caller need `bigquery.jobs.create` in a project they do not
 otherwise hold, and billed one project for every caller's queries.
+
+## Fourth amendment, 2026-10-22: mode c asks for `bigquery.readonly` only
+
+**Status of the amendment: accepted** (issue #1553). This replaces the decision **The scope is a
+constant, not a key** above and the scope of the second amendment's third point.
+
+- **Mode c asks for `https://www.googleapis.com/auth/bigquery.readonly`, still a constant.** A
+  credential that can act as any user in the domain should carry the smallest scope that reads.
+  With that scope Google refuses `jobs.insert` and `jobs.cancel`, and accepts `jobs.query`,
+  `jobs.get`, `jobs.getQueryResults` and the Storage Read API. A probe measured this on 2026-10-22
+  with a service account's own token, not a token from domain-wide delegation.
+- **The driver starts a mode c query with `jobs.query`.** `nix/bigquery-adbc-jobs-query.patch`
+  adds a database option that does this; sutura sets it only beside the read-only scope. The rows
+  still come through the Storage Read API, and `maximumBytesBilled` and `jobTimeoutMs` go on the
+  same request.
+- **sutura cannot cancel a mode c job.** Google refuses `jobs.cancel` with the read-only scope. When
+  sutura stops waiting at the caller's deadline, the job runs on to its end or to `jobTimeoutMs`. `maximumBytesBilled` caps its bytes. Nothing in sutura caps its slot time.
+- **Not measured: a statement that writes, sent through `jobs.query` with the read-only scope.**
+  Google's reference does not say which scope such a statement needs. At a mode c source sutura
+  sends only the queries it renders, and the caller's own grants decide what the account can change.
+
+Why: the full `bigquery` scope let the delegating account start any job as any user in the domain.
