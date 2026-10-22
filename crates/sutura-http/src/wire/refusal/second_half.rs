@@ -74,13 +74,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "plan_tables_share_an_identifier",
         ),
         (
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
-            },
-            StatusCode::CONFLICT,
-            "multi_metric_federation_not_executable",
-        ),
-        (
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
             },

@@ -85,9 +85,9 @@ where
         Compiled::Refused { reason } => {
             return not_executed(NotExecutedReason::Refused { reason });
         }
-        // An anchor is asked with no dimensions, so it can only ever be one source. Reaching this
-        // arm is a defect here rather than anything about the data.
-        Compiled::Federated { .. } => {
+        // An anchor is asked with no dimensions and one metric, so it can only ever be one source and
+        // one arm. Reaching this arm is a defect here rather than anything about the data.
+        Compiled::Federated { .. } | Compiled::DrillAcross { .. } => {
             return not_executed(NotExecutedReason::ResolvedToTwoSources);
         }
         Compiled::Planned { plan } => plan,

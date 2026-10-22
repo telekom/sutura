@@ -553,9 +553,11 @@ fn workflow(inputs: &PromptInputs<'_>) -> String {
     };
     steps.push(String::from(first));
     steps.push(String::from(
-        "Choose the metric or metrics by name. Several are answered together only when every one \
-         shares a model, a time column, a grain AND every dimension listed below; otherwise ask \
-         separately. If no metric means what they asked for, say that plainly and name the closest \
+        "Choose the metric or metrics by name. Several are answered together, one column each, when \
+         every one declares the grain AND every dimension listed below, and each dimension ends on \
+         the same model and column for all of them; a question that runs more queries or reads \
+         more data systems than one answer may is refused, and then ask separately. If no metric \
+         means what they asked for, say that plainly and name the closest \
          one rather than answering with a different metric under their words.",
     ));
     steps.push(String::from(

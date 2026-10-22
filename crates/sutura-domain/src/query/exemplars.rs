@@ -47,10 +47,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::MetricUnknown {
             metric: metric("revenue"),
         },
-        RefusalReason::MetricsSpanDifferentModels {
-            first: metric("revenue"),
-            other: metric("margin"),
-        },
         RefusalReason::TooManyMetrics {
             requested: 9,
             limit: MAX_METRICS,
@@ -63,9 +59,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
         RefusalReason::DuplicateMetricName {
             metric: metric("revenue"),
-        },
-        RefusalReason::MultiMetricFederationNotExecutable {
-            metrics: vec![metric("revenue"), metric("margin")],
         },
         RefusalReason::MultiMetricTopNotExecutable {
             metrics: vec![metric("revenue"), metric("margin")],
@@ -166,12 +159,10 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         // No wildcard: a variant added to the enum does not compile until it is named here.
         match reason {
             RefusalReason::MetricUnknown { .. }
-            | RefusalReason::MetricsSpanDifferentModels { .. }
             | RefusalReason::TooManyMetrics { .. }
             | RefusalReason::DimensionNotConformed { .. }
             | RefusalReason::QuestionNeedsTooManyLegs { .. }
             | RefusalReason::DuplicateMetricName { .. }
-            | RefusalReason::MultiMetricFederationNotExecutable { .. }
             | RefusalReason::MultiMetricTopNotExecutable { .. }
             | RefusalReason::GrainNotSupported { .. }
             | RefusalReason::DimensionNotPermitted { .. }

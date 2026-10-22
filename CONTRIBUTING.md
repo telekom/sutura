@@ -133,6 +133,7 @@ version is 0.x (`breaking_always_bump_major = false` in `cliff.toml`).
 
 ```bash
 just test           # the gate's own invocation - never hand-write the cargo line
+just test-only 'test(/name/)'  # the same invocation, one nextest filterset, no doctest leg (kill tables: one mutation per run)
 just check-changed  # does what I touched compile
 just causality      # a new test fails on the base and passes with your change
 just ship-check     # the finishing sequence; run this before saying done

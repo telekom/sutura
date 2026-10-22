@@ -43,12 +43,6 @@ const METRIC_UNKNOWN: Guide = Guide {
              whole of what exists.",
 };
 
-const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
-    reason: "metrics_span_different_models",
-    meaning: "two named metrics do not share a model or a time column",
-    remedy: "Ask about each metric separately - one at a time executes.",
-};
-
 const TOO_MANY_METRICS: Guide = Guide {
     reason: "too_many_metrics",
     meaning: "more metrics than one question may carry",
@@ -71,12 +65,6 @@ const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
     remedy: "Send it once - refused rather than de-duplicated.",
-};
-
-const MULTI_METRIC_FEDERATION_NOT_EXECUTABLE: Guide = Guide {
-    reason: "multi_metric_federation_not_executable",
-    meaning: "this build does not federate several metrics, and the question reached a remote dimension",
-    remedy: "Ask about each metric separately.",
 };
 
 const MULTI_METRIC_TOP_NOT_EXECUTABLE: Guide = Guide {
@@ -345,11 +333,9 @@ const CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG: Guide = Guide {
 /// `prompt::tests` asserts against it is a second net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
-    &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
     &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
-    &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
@@ -417,10 +403,8 @@ pub(super) const GUIDES: &[&Guide] = &[
 pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
-        RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
         RefusalReason::TooManyMetrics { .. } => &TOO_MANY_METRICS,
         RefusalReason::DuplicateMetricName { .. } => &DUPLICATE_METRIC_NAME,
-        RefusalReason::MultiMetricFederationNotExecutable { .. } => &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,

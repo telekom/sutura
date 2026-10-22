@@ -44,9 +44,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     let code = reason.code();
     let detail = match *reason {
         RefusalReason::MetricUnknown { ref metric } => format!("this catalog defines no metric called `{metric}`"),
-        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
-            format!("`{first}` and `{other}` do not share a model and a time column")
-        }
         RefusalReason::TooManyMetrics { requested, limit } => {
             format!("{requested} metrics were asked for; at most {limit} are allowed")
         }
@@ -59,7 +56,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::DuplicateMetricName { ref metric } => {
             format!("`{metric}` is listed more than once")
         }
-        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => multi_metric_federation_not_executable(metrics),
         RefusalReason::MultiMetricTopNotExecutable { ref metrics } => multi_metric_top_not_executable(metrics),
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
@@ -257,14 +253,6 @@ fn metric_names(metrics: &[sutura_domain::model::MetricName]) -> String {
     names.join(", ")
 }
 
-fn multi_metric_federation_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
-    format!(
-        "{} were asked together, and the question also reaches a dimension on another data system; this build does not \
-         federate several metrics",
-        metric_names(metrics)
-    )
-}
-
 fn multi_metric_top_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
     format!(
         "{} were asked together with `top`, which names no metric to rank by",
@@ -356,10 +344,6 @@ mod tests {
     fn every_reason() -> Vec<RefusalReason> {
         vec![
             RefusalReason::MetricUnknown { metric: metric() },
-            RefusalReason::MetricsSpanDifferentModels {
-                first: metric(),
-                other: MetricName::parse("margin").expect("a test metric is a metric"),
-            },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
             RefusalReason::DimensionNotConformed {
                 dimension: dimension(),
@@ -368,9 +352,6 @@ mod tests {
             },
             RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName { metric: metric() },
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
-            },
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
             },

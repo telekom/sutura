@@ -602,6 +602,9 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 }
 
 #[cfg(test)]
+mod test_only;
+
+#[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 

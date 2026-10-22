@@ -162,7 +162,9 @@ fn a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question(
             assert!(matches!(reason, RefusalReason::MetricUnknown { .. }), "{reason:?}");
         }
         sutura_semantic::Compiled::Planned { .. } => panic!("a dictionary defines no metric, so a plan is impossible"),
-        sutura_semantic::Compiled::Federated { .. } => panic!("a dictionary bundle is one source; nothing federates"),
+        sutura_semantic::Compiled::Federated { .. } | sutura_semantic::Compiled::DrillAcross { .. } => {
+            panic!("a dictionary bundle is one source; nothing federates")
+        }
     }
 }
 

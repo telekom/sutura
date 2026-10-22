@@ -5,7 +5,7 @@ description: A question that names several metrics runs one arm per metric and j
 
 # Drill across for several metrics
 
-Status: **accepted**. The plan type, the DataFusion merge, the leg loop and the two refusals' declarations (`DimensionNotConformed`, `QuestionNeedsTooManyLegs`) are built. The planner that raises them and the answer path are not.
+Status: **accepted**. The plan type, the DataFusion merge, the leg loop, the planner and the answer path are built. A question over several metrics that cannot share one statement is planned as an arm per metric, answered, and joined above.
 
 ## The question
 
@@ -79,21 +79,35 @@ Limits: a key type that is not a join-key type (a float, a timestamp) must be id
 so two timestamp units are refused though they could join. A declared cast across arms is not honoured.
 The ceiling bounds the merge's operators, as
 for the two-leg combine, not the leg results the caller already holds. Only local arms and one joined
-arm over in-memory legs are measured; no served question reaches `merge`.
+arm over in-memory legs are measured.
+
+## The planner and the answer path
+
+`sutura_semantic` resolves each metric's own dimensions, so one dimension name can reach another
+model or column for another metric. A question over several metrics stays one grouped statement when
+every metric is on one model and one time column, every dimension is reached by the same
+relationships, no dimension is on another source and no metric names another model. Otherwise it is
+an arm per metric.
+
+- `DimensionNotConformed` is raised at resolve time for a grouped or filtered dimension that does not
+  end on the same model and column for every metric.
+- `QuestionNeedsTooManyLegs` is raised when the arms run more legs than `MAX_LEGS`.
+- `PlanSpansTooManySources` still holds per arm, and now also over the whole plan: more than two data
+  systems between all arms are refused.
+- `MetricsSpanDifferentModels` and `MultiMetricFederationNotExecutable` are retired: both shapes are
+  planned. An adapter that runs no leg now refuses such a question as `FederationNotExecutable`.
+
+`answer_drill_across` (`sutura-app`) does one lookup of every leg's adapter, one mint over every
+distinct source, a pre-flight of every leg and one summed charge before any leg runs, then
+`DrillAcrossCombiner::execute_across`.
 
 ## What is not built
 
-- **No planner builds this plan.** Both refusals above still fire, and no question reaches it.
-- **No mint and charge per leg.** `execute_across` runs the legs through a `LegRunner`, one after
-  another, and hands the results to `merge`; one mint and one charge for every leg is the answer
-  path's.
-- **No planner raises either refusal.** `DimensionNotConformed` and `QuestionNeedsTooManyLegs` are
-  declared with their sentences, but the conformance check and the read of the cap come with the
-  planner; the plan type holds the cap.
 - **No `top` for the whole question.** A `top` on one arm is refused. A `top` for the whole question,
   for example by period after the join, is not built here.
-- **No calendar per source.** A cross-model ratio whose calendar is on another source stays refused
-  (`docs/adr/0002`). It is a separate decision with its own amendment.
+- **No second fact on another source.** A metric lists one calendar per source (`docs/adr/0002`, sixth
+  amendment), but a cross-model ratio whose second fact is on another source than the metric's own
+  stays refused (`CrossModelRatioSpansSources`). It is a separate decision with its own amendment.
 
 All of this is tracked in `github.com/telekom/sutura#1471`.
 
@@ -106,5 +120,7 @@ All of this is tracked in `github.com/telekom/sutura#1471`.
   exact. Sharing a leg is a later change.
 - **Arms run one after another,** each arm's legs in `Arm::legs` order, so the latency is the sum of the
   legs'. A deadline is the leg runner's to hold.
+- **Provenance is per source, not per leg.** `ExecutedAs` records how each data system was reached; a
+  source two arms read is one entry.
 - **The plan type cannot check that two arms read the same real-world thing.** Whether a dimension is
   conformed is the planner's check, on the catalog's declared model and column.

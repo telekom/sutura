@@ -30,7 +30,7 @@
 //!   DELETE)."
 //!
 //! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
-//! `RoundTripper`. 13 refusal reasons land on `422` below, documented the other way round from the
+//! `RoundTripper`. 12 refusal reasons land on `422` below, documented the other way round from the
 //! premise: "Clients that receive a `422` response should expect that repeating the request
 //! without modification will fail with the same error."
 //!
@@ -61,8 +61,8 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 mod sentences;
 
 use sentences::{
-    credential_unavailable, dimension_not_conformed, multi_metric_federation_not_executable, multi_metric_top_not_executable,
-    resources_exhausted, too_many_legs, too_many_lookup_legs,
+    credential_unavailable, dimension_not_conformed, multi_metric_top_not_executable, resources_exhausted, too_many_legs,
+    too_many_lookup_legs,
 };
 
 use super::RefusalBody;
@@ -92,20 +92,13 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             StatusCode::NOT_FOUND,
             format!("this catalog defines no metric called `{metric}`"),
         ),
-        // 422. Both metrics exist, the request is well formed, and there is no one statement that
-        // could answer both - same sense as `GrainNotSupported` below: understood, and cannot be
-        // processed as asked.
-        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            format!("`{first}` and `{other}` do not share a model and a time column"),
-        ),
         // 422, the same pair that governs the dimension count. Named so the caller can act on the
         // number without a second request: the sentence carries what they asked for and the bound.
         RefusalReason::TooManyMetrics { requested, limit } => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("{requested} metrics were asked for and the maximum is {limit}"),
         ),
-        // 422, with its predecessor `MetricsSpanDifferentModels`: every metric exists and the request is
+        // 422, with `TooManyMetrics`: every metric exists and the request is
         // well formed, and a dimension that does not end on the same model and column for each cannot serve both.
         RefusalReason::DimensionNotConformed {
             ref dimension,
@@ -264,10 +257,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         } => (StatusCode::CONFLICT, link_type_mismatch(relationship, fact, lookup)),
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
         RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
-        // 409, with the federation group above - a shape this build does not execute.
-        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => {
-            (StatusCode::CONFLICT, multi_metric_federation_not_executable(metrics))
-        }
         // 409. `top` names no metric to rank by once there is more than one.
         RefusalReason::MultiMetricTopNotExecutable { ref metrics } => {
             (StatusCode::CONFLICT, multi_metric_top_not_executable(metrics))
@@ -492,12 +481,10 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
     match *reason {
         RefusalReason::BudgetExhausted { reset_after_seconds } => Some(reset_after_seconds),
         RefusalReason::MetricUnknown { .. }
-        | RefusalReason::MetricsSpanDifferentModels { .. }
         | RefusalReason::TooManyMetrics { .. }
         | RefusalReason::DimensionNotConformed { .. }
         | RefusalReason::QuestionNeedsTooManyLegs { .. }
         | RefusalReason::DuplicateMetricName { .. }
-        | RefusalReason::MultiMetricFederationNotExecutable { .. }
         | RefusalReason::MultiMetricTopNotExecutable { .. }
         | RefusalReason::GrainNotSupported { .. }
         | RefusalReason::DimensionNotPermitted { .. }
@@ -611,14 +598,6 @@ mod tests {
                 RefusalReason::MetricUnknown { metric: metric() },
                 StatusCode::NOT_FOUND,
                 "metric_unknown",
-            ),
-            (
-                RefusalReason::MetricsSpanDifferentModels {
-                    first: metric(),
-                    other: MetricName::parse("margin").expect("a test metric is a metric"),
-                },
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "metrics_span_different_models",
             ),
             (
                 RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
@@ -760,7 +739,7 @@ mod tests {
 
     #[test]
     fn every_refusal_has_a_distinct_code() {
-        // The status is shared on purpose - 13 refusal reasons land on `422` - so the code is what
+        // The status is shared on purpose - 12 refusal reasons land on `422` - so the code is what
         // a client has to be able to branch on, and two variants sharing one would make that
         // impossible. THE NUMBER HERE IS PROSE: it said four while `docs/serving.md` mapped five,
         // then five while this file gained a sixth arm, and every OTHER gate stayed green both

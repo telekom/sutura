@@ -147,15 +147,6 @@ pub struct Query {
 pub enum RefusalReason {
     /// No metric of that name is in the pinned bundle.
     MetricUnknown { metric: MetricName },
-    /// A question named more than one metric, and two of them do not declare the same model or
-    /// the same time column.
-    ///
-    /// **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
-    /// physical tables have no shared `FROM`, and two metrics on one table but two different time
-    /// columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
-    /// metric named against the first, so the pair reported is always the first metric and the
-    /// first one that disagreed with it, never a third-party guess at which is "wrong".
-    MetricsSpanDifferentModels { first: MetricName, other: MetricName },
     /// More metrics than [`MAX_METRICS`] one question may name together.
     TooManyMetrics { requested: usize, limit: usize },
     /// A question named several metrics, and a dimension it groups or filters by does not end on
@@ -180,13 +171,6 @@ pub enum RefusalReason {
     /// a duplicated dimension is: a caller who sent it twice believes something about the result
     /// that is not true.
     DuplicateMetricName { metric: MetricName },
-    /// A question named more than one metric and also reached a remote dimension.
-    ///
-    /// **A multi-metric question never federates.** The combiner links exactly two legs on one
-    /// column and produces one measure column; there is no shape here for several certified
-    /// columns arriving through a join. Refused by name, naming every metric asked, rather than
-    /// silently answered as though only the first metric had been named.
-    MultiMetricFederationNotExecutable { metrics: Vec<MetricName> },
     /// A question named more than one metric and also asked for `top`.
     ///
     /// **`top` names no metric to rank by**, and the two rendering paths disagree about which
@@ -717,10 +701,6 @@ mod tests {
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
             },
-            RefusalReason::MetricsSpanDifferentModels {
-                first: MetricName::parse("revenue").expect("a test metric"),
-                other: MetricName::parse("margin").expect("a test metric"),
-            },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
             RefusalReason::DimensionNotConformed {
                 dimension: DimensionName::parse("region").expect("a test dimension"),
@@ -730,12 +710,6 @@ mod tests {
             RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName {
                 metric: MetricName::parse("revenue").expect("a test metric"),
-            },
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![
-                    MetricName::parse("revenue").expect("a test metric"),
-                    MetricName::parse("margin").expect("a test metric"),
-                ],
             },
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![

@@ -31,22 +31,27 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::Metric;
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{DimensionName, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::model::{DimensionName, MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
-    FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey,
-    PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, plan_measure, plan_required_filter,
+    DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket,
+    PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::resolve::{Resolution, ResolvedFilter, ResolvedFilterValue};
+use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
 
 mod chain;
+mod drill_across;
 mod federated;
 
 use chain::{chain_joins, chain_leaving_its_crossing, column_of, every_dimension, every_remote_dimension, is_remote};
 use federated::federated_plan;
+
+/// The most data systems one answer may read, because each is a separate identity to satisfy.
+const MAX_SOURCES: usize = 2;
 
 /// What the plan stage decided to execute.
 ///
@@ -58,6 +63,8 @@ pub(crate) enum Plan {
     Mono(Box<QueryPlan>),
     /// Two legs from two data systems, combined above.
     Federated(Box<FederatedPlan>),
+    /// One arm per metric, each answered on its own and joined above.
+    DrillAcross(Box<DrillAcrossPlan>),
 }
 
 /// Refused, or this workspace could not assemble the plan it had just decided on.
@@ -106,6 +113,14 @@ pub(crate) enum PlanError {
     NotAssembled(#[from] FederatedPlanError),
     #[error(transparent)]
     NotBound(#[from] IncoherentBindings),
+    /// The planner built arms that [`DrillAcrossPlan::new`] then rejected.
+    ///
+    /// [`NotAssembled`](Self::NotAssembled)'s argument again: every arm is built from the same
+    /// question, so its keys, bucket and range agree, no metric is named twice, and a `top` is refused
+    /// when the question resolves. The one variant a caller can cause, a question over more legs than
+    /// [`MAX_LEGS`](sutura_domain::plan::MAX_LEGS), is a refusal and not this.
+    #[error(transparent)]
+    NotAssembledAcross(#[from] DrillAcrossPlanError),
     /// `federated_plan` ran with no remote dimension it could join through.
     ///
     /// **A2: the same argument [`NotAssembled`](Self::NotAssembled) and [`NotBound`](Self::NotBound)
@@ -149,7 +164,7 @@ pub(crate) enum PlanError {
     ///
     /// **Unreachable by construction, [`NoRemoteJoin`](Self::NoRemoteJoin)'s reason again.**
     /// `resolve` fills `cross` whenever the first metric names another model and declares a
-    /// calendar, `plan` refuses a ratio with no calendar and a multi-metric question before this,
+    /// calendar, `plan` refuses a ratio with no calendar before this,
     /// and `Federation::of_metric` erases the metric's own model, so a leaf left naming a model is
     /// one `cross` was built for. A `PlanError` rather than a `RefusalReason`, for the same reason:
     /// a caller cannot narrow their way out of our own wiring.
@@ -178,20 +193,12 @@ impl From<RefusalReason> for PlanError {
 /// another data system and then leaves it cannot be rendered by either plan shape, and neither
 /// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
-    // Every metric has now resolved exactly as one was checked - every one's grain, every
-    // dimension against every metric, every filter value against every metric's own allowlist -
-    // and this stage turns the whole set into one grouped statement with one certified column per
-    // metric. The mono path (`mono_plan`) builds one `PlannedMeasure` per metric, each guarded by
-    // its own required filters so none of them leaks into another's column. Because the metrics all
-    // share a model, a time column and a grain (or `MetricsSpanDifferentModels` refused them
-    // already), they share one data system and a multi-metric question never federates.
-    //
-    // The checks below gate on the FIRST metric's shape and dispatch on its source topology; they
-    // are the same facts every named metric shares, so gating on the first is gating on the set.
-    // No authored-SQL metric can be part of a question this plan shape carries: the plan holds no
-    // SQL. Checked over every named metric, so a multi-metric question naming one authored-SQL
-    // metric beside ordinary ones is refused by name rather than silently dropped from the select
-    // list. `measure` stays the first metric's, used by the single-metric and federated dispatch.
+    // The one-statement path builds one `PlannedMeasure` per metric, each guarded by its own required
+    // filters so none of them leaks into another's column; the metrics share a model, a time column
+    // and every dimension's path (`one_statement`). No authored-SQL metric can be part of a question
+    // this plan shape carries: the plan holds no SQL. Checked over every named metric, so a
+    // multi-metric question naming one beside ordinary ones is refused by name rather than silently
+    // dropped from the select list.
     for named in &resolution.metrics {
         if named.measure().is_none() {
             return Err(PlanError::AuthoredSqlNotPlanned {
@@ -199,6 +206,58 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             });
         }
     }
+    let (measure, remote) = prechecked(resolution)?;
+    match remote {
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
+        // Two are served; three or more refused, because each source is a separate identity.
+        _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
+            sources: 1 + remote,
+            limit: MAX_SOURCES,
+        })),
+    }
+}
+
+/// Turns a resolved question into a plan: the one statement when every metric reads the same
+/// dimensions the same way, an arm per metric otherwise.
+pub(crate) fn plan_resolved(resolved: &Resolved<'_>) -> Result<Plan, PlanError> {
+    match resolved.per_metric.as_slice() {
+        [first, second, rest @ ..] if !one_statement(resolved) => drill_across::plan(first, second, rest),
+        _ => plan(&resolved.whole),
+    }
+}
+
+/// Whether every metric of a multi-metric question can share one grouped statement: one model, one
+/// time column, no remote dimension, no cross-model term, and every dimension reached through the
+/// same relationships. Anything else is an arm per metric, which reads each metric's own path.
+fn one_statement(resolved: &Resolved<'_>) -> bool {
+    let whole = &resolved.whole;
+    let first = paths(whole);
+    every_remote_dimension(whole).next().is_none()
+        && cross_model_term(whole).is_none()
+        && resolved.per_metric.iter().all(|each| {
+            each.model.name() == whole.model.name()
+                && each.metric.time_column() == whole.metric.time_column()
+                && paths(each) == first
+        })
+}
+
+/// The relationships each dimension of `resolution` is reached through, in the order it lists them.
+fn paths<'a>(resolution: &Resolution<'a>) -> Vec<Vec<&'a RelationshipName>> {
+    every_dimension(resolution)
+        .map(|dimension| dimension.join.iter().flatten().map(|hop| hop.relationship.name()).collect())
+        .collect()
+}
+
+/// A metric's measure and the number of other data systems its dimensions reach, or the refusal.
+type Prechecked<'a> = Result<(&'a Measure, usize), PlanError>;
+
+/// What one metric's resolution reads, refused where it cannot be planned: its measure, and how many
+/// data systems other than the metric's own its dimensions reach.
+///
+/// Shared by the one-statement path and by each arm of a drill-across, which are each one metric's
+/// plan.
+fn prechecked<'a>(resolution: &Resolution<'a>) -> Prechecked<'a> {
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
             metric: resolution.metric.name().clone(),
@@ -207,21 +266,12 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // `telekom/sutura#780`: a cross-model ratio plans as two fact statements joined above, both
     // bucketed through the metric's shared calendar - a conformed time dimension each fact joins
     // inside its own statement. Every shape that cannot be built that way is refused here by name,
-    // never planned against the metric's own table. The calendar read is the metric `cross_model_term` found, never `resolution.metric`'s: in a
-    // multi-metric question they differ, and the first metric's calendar says nothing about another's.
+    // never planned against the metric's own table.
     if let Some((cross_metric, model)) = cross_model_term(resolution) {
         if cross_metric.shared_calendars().is_none() {
             return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: cross_metric.name().clone(),
                 model: model.clone(),
-            }));
-        }
-        // `resolve` reads the second fact and the calendar off the first metric only, and a
-        // multi-metric question never federates - so a cross-model ratio asked beside another metric
-        // would otherwise plan as one statement over the metric's own table.
-        if resolution.metrics.len() > 1 {
-            return Err(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: resolution.metrics.iter().map(|m| m.name().clone()).collect(),
             }));
         }
         let Some(cross) = resolution.cross.as_ref() else {
@@ -262,26 +312,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
         .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
         .collect();
-    // A multi-metric question never federates - `mono_plan`'s own comment argues why the metrics
-    // sharing a model puts them on one data system - but `federated_plan` below reads only
-    // `resolution.metric` (the first named metric), so without this check a multi-metric question
-    // that also reaches a remote dimension would silently plan as a federated single-metric answer
-    // and drop every metric but the first. Checked here, before dispatch, naming every metric asked.
-    if resolution.metrics.len() > 1 && !remote.is_empty() {
-        return Err(PlanError::Refused(RefusalReason::MultiMetricFederationNotExecutable {
-            metrics: resolution.metrics.iter().map(|m| m.name().clone()).collect(),
-        }));
-    }
-
-    match remote.len() {
-        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
-        // Two are served; three or more refused, because each source is a separate identity.
-        _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
-            sources: 1 + remote.len(),
-            limit: 2,
-        })),
-    }
+    Ok((measure, remote.len()))
 }
 
 /// The first metric (and the first term within it) whose `model` names one other than that metric's

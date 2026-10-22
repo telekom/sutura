@@ -22,10 +22,12 @@ the question and not a fault to work around.
    dimensions and permitted values this deployment will answer for. **Do not skip this because the
    question looks simple.** The metric list in this document was rendered from one snapshot; the
    deployment is the authority on which snapshot it is serving now.
-2. Choose the metric or metrics by name. Several are answered together only when every one shares a
-   model, a time column, a grain AND every dimension listed below; otherwise ask separately. If no
-   metric means what they asked for, say that plainly and name the closest one rather than answering
-   with a different metric under their words.
+2. Choose the metric or metrics by name. Several are answered together, one column each, when every
+   one declares the grain AND every dimension listed below, and each dimension ends on the same
+   model and column for all of them; a question that runs more queries or reads more data systems
+   than one answer may is refused, and then ask separately. If no metric means what they asked for,
+   say that plainly and name the closest one rather than answering with a different metric under
+   their words.
 3. Choose a grain the metric lists, and a period with BOTH ends given as dates. There is no
    open-ended period and no default period: a question with one end missing cannot be represented at
    all.
@@ -59,8 +61,6 @@ Every reason you can be given, and what to do about each:
 - **metric_unknown** - no metric of that name is defined here.
   Use a name from the metric list below, exactly as spelled. Do not try a variant spelling, a
   plural, or a name you remember from another deployment: the list is the whole of what exists.
-- **metrics_span_different_models** - two named metrics do not share a model or a time column.
-  Ask about each metric separately - one at a time executes.
 - **too_many_metrics** - more metrics than one question may carry.
   Ask two narrower questions instead.
 - **dimension_not_conformed** - a dimension does not end on the same model and column for two of the
@@ -68,9 +68,6 @@ Every reason you can be given, and what to do about each:
   Ask for those metrics separately, or leave that dimension out.
 - **duplicate_metric_name** - the same metric was sent twice in one question.
   Send it once - refused rather than de-duplicated.
-- **multi_metric_federation_not_executable** - this build does not federate several metrics, and the
-  question reached a remote dimension.
-  Ask about each metric separately.
 - **multi_metric_top_not_executable** - `top` names no metric to rank by, and more than one was
   asked.
   Ask about one metric with `top`, or ask about several with no `top`.

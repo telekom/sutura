@@ -62,7 +62,10 @@ const QUERY: Subject = Subject {
     // `DimensionNotConformed` and `QuestionNeedsTooManyLegs`, declared ahead of the planner that
     // raises them. 38 since `PlanNeedsTooManyLookupLegs` and `CrossModelRatioNeedsOneLookupLeg`,
     // declared ahead of the planner change that raises them (`telekom/sutura#1342`).
-    variants: variants(38),
+    // 36 since the drill-across planner RETIRED `MetricsSpanDifferentModels` and
+    // `MultiMetricFederationNotExecutable`: a question over several metrics is planned as one arm
+    // each and joined above, so neither shape is refused.
+    variants: variants(36),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

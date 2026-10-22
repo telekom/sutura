@@ -109,8 +109,6 @@ const REFUSAL_REASONS: &[Label] = &[
     label("federation_not_executable"),
     label("grain_not_supported"),
     label("metric_unknown"),
-    label("metrics_span_different_models"),
-    label("multi_metric_federation_not_executable"),
     label("multi_metric_top_not_executable"),
     label("no_billing_project"),
     label("plan_needs_too_many_lookup_legs"),

@@ -202,16 +202,35 @@ impl Charged<'_> {
 /// A leg without a token from `charged` is refused as this workspace's own defect, before its
 /// warehouse is looked up or its credential read: it was never charged.
 pub(crate) struct LegsAtTheirSources<'a, W, B, C> {
-    pub(crate) charged: Charged<'a>,
-    pub(crate) warehouses: &'a Warehouses<W>,
-    pub(crate) credentials: &'a BoundToTheRequest,
-    pub(crate) deadline: Deadline,
-    pub(crate) span: tracing::Span,
-    pub(crate) ports: Ports<B, C>,
+    charged: Charged<'a>,
+    warehouses: &'a Warehouses<W>,
+    credentials: &'a BoundToTheRequest,
+    deadline: Deadline,
+    span: tracing::Span,
+    ports: Ports<B, C>,
 }
 
 /// The broker and combiner the runner's error is typed by, held as a type and never as a value.
-pub(crate) type Ports<B, C> = PhantomData<fn() -> (B, C)>;
+type Ports<B, C> = PhantomData<fn() -> (B, C)>;
+
+impl<'a, W, B, C> LegsAtTheirSources<'a, W, B, C> {
+    /// A runner for the legs `charged` cleared, on the request's own span.
+    pub(crate) fn new(
+        charged: Charged<'a>,
+        warehouses: &'a Warehouses<W>,
+        credentials: &'a BoundToTheRequest,
+        deadline: Deadline,
+    ) -> Self {
+        Self {
+            charged,
+            warehouses,
+            credentials,
+            deadline,
+            span: tracing::Span::current(),
+            ports: PhantomData,
+        }
+    }
+}
 
 impl<W, B, C> LegRunner for LegsAtTheirSources<'_, W, B, C>
 where
