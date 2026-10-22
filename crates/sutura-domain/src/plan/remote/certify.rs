@@ -61,7 +61,7 @@ pub enum LegNotCertified {
         table: TableName,
         column: ColumnName,
     },
-    /// A term reads a column of a table that the metric's own measure does not read it from.
+    /// A term reads a column the measure does not read on the leg's root table.
     #[error("metric {metric} does not measure column {column} of table {table}")]
     TermNotMetrics {
         metric: MetricName,
@@ -298,10 +298,11 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
             }
             within(LegPart::Terms, terms.len(), MAX_TERMS)?;
             let measures = measured(definitions, declared);
+            let root = statement.models.first().map(|model| model.table_name());
             let terms = terms
                 .into_iter()
                 .map(|WireTerm { label, term }| {
-                    if !measures.contains(term.column()) {
+                    if !measures.contains(term.column()) || root != Some(term.column().table()) {
                         return Err(LegNotCertified::TermNotMetrics {
                             metric: name.clone(),
                             table: term.column().table().clone(),

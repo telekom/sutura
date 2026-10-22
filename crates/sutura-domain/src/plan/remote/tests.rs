@@ -101,10 +101,18 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         model(
             "orders",
             "sales",
-            &["amount_cents", "order_date", "status", "customer_id", "channel_id", "day_key"],
+            &[
+                "id",
+                "amount_cents",
+                "order_date",
+                "status",
+                "customer_id",
+                "channel_id",
+                "day_key",
+            ],
         ),
-        model("channels", "sales", &["id", "channel_name", "amount_cents"]),
-        model("refunds", "sales", &["refund_cents", "order_id", "day_key"]),
+        model("channels", "sales", &["id", "channel_name"]),
+        model("refunds", "sales", &["refund_cents", "amount_cents", "order_id", "day_key"]),
         model("calendar", "sales", &["day_key", "order_date"]),
         model("customers", "crm", &["id", "region_id"]),
         model("regions", "crm", &["id", "region_name"]),
@@ -116,6 +124,7 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         relationship("orders_calendar", "orders", "calendar", "day_key", "day_key"),
         relationship("refunds_calendar", "refunds", "calendar", "day_key", "day_key"),
         relationship("calendar_refunds", "calendar", "refunds", "day_key", "day_key"),
+        relationship("refunds_order", "refunds", "orders", "order_id", "id"),
     ];
     let channel = Dimension::new(
         DimensionName::parse("channel_name").expect("a test dimension is a dimension"),
@@ -560,12 +569,49 @@ fn a_bucket_on_a_joined_tables_column_of_the_same_name_is_refused() {
 }
 
 #[test]
-fn a_term_on_a_joined_tables_column_of_the_same_name_is_refused() {
-    let (mut json, params) = fact();
-    json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "channels", "column": "amount_cents"});
+fn a_term_on_a_column_the_measure_reads_from_another_table_is_refused() {
+    let sender = pinned(ORDINARY);
+    let (leg, params) = refund_leg(&sender);
+    let mut json = sent(&leg, &sender);
+    json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "refunds", "column": "amount_cents"});
     let refused = refusal(json, params);
     assert!(
-        matches!(refused, LegNotCertified::TermNotMetrics { ref table, .. } if *table == self::table("channels")),
+        matches!(refused, LegNotCertified::TermNotMetrics { ref table, .. } if *table == self::table("refunds")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_term_on_a_table_the_leg_is_not_rooted_on_is_refused() {
+    let sender = pinned(ORDINARY);
+    let (leg, params) = refund_leg(&sender);
+    let mut json = sent(&leg, &sender);
+    json["joins"] = json!(["refunds_calendar", "refunds_order"]);
+    json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "orders", "column": "amount_cents"});
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::TermNotMetrics { ref table, .. } if *table == self::table("orders")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_term_of_the_other_model_on_the_metrics_own_leg_is_refused() {
+    let sender = pinned(ORDINARY);
+    let (leg, mut params) = refund_leg(&sender);
+    let mut json = sent(&leg, &sender);
+    let (revenue, _) = fact();
+    json["table"] = json!("orders");
+    json["joins"] = json!(["orders_calendar", "calendar_refunds"]);
+    json["keys"][0]["column"] = json!({"table": "orders", "column": "customer_id"});
+    json["filters"]
+        .as_array_mut()
+        .expect("filters are a list")
+        .push(revenue["filters"][2].clone());
+    params.push(ParamValue::Text(String::from("paid")));
+    let refused = refusal(json, params);
+    assert!(
+        matches!(refused, LegNotCertified::TermNotMetrics { ref table, .. } if *table == self::table("refunds")),
         "{refused:?}"
     );
 }

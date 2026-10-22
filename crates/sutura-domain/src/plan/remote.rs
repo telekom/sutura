@@ -20,13 +20,13 @@
 //! **Limits, stated where the parse is.** The digest detects a version gap between two honest
 //! nodes and is no control against a hostile sender. The parse does not compare a result label with
 //! the dimension it names, an aggregate with the metric's own, or a column's type with the
-//! sender's. It certifies that every name is one this node declares, that the metric is defined as
-//! the sender defined it, and that a required filter of this node's definition is present. It also
-//! certifies that the bucket is the metric's time column on the table this node buckets it on, that
-//! every term reads a column of the measure on the table the measure reads it from, and that the leg
-//! is bounded by its own range on that bucket column, at most
-//! [`MAX_RANGE_DAYS`](crate::query::MAX_RANGE_DAYS) days long: this node holds the time bound itself,
-//! as its own planner does.
+//! sender's. It certifies that every name is one this node declares and that the metric is defined
+//! as the sender defined it. For a fact leg it also certifies that the bucket is the metric's time
+//! column on the table this node buckets it on, that every term reads a column the measure reads on
+//! the leg's own root table, that a leg rooted on the metric's own table carries this node's
+//! required filters, and that the leg is bounded by its own range on that bucket column, at most
+//! [`MAX_RANGE_DAYS`](crate::query::MAX_RANGE_DAYS) days long: this node holds the time bound
+//! itself, as its own planner does. A lookup leg names no metric and carries no range.
 
 use crate::calendar::TimeRange;
 use crate::definitions::NotDigestible;
