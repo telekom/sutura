@@ -23,7 +23,7 @@ pub enum Refused {
         /// What the operating system said.
         source: io::Error,
     },
-    /// An `import` names an absolute path or one with a `.` or `..` component.
+    /// An `import` names an absolute path or one with an empty, `.` or `..` component.
     Outside {
         /// The path as written.
         path: PathBuf,
@@ -34,7 +34,11 @@ impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Unreadable { path, source } => write!(f, "{} cannot be read: {source}", path.display()),
-            Self::Outside { path } => write!(f, "`import \"{}\"` leaves the repo root", path.display()),
+            Self::Outside { path } => write!(
+                f,
+                "`import \"{}\"` is not a plain relative path inside the repo root",
+                path.display()
+            ),
         }
     }
 }
@@ -55,13 +59,16 @@ impl std::error::Error for Refused {
 /// A file that cannot be read, or an import path outside the root.
 pub fn text(root: &Path) -> Result<String, Refused> {
     let mut whole = read(root, PathBuf::from("justfile"))?;
-    let imports: Vec<PathBuf> = whole
+    let imports: Vec<String> = whole
         .lines()
         .filter_map(|line| line.strip_prefix("import ")?.split(['"', '\'']).nth(1))
-        .map(PathBuf::from)
+        .map(String::from)
         .collect();
-    for path in imports {
-        if !path.components().all(|part| matches!(part, Component::Normal(_))) {
+    for literal in imports {
+        let path = PathBuf::from(&literal);
+        let plain = literal.split('/').all(|part| !matches!(part, "" | "." | ".."))
+            && path.components().all(|part| matches!(part, Component::Normal(_)));
+        if !plain {
             return Err(Refused::Outside { path });
         }
         let imported = read(root, path)?;
@@ -108,7 +115,10 @@ mod tests {
 
     #[test]
     fn an_import_that_leaves_the_root_is_refused() {
-        let root = tree("outside", &[("justfile", "import \"../x.just\"\n")]);
-        assert!(matches!(text(&root), Err(Refused::Outside { .. })));
+        for (index, literal) in ["../x.just", "just/./x.just", "just//x.just"].into_iter().enumerate() {
+            let justfile = format!("import \"{literal}\"\n");
+            let root = tree(&format!("outside-{index}"), &[("justfile", justfile.as_str())]);
+            assert!(matches!(text(&root), Err(Refused::Outside { .. })), "{literal}");
+        }
     }
 }
