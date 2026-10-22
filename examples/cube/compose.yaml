@@ -1,0 +1,57 @@
+# The Cube of this example over a ClickHouse that loads the CSV files of ../single-player/data. Run
+# ./setup.sh first. Every port binds 127.0.0.1 only: the secrets setup.sh writes to .env are for a
+# local demo and must never be reachable from another host.
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.7-alpine
+    environment:
+      CLICKHOUSE_USER: sutura
+      CLICKHOUSE_PASSWORD: ${CUBE_DB_PASSWORD:?run ./setup.sh first}
+    volumes:
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ../single-player/data:/corpus:ro
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "clickhouse-client --user sutura --password \"$$CLICKHOUSE_PASSWORD\" -q 'SELECT count() FROM default.dim_region' || exit 1",
+      ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  cube:
+    image: cubejs/cube:v1.8.3@sha256:a84bae164de5d6b6a8ab3f5e6bb55f62a17dbc31021aa85d8a226ebc1e52eb5c
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CUBEJS_DB_TYPE: clickhouse
+      CUBEJS_DB_HOST: clickhouse
+      CUBEJS_DB_PORT: "8123"
+      CUBEJS_DB_NAME: default
+      CUBEJS_DB_USER: sutura
+      CUBEJS_DB_PASS: ${CUBE_DB_PASSWORD:?run ./setup.sh first}
+      CUBEJS_DEV_MODE: "false"
+      CUBEJS_TELEMETRY: "false"
+      # Production mode asks for Cube Store as its cache and queue; the in-process driver is the
+      # one-container answer.
+      CUBEJS_CACHE_AND_QUEUE_DRIVER: memory
+      # Cube verifies the HS256 token in .local/cube-token with this key.
+      CUBEJS_API_SECRET: ${CUBE_API_SECRET:?run ./setup.sh first}
+    ports:
+      - 127.0.0.1:4000:4000
+    volumes:
+      - ./model/single_player.yml:/cube/conf/model/single_player.yml:ro
+    healthcheck:
+      # The image carries `node` and no `curl` or `wget`.
+      test: [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://localhost:4000/readyz').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s

@@ -92,3 +92,20 @@ pub(crate) fn refuse_undeliverable_outbound(
          `security.outbound`, or serve `{source}` from a deployment that does not declare them"
     ))
 }
+
+/// Who `source`'s jobs bill, as the adapter holds it. The service account project is parsed a
+/// second time by the transport's own type, because that is the value written into a request.
+pub(crate) fn job_billing(
+    source: &sutura_domain::model::SourceName,
+    billing: &sutura_config::sources::billing::SourceBilling,
+) -> Result<sutura_exec_bigquery::JobBilling, String> {
+    use sutura_config::sources::billing::SourceBilling;
+    Ok(match *billing {
+        SourceBilling::CallerRun { caller_may_name, .. } => sutura_exec_bigquery::JobBilling::CallerRun { caller_may_name },
+        SourceBilling::ServiceAccount { ref project } => sutura_exec_bigquery::JobBilling::ServiceAccount(
+            sutura_exec_bigquery::transport::ProjectId::parse(project.as_str()).map_err(|cause| {
+                format!("`sources.{source}.billing.service_account_project` is not a usable project id: {cause}")
+            })?,
+        ),
+    })
+}

@@ -471,7 +471,7 @@ mod tests {
             format!(
                 "security:\n  identity: single-user\n  single_user_because: \"one developer, one \
                  laptop, one dataset\"\nsources:\n  {source}:\n    kind: bigquery\n    \
-                 billing_project: \"acme-analytics\"\n    dataset: \"warehouse\"\n    \
+                 billing:\n      service_account_project: \"acme-analytics\"\n    \
                  max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
             ),
         )

@@ -6,7 +6,7 @@ use datafusion::functions::expr_fn::{abs, coalesce, isnan, nullif};
 use datafusion::functions_aggregate::expr_fn::{count_distinct, max, min, sum};
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
 use datafusion::prelude::SessionContext;
-use sutura_domain::federation::{Above, Carried};
+use sutura_domain::federation::{Above, Carried, Federation};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::Aggregate;
 use sutura_domain::plan::{FederatedPlan, InternalLabel, labels};
@@ -59,12 +59,12 @@ pub(super) enum Reading {
 /// with no second fact, reads the first. Decided here once, with the table it names, so the
 /// expression built from a leaf cannot read a table this check did not.
 pub(super) fn leaf_labels(
-    plan: &FederatedPlan,
+    federation: &Federation,
     fact: &LegSchema,
     second_fact: Option<&LegSchema>,
 ) -> Result<Leaves, CombineError> {
-    let carried = plan.federation().carried();
-    labels(plan.federation())
+    let carried = federation.carried();
+    labels(federation)
         .into_iter()
         .zip(carried.iter())
         .map(|(internal, carried)| {
@@ -226,7 +226,7 @@ pub(super) async fn scan(context: &SessionContext, table: &str) -> Result<Logica
 }
 
 /// [`crate::collect::outputs`]'s own refusal, as this module's.
-fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
+pub(super) fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
     match cause {
         crate::DataFusionError::SchemaMismatch { expected, actual } => CombineError::SchemaMismatch { expected, actual },
         other => CombineError::Build {
@@ -244,7 +244,7 @@ fn schema_mismatch(cause: crate::DataFusionError) -> CombineError {
 /// **The division happens HERE and cannot happen in a leg**, which is `sutura_domain::federation`'s
 /// own shape: a `Carried` has no quotient variant, so a per-leg guard is unrepresentable and the
 /// [`ZeroDenominator`] the definition asked for is applied once, above every leg's rows.
-fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
+pub(super) fn above_expression(above: &Above, leaves: &[Leaf], cursor: &mut usize) -> Result<Expr, CombineError> {
     match *above {
         Above::Total(ref carried) => {
             let &(ref label, reading, table) = leaves.get(*cursor).ok_or_else(|| CombineError::MissingColumn {

@@ -73,7 +73,6 @@ fn harvest_dataset(served: &serde_json::Value) -> DatasetAspect {
         .unwrap_or_default()
         .to_owned();
     let mut document = serde_json::Map::new();
-    drop(document.insert(String::from("name"), serde_json::Value::String(name.clone())));
     drop(document.insert(String::from("table"), serde_json::Value::String(name)));
     drop(document.insert(String::from("platform"), serde_json::Value::String(platform)));
     drop(document.insert(String::from("columns"), serde_json::Value::from(columns)));
@@ -96,15 +95,21 @@ fn one_column(value: &serde_json::Value, field: &str) -> String {
         .to_owned()
 }
 
-/// A relationship endpoint (`from`/`to`) reduced to the model name it names, taking the name
-/// segment out of the `dataset` urn - the same mapping `src/http.rs`'s `one_endpoint` holds.
+/// A relationship endpoint (`from`/`to`) reduced to the model name it names: the `dataset` urn's
+/// platform and name, through the crate's public `model_name`.
 fn one_endpoint(value: &serde_json::Value, field: &str) -> String {
     let urn = value[field].as_str().expect("a relationship endpoint is a dataset urn");
     let inner = urn
         .strip_prefix("urn:li:dataset:(")
         .and_then(|rest| rest.strip_suffix(')'))
         .expect("a dataset urn is the parenthesised `(platform,name,ENV)` form");
-    inner.split(',').nth(1).expect("a dataset urn names the dataset").to_owned()
+    let mut parts = inner.split(',');
+    let platform = parts
+        .next()
+        .and_then(|platform| platform.strip_prefix("urn:li:dataPlatform:"))
+        .expect("a dataset urn names a platform");
+    let name = parts.next().expect("a dataset urn names the dataset");
+    sutura_catalog_datahub::model_name(platform, name)
 }
 
 /// One relationship element out of a `semanticModel` entity's nested

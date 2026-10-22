@@ -216,7 +216,7 @@ pub trait LegRunner {
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error>;
 }
 
-/// Why [`FederationCombiner::execute`] gave no answer.
+/// Why [`FederationCombiner::execute`] or `DrillAcrossCombiner::execute_across` gave no answer.
 ///
 /// The combine runs only after every leg answered, so a leg's error wins over the combine's.
 #[derive(Debug)]
@@ -229,8 +229,8 @@ pub enum ExecuteError<L, C> {
     Combine(C),
 }
 
-/// What [`FederationCombiner::execute`] returns, named so its signature is not a
-/// `type_complexity` finding.
+/// What [`FederationCombiner::execute`] and `DrillAcrossCombiner::execute_across` return, named so
+/// their signatures are not a `type_complexity` finding.
 pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::Error, <C as FederationCombiner>::Error>>;
 
 /// Joins two legs' results and re-aggregates the answer above them.

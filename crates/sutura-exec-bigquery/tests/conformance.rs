@@ -80,12 +80,13 @@ mod conformance {
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
     use sutura_conformance::{Fixture, corpus};
+    use sutura_domain::model::{DatasetName, ProjectName, TableQualifier};
     use sutura_domain::warehouse::estimate::EstimatedBytes;
     use sutura_domain::warehouse::{Accumulating, ParamValue, ResultBatches, RowSet, Value};
-    use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::transport::{
-        DatasetAddress, DatasetId, DryRunEstimate, HeldTables, JobRequest, JobTransport, ListingTotal, ProjectId,
+        DatasetAddress, DryRunEstimate, HeldTables, JobRequest, JobTransport, ListingTotal, ProjectId,
     };
+    use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
     use sutura_sql::{Dialect, generate, generate_leg};
 
     /// The statement and its bound values, exactly as [`JobRequest`] carries them apart - the
@@ -303,12 +304,12 @@ mod conformance {
         /// rather than a smoke test over this lookup table.
         fn from_corpus() -> Self {
             let mut answers = BTreeMap::new();
-            for case in corpus::cases() {
+            for case in corpus::cases_at(Some(&at())) {
                 let rendered = generate(case.plan(), Dialect::BigQuery).expect("every corpus plan renders for BigQuery");
                 let key = key_of(rendered.sql(), rendered.params());
                 drop(answers.insert(key, canned_rows(case.expected())));
             }
-            for leg in corpus::leg_cases() {
+            for leg in corpus::leg_cases_at(Some(&at())) {
                 let rendered = generate_leg(leg.leg(), Dialect::BigQuery).expect("a corpus leg renders for BigQuery");
                 drop(answers.insert(key_of(rendered.sql(), rendered.params()), canned_rows(leg.expected())));
             }
@@ -352,11 +353,19 @@ mod conformance {
         let warehouse = BigQueryWarehouse::new(
             corpus::source(),
             corpus::posture(),
-            ProjectId::parse("conformance-fake").expect("a fixture project is a project"),
-            DatasetId::parse("conformance").expect("a fixture dataset is a dataset"),
+            JobBilling::ServiceAccount(ProjectId::parse("conformance-fake").expect("a fixture project is a project")),
             Canned::from_corpus(),
         );
-        Fixture::standing(warehouse)
+        Fixture::located(warehouse, at())
+    }
+
+    /// Where the corpus table is read: this adapter addresses no table by its bare name, and the
+    /// project is a placeholder no job reaches.
+    fn at() -> TableQualifier {
+        TableQualifier::in_project(
+            ProjectName::parse("example-project").expect("a fixture project is a project"),
+            DatasetName::parse("conformance").expect("a fixture dataset is a dataset"),
+        )
     }
 
     // `executes_legs`, because this adapter declares `EXECUTES_LEGS` (`telekom/sutura#929`) - see

@@ -8,8 +8,10 @@ use std::sync::Arc;
 use sutura_domain::plan::{FederatedAnswerRefusal, FederationCombiner as _};
 
 use crate::combine::CombineError;
-use datafusion::arrow::array::{ArrayRef, Int64Array, StringArray};
+use datafusion::arrow::array::{ArrayRef, Decimal128Array, Int64Array, StringArray};
 use datafusion::arrow::datatypes::DataType;
+use sutura_domain::plan::LinkKind;
+use sutura_domain::warehouse::ResultBatches;
 
 #[test]
 fn a_float_link_key_is_refused() {
@@ -294,6 +296,208 @@ fn a_non_finite_leaf_total_is_refused() {
     assert_eq!(refusal(&plan, &fact, &one_lookup()), FederatedAnswerRefusal::NonFinite);
 }
 
+/// A combine of `sum_plan` over `fact` and `lookup` with the link declared as `declared`, un-judged.
+fn declared_combine(
+    declared: LinkKind,
+    include_unmatched: bool,
+    fact: &ResultBatches,
+    lookup: &ResultBatches,
+) -> Result<ResultBatches, CombineError> {
+    let plan = sum_plan(include_unmatched).with_link_comparison(Some(declared));
+    try_combine(&plan, fact, lookup, UNBOUNDED)
+}
+
+fn texts(keys: &[&str]) -> ArrayRef {
+    Arc::new(StringArray::from(keys.to_vec()))
+}
+
+fn integers(keys: &[i64]) -> ArrayRef {
+    Arc::new(Int64Array::from(keys.to_vec()))
+}
+
+#[test]
+fn a_text_key_that_is_not_an_integer_is_refused_not_dropped() {
+    // `telekom/sutura#138`'s defect, one level down: a value that does not cast must not become a
+    // NULL, which an inner join drops and a left join parks in the unmatched group. The whole answer
+    // is refused, whichever leg carries the text and whichever join kind asks, and the refusal names
+    // the two kinds and never the value.
+    for include_unmatched in [true, false] {
+        let text_fact = fact_linked(DataType::Utf8, texts(&["12", "not-a-number"]));
+        let integer_lookup = lookup_linked(DataType::Int64, integers(&[12]));
+        let integer_fact = fact_linked(DataType::Int64, integers(&[12]));
+        let text_lookup = lookup_linked(DataType::Utf8, texts(&["12", "not-a-number"]));
+        for (error, side) in [
+            (
+                declared_combine(LinkKind::ExactInteger, include_unmatched, &text_fact, &integer_lookup),
+                "fact",
+            ),
+            (
+                declared_combine(LinkKind::ExactInteger, include_unmatched, &integer_fact, &text_lookup),
+                "lookup",
+            ),
+        ] {
+            let error = error.expect_err("a value that does not cast refuses the answer");
+            assert!(
+                matches!(error, CombineError::LinkValueNotCast { side: found, from: "text", to: "an exact integer" } if found == side),
+                "{error:?}"
+            );
+            assert_eq!(
+                combiner().answer_not_well_formed(&error),
+                Some(FederatedAnswerRefusal::LinkValueNotCast)
+            );
+            assert!(
+                !format!("{error} {error:?}").contains("not-a-number"),
+                "a join key is caller data"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_key_past_a_scale_nine_decimal_is_refused() {
+    // 10^30 fits `Decimal128(38, 0)` and does not fit `Decimal128(38, 9)`: widened to the other leg's
+    // scale it would wrap, so the cast refuses it instead.
+    let fact: ArrayRef = Arc::new(
+        Decimal128Array::from(vec![10_i128.pow(30)])
+            .with_precision_and_scale(38, 0)
+            .expect("an integral decimal"),
+    );
+    let lookup: ArrayRef = Arc::new(
+        Decimal128Array::from(vec![7_000_000_000_i128])
+            .with_precision_and_scale(38, 9)
+            .expect("a scale-nine decimal"),
+    );
+    let error = declared_combine(
+        LinkKind::ExactDecimal,
+        true,
+        &fact_linked(DataType::Decimal128(38, 0), fact),
+        &lookup_linked(DataType::Decimal128(38, 9), lookup),
+    )
+    .expect_err("a value past the declared scale refuses the answer");
+    assert!(
+        matches!(
+            error,
+            CombineError::LinkValueNotCast {
+                side: "fact",
+                from: "an exact integer",
+                to: "an exact decimal"
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn two_text_legs_declared_exact_integer_are_refused() {
+    // A cast needs an anchor of the declared kind. Two text legs have none, and they would join
+    // on text equality, which is what the declaration says they do not: it is the declaration that
+    // no longer fits the data, so it is not `LinkTypeMismatch`.
+    let fact = fact_linked(DataType::Utf8, texts(&["1001"]));
+    let lookup = lookup_linked(DataType::Utf8, texts(&["1001"]));
+    let error = declared_combine(LinkKind::ExactInteger, true, &fact, &lookup).expect_err("no anchor leg");
+    assert!(
+        matches!(
+            error,
+            CombineError::LinkKindsNotJoined {
+                declared: "an exact integer",
+                fact: "text",
+                lookup: "text"
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        combiner().answer_not_well_formed(&error),
+        Some(FederatedAnswerRefusal::LinkKindsNotJoined)
+    );
+}
+
+#[test]
+fn a_decimal_leg_declared_exact_integer_is_refused() {
+    // The decimal's fraction would drop in a cast to an integer and join a row the values do not
+    // equal, so the pair is not one the declaration joins.
+    let decimals: ArrayRef = Arc::new(
+        Decimal128Array::from(vec![7_500_000_000_i128])
+            .with_precision_and_scale(38, 9)
+            .expect("a scale-nine decimal"),
+    );
+    let fact = fact_linked(DataType::Int64, integers(&[7]));
+    let lookup = lookup_linked(DataType::Decimal128(38, 9), decimals);
+    assert_eq!(
+        refusal_of(declared_combine(LinkKind::ExactInteger, true, &fact, &lookup)),
+        FederatedAnswerRefusal::LinkKindsNotJoined
+    );
+}
+
+#[test]
+fn two_lookup_keys_that_cast_to_one_integer_are_ambiguous() {
+    // `1` and `01` are two rows until the cast makes them one key, and one key with two lookup rows
+    // doubles every measure under it. The probe runs over the cast leg.
+    let fact = fact_linked(DataType::Int64, integers(&[1]));
+    let lookup = lookup_linked(DataType::Utf8, texts(&["1", "01"]));
+    assert_eq!(
+        refusal_of(declared_combine(LinkKind::ExactInteger, true, &fact, &lookup)),
+        FederatedAnswerRefusal::AmbiguousLink
+    );
+}
+
+/// One fact leg of `two_fact_plan` carrying leaf `position`: a text link and the month bucket, one row per key.
+fn two_fact_leg(position: usize, keys: &[&str]) -> ResultBatches {
+    batches_of(
+        vec![
+            link(),
+            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+            leaf(position),
+        ],
+        keys.iter()
+            .map(|key| vec![Value::Text((*key).into()), Value::Text("2026-06".into()), Value::Integer(100)])
+            .collect(),
+    )
+}
+
+fn declared_two_fact(first: &[&str], second: &[&str]) -> Result<ResultBatches, CombineError> {
+    let plan = two_fact_plan().with_link_comparison(Some(LinkKind::ExactInteger));
+    let lookup = lookup_linked(DataType::Int64, integers(&[1]));
+    try_combine_every(&plan, &[two_fact_leg(0, first), two_fact_leg(1, second), lookup], UNBOUNDED)
+}
+
+#[test]
+fn two_first_fact_keys_that_cast_to_one_integer_are_ambiguous_beside_a_second_fact() {
+    // `1` and `01` are two groups at the source and one key after the cast. Each would meet the
+    // one second-fact row, so the second fact's leaf would be summed twice and the ratio would
+    // read 1 where the declared meaning is 2, with no refusal. The first fact leg is probed once it
+    // is cast.
+    assert_eq!(
+        refusal_of(declared_two_fact(&["1", "01"], &["1"])),
+        FederatedAnswerRefusal::AmbiguousLink
+    );
+}
+
+#[test]
+fn a_second_fact_key_that_is_not_an_integer_is_refused_by_the_cast() {
+    // The second fact leg is cast as the first is. Left uncast, the engine's own comparison would
+    // coerce the text and fail during execution, as no typed refusal.
+    let error = declared_two_fact(&["1"], &["not-a-number"]).expect_err("a value that does not cast refuses the answer");
+    assert!(
+        matches!(
+            error,
+            CombineError::LinkValueNotCast {
+                side: "second_fact",
+                from: "text",
+                to: "an exact integer"
+            }
+        ),
+        "{error:?}"
+    );
+}
+
+fn refusal_of(answer: Result<ResultBatches, CombineError>) -> FederatedAnswerRefusal {
+    let error = answer.expect_err("this combine is refused");
+    combiner()
+        .answer_not_well_formed(&error)
+        .unwrap_or_else(|| panic!("expected a caller-facing refusal, got {error:?}"))
+}
+
 #[test]
 fn every_caller_facing_refusal_is_reachable_and_every_wiring_defect_is_not() {
     // **The census over the port's own split**, so a variant that changed sides is a failing cell
@@ -317,6 +521,22 @@ fn every_caller_facing_refusal_is_reachable_and_every_wiring_defect_is_not() {
                 lookup: "text",
             },
             Some(FederatedAnswerRefusal::LinkTypeMismatch),
+        ),
+        (
+            CombineError::LinkKindsNotJoined {
+                declared: "an exact integer",
+                fact: "text",
+                lookup: "text",
+            },
+            Some(FederatedAnswerRefusal::LinkKindsNotJoined),
+        ),
+        (
+            CombineError::LinkValueNotCast {
+                side: "fact",
+                from: "text",
+                to: "an exact integer",
+            },
+            Some(FederatedAnswerRefusal::LinkValueNotCast),
         ),
         (
             CombineError::NonNumericLeaf {

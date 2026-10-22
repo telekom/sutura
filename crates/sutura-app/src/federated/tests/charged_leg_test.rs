@@ -9,6 +9,7 @@ use super::*;
 use sutura_domain::plan::federated::{
     Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederationCombiner, LegRunner, Legs,
 };
+use sutura_domain::plan::{ArmLegs, DrillAcrossCombiner, DrillAcrossPlan};
 use sutura_domain::warehouse::PreFlight;
 use sutura_exec_datafusion::{CombineError, DataFusionCombiner};
 
@@ -120,6 +121,12 @@ impl FederationCombiner for Misuses {
                 runner.run(&elsewhere).map_err(ExecuteError::Leg)
             }
         }
+    }
+}
+
+impl DrillAcrossCombiner for Misuses {
+    fn merge(&self, plan: &DrillAcrossPlan, arms: &[ArmLegs<'_>], working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
+        self.0.merge(plan, arms, working_set_bytes)
     }
 }
 

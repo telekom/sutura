@@ -54,7 +54,8 @@ pub enum LegNotCertified {
     #[error("metric {metric} is not defined here at grain {grain:?}")]
     GrainNotDeclared { metric: MetricName, grain: Grain },
     /// The bucket is not the metric's time column on the table this node buckets it on: the metric's
-    /// own table, or its shared calendar's for a ratio across two models.
+    /// own table, or for a ratio across two models the shared calendar listed on the metric's own
+    /// source.
     #[error("metric {metric} does not bucket on column {column} of table {table}")]
     BucketNotTimeColumn {
         metric: MetricName,
@@ -190,15 +191,22 @@ fn filters(wire: &[PlanFilter], statement: &Statement<'_>, required: usize) -> R
         .try_for_each(|filter| statement.certifies(filter.predicate().column()))
 }
 
-/// The column this node buckets `metric` on: its time column on its own table, or on its shared
-/// calendar's table when its measure reads a second model, as the planner does.
+/// The column this node buckets `metric` on, as the planner does: its time column on its own table,
+/// or, when its measure reads a second model, on the table of the shared calendar listed on the
+/// metric's own source. `None` when no listed calendar sits on that source.
 fn time_column(definitions: &Definitions, metric: &Metric) -> Option<PlanColumn> {
+    let own = definitions.model(metric.model())?;
     let crosses = metric
         .measure()
         .is_some_and(|m| m.models().into_iter().flatten().any(|second| second != metric.model()));
-    let model = metric.shared_calendar().filter(|_| crosses).unwrap_or_else(|| metric.model());
-    let table = definitions.model(model)?.table_name().clone();
-    Some(PlanColumn::new(table, metric.time_column().clone()))
+    let model = match metric.shared_calendars().filter(|_| crosses) {
+        Some(calendars) => calendars
+            .iter()
+            .filter_map(|name| definitions.model(name))
+            .find(|calendar| calendar.source() == own.source())?,
+        None => own,
+    };
+    Some(PlanColumn::new(model.table_name().clone(), metric.time_column().clone()))
 }
 
 /// Every column `metric`'s measure reads, on the table of the model it reads that column from.

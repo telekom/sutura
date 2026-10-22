@@ -11,11 +11,11 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_catalog_datahub::test_support::DEPLOYMENT_PROPERTY;
-    use sutura_domain::model::{SourceName, TableName};
+    use sutura_domain::model::{QualifiedTable, SourceName};
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-    use sutura_exec_bigquery::BigQueryWarehouse;
     use sutura_exec_bigquery::adbc::{BytesBilledCeiling, DriverLocation, Impersonation};
-    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
+    use sutura_exec_bigquery::transport::ProjectId;
+    use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 
     use super::datahub_tier::{DatahubTier, FixtureNames};
     use crate::harness::keycloak::KeycloakFixture;
@@ -55,8 +55,7 @@ mod tests {
             let warehouse = BigQueryWarehouse::over_adbc(
                 SourceName::parse(CATALOG).expect("the source alias parses"),
                 posture,
-                ProjectId::parse(&project).expect("the key's project_id parses"),
-                DatasetId::parse(&dataset).expect("the dataset id parses"),
+                JobBilling::ServiceAccount(ProjectId::parse(&project).expect("the key's project_id parses")),
                 driver,
                 Impersonation::Disabled,
                 BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
@@ -112,18 +111,18 @@ mod tests {
 
     struct LoadedFixture<'a> {
         warehouse: &'a BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>,
-        orders: TableName,
-        customers: TableName,
+        orders: QualifiedTable,
+        customers: QualifiedTable,
     }
 
     impl<'a> LoadedFixture<'a> {
-        fn loaded(
-            warehouse: &'a BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>,
-            data: &DataDir,
-            names: &FixtureNames,
-        ) -> Self {
-            let orders = TableName::parse(&names.orders).expect("the orders table name parses");
-            let customers = TableName::parse(&names.customers).expect("the customers table name parses");
+        fn loaded(bq: &'a BigQueryFixture, data: &DataDir, names: &FixtureNames) -> Self {
+            let warehouse = &bq.warehouse;
+            let qualified = |name: &str| {
+                QualifiedTable::parse(format!("{}.{}.{name}", bq.project, bq.dataset)).expect("the fixture table path parses")
+            };
+            let orders = qualified(&names.orders);
+            let customers = qualified(&names.customers);
             assert_eq!(
                 warehouse
                     .load_fixture(&orders, &data.orders_csv())
@@ -176,7 +175,7 @@ mod tests {
              version: \"{VERSION}\"\n    endpoint: \"{endpoint}\"\n    \
              token_file: \"{token_file}\"\n    metric_property: \"{DEPLOYMENT_PROPERTY}\"\n\
              sources:\n  {CATALOG}:\n    kind: \"bigquery\"\n    \
-             billing_project: \"{project}\"\n    dataset: \"{dataset}\"\n    \
+             billing:\n      service_account_project: \"{project}\"\n    \
              max_bytes_billed: {max_bytes_billed}\n    \
              posture: \"shared-service-user\"\n",
             resource = issuer.resource,
@@ -184,7 +183,6 @@ mod tests {
             key_set = key_set.display(),
             token_file = token_file.display(),
             project = bq.project,
-            dataset = bq.dataset,
         )
     }
 
@@ -192,10 +190,10 @@ mod tests {
     #[ignore = "requires the hosted DataHub and Keycloak tiers, a BigQuery dataset, and the ADBC driver"]
     fn served_datahub_metric_executes_through_adbc_bigquery() {
         let bq = BigQueryFixture::required();
-        let names = FixtureNames::unique();
+        let names = FixtureNames::unique(format!("{}.{}", bq.project, bq.dataset));
         let data = DataDir::prepared();
         let issuer = keycloak_settings(CASE);
-        let _loaded = LoadedFixture::loaded(&bq.warehouse, &data, &names);
+        let _loaded = LoadedFixture::loaded(&bq, &data, &names);
         let tier = DatahubTier::required();
         tier.provision(&data.token_file(), &names);
         let endpoint = format!("http://{}", tier.endpoint);

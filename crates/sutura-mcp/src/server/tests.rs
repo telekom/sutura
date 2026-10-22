@@ -937,3 +937,47 @@ async fn a_caller_that_goes_away_does_not_hand_back_the_slot_its_worker_still_ho
     );
     assert_eq!(holding.inside(), 0);
 }
+
+fn question_billing_to(payer: &str) -> serde_json::Value {
+    let mut question = a_certified_question();
+    question["bill_to"] = serde_json::Value::from(payer);
+    question
+}
+
+#[tokio::test]
+async fn a_payer_named_on_a_source_that_bills_none_is_refused_never_dropped() {
+    let client = connected(certified_service()).await;
+    let result = client
+        .call_tool(ask(&question_billing_to("caller-pays-1")))
+        .await
+        .expect("a refusal is not a protocol error");
+    let structured = result
+        .structured_content
+        .as_ref()
+        .expect("a refusal carries structured content");
+    assert_eq!(
+        structured.pointer("/reason/code").and_then(serde_json::Value::as_str),
+        Some("bill_to_not_allowed"),
+        "{structured:?}"
+    );
+    drop(client.cancel().await);
+}
+
+#[tokio::test]
+async fn a_bill_to_that_is_not_an_account_is_invalid_params_naming_the_argument() {
+    let client = connected(certified_service()).await;
+    let error = client
+        .call_tool(ask(&question_billing_to("sales dev")))
+        .await
+        .expect_err("`sales dev` is not a billing account name");
+    let ServiceError::McpError(data) = error else {
+        panic!("expected a protocol error, got {error:?}");
+    };
+    assert_eq!(data.code, ErrorCode::INVALID_PARAMS, "{data:?}");
+    assert!(
+        data.message.contains("`bill_to`") && !data.message.contains("sales dev"),
+        "{}",
+        data.message
+    );
+    drop(client.cancel().await);
+}

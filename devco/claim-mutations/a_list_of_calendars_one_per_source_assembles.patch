@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
+index a906ff94d..997fb2a70 100644
+--- a/crates/sutura-domain/src/catalog/calendar.rs
++++ b/crates/sutura-domain/src/catalog/calendar.rs
+@@ -88,7 +88,7 @@ pub(super) fn check(
+         .flat_map(|measure| measure.models().into_iter().flatten());
+     let facts: BTreeSet<&ModelName> = std::iter::once(&metric.model).chain(term_models).collect();
+     for fact in facts.into_iter().filter_map(|name| models.get(name)) {
+-        let Some(calendar) = on_source.get(fact.source()) else {
++        let Some(calendar) = on_source.values().next() else {
+             return Err(InconsistentDefinitions::NoSharedCalendarOnSource {
+                 metric: metric.name.clone(),
+                 model: fact.name.clone(),

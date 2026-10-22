@@ -77,6 +77,8 @@ on:
       - "!**/catalog/**/*.md"
       - "!**/fixtures/**/*.md"
       - "docs/**"
+      - "slides/**"
+      - "nix/slides.nix"
       - "mkdocs.yml"
       - "LICENSE"
       - "NOTICE"
@@ -87,6 +89,8 @@ on:
       - "!**/catalog/**/*.md"
       - "!**/fixtures/**/*.md"
       - "docs/**"
+      - "slides/**"
+      - "nix/slides.nix"
       - "mkdocs.yml"
       - "LICENSE"
       - "NOTICE"
@@ -182,6 +186,11 @@ jobs:
               exit "$status"
               ;;
           esac
+
+      # The meetup deck builds from its lock file with install scripts off. A pull request proves
+      # it builds; only `publish` puts it in the site.
+      - name: Build the meetup deck
+        run: nix build .#checks.x86_64-linux.slides --no-link -L
 
       # NO `hygiene` STEP HERE ANY MORE (#982). `ci.yml`'s `pull_request` trigger carries no path
       # filter, so its own `Structural gates` step builds this identical derivation, unconditionally,
@@ -282,6 +291,13 @@ jobs:
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 
+      # The deck is copied into the site by `docs/.tools/slides.py`, which reads this path.
+      - name: Build the meetup deck
+        id: slides
+        run: |
+          set -eu
+          echo "dist=$(nix build .#checks.x86_64-linux.slides --no-link --print-out-paths)" >> "$GITHUB_OUTPUT"
+
       # Built before deploying, so a site that does not build cannot become a published version.
       # pixi materialises the docs environment - a separate solve from the default env,
       # precisely so mkdocs-material's tree cannot perturb the linters'. `--frozen`
@@ -298,10 +314,13 @@ jobs:
       # No Rust toolchain here, deliberately. The API pages under docs/api/ are generated from
       # rustdoc JSON and committed, because that output needs nightly and this runner has none.
       - name: Build the site
+        env:
+          SUTURA_SLIDES_DIST: ${{ steps.slides.outputs.dist }}
         run: nix run .#pixi -- run --frozen -e docs docs
 
       - name: Deploy with mike
         env:
+          SUTURA_SLIDES_DIST: ${{ steps.slides.outputs.dist }}
           VERSION: ${{ steps.target.outputs.version }}
           ALIAS: ${{ steps.target.outputs.alias }}
         run: |

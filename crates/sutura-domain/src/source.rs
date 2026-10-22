@@ -487,17 +487,16 @@ pub enum ImpersonationCapability {
     /// There is a place in this adapter's path for the ASKING SUBJECT to arrive, so a source
     /// declared [`SourcePosture::ImpersonationAtSource`] can be opened here.
     ///
-    /// **The name is accurate again, and a round of this doc argued the opposite.** It said the
+    /// **The name is accurate at every source but a `domain_delegation` one.** A round of this doc said the
     /// variant was "wider than its name" because the only shipping adapter that declared it
     /// delivered a [`SubjectPrincipal`](crate::identity::Presented::SubjectPrincipal) - a principal
     /// the data system switches to on a connection the DEPLOYMENT authenticated, with nothing the
-    /// subject possesses in the chain. That mechanism was deleted:
-    /// `sutura-exec-bigquery` federates the asker's own verified assertion and REFUSES the principal
-    /// shape, so a subject's own credential is exactly what arrives.
+    /// subject possesses in the chain. `sutura-exec-bigquery` federates the asker's own verified
+    /// assertion and REFUSES that shape at every source but one declared `domain_delegation`.
     ///
-    /// **So a third variant naming the principal switch has nothing left to name**, and this is
-    /// where that decision is recorded rather than in the adapter that prompted it. Should a future
-    /// adapter deliver the weaker shape, the vocabulary question comes back with it.
+    /// **A `domain_delegation` source delivers the weaker shape under this variant**: the
+    /// deployment vouches for a verified address. It opts in per source, so no third variant names
+    /// it; this is where that decision is recorded rather than in the adapter that prompted it.
     ///
     /// **What this variant still does NOT tell a reader**, and the boot check does not need it to:
     /// how much of the caller's own authorization is in the chain at the source. That is the

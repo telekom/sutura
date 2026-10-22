@@ -242,6 +242,9 @@
         # The copy/paste detector (issue #474); body in nix/jscpd.nix.
         jscpd = import ./nix/jscpd.nix { inherit pkgs craneLib inheritedArtifacts; src = jscpd-src; };
 
+        # The meetup deck as a static site; body in nix/slides.nix.
+        slides = import ./nix/slides.nix { inherit pkgs; };
+
         # The workflow parser, including hash-pinned upstream support for `concurrency.queue`.
         actionlint = import ./nix/actionlint.nix { inherit pkgs; };
 
@@ -506,6 +509,11 @@
           # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
           adbc-driver-postgresql-host = postgresAdbcHost;
 
+          slides = slides;
+
+          # The npm advisory scanner `security-audit.yml` runs over the deck's lock.
+          osv-scanner = pkgs.osv-scanner;
+
           # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
           pulumi = pkgs.pulumi;
 
@@ -560,6 +568,11 @@
         # exception is `adbc-driver-bigquery` below - it only has to not break, and the
         # reviewer found nothing in CI realised it, so it earns a slot here.
         checks = {
+          # The deck builds on every pull request that `docs.yml` starts, and `docs.yml` publishes
+          # this same output. A check and not only a package, because ordinary CI may build a
+          # `checks.` output and refuses any other literal `nix build`.
+          slides = slides;
+
           # The self-built ADBC BigQuery driver, as a gate with a REAL venue: the
           # reviewer found nothing in CI realised these packages, so a broken driver
           # would sail a green PR. `nix flake check` realises this derivation, which

@@ -34,11 +34,12 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::Date;
-use crate::identity::Presented;
+use crate::identity::{BillTo, Presented};
 use crate::model::{QualifiedTable, SourceName};
 use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
+pub mod billed;
 /// Shared typing for deliberately simple CSV fixtures.
 #[cfg(any(test, feature = "fixtures"))]
 pub mod csv;
@@ -581,6 +582,42 @@ pub trait Warehouse {
         presented: &Presented,
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error>;
+
+    /// [`dry_run`](Warehouse::dry_run) for a leg that may name who pays.
+    ///
+    /// **Fails closed by default**: a source that does not override this bills no job to a payer,
+    /// so a stated one is refused before the source is asked, never dropped.
+    ///
+    /// # Errors
+    ///
+    /// [`billed::Billed::NotTaken`] for a stated payer here, else the source's own failure.
+    fn dry_run_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> billed::BilledResult<PreFlight, Self::Error> {
+        billed::unstated(bill_to, self.source())?;
+        self.dry_run(executable, presented, deadline).map_err(billed::Billed::Source)
+    }
+
+    /// [`execute`](Warehouse::execute) for a leg that may name who pays; fails closed like
+    /// [`dry_run_billed`](Warehouse::dry_run_billed).
+    ///
+    /// # Errors
+    ///
+    /// [`billed::Billed::NotTaken`] for a stated payer here, else the source's own failure.
+    fn execute_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &BillTo,
+        deadline: Deadline,
+    ) -> billed::BilledResult<ResultBatches, Self::Error> {
+        billed::unstated(bill_to, self.source())?;
+        self.execute(executable, presented, deadline).map_err(billed::Billed::Source)
+    }
 
     /// Re-runs one anchor's plan, under the identity this adapter was configured with.
     ///

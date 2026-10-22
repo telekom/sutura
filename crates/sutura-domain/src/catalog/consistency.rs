@@ -269,9 +269,9 @@ pub enum InconsistentDefinitions {
     #[error("this catalog's definitions carry {bytes} authored bytes, and the limit is {limit}")]
     DefinitionsTooLarge { bytes: usize, limit: usize },
     /// A cross-model ratio's shared calendar is not reachable from one of its fact models
-    /// (`telekom/sutura#780`). The metric declares a `shared_calendar` model, and every model a
-    /// ratio term names - including the metric's own - must declare a relationship FROM itself TO
-    /// that calendar, the direction each fact leg joins it in. A model that does not is a
+    /// (`telekom/sutura#780`). The metric lists its shared calendars, and every model a ratio term
+    /// names - including the metric's own - must declare a relationship FROM itself TO the calendar
+    /// listed on its source, the direction each fact leg joins it in. A model that does not is a
     /// definition that loads but whose ratio can never be bucketed through the shared calendar,
     /// so it is refused at declaration time rather than at query time.
     #[error("metric {metric} declares shared calendar {calendar}, which model {model} has no relationship to")]
@@ -279,6 +279,34 @@ pub enum InconsistentDefinitions {
         metric: MetricName,
         calendar: ModelName,
         model: ModelName,
+    },
+    /// Two of a metric's shared calendars sit on one data system. A fact leg joins the calendar
+    /// inside its own statement, and a source with two calendars leaves no one of them to join.
+    #[error("metric {metric} lists shared calendars {first} and {second}, which are both on source {data_system}")]
+    SharedCalendarsShareASource {
+        metric: MetricName,
+        data_system: SourceName,
+        first: ModelName,
+        second: ModelName,
+    },
+    /// A fact model of a cross-model ratio whose data system has no listed calendar. Its leg could
+    /// not join a calendar inside its own statement, so the ratio could never be bucketed there.
+    #[error("metric {metric} lists no shared calendar on source {data_system}, where model {model} lives")]
+    NoSharedCalendarOnSource {
+        metric: MetricName,
+        model: ModelName,
+        data_system: SourceName,
+    },
+    /// Two listed calendars declare the metric's time column as different kinds of type (a date and
+    /// text, say). Each leg buckets on its own source's calendar and the combiner joins the buckets
+    /// above, so two kinds is a join that can silently match nothing. A type that is undeclared or
+    /// of a kind `LinkKind::declared` does not know is not compared.
+    #[error("metric {metric}'s time column {column} is of different kinds on shared calendars {first} and {other}")]
+    SharedCalendarsDisagreeOnTimeType {
+        metric: MetricName,
+        column: ColumnName,
+        first: ModelName,
+        other: ModelName,
     },
     /// A cross-model ratio term whose aggregate has no value over no rows (`telekom/sutura#780`).
     ///
@@ -516,7 +544,7 @@ impl Definitions {
         // calendar one fact cannot reach is a definition whose ratio can never be bucketed - the
         // refusal is at declaration time, which is where this repo puts them. Only the models a
         // ratio term actually names are checked: a one-model metric has no cross-model term, so its
-        // `shared_calendar` (if set) is checked against just its own model.
+        // shared calendars (if set) are checked against just its own model.
         if let Some(measure) = metric.computation.measure()
             && measure.models().into_iter().flatten().any(|named| named != &metric.model)
         {
@@ -531,49 +559,8 @@ impl Definitions {
                 }
             }
         }
-        if let Some(calendar) = metric.shared_calendar.as_ref() {
-            // The calendar model must exist.
-            if !models.contains_key(calendar) {
-                return Err(InconsistentDefinitions::SharedCalendarNotReachable {
-                    metric: metric.name.clone(),
-                    calendar: calendar.clone(),
-                    model: calendar.clone(),
-                });
-            }
-            // Every model a ratio term names must reach the calendar - the metric's own first,
-            // then each cross-model term's - through a relationship from the model to the calendar,
-            // which is the hop each fact leg joins.
-            let mut models_to_check = vec![&metric.model];
-            if let Some(measure) = metric.computation.measure() {
-                for term_model in measure.models().into_iter().flatten() {
-                    if term_model != &metric.model {
-                        models_to_check.push(term_model);
-                    }
-                }
-            }
-            for &named in &models_to_check {
-                let reaches = relationships
-                    .values()
-                    .any(|rel| rel.origin_model() == named && rel.target_model() == calendar);
-                if !reaches {
-                    return Err(InconsistentDefinitions::SharedCalendarNotReachable {
-                        metric: metric.name.clone(),
-                        calendar: calendar.clone(),
-                        model: named.clone(),
-                    });
-                }
-            }
-            // The column both legs bucket and bound by is the metric's time column on the calendar.
-            if models
-                .get(calendar)
-                .is_some_and(|model| !model.has_column(&metric.time_column))
-            {
-                return Err(InconsistentDefinitions::UnknownTimeColumn {
-                    metric: metric.name.clone(),
-                    model: calendar.clone(),
-                    column: metric.time_column.clone(),
-                });
-            }
+        if let Some(calendars) = metric.shared_calendars.as_ref() {
+            super::calendar::check(models, relationships, metric, calendars)?;
         }
         Ok(())
     }

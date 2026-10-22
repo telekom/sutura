@@ -88,16 +88,16 @@ pub(crate) struct Resolution<'a> {
 /// What a cross-model ratio's second fact leg is built from (`telekom/sutura#780`), looked up once.
 ///
 /// The consistency check at load proved each model exists and that BOTH fact models reach the
-/// calendar through a relationship of their own, so every lookup that fills this is one
+/// calendar listed on their own source through a relationship of their own, so every lookup that fills this is one
 /// `Definitions::assemble` already answered.
 pub(crate) struct CrossModel<'a> {
     /// The model the ratio's other term reads.
     pub(crate) second: &'a Model,
-    /// The calendar both facts bucket through.
+    /// The calendar listed on the metric's own source, which the first fact buckets through.
     pub(crate) calendar: &'a Model,
     /// The metric's own model's hop to the calendar.
     pub(crate) own_to_calendar: &'a Relationship,
-    /// The second fact's hop to the calendar.
+    /// The second fact's hop to the calendar listed on its own source.
     pub(crate) second_to_calendar: &'a Relationship,
     /// Every relationship out of the second fact - the splitter reads its OWN link into the
     /// question's remote dimension off these, never the first fact's key name.
@@ -123,7 +123,7 @@ pub enum BundleInconsistent {
     RelationshipAbsent { dimension: DimensionName },
     #[error("a relationship names model {model}, which the pinned bundle does not hold")]
     JoinTargetMissing { model: ModelName },
-    #[error("metric {metric}'s model {model} declares no relationship to the metric's shared calendar")]
+    #[error("metric {metric}'s model {model} has no shared calendar on its source, or declares no relationship to it")]
     SharedCalendarNotJoined { metric: MetricName, model: ModelName },
 }
 
@@ -383,7 +383,7 @@ fn cross_model<'a>(metric: &'a Metric, definitions: &'a Definitions) -> Result<O
         .into_iter()
         .flat_map(|m| m.models().into_iter().flatten())
         .find(|m| *m != metric.model());
-    let (Some(named), Some(calendar_name)) = (named, metric.shared_calendar()) else {
+    let (Some(named), Some(calendars)) = (named, metric.shared_calendars()) else {
         return Ok(None);
     };
     let model = |name: &ModelName| {
@@ -398,19 +398,32 @@ fn cross_model<'a>(metric: &'a Metric, definitions: &'a Definitions) -> Result<O
             .values()
             .filter(move |relationship| relationship.origin_model() == from)
     };
-    let to_calendar = |from: &'a ModelName| {
-        out_of(from)
-            .find(|relationship| relationship.target_model() == calendar_name)
+    // The calendar a fact leg joins is the one listed on its own source - the load check proves one.
+    let calendar_of = |from: &'a ModelName| -> Result<&'a Model, BundleInconsistent> {
+        let source = model(from)?.source();
+        calendars
+            .iter()
+            .filter_map(|name| definitions.model(name))
+            .find(|calendar| calendar.source() == source)
             .ok_or_else(|| BundleInconsistent::SharedCalendarNotJoined {
                 metric: metric.name().clone(),
                 model: from.clone(),
             })
     };
+    let to_calendar = |from: &'a ModelName, calendar: &Model| {
+        out_of(from)
+            .find(|relationship| relationship.target_model() == calendar.name())
+            .ok_or_else(|| BundleInconsistent::SharedCalendarNotJoined {
+                metric: metric.name().clone(),
+                model: from.clone(),
+            })
+    };
+    let calendar = calendar_of(metric.model())?;
     Ok(Some(CrossModel {
         second: model(named)?,
-        calendar: model(calendar_name)?,
-        own_to_calendar: to_calendar(metric.model())?,
-        second_to_calendar: to_calendar(named)?,
+        calendar,
+        own_to_calendar: to_calendar(metric.model(), calendar)?,
+        second_to_calendar: to_calendar(named, calendar_of(named)?)?,
         second_relationships: out_of(named).collect(),
     }))
 }

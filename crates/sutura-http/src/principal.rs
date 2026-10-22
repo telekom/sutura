@@ -65,6 +65,8 @@ pub(crate) fn established() -> RequestContext {
 /// and no assertion, because the deployment's own identity has no credential of its own to exchange.
 pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
     RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone(), caller.expires())
+        .addressed(caller.address().cloned())
+        .grouped(sutura_domain::identity::CallerGroups::of(caller.groups().iter()))
         .naming_client(caller.client().clone())
 }
 

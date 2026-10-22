@@ -266,8 +266,6 @@ outputs:
       sources:
         warehouse:
           kind: bigquery
-          billing_project: ${project}
-          dataset: ${dataset.datasetId}
           max_bytes_billed: 1073741824
           posture: impersonation-at-source
           workload_identity:
