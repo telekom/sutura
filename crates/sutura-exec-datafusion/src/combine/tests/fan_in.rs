@@ -1,7 +1,7 @@
 //! Fan-in: three lookup legs, one joined onto another, each on its own link.
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::plan::{FederatedAnswerRefusal, InternalLabel};
+use sutura_domain::plan::{FederatedAnswerRefusal, InternalLabel, LinkKind};
 use sutura_domain::warehouse::Value;
 
 use super::fixtures::{UNBOUNDED, batches_of, fan_in_plan, leaf, try_combine_every};
@@ -88,5 +88,43 @@ fn a_second_lookup_leg_whose_link_kind_disagrees_with_its_onto_leg_is_refused() 
             &refused
         ),
         Some(FederatedAnswerRefusal::LinkTypeMismatch)
+    );
+}
+
+/// A declaration names the first link only. Here the first link is an integer fact key against
+/// `geo`'s text key, which the declaration casts; `crm`'s link against `geo`'s is two text keys,
+/// which a declaration that reached it would refuse for want of an anchor, and which compare
+/// exactly as they always did.
+#[test]
+fn a_later_lookup_leg_is_compared_exactly_under_a_declaration() {
+    let mut every = legs(vec![vec![text("r1"), text("emea")], vec![text("r2"), text("apac")]]);
+    every[0] = batches_of(
+        vec![link(0), link(2), named(TIME_BUCKET_LABEL), leaf(0)],
+        ["c1", "c2", "c3"]
+            .into_iter()
+            .zip([1, 2, 3])
+            .zip([10, 20, 40])
+            .map(|((customer, key), cents)| vec![Value::Integer(key), text(customer), text("2026-06"), Value::Integer(cents)])
+            .collect(),
+    );
+    every[1] = batches_of(
+        vec![link(0), link(1), named("region")],
+        vec![
+            vec![text("1"), text("r1"), text("north")],
+            vec![text("2"), text("r2"), text("south")],
+            vec![text("3"), text("r9"), text("west")],
+        ],
+    );
+    let plan = fan_in_plan().with_link_comparison(Some(LinkKind::ExactInteger));
+    let answered = try_combine_every(&plan, &every, UNBOUNDED)
+        .expect("only the first link is declared")
+        .to_rows()
+        .expect("a combined answer decodes");
+    assert_eq!(
+        answered.rows(),
+        &[
+            vec![text("north"), text("emea"), text("gold"), text("2026-06"), Value::Integer(10)],
+            vec![text("south"), text("apac"), Value::Null, text("2026-06"), Value::Integer(20)],
+        ]
     );
 }

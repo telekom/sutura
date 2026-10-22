@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Anchor, AnchorValue};
+use crate::catalog::{Anchor, AnchorValue, InvalidSharedCalendars, SharedCalendars};
 
 /// `orders`, `customers` and `calendar`, all local: `orders` and `customers` each reach
 /// `calendar` through their own relationship, in addition to the `orders`-`customers` link
@@ -344,5 +344,198 @@ fn a_cross_model_ratio_with_a_distinct_count_term_is_refused_at_load() {
             metric: metric_name("revenue_per_customer"),
             aggregate: Aggregate::CountDistinct,
         })
+    );
+}
+
+/// `orders` on `local`, `customers` on `customers_side`, and the calendars `calendar` and
+/// `customers_calendar` on the sources named: `orders` and `customers` each reach the calendar named
+/// for them. A cell can put both calendars on one source.
+fn two_source_catalog(calendar_sources: (&str, &str)) -> ModelsAndJoins {
+    let (models, mut relationships) = three_models_with_calendar();
+    let models = models
+        .into_iter()
+        .map(|declared| match declared.name().as_str() {
+            "customers" => model("customers", "customers_side", &["id", "region_code", "day_key"]),
+            "calendar" => model("calendar", calendar_sources.0, &["day_key", "order_date"]),
+            _ => declared,
+        })
+        .chain([model("customers_calendar", calendar_sources.1, &["day_key", "order_date"])])
+        .collect();
+    relationships.retain(|declared| declared.name() != &relationship_name("customers_calendar"));
+    relationships.push(joining("customers", "customers_calendar_hop", "customers_calendar"));
+    (models, relationships)
+}
+
+/// A relationship from `origin` to `target` on `day_key`, the hop a fact leg joins a calendar by.
+fn joining(origin: &str, name: &str, target: &str) -> Relationship {
+    Relationship::new(
+        relationship_name(name),
+        model_name(origin),
+        model_name(target),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: column("day_key"),
+            target: column("day_key"),
+        }])
+        .expect("a test relationship declares one key"),
+    )
+}
+
+/// The cross-model ratio of [`ratio_over_two_facts`], listing exactly the named calendars.
+fn ratio_listing_calendars(calendars: &[&str]) -> Metric {
+    ratio_over_two_facts_without_a_calendar(None).with_shared_calendars(
+        SharedCalendars::parse(calendars.iter().map(|name| model_name(name))).expect("a test list is a list"),
+    )
+}
+
+#[test]
+fn a_list_of_calendars_one_per_source_assembles() {
+    let (models, relationships) = two_source_catalog(("local", "customers_side"));
+    let definitions = Definitions::assemble(
+        models,
+        relationships,
+        vec![ratio_listing_calendars(&["calendar", "customers_calendar"])],
+    )
+    .expect("each fact reaches the calendar listed on its own source");
+    let listed = definitions
+        .metric(&metric_name("revenue_per_customer"))
+        .and_then(Metric::shared_calendars)
+        .map(|calendars| calendars.iter().cloned().collect::<Vec<_>>());
+    assert_eq!(listed, Some(vec![model_name("calendar"), model_name("customers_calendar")]));
+}
+
+#[test]
+fn two_calendars_on_one_source_are_refused() {
+    let (models, relationships) = two_source_catalog(("local", "local"));
+    assert_eq!(
+        Definitions::assemble(
+            models,
+            relationships,
+            vec![ratio_listing_calendars(&["calendar", "customers_calendar"])]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::SharedCalendarsShareASource {
+            metric: metric_name("revenue_per_customer"),
+            data_system: SourceName::parse("local").expect("a test source is a source"),
+            first: model_name("calendar"),
+            second: model_name("customers_calendar"),
+        }
+    );
+}
+
+#[test]
+fn a_fact_source_with_no_listed_calendar_is_refused() {
+    let (models, relationships) = two_source_catalog(("local", "customers_side"));
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![ratio_listing_calendars(&["calendar"])]).unwrap_err(),
+        InconsistentDefinitions::NoSharedCalendarOnSource {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("customers"),
+            data_system: SourceName::parse("customers_side").expect("a test source is a source"),
+        }
+    );
+    // The metric's own model is a fact too: `orders` lives on `local`, where only `calendar` sits.
+    let (models, relationships) = two_source_catalog(("local", "customers_side"));
+    assert_eq!(
+        Definitions::assemble(models, relationships, vec![ratio_listing_calendars(&["customers_calendar"])]).unwrap_err(),
+        InconsistentDefinitions::NoSharedCalendarOnSource {
+            metric: metric_name("revenue_per_customer"),
+            model: model_name("orders"),
+            data_system: SourceName::parse("local").expect("a test source is a source"),
+        }
+    );
+}
+
+#[test]
+fn a_fact_reaching_only_another_source_s_calendar_is_refused() {
+    // `customers` joins the calendar on `local`, which is not the one its own leg can read.
+    let (models, mut relationships) = two_source_catalog(("local", "customers_side"));
+    relationships.retain(|declared| declared.name() != &relationship_name("customers_calendar_hop"));
+    relationships.push(joining("customers", "customers_calendar_across", "calendar"));
+    assert_eq!(
+        Definitions::assemble(
+            models,
+            relationships,
+            vec![ratio_listing_calendars(&["calendar", "customers_calendar"])]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::SharedCalendarNotReachable {
+            metric: metric_name("revenue_per_customer"),
+            calendar: model_name("customers_calendar"),
+            model: model_name("customers"),
+        }
+    );
+}
+
+/// [`two_source_catalog`] with `order_date` typed `first` on `calendar` and `second` on `customers_calendar`.
+fn assembled_with_time_types(first: Option<&str>, second: Option<&str>) -> Result<Definitions, InconsistentDefinitions> {
+    let (models, relationships) = two_source_catalog(("local", "customers_side"));
+    let typed = |name: &str, source: &str, kind: Option<&str>| {
+        Model::new(
+            model_name(name),
+            SourceName::parse(source).expect("a test source is a source"),
+            TableName::parse(name).expect("a test table is a table"),
+            [
+                Column::from(column("day_key")),
+                Column::new(
+                    column("order_date"),
+                    kind.map(|raw| ColumnType::parse(raw).expect("a test column type is a column type")),
+                    Description::default(),
+                    None,
+                ),
+            ],
+            Description::default(),
+        )
+    };
+    let models = models
+        .into_iter()
+        .map(|declared| match declared.name().as_str() {
+            "calendar" => typed("calendar", "local", first),
+            "customers_calendar" => typed("customers_calendar", "customers_side", second),
+            _ => declared,
+        })
+        .collect();
+    Definitions::assemble(
+        models,
+        relationships,
+        vec![ratio_listing_calendars(&["calendar", "customers_calendar"])],
+    )
+}
+
+#[test]
+fn calendars_typing_the_time_column_differently_are_refused() {
+    assert_eq!(
+        assembled_with_time_types(Some("DATE"), Some("VARCHAR(10)")).unwrap_err(),
+        InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType {
+            metric: metric_name("revenue_per_customer"),
+            column: column("order_date"),
+            // Calendars are walked in source order, and `customers_side` sorts before `local`.
+            first: model_name("customers_calendar"),
+            other: model_name("calendar"),
+        }
+    );
+}
+
+#[test]
+fn calendars_typing_the_time_column_alike_or_not_at_all_assemble() {
+    // The twins of the refusal: one kind on both however it is spelled, a type on one side only, and
+    // a kind `LinkKind::declared` does not know (a timestamp), none of which can be compared.
+    for (first, second) in [
+        (Some("DATE"), Some("DATE")),
+        (Some("date"), Some("DATE")),
+        (Some("DATE"), None),
+        (None, Some("DATE")),
+        (Some("DATE"), Some("TIMESTAMP")),
+    ] {
+        assembled_with_time_types(first, second).expect("kinds that agree or are not both known are not compared");
+    }
+}
+
+#[test]
+fn a_calendar_list_names_one_calendar_at_least_and_each_once() {
+    assert_eq!(SharedCalendars::parse([]).unwrap_err(), InvalidSharedCalendars::Empty);
+    assert_eq!(
+        SharedCalendars::parse([model_name("calendar"), model_name("other"), model_name("calendar")]).unwrap_err(),
+        InvalidSharedCalendars::Repeated(model_name("calendar"))
     );
 }

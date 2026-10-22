@@ -40,8 +40,8 @@ use crate::resolve::ResolveError;
 use sutura_domain::model::MetricName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::QueryPlan as DomainPlan;
-pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
-use sutura_domain::plan::{FederatedPlanError, IncoherentBindings};
+pub use sutura_domain::plan::{DrillAcrossPlan, FederatedPlan, QueryPlan};
+use sutura_domain::plan::{DrillAcrossPlanError, FederatedPlanError, IncoherentBindings};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
@@ -61,6 +61,10 @@ pub enum Compiled {
     /// [`FederationCombiner`](sutura_domain::plan::FederationCombiner) turns the batches
     /// back into one answer above them.
     Federated { plan: Box<FederatedPlan> },
+    /// The question named several metrics, and each is answered by its own arm: one fact leg, or a
+    /// fact leg beside a lookup leg. The combiner behind
+    /// [`DrillAcrossCombiner`](sutura_domain::plan::DrillAcrossCombiner) joins the arms above them.
+    DrillAcross { plan: Box<DrillAcrossPlan> },
     /// The question was refused, and this is why.
     Refused { reason: RefusalReason },
 }
@@ -70,7 +74,7 @@ impl Compiled {
     pub const fn refusal(&self) -> Option<&RefusalReason> {
         match *self {
             Self::Refused { ref reason } => Some(reason),
-            Self::Planned { .. } | Self::Federated { .. } => None,
+            Self::Planned { .. } | Self::Federated { .. } | Self::DrillAcross { .. } => None,
         }
     }
     /// The plan, if the question resolved to one data system.
@@ -78,7 +82,7 @@ impl Compiled {
     pub const fn plan(&self) -> Option<&DomainPlan> {
         match *self {
             Self::Planned { ref plan } => Some(plan),
-            Self::Federated { .. } | Self::Refused { .. } => None,
+            Self::Federated { .. } | Self::DrillAcross { .. } | Self::Refused { .. } => None,
         }
     }
 }
@@ -119,6 +123,9 @@ pub enum CompileFailure {
     /// A two-source plan this workspace compiled and could not then assemble.
     #[error("this deployment compiled a two-source question it could not assemble")]
     NotAssembled(#[from] FederatedPlanError),
+    /// A drill-across plan this workspace compiled from arms it could not then assemble.
+    #[error("this deployment compiled a question over several metrics it could not assemble")]
+    NotAssembledAcross(#[from] DrillAcrossPlanError),
     /// A plan this workspace compiled whose predicates and parameters did not resolve each other.
     #[error("this deployment compiled a question whose parameters did not bind")]
     NotBound(#[from] IncoherentBindings),
@@ -199,18 +206,20 @@ pub fn compile(
     view: &ScopedView<'_>,
     row_ceiling: sutura_domain::plan::RowCeiling,
 ) -> Result<Compiled, CompileFailure> {
-    let resolution = match resolve::resolve(query, view, row_ceiling) {
-        Ok(resolution) => resolution,
+    let resolved = match resolve::resolve(query, view, row_ceiling) {
+        Ok(resolved) => resolved,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),
     };
-    match plan::plan(&resolution) {
+    match plan::plan_resolved(&resolved) {
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
+        Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
         Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
         Err(PlanError::NotBound(cause)) => Err(cause.into()),
+        Err(PlanError::NotAssembledAcross(cause)) => Err(cause.into()),
         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
         Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
             Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })

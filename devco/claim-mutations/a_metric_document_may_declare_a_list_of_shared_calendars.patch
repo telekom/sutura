@@ -1,0 +1,19 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 144f58643..9e75b02b5 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -685,12 +685,8 @@ impl MetricDoc {
+     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
+         let shared_calendars = self
+             .shared_calendar
+-            .map(SharedCalendars::parse)
+-            .transpose()
+-            .map_err(|cause| InvalidMetricDocument::SharedCalendars {
+-                metric: self.name.clone(),
+-                cause,
+-            })?;
++            .and_then(|names| SharedCalendars::parse(names).ok())
++            .filter(|_| false);
+         // A vector, handed on as a vector. This loop used to build a map and refuse a repeat in it,
+         // which was a check the DataHub adapter did not have - see `InvalidMetricDocument`.
+         let mut dimensions: Vec<Dimension> = Vec::with_capacity(self.dimensions.len());

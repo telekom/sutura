@@ -428,8 +428,8 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
     },
     Contradicted {
         // `github.com/telekom/sutura#370` row A, widened by issue 113. The first wording sat on the
-        // doc comment of the very method the federated answer path calls, and `just api` republished
-        // it at `docs/api/sutura-domain.md`, which `mkdocs.yml` puts in the nav. **Every wording here
+        // doc comment of the very method the federated answer path calls, and the API reference
+        // republished it on `sutura-domain`'s page. **Every wording here
         // was TRUE when it was written**, so nothing here could have caught them going false - that
         // direction is `absences`, one module over. This is the other one: a ratchet, so no spelling
         // of the pre-federation belief can be reinstated by whoever reads one file and not its caller.

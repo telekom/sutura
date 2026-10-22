@@ -304,6 +304,11 @@ mod dry_run_count_test;
 #[cfg(test)]
 mod charged_leg_test;
 
+/// The drill-across answer path's cells, split out for the same `max-lines` reason; `#[cfg(test)]`
+/// for the same `test-causality` reason the submodules above state.
+#[cfg(test)]
+mod across_test;
+
 #[test]
 fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
     let shared = shared();

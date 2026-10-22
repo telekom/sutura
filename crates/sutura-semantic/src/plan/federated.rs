@@ -138,45 +138,10 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
     let fact_bindings = super::predicates_and_params(resolution, &local_filters, own_table, &time_column)?;
     let lookup_bindings = super::requested_for(&remote_filters, remote_table)?;
 
-    // The fact leg's terms, projected under the one labelling rule the combiner reads back - in the
-    // same reserved namespace as the link, for the same reason: `metric__{n}` is a legal dimension
-    // name too, and over a 63-character metric name it also crossed the identifier limit a data
-    // system truncates silently.
-    let leaf_labels = labels(&federation);
-    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
-    let mut second_terms: Vec<LegTerm> = Vec::new();
-    // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads - `None`
-    // (the metric's own, erased by `of_metric`) on the first fact leg, `Some` on the second, each
-    // column qualified by the table its own leg reads. Both legs are labelled by position through
-    // `labels(&federation)`, and D9 in `FederatedPlan::new` checks each leg carries its own share.
+    // `telekom/sutura#780`: a cross-model ratio's leaves split by the model each reads, each column
+    // qualified by the table its own leg reads.
     let second_table = resolution.cross.as_ref().map_or(own_table, |cross| cross.second.table_name());
-    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
-        let owning_table = (if leaf.model().is_some() { second_table } else { own_table }).clone();
-        let plan_term = match **leaf {
-            Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
-                aggregate: pushed.push(),
-                column: PlanColumn::new(owning_table, column.clone()),
-            },
-            Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
-                column: PlanColumn::new(owning_table, column.clone()),
-            },
-            // No term: the leg groups by the column, one row per distinct value, and the combine
-            // counts them. `FederatedPlan::new` checks the key is on the leg under this label.
-            Carried::Keys { ref column, .. } => {
-                fact_keys.push(PlanKey::new(
-                    ResultLabel::internal(label),
-                    PlanColumn::new(owning_table, column.clone()),
-                ));
-                continue;
-            }
-        };
-        let leg_term = LegTerm::new(plan_term, ResultLabel::internal(label));
-        if leaf.model().is_some() {
-            second_terms.push(leg_term);
-        } else {
-            terms.push(leg_term);
-        }
-    }
+    let (terms, second_terms) = leg_terms(&federation, own_table, second_table, &mut fact_keys);
 
     // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg. Each
     // chain stops at its crossing hop, which is the link the lookup leg above carries rather than a
@@ -275,6 +240,57 @@ pub(super) fn federated_plan(resolution: &Resolution<'_>, closed: &Measure) -> R
         Some(top) => plan.with_top(top),
         None => plan,
     })
+}
+
+/// The first fact leg's terms, then the second's.
+pub(super) type TermsByLeg = (Vec<LegTerm>, Vec<LegTerm>);
+
+/// The fact legs' terms for `federation`'s leaves, projected under the one labelling rule the combiner
+/// reads back - in the same reserved namespace as the link, for the same reason: `metric__{n}` is a
+/// legal dimension name too, and over a 63-character metric name it also crossed the identifier limit
+/// a data system truncates silently.
+///
+/// A leaf that names another model is the second fact's, and each is qualified by the table its own
+/// leg reads. Both legs are labelled by position through [`labels`], and D9 in `FederatedPlan::new`
+/// checks each carries its own share. A distinct count's leaf is no term: the leg groups by its
+/// column, one row per distinct value, so it becomes one more key of `fact_keys` and the combine
+/// counts them.
+pub(super) fn leg_terms(
+    federation: &Federation,
+    own_table: &TableName,
+    second_table: &TableName,
+    fact_keys: &mut Vec<PlanKey>,
+) -> TermsByLeg {
+    let leaf_labels = labels(federation);
+    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
+    let mut second_terms: Vec<LegTerm> = Vec::new();
+    for (leaf, &label) in federation.carried().iter().zip(leaf_labels.iter()) {
+        let owning_table = (if leaf.model().is_some() { second_table } else { own_table }).clone();
+        let plan_term = match **leaf {
+            Carried::Aggregated { pushed, ref column, .. } => PlanTerm::Aggregate {
+                aggregate: pushed.push(),
+                column: PlanColumn::new(owning_table, column.clone()),
+            },
+            Carried::CountIf { ref column, .. } => PlanTerm::CountIf {
+                column: PlanColumn::new(owning_table, column.clone()),
+            },
+            // `FederatedPlan::new` checks the key is on the leg under this label.
+            Carried::Keys { ref column, .. } => {
+                fact_keys.push(PlanKey::new(
+                    ResultLabel::internal(label),
+                    PlanColumn::new(owning_table, column.clone()),
+                ));
+                continue;
+            }
+        };
+        let leg_term = LegTerm::new(plan_term, ResultLabel::internal(label));
+        if leaf.model().is_some() {
+            second_terms.push(leg_term);
+        } else {
+            terms.push(leg_term);
+        }
+    }
+    (terms, second_terms)
 }
 
 /// The one key a crossing relationship links the two legs on, refusing a compound one.

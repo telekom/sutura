@@ -7,7 +7,7 @@ index d95464a2e..6ef6fff8c 100644
              && measure.models().into_iter().flatten().any(|named| named != &metric.model)
          {
 -            if metric.anchor.is_some() {
-+            if metric.anchor.is_some() && metric.shared_calendar.is_some() {
++            if metric.anchor.is_some() && metric.shared_calendars.is_some() {
                  return Err(InconsistentDefinitions::AnchorOnCrossModelRatio {
                      metric: metric.name.clone(),
                  });

@@ -43,28 +43,28 @@ const METRIC_UNKNOWN: Guide = Guide {
              whole of what exists.",
 };
 
-const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
-    reason: "metrics_span_different_models",
-    meaning: "two named metrics do not share a model or a time column",
-    remedy: "Ask about each metric separately - one at a time executes.",
-};
-
 const TOO_MANY_METRICS: Guide = Guide {
     reason: "too_many_metrics",
     meaning: "more metrics than one question may carry",
     remedy: "Ask two narrower questions instead.",
 };
 
+const DIMENSION_NOT_CONFORMED: Guide = Guide {
+    reason: "dimension_not_conformed",
+    meaning: "a dimension does not end on the same model and column for two of the named metrics, so it cannot be used for both",
+    remedy: "Ask for those metrics separately, or leave that dimension out.",
+};
+
+const QUESTION_NEEDS_TOO_MANY_LEGS: Guide = Guide {
+    reason: "question_needs_too_many_legs",
+    meaning: "answering would run more queries against the data systems than one question may",
+    remedy: "Ask for fewer metrics at a time.",
+};
+
 const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
     remedy: "Send it once - refused rather than de-duplicated.",
-};
-
-const MULTI_METRIC_FEDERATION_NOT_EXECUTABLE: Guide = Guide {
-    reason: "multi_metric_federation_not_executable",
-    meaning: "this build does not federate several metrics, and the question reached a remote dimension",
-    remedy: "Ask about each metric separately.",
 };
 
 const MULTI_METRIC_TOP_NOT_EXECUTABLE: Guide = Guide {
@@ -180,6 +180,12 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
              one statement, so a question without it is still answered. If every dimension you need \
              goes through it, report it to a person: it is a fact about where the tables live, not \
              about how you asked.",
+};
+
+const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
+    reason: "plan_needs_too_many_lookup_legs",
+    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
 };
 
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
@@ -310,6 +316,12 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
     remedy: "Group only by a dimension both fact models link to; if the metric has none, report it.",
 };
 
+const CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG: Guide = Guide {
+    reason: "cross_model_ratio_needs_one_lookup_leg",
+    meaning: "a two-fact ratio grouped by dimensions that need more than one lookup leg",
+    remedy: "Group only by dimensions of one remote model; if you need both, report it.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -321,10 +333,9 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
 /// `prompt::tests` asserts against it is a second net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
-    &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
+    &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
-    &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
@@ -346,6 +357,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     // not narrow.
     &BUDGET_EXHAUSTED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
+    &QUESTION_NEEDS_TOO_MANY_LEGS,
+    &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
@@ -368,6 +381,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
     &CROSS_MODEL_RATIO_SPANS_SOURCES,
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
+    &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &BILL_TO_NOT_ALLOWED,
@@ -389,13 +403,12 @@ pub(super) const GUIDES: &[&Guide] = &[
 pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
-        RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
         RefusalReason::TooManyMetrics { .. } => &TOO_MANY_METRICS,
         RefusalReason::DuplicateMetricName { .. } => &DUPLICATE_METRIC_NAME,
-        RefusalReason::MultiMetricFederationNotExecutable { .. } => &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
+        RefusalReason::DimensionNotConformed { .. } => &DIMENSION_NOT_CONFORMED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
         RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
         RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
@@ -405,6 +418,8 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
+        RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
+        RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
@@ -422,6 +437,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
         RefusalReason::CrossModelRatioSpansSources { .. } => &CROSS_MODEL_RATIO_SPANS_SOURCES,
         RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
     }
 }
 

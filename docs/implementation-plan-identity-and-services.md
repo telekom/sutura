@@ -1009,6 +1009,7 @@ economise.
    | `check-vendor-count` | `VENDOR.md`'s mimalloc row, `Cargo.toml` and `REUSE.toml` |
    | `check-shared-client` | `Cargo.lock` |
    | `check-attribution-owner` | the ABSENCE of `ATTRIBUTION.md` at the repo root, and `.github/workflows/release.yml` for whether the release still generates the attribution asset |
+   | `check-api-pages-untracked` | the ABSENCE of any tracked path under `docs/api/`, from the repository file listing |
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-unsafe` | the root manifest's `members` list, then every crate root each member's layout produces under `crates/`, `xtask/` and `dev/` - for `#![forbid(unsafe_code)]` - plus every `.rs` under those members for an `expect`/`allow` of the same lint |
@@ -1040,7 +1041,6 @@ economise.
    | --- | --- |
    | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, a version beside a pinned name, contradicted claims and counts are deferred to the `main` push** |
    | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
-   | `check-api-links` | Deferred, and the deferral is narrow: it reads `docs/api/*.md`, which are GENERATED, so only a hand edit to a page can break it from such a diff - and `check-api-docs` fails on that edit anyway, since the page no longer matches a fresh generation. What is genuinely deferred is a hand-edited `docs/api/index.md`, which nothing regenerates |
    | `check-shipped-binaries` | Half deferred, and it is the half a page can break: the binary literals it reconciles are under `nix/` and `.github/`, but its second rule reads the documented `cargo build --features` out of `docs/**` - so a page that stops documenting that build, or documents a feature `nix/shipped.nix` does not probe, merges green and only the `main` push says so |
    | `check-crap` | Deferred, and the row easiest to get wrong: it reads `docs/crap.md` for the `cargo-crap` version `nix/crap.nix` pins, so a page edit that drops that version merges green |
    | `check-gate-classification` | Deferred, and it reads the two tables above - so a pull request can break this classification and only the `main` push says so |

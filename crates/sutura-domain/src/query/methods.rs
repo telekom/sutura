@@ -121,13 +121,12 @@ impl RefusalReason {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::MetricUnknown { .. } => "metric_unknown",
-            Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
             Self::TooManyMetrics { .. } => "too_many_metrics",
             Self::DuplicateMetricName { .. } => "duplicate_metric_name",
-            Self::MultiMetricFederationNotExecutable { .. } => "multi_metric_federation_not_executable",
             Self::MultiMetricTopNotExecutable { .. } => "multi_metric_top_not_executable",
             Self::GrainNotSupported { .. } => "grain_not_supported",
             Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
+            Self::DimensionNotConformed { .. } => "dimension_not_conformed",
             Self::DimensionNotFilterable { .. } => "dimension_not_filterable",
             Self::DimensionValueNotAllowed { .. } => "dimension_value_not_allowed",
             Self::DuplicateDimension { .. } => "duplicate_dimension",
@@ -136,6 +135,8 @@ impl RefusalReason {
             Self::ResultTooLarge { .. } => "result_too_large",
             Self::TimeRangeTooLong { .. } => "time_range_too_long",
             Self::PlanSpansTooManySources { .. } => "plan_spans_too_many_sources",
+            Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
+            Self::PlanNeedsTooManyLookupLegs { .. } => "plan_needs_too_many_lookup_legs",
             Self::FederationNotExecutable => "federation_not_executable",
             Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
@@ -154,6 +155,7 @@ impl RefusalReason {
             Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
             Self::CrossModelRatioSpansSources { .. } => "cross_model_ratio_spans_sources",
             Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
+            Self::CrossModelRatioNeedsOneLookupLeg { .. } => "cross_model_ratio_needs_one_lookup_leg",
         }
     }
 }

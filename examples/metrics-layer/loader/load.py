@@ -46,7 +46,7 @@ TABLES = {
 }
 # The certified number: the revenue of June 2026 that the `sutura-deployment` client reads.
 REVENUE = {
-    "model": "orders",
+    "model": "bigquery__orders",
     "description": "Net revenue in minor units, from active orders.",
     "measure": {"simple": {"aggregate": "sum", "column": "amount_cents"}},
     "time_column": "order_date",

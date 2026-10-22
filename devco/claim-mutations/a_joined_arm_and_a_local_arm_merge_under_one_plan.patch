@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/merge.rs b/crates/sutura-exec-datafusion/src/combine/merge.rs
+--- a/crates/sutura-exec-datafusion/src/combine/merge.rs
++++ b/crates/sutura-exec-datafusion/src/combine/merge.rs
+@@ -207,7 +207,7 @@ fn joined_with(
+     LogicalPlanBuilder::from(left)
+         .join_detailed(
+             aliased(next, NEXT)?,
+-            JoinType::Full,
++            JoinType::Inner,
+             (on(MERGED), on(NEXT)),
+             None,
+             NullEquality::NullEqualsNull,

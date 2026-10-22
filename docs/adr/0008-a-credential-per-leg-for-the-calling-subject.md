@@ -2311,3 +2311,63 @@ not bounded, so a database that stops answering there holds the source.
 `plaintext`, and the driver refuses token authentication over anything but `tcps`, at the declared
 address and at any address a redirect names - and the adapter refuses every redirect before it logs
 in.
+
+## Seventh amendment, 2026-10-22: four Oracle statements of the sixth amendment are false, and the driver's end-user security context is recorded, not built
+
+Four statements the sixth amendment makes about an Oracle source are false on this tree, because the
+hop exchange (#1355) landed after it was written. The sixth stays as written, as the fifth leaves the
+statements it corrects.
+
+**"`sources.<alias>.subjects` lists the verified subjects `DeclaredPrincipalBroker::authenticating`
+admits"** is false. `subjects` is refused by name on every kind
+(`crates/sutura-config/src/sources/entry.rs:39-41`), and `authenticating` lists no caller
+(`crates/sutura-config/src/credentials/declared.rs:162`). Every verified caller's token goes
+through the declared hops, and the database decides what it may read (`docs/integrations/data-systems/oracle.md`).
+
+**"No exchange is composed for this kind"** is false. An `oracle` source with a `delegation` list
+gets a hop chain (`crates/sutura-cli/src/serve/broker.rs:69-75`, in a build with the `oracle`
+feature); `delegation` is required on an impersonating entry and refused on a shared one
+(`crates/sutura-config/src/sources/entry.rs:282-303`). `workload_identity` stays refused for the kind,
+as the sixth says.
+
+**"The one exchange a served build runs, `workload_identity.delegation`, is built by the BigQuery
+adapter's own client"** is false. It is not the one exchange, and the client is not the BigQuery
+adapter's: the exchange client is `crates/sutura-http-client/src/delegation.rs`, composed per source
+for a `bigquery`, `clickhouse`, `cube` or `oracle` source (`crates/sutura-cli/src/serve/broker.rs:165-175`).
+
+**"A per-source exchange for a token whose audience is the database alone ... is not built for
+Oracle"** is false: every hop declares an `audience` (`docs/integrations/data-systems/oracle.md`, row
+`delegation[].audience`), and the last hop's token is the one the session sends. The
+session-lifecycle limits in the sixth are unchanged (`crates/sutura-exec-oracle/src/lib.rs:46-58`).
+Of its three TLS statements, the driver's refusal over anything but `tcps`
+(`vendor/rust-oracledb/src/client/mod.rs:627-628`) and the adapter's refusal of every redirect
+(`crates/sutura-exec-oracle/src/lib.rs:42-45`) are unchanged. The settings-parse refusal the sixth
+states for an impersonating source now covers every `oracle` source, loopback included, in a build
+with the `oracle` feature (#1446, `crates/sutura-config/src/sources/oracle.rs:17-23`, `89-91`).
+
+**The vendored driver exposes an end-user security context, and what a server does with its roles is
+unmeasured.** `EndUserSecurityContext`, its builder and `EndUserIdentity` are public
+(`vendor/rust-oracledb/src/lib.rs:80-81`, `97`), with `Connection::set_end_user_security_context` at
+`vendor/rust-oracledb/src/connection/mod.rs:320` and its clear twin at `:122`.
+`EndUserIdentity::Token(String)` exists (`vendor/rust-oracledb/src/end_user_security_context.rs:46-48`),
+and the builder takes `attributes()` (`:130-136`) and `data_roles()` (`:222-225`). Two readings of
+who defines the roles are in the tree, and neither is asserted. The path (c) paragraph of this record
+quotes a vendor text, "the application itself does not define or control the roles" (path (c) above). The
+driver's own text calls data roles "granted to the application", and says the database maps them to the
+roles in the identity provider (`vendor/rust-oracledb/doc/connection_handling.md:752-761`). Whether
+the two conflict depends on what the server resolves from the token and from `data_roles()`, and no
+cell here presents a token or a context to a database.
+
+**What ships, and what is not built.** An `impersonation-at-source` Oracle source opens one session per
+question (`crates/sutura-exec-oracle/src/lib.rs:433-441`) with the last hop's token
+(`docs/integrations/data-systems/oracle.md:109-111`; `lib.rs:288-298`, `319-335`), and
+`Presented::agrees_with` refuses a leg that does not fit the declared posture (`lib.rs:231-237`). The
+end-user security context is **not built**: no file under `crates/` names `EndUserSecurityContext`,
+`EndUserIdentity` or `data_roles`, and no decision to build it is made here. The driver sets it only
+over `tcps` and with a server capability bit (`vendor/rust-oracledb/src/client/mod.rs:989-994`), keeps
+it and writes it on every round trip until it is cleared (`client/mod.rs:504-507`, `582-584`), and
+nothing under `vendor/rust-oracledb/src/pool` references it. **The limit:** no venue here provisions an
+Oracle that accepts a token (`docs/where-identity-is-proven.md`, the row for the shipped Oracle
+source), and no cell presents a token or an end-user security context to a database. The `oracle-tier` job
+reaches a live Oracle with a password login only. So whether a database accepts the shipped token
+path, and whether a 26ai context would apply any grant, are both unmeasured.

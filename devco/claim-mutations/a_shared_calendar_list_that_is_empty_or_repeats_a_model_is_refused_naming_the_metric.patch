@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-local/src/document.rs b/crates/sutura-catalog-local/src/document.rs
+index 144f58643..8816e03fc 100644
+--- a/crates/sutura-catalog-local/src/document.rs
++++ b/crates/sutura-catalog-local/src/document.rs
+@@ -685,7 +685,7 @@ impl MetricDoc {
+     pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
+         let shared_calendars = self
+             .shared_calendar
+-            .map(SharedCalendars::parse)
++            .map(|names| SharedCalendars::parse(names.into_iter().take(1)))
+             .transpose()
+             .map_err(|cause| InvalidMetricDocument::SharedCalendars {
+                 metric: self.name.clone(),

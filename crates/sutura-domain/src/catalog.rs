@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // the unit of API and the files are not.
 mod audience;
 mod authored;
+mod calendar;
 mod consistency;
 mod metric;
 
@@ -30,6 +31,7 @@ pub use authored::{
     AnchorValue, ColumnType, Description, DimensionValue, InvalidColumnType, InvalidDescription, InvalidDimensionValue,
     MAX_COLUMN_TYPE_CHARS, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES, MAX_DIMENSION_VALUE_CHARS,
 };
+pub use calendar::{InvalidSharedCalendars, SharedCalendars};
 pub use consistency::{Definitions, InconsistentDefinitions};
 
 use crate::calendar::TimeRange;
@@ -114,8 +116,8 @@ pub const MAX_DEFINITIONS_BYTES: usize = 128 * 1024;
 ///
 /// **`data_type` is descriptive text.** It is a quote of what the source called the column -
 /// `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
-/// branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
-/// kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+/// branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join or a pair of
+/// shared calendars across kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
 /// [`ColumnType`]'s own doc names review as what holds "never a cast", not the type system, because
 /// nothing here stops another reader of [`Self::data_type`] from treating it as one.
 ///
@@ -814,19 +816,19 @@ pub struct Metric {
     /// Who may see this metric - `docs/adr/0028`. Under the digest, like everything else here: a
     /// classification change moves it exactly as a rename would.
     audience: Audience,
-    /// The conformed time dimension both fact models of a cross-model ratio reach through a
-    /// `via`, so both facts bucket through the SAME calendar column (`telekom/sutura#780`).
+    /// The conformed time dimensions a cross-model ratio buckets its facts through
+    /// (`telekom/sutura#780`, `docs/adr/0002`'s sixth amendment), one per data system a fact model
+    /// lives on.
     ///
-    /// `None` for every metric written before #780's second leg - a one-model metric has one fact
-    /// and buckets through its own `time_column`. `Some` names a calendar model that BOTH the
-    /// metric's own model and every cross-model ratio term's model reach through a declared
-    /// relationship; the consistency check at load refuses a name no model reaches. The bucket
-    /// column is the metric's own `time_column` resolved against the calendar model's table, so a
-    /// `month`-grain question over two fact tables joined to one `dim_calendar` groups both legs
-    /// by the calendar's `day` truncated to a month, and the combiner joins them on the link AND
-    /// the bucket.
+    /// `None` for a one-model metric, which buckets through its own `time_column`. `Some` lists
+    /// calendar models; the consistency check at load requires, for the metric's own model and
+    /// every cross-model ratio term's model, exactly one listed calendar on that model's source,
+    /// reached through a declared relationship from the model. The bucket column is the metric's
+    /// own `time_column` resolved against that calendar's table, so a `month`-grain question over
+    /// two fact tables joined to one `dim_calendar` groups both legs by the calendar's `day`
+    /// truncated to a month, and the combiner joins them on the link AND the bucket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    shared_calendar: Option<ModelName>,
+    shared_calendars: Option<SharedCalendars>,
 }
 
 #[cfg(test)]

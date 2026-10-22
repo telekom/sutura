@@ -22,6 +22,7 @@ use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilt
 use crate::{CompileFailure, Compiled};
 
 mod corpus;
+mod drill_across;
 mod federation;
 mod link_types;
 mod two_sources;
@@ -82,7 +83,7 @@ fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
 fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
     match plan(resolution).expect("this resolution plans") {
         Plan::Mono(query) => query,
-        Plan::Federated(_) => panic!("every model here is local, so the plan is one statement"),
+        Plan::Federated(_) | Plan::DrillAcross(_) => panic!("every model here is local, so the plan is one statement"),
     }
 }
 

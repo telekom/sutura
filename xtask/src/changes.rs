@@ -74,8 +74,7 @@ const AREAS: &[Area] = &[
         // its questions AND the numbers its README prints, which is the point of that suite. The
         // catalog is a directory of markdown documents whose `measure:` decides what SQL we
         // generate, so without this pattern `DOCS_ONLY` below swallows a changed measure and every
-        // Rust gate is skipped over it. Same shape as `docs/api/**` in the `api` area, and the
-        // same reason an area match is tested before `DOCS_ONLY`.
+        // Rust gate is skipped over it. The same reason an area match is tested before `DOCS_ONLY`.
         //
         // `ci.yml`'s path filter re-includes the same documents, and BOTH gates have to agree: the
         // filter decides whether a runner starts, this decides whether the tests run once it has.
@@ -125,9 +124,9 @@ const AREAS: &[Area] = &[
         consumers: &[],
     },
     Area {
-        // The committed API reference pages, which are GENERATED from the library crates' doc
-        // comments. `cargo xtask check-api-docs` regenerates them and byte-compares; this area
-        // is what decides when that runs. It needs its own area rather than riding on `rust`
+        // The API reference, which is GENERATED from the library crates' doc comments and committed
+        // nowhere. `cargo xtask check-api-docs` generates it into a temporary directory and scans
+        // it; this area is what decides when that runs. It needs its own area rather than riding on `rust`
         // because it needs the NIGHTLY toolchain, so it is the one gate CI cannot fold into
         // the others.
         //
@@ -135,8 +134,8 @@ const AREAS: &[Area] = &[
         // `cargo metadata`, and naming a crate here would be a second list to keep in step
         // with it. The pattern is deliberately a SUPERSET - it matches the binary crates too,
         // whose sources cannot change a page - because the error directions are not
-        // symmetrical. An unnecessary run regenerates identical output and passes; a missing
-        // pattern is a stale page nothing reports.
+        // symmetrical. An unnecessary run generates clean pages and passes; a missing
+        // pattern is a doc comment that breaks the publish run after merge.
         //
         // `Cargo.toml` is here for FEATURES and DEPENDENCIES: the pages are generated with
         // `--all-features`, so adding a feature or a dependency can add a public re-export
@@ -144,12 +143,14 @@ const AREAS: &[Area] = &[
         // stopped printing it, precisely because that made a release bump stale every page
         // (see the note in `docs/.tools/rustdoc_to_markdown.py`).
         //
-        // The generator and the pages are here too: both decide what a fresh generation
-        // produces, and `DOCS_ONLY` below would otherwise read a hand-edited page or a changed
-        // renderer as needing nothing at all. An area match is tested before `DOCS_ONLY`,
-        // which is what makes that work. (`ci.yml` additionally ignores `docs/**` for the
-        // purpose of STARTING a run, so in CI these two patterns bite on a change that also
-        // touches something else. They still bite in the hooks and in a local `classify`.)
+        // The generator is here too: it decides what a generation produces, and `DOCS_ONLY` below
+        // would otherwise read a changed renderer as needing nothing at all. An area match is
+        // tested before `DOCS_ONLY`, which is what makes that work. (`ci.yml` additionally ignores
+        // `docs/**` for the purpose of STARTING a run, so in CI this pattern bites on a change that
+        // also touches something else. It still bites in the hooks and in a local `classify`.)
+        //
+        // The pages are NOT here: none is committed, so a path under `docs/api/` is a local
+        // preview that `.gitignore` keeps out of every diff.
         //
         // NOT here: `devco/rust-toolchain-nightly.toml`. It sets rustdoc's `format_version` and so
         // can change every page - but it matches no area today, which means it fails open to
@@ -160,7 +161,6 @@ const AREAS: &[Area] = &[
             "crates/*/src/**",
             "Cargo.toml",
             "docs/.tools/rustdoc_to_markdown.py",
-            "docs/api/**",
             // The gate's own source, so a change to it is judged by running it.
             "xtask/src/api_docs.rs",
         ],
@@ -735,9 +735,8 @@ mod tests {
 
     #[test]
     fn a_library_source_change_needs_the_api_docs_gate() {
-        // The primary direction of staleness: a doc comment changes and the committed page
-        // does not. `rust` is not enough on its own - the API pages need nightly rustdoc, so
-        // they are their own step.
+        // A doc comment can break the publish run. `rust` is not enough on its own - the API
+        // pages need nightly rustdoc, so they are their own step.
         let r = classify(&paths(&["crates/sutura-domain/src/definitions.rs"]));
         assert!(!r.run_all);
         assert!(
@@ -749,26 +748,16 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_edited_generated_page_needs_the_api_docs_gate() {
-        // The other direction: somebody edits the generated page instead of the doc comment.
-        // Without this pattern `DOCS_ONLY` swallows it and the byte-compare never runs.
-        let r = classify(&paths(&["docs/api/sutura-domain.md"]));
-        assert!(r.needs("api"), "a generated page is not prose: {:?}", r.reasons);
-        assert!(r.docs_only.is_empty(), "it must not be classified as docs-only");
-    }
-
-    #[test]
     fn a_change_to_the_generator_needs_the_api_docs_gate() {
-        // The renderer decides what every page contains, so changing it can make all of them
-        // stale without touching a line of Rust.
+        // The renderer decides what every page contains, so changing it can break the publish run
+        // without touching a line of Rust.
         let r = classify(&paths(&["docs/.tools/rustdoc_to_markdown.py"]));
         assert!(r.needs("api"), "{:?}", r.reasons);
     }
 
     #[test]
     fn a_version_bump_needs_the_api_docs_gate() {
-        // The page prints the crate version, so `version = "0.2.0"` in the manifest makes
-        // every page stale while changing no doc comment at all.
+        // A feature or a dependency can add a public re-export while changing no doc comment.
         let r = classify(&paths(&["Cargo.toml"]));
         assert!(r.needs("api"), "the page carries the version: {:?}", r.reasons);
     }

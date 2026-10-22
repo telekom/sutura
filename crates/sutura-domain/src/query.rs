@@ -147,28 +147,30 @@ pub struct Query {
 pub enum RefusalReason {
     /// No metric of that name is in the pinned bundle.
     MetricUnknown { metric: MetricName },
-    /// A question named more than one metric, and two of them do not declare the same model or
-    /// the same time column.
-    ///
-    /// **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
-    /// physical tables have no shared `FROM`, and two metrics on one table but two different time
-    /// columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
-    /// metric named against the first, so the pair reported is always the first metric and the
-    /// first one that disagreed with it, never a third-party guess at which is "wrong".
-    MetricsSpanDifferentModels { first: MetricName, other: MetricName },
     /// More metrics than [`MAX_METRICS`] one question may name together.
     TooManyMetrics { requested: usize, limit: usize },
+    /// A question named several metrics, and a dimension it groups or filters by does not end on
+    /// the same model and column for `first` and `other`.
+    ///
+    /// **A dimension only joins the metrics' answers when it ends on the same model and column for
+    /// every metric.** Reading the first metric's column for all of them would label another
+    /// metric's numbers with a grouping it never computed. The check is structural: two columns
+    /// that mean the same thing but are two copies are refused too. Refused naming the dimension
+    /// and the first pair that disagree, never a guess at which of them is wrong.
+    DimensionNotConformed {
+        dimension: DimensionName,
+        first: MetricName,
+        other: MetricName,
+    },
+    /// A question needs more legs than one answer may run, counting every leg of every metric.
+    ///
+    /// Each leg is held whole before the answers are merged, so the leg count bounds held memory
+    /// the way [`TooManyMetrics`](RefusalReason::TooManyMetrics) bounds the statement.
+    QuestionNeedsTooManyLegs { legs: usize, limit: usize },
     /// The same metric named twice in one question. Refused rather than de-duplicated, the same way
     /// a duplicated dimension is: a caller who sent it twice believes something about the result
     /// that is not true.
     DuplicateMetricName { metric: MetricName },
-    /// A question named more than one metric and also reached a remote dimension.
-    ///
-    /// **A multi-metric question never federates.** The combiner links exactly two legs on one
-    /// column and produces one measure column; there is no shape here for several certified
-    /// columns arriving through a join. Refused by name, naming every metric asked, rather than
-    /// silently answered as though only the first metric had been named.
-    MultiMetricFederationNotExecutable { metrics: Vec<MetricName> },
     /// A question named more than one metric and also asked for `top`.
     ///
     /// **`top` names no metric to rank by**, and the two rendering paths disagree about which
@@ -238,6 +240,15 @@ pub enum RefusalReason {
     /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
     /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
     PlanSpansTooManySources { sources: usize, limit: usize },
+    /// The plan would need more lookup legs than one answer may carry.
+    ///
+    /// Refused rather than run in parts, because each leg's data system is a separate identity to
+    /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+    /// prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+    /// model through two relationships count twice, and a chain that crosses twice spends two. The
+    /// "too many" is a named count against [`MAX_LOOKUP_LEGS`]. Narrowable: ask for fewer remote
+    /// dimensions.
+    PlanNeedsTooManyLookupLegs { legs: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute
     /// a leg.
     ///
@@ -528,13 +539,14 @@ pub enum RefusalReason {
     /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
     /// part of the metric's definition, not of the question.
     CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
-    /// A cross-model ratio whose second fact model or shared calendar sits on another data system
-    /// than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+    /// A cross-model ratio whose second fact model sits on another data system than the metric's
+    /// own (`telekom/sutura#780`); `model` names it.
     ///
     /// Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-    /// so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-    /// model lives is the catalog's, not the question's. A calendar declared once per source is
-    /// the shape that would lift this, and it is not built.
+    /// so both facts share the metric's. Each source lists its own calendar (`docs/adr/0002`'s sixth
+    /// amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+    /// lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+    /// own source is the shape that would lift this, and it is not built.
     CrossModelRatioSpansSources { metric: MetricName, model: ModelName },
     /// A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
     ///
@@ -544,6 +556,12 @@ pub enum RefusalReason {
     /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
     /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
+    /// A cross-model ratio asked by dimensions that need more than one lookup leg.
+    ///
+    /// The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+    /// is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
+    /// lifts it. Narrowable: group by the dimensions of one remote model.
+    CrossModelRatioNeedsOneLookupLeg { metric: MetricName },
 }
 
 /// What a tool call produced.
@@ -683,19 +701,15 @@ mod tests {
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
             },
-            RefusalReason::MetricsSpanDifferentModels {
+            RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::DimensionNotConformed {
+                dimension: DimensionName::parse("region").expect("a test dimension"),
                 first: MetricName::parse("revenue").expect("a test metric"),
                 other: MetricName::parse("margin").expect("a test metric"),
             },
-            RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName {
                 metric: MetricName::parse("revenue").expect("a test metric"),
-            },
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![
-                    MetricName::parse("revenue").expect("a test metric"),
-                    MetricName::parse("margin").expect("a test metric"),
-                ],
             },
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![
@@ -732,6 +746,7 @@ mod tests {
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
             RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
             RefusalReason::FederationLinkAmbiguous {
                 source: SourceName::parse("warehouse").expect("a test source"),
@@ -781,6 +796,9 @@ mod tests {
             RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
+            },
+            RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
             },
         ]
     }

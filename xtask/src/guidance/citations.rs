@@ -82,7 +82,7 @@ pub(in crate::guidance) fn dead_paths(
 ) -> Vec<String> {
     let mut problems = Vec::new();
     for rel in files {
-        if !super::has_ext(rel, &["md"]) {
+        if !super::has_ext(rel, &["md", "rs"]) {
             continue;
         }
         let Some(text) = read(rel) else {

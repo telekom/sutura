@@ -263,7 +263,7 @@ system. Only a local catalog can declare `shared_calendar:`; no other catalog ad
 so a metric from any other adapter keeps the no-calendar refusal. A metric's required filters bind
 only the first fact's statement - they name the metric's own model's columns - and the second fact
 is not filtered by them. A calendar declared once per source, which would let the two facts sit on
-two sources, is not built; the golden per dialect and the differential's two-fact axis are the next
+two sources, is not built (the declaration is, per the sixth amendment); the golden per dialect and the differential's two-fact axis are the next
 PR the issue's own decision already named.
 **Partly superseded by the third amendment below**, which renders the two statements per dialect
 and executes them.
@@ -296,7 +296,8 @@ shape and no differential executed it. Both now exist, and each carries its own 
   is 0/x.
 
 **What is still not claimed.** Every leg runs under one operating-system identity. Both facts sit
-on one source, because a calendar per source is not built. The one-source catalog refuses the
+on one source, because the plan stage still refuses a second fact on another source
+(`CrossModelRatioSpansSources`). The one-source catalog refuses the
 question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
 two-fact answer against, and the cell measures that refusal rather than stating it.
 
@@ -334,6 +335,41 @@ up. `Cube` is the one registered system that runs no leg, and no offline venue b
 the refusal of a legless system is asserted by the capability gate's own cells in
 `crates/sutura-app/src/federated/tests.rs`, not by the two-fact cell. The second amendment of
 `20261010140559-datafusion-federates-the-sql-tool-and-the-metrics.md` records the decision.
+
+## Sixth amendment, 2026-10-20: a calendar per source is declared
+
+`telekom/sutura#1471`. The second amendment's shared calendar was one model, so a second fact on
+another data system could not be bucketed: each fact leg joins the calendar inside its own
+statement, and a statement reads one source. The decision is **a list, one calendar per
+source**, and this amendment builds the declaration and its load checks only.
+
+- **The declaration.** `shared_calendar:` is a list of model names, `Metric::with_shared_calendars`
+  in the domain, held by the newtype `SharedCalendars`: non-empty and repeat-free by construction
+  (`InvalidSharedCalendars`). A bare name is a document error, not a one-calendar shorthand. This is
+  **breaking**: a catalog file spelling the scalar stops loading, and the definition digest of any
+  metric declaring a calendar moves, because the field serialises as a sequence.
+  `Metric::with_shared_calendar` stays as the one-calendar builder.
+- **The load checks**, all in `Definitions::assemble`, each a typed `InconsistentDefinitions`:
+  a listed model that does not exist or a fact model with no relationship to the calendar listed on
+  its own source (`SharedCalendarNotReachable`); two listed calendars on one source
+  (`SharedCalendarsShareASource`); a fact model, the metric's own or a cross-model term's, whose source
+  lists none (`NoSharedCalendarOnSource`); a listed calendar without the metric's time column
+  (`UnknownTimeColumn`); two listed calendars typing that column differently
+  (`SharedCalendarsDisagreeOnTimeType`: kinds as `LinkKind::declared` reads them, case-folded).
+- **What the plan does.** `resolve` takes the calendar listed on each fact model's own source. The
+  second fact on another source is still refused at plan time as `CrossModelRatioSpansSources`, now
+  only for the fact: the calendar can no longer be what spans. Lifting that refusal, and counting
+  every leg's source against the two-source limit, is the next change.
+
+**The limits next to the claims.** sutura cannot check that two calendar tables hold the same rows;
+the declaration is trusted, and two calendars that disagree give two legs that bucket differently
+without any refusal. The type check compares the kinds `LinkKind::declared` reads off the declared
+types, case-folded, and nothing else: a column with no declared type on one side is not compared,
+a type of a kind it does not know (a timestamp, a float) is not compared, so a date calendar beside a
+timestamp calendar loads, and one spelling that two systems mean differently passes. A calendar listed
+on a source no fact of the metric lives on is not refused: it decides no answer. Only the local catalog
+reads `shared_calendar:`; every other catalog keeps the no-calendar refusal. Nothing here executes a
+two-source ratio: no cell in this change runs one, and the plan stage still refuses it.
 
 ## What does not change
 

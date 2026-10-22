@@ -23,6 +23,7 @@ use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::{RelationshipName, SourceName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
+use sutura_domain::plan::LegPlan;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_runtime::TracingAuditSink;
@@ -442,19 +443,27 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
                 print!("{rendered}");
             }
             Compiled::Federated { plan } => {
-                println!("-- federated, one statement per leg for {dialect}");
-                for leg in plan.legs() {
-                    let query = sutura_sql::generate_leg(leg, dialect).map_err(|e| render(&e))?;
-                    println!("{}", query.sql());
-                    println!();
-                }
-                println!("-- plan");
-                let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
-                print!("{rendered}");
+                print_legs("federated", &plan.legs(), serde_norway::to_string(&*plan), dialect)?;
+            }
+            Compiled::DrillAcross { plan } => {
+                print_legs("drill-across", &plan.legs(), serde_norway::to_string(&*plan), dialect)?;
             }
         }
         Ok(())
     })())
+}
+
+/// One statement per leg for `dialect`, then the plan that holds them.
+fn print_legs(kind: &str, legs: &[&LegPlan], plan: Result<String, serde_norway::Error>, dialect: Dialect) -> Result<(), String> {
+    println!("-- {kind}, one statement per leg for {dialect}");
+    for leg in legs {
+        let query = sutura_sql::generate_leg(leg, dialect).map_err(|e| render(&e))?;
+        println!("{}", query.sql());
+        println!();
+    }
+    println!("-- plan");
+    print!("{}", plan.map_err(|e| format!("the plan could not be rendered: {e}"))?);
+    Ok(())
 }
 
 /// `query <dir> <question> [data-dir]`: check the anchors, then answer.

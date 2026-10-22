@@ -10,8 +10,8 @@
 //! step 3 reverses that by owner instruction - *no hand row handling: `DataFusion`, Arrow, Arrow
 //! Flight or ADBC* - so this is the port arriving, not a new invention.
 //!
-//! A path in backticks rather than a Markdown link, and that is not style: `just api` republishes
-//! this header at `docs/api/sutura-domain.md`, where `mkdocs --strict` resolves a relative link
+//! A path in backticks rather than a Markdown link, and that is not style: the API reference republishes
+//! this header on `sutura-domain`'s generated page, where `mkdocs --strict` resolves a relative link
 //! against the PUBLISHED page's directory rather than this file's - and fails the build.
 //!
 //! **The domain names no engine, and that is the constraint the trait is shaped by.**
@@ -216,7 +216,7 @@ pub trait LegRunner {
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error>;
 }
 
-/// Why [`FederationCombiner::execute`] gave no answer.
+/// Why [`FederationCombiner::execute`] or `DrillAcrossCombiner::execute_across` gave no answer.
 ///
 /// The combine runs only after every leg answered, so a leg's error wins over the combine's.
 #[derive(Debug)]
@@ -229,8 +229,8 @@ pub enum ExecuteError<L, C> {
     Combine(C),
 }
 
-/// What [`FederationCombiner::execute`] returns, named so its signature is not a
-/// `type_complexity` finding.
+/// What [`FederationCombiner::execute`] and `DrillAcrossCombiner::execute_across` return, named so
+/// their signatures are not a `type_complexity` finding.
 pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::Error, <C as FederationCombiner>::Error>>;
 
 /// Joins two legs' results and re-aggregates the answer above them.

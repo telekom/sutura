@@ -262,7 +262,7 @@ another version than A's", and leaves that bullet as written.
 
 - It is the SHA-256 of the metric as serialized (`definitions.rs:130-140`): its name, the name of
   its model, its computation, required filters, time column, grains, dimensions, anchor,
-  description, audience and shared calendar (`crates/sutura-domain/src/catalog.rs:763-797`). A
+  description, audience and shared calendar (`crates/sutura-domain/src/catalog.rs:765-799`). A
   change to any of them moves it, a reworded description included. A leg over a metric whose
   description differs is refused until B pins the same wording.
 - It does not cover the model, table and column definitions that the leg reads, the relationships

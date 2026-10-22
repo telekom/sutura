@@ -45,9 +45,9 @@ deployment's own user, and `single_user_because` records why.
 }
 ```
 
-The metric is on `fct_subscription_monthly`. The dimension `segment` is on `dim_customer`, reached
-through the relationship `subscription_customer`. sutura reads the fact rows from Postgres and the
-dimension rows from ClickHouse, and joins them.
+The metric is on the model `postgres__fct_subscription_monthly`. The dimension `segment` is on
+the model `clickhouse__dim_customer`, reached through the relationship `subscription_customer`.
+sutura reads the fact rows from Postgres and the dimension rows from ClickHouse, and joins them.
 
 ## Run it
 

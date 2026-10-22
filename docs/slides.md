@@ -21,8 +21,3 @@ description: Slides from talks about sutura.
 </div>
 
 <!-- dprint-ignore-end -->
-
-Each deck is a directory in
-[`slides/`](https://github.com/telekom/sutura/tree/main/slides). `nix build .#slides` builds them.
-To edit one, run `npm ci` and then `npm run dev` in its directory. A local `just docs` does not
-include the decks.

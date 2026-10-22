@@ -31,9 +31,6 @@
     // Content-hash-locked imports (`.agents/skills.lock.json`). `cargo xtask check-skills`
     // reported 23 of them as local forks the one time dprint was pointed at this tree.
     ".agents/**",
-    // Generated from rustdoc and byte-compared against a fresh generation by
-    // `cargo xtask check-api-docs`. A formatted page can never match a generated one.
-    "docs/api/**",
     // Helm templates: `.yaml` in extension only. Go template syntax (`{{- ... -}}`) is not YAML,
     // and dprint's yaml plugin refuses to parse it - measured, four parse errors across this
     // chart's own templates. `helm lint`/`helm template` are what checks these; this repository's

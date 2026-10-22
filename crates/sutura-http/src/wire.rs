@@ -73,10 +73,12 @@ pub use catalog::{CatalogBody, DimensionBody, MetricBody};
 pub struct QuestionBody {
     /// The metrics to ask about, at least one - `["revenue"]`.
     ///
-    /// Every one must be defined in this catalog. A set of several is answered as one grouped
-    /// statement with one column per metric WHEN every one shares a model, a time column, a grain
-    /// and every dimension listed below (`github.com/telekom/sutura#968`); otherwise ask about each
-    /// separately. More than `MAX_METRICS` (8), or the same name repeated, is refused.
+    /// Every one must be defined in this catalog. A set of several is answered with one column per
+    /// metric WHEN every one declares the grain and every dimension listed below, and each dimension
+    /// ends on the same model and column for all of them (`github.com/telekom/sutura#968`); a
+    /// question that runs more queries or reads more data systems than one answer may is refused,
+    /// and then ask about each separately. More than `MAX_METRICS` (8), or the same name repeated,
+    /// is refused.
     ///
     /// `max_items` below is a literal - `utoipa`'s `#[schema]` parses only a number, not a const
     /// path - so it is `sutura_domain::query::MAX_METRICS`'s value copied rather than named; the

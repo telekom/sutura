@@ -337,66 +337,52 @@ where
     let mut reached: Vec<(String, Reached)> = Vec::new();
     let mut found: Vec<String> = Vec::new();
     for (name, query) in every_question() {
-        let Split::Yes(federated) = split_or_not(&name, &query, one.bundle.get(), two.bundle.get()) else {
+        let Split::Yes = split_or_not(&name, &query, one.bundle.get(), two.bundle.get()) else {
             continue;
         };
         let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
         let from_one = answered(one, &query, &name, &combiner);
         let from_two = answered(two, &query, &name, &combiner);
-        let outcome = match federated {
-            Federated::Split => match (from_one, from_two) {
-                (
-                    Ok(ToolOutcome::Answer {
-                        rows: ref here,
-                        provenance: ref one_ran_as,
-                    }),
-                    Ok(ToolOutcome::Answer {
-                        rows: ref there,
-                        provenance: ref two_ran_as,
-                    }),
-                ) => {
-                    found.extend(disagreements_between(&name, here, there));
-                    found.extend(recorded_identities(&name, one_ran_as, two_ran_as));
-                    Reached::Agreed
-                }
-                (Err(ref here), Err(ref there)) => {
-                    found.extend(failed_together(&name, here, there));
-                    Reached::FailedTogether
-                }
-                // D19 + A4: the mono path's zero-denominator-fails case still leaves the driver's
-                // own "inf is not a finite number" as an `Err` - a gap this PR does not close,
-                // named rather than left for the fallback arm below to call a divergence. The
-                // federated combiner's own version of the same failure is a `RefusalReason` now,
-                // so this is the ONE shape this corpus case is allowed to reach: not agreement, and
-                // not failing together, but the federated side correctly refusing what the mono
-                // side still errors on.
-                (
-                    Err(_),
-                    Ok(ToolOutcome::Refusal {
-                        reason:
-                            RefusalReason::FederatedAnswerNotWellFormed {
-                                federated: sutura_domain::plan::FederatedAnswerRefusal::NonFinite,
-                            },
-                    }),
-                ) => Reached::FederatedRefusedWhatMonoFailed,
-                (here, there) => {
-                    found.push(format!(
+        let outcome = match (from_one, from_two) {
+            (
+                Ok(ToolOutcome::Answer {
+                    rows: ref here,
+                    provenance: ref one_ran_as,
+                }),
+                Ok(ToolOutcome::Answer {
+                    rows: ref there,
+                    provenance: ref two_ran_as,
+                }),
+            ) => {
+                found.extend(disagreements_between(&name, here, there));
+                found.extend(recorded_identities(&name, one_ran_as, two_ran_as));
+                Reached::Agreed
+            }
+            (Err(ref here), Err(ref there)) => {
+                found.extend(failed_together(&name, here, there));
+                Reached::FailedTogether
+            }
+            // D19 + A4: the mono path's zero-denominator-fails case still leaves the driver's
+            // own "inf is not a finite number" as an `Err` - a gap this PR does not close,
+            // named rather than left for the fallback arm below to call a divergence. The
+            // federated combiner's own version of the same failure is a `RefusalReason` now,
+            // so this is the ONE shape this corpus case is allowed to reach: not agreement, and
+            // not failing together, but the federated side correctly refusing what the mono
+            // side still errors on.
+            (
+                Err(_),
+                Ok(ToolOutcome::Refusal {
+                    reason:
+                        RefusalReason::FederatedAnswerNotWellFormed {
+                            federated: sutura_domain::plan::FederatedAnswerRefusal::NonFinite,
+                        },
+                }),
+            ) => Reached::FederatedRefusedWhatMonoFailed,
+            (here, there) => {
+                found.push(format!(
                         "{name} on {topology}: one side answered and the other did not\n  one source: {here:?}\n  two sources: {there:?}"
                     ));
-                    Reached::Diverged
-                }
-            },
-            Federated::Refused(reason) => {
-                assert!(
-                    matches!(from_one, Ok(ToolOutcome::Answer { .. })),
-                    "{name} on {topology}: the one-source deployment must answer what the two-source \
-                     one refuses, not {from_one:?}"
-                );
-                assert!(
-                    matches!(reason, RefusalReason::MultiMetricFederationNotExecutable { .. }),
-                    "{name}: a two-source question this corpus refuses must say why, not {reason:?}"
-                );
-                Reached::RefusedAsUnfederatable
+                Reached::Diverged
             }
         };
         reached.push((name, outcome));
@@ -430,11 +416,7 @@ where
     // list, for `Diverged`'s own reason below: D19 + A4 moved this corpus's one prior occupant to
     // `FederatedRefusedWhatMonoFailed`, and the arm stays as a defensive shape for a future case
     // that fails on both sides for an unrelated cause.
-    for wanted in [
-        Reached::Agreed,
-        Reached::RefusedAsUnfederatable,
-        Reached::FederatedRefusedWhatMonoFailed,
-    ] {
+    for wanted in [Reached::Agreed, Reached::FederatedRefusedWhatMonoFailed] {
         assert!(
             reached.iter().any(|&(_, got)| got == wanted),
             "on {topology}, no two-source question reached {wanted:?}, so that arm proved nothing"
@@ -456,8 +438,6 @@ enum Reached {
     /// for an unrelated reason, rather than folding into [`Self::Diverged`] and losing the
     /// distinction between "both sides agree something is wrong" and "the two sides disagree".
     FailedTogether,
-    /// The two-source topology refused a question over several metrics, which it cannot execute.
-    RefusedAsUnfederatable,
     /// D19 + A4: the federated combiner refused a non-finite ratio as
     /// `RefusalReason::FederatedAnswerNotWellFormed` where the mono path still leaves the
     /// driver's own `Err` for the same `zero_denominator: fails` case. Not
@@ -520,6 +500,8 @@ const MUST_BE_REACHED: &[(&str, Reached)] = &[
     ("two-source-a-distinct-value-spanning-join-keys", Reached::Agreed),
     // The distinct value is the link column itself, so the fact leg groups by one column twice.
     ("two-source-a-distinct-count-of-the-link-column", Reached::Agreed),
+    // Two metrics by a remote filter: an arm per metric, each joined to the lookup, then joined above.
+    ("recurring-revenue-and-active-subscriptions-business-only", Reached::Agreed),
     // `github.com/telekom/sutura#777`'s case 2 - a federated `top` ranks above the combine.
     ("two-source-a-case-2-combine-then-rank-top", Reached::Agreed),
 ];
@@ -609,13 +591,8 @@ fn failed_together(name: &str, one_source: &str, two_sources: &str) -> Vec<Strin
     found
 }
 
-enum Federated {
-    Split,
-    Refused(RefusalReason),
-}
-
 enum Split {
-    Yes(Federated),
+    Yes,
     No,
 }
 
@@ -626,8 +603,7 @@ fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &Pinned
     let there = compile(query, &ScopedView::everything(two), RowCeiling::DEFAULT)
         .unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
     match (here, there) {
-        (Compiled::Planned { .. }, Compiled::Federated { .. }) => Split::Yes(Federated::Split),
-        (Compiled::Planned { .. }, Compiled::Refused { reason }) => Split::Yes(Federated::Refused(reason)),
+        (Compiled::Planned { .. }, Compiled::Federated { .. } | Compiled::DrillAcross { .. }) => Split::Yes,
         (Compiled::Refused { reason: ref one_reason }, Compiled::Refused { reason: ref two_reason }) => {
             assert_eq!(
                 format!("{one_reason:?}"),

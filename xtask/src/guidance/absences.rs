@@ -2,8 +2,8 @@
 //!
 //! **Why a check and not a wording rule.** `github.com/telekom/sutura#370`: the doc comment on
 //! `ExecutedAs::and` said *"Nothing constructs a second leg today - there is no combiner"* while the
-//! federated answer path called both the method and the combiner, and `just api` republished the
-//! sentence on a page in the nav. Nothing read it, so it went false in silence.
+//! federated answer path called both the method and the combiner, and the API reference republished the
+//! sentence. Nothing read it, so it went false in silence.
 //! [`CONTRADICTED`](super::claims::CONTRADICTED) could not have held it: a forbidden wording is a
 //! ratchet on a sentence somebody has already got wrong, and this one had not been. **The sentence
 //! was TRUE when it was written**, which is the whole class - and the same class

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-catalog-local/src/document/cube.rs b/crates/sutura-catalog-local/src/document/cube.rs
+index 2b9423b14..db71903a1 100644
+--- a/crates/sutura-catalog-local/src/document/cube.rs
++++ b/crates/sutura-catalog-local/src/document/cube.rs
+@@ -129,7 +129,7 @@ impl CubeDoc {
+                 dimensions: self.dimensions.clone(),
+                 anchor: measure.anchor,
+                 audience: measure.audience,
+-                shared_calendar: measure.shared_calendar,
++                shared_calendar: measure.shared_calendar.filter(|_| false),
+             };
+             metrics.push(doc.into_domain(description).map_err(InvalidCubeDocument::Metric)?);
+         }

@@ -1,12 +1,12 @@
 //! Tasks that judge the PUBLISHED and GUIDANCE surface: the docs nav, the generated API pages
-//! and their links, the skill tree, guidance claims, the examples, and how gates classify.
+//! (generated, never read from the tree), the skill tree, guidance claims, the examples, and how gates classify.
 //!
 //! Why it is its own area: a `docs/*.md`-only diff skips the `hygiene` build, and the argument
 //! for that skip is a classification of what each gate READS. These are the rows that make it
 //! true, so `Reads::Prose` and this file should be read together.
 
 use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
-use crate::{api_docs, api_links, docs, examples, gate_classification, guidance, inconclusive, skills, tasks};
+use crate::{api_docs, docs, examples, gate_classification, guidance, inconclusive, skills, tasks};
 
 /// `stale_phrases`' own rule: a `FORBIDDEN` needle in README.md, outside a code span so no
 /// citation rule reads it.
@@ -107,29 +107,6 @@ pub(crate) const TASKS: &[Task] = &[
         run: docs::run,
     },
     Task {
-        // Beside `check-docs` because both read published pages, and a DIFFERENT concern: that one
-        // asks whether a destination resolves to a page in this tree, this one whether the
-        // destination is a URL at all. It is in the cheap sweep and `check-api-docs` is not,
-        // because this reads the committed pages as text - no rustdoc, no nightly, no registry.
-        name: "check-api-links",
-        description: "no page under docs/api links to a Rust path",
-        kind: Kind::Hygiene(Reads::Prose),
-        falsifier: Falsifier {
-            // The generated-page and scheme-agreement floors hold; the page publishes a dead
-            // Rust-path destination that the link scanner must name.
-            seeds: &[
-                ("docs/.tools/rustdoc_to_markdown.py", "REAL_SCHEMES = (\"http\", \"https\")\n"),
-                (
-                    "docs/api/generated.md",
-                    "<!-- GENERATED FILE - do not edit. -->\n[bad](crate::path::Item)\n",
-                ),
-            ],
-            in_scope: Some("docs/api/generated.md"),
-            paired: None,
-        },
-        run: api_links::run,
-    },
-    Task {
         // NOT `Kind::Hygiene`, and not by oversight. The hygiene sweep is cheap,
         // argument-free and runs everywhere a developer commits - including hosts and
         // sandboxes with no Rust nightly at all. This one COMPILES the library crates and
@@ -137,10 +114,24 @@ pub(crate) const TASKS: &[Task] = &[
         // option. Collecting it would make the cheap sweep expensive and, worse, unrunnable
         // in the places it currently runs.
         name: "check-api-docs",
-        description: "docs/api/*.md is what the generator produces (NIGHTLY; compiles)",
+        description: "the API reference generates, and no page links to a Rust path (NIGHTLY; compiles)",
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: api_docs::run,
+    },
+    Task {
+        // `Reads::Code` and the hygiene sweep, `check-attribution-owner`'s shape and reasons: it reads
+        // the file listing, needs no compiler, and holds an ABSENCE - the generator is the API
+        // reference's only owner - that `.gitignore` alone cannot, since a tracked file ignores it.
+        name: "check-api-pages-untracked",
+        description: "no generated API page is tracked under docs/api",
+        kind: Kind::Hygiene(Reads::Code),
+        falsifier: Falsifier {
+            seeds: &[("docs/api/sutura-domain.md", "<!-- GENERATED FILE - do not edit. -->\n")],
+            in_scope: Some("docs/api/sutura-domain.md"),
+            paired: None,
+        },
+        run: api_docs::owner::run,
     },
     Task {
         // `Reads::Code`, and the two inputs are why: the directories under `examples/` and the

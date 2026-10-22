@@ -150,8 +150,8 @@ pub(super) fn open(
 /// `dead_code = "deny"`.
 ///
 /// It names the FEATURE and not just the kind, because the two things an operator can do are in two
-/// different files: change the `kind:`, or build with `--features bigquery`. A message that only said
-/// "this binary links no `BigQuery` adapter" sent them to the first when they wanted the second.
+/// different files: change the `kind:`, or build with `--features bigquery`. A message that only named
+/// the kind sent them to the first when they wanted the second.
 #[cfg(not(feature = "bigquery"))]
 pub(super) fn open(
     source: &SourceName,

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
+--- a/crates/sutura-sql/src/generate.rs
++++ b/crates/sutura-sql/src/generate.rs
+@@ -838,7 +838,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
+     let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
+     // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
+     // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
+-    let ast = statement.group_by(grouping).order_by(tiebreak).build();
++    let ast = statement.order_by(tiebreak).build();
+ 
+     let params = leg.params().to_vec();
+     let sql = render(&ast, dialect)?;
