@@ -2649,8 +2649,10 @@ credential whose deadline has passed never reaches an adapter - and recorded sec
 incident can ask how much life the credential that read these rows had left. <code>None</code> means nothing
 was minted for this call, which is the honest answer for a question refused before the broker was
 asked.</p>
-<p>A plan reads from the sources a <code>Compiled::Federated</code> or <code>Compiled::DrillAcross</code> answer spans, or from
-a single source for a <code>Compiled::Planned</code> one (a question spanning three or more is refused at plan time by
+<p>A plan reads from the sources a <code>Compiled::Federated</code> or <code>Compiled::DrillAcross</code> answer spans, or from a
+single source for a <code>Compiled::Planned</code> one (a question needing more lookup legs than the cap, or reading
+more data systems than one answer may, is refused at plan time by
+<code>crate::query::RefusalReason::PlanNeedsTooManyLookupLegs</code> and
 <code>crate::query::RefusalReason::PlanSpansTooManySources</code>), so the source set is a name a reader
 already has from the bundle.</p>
 <h3 id="trait-auditsink"><code>trait AuditSink</code><a class="headerlink" href="#trait-auditsink" title="Permanent link">&para;</a></h3>
@@ -7132,7 +7134,7 @@ than completeness:</strong> a fact table in one dataset joined to a dimension ta
 what a multi-project estate looks like, and it is one statement, one job and one credential -
 a native join the data system pushes down, not a second source. <code>sutura_semantic::plan</code> says
 so where a source count decides between one statement, a split and
-<code>PlanSpansTooManySources</code>.</p>
+<code>PlanNeedsTooManyLookupLegs</code>.</p>
 <p><strong>A join with no keys cannot be built</strong>, and that is what makes <code>keys</code> a <code>NonEmpty</code> rather
 than a <code>Vec</code> the renderers have to fail closed on: every key contributes one <code>=</code> term, so an
 empty list would be a <code>JOIN ... ON</code> with no predicate - a shape that cannot be minted here.
@@ -8819,7 +8821,10 @@ built before this field existed.</p>
 - <code>LinkPartNotOnLookup</code> - A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.</p>
 <p>The leg would group by a column nothing joins on, which splits one link value's rows and
   changes the answer's grain. <strong>Nothing raises it yet;</strong> the planner check that does follows
-  in <code>telekom/sutura#1531</code>.</p>
+  in <code>telekom/sutura#1531</code>.
+- <code>Lookups</code> - The lookup legs are not a list <code>LookupLegs</code> parses.</p>
+<p>Unreachable through the one production splitter, which counts the legs against the cap before
+  it builds them and sorts each after the leg it joins onto.</p>
 <h5 id="implements_111">Implements<a class="headerlink" href="#implements_111" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="use-cut"><code>use Cut</code><a class="headerlink" href="#use-cut" title="Permanent link">&para;</a></h4>
@@ -10194,14 +10199,14 @@ somebody else's input.</p>
 <p>Carries the two day counts and nothing from the caller's text, which is what makes it safe to
   log: a day count is derived from parsed dates, so there is no caller-controlled string to
   reflect into a message that reaches a log, a UI and an agent's context.
-- <code>PlanSpansTooManySources</code> - The plan would need to read from more than the deployment serves.</p>
+- <code>PlanSpansTooManySources</code> - The plan would read more distinct data systems than one answer may.</p>
 <p>Refused rather than run in parts, because each data system is a separate identity to satisfy,
-  and a plan that runs partly as somebody else is the failure this design exists to prevent.</p>
-<p><strong>Exactly two is served</strong> - a question that spans two sources is split into two legs and
-  combined above them (the splitter reaches <code>sutura_semantic::Plan::Federated</code>, and <code>answer</code>
-  executes it where the registered adapter can run a leg and otherwise refuses it as
-  <code>FederationNotExecutable</code>). So this is the bound on
-  an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+  and a plan that runs partly as somebody else is the failure this design exists to prevent. The
+  count is of distinct sources, the set the broker mints credentials for once per answer, so it
+  bounds one metric and several metrics alike. A lookup leg that reads a source another leg
+  already reads does not add to it. Narrowable: ask for fewer dimensions that live in other
+  data systems, or for fewer metrics at a time. The "too many" is a named count against
+  <code>MAX_SOURCES</code>.
 - <code>PlanNeedsTooManyLookupLegs</code> - The plan would need more lookup legs than one answer may carry.</p>
 <p>Refused rather than run in parts, because each leg's data system is a separate identity to
   satisfy, and a plan that runs partly as somebody else is the failure this design exists to
@@ -10229,18 +10234,10 @@ somebody else's input.</p>
   build unable to run a leg, or did sutura fail to assemble a plan it had already decided on</em>.
   That failure leaves as <code>sutura_semantic::CompileFailure</code> now, so this variant means the
   capability and nothing else.
-- <code>FederationLinkAmbiguous</code> - The question's remote dimensions join the metric's own through more than one relationship.</p>
-<p>The combiner links the two legs on a single column; two relationships on one remote data
-  system would need two link columns, which the lookup leg does not carry. Refused rather than
-  guess a link, and named as a link ambiguity rather than a source count: it is not that too
-  many sources are involved.
 - <code>FederationLinkCompound</code> - The relationship crossing into the remote data system declares more than one join key.</p>
-<p><strong>Distinct from <code>FederationLinkAmbiguous</code>, which names two
-  relationships crossing at once.</strong> This is one relationship, correctly declared - a compound
-  key is exactly what <code>telekom/sutura#967</code> exists to allow inside one data system - but the
-  combiner links two legs on a single column, and a compound key would need one per column,
-  which the lookup leg's shape does not carry. Named for what is actually true rather than
-  reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+<p>One relationship, correctly declared - a compound key is exactly what <code>telekom/sutura#967</code>
+  exists to allow inside one data system - but the combiner links two legs on a single column,
+  and a compound key would need one per column, which the lookup leg's shape does not carry.
 - <code>FederationLinkTypeMismatch</code> - The two columns the crossing relationship joins are declared as different kinds of value.</p>
 <p>Decided from the catalog before either leg runs, and only when BOTH types are declared and
   BOTH are known: an integer against text can never match, so every row would miss. A type
@@ -10554,6 +10551,12 @@ a person asks and refuses the ones a loop generates.</p>
 <p>A constant and not a setting, and changing it amends the architecture decision. Each lookup leg reads its
 whole table that survives the question's own filters, so the cap bounds how many such reads one
 question starts; the working-set ceiling bounds their bytes.</p>
+<h3 id="constant-max_sources"><code>constant MAX_SOURCES</code><a class="headerlink" href="#constant-max_sources" title="Permanent link">&para;</a></h3>
+<p>The most distinct data systems one answer may read, for one metric or several.</p>
+<p>A constant for now and not a setting: each data system is an identity the broker mints for, so
+the count bounds how many such mints one question starts. One fact leg beside
+<code>MAX_LOOKUP_LEGS</code> lookup legs reads four at most, so a single metric never reaches it; a
+question over several metrics can, because each arm brings its own legs.</p>
 <h3 id="constant-max_metrics"><code>constant MAX_METRICS</code><a class="headerlink" href="#constant-max_metrics" title="Permanent link">&para;</a></h3>
 <p>The most metrics one question may name together.</p>
 <p>A bound for the same reason the time range and the dimension count are bounded: each
