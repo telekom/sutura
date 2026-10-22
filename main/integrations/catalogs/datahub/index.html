@@ -2813,6 +2813,12 @@ catalog <code>name</code> is also the name of the BigQuery source that the model
 model must be on the <code>bigquery</code> platform, and sutura binds it to the source whose alias is the
 catalog <code>name</code>. A model on a platform that is not mapped is refused at load, by name.
 The <a href="../../../examples/federated/">federated</a> example maps <code>postgres</code> and <code>clickhouse</code>.</p>
+<p>A model is named by its platform and the whole path of its dataset, joined by <code>__</code>, with <code>_</code> for
+each character a model name refuses. The dataset <code>acme-prod.sales.orders</code> on <code>bigquery</code> is the
+model <code>bigquery__acme_prod__sales__orders</code>. A metric document names its model by this name in its
+<code>model</code> field. A name longer than 63 characters keeps its first 54 characters, then <code>_</code> and eight
+hex digits of a hash of the whole name. Two datasets that map to one name are refused as a
+duplicate model.</p>
 <p>A relationship endpoint (<code>from</code> or <code>to</code> of a semantic model) joins only through the exact dataset urn
 it names, and that urn must name a dataset the same read returned. An endpoint that names any other
 dataset, on any platform or environment, is refused, and the error names the endpoint and the urn.</p>

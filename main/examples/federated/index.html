@@ -2747,9 +2747,9 @@ deployment's own user, and <code>single_user_because</code> records why.</p>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">"dimensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"segment"</span><span class="p">]</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>The metric is on <code>fct_subscription_monthly</code>. The dimension <code>segment</code> is on <code>dim_customer</code>, reached
-through the relationship <code>subscription_customer</code>. sutura reads the fact rows from Postgres and the
-dimension rows from ClickHouse, and joins them.</p>
+<p>The metric is on the model <code>postgres__fct_subscription_monthly</code>. The dimension <code>segment</code> is on
+the model <code>clickhouse__dim_customer</code>, reached through the relationship <code>subscription_customer</code>.
+sutura reads the fact rows from Postgres and the dimension rows from ClickHouse, and joins them.</p>
 <h2 id="run-it">Run it<a class="headerlink" href="#run-it" title="Permanent link">&para;</a></h2>
 <p>From <code>examples/federated</code>:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./setup.sh
