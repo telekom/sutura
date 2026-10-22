@@ -154,10 +154,9 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
     reason: "plan_spans_too_many_sources",
-    meaning: "answering would need to read from more data systems than this deployment serves (two at \
+    meaning: "answering would need to read from more data systems than one answer may (four at \
               most)",
-    remedy: "Nothing you can change. Report it to a person - it is a fact about how the metric is \
-             defined, and retrying or trying a different dimension will not avoid it.",
+    remedy: "Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.",
 };
 
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
@@ -194,12 +193,6 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
               systems, so the question cannot be answered yet",
     remedy: "Not a data system being down, so do not retry as if it were. Ask the same metric \
              without the dimension on the second data system, or report it to a person.",
-};
-
-const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
-    reason: "federation_link_ambiguous",
-    meaning: "a remote dimension joins through more than one relationship",
-    remedy: "Nothing you can change. Report it: it is a fact about how the metric is defined.",
 };
 
 const FEDERATION_LINK_COMPOUND: Guide = Guide {
@@ -360,7 +353,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
-    &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
@@ -417,15 +409,14 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
-        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
-        RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
+        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,

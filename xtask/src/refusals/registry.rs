@@ -29,9 +29,8 @@ const QUERY: Subject = Subject {
     // `telekom/sutura#780` ADDED `CrossModelRatioNotExecutable`: a ratio term naming another fact
     // model loads and is refused at plan time rather than mis-planned against the wrong table.
     // 24 since `telekom/sutura#967` ADDED `FederationLinkCompound`: a relationship crossing into a
-    // remote data system with more than one join key is refused under its own name rather than
-    // under `FederationLinkAmbiguous`, which means two RELATIONSHIPS crossing at once and would
-    // tell a caller something untrue about one correctly declared compound key. 26:
+    // remote data system with more than one join key is refused under its own name, because the
+    // combiner links two legs on a single column. 26:
     // `github.com/telekom/sutura#968` added `MetricsSpanDifferentModels` and
     // `MultiMetricNotExecutable` for a question naming more than one metric. 27: this diff
     // removed `MultiMetricNotExecutable` (every multi-metric question that shares model, time,
@@ -61,11 +60,14 @@ const QUERY: Subject = Subject {
     // payer was named where none is taken, or cannot be decided, is refused before it runs. 36 since
     // `DimensionNotConformed` and `QuestionNeedsTooManyLegs`, declared ahead of the planner that
     // raises them. 38 since `PlanNeedsTooManyLookupLegs` and `CrossModelRatioNeedsOneLookupLeg`,
-    // declared ahead of the planner change that raises them (`telekom/sutura#1342`).
-    // 36 since the drill-across planner RETIRED `MetricsSpanDifferentModels` and
+    // declared ahead of the planner change that raises them (`telekom/sutura#1342`). 36 since the
+    // drill-across planner RETIRED `MetricsSpanDifferentModels` and
     // `MultiMetricFederationNotExecutable`: a question over several metrics is planned as one arm
-    // each and joined above, so neither shape is refused.
-    variants: variants(36),
+    // each and joined above, so neither shape is refused. 35 since the lookup-leg planner DELETED
+    // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs);
+    // `PlanSpansTooManySources` stays and now counts the distinct data systems one answer reads
+    // against four.
+    variants: variants(35),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

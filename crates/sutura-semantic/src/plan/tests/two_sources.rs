@@ -94,13 +94,14 @@ pub(super) struct Placed {
 /// The two-fact catalog, ASSEMBLED rather than hand-built, so the load check, `resolve` and `plan`
 /// all read it: `revenue_per_visit` on `facts` divides `facts.amount_cents` by a count of
 /// `visits.visit_id`, both facts reach `calendar` and link to `customers` on `remote`, and the
-/// metric declares `calendar` as its shared calendar. `channel` is a dimension on `facts` alone.
+/// metric declares `calendar` as its shared calendar. `channel` is a dimension on `facts` alone, and
+/// `tier` is on `accounts`, a second remote system the second fact does not link to.
 pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
     let mut models = vec![
         model(
             "facts",
             "local",
-            &["amount_cents", "customer_key", "day_key", "day", "channel"],
+            &["amount_cents", "customer_key", "account_key", "day_key", "day", "channel"],
         ),
         model("visits", placed.visits_on, &["visit_id", "customer_key", "day_key"]),
         Model::new(
@@ -111,9 +112,11 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
             Description::default(),
         ),
         model("customers", "remote", &["customer_key", "region_code"]),
+        model("accounts", "accounts_remote", &["account_key", "tier"]),
     ];
     let mut relationships = vec![
         relationship("facts_customer", ("facts", "customer_key"), ("customers", "customer_key")),
+        relationship("facts_account", ("facts", "account_key"), ("accounts", "account_key")),
         relationship("facts_calendar", ("facts", "day_key"), ("calendar", "day_key")),
         relationship("visits_calendar", ("visits", "day_key"), ("calendar", "day_key")),
     ];
@@ -179,6 +182,7 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
         BTreeSet::from([Grain::Month]),
         vec![
             declared("region", "region_code", &["facts_customer"]),
+            declared("tier", "tier", &["facts_account"]),
             Dimension::new(
                 dimension_name("channel"),
                 column("channel"),

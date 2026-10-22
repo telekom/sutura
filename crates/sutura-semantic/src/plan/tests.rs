@@ -11,13 +11,13 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Audience, Description, Dimension, JoinKey, JoinKeys, Metric, Model, Relationship, ViaChain};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
-    Aggregate, ColumnName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{PlanPredicate, QueryPlan};
+use sutura_domain::plan::{AnswerKey, InternalLabel, LegAt, LookupLeg, PlanPredicate, QueryPlan};
 use sutura_domain::query::RefusalReason;
 
-use super::{DimensionName, Plan, PlanError, plan};
+use super::{Plan, PlanError, plan};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 use crate::{CompileFailure, Compiled};
 
@@ -26,7 +26,7 @@ mod drill_across;
 mod federation;
 mod link_types;
 mod two_sources;
-use corpus::{Corpus, federated_by, join_tables, pair, read_from};
+use corpus::{Corpus, federated_by, join_tables, lookup_at, lookup_shape, pair, read_from};
 use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, federated, refusal, revenue_beside_a_ratio, two_facts};
 
 fn column(raw: &str) -> ColumnName {
@@ -169,33 +169,159 @@ fn the_join_order_does_not_depend_on_the_order_the_dimensions_arrive() {
     );
 }
 
-/// A chain that left its data system is refused HERE, not only at load.
+/// A chain that crosses and comes back is planned as federated legs, never as one statement.
 ///
-/// `customers` on `elsewhere` with `regions` back on `local` is the shape the load check used to
-/// accept: the last hop is local, so `is_remote` calls the whole chain local and the whole-answer
-/// plan renders `elsewhere`'s table into one `local` statement. No bundle can be assembled that
-/// way any more, which is why this resolution is built by hand.
+/// `customers` on `elsewhere` with `regions` back on `local`: the crossing back is a second lookup
+/// leg that joins onto the first, and the second crossing's link leaves the first leg at the column
+/// it starts from.
 #[test]
-fn a_chain_that_leaves_its_source_is_refused_at_plan_time() {
-    let corpus = Corpus::with_customers_on("elsewhere");
-    let Err(refused) = plan(&corpus.asking(vec![corpus.key("region")])) else {
-        panic!("a chain that crossed and came back must be refused");
-    };
-    assert!(
-        matches!(
-            refused,
-            PlanError::ChainLeavesItsSource { ref dimension, hop: 2, .. } if *dimension == dimension_name("region")
-        ),
-        "expected the chain refusal naming hop 2, got {refused:?}"
+fn a_chain_that_crosses_and_comes_back_is_planned_as_two_federated_legs() {
+    let corpus = Corpus::placed("elsewhere", "local", "local");
+    let planned = federated_by(&corpus, "region");
+    assert_eq!(
+        lookup_shape(&planned),
+        vec![
+            (String::from("elsewhere"), LegAt::Fact),
+            (String::from("local"), LegAt::Lookup(0))
+        ]
+    );
+    let (first, second) = (lookup_at(&planned, 0), lookup_at(&planned, 1));
+    let link = |at: usize| InternalLabel::link(at).label();
+    assert_eq!(first.keys().get(1).map(|key| key.label().to_owned()), Some(link(1)));
+    assert_eq!(read_from(first.keys().get(1)), pair("dim_customers", "region_code"));
+    assert_eq!(read_from(second.keys().first()), pair("dim_regions", "code"));
+    assert_eq!(read_from(second.keys().get(1)), pair("dim_regions", "label"));
+    assert_eq!(planned.keys().first().map(AnswerKey::side), Some(LegAt::Lookup(1)));
+}
+
+/// A chain that crosses onto one data system and on to a third spends two lookup legs.
+#[test]
+fn a_chain_that_crosses_and_on_to_a_third_system_is_planned_as_two_federated_legs() {
+    let corpus = Corpus::placed("elsewhere", "third", "local");
+    let planned = federated_by(&corpus, "region");
+    assert_eq!(
+        lookup_shape(&planned),
+        vec![
+            (String::from("elsewhere"), LegAt::Fact),
+            (String::from("third"), LegAt::Lookup(0))
+        ]
     );
 }
 
-/// A chain that crosses onto one data system and on to a third is refused at plan time as well.
+/// Two dimensions that cross onto two data systems are two lookup legs, each joined onto the fact.
+///
+/// The fact leg groups by the origin of BOTH links, the second of them on `products`, the table the
+/// hop before the crossing landed on, and each answer key is read from the leg that holds it.
 #[test]
-fn a_chain_that_crosses_and_on_to_a_third_system_is_refused_at_plan_time() {
-    let corpus = Corpus::placed("elsewhere", "third", "local");
-    let got = plan(&corpus.asking(vec![corpus.key("region")])).err();
-    assert!(matches!(got, Some(PlanError::ChainLeavesItsSource { hop: 2, .. })), "{got:?}");
+fn dimensions_on_two_other_systems_are_planned_as_two_lookup_legs_on_the_fact() {
+    let corpus = Corpus::placed("a", "a", "b");
+    let Plan::Federated(planned) = plan(&corpus.asking(vec![corpus.key("region"), corpus.key("brand")])).expect("this plans")
+    else {
+        panic!("dimensions on other data systems are a federated plan");
+    };
+    assert_eq!(
+        lookup_shape(&planned),
+        vec![(String::from("a"), LegAt::Fact), (String::from("b"), LegAt::Fact)]
+    );
+    assert_eq!(read_from(planned.fact().keys().first()), pair("dim_facts", "customer_key"));
+    assert_eq!(read_from(planned.fact().keys().get(1)), pair("dim_products", "brand_key"));
+    assert_eq!(join_tables(planned.fact()), vec![pair("dim_facts", "dim_products")]);
+    assert_eq!(
+        planned.keys().iter().map(AnswerKey::side).collect::<Vec<_>>(),
+        vec![LegAt::Lookup(0), LegAt::Lookup(1)]
+    );
+}
+
+/// A filter makes ITS lookup leg an INNER join and leaves the others as they were.
+#[test]
+fn a_filter_on_one_lookup_leg_makes_only_that_leg_inner() {
+    let corpus = Corpus::placed("a", "a", "b");
+    let resolution = Resolution {
+        filters: vec![ResolvedFilter {
+            dimension: corpus.key("region"),
+            value: ResolvedFilterValue::Eq(String::from("north")),
+        }],
+        ..corpus.asking(vec![corpus.key("region"), corpus.key("brand")])
+    };
+    let Plan::Federated(planned) = plan(&resolution).expect("this plans") else {
+        panic!("dimensions on other data systems are a federated plan");
+    };
+    assert_eq!(
+        planned
+            .lookups()
+            .legs()
+            .iter()
+            .map(LookupLeg::include_unmatched)
+            .collect::<Vec<_>>(),
+        vec![false, true]
+    );
+}
+
+/// Exactly three lookup legs are planned: the cap is a bound that admits its own count.
+///
+/// `region` crosses twice and `family` once, over three other data systems, so the plan carries a
+/// chain's two legs and a leg of its own, and a cap that refused its own limit would refuse it.
+#[test]
+fn a_question_that_needs_exactly_three_lookup_legs_is_planned() {
+    let corpus = Corpus::spread("a", "b", "c", "local");
+    let Plan::Federated(planned) =
+        plan(&corpus.asking(vec![corpus.key("region"), corpus.key("family")])).expect("three legs plan")
+    else {
+        panic!("dimensions on other data systems are a federated plan");
+    };
+    assert_eq!(
+        lookup_shape(&planned),
+        vec![
+            (String::from("a"), LegAt::Fact),
+            (String::from("b"), LegAt::Lookup(0)),
+            (String::from("c"), LegAt::Fact)
+        ]
+    );
+}
+
+/// The legs, their link labels and the side each answer key is read from do not depend on the order
+/// the caller listed the dimensions.
+///
+/// `brand` sorts after `region` by its crossing relationship, so a leg numbered by arrival would swap
+/// the two links when `brand` is asked first.
+#[test]
+fn the_legs_and_their_links_do_not_depend_on_the_order_the_dimensions_are_asked() {
+    let corpus = Corpus::placed("a", "a", "b");
+    let planned =
+        |by: [&str; 2]| match plan(&corpus.asking(by.iter().map(|name| corpus.key(name)).collect())).expect("this plans") {
+            Plan::Federated(planned) => planned,
+            Plan::Mono(_) | Plan::DrillAcross(_) => panic!("dimensions on other data systems are a federated plan"),
+        };
+    let (forward, reverse) = (planned(["region", "brand"]), planned(["brand", "region"]));
+    assert_eq!(lookup_shape(&forward), lookup_shape(&reverse));
+    let fact_keys = |plan: &sutura_domain::plan::FederatedPlan| {
+        plan.fact()
+            .keys()
+            .iter()
+            .map(|key| (key.label().to_owned(), read_from(Some(key))))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fact_keys(&forward), fact_keys(&reverse));
+    let side_of = |plan: &sutura_domain::plan::FederatedPlan, label: &str| {
+        plan.keys().iter().find(|key| key.label() == label).map(AnswerKey::side)
+    };
+    for label in ["region", "brand"] {
+        assert_eq!(
+            side_of(&forward, label),
+            side_of(&reverse, label),
+            "{label} is read from one leg either way"
+        );
+    }
+}
+
+/// A question that would read four lookup legs is refused by name, with the count and the cap.
+#[test]
+fn a_question_that_needs_four_lookup_legs_is_refused_with_the_count() {
+    let corpus = Corpus::spread("a", "b", "c", "d");
+    let Err(PlanError::Refused(reason)) = plan(&corpus.asking(vec![corpus.key("region"), corpus.key("brand")])) else {
+        panic!("four lookup legs must be refused");
+    };
+    assert_eq!(reason, RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 });
 }
 
 /// A chain that crosses at its FIRST hop and carries on is one lookup statement.
@@ -300,9 +426,7 @@ fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
 }
 
 /// A relationship crossing into a remote source with MORE THAN ONE join key is refused by its
-/// own name, `FederationLinkCompound` - not `FederationLinkAmbiguous`, which means two
-/// RELATIONSHIPS crossing at once and would tell a caller something untrue about one correctly
-/// declared compound key. Built by hand for the same reason every federated-splitter cell here
+/// own name, `FederationLinkCompound`, which names the one relationship that declares them. Built by hand for the same reason every federated-splitter cell here
 /// is: `Definitions::assemble` never puts two remote-crossing keys in front of a caller's
 /// question on its own, so the splitter's own guard is the only venue that provokes this.
 #[test]

@@ -102,10 +102,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::ResourcesExhausted {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
-        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+        RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
         RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
         RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkAmbiguous { source: source("geo") },
         RefusalReason::FederationLinkCompound {
             source: source("geo"),
             relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
@@ -173,10 +172,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::TooManyFilters { .. }
             | RefusalReason::ResultTooLarge { .. }
             | RefusalReason::TimeRangeTooLong { .. }
-            | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
+            | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::FederationNotExecutable
-            | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }

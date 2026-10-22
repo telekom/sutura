@@ -4,10 +4,6 @@
 use sutura_domain::model::{RelationshipName, SourceName};
 use sutura_domain::plan::QuotedColumnType;
 
-pub(super) fn federation_link_ambiguous(source: &SourceName) -> String {
-    format!("the dimensions on `{source}` join through more than one relationship")
-}
-
 pub(super) fn federation_link_compound(source: &SourceName, relationship: &RelationshipName) -> String {
     format!("`{relationship}` crossing into `{source}` declares more than one join key")
 }

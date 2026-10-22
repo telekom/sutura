@@ -152,35 +152,6 @@ pub enum InconsistentDefinitions {
         previous: RelationshipName,
         relationship: RelationshipName,
     },
-    /// A chained join that leaves the data system the chain crossed to: back onto the metric's own,
-    /// or on to a third.
-    ///
-    /// **A chain crosses one boundary, at any hop, and stays where it crossed to.** The hops before
-    /// the crossing join on the metric's own system, the crossing hop is the one link the federated
-    /// plan carries, and the hops after it join inside the lookup leg's statement. A hop that lands
-    /// anywhere else has no place in that shape.
-    ///
-    /// **Each hop's target is compared with where the walk crossed to, and comparing it with the
-    /// metric's own source alone was a wrong answer.** A chain that crossed and came back has a local
-    /// target on its last hop, so a check reading the target against the metric's source accepted it.
-    /// Then `sutura_semantic`'s `is_remote` reads such a chain off its LAST hop, calls it local, and
-    /// the whole-answer plan renders the other system's table into one statement under a certified
-    /// metric name.
-    #[error(
-        "dimension {dimension} of metric {metric} chains along {relationship}, which leaves {target_source}, the data system the chain crossed to from {own}, and a chain crosses one data system boundary and stays there"
-    )]
-    HopCrossesSource {
-        metric: MetricName,
-        dimension: DimensionName,
-        relationship: RelationshipName,
-        /// The field is `own` rather than `source`, because `thiserror` reads a field called
-        /// `source` as the `Error::source` chain and a `SourceName` there does not compile. Every
-        /// error that names a source field does so under a name that is not exactly `source`.
-        own: SourceName,
-        /// The data system the chain crossed to, which is where it has to stay: the one this hop
-        /// leaves, whether it goes back to the metric's own or on to a third.
-        target_source: SourceName,
-    },
     #[error(
         "dimension {dimension} of metric {metric} declares an empty value allowlist, so it permits filtering and permits no value"
     )]
@@ -623,7 +594,6 @@ impl Definitions {
         // it reports differs: hop 1 failing is a relationship that does not start at the metric's
         // model, hop N failing is a chain that is a set of relationships rather than a path.
         let mut owning = model;
-        let mut crossed: Option<&SourceName> = None;
         if let Some(chain) = dimension.via.as_ref() {
             for (hop, name) in chain.as_slice().iter().enumerate() {
                 let relationship = relationships
@@ -665,32 +635,14 @@ impl Definitions {
                         hop: hop.saturating_add(1),
                     });
                 }
-                // A chain crosses ONE data system boundary, at any hop, and stays on the system it
-                // crossed to: the hops before the crossing join on the metric's own source, the
-                // crossing hop is the federated plan's link, and the hops after it join inside the
-                // lookup leg. `crossed` is where the walk landed, so each later hop's target is
-                // compared with that - not with the metric's source, which accepted a chain that
-                // crossed and came back (the variant's own note carries the report). Every hop's
-                // origin is where the previous hop's target is, so the target is the one end to read.
+                // A chain may cross a data system boundary at any hop, and as often as it likes: the
+                // plan counts each crossing as a lookup leg and refuses a question past the cap.
                 let target = models.get(&relationship.target_model).ok_or_else(|| {
                     InconsistentDefinitions::RelationshipToUnknownModel {
                         relationship: name.clone(),
                         model: relationship.target_model.clone(),
                     }
                 })?;
-                match crossed {
-                    Some(crossed_to) if target.source() != crossed_to => {
-                        return Err(InconsistentDefinitions::HopCrossesSource {
-                            metric: metric.name.clone(),
-                            dimension: dimension.name.clone(),
-                            relationship: name.clone(),
-                            own: model.source().clone(),
-                            target_source: crossed_to.clone(),
-                        });
-                    }
-                    None if target.source() != model.source() => crossed = Some(target.source()),
-                    Some(_) | None => {}
-                }
                 owning = target;
             }
         }

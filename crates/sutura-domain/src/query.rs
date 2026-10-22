@@ -44,6 +44,13 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// whole table that survives the question's own filters, so the cap bounds how many such reads one
 /// question starts; the working-set ceiling bounds their bytes.
 pub const MAX_LOOKUP_LEGS: usize = 3;
+/// The most distinct data systems one answer may read, for one metric or several.
+///
+/// A constant for now and not a setting: each data system is an identity the broker mints for, so
+/// the count bounds how many such mints one question starts. One fact leg beside
+/// [`MAX_LOOKUP_LEGS`] lookup legs reads four at most, so a single metric never reaches it; a
+/// question over several metrics can, because each arm brings its own legs.
+pub const MAX_SOURCES: usize = 4;
 /// The most metrics one question may name together.
 ///
 /// A bound for the same reason the time range and the dimension count are bounded: each
@@ -229,16 +236,15 @@ pub enum RefusalReason {
     /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
     /// reflect into a message that reaches a log, a UI and an agent's context.
     TimeRangeTooLong { days: i32, limit: i32 },
-    /// The plan would need to read from more than the deployment serves.
+    /// The plan would read more distinct data systems than one answer may.
     ///
     /// Refused rather than run in parts, because each data system is a separate identity to satisfy,
-    /// and a plan that runs partly as somebody else is the failure this design exists to prevent.
-    ///
-    /// **Exactly two is served** - a question that spans two sources is split into two legs and
-    /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-    /// executes it where the registered adapter can run a leg and otherwise refuses it as
-    /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
-    /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+    /// and a plan that runs partly as somebody else is the failure this design exists to prevent. The
+    /// count is of distinct sources, the set the broker mints credentials for once per answer, so it
+    /// bounds one metric and several metrics alike. A lookup leg that reads a source another leg
+    /// already reads does not add to it. Narrowable: ask for fewer dimensions that live in other
+    /// data systems, or for fewer metrics at a time. The "too many" is a named count against
+    /// [`MAX_SOURCES`].
     PlanSpansTooManySources { sources: usize, limit: usize },
     /// The plan would need more lookup legs than one answer may carry.
     ///
@@ -274,21 +280,11 @@ pub enum RefusalReason {
     /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
     /// capability and nothing else.
     FederationNotExecutable,
-    /// The question's remote dimensions join the metric's own through more than one relationship.
-    ///
-    /// The combiner links the two legs on a single column; two relationships on one remote data
-    /// system would need two link columns, which the lookup leg does not carry. Refused rather than
-    /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
-    /// many sources are involved.
-    FederationLinkAmbiguous { source: SourceName },
     /// The relationship crossing into the remote data system declares more than one join key.
     ///
-    /// **Distinct from [`FederationLinkAmbiguous`](Self::FederationLinkAmbiguous), which names two
-    /// relationships crossing at once.** This is one relationship, correctly declared - a compound
-    /// key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
-    /// combiner links two legs on a single column, and a compound key would need one per column,
-    /// which the lookup leg's shape does not carry. Named for what is actually true rather than
-    /// reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+    /// One relationship, correctly declared - a compound key is exactly what `telekom/sutura#967`
+    /// exists to allow inside one data system - but the combiner links two legs on a single column,
+    /// and a compound key would need one per column, which the lookup leg's shape does not carry.
     FederationLinkCompound {
         source: SourceName,
         relationship: RelationshipName,
@@ -745,12 +741,9 @@ mod tests {
                 bound: ResultBound::Rows { limit: 10_000 },
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),

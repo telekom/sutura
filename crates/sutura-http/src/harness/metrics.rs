@@ -117,7 +117,6 @@ sutura_refusals_total{reason="dimension_value_not_allowed"} 0
 sutura_refusals_total{reason="duplicate_dimension"} 0
 sutura_refusals_total{reason="duplicate_metric_name"} 0
 sutura_refusals_total{reason="federated_answer_not_well_formed"} 0
-sutura_refusals_total{reason="federation_link_ambiguous"} 0
 sutura_refusals_total{reason="federation_link_compound"} 0
 sutura_refusals_total{reason="federation_link_type_mismatch"} 0
 sutura_refusals_total{reason="federation_not_executable"} 0

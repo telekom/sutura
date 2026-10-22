@@ -131,10 +131,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              data systems. Nothing you can change in the question helps and this is not an outage \
              to retry; ask without the dimension on the second data system, or report it.",
         ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => format!(
-            "the dimensions on `{source}` join through more than one relationship, and the two \
-             legs link on a single column"
-        ),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
@@ -380,12 +376,9 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")

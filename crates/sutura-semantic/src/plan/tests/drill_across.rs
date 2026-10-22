@@ -152,7 +152,7 @@ fn a_question_over_more_legs_than_one_answer_may_run_is_refused() {
 }
 
 #[test]
-fn metrics_on_different_sources_beside_a_remote_one_read_too_many_data_systems() {
+fn metrics_on_different_sources_beside_a_remote_one_plan_over_three_data_systems() {
     let corpus = TwoSources::new();
     let revenue = simple("revenue");
     let orders = model("orders", "other", &["amount", "region_code", "day"]);
@@ -195,15 +195,16 @@ fn metrics_on_different_sources_beside_a_remote_one_read_too_many_data_systems()
         whole: corpus.asking(vec![&revenue, &sales], true),
         per_metric: vec![corpus.asking(vec![&revenue], true), sales_alone],
     };
-    assert!(
-        matches!(
-            plan_resolved(&both),
-            Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
-                sources: 3,
-                limit: 2
-            }))
-        ),
-        "local, remote and other are three data systems"
+    let planned = across(plan_resolved(&both));
+    assert_eq!(
+        planned.legs().len(),
+        3,
+        "one fact and one lookup for revenue, one fact for sales"
+    );
+    assert_eq!(
+        planned.sources().collect::<BTreeSet<_>>().len(),
+        3,
+        "local, remote and other are three data systems, and the lookup-leg cap bounds them"
     );
 }
 
@@ -288,5 +289,91 @@ fn metrics_that_reach_a_dimension_by_different_paths_are_an_arm_each() {
             (String::from("dim_facts"), String::from("segment_name")),
         ],
         "each arm reads its own metric's column, not the first metric's"
+    );
+}
+
+/// `held`'s twin under another name, so two arms of one question can be told apart.
+fn twin() -> Metric {
+    Metric::new(
+        MetricName::parse("twin").expect("a test metric is a metric"),
+        ModelName::parse("facts").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("day"),
+        BTreeSet::from([Grain::Month]),
+        Vec::new(),
+        None,
+        Description::default(),
+        Audience::Open,
+    )
+    .expect("a metric with no dimensions has none to duplicate")
+}
+
+/// The corpus metric asked over `first` and `twin` asked over `second`, each by the dimensions `by`.
+fn arms_over<'a>(first: &'a Corpus, second: &'a Corpus, twin: &'a Metric, by: &[&str]) -> Resolved<'a> {
+    let asked = |corpus: &'a Corpus| corpus.asking(by.iter().map(|name| corpus.key(name)).collect());
+    Resolved {
+        whole: asked(first),
+        per_metric: vec![
+            asked(first),
+            Resolution {
+                metric: twin,
+                metrics: vec![twin],
+                ..asked(second)
+            },
+        ],
+    }
+}
+
+/// An arm reads up to three lookup legs, and a fourth is refused by name with the count.
+#[test]
+fn an_arm_over_several_lookup_legs_plans_up_to_the_cap() {
+    let twin = twin();
+    let three = Corpus::placed("a", "a", "b");
+    let planned = across(plan_resolved(&arms_over(&three, &three, &twin, &["region", "brand"])));
+    assert_eq!(
+        planned.legs().len(),
+        6,
+        "a fact leg and two lookup legs, for each of two arms"
+    );
+    let four = Corpus::spread("a", "b", "c", "d");
+    let refused = plan_resolved(&arms_over(&four, &four, &twin, &["region", "brand"]));
+    assert!(
+        matches!(
+            refused,
+            Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
+                legs: 4,
+                limit: 3
+            }))
+        ),
+        "an arm over four lookup legs is refused, got {:?}",
+        refused.err()
+    );
+}
+
+/// The data systems one answer reads are counted once each over every arm: four plan, five are refused.
+#[test]
+fn an_answer_over_several_metrics_reads_four_data_systems_and_not_five() {
+    let twin = twin();
+    let first = Corpus::spread("a", "b", "local", "local");
+    let four = Corpus::spread("a", "c", "local", "local");
+    let planned = across(plan_resolved(&arms_over(&first, &four, &twin, &["region"])));
+    assert_eq!(
+        planned.sources().collect::<BTreeSet<_>>().len(),
+        4,
+        "local, a, b and c; the source both arms read counts once"
+    );
+    let five = Corpus::spread("c", "d", "local", "local");
+    let refused = plan_resolved(&arms_over(&first, &five, &twin, &["region"]));
+    assert!(
+        matches!(
+            refused,
+            Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
+                sources: 5,
+                limit: 4
+            }))
+        ),
+        "local, a, b, c and d are five data systems, got {:?}",
+        refused.err()
     );
 }
