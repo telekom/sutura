@@ -101,6 +101,7 @@ mod declared_address_tests {
         for json in [
             r#"{"upn":"a@example.com","upn":"b@example.com"}"#,
             r#"{"upn":"a@example.com","upn":"a@example.com"}"#,
+            r#"{"upn":"a@example.com","\u0075pn":"b@example.com"}"#,
             r#"{"upn":["a@example.com"]}"#,
             r#"{"upn":7}"#,
             r#"{"upn":null}"#,

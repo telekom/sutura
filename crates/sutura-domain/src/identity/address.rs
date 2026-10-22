@@ -1,4 +1,4 @@
-//! The email address an identity provider verified for the caller.
+//! The caller's email address, read from a token whose signature verified.
 //!
 //! Read only by a `domain_delegation` source, which runs the caller's question as the Google account
 //! with this address. Parsed and never normalised: no case fold, no alias, no trimming, so the
@@ -7,10 +7,11 @@
 /// The longest address accepted, in bytes: RFC 5321's path limit less its two angle brackets.
 const MAX_ADDRESS_LEN: usize = 254;
 
-/// An address the identity provider marked verified, as it wrote it.
+/// The caller's address, as the token wrote it.
 ///
-/// The transport reads `email` into one only when `email_verified` is `true`. `Debug` does not
-/// print the value: it names a person.
+/// The transport fills one from `email` only beside `email_verified: true`, or from the claim an
+/// operator declared as `security.inbound.address_claim` and accepted, which no verification flag
+/// accompanies. `Debug` does not print the value: it names a person.
 #[derive(Clone, PartialEq, Eq)]
 pub struct VerifiedAddress(String);
 

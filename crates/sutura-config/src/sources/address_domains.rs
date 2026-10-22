@@ -99,6 +99,7 @@ mod tests {
             "a@example.com.evil.net",
             "a@example.co",
             "a@example.net",
+            "a@example.com.",
             "<a@example.com>",
         ] {
             assert!(!admits(&listed, address), "{address}");
@@ -117,6 +118,7 @@ mod tests {
             "example..com",
             "-example.com",
             "example-.com",
+            "example.com.",
             "exam ple.com",
             "b\u{fc}cher.de",
             long.as_str(),

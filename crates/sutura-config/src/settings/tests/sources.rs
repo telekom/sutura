@@ -516,6 +516,30 @@ fn address_domains_are_carried_and_an_empty_list_is_refused_at_boot() {
 }
 
 #[test]
+fn an_address_domains_key_with_no_value_is_refused_as_an_empty_list_is() {
+    for written in ["", "~", "null"] {
+        let block = format!(
+            "    domain_delegation:\n      delegating_account: \"dwd@acme-analytics.iam.gserviceaccount.com\"\n      \
+             address_domains: {written}\n"
+        );
+        let error = Settings::load(&on_direct_inbound(&block)).expect_err("a key with no value is not an absent key");
+        let SettingsError::Sources { ref cause } = *error.reason() else {
+            panic!("expected a sources refusal for {written:?}, got {error:?}");
+        };
+        assert!(
+            matches!(
+                *cause,
+                crate::sources::InvalidSourceRegistry::AddressDomains {
+                    cause: crate::sources::address_domains::InvalidAddressDomains::Empty,
+                    ..
+                }
+            ),
+            "{written:?}: {cause:?}"
+        );
+    }
+}
+
+#[test]
 fn a_google_login_source_boots_on_a_direct_deployment() {
     let direct = |block: &str| {
         Sources::defaults(Environment::Development).with_overlay(format!(

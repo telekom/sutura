@@ -246,9 +246,22 @@ pub(crate) struct RawGoogleLogin {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawDomainDelegation {
     pub(crate) delegating_account: String,
-    /// The only domains a caller is run as. Absent: every verified address.
-    #[serde(default)]
-    pub(crate) address_domains: Option<Vec<String>>,
+    /// The only domains a caller is run as. Absent: every verified address. Written with no value:
+    /// refused, as an empty list is.
+    #[serde(default, deserialize_with = "null_domains_as_empty")]
+    pub(crate) address_domains: RawDomains,
+}
+
+/// An `address_domains` key, absent or as written.
+type RawDomains = Option<Vec<String>>;
+
+/// An `address_domains` key written with no value reads as an empty list rather than as an absent
+/// key, so it is refused as the empty list is.
+fn null_domains_as_empty<'de, D>(deserializer: D) -> Result<RawDomains, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    <RawDomains as serde::Deserialize>::deserialize(deserializer).map(|written| Some(written.unwrap_or_default()))
 }
 
 /// A `delegation` key written with no value (`delegation:` or `delegation: null`) reads as an empty

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http/src/inbound/address.rs b/crates/sutura-http/src/inbound/address.rs
+index 573711772..424a1667e 100644
+--- a/crates/sutura-http/src/inbound/address.rs
++++ b/crates/sutura-http/src/inbound/address.rs
+@@ -61,7 +61,7 @@ impl<'de> serde::de::Visitor<'de> for OneClaim<'_> {
+                 map.next_value::<serde::de::IgnoredAny>()?;
+             }
+         }
+-        Ok(found.filter(|_| seen == 1))
++        Ok(found.filter(|_| seen >= 1))
+     }
+ }
+ 
