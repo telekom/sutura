@@ -175,6 +175,20 @@ the deployment.
     Callers can share one dataset, because BigQuery applies each caller's own grants and row access
     policies to the query.
 
+## Integration modes
+
+An `impersonation-at-source` source declares one of three modes. A `shared-service-user` source
+declares none. The table compares the four.
+
+| Mode                                               | Runs as                                             | Operator setup                                                          | Operational challenge                                          | Security advantage                               | Security limit                                                                                  |
+| -------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| [`shared-service-user`](#identity)                 | The process's application default credentials       | Set `billing.service_account_project`                                   | One identity bills and reads for every caller                  | Callers need no grants of their own              | BigQuery cannot tell callers apart                                                              |
+| [`workload_identity`](#identity) with `delegation` | The caller's own principal in the pool              | Set up a pool, a client and a secret file per hop, and `direct` inbound | Each caller needs a pool principal and grants                  | No service account at any step                   | The pool provider must accept only the pool audience                                            |
+| [`google_login`](#settings)                        | The caller's linked Google account                  | Set up the broker endpoint and `direct` inbound                         | Each caller links an account. A long job can outlive the token | Grants on the caller's own Google account decide | The identity provider keeps the Google token                                                    |
+| [`domain_delegation`](#settings)                   | The Google account with the caller's verified email | Authorize the delegating account and grant `signJwt` on it              | The identity provider must lock each user's email              | Each caller keeps their own Google grants        | The deployment vouches for the caller. The delegating account can act as any user in the domain |
+
+A caller that a mode cannot run is refused. No mode falls back to another.
+
 ## Sizing
 
 One result has at most 1 000 000 rows and 256 MiB. A time column must be `DATE`: sutura refuses
