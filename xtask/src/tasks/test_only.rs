@@ -13,7 +13,7 @@ const DOCTEST: &str = r#"[ -n "$filter" ] || cargo test --doc --workspace --all-
 
 fn justfile() -> String {
     let root = crate::repo::root().expect("the repo root");
-    std::fs::read_to_string(root.join("justfile")).expect("the justfile")
+    crate::tasks::justfiles::text(&root).expect("the justfile set")
 }
 
 fn commands(name: &str) -> Vec<String> {

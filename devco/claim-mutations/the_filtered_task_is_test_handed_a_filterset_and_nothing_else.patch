@@ -1,0 +1,18 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index ee52beeb2..cb8003bc7 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -114,11 +114,8 @@ fn load(root: &Path, path: PathBuf) -> Result<Source, Refused> {
+ /// The set as one text, for a reader that searches rather than parses: `\n` between files, so no
+ /// file's last line runs into the next file's first.
+ pub(crate) fn text(root: &Path) -> Result<String, Refused> {
+-    Ok(read(root)?
+-        .into_iter()
+-        .map(|source| source.text)
+-        .collect::<Vec<_>>()
+-        .join("\n"))
++    drop(read(root)?);
++    Ok(String::new())
+ }
+ 
+ /// The first `import` or `mod` in an imported file: only the root declares either.

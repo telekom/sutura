@@ -240,8 +240,8 @@ pub(crate) struct RawGoogleLogin {
     pub(crate) client_secret_file: String,
 }
 
-/// One source's `domain_delegation` block, as read. No `scope` key: `jobs.insert` accepts the
-/// `bigquery` scope and not `bigquery.readonly`, so it is a constant rather than a choice.
+/// One source's `domain_delegation` block, as read. No `scope` key: the job asks for
+/// `bigquery.readonly` only, a constant rather than a choice.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawDomainDelegation {

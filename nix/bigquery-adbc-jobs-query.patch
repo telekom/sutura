@@ -1,0 +1,517 @@
+--- a/bigquery_database.go
++++ b/bigquery_database.go
+@@ -63,6 +63,7 @@
+
+ 	bulkIngestMethod      string
+ 	bulkIngestCompression string
++	throughJobsQuery      bool
+ }
+
+ func (d *databaseImpl) Open(ctx context.Context) (adbc.ConnectionWithContext, error) {
+@@ -90,6 +91,7 @@
+ 		quotaProject:               d.quotaProject,
+ 		bulkIngestMethod:           d.bulkIngestMethod,
+ 		bulkIngestCompression:      d.bulkIngestCompression,
++		throughJobsQuery:           d.throughJobsQuery,
+ 	}
+
+ 	err := conn.newClient(ctx)
+@@ -301,6 +303,15 @@
+ 			}
+ 		}
+ 		d.bulkIngestCompression = value
++	case OptionQueryThroughJobsQuery:
++		through, err := strconv.ParseBool(value)
++		if err != nil {
++			return adbc.Error{
++				Code: adbc.StatusInvalidArgument,
++				Msg:  fmt.Sprintf("[bq] invalid %s value `%s`", key, value),
++			}
++		}
++		d.throughJobsQuery = through
+ 	default:
+ 		return d.DatabaseImplBase.SetOption(ctx, key, value)
+ 	}
+--- a/connection.go
++++ b/connection.go
+@@ -43,6 +43,7 @@
+ 	"github.com/apache/arrow-adbc/go/adbc"
+ 	"github.com/apache/arrow-go/v18/arrow"
+ 	"golang.org/x/oauth2"
++	bq "google.golang.org/api/bigquery/v2"
+ 	"google.golang.org/api/googleapi"
+ 	"google.golang.org/api/impersonate"
+ 	"google.golang.org/api/iterator"
+@@ -88,6 +89,9 @@
+ 	bulkIngestCompression string
+
+ 	client *bigquery.Client
++	// service runs jobs.query for throughJobsQuery.
++	service          *bq.Service
++	throughJobsQuery bool
+ }
+
+ func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string) ([]string, error) {
+@@ -899,6 +903,12 @@
+ 	}
+
+ 	c.client = client
++	if c.throughJobsQuery {
++		c.service, err = bq.NewService(ctx, append([]option.ClientOption{option.WithScopes(bigquery.Scope)}, bigQueryAuthOptions...)...)
++		if err != nil {
++			return errToAdbcErr(adbc.StatusIO, err, "create jobs.query client")
++		}
++	}
+ 	return nil
+ }
+
+--- /dev/null
++++ b/jobs_query.go
+@@ -0,0 +1,184 @@
++// Copyright (c) 2026 ADBC Drivers Contributors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//         http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package bigquery
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"log/slog"
++	"maps"
++	"net/http"
++	"slices"
++	"uuid"
++
++	"cloud.google.com/go/bigquery"
++	"github.com/apache/arrow-adbc/go/adbc"
++	bq "google.golang.org/api/bigquery/v2"
++	"google.golang.org/api/option"
++)
++
++// OptionQueryThroughJobsQuery, set to "true" on the database, starts a statement
++// run by ExecuteQuery or ExecuteUpdate with jobs.query instead of jobs.insert;
++// ExecuteSchema's dry run and the session and transaction statements still use
++// jobs.insert. Google accepts jobs.query, jobs.get,
++// jobs.getQueryResults and the Storage Read API from a token scoped to
++// bigquery.readonly, and refuses it jobs.insert and jobs.cancel. jobs.query takes
++// no client-chosen job ID, so a statement cut off before jobs.query answers
++// cannot cancel its job.
++const OptionQueryThroughJobsQuery = "bigquery.query.through_jobs_query"
++
++// jobsQueryFields are the jobs.insert configuration fields that jobs.query takes
++// under the same name and meaning. Any other field is refused, never dropped.
++var jobsQueryFields = map[string]bool{
++	"connectionProperties": true,
++	"createSession":        true,
++	"defaultDataset":       true,
++	"dryRun":               true,
++	"jobTimeoutMs":         true,
++	"labels":               true,
++	"maxSlots":             true,
++	"maximumBytesBilled":   true,
++	"query":                true,
++	"queryParameters":      true,
++	"reservation":          true,
++	"useLegacySql":         true,
++	"useQueryCache":        true,
++}
++
++var errRendered = errors.New("[bq] jobs.insert request rendered, not sent")
++
++// renderTransport keeps the one request it is given and sends nothing.
++type renderTransport struct{ body []byte }
++
++func (t *renderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
++	defer r.Body.Close()
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		return nil, err
++	}
++	t.body = body
++	return nil, errRendered
++}
++
++// queryRequest renders query with the client library's own encoder, so its
++// parameters and options reach jobs.query as jobs.insert would have carried
++// them. The rendering client holds no credential and its transport sends nothing.
++func queryRequest(ctx context.Context, query *bigquery.Query, project, location string) (*bq.QueryRequest, error) {
++	rendered := &renderTransport{}
++	client, err := bigquery.NewClient(ctx, project, option.WithHTTPClient(&http.Client{Transport: rendered}))
++	if err != nil {
++		return nil, err
++	}
++	defer client.Close()
++	client.Location = location
++	q := client.Query(query.Q)
++	q.QueryConfig = query.QueryConfig
++	if _, err := q.Run(ctx); !errors.Is(err, errRendered) {
++		return nil, fmt.Errorf("render jobs.insert request: %w", err)
++	}
++
++	var job struct {
++		JobReference  bq.JobReference            `json:"jobReference"`
++		Configuration map[string]json.RawMessage `json:"configuration"`
++	}
++	if err := json.Unmarshal(rendered.body, &job); err != nil {
++		return nil, err
++	}
++	var fields map[string]json.RawMessage
++	if err := json.Unmarshal(job.Configuration["query"], &fields); err != nil {
++		return nil, err
++	}
++	delete(job.Configuration, "query")
++	maps.Copy(fields, job.Configuration)
++	for _, name := range slices.Sorted(maps.Keys(fields)) {
++		if !jobsQueryFields[name] {
++			return nil, adbc.Error{
++				Code: adbc.StatusNotImplemented,
++				Msg:  fmt.Sprintf("[bq] `%s` cannot run through jobs.query (`%s`)", name, OptionQueryThroughJobsQuery),
++			}
++		}
++	}
++	body, err := json.Marshal(fields)
++	if err != nil {
++		return nil, err
++	}
++	req := &bq.QueryRequest{}
++	if err := json.Unmarshal(body, req); err != nil {
++		return nil, err
++	}
++	req.Location = job.JobReference.Location
++	req.RequestId = uuid.NewV7().String()
++	return req, nil
++}
++
++// runThroughJobsQuery is runQuery with the job started by jobs.query.
++func runThroughJobsQuery(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
++	client := st.cnxn.client
++	req, err := queryRequest(ctx, query, client.Project(), client.Location)
++	if err != nil {
++		return nil, nil, "", -1, errToAdbcErr(adbc.StatusInvalidArgument, err, "render query")
++	}
++	resp, err := st.cnxn.service.Jobs.Query(client.Project(), req).Context(ctx).Do()
++	if err != nil {
++		return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "run query")
++	}
++	if req.DryRun {
++		js, err := dryRunStatus(resp)
++		if err != nil {
++			return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "read dry run schema")
++		}
++		return nil, js, "", resp.TotalBytesProcessed, nil
++	}
++	ref := resp.JobReference
++	if ref == nil || ref.JobId == "" {
++		return nil, nil, "", -1, adbc.Error{Code: adbc.StatusInternal, Msg: "[bq] jobs.query answered without a job"}
++	}
++
++	activeJob := newJobCancellation(ref.JobId, func(ctx context.Context) (jobCanceler, error) {
++		return client.JobFromProject(ctx, ref.ProjectId, ref.JobId, ref.Location)
++	})
++	st.cancelMu.Lock()
++	st.activeJob = activeJob
++	st.cancelMu.Unlock()
++	defer st.finishJob(ctx, logger, activeJob)
++
++	job, err := client.JobFromProject(ctx, ref.ProjectId, ref.JobId, ref.Location)
++	if err != nil {
++		return nil, nil, ref.JobId, -1, errToAdbcErr(adbc.StatusInternal, err, "get job")
++	}
++	activeJob.setJob(job)
++	return readJob(ctx, logger, query, executeUpdate, job, activeJob)
++}
++
++// dryRunStatus is the status a jobs.insert dry run reports; jobs.query creates no job for one.
++func dryRunStatus(resp *bq.QueryResponse) (*bigquery.JobStatus, error) {
++	stats := &bigquery.QueryStatistics{StatementType: resp.StatementType, TotalBytesProcessed: resp.TotalBytesProcessed}
++	if resp.Schema != nil && len(resp.Schema.Fields) > 0 {
++		fields, err := json.Marshal(resp.Schema.Fields)
++		if err != nil {
++			return nil, err
++		}
++		if stats.Schema, err = bigquery.SchemaFromJSON(fields); err != nil {
++			return nil, err
++		}
++	}
++	return &bigquery.JobStatus{
++		State:      bigquery.Done,
++		Statistics: &bigquery.JobStatistics{TotalBytesProcessed: resp.TotalBytesProcessed, Details: stats},
++	}, nil
++}
+--- /dev/null
++++ b/jobs_query_test.go
+@@ -0,0 +1,236 @@
++package bigquery
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"slices"
++	"strings"
++	"sync"
++	"testing"
++
++	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/array"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++)
++
++// One request a fake BigQuery endpoint received.
++type seenRequest struct {
++	method, path string
++	body         map[string]any
++	auth         string
++}
++
++// queryThrough runs sql on a fake endpoint that answers every call with answer and returns what
++// reached it. through sets OptionQueryThroughJobsQuery; configure sets statement options.
++func queryThrough(t *testing.T, through string, answer func(w http.ResponseWriter, r *http.Request), configure func(adbc.StatementWithContext)) ([]seenRequest, int64, *arrow.Schema, error) {
++	t.Helper()
++	ctx := context.Background()
++	var mu sync.Mutex
++	var seen []seenRequest
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		// The storage client's gRPC preface also lands here; only a REST call counts.
++		if strings.HasPrefix(r.URL.Path, "/bigquery/v2/") {
++			raw, _ := io.ReadAll(r.Body)
++			var body map[string]any
++			_ = json.Unmarshal(raw, &body)
++			mu.Lock()
++			seen = append(seen, seenRequest{r.Method, strings.TrimPrefix(r.URL.Path, "/bigquery/v2/projects/test-project"), body, r.Header.Get("Authorization")})
++			mu.Unlock()
++		}
++		answer(w, r)
++	}))
++	defer srv.Close()
++
++	db, err := NewDriver(memory.DefaultAllocator).NewDatabaseWithContext(ctx, map[string]string{
++		"bigquery.project_id":        "test-project",
++		"bigquery.endpoint":          srv.URL + "/bigquery/v2/",
++		"bigquery.storage_endpoint":  srv.Listener.Addr().String(),
++		"bigquery.auth_type":         "access_token",
++		"bigquery.auth.access_token": "caller-token",
++		OptionQueryThroughJobsQuery:  through,
++	})
++	if err != nil {
++		t.Fatalf("database: %v", err)
++	}
++	cnxn, err := db.Open(ctx)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cnxn.Close(ctx)
++	stmt, err := cnxn.NewStatement(ctx)
++	if err != nil {
++		t.Fatalf("statement: %v", err)
++	}
++	defer stmt.Close(ctx)
++	if err := stmt.SetSqlQuery(ctx, "SELECT ?"); err != nil {
++		t.Fatalf("query: %v", err)
++	}
++	configure(stmt)
++	rdr, rows, err := stmt.ExecuteQuery(ctx)
++	var schema *arrow.Schema
++	if err == nil {
++		schema = rdr.Schema()
++		rdr.Release()
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	return slices.Clone(seen), rows, schema, err
++}
++
++func notFound(w http.ResponseWriter, _ *http.Request) {
++	http.Error(w, `{"error":{"code":404,"message":"none"}}`, http.StatusNotFound)
++}
++
++func boundInt(t *testing.T, stmt adbc.StatementWithContext, v int64) {
++	t.Helper()
++	b := array.NewInt64Builder(memory.DefaultAllocator)
++	defer b.Release()
++	b.Append(v)
++	col := b.NewArray()
++	defer col.Release()
++	batch := array.NewRecordBatch(arrow.NewSchema([]arrow.Field{{Name: "p", Type: arrow.PrimitiveTypes.Int64}}, nil), []arrow.Array{col}, 1)
++	defer batch.Release()
++	if err := stmt.Bind(context.Background(), batch); err != nil {
++		t.Fatalf("bind: %v", err)
++	}
++}
++
++func setInt(t *testing.T, stmt adbc.StatementWithContext, key string, v int64) {
++	t.Helper()
++	if err := stmt.(adbc.GetSetOptionsWithContext).SetOptionInt(context.Background(), key, v); err != nil {
++		t.Fatalf("%s: %v", key, err)
++	}
++}
++
++// A query starts with jobs.query, carrying its parameters, byte ceiling and job timeout, then
++// follows the job jobs.query created, and never reaches jobs.insert.
++func TestThroughJobsQuery(t *testing.T) {
++	ref := `"jobReference":{"projectId":"test-project","jobId":"j1","location":"EU"}`
++	answer := func(w http.ResponseWriter, r *http.Request) {
++		switch {
++		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/queries"):
++			_, _ = io.WriteString(w, `{`+ref+`}`)
++		case strings.HasSuffix(r.URL.Path, "/jobs/j1"):
++			_, _ = io.WriteString(w, `{`+ref+`,"configuration":{"query":{"query":"SELECT ?"}},"status":{"state":"DONE"},"statistics":{"query":{"statementType":"INSERT"}}}`)
++		case strings.HasSuffix(r.URL.Path, "/queries/j1"):
++			_, _ = io.WriteString(w, `{`+ref+`,"jobComplete":true,"schema":{"fields":[]},"totalRows":"0"}`)
++		default:
++			notFound(w, r)
++		}
++	}
++	got, _, _, err := queryThrough(t, "true", answer, func(stmt adbc.StatementWithContext) {
++		boundInt(t, stmt, 7)
++		setInt(t, stmt, OptionQueryMaxBytesBilled, 1000)
++		setInt(t, stmt, OptionQueryJobTimeout, 5000)
++	})
++	if err != nil {
++		t.Fatalf("execute: %v", err)
++	}
++	var calls []string
++	for _, r := range got {
++		calls = append(calls, r.method+" "+r.path)
++	}
++	if want := []string{"POST /queries", "GET /jobs/j1", "GET /queries/j1"}; len(calls) < len(want) || !slices.Equal(calls[:len(want)], want) || slices.Contains(calls, "POST /jobs") {
++		t.Fatalf("requests %v, want %v first and no jobs.insert", calls, want)
++	}
++	if got[0].auth != "Bearer caller-token" {
++		t.Errorf("jobs.query authorized as %q, want the connection's own token", got[0].auth)
++	}
++	body := got[0].body
++	params, _ := json.Marshal(body["queryParameters"])
++	for key, want := range map[string]string{"query": `"SELECT ?"`, "maximumBytesBilled": `"1000"`, "jobTimeoutMs": `"5000"`, "useLegacySql": "false"} {
++		if v, _ := json.Marshal(body[key]); string(v) != want {
++			t.Errorf("%s = %s, want %s", key, v, want)
++		}
++	}
++	if !strings.Contains(string(params), `"value":"7"`) {
++		t.Errorf("queryParameters %s, want the bound 7", params)
++	}
++	if body["requestId"] == nil {
++		t.Error("no requestId, so a retried jobs.query could run twice")
++	}
++}
++
++// Unset, the driver keeps jobs.insert.
++func TestWithoutThroughJobsQueryInserts(t *testing.T) {
++	got, _, _, _ := queryThrough(t, "false", notFound, func(adbc.StatementWithContext) {})
++	if len(got) == 0 || got[0].path != "/jobs" {
++		t.Fatalf("requests %+v, want jobs.insert first", got)
++	}
++}
++
++// A dry run is a jobs.query dry run, answered from its response: jobs.query creates no job for one.
++func TestThroughJobsQueryDryRun(t *testing.T) {
++	answer := func(w http.ResponseWriter, _ *http.Request) {
++		_, _ = io.WriteString(w, `{"jobComplete":true,"totalBytesProcessed":"42","schema":{"fields":[{"name":"x","type":"INTEGER"}]}}`)
++	}
++	got, rows, schema, err := queryThrough(t, "true", answer, func(stmt adbc.StatementWithContext) {
++		if err := stmt.SetOption(context.Background(), OptionQueryDryRun, "true"); err != nil {
++			t.Fatalf("dry run: %v", err)
++		}
++	})
++	if err != nil {
++		t.Fatalf("execute: %v", err)
++	}
++	if len(got) != 1 || got[0].path != "/queries" || got[0].body["dryRun"] != true {
++		t.Fatalf("requests %+v, want one jobs.query dry run", got)
++	}
++	if rows != 42 || schema.NumFields() != 1 || schema.Field(0).Name != "x" {
++		t.Fatalf("rows %d, schema %v", rows, schema)
++	}
++}
++
++// A setting jobs.query cannot carry is refused before anything is sent, never dropped.
++func TestThroughJobsQueryRefusesWhatItCannotCarry(t *testing.T) {
++	got, _, _, err := queryThrough(t, "true", notFound, func(stmt adbc.StatementWithContext) {
++		if err := stmt.SetOption(context.Background(), OptionQueryDestinationTable, "test-project.d.t"); err != nil {
++			t.Fatalf("destination: %v", err)
++		}
++	})
++	var adbcErr adbc.Error
++	if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusNotImplemented || !strings.Contains(adbcErr.Msg, "destinationTable") {
++		t.Fatalf("got %v, want NotImplemented naming destinationTable", err)
++	}
++	if len(got) != 0 {
++		t.Fatalf("requests %+v, want none", got)
++	}
++}
++
++func TestThroughJobsQueryWithoutAJobRefused(t *testing.T) {
++	answer := func(w http.ResponseWriter, _ *http.Request) {
++		_, _ = io.WriteString(w, `{"jobComplete":true}`)
++	}
++	_, _, _, err := queryThrough(t, "true", answer, func(adbc.StatementWithContext) {})
++	var adbcErr adbc.Error
++	if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusInternal || !strings.Contains(adbcErr.Msg, "without a job") {
++		t.Fatalf("got %v, want Internal naming the missing job", err)
++	}
++}
++
++func TestThroughJobsQueryWithAnEmptyJobIdRefused(t *testing.T) {
++	answer := func(w http.ResponseWriter, r *http.Request) {
++		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/queries") {
++			_, _ = io.WriteString(w, `{"jobReference":{"projectId":"test-project","location":"EU"},"jobComplete":true}`)
++			return
++		}
++		notFound(w, r)
++	}
++	got, _, _, err := queryThrough(t, "true", answer, func(adbc.StatementWithContext) {})
++	var adbcErr adbc.Error
++	if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusInternal || !strings.Contains(adbcErr.Msg, "without a job") {
++		t.Fatalf("got %v, want Internal naming the missing job", err)
++	}
++	if len(got) != 1 {
++		t.Fatalf("requests %+v, want jobs.query alone", got)
++	}
++}
++
++func TestThroughJobsQueryNotABoolRefused(t *testing.T) {
++	err := openWith(t, map[string]string{OptionQueryThroughJobsQuery: "yes"})
++	wantInvalidArgument(t, err, OptionQueryThroughJobsQuery)
++}
+--- a/record_reader.go
++++ b/record_reader.go
+@@ -71,6 +71,9 @@
+ }
+
+ func runQuery(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
++	if st.cnxn.throughJobsQuery {
++		return runThroughJobsQuery(ctx, logger, query, executeUpdate, st)
++	}
+ 	// Parameterized execution reuses query, including its job ID policy.
+ 	jobIDConfig := query.JobIDConfig
+ 	defer func() { query.JobIDConfig = jobIDConfig }()
+@@ -83,6 +86,11 @@
+ 		return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "run query")
+ 	}
+ 	activeJob.setJob(job)
++	return readJob(ctx, logger, query, executeUpdate, job, activeJob)
++}
++
++// readJob waits for job to finish and reads its statistics and any result rows.
++func readJob(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, job *bigquery.Job, activeJob *jobCancellation) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
+ 	jobID := job.ID()
+
+ 	// The project id, location, and job id are all URL-safe:

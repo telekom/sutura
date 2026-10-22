@@ -9,14 +9,6 @@
 //! It walks no git listing, so it reads the same set in the nix sandbox. Limits: it reads text and
 //! does not run `just`, so a recipe `just` would reject still parses; a symlinked import is followed.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no reader goes through it yet; the change that adds one deletes this attribute by hand"
-    )
-)]
-
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -117,6 +109,16 @@ fn load(root: &Path, path: PathBuf) -> Result<Source, Refused> {
         Ok(text) => Ok(Source { path, text }),
         Err(source) => Err(Refused::Unreadable { path, source }),
     }
+}
+
+/// The set as one text, for a reader that searches rather than parses: `\n` between files, so no
+/// file's last line runs into the next file's first.
+pub(crate) fn text(root: &Path) -> Result<String, Refused> {
+    Ok(read(root)?
+        .into_iter()
+        .map(|source| source.text)
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// The first `import` or `mod` in an imported file: only the root declares either.
@@ -222,6 +224,18 @@ mod tests {
         let paths: Vec<_> = set.iter().filter_map(|source| source.path.to_str()).collect();
         assert_eq!(paths, ["justfile", "just/gates.just", "dev.just"]);
         assert_eq!(set[1].text, "g:\n");
+    }
+
+    #[test]
+    fn the_text_of_the_set_joins_its_files_with_a_newline() {
+        let tree = tree(
+            "text",
+            &[("justfile", "import \"just/gates.just\"\na:\n"), ("just/gates.just", "g:\n")],
+        );
+        assert_eq!(
+            super::text(tree.root()).expect("two files"),
+            "import \"just/gates.just\"\na:\n\ng:\n"
+        );
     }
 
     #[test]

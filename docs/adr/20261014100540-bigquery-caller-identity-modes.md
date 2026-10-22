@@ -190,3 +190,29 @@ every caller.
 The limit: the address parse is the one the second amendment states, so `<a@example.com>` parses.
 `address_domains` never matches its domain; without that key it reaches Google as the subject, and
 no test here observes what Google answers.
+
+## Fifth amendment, 2026-10-22: mode c asks for `bigquery.readonly` only
+
+**Status of the amendment: accepted** (issue #1553). This replaces the decision **The scope is a
+constant, not a key** above, the scope named in **The trust shift in mode c**, and the scope and
+the count of options in the second amendment's third point.
+
+- **Mode c asks for `https://www.googleapis.com/auth/bigquery.readonly`, still a constant.** A
+  credential that can act as any user in the domain should carry the smallest scope that reads.
+  With that scope Google refuses `jobs.insert` and `jobs.cancel`, and accepts `jobs.query`,
+  `jobs.get`, `jobs.getQueryResults` and the Storage Read API. A probe measured this on 2026-10-22
+  with a service account's own token, not a token from domain-wide delegation.
+- **The driver starts a mode c query with `jobs.query`.** `nix/bigquery-adbc-jobs-query.patch`
+  adds a database option that does this; sutura sets it only beside the read-only scope. The rows
+  still come through the Storage Read API, and `maximumBytesBilled` and `jobTimeoutMs` go on the
+  same request.
+- **sutura cannot cancel a mode c job.** Google refuses `jobs.cancel` with the read-only scope. When
+  sutura stops waiting at the caller's deadline, the job runs on to its end or to `jobTimeoutMs`.
+  `maximumBytesBilled` caps its bytes. Nothing in sutura caps its slot time.
+- **A statement that writes is refused through `jobs.query` with the read-only scope, for the four
+  statements measured.** A second probe on 2026-10-22 sent `CREATE TABLE`, `INSERT`, `UPDATE` and
+  `DROP TABLE`. Google refused each with `403 accessDenied`, and a `bigquery`-scope control ran all
+  four. Not measured: `DELETE`, `MERGE`, `ALTER`, `LOAD DATA`, `EXPORT DATA`, and any of them with
+  a token from domain-wide delegation. At a mode c source sutura sends only the queries it renders.
+
+Why: the full `bigquery` scope let the delegating account start any job as any user in the domain.
