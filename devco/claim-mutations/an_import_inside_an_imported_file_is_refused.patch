@@ -1,0 +1,15 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..01958e66f 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -116,8 +116,8 @@ fn held_by_the_root(imported: &Source) -> Option<Refused> {
+     imported.text.lines().enumerate().find_map(|(index, raw)| {
+         let (file, line) = (imported.path.clone(), index.saturating_add(1));
+         match keyword(raw) {
+-            ("import", true) => Some(Refused::OptionalImport { file, line }),
+-            ("import", false) => Some(Refused::NestedImport { file, line }),
++            ("import", true) if false => Some(Refused::OptionalImport { file, line }),
++            ("import", false) if false => Some(Refused::NestedImport { file, line }),
+             ("mod", _) => Some(Refused::Module { file, line }),
+             _ => None,
+         }

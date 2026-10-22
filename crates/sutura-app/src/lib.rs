@@ -337,6 +337,15 @@ pub(crate) fn now_in_unix_seconds() -> u64 {
         .map_or(u64::MAX, |since| since.as_secs())
 }
 
+/// The credentials an agreed answer grants, or the refusal it is - spelled once for every path.
+pub(crate) fn granted(agreed: Agreed) -> Result<BoundToTheRequest, RefusalReason> {
+    match agreed {
+        Agreed::Granted { credentials } => Ok(credentials),
+        Agreed::Refused { source } => Err(RefusalReason::CredentialUnavailable { source }),
+        Agreed::AddressOutsideDomains { source } => Err(RefusalReason::AddressOutsideDomains { source }),
+    }
+}
+
 /// What answering produced, or why it could not.
 ///
 /// A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
@@ -539,16 +548,12 @@ where
     // credential there", which a caller may act on; a broker contradicting the request says nothing
     // about the caller at all - it is this deployment being wrong, and offering it as a refusal would
     // both mislead the asker and invite a client library to retry a wiring defect forever.
-    let credentials = match minted
+    let agreed = minted
         .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
-        .map_err(|cause| ServiceError::Credentials { cause })?
-    {
-        Agreed::Refused { source } => {
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::CredentialUnavailable { source },
-            }));
-        }
-        Agreed::Granted { credentials } => credentials,
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    let credentials = match granted(agreed) {
+        Ok(credentials) => credentials,
+        Err(reason) => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
     };
     let presented = credentials
         .presented_for(plan.source())

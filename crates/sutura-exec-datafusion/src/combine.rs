@@ -461,27 +461,23 @@ async fn arm_plan(
         .zip(LOOKUP_TABLES)
         .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
         .collect::<Result<Vec<_>, CombineError>>()?;
-    // Each lookup leg's link kind agrees with the leg it joins onto, on its own link label.
+    // Each lookup leg's link kinds agree with the leg it joins onto, part by part. A part past the
+    // first is pinned by a cell only for a lookup onto the fact leg, not for one chained onto an
+    // earlier lookup.
     for (position, &(leg, _, _, ref schema)) in lookups.iter().enumerate() {
-        let link = InternalLabel::link(position).label();
-        let onto = match leg.onto() {
-            LegAt::Fact => &fact,
-            LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
-        };
-        // A relationship's declaration is the plan's one, and it names the first link.
-        let declared = plan.link_comparison().filter(|_| position == 0);
-        agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        for (part, link) in plan.link_labels(position).into_iter().enumerate() {
+            let onto = match leg.onto() {
+                LegAt::Fact => &fact,
+                LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
+            };
+            // The plan's one declaration names the first link part: the cast that honours it exists for
+            // that part alone, so a later part passing this check uncast would answer across a type join.
+            let declared = plan.link_comparison().filter(|_| position == 0 && part == 0);
+            agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        }
     }
+    let links = plan.fact_link_labels();
     let link = InternalLabel::link(0).label();
-    // The links both facts carry: one per lookup leg that joins onto the fact.
-    let fact_links: Vec<String> = plan
-        .lookups()
-        .legs()
-        .iter()
-        .enumerate()
-        .filter(|&(_, lookup)| lookup.onto() == LegAt::Fact)
-        .map(|(position, _)| InternalLabel::link(position).label())
-        .collect();
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
     // joined above on every one of those links and the bucket, so each link kind must agree.
     let second_fact = match (plan.second_fact(), legs.second_fact()) {
@@ -489,13 +485,13 @@ async fn arm_plan(
         (Some(_), None) => {
             return Err(CombineError::MissingColumn {
                 side: SECOND_FACT,
-                label: InternalLabel::link(0).label(),
+                label: links.first().cloned().unwrap_or_else(|| InternalLabel::link(0).label()),
             });
         }
         (None, _) => None,
     };
     if let Some(second) = &second_fact {
-        for link in &fact_links {
+        for link in &links {
             agreeing_link(None, fact.link_kind(link)?, second.link_kind(link)?)?;
         }
     }
@@ -542,15 +538,17 @@ async fn arm_plan(
         )?;
     }
 
-    // Each lookup leg on its own link, a leg that joins onto an earlier lookup leg among them.
+    // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
+    // among them: a value repeated on one part alone is not a repeated tuple.
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
-        let own = InternalLabel::link(position).label();
-        refuse_ambiguous_link(context, table, &[&own], ceiling_bytes, working_set).await?;
+        let own = plan.link_labels(position);
+        let on: Vec<&str> = own.iter().map(String::as_str).collect();
+        refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
     }
     // The second fact is joined on every link AND the bucket, so a second row for one tuple of them
     // fans every first-fact row under it out exactly as a second lookup row would.
     if second_fact.is_some() {
-        let on: Vec<&str> = fact_links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
+        let on: Vec<&str> = links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
         // A cast can make two first-fact groups one key, and each would meet the second fact's row.
         if casts.fact.is_some() {
@@ -559,7 +557,7 @@ async fn arm_plan(
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &fact_links, &leaves, second_table).await
+    combine_plan(plan, context, &links, &leaves, second_table).await
 }
 
 /// A session whose operators reserve against `working_set`: the one pool a question's combine has.

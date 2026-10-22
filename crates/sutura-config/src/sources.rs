@@ -54,6 +54,8 @@ use sutura_domain::source::{
     VerificationIdentity,
 };
 
+/// The domains a `domain_delegation` source runs a caller as.
+pub mod address_domains;
 /// Who a `bigquery` source's jobs are billed to.
 pub mod billing;
 /// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
@@ -520,6 +522,13 @@ pub enum InvalidSourceRegistry {
         alias: SourceName,
         #[source]
         cause: InvalidDelegatingAccount,
+    },
+    /// The declared `domain_delegation.address_domains` list is not usable.
+    #[error("`sources.{alias}.domain_delegation.address_domains` is not usable")]
+    AddressDomains {
+        alias: SourceName,
+        #[source]
+        cause: address_domains::InvalidAddressDomains,
     },
     /// The removed `clickhouse` subject map: each caller runs as the `ClickHouse` user named by their
     /// verified subject, so a configuration still declaring a map is refused rather than read as if it

@@ -145,6 +145,7 @@ impl RefusalReason {
             Self::SourceUnavailable { .. } => "source_unavailable",
             Self::ResourcesExhausted { .. } => "resources_exhausted",
             Self::CredentialUnavailable { .. } => "credential_unavailable",
+            Self::AddressOutsideDomains { .. } => "address_outside_domains",
             Self::SourceRefused { .. } => "source_refused",
             Self::BillToNotAllowed { .. } => "bill_to_not_allowed",
             Self::NoBillingProject { .. } => "no_billing_project",

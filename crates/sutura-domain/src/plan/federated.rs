@@ -127,7 +127,9 @@ pub struct FederatedPlan {
     /// question carries no `top`.
     top: Option<Top>,
     /// How the first link's two keys compare when its relationship declares it. `None` is equality of
-    /// kind. A later lookup leg's link is always compared exactly: one declaration, one link.
+    /// kind. It applies to the first lookup leg's first link part only: every later part, and a later
+    /// lookup leg's link, is compared exactly, because the cast that honours a declaration exists for
+    /// one part.
     #[serde(skip_serializing_if = "Option::is_none")]
     link_comparison: Option<LinkKind>,
 }
@@ -194,6 +196,18 @@ impl FederatedPlan {
     /// the scheme rather than data on the plan: there is no argument for a caller to spell, nothing
     /// for two legs to disagree about, and the constructor requires each lookup leg and the leg it
     /// joins onto to project its own.
+    ///
+    /// **A lookup leg's link parts are the run it projects, and nothing else says how many.** Parts
+    /// `0..n` of its position are the key parts of the relationship that crosses to it, so the leg it
+    /// joins onto (and, for the first leg, the second fact) must project the same run. A part the
+    /// run does not include, on either of those two legs, is refused rather than ignored: the leg
+    /// would group by a column nothing joins on and change the answer's grain.
+    ///
+    /// **The limit, next to the claim:** only the two legs a lookup position joins are read for that
+    /// position's parts. A link label of a position with no lookup leg, or on a leg that position does
+    /// not join (a fact leg projecting `1_link_5` while lookup 1 is chained onto lookup 0), is not
+    /// refused. A second fact is held by the shared-key check instead: a part beside the run is
+    /// [`FederatedPlanError::FactKeyNotShared`], not [`FederatedPlanError::LinkPartNotOnLookup`].
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
@@ -234,10 +248,25 @@ impl FederatedPlan {
                     source_name: leg.source().clone(),
                 });
             }
-            let link = InternalLabel::link(position).label();
+            // `.max(1)`: a lookup leg with no part 0 is a missing part 0 (`KeyNotOnLeg`), not a stray part.
+            let parts = link_parts(leg, position).max(1);
             for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
-                if !leg_has_key(on, &link) {
-                    return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
+                if let Some(label) = (0..parts)
+                    .map(|part| link_label(position, part))
+                    .find(|label| !leg_has_key(on, label))
+                {
+                    return Err(FederatedPlanError::KeyNotOnLeg { side, label });
+                }
+                let in_run = |label: &str| (0..parts).any(|part| link_label(position, part) == label);
+                if let Some(key) = on
+                    .keys()
+                    .iter()
+                    .find(|key| InternalLabel::is_link_of(position, key.label()) && !in_run(key.label()))
+                {
+                    return Err(FederatedPlanError::LinkPartNotOnLookup {
+                        side,
+                        label: String::from(key.label()),
+                    });
                 }
             }
         }
@@ -247,13 +276,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let fact_links: Vec<String> = lookups
-            .legs()
-            .iter()
-            .enumerate()
-            .filter(|(_, lookup)| lookup.onto() == LegAt::Fact)
-            .map(|(position, _)| InternalLabel::link(position).label())
-            .collect();
+        let links = fact_links(&lookups);
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -268,12 +291,10 @@ impl FederatedPlan {
             if shared == 0 {
                 return Err(FederatedPlanError::FactsShareNoKey);
             }
-            // Each fact carries the link of every lookup leg that joins onto the fact, so each
-            // lookup meets both facts on the same value.
-            if let Some(missing) = fact_links.iter().find(|label| !leg_has_key(second, label)) {
+            if let Some(label) = links.iter().find(|label| !leg_has_key(second, label)) {
                 return Err(FederatedPlanError::KeyNotOnLeg {
                     side: LegAt::Fact,
-                    label: missing.clone(),
+                    label: label.clone(),
                 });
             }
             // Each fact groups by those links and nothing else. A key only one fact carries would
@@ -283,7 +304,7 @@ impl FederatedPlan {
                 .keys()
                 .iter()
                 .chain(second.keys())
-                .find(|key| !fact_links.iter().any(|label| label == key.label()))
+                .find(|key| !links.iter().any(|link| key.label() == link))
             {
                 return Err(FederatedPlanError::FactKeyNotShared {
                     label: String::from(extra.label()),
@@ -430,7 +451,8 @@ impl FederatedPlan {
         self
     }
 
-    /// The comparison the first link declares, or `None` for equality of kind.
+    /// The comparison the first link's first part declares, or `None` for equality of kind. A later
+    /// part of that link compares exactly.
     ///
     /// The combiner reads it for the first lookup leg's link and the second fact leg's, so whatever
     /// writes it names the first lookup leg's relationship.
@@ -469,10 +491,16 @@ impl FederatedPlan {
     /// The labels the lookup leg at `leg` is joined on, one per key part of its relationship, in key
     /// order. Empty when there is no such leg.
     ///
-    /// Derived from the lookup leg's own projection. [`Self::new`] checks part 0 only; the check that
-    /// the leg it joins onto projects the same run follows in `telekom/sutura#1531`.
+    /// Derived from the lookup leg, which [`Self::new`] required to project parts `0..n` and the
+    /// leg it joins onto to project the same run.
     pub fn link_labels(&self, leg: usize) -> Vec<String> {
         lookup_links(&self.lookups, leg)
+    }
+
+    /// The labels both facts of a cross-model ratio carry: every part of the link of each lookup leg
+    /// that joins onto the fact, in leg order and then key order.
+    pub fn fact_link_labels(&self) -> Vec<String> {
+        fact_links(&self.lookups)
     }
 
     /// The metric this answer is measured in.
@@ -573,8 +601,8 @@ pub enum FederatedPlanError {
     /// lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
     ///
     /// The leg would group by a column nothing joins on, which splits one link value's rows and
-    /// changes the answer's grain. **Nothing raises it yet;** the planner check that does follows
-    /// in `telekom/sutura#1531`.
+    /// changes the answer's grain. **Reached only by direct construction:** the one production
+    /// splitter projects a part on both legs or on neither.
     #[error("the {side:?} leg projects the link part `{label}`, which is outside the run of parts the lookup leg projects")]
     LinkPartNotOnLookup { side: LegAt, label: String },
     /// The lookup legs are not a list [`LookupLegs`] parses.
@@ -602,6 +630,17 @@ fn lookup_links(lookups: &LookupLegs, leg: usize) -> Vec<String> {
     lookups.legs().get(leg).map_or_else(Vec::new, |lookup| {
         (0..link_parts(lookup.leg(), leg)).map(|part| link_label(leg, part)).collect()
     })
+}
+
+/// The link labels of every lookup leg of `lookups` that joins onto the fact, leg by leg.
+fn fact_links(lookups: &LookupLegs) -> Vec<String> {
+    lookups
+        .legs()
+        .iter()
+        .enumerate()
+        .filter(|(_, lookup)| lookup.onto() == LegAt::Fact)
+        .flat_map(|(position, _)| lookup_links(lookups, position))
+        .collect()
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

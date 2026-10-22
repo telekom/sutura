@@ -180,15 +180,18 @@ pub(super) async fn combine_plan(
     // Each lookup leg joins onto the leg it names on its own link label, in plan order, so the leg
     // it names is already in the relation.
     for (position, (lookup, table)) in plan.lookups().legs().iter().zip(LOOKUP_TABLES).enumerate() {
-        let link = InternalLabel::link(position).label();
         let kind = if lookup.include_unmatched() {
             JoinType::Left
         } else {
             JoinType::Inner
         };
-        let on = qualified(table_at(lookup.onto(), &link)?, &link).eq(qualified(table, &link));
+        let on = plan
+            .link_labels(position)
+            .iter()
+            .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
+            .collect::<Result<Vec<Expr>, CombineError>>()?;
         builder = builder
-            .join_on(scan(context, table).await?, kind, [on])
+            .join_on(scan(context, table).await?, kind, on)
             .map_err(|cause| CombineError::Build { cause })?;
     }
 

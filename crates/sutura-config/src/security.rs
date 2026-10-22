@@ -538,6 +538,7 @@ mod tests {
             key_set: KeySetLocation::File(KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path")),
             algorithms: PinnedAlgorithms::of(SigningAlgorithm::Rs256),
             token_type: crate::inbound::RequiredTokenType::access_token(),
+            address_claim: crate::inbound::AddressClaim::VerifiedEmail,
         }
     }
 

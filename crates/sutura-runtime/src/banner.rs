@@ -321,6 +321,7 @@ fn announce_identity(settings: &Settings) {
             );
             announce_token_class(inbound);
             announce_grant(inbound);
+            announce_address_claim(inbound);
         }
     }
 }
@@ -335,6 +336,20 @@ fn announce_grant(inbound: &InboundIdentity) {
         granted_scopes = %grant,
         "SCOPES ARE GRANTED BY CONFIGURATION: every assertion with no `scope` claim is granted these, \
          whoever its subject is. An assertion that states a `scope` is granted only that"
+    );
+}
+
+/// The line a deployment that reads the caller's address from a declared claim must not miss: a
+/// `domain_delegation` source runs each caller as whatever address that claim holds.
+fn announce_address_claim(inbound: &InboundIdentity) {
+    let Some(claim) = inbound.requirement().address_claim().declared() else {
+        return;
+    };
+    tracing::warn!(
+        address_claim = %claim,
+        "THE CALLER'S ADDRESS IS READ FROM A DECLARED CLAIM: a `domain_delegation` source runs each \
+         caller as the address in this claim, with no `email_verified` beside it. The operator \
+         accepted that the issuer verifies it and users cannot change it"
     );
 }
 
@@ -361,7 +376,7 @@ fn announce_token_class(inbound: &InboundIdentity) {
 mod tests {
     use sutura_config::{Environment, Settings, Sources};
 
-    use super::{BANNER, announce_provenance, announce_surface};
+    use super::{BANNER, announce_identity, announce_provenance, announce_surface};
 
     #[test]
     fn a_postgres_sources_channel_and_anchors_reach_the_log_and_bigquery_reads_as_wire_owned() {
@@ -501,5 +516,24 @@ mod tests {
         // row is lost to an editor, which is the way this file actually breaks.
         let rows: Vec<&str> = BANNER.lines().filter(|line| !line.trim().is_empty()).collect();
         assert_eq!(rows.len(), 5, "{rows:?}");
+    }
+
+    #[test]
+    fn a_declared_address_claim_is_warned_at_start_and_the_default_is_not() {
+        const WARNED: &str = "THE CALLER'S ADDRESS IS READ FROM A DECLARED CLAIM";
+        let inbound = "security:\n  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+                       authorization_server: \"https://issuer.example.com\"\n    \
+                       key_set_file: \"/etc/sutura/jwks.json\"\n    algorithms: [\"RS256\"]\n";
+        let declared = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!(
+            "{inbound}    address_claim: \"upn\"\n    accept_address_claim: true\n"
+        )))
+        .expect("an accepted declared claim loads");
+        let recorded = crate::testing::capture(|| announce_identity(&declared));
+        assert!(recorded.contains(WARNED), "{recorded}");
+        assert!(recorded.contains("\"address_claim\":\"upn\""), "{recorded}");
+        let default =
+            Settings::load(&Sources::defaults(Environment::Development).with_overlay(inbound)).expect("the default claim loads");
+        let recorded = crate::testing::capture(|| announce_identity(&default));
+        assert!(!recorded.contains(WARNED), "{recorded}");
     }
 }

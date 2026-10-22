@@ -403,6 +403,13 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The address the caller's identity provider gives them is outside the domains that
+    /// `domain_delegation` source declares in `address_domains`, so the question is not run there as
+    /// that address, nor as the deployment.
+    ///
+    /// Decided by the broker before any credential is minted or exchanged for any source. Carries the
+    /// source and never the address, which names a person.
+    AddressOutsideDomains { source: SourceName },
     /// The data system refused the executed statement because the identity it ran it as may not ask
     /// it.
     ///
@@ -773,6 +780,9 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::AddressOutsideDomains {
                 source: SourceName::parse("warehouse").expect("a test source"),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },
