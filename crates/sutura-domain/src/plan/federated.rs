@@ -127,7 +127,9 @@ pub struct FederatedPlan {
     /// question carries no `top`.
     top: Option<Top>,
     /// How the first link's two keys compare when its relationship declares it. `None` is equality of
-    /// kind. A later lookup leg's link is always compared exactly: one declaration, one link.
+    /// kind. It applies to the first lookup leg's first link part only: every later part, and a later
+    /// lookup leg's link, is compared exactly, because the cast that honours a declaration exists for
+    /// one part.
     #[serde(skip_serializing_if = "Option::is_none")]
     link_comparison: Option<LinkKind>,
 }
@@ -449,7 +451,8 @@ impl FederatedPlan {
         self
     }
 
-    /// The comparison the first link declares, or `None` for equality of kind.
+    /// The comparison the first link's first part declares, or `None` for equality of kind. A later
+    /// part of that link compares exactly.
     ///
     /// The combiner reads it for the first lookup leg's link and the second fact leg's, so whatever
     /// writes it names the first lookup leg's relationship.

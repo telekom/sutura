@@ -470,7 +470,8 @@ async fn arm_plan(
                 LegAt::Fact => &fact,
                 LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
             };
-            // A relationship's declaration is the plan's one, and it names the first link part.
+            // The plan's one declaration names the first link part: the cast that honours it exists for
+            // that part alone, so a later part passing this check uncast would answer across a type join.
             let declared = plan.link_comparison().filter(|_| position == 0 && part == 0);
             agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
         }
