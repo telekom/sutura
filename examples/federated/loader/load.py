@@ -14,6 +14,7 @@ base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
 FACT, DIMENSION = "fct_subscription_monthly", "dim_customer"
+FACT_MODEL = "postgres__fct_subscription_monthly"
 RELATIONSHIP = "subscription_customer"
 STRING, NUMBER, DATE, BOOLEAN = (
     ("VARCHAR", "StringType"),
@@ -49,7 +50,7 @@ TABLES = {
     ),
 }
 RECURRING_REVENUE = {
-    "model": FACT,
+    "model": FACT_MODEL,
     "measure": {"simple": {"aggregate": "sum", "column": "mrr_cents"}},
     "time_column": "month",
     "grains": ["month"],
