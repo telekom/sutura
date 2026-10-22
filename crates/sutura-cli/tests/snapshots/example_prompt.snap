@@ -185,6 +185,10 @@ Every reason you can be given, and what to do about each:
   Nothing you can change, and this is the one refusal where that matters most: a narrower question,
   a different grain and a shorter period all return it again. Say so, and say that access to that
   data system is what would be needed - a person can ask for it, and you cannot.
+- **address_outside_domains** - the address the identity provider gives the person you are acting
+  for is outside the domains that data system is delegated for.
+  Nothing you can change in the question, and retrying returns it again. Say so: which address the
+  identity provider sends is a setting a person changes, not you.
 
 ## Terms this deployment records as NOT defined
 

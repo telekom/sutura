@@ -10,7 +10,7 @@ use datafusion::arrow::array::{Array as _, ArrayRef, Float64Array, Int64Array, R
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::federation::Federation;
+use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::plan::leg::{LegPlan, LegTerm};
@@ -100,10 +100,15 @@ fn bucket() -> PlanBucket {
 /// [`FederatedPlan::new`]'s own check requires - the same `labels(&federation)` zip the one
 /// production splitter runs. Nothing here reads the term's computation; only the label.
 fn terms_for(federation: &Federation) -> Vec<LegTerm> {
+    terms_for_leaves(federation, |_| true)
+}
+
+/// [`terms_for`] over the leaves `wanted` keeps: a leg of a cross-model ratio carries its own model's.
+fn terms_for_leaves(federation: &Federation, wanted: impl Fn(&Carried) -> bool) -> Vec<LegTerm> {
     labels(federation)
         .into_iter()
         .zip(federation.carried())
-        .filter(|&(_, leaf)| !leaf.is_pulled_up())
+        .filter(|&(_, leaf)| !leaf.is_pulled_up() && wanted(leaf))
         .map(|(label, _)| {
             LegTerm::new(
                 PlanTerm::CountIf {
@@ -246,6 +251,83 @@ pub(super) fn fan_in_plan() -> FederatedPlan {
         ],
     )
     .expect("a fan-in plan is a plan")
+}
+
+/// Key part `part` of the lookup leg at `leg`, over `name`.
+fn part_of(leg: usize, part: usize, name: &str) -> PlanKey {
+    keyed(ResultLabel::internal(InternalLabel::Link { leg, part }), name)
+}
+
+/// The two link parts of a compound key: `customer_key`, then `month_key`.
+fn compound_parts() -> Vec<PlanKey> {
+    vec![part_of(0, 0, "customer_key"), part_of(0, 1, "month_key")]
+}
+
+/// A fact leg grouped by the compound link alone, over `table_name`, carrying `terms`.
+fn compound_fact(source_name: &str, table_name: &str, terms: Vec<LegTerm>) -> LegPlan {
+    LegPlan::Fact {
+        source: source(source_name),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table(table_name)),
+        bucket: bucket(),
+        keys: compound_parts(),
+        terms,
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
+/// A lookup leg on `geo` that projects both link parts and `region`.
+fn compound_lookup() -> LegPlan {
+    let mut keys = compound_parts();
+    keys.push(key("region"));
+    LegPlan::Lookup {
+        source: source("geo"),
+        table: table(FACT).into(),
+        keys,
+        bindings: PlanBindings::none(),
+    }
+}
+
+/// One fact leg and one lookup leg joined on a compound key of two parts.
+pub(super) fn compound_plan(include_unmatched: bool) -> FederatedPlan {
+    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        compound_fact("facts", FACT, terms_for(&federation)),
+        None,
+        sutura_domain::plan::LookupLegs::one(compound_lookup(), include_unmatched),
+        federation,
+        vec![AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region")))],
+    )
+    .expect("a compound-key plan is a plan")
+}
+
+/// A cross-model ratio whose two fact legs and lookup leg all join on the compound key.
+pub(super) fn compound_two_fact_plan() -> FederatedPlan {
+    let federation = Federation::of(&Measure::Ratio {
+        numerator: term(Aggregate::Sum, "mrr_cents"),
+        denominator: Term::Aggregate(AggregatedColumn::on_model(
+            Aggregate::Count,
+            column("customer_key"),
+            ModelName::parse("orders").expect("a test model"),
+        )),
+        zero_denominator: ZeroDenominator::Null,
+    });
+    let terms = |second: bool| -> Vec<LegTerm> { terms_for_leaves(&federation, |leaf| leaf.model().is_some() == second) };
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        compound_fact("facts", FACT, terms(false)),
+        Some(compound_fact("orders", "dim_orders", terms(true))),
+        sutura_domain::plan::LookupLegs::one(compound_lookup(), true),
+        federation,
+        vec![AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region")))],
+    )
+    .expect("a compound-key cross-model plan is a plan")
 }
 
 pub(super) fn sum_plan(include_unmatched: bool) -> FederatedPlan {

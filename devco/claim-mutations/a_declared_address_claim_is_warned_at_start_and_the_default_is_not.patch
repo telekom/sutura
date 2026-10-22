@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-runtime/src/banner.rs b/crates/sutura-runtime/src/banner.rs
+index 2537078d8..19ef8b87b 100644
+--- a/crates/sutura-runtime/src/banner.rs
++++ b/crates/sutura-runtime/src/banner.rs
+@@ -321,7 +321,9 @@ fn announce_identity(settings: &Settings) {
+             );
+             announce_token_class(inbound);
+             announce_grant(inbound);
+-            announce_address_claim(inbound);
++            if false {
++                announce_address_claim(inbound);
++            }
+         }
+     }
+ }

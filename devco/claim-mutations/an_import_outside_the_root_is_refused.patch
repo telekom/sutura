@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..9e9319753 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -27,7 +27,7 @@ struct ImportPath(PathBuf);
+ 
+ impl ImportPath {
+     fn parse(literal: &str) -> Option<Self> {
+-        let inside = literal.split('/').all(|part| !matches!(part, "" | "." | ".."));
++        let inside = literal.split('/').all(|part| !matches!(part, "" | ".."));
+         inside.then(|| Self(PathBuf::from(literal)))
+     }
+ }

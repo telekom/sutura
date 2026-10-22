@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-config/src/sources/address_domains.rs b/crates/sutura-config/src/sources/address_domains.rs
+index 4598941ad..4b13b55ec 100644
+--- a/crates/sutura-config/src/sources/address_domains.rs
++++ b/crates/sutura-config/src/sources/address_domains.rs
+@@ -70,7 +70,7 @@ fn is_domain(written: &str) -> bool {
+             && !label.starts_with('-')
+             && !label.ends_with('-')
+     };
+-    written.len() <= MAX_DOMAIN_LEN && written.contains('.') && written.split('.').all(label)
++    written.len() <= MAX_DOMAIN_LEN && written.contains('.') && written.trim_end_matches('.').split('.').all(label)
+ }
+ 
+ #[cfg(test)]

@@ -215,6 +215,14 @@ const SOURCE_UNAVAILABLE: Guide = Guide {
              asking again.",
 };
 
+const ADDRESS_OUTSIDE_DOMAINS: Guide = Guide {
+    reason: "address_outside_domains",
+    meaning: "the address the identity provider gives the person you are acting for is outside the \
+              domains that data system is delegated for",
+    remedy: "Nothing you can change in the question, and retrying returns it again. Say so: which \
+             address the identity provider sends is a setting a person changes, not you.",
+};
+
 const CREDENTIAL_UNAVAILABLE: Guide = Guide {
     reason: "credential_unavailable",
     meaning: "the person you are acting for has no access to the data system that metric lives in, \
@@ -379,6 +387,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &BILL_TO_NOT_ALLOWED,
     &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
+    &ADDRESS_OUTSIDE_DOMAINS,
 ];
 
 /// The guide for one refusal.
@@ -422,6 +431,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,
         RefusalReason::NoBillingProject { .. } => &NO_BILLING_PROJECT,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
+        RefusalReason::AddressOutsideDomains { .. } => &ADDRESS_OUTSIDE_DOMAINS,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,

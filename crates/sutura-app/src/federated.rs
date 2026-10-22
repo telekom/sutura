@@ -36,7 +36,7 @@
 //! produced against a real dataset - what is held is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
-use sutura_domain::identity::{Agreed, BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
+use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::plan::{ExecuteError, FederatedPlan, FederationCombiner, LegPlan, RowCeilings};
@@ -316,15 +316,10 @@ where
     let minted = broker
         .mint(context, &requested)
         .map_err(|cause| Box::new(Err(ServiceError::Broker { cause })))?;
-    match minted
+    let agreed = minted
         .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
-        .map_err(|cause| Box::new(Err(ServiceError::Credentials { cause })))?
-    {
-        Agreed::Refused { source } => Err(Box::new(Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-            reason: RefusalReason::CredentialUnavailable { source },
-        })))),
-        Agreed::Granted { credentials } => Ok(credentials),
-    }
+        .map_err(|cause| Box::new(Err(ServiceError::Credentials { cause })))?;
+    crate::granted(agreed).map_err(|reason| Box::new(Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason }))))
 }
 
 /// What a combine produced, or the answer a failure of it is.

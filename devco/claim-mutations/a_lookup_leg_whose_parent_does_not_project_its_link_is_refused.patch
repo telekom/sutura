@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
 --- a/crates/sutura-domain/src/plan/federated.rs
 +++ b/crates/sutura-domain/src/plan/federated.rs
-@@ -234,7 +234,7 @@ impl FederatedPlan {
-                 });
+@@ -248,7 +248,7 @@ impl FederatedPlan {
              }
-             let link = InternalLabel::link(position).label();
+             // `.max(1)`: a lookup leg with no part 0 is a missing part 0 (`KeyNotOnLeg`), not a stray part.
+             let parts = link_parts(leg, position).max(1);
 -            for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
 +            for (side, on) in [(LegAt::Lookup(position), leg)] {
-                 if !leg_has_key(on, &link) {
-                     return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
-                 }
+                 if let Some(label) = (0..parts)
+                     .map(|part| link_label(position, part))
+                     .find(|label| !leg_has_key(on, label))

@@ -64,11 +64,13 @@
 //! [`TokenRequirement`] borrowed out of whichever variant is configured. There is one validator, so
 //! there is one place algorithm pinning and the audience check can be got wrong.
 
+mod address_claim;
 mod audience;
 mod key_set;
 mod primitive;
 mod scope;
 
+pub use crate::inbound::address_claim::{AddressClaim, ClaimName};
 pub use crate::inbound::audience::{ClientId, TokenAudience};
 pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
 pub use crate::inbound::primitive::{
@@ -205,6 +207,8 @@ pub struct TransitProof {
     grant: Option<GrantedScopes>,
     /// Whether each assertion is admitted once, by its `jti`. See [`TransitProof::SINGLE_USE_KEY`].
     single_use: bool,
+    /// Which claim names the caller's address. See [`AddressClaim`].
+    address_claim: AddressClaim,
 }
 
 impl TransitProof {
@@ -236,6 +240,7 @@ impl TransitProof {
             max_lifetime,
             grant: None,
             single_use: false,
+            address_claim: AddressClaim::VerifiedEmail,
         }
     }
 
@@ -248,6 +253,12 @@ impl TransitProof {
     #[must_use]
     pub fn admitting_once(self, single_use: bool) -> Self {
         Self { single_use, ..self }
+    }
+
+    /// The same declaration, reading the caller's address from `address_claim`.
+    #[must_use]
+    pub fn reading_address_from(self, address_claim: AddressClaim) -> Self {
+        Self { address_claim, ..self }
     }
 
     /// The same declaration, granting `grant` to an assertion that carries no `scope` claim.
@@ -284,6 +295,8 @@ pub enum InboundIdentity {
         algorithms: PinnedAlgorithms,
         /// Which class of token, out of the `typ` header. Defaults to RFC 9068's `at+jwt`.
         token_type: RequiredTokenType,
+        /// Which claim names the caller's address. See [`AddressClaim`].
+        address_claim: AddressClaim,
     },
     /// A fronting component authenticated the caller. This deployment validates a **signed identity
     /// assertion** the component issued, and derives the subject from that assertion's own claims
@@ -328,6 +341,7 @@ pub struct TokenRequirement<'inbound> {
     max_lifetime: Option<ProofLifetime>,
     /// Whether each assertion is admitted once. `false` in `direct`, where `true` is refused at load.
     single_use: bool,
+    address_claim: &'inbound AddressClaim,
 }
 
 impl<'inbound> TokenRequirement<'inbound> {
@@ -413,6 +427,13 @@ impl<'inbound> TokenRequirement<'inbound> {
     pub const fn single_use(&self) -> bool {
         self.single_use
     }
+
+    /// Which claim names the caller's address.
+    #[inline]
+    #[must_use]
+    pub const fn address_claim(&self) -> &'inbound AddressClaim {
+        self.address_claim
+    }
 }
 
 impl InboundIdentity {
@@ -484,6 +505,7 @@ impl InboundIdentity {
                 ref key_set,
                 ref algorithms,
                 ref token_type,
+                ref address_claim,
             } => TokenRequirement {
                 // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it.
                 // That is what makes `security.access_token` and this mode a collision on one
@@ -498,6 +520,7 @@ impl InboundIdentity {
                 algorithms,
                 token_type,
                 single_use: false,
+                address_claim,
                 // No ceiling: an access token's lifetime belongs to the authorization server. See the
                 // field on `TokenRequirement` for why the two modes differ here.
                 max_lifetime: None,
@@ -518,6 +541,7 @@ impl InboundIdentity {
                 token_type: &transit.token_type,
                 max_lifetime: Some(transit.max_lifetime),
                 single_use: transit.single_use,
+                address_claim: &transit.address_claim,
             },
         }
     }
