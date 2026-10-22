@@ -127,7 +127,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         }
         RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => {
             format!(
-                "this question would read {legs} lookup legs, and one answer reads {limit} at most; ask for dimensions from fewer remote relationships"
+                "this question would read {legs} lookup legs, and one answer reads {limit} at most; ask for fewer dimensions that live in other data systems"
             )
         }
         RefusalReason::FederationNotExecutable => String::from(
