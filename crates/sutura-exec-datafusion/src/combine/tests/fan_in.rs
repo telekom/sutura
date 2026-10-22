@@ -1,12 +1,15 @@
 //! Fan-in: three lookup legs, one joined onto another, each on its own link.
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, InternalLabel, LinkKind};
+use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::plan::leg::LegPlan;
+use sutura_domain::plan::{
+    AnswerKey, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, InternalLabel, LinkKind, LookupLeg, LookupLegs,
+    PlanBindings, PlanColumn, PlanKey, ResultLabel,
+};
 use sutura_domain::warehouse::{Real, ResultBatches, Value};
 
-use super::fixtures::{
-    UNBOUNDED, batches_of, fan_in_plan, leaf, ratio_over_a_chain_plan, ratio_over_two_lookups_plan, try_combine_every,
-};
+use super::fixtures::{FACT, UNBOUNDED, batches_of, column, dimension, fan_in_plan, leaf, try_combine_every, two_fact_plan};
 use crate::combine::DataFusionCombiner;
 
 fn text(value: &str) -> Value {
@@ -178,6 +181,102 @@ fn combined_rows(plan: &FederatedPlan, legs: &[ResultBatches]) -> Vec<Vec<Value>
         .to_vec()
 }
 
+fn fact_table() -> TableName {
+    TableName::parse(FACT).expect("a test table is a table")
+}
+
+fn lookup_tree(legs: Vec<LookupLeg>) -> LookupLegs {
+    LookupLegs::parse(legs).expect("two lookup legs are a tree")
+}
+
+/// [`two_fact_plan`] over two lookup legs, `geo` (customer to region) and `crm` (product to segment).
+///
+/// With `chained` unset both legs join onto the fact and both fact legs group by both links and the
+/// bucket. With it set `crm` joins onto `geo`, which projects the product link beside its own, and
+/// the fact legs group by the customer link alone. Derived from the one-lookup plan so the builder
+/// reads nothing the fixtures keep private.
+fn ratio_plan(chained: bool) -> Result<FederatedPlan, FederatedPlanError> {
+    let flat = two_fact_plan();
+    let fact_table = fact_table();
+    let linked = |leg: usize, name: &str| {
+        PlanKey::new(
+            ResultLabel::internal(InternalLabel::link(leg)),
+            PlanColumn::new(fact_table.clone(), column(name)),
+        )
+    };
+    let dimension_key = |name: &str| {
+        PlanKey::new(
+            ResultLabel::dimension(&dimension(name)),
+            PlanColumn::new(fact_table.clone(), column(name)),
+        )
+    };
+    let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
+        source: SourceName::parse(on).expect("a test source is a source"),
+        table: fact_table.clone().into(),
+        keys,
+        bindings: PlanBindings::none(),
+    };
+    let fact_keys = if chained {
+        vec![linked(0, "customer_key")]
+    } else {
+        vec![linked(0, "customer_key"), linked(1, "product_key")]
+    };
+    let with_fact_keys = |leg: &LegPlan| match leg.clone() {
+        LegPlan::Fact {
+            source,
+            metric,
+            tables,
+            bucket,
+            terms,
+            bindings,
+            range,
+            ..
+        } => LegPlan::Fact {
+            source,
+            metric,
+            tables,
+            bucket,
+            keys: fact_keys.clone(),
+            terms,
+            bindings,
+            range,
+        },
+        other @ LegPlan::Lookup { .. } => other,
+    };
+    let geo_keys = if chained {
+        vec![linked(0, "customer_key"), linked(1, "product_key"), dimension_key("region")]
+    } else {
+        vec![linked(0, "customer_key"), dimension_key("region")]
+    };
+    let crm = lookup("crm", vec![linked(1, "product_key"), dimension_key("segment")]);
+    let lookups = lookup_tree(vec![
+        LookupLeg::onto_fact(lookup("geo", geo_keys), true),
+        if chained {
+            LookupLeg::onto_lookup(crm, 0, true)
+        } else {
+            LookupLeg::onto_fact(crm, true)
+        },
+    ]);
+    FederatedPlan::new(
+        flat.metric().clone(),
+        ResultLabel::measure(flat.metric()),
+        flat.bucket().clone(),
+        with_fact_keys(flat.fact()),
+        flat.second_fact().map(with_fact_keys),
+        lookups,
+        flat.federation().clone(),
+        vec![
+            AnswerKey::lookup(0, ResultLabel::dimension(&dimension("region"))),
+            AnswerKey::lookup(1, ResultLabel::dimension(&dimension("segment"))),
+        ],
+    )
+}
+
+/// [`ratio_plan`], unchained, for the cells that need it to build.
+fn ratio_over_two_lookups_plan() -> FederatedPlan {
+    ratio_plan(false).expect("a ratio over two lookup legs is a plan")
+}
+
 /// Revenue is the fact's; orders the second fact's. `(c1, p1)` and `(c1, p2)` share a customer, so a
 /// join on the customer link alone would fan each row out across the other's product.
 fn revenue_and_orders() -> (ResultBatches, ResultBatches) {
@@ -278,8 +377,11 @@ fn a_ratio_over_a_chain_joins_the_facts_on_the_fact_parented_link_alone() {
         vec![vec![text("p1"), text("gold")], vec![text("p2"), text("silver")]],
     );
     let legs = [fact(0, [("c1", 100), ("c2", 30)]), fact(1, [("c1", 2), ("c2", 4)]), geo, crm];
+    let plan = ratio_plan(true);
+    assert!(plan.is_ok(), "a ratio over a chain is a plan: {:?}", plan.as_ref().err());
+    let Ok(plan) = plan else { return };
     assert_eq!(
-        combined_rows(&ratio_over_a_chain_plan(), &legs),
+        combined_rows(&plan, &legs),
         vec![
             vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
             vec![text("south"), text("silver"), text("2026-06"), quotient(7.5)],
@@ -300,11 +402,21 @@ fn a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link() {
         vec![link(1), named("segment")],
         vec![vec![text("p1"), text("gold")], vec![text("p2"), text("silver")]],
     );
+    let answered = try_combine_every(&plan, &[revenue, orders, geo, crm], UNBOUNDED);
+    assert!(
+        answered.is_ok(),
+        "two groups on two products are no repeated tuple: {:?}",
+        answered.as_ref().err()
+    );
+    let rows = answered
+        .ok()
+        .and_then(|answer| answer.to_rows().ok())
+        .map(|rows| rows.rows().to_vec());
     assert_eq!(
-        combined_rows(&plan, &[revenue, orders, geo, crm]),
-        vec![
+        rows,
+        Some(vec![
             vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
             vec![text("north"), text("silver"), text("2026-06"), quotient(50.0)],
-        ]
+        ])
     );
 }
