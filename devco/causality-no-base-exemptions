@@ -51,3 +51,5 @@ each_lookup_leg_that_does_not_answer_ends_the_answer_with_no_rows # in plan/fede
 three_lookup_legs_dry_run_once_each # in federated/tests/dry_run_count_test.rs, which names `InternalLabel::Link(usize)` and `LookupLegs`, new in this change; killed when the cut's legs are taken three at most
 three_lookup_legs_and_a_chain_combine_on_their_own_links # in combine/tests/fan_in.rs, a module new in this change; killed when every lookup leg is joined onto the fact
 a_second_lookup_leg_with_two_rows_for_one_link_value_is_ambiguous # in combine/tests/fan_in.rs, a module new in this change; killed when only the first lookup leg is checked for an ambiguous link
+the_filtered_task_is_test_handed_a_filterset_and_nothing_else # new cell in a new file declared by the unchanged tasks.rs; red on the mutation giving test-only a command of its own or dropping its filter argument
+the_test_task_adds_the_filter_to_one_nextest_line_and_skips_doctests_under_it # same file; red when --all-features or the filter is dropped from test's nextest line, or the doctest leg runs unguarded
