@@ -11,7 +11,7 @@ use super::{METRICS_TOKEN, TOKEN, variables};
 use crate::inbound::TokenLocation;
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
-/// The table of `docs/serving.md#a-published-container-port`: the wildcard bind, a credential, a
+/// The table of the `a-published-container-port` section of `docs/serving.md`: the wildcard bind, a credential, a
 /// metrics token and the limiter, with `terminator` and its `material` under `server:`.
 fn published_port(terminator: &str, material: &str) -> String {
     format!(

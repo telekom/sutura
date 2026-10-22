@@ -49,7 +49,7 @@ pub(crate) fn open_bigquery(
 ///
 /// The message names the FEATURE and not just the kind, because the two things an operator can do are
 /// in two different files: change the `kind:`, or build with `--features bigquery`. A message that
-/// only said "this binary links no `BigQuery` adapter" sent them to the first when they wanted the
+/// only named the kind sent them to the first when they wanted the
 /// second - which was this refusal's shape before the adapter was registered at all.
 #[cfg(not(feature = "bigquery"))]
 pub(crate) fn open_bigquery(

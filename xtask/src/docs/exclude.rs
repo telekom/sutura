@@ -16,7 +16,7 @@
 //! under `dir/` off the site - so a page added there needs no line of its own.
 //!
 //! **The collision is live rather than hypothetical.** `docs/index.md` and `docs/api/index.md`
-//! share a basename, so an exclusion naming `index.md` drops both - and the old matcher resolved
+//! share a basename once the docs workflow or `just api` has written the latter, so an exclusion naming `index.md` drops both - and the old matcher resolved
 //! it to one file and reported `1 excluded`. A pattern matching more than one page is therefore a
 //! finding too, which is what makes the published claim that an exclusion "resolves to one file"
 //! true rather than aspirational.
@@ -37,7 +37,7 @@ pub(super) struct Resolved {
 }
 
 /// Whether `pattern` is the one directory form this gate resolves: `/dir/`.
-fn directory(pattern: &str) -> Option<&str> {
+pub(super) fn directory(pattern: &str) -> Option<&str> {
     pattern.strip_prefix('/').filter(|rest| rest.ends_with('/') && rest.len() > 1)
 }
 
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn the_live_basename_collision_is_reported_rather_than_resolved_to_one_file() {
-        // `docs/index.md` and `docs/api/index.md` share a basename in this tree today, so an
+        // `docs/index.md` and `docs/api/index.md` share a basename once the API reference is generated, so an
         // exclusion naming `index.md` would drop the API landing page too.
         let present = set(&["index.md", "api/index.md", "gates.md"]);
         let found = resolve(&patterns(&["index.md"]), &present, &set(&["gates.md"]), "docs");

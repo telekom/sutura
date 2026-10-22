@@ -12,9 +12,10 @@ ADR 0007's *What is explicitly not decided* carried *"How a cross-source join ke
 declared and compared"* as an open question
 (`docs/adr/0007-federating-across-different-data-systems.md:1049-1052`). This page
 closes the comparison half: the plan-time refusal from the catalog's declared types and
-the runtime refusal from the legs' schemas. The declaration half - a catalog field
-saying two columns are comparable - is still open, is tracked in
-`telekom/sutura#1482`, and the last sections say so. ADR 0007's *Fifteenth amendment*
+the runtime refusal from the legs' schemas. The declaration half exists as an optional
+relationship field (see the declaration section below); what is still open, tracked in
+`telekom/sutura#1482`, is that the splitter does not yet write it onto a plan and the
+plan-time and load checks do not read it. ADR 0007's *Fifteenth amendment*
 records the split.
 
 ## What is compared, and where
@@ -39,27 +40,31 @@ split is the whole of the design:
    whatever its origin is declared as.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
-   either leg's rows are read
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`, `link_kind`).
+   either leg's rows are read (`link_kind` in
+   `crates/sutura-exec-datafusion/src/combine/schema.rs`).
    The kind is one of five - `ExactInteger`, `ExactDecimal`, `Text`, `Date`,
    `Boolean` - and anything else is refused (see below).
 
 2. **The two legs' link kinds are compared to each other**, and a mismatch is
-   refused
-   (`crates/sutura-exec-datafusion/src/combine/schema.rs:105-113`, `agreeing_link`).
-   The check is `fact == lookup`: the two kinds must be the same variant. There is
-   no coercion, no widening, and no fallback. `ExactInteger` against `Text` is
-   refused; `ExactInteger` against `ExactDecimal` is refused; `Date` against `Text`
-   is refused.
+   refused (`agreeing_link` in
+   `crates/sutura-exec-datafusion/src/combine/schema.rs`).
+   With no declaration the check is `fact == lookup`: the two kinds must be the same
+   variant, with no coercion, no widening and no fallback. `ExactInteger` against
+   `Text` is refused; `ExactInteger` against `ExactDecimal` is refused; `Date`
+   against `Text` is refused. With a declaration the pair must be one the declaration
+   joins (see the declaration section).
 
-The call site is `crates/sutura-exec-datafusion/src/combine.rs:347`:
+The call site is the combiner's `arm_plan`:
 
 ```rust
-agreeing_link(fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
+agreeing_link(declared, fact.link_kind(&link)?, lookup.link_kind(&link)?)?;
 ```
 
-A second fact leg, when one is present for a cross-model ratio, is checked the same
-way against the first fact leg at `combine.rs:361`.
+where `declared` is the plan's `link_comparison` for the first lookup leg and `None`
+for a later one. A second fact leg, when one is present for a cross-model ratio, is
+checked against the first fact leg by kind equality, before any cast, so under a
+declaration a second fact leg of another kind than the first is refused as
+`LinkTypeMismatch`.
 
 ### Why kinds, not types
 
@@ -73,37 +78,38 @@ which a mismatch means *no row can ever match*.
 
 ### Why from the schema, not the data
 
-The check reads a TYPE and no value
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:1-8`). The hand-written
+The check reads a TYPE and no value (the header of
+`crates/sutura-exec-datafusion/src/combine/schema.rs`). The hand-written
 combine that preceded this one decided a link column's kind from the first non-null
 cell it happened to find, so two legs whose link columns could never match were
 refused only when the data proved it - and two empty legs were answered as *no
 rows* rather than refused. An Arrow column carries a declared type whether it has
 rows or not, so the same mismatch is refused from the schema, before a batch is
 read, for every input including an empty one
-(`crates/sutura-exec-datafusion/src/combine/tests/refusals.rs:46-69`,
-`two_empty_legs_whose_link_kinds_disagree_are_refused`).
+(`two_empty_legs_whose_link_kinds_disagree_are_refused` in
+`crates/sutura-exec-datafusion/src/combine/tests/refusals.rs`).
 
 ## What is refused
 
 ### A link column whose Arrow type maps to no kind
 
 `link_kind` returns `None` for any Arrow type outside the five kinds
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:117-135`). The refusal is
+(`link_kind` in `crates/sutura-exec-datafusion/src/combine/schema.rs`). The refusal is
 split by what the type is:
 
 - **A floating-point type** (`Float16`, `Float32`, `Float64`) is refused as
-  `CombineError::FloatLinkKey`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:148-151`,
-  `classify_unjoinable`), which reaches a caller as
+  `CombineError::FloatLinkKey` (`classify_unjoinable` in
+  `crates/sutura-exec-datafusion/src/combine/schema.rs`), which reaches a caller as
   `FederatedAnswerRefusal::FloatLinkKey`
-  (`crates/sutura-domain/src/plan/federated/failure.rs:56-58`).
+  (`FederatedAnswerRefusal::FloatLinkKey` in
+  `crates/sutura-domain/src/plan/federated/failure.rs`).
   This is ADR 0007's float-key rule: formatting a float into an equality lets
   distinct values collide, so a floating-point link column is forbidden by the
   DATA, and a caller is told.
 
 - **Any other unmapped type** is refused as `CombineError::LinkTypeNotMapped`
-  (`crates/sutura-exec-datafusion/src/combine/schema.rs:152-155`), which stays
+  (`classify_unjoinable` in
+  `crates/sutura-exec-datafusion/src/combine/schema.rs`), which stays
   this workspace's own wiring defect and reaches a caller as nothing - it is not
   a `FederatedAnswerRefusal`. A question naming such a column would have failed
   at the presentation edge whatever the combine did.
@@ -126,18 +132,19 @@ so a catalog that mis-declares a key refuses a join that would have matched.
 ### Two legs whose link kinds disagree
 
 `agreeing_link` refuses a mismatch as `CombineError::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine/schema.rs:109-112`), carrying both
-sides' kind as a prose word - *an exact integer*, *text*, *a date* - via
-`LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The combiner maps that to
-`FederatedAnswerRefusal::LinkTypeMismatch`
-(`crates/sutura-exec-datafusion/src/combine.rs:446`,
-`crates/sutura-domain/src/plan/federated/failure.rs:62-65`), and it reaches a
+(`agreeing_link` in `crates/sutura-exec-datafusion/src/combine/schema.rs`),
+carrying both sides' kind as a prose word - *an exact integer*, *text*, *a date* -
+via `LinkKind::word` (`crates/sutura-domain/src/plan/federated/link.rs`). The
+combiner maps that to `FederatedAnswerRefusal::LinkTypeMismatch`
+(`answer_not_well_formed` in `crates/sutura-exec-datafusion/src/combine.rs`,
+`FederatedAnswerRefusal::LinkTypeMismatch` in
+`crates/sutura-domain/src/plan/federated/failure.rs`), and it reaches a
 caller inside `RefusalReason::FederatedAnswerNotWellFormed`.
 
 The refusal is **deterministic**: the same plan against the same legs refuses
 again. A caller told to retry retries forever, which is the opposite of a
 data-system failure, and `FederatedAnswerRefusal` says so in its own doc
-(`crates/sutura-domain/src/plan/federated/failure.rs:22-25`).
+(`FederatedAnswerRefusal` in `crates/sutura-domain/src/plan/federated/failure.rs`).
 
 ### What the refusal replaced
 
@@ -162,15 +169,31 @@ cross-model ratio's second fact leg are decided by the runtime check after both 
 have executed. `Column::data_type` is otherwise descriptive text - a quote of what
 the source called the column - and `LinkKind::declared` reads it only to refuse.
 
-### No comparability declaration on a relationship
+### A relationship may declare how its keys compare
 
-`Relationship` carries a name, two models, a join type, and join keys - and no
-field saying the two sides are comparable
-(`crates/sutura-domain/src/catalog.rs:404-410`). A catalog author has no way to
-declare that an `INTEGER` here and a `NUMBER(38)` there are intended to join, so
-the runtime check is the only thing that holds the pair. The declaration half of
-ADR 0007's open question - option (b) in `telekom/sutura#138` - is still open and is
-tracked in `telekom/sutura#1482`. This page does not close it.
+A relationship can declare how its two keys compare, with the field `comparison`
+(markdown: `compare_as:`, one of `exact_integer`, `exact_decimal`, `text`, `date`,
+`boolean`; it names the kind BOTH keys compare AS). Exactly two casts are admitted:
+text read as an exact integer, and an exact integer widened to an exact decimal. A
+cast leg needs an anchor leg of the declared kind, so two text legs under a declared
+`exact_integer` are refused. Text to decimal, date and boolean are not admitted: text
+to decimal rounds a longer fraction, text to date applies an offset and drops a time,
+a decimal to an integer drops its fraction. The combiner reads the declaration off the
+plan (`FederatedPlan::link_comparison`): a pair the declaration does not join is
+refused as `LinkKindsNotJoined`, a value that does not cast is refused as
+`LinkValueNotCast`, carrying kinds only and never the value; no value becomes NULL.
+
+Limits: the splitter does not yet write the declaration onto the plan, and the
+plan-time check and the load check do not read it yet, so no served question carries
+one; the declaration applies to the first lookup leg and to a second fact leg, not to
+a later lookup leg; DataHub reads none; a text value past i64 is refused; the cast leg
+is a second copy of one column held outside the memory pool. The second fact leg must
+be of the first fact leg's kind, else it is `LinkTypeMismatch` even where the
+declared cast would join it; and Arrow's integer cast also accepts a leading sign and
+surrounding ASCII spaces, so ` 1`, `1 ` and `+1` are the key 1 under a declared
+`exact_integer`. The cells are in
+`crates/sutura-exec-datafusion/src/combine/tests.rs` and `combine/tests/refusals.rs`
+(a later lookup leg: `combine/tests/fan_in.rs`).
 
 ### Case and whitespace on a text key
 
@@ -189,6 +212,10 @@ with a null remote side. An inner join drops it. Both orders are held, so a fold
 trim on one side only fails too. Leading whitespace, a tab and a newline are not held. Each cell has a committed mutation under
 `devco/claim-mutations/` that folds or trims the key before the join, and each fails
 under it.
+
+The rule holds for an undeclared pair; a text key under a declared `exact_integer` is
+read by the cast, so leading zeros are dropped (`01001` and `1001` are one key). What
+else the cast accepts, such as surrounding spaces, is Arrow's and is not pinned here.
 
 Limits. The combiner already behaved this way, so the cells pin it and do not change
 it. They run the combiner over in-memory legs: what a source returns for a key is not

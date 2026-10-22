@@ -94,19 +94,31 @@ impl LegSchema {
     }
 }
 
-/// The two legs' link kinds, refused unless they are the same kind.
+/// The two legs' link kinds, refused unless they join under the relationship's `declared` comparison.
 ///
 /// **Checked before either leg's rows are read, which is what makes an empty leg answerable.** The
 /// hand-written combine asked the data: with no non-null cell on a side it decided nothing and
 /// joined anyway, so a pair that could never match was answered as *no rows* rather than refused.
-pub(crate) fn agreeing_link(fact: LinkKind, lookup: LinkKind) -> Result<(), CombineError> {
-    if fact == lookup {
+///
+/// No declaration is equality of kind, and its refusal is [`CombineError::LinkTypeMismatch`], which
+/// says no row can match. With one, the pair is judged by [`LinkKind::joins`], and a pair it does not
+/// join is [`CombineError::LinkKindsNotJoined`]: two text legs under a declared integer can match,
+/// so it is the declaration that no longer fits the data.
+pub(crate) fn agreeing_link(declared: Option<LinkKind>, fact: LinkKind, lookup: LinkKind) -> Result<(), CombineError> {
+    if LinkKind::joins(declared, fact, lookup) {
         return Ok(());
     }
-    Err(CombineError::LinkTypeMismatch {
-        fact: fact.word(),
-        lookup: lookup.word(),
-    })
+    Err(declared.map_or_else(
+        || CombineError::LinkTypeMismatch {
+            fact: fact.word(),
+            lookup: lookup.word(),
+        },
+        |declared| CombineError::LinkKindsNotJoined {
+            declared: declared.word(),
+            fact: fact.word(),
+            lookup: lookup.word(),
+        },
+    ))
 }
 
 /// Whether two columns hold one kind of value, so an equality between them compares like with like.

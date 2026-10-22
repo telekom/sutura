@@ -233,8 +233,8 @@ ci:
     # anything, and a gate that cannot run on the machine of the person who runs it gets skipped.
     system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
     printf 'checks for %s\n' "$system"
-    # api-docs IS in this list: the committed pages are byte-compared and no test covers them, so four
-    # stale-page incidents were invisible locally while this task was called THE gate.
+    # api-docs IS in this list: nothing else runs rustdoc over every member with private items or
+    # renders the pages, so a broken doc link or an unrenderable item was invisible locally.
     # helm-chart IS in this list rather than `just shipped`'s: it lints and renders one chart and
     # validates against three vendored schema files, seconds rather than the minutes a release
     # profile build costs - `nix/helm-chart.nix` carries the derivation.
@@ -368,11 +368,10 @@ bigquery-conformance *args:
 ship-check:
     devenv shell ship-check
 
-# READ-ONLY, unlike `just api`: regenerates into a temp directory and byte-compares against the
-# committed pages, so a stale page fails here rather than getting silently rewritten. `ship-check`'s
-# own surface task for a Rust diff (#987) - `checks.api-docs` is a required nix check but no commit
-# hook reaches it, which is how 11 of 87 studied red PR/queue runs were a stale API page nobody
-# caught before pushing.
+# READ-ONLY, unlike `just api`: generates the pages into a temp directory and scans them, so a doc
+# comment that breaks the publish run fails here rather than after merge. `ship-check`'s own surface
+# task for a Rust diff (#987) - `checks.api-docs` is a required nix check but no commit hook reaches
+# it, which is how red PR/queue runs came from a doc comment nobody generated before pushing.
 check-api-docs:
     cargo run -q -p xtask -- check-api-docs
 
@@ -536,8 +535,8 @@ new-adr slug:
 # cargo IS the nightly pin. The renderer runs in the DEFAULT pixi env, not `docs` - it is a plain
 # stdlib script - and defaults to `docs/api`.
 
-# Regenerate the committed API reference pages from rustdoc JSON. Through nix, so it needs no
-# dev shell: it called a bare `cargo` and a bare `pixi` and only worked where one was active.
+# Write the API reference pages from rustdoc JSON into `docs/api/`, which git ignores: the docs
+# workflow generates the published copy on main. Through nix, so it needs no dev shell.
 api:
     nix run .#api-docs
 

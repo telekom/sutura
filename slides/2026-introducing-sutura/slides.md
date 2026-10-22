@@ -105,6 +105,49 @@ Two things go wrong, governance misalignment and security challenges:
 ---
 
 ```yaml
+layout: white
+```
+
+<div class="h-full max-w-6xl mx-auto px-16 py-10 flex items-center">
+  <div class="w-full space-y-8">
+    <div class="eyebrow" style="font-size:1rem">
+      Enterprise data
+    </div>
+    <h1 class="slide-heading" style="text-wrap:balance;font-size:3.6rem">
+      Why sutura
+    </h1>
+    <div class="grid gap-6" style="grid-template-columns:1fr 1fr">
+      <TealCallout label="Why">
+        <ul
+          class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+          style="font-size:1.35rem"
+        >
+          <li>Cost</li>
+          <li>Integration</li>
+          <li>Sovereignty</li>
+        </ul>
+      </TealCallout>
+      <TealCallout label="Enterprise has many data platforms">
+        <ul
+          class="text-neutral-700 list-disc pl-6 space-y-2 mt-2"
+          style="font-size:1.35rem"
+        >
+          <li>Independent</li>
+          <li>Sensitive data</li>
+          <li>Bridging the gaps</li>
+        </ul>
+      </TealCallout>
+    </div>
+  </div>
+</div>
+
+<!--
+Why: cost, integration, sovereignty. Enterprise has many data platforms: independent, sensitive data, bridging the gaps.
+-->
+
+---
+
+```yaml
 layout: dark
 ```
 

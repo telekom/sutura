@@ -32,8 +32,7 @@
 //!   variant OF THAT ENUM, word-bounded. Prose that describes the value without naming a sibling
 //!   variant is invisible here, which is the price of the precision story: a rule that judged the
 //!   description would be reading a sentence rather than resolving a citation.
-//! * **Anything outside `crates/*/src`.** `docs/api/**` is generated from these files, so the page
-//!   follows the source; a hand-written page is `CONTRADICTED`'s scope, not this one.
+//! * **Anything outside `crates/*/src`.** A hand-written page is `CONTRADICTED`'s scope, not this one.
 //! * **The sentence boundary is derived from punctuation** - see [`sentences`] - so a claim written
 //!   across two sentences escapes. Widening the window to the doc BLOCK was measured against this
 //!   tree and rejected: `crates/sutura-exec-bigquery/src/lib.rs`'s module header states the correct

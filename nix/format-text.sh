@@ -17,8 +17,7 @@
 # already made after a local run failed on six `.sh` files inside an installed pixi environment.
 #
 # `dprint.json`'s `excludes` still carries the TRACKED exclusions, which a tracked-file list
-# cannot express: the generated API pages `cargo xtask check-api-docs` byte-compares against a
-# fresh generation, and the vendored source whose whole value is a readable diff against upstream
+# cannot express: the vendored source whose whole value is a readable diff against upstream
 # (`VENDOR.md`). dprint applies those excludes even to a path named explicitly on the command
 # line, which is what makes the two mechanisms compose rather than fight.
 #

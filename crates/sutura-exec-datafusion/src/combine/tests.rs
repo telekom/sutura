@@ -13,8 +13,13 @@
 //! The refusals are in [`refusals`], split for the `max-lines` cap along the seam the module header
 //! already draws: what a combine answers, and what it declines to answer.
 
+use std::sync::Arc;
+
+use datafusion::arrow::array::{ArrayRef, Decimal128Array, Decimal256Array, Int64Array, StringArray, StringViewArray};
+use datafusion::arrow::datatypes::{DataType, i256};
 use sutura_domain::model::Aggregate;
-use sutura_domain::warehouse::{Real, Value};
+use sutura_domain::plan::LinkKind;
+use sutura_domain::warehouse::{Real, ResultBatches, Value};
 
 mod fixtures;
 use fixtures::*;
@@ -485,4 +490,167 @@ fn a_ratio_of_two_distinct_counts_counts_both_zeros_once() {
             "{numerator} over {denominator}"
         );
     }
+}
+
+/// The rows one `sum_plan` answers over two legs, its link declared as `declared`.
+fn declared_answers(
+    declared: LinkKind,
+    include_unmatched: bool,
+    fact: &ResultBatches,
+    lookup: &ResultBatches,
+) -> Vec<Vec<Value>> {
+    let plan = sum_plan(include_unmatched).with_link_comparison(Some(declared));
+    combined(&plan, fact, lookup, UNBOUNDED).rows().to_vec()
+}
+
+/// The row the matched key `1001` answers: its measure sits under `north` and in no other group.
+fn matched_row() -> Vec<Value> {
+    vec![text("A"), text("north"), text("2026-06"), Value::Integer(100)]
+}
+
+fn unmatched_row() -> Vec<Value> {
+    vec![text("A"), Value::Null, text("2026-06"), Value::Integer(100)]
+}
+
+fn text_keys(kind: &DataType, keys: &[Option<&str>]) -> ArrayRef {
+    match kind {
+        DataType::Utf8View => Arc::new(StringViewArray::from(keys.to_vec())),
+        _ => Arc::new(StringArray::from(keys.to_vec())),
+    }
+}
+
+fn integer_keys(keys: &[i64]) -> ArrayRef {
+    Arc::new(Int64Array::from(keys.to_vec()))
+}
+
+#[test]
+fn a_text_leg_joins_an_integer_leg_declared_exact_integer() {
+    // `telekom/sutura#1482`. A relationship that declares its keys as an exact integer reads a text
+    // key as one. Each cell asks both join kinds and both ends, because an inner join that drops a
+    // row and a left join that parks it in the unmatched group are the two ways a cast can fail
+    // quietly: the matched measure must sit under `north`, and the one key with no partner must not.
+    for kind in [DataType::Utf8, DataType::Utf8View] {
+        let texts = text_keys(&kind, &[Some("1001"), Some("1002")]);
+        let integers = integer_keys(&[1001]);
+        for include_unmatched in [true, false] {
+            let expected = if include_unmatched {
+                vec![matched_row(), unmatched_row()]
+            } else {
+                vec![matched_row()]
+            };
+            let text_fact = fact_linked(kind.clone(), Arc::clone(&texts));
+            let integer_lookup = lookup_linked(DataType::Int64, Arc::clone(&integers));
+            assert_eq!(
+                declared_answers(LinkKind::ExactInteger, include_unmatched, &text_fact, &integer_lookup),
+                expected,
+                "a {kind:?} fact key against an integer lookup key, unmatched kept: {include_unmatched}"
+            );
+            let integer_fact = fact_linked(DataType::Int64, integer_keys(&[1001, 1002]));
+            let text_lookup = lookup_linked(kind.clone(), text_keys(&kind, &[Some("1001")]));
+            assert_eq!(
+                declared_answers(LinkKind::ExactInteger, include_unmatched, &integer_fact, &text_lookup),
+                expected,
+                "an integer fact key against a {kind:?} lookup key, unmatched kept: {include_unmatched}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_text_key_with_a_leading_zero_joins_its_integer_under_a_declaration() {
+    // The cast reads `01001` as 1001: a declared pair is normalised, which an undeclared one never
+    // is (`two_text_link_keys_that_differ_only_in_trailing_whitespace_do_not_join`).
+    let fact = fact_linked(DataType::Utf8, text_keys(&DataType::Utf8, &[Some("01001")]));
+    let lookup = lookup_linked(DataType::Int64, integer_keys(&[1001]));
+    assert_eq!(
+        declared_answers(LinkKind::ExactInteger, false, &fact, &lookup),
+        [matched_row()]
+    );
+}
+
+#[test]
+fn a_null_text_key_stays_unmatched_under_a_declaration() {
+    // A NULL key is not a value that fails to cast, so it neither refuses the answer nor joins.
+    let fact = fact_linked(DataType::Utf8, text_keys(&DataType::Utf8, &[Some("1001"), None]));
+    let lookup = lookup_linked(DataType::Int64, integer_keys(&[1001]));
+    assert_eq!(
+        declared_answers(LinkKind::ExactInteger, true, &fact, &lookup),
+        [matched_row(), unmatched_row()]
+    );
+}
+
+/// Scale-nine decimals of `kind`, one per whole number in `whole`.
+fn scale_nine(kind: &DataType, whole: &[i128]) -> ArrayRef {
+    let scaled = whole.iter().map(|value| value * 1_000_000_000);
+    match *kind {
+        DataType::Decimal256(precision, scale) => Arc::new(
+            Decimal256Array::from_iter_values(scaled.map(i256::from_i128))
+                .with_precision_and_scale(precision, scale)
+                .expect("a scale-nine decimal"),
+        ),
+        _ => Arc::new(
+            Decimal128Array::from_iter_values(scaled)
+                .with_precision_and_scale(38, 9)
+                .expect("a scale-nine decimal"),
+        ),
+    }
+}
+
+#[test]
+fn an_integer_leg_joins_a_scale_nine_decimal_leg_declared_exact_decimal() {
+    // The integer 7 and the decimal 7.000000000 are one key. Both decimal widths, the decimal on
+    // either leg, both join kinds, for the reason the first cell above gives.
+    for kind in [DataType::Decimal128(38, 9), DataType::Decimal256(76, 9)] {
+        for include_unmatched in [true, false] {
+            let expected = if include_unmatched {
+                vec![matched_row(), unmatched_row()]
+            } else {
+                vec![matched_row()]
+            };
+            let integer_fact = fact_linked(DataType::Int64, integer_keys(&[7, 8]));
+            let decimal_lookup = lookup_linked(kind.clone(), scale_nine(&kind, &[7]));
+            assert_eq!(
+                declared_answers(LinkKind::ExactDecimal, include_unmatched, &integer_fact, &decimal_lookup),
+                expected,
+                "an integer fact key against a {kind:?} lookup key, unmatched kept: {include_unmatched}"
+            );
+            let decimal_fact = fact_linked(kind.clone(), scale_nine(&kind, &[7, 8]));
+            let integer_lookup = lookup_linked(DataType::Int64, integer_keys(&[7]));
+            assert_eq!(
+                declared_answers(LinkKind::ExactDecimal, include_unmatched, &decimal_fact, &integer_lookup),
+                expected,
+                "a {kind:?} fact key against an integer lookup key, unmatched kept: {include_unmatched}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_second_fact_leg_is_cast_as_the_first_is() {
+    // The second fact leg joins the first on the same link, so a declaration that casts the first
+    // casts it too: `01001` and `1001` are one key to both, and each meets the integer lookup key.
+    let plan = two_fact_plan().with_link_comparison(Some(LinkKind::ExactInteger));
+    let at = |key: &str, position: usize, value: i64| {
+        batches_of(
+            vec![
+                link(),
+                String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
+                leaf(position),
+            ],
+            vec![vec![text(key), text("2026-06"), Value::Integer(value)]],
+        )
+    };
+    let answered = try_combine_every(
+        &plan,
+        &[
+            at("1001", 0, 150),
+            at("01001", 1, 3),
+            lookup_linked(DataType::Int64, integer_keys(&[1001])),
+        ],
+        UNBOUNDED,
+    )
+    .expect("a declared two-fact plan answers")
+    .to_rows()
+    .expect("a combined answer decodes");
+    assert_eq!(answered.rows(), &[vec![text("north"), text("2026-06"), real(50.0)]]);
 }
