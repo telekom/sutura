@@ -73,7 +73,7 @@ fn key(name: &str) -> PlanKey {
 
 /// The label the link column carries in either leg's result, from the type rather than spelled.
 pub(super) fn link() -> String {
-    InternalLabel::Link(0).label()
+    InternalLabel::link(0).label()
 }
 
 /// The label the carried leaf at `position` carries in the fact leg's result.
@@ -83,7 +83,7 @@ pub(super) fn leaf(position: usize) -> String {
 
 fn link_key() -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link(0)),
+        ResultLabel::internal(InternalLabel::link(0)),
         PlanColumn::new(table(FACT), column("customer_key")),
     )
 }
@@ -181,7 +181,7 @@ fn keyed(label: ResultLabel, name: &str) -> PlanKey {
 }
 
 fn linked(leg: usize, name: &str) -> PlanKey {
-    keyed(ResultLabel::internal(InternalLabel::Link(leg)), name)
+    keyed(ResultLabel::internal(InternalLabel::link(leg)), name)
 }
 
 /// Three lookup legs: `geo` onto the fact, `crm` onto `geo` (INNER), `ops` onto the fact (LEFT).

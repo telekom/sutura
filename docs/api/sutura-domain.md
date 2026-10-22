@@ -7668,7 +7668,7 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 ### `use LegAt`
 
@@ -8773,6 +8773,16 @@ The combiner reads it for the first lookup leg's link and the second fact leg's,
 writes it names the first lookup leg's relationship.
 
 ```rust
+pub fn link_labels(&self, leg: usize) -> Vec<String>
+```
+
+The labels the lookup leg at `leg` is joined on, one per key part of its relationship, in key
+order. Empty when there is no such leg.
+
+Derived from the lookup leg's own projection. `Self::new` checks part 0 only; the check that
+the leg it joins onto projects the same run follows in `telekom/sutura#1531`.
+
+```rust
 pub const fn lookups(&self) -> &LookupLegs
 ```
 
@@ -8959,6 +8969,11 @@ Why a federated plan could not be built.
   Reached only by direct construction: `plan()` refuses a question grouped by a dimension
   only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
   shape as a type.
+- `LinkPartNotOnLookup` - A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
+
+  The leg would group by a column nothing joins on, which splits one link value's rows and
+  changes the answer's grain. **Nothing raises it yet;** the planner check that does follows
+  in `telekom/sutura#1531`.
 
 ##### Implements
 
@@ -9213,7 +9228,7 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 #### `use labels`
 
@@ -9690,11 +9705,13 @@ is 63 characters because that is the tightest among the data systems targeted, a
 *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-`usize` can index is 27 characters.
+`usize` pair can index is 46 characters.
 
 ###### Variants
 
-- `Link` - The column the lookup leg at this position is joined on, in its result and in the result of the leg it joins onto.
+- `Link` - One column the lookup leg at `leg` is joined on, in its result and in the result of the leg it joins onto: key part `part` of the relationship that crosses to it, in key order.
+
+  A relationship with one key has the one part `0`. `InternalLabel::link` spells it.
 - `Leaf` - One carried leaf of the measure, by its position in carried order.
 
 ###### Methods
@@ -9707,6 +9724,12 @@ The text this label carries in a leg's result.
 
 The one place the reserved namespace is spelled. A caller that needs it as a column name
 takes it from here, so no call site holds a second copy of the spelling.
+
+```rust
+pub const fn link(leg: usize) -> Self
+```
+
+The first (and, for a one-key relationship, only) link column of the lookup leg at `leg`.
 
 ###### Implements
 

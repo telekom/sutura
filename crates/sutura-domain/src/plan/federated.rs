@@ -234,7 +234,7 @@ impl FederatedPlan {
                     source_name: leg.source().clone(),
                 });
             }
-            let link = InternalLabel::Link(position).label();
+            let link = InternalLabel::link(position).label();
             for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
                 if !leg_has_key(on, &link) {
                     return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
@@ -247,7 +247,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let link = InternalLabel::Link(0).label();
+        let link = InternalLabel::link(0).label();
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -453,6 +453,15 @@ impl FederatedPlan {
         &self.lookups
     }
 
+    /// The labels the lookup leg at `leg` is joined on, one per key part of its relationship, in key
+    /// order. Empty when there is no such leg.
+    ///
+    /// Derived from the lookup leg's own projection. [`Self::new`] checks part 0 only; the check that
+    /// the leg it joins onto projects the same run follows in `telekom/sutura#1531`.
+    pub fn link_labels(&self, leg: usize) -> Vec<String> {
+        lookup_links(&self.lookups, leg)
+    }
+
     /// The metric this answer is measured in.
     pub const fn metric(&self) -> &MetricName {
         &self.metric
@@ -546,6 +555,33 @@ pub enum FederatedPlanError {
     /// shape as a type.
     #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
     FactKeyNotShared { label: String },
+    /// A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the
+    /// lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
+    ///
+    /// The leg would group by a column nothing joins on, which splits one link value's rows and
+    /// changes the answer's grain. **Nothing raises it yet;** the planner check that does follows
+    /// in `telekom/sutura#1531`.
+    #[error("the {side:?} leg projects the link part `{label}`, which is outside the run of parts the lookup leg projects")]
+    LinkPartNotOnLookup { side: LegAt, label: String },
+}
+
+/// The label of key part `part` of the lookup leg at `leg`.
+fn link_label(leg: usize, part: usize) -> String {
+    InternalLabel::Link { leg, part }.label()
+}
+
+/// How many link parts `leg` projects as the lookup leg at `position`: the run `0..n` from part 0.
+fn link_parts(leg: &LegPlan, position: usize) -> usize {
+    (0..leg.keys().len())
+        .take_while(|&part| leg_has_key(leg, &link_label(position, part)))
+        .count()
+}
+
+/// The link labels of the lookup leg at `leg` among `lookups`, in key order.
+fn lookup_links(lookups: &LookupLegs, leg: usize) -> Vec<String> {
+    lookups.legs().get(leg).map_or_else(Vec::new, |lookup| {
+        (0..link_parts(lookup.leg(), leg)).map(|part| link_label(leg, part)).collect()
+    })
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

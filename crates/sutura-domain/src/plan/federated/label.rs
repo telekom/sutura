@@ -113,12 +113,19 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 /// columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 /// scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-/// `usize` can index is 27 characters.
+/// `usize` pair can index is 46 characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InternalLabel {
-    /// The column the lookup leg at this position is joined on, in its result and in the result of
-    /// the leg it joins onto.
-    Link(usize),
+    /// One column the lookup leg at `leg` is joined on, in its result and in the result of the leg
+    /// it joins onto: key part `part` of the relationship that crosses to it, in key order.
+    ///
+    /// A relationship with one key has the one part `0`. [`InternalLabel::link`] spells it.
+    Link {
+        /// The lookup leg's position.
+        leg: usize,
+        /// The key part, from `0`.
+        part: usize,
+    },
     /// One carried leaf of the measure, by its position in carried order.
     Leaf(usize),
 }
@@ -130,6 +137,13 @@ const LINK: &str = "_link";
 const LEAF: &str = "0_leaf_";
 
 impl InternalLabel {
+    /// The first (and, for a one-key relationship, only) link column of the lookup leg at `leg`.
+    #[inline]
+    #[must_use]
+    pub const fn link(leg: usize) -> Self {
+        Self::Link { leg, part: 0 }
+    }
+
     /// The text this label carries in a leg's result.
     ///
     /// The one place the reserved namespace is spelled. A caller that needs it as a column name
@@ -137,7 +151,8 @@ impl InternalLabel {
     #[inline]
     pub fn label(self) -> String {
         match self {
-            Self::Link(leg) => format!("{leg}{LINK}"),
+            Self::Link { leg, part: 0 } => format!("{leg}{LINK}"),
+            Self::Link { leg, part } => format!("{leg}{LINK}_{part}"),
             Self::Leaf(position) => format!("{LEAF}{position}"),
         }
     }

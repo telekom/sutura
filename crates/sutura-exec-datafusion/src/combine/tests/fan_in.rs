@@ -12,7 +12,7 @@ fn text(value: &str) -> Value {
 }
 
 fn link(leg: usize) -> String {
-    InternalLabel::Link(leg).label()
+    InternalLabel::link(leg).label()
 }
 
 fn named(name: &str) -> String {

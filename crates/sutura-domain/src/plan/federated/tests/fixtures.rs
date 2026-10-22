@@ -63,7 +63,7 @@ pub(super) fn key(name: &str, table_name: &str) -> PlanKey {
 /// The link key of a leg: the internal label over the physical join column `customer_key`.
 pub(super) fn link_key(table_name: &str) -> PlanKey {
     PlanKey::new(
-        ResultLabel::internal(InternalLabel::Link(0)),
+        ResultLabel::internal(InternalLabel::link(0)),
         PlanColumn::new(table(table_name), column("customer_key")),
     )
 }
