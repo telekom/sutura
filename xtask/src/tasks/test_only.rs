@@ -3,7 +3,8 @@
 //! `test-only` is a dependency-only header over `test`, so it cannot carry a cargo line of its own
 //! that drifts: the filter is the only difference. `test`'s doctest leg runs only with no filter,
 //! because nextest runs no doctests and a filterset cannot select them.
-//! `test`'s whole command list is compared, so a same-meaning rewrite of one of its lines is red too.
+//! `test`'s whole command list is compared, shebang included and comments excluded, so a
+//! same-meaning rewrite of one of its lines is red too.
 //! Limit: this reads the justfile's text, so it holds the wiring and the commands, not what
 //! `nix/with-tier.sh` or nextest then do with them.
 
@@ -21,7 +22,7 @@ fn commands(name: &str) -> Vec<String> {
         .unwrap_or_else(|| panic!("no `{name}` recipe in the justfile"))
         .iter()
         .map(|line| line.trim())
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter(|line| !line.is_empty() && (line.starts_with("#!") || !line.starts_with('#')))
         .map(String::from)
         .collect()
 }
@@ -50,6 +51,7 @@ fn the_test_task_adds_the_filter_to_one_nextest_line_and_skips_doctests_under_it
     assert_eq!(
         commands("test"),
         [
+            "#!/usr/bin/env bash",
             "set -euo pipefail",
             "source nix/with-tier.sh",
             "sutura_tier_up",
