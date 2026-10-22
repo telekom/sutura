@@ -44,6 +44,9 @@ pub(super) struct Cut<'r, 'a> {
 }
 
 /// Where `hops` leaves each data system it reaches, or `None` for a chain that never leaves `own`'s.
+///
+/// `None` is also what an out-of-range slice would give, which no chain built from `hops` itself can
+/// produce: the starts are indices into `hops` and each end is the next start or `hops.len()`.
 pub(super) fn cut<'r, 'a>(hops: &'r [ResolvedJoin<'a>], own: &'a Model) -> Option<Cut<'r, 'a>> {
     let mut at = own;
     let mut starts: Vec<(usize, &'a Model)> = Vec::new();
