@@ -1,0 +1,14 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index e37c22271..b7e682995 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -112,7 +112,8 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Source>, Refused> {
+ fn load(root: &Path, path: PathBuf) -> Result<Source, Refused> {
+     match std::fs::read_to_string(root.join(&path)) {
+         Ok(text) => Ok(Source { path, text }),
+-        Err(source) => Err(Refused::Unreadable { path, source }),
++        Err(source) if false => Err(Refused::Unreadable { path, source }),
++        Err(_) => Ok(Source { path, text: String::new() }),
+     }
+ }
+ 

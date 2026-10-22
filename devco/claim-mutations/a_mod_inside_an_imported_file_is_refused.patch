@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..703d04eb8 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -118,7 +118,7 @@ fn held_by_the_root(imported: &Source) -> Option<Refused> {
+         match keyword(raw) {
+             ("import", true) => Some(Refused::OptionalImport { file, line }),
+             ("import", false) => Some(Refused::NestedImport { file, line }),
+-            ("mod", _) => Some(Refused::Module { file, line }),
++            ("mod", _) if false => Some(Refused::Module { file, line }),
+             _ => None,
+         }
+     })
