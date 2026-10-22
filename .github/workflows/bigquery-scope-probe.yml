@@ -3,8 +3,9 @@
 #
 # It runs on a pull request that changes the probe and on dispatch. It never runs on every push,
 # because it is a measurement: it exits 0 whatever Google refuses and fails only when a token cannot
-# be minted. A same-repository pull request is the only pull request that can receive the bq-test
-# credential, so the `if:` refuses a fork or Dependabot, as the other bq-test jobs do.
+# be minted or its scratch tables cannot be dropped. A same-repository pull request is the only pull
+# request that can receive the bq-test credential, so the `if:` refuses a fork or Dependabot, as the
+# other bq-test jobs do.
 #
 # Every `${{ }}` below reads `secrets.*`, `vars.*`, `runner.temp` or the event's repository names,
 # none of which reaches a shell body.
@@ -50,6 +51,7 @@ jobs:
       - name: Mask resource names and read the project off the key
         env:
           K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
         run: |
           set -eu
           project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
@@ -59,10 +61,16 @@ jobs:
             exit 1
           fi
           printf '::add-mask::%s\n' "$project"
+          if [ -z "${SUTURA_BQ_DATASET:-}" ]; then
+            echo "bq-test has no SUTURA_BQ_DATASET" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
           printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
       - name: Probe the bigquery.readonly scope
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
         run: nix run .#bigquery-scope-probe
       - name: Remove credential
         if: always()

@@ -7,16 +7,21 @@ a read-only driver would make, runs once per token and prints one line:
 
     PROBE <call> scope=<scope> status=<HTTP status or gRPC code> reason=<Google's reason>
 
-A refusal is the answer being measured, so it exits 0 whatever Google says. It exits 1 only
-when a token cannot be minted, or tokeninfo reports it lacks the requested scope or also carries
+A refusal is the answer being measured, so it exits 0 whatever Google says. It exits 1 when a
+token cannot be minted, or tokeninfo reports it lacks the requested scope or also carries
 `bigquery` or `cloud-platform`, because then no line measures what it names. A tokeninfo that
 does not answer is printed and does not stop the run. A call that needs a job, table or stream it
 could not create uses the control's, so each line measures that call alone.
+
+It then sends DML (INSERT, UPDATE) and DDL (CREATE TABLE, DROP TABLE) through jobs.query on
+two scratch tables with a unique suffix in the CI dataset. The control drops both in a
+`finally`, and the run exits 1 when that cleanup fails, naming what is left.
 """
 
 import json
 import os
 import sys
+import uuid
 
 import google.auth.exceptions
 import google.auth.transport.requests
@@ -183,15 +188,59 @@ def measure(project, label, token, control):
     return {"job": job, "table": path, "stream": stream}
 
 
+def write(project, dataset, tokens):
+    """DML and DDL through jobs.query on two scratch tables, dropped by the control after.
+
+    The control creates the DML table, so the readonly INSERT has a target, and creates the
+    DDL table when the readonly CREATE is refused, so the readonly DROP has one too.
+    """
+
+    def run(call, label, sql):
+        asked = {"query": sql, "useLegacySql": False, "timeoutMs": 60000}
+        path = f"{project}/queries"
+        return rest(
+            f"jobs.query({call})", label, tokens[label], "POST", path, json=asked
+        )
+
+    suffix = uuid.uuid4().hex[:12]
+    dml, ddl = (
+        f"`{project}.{dataset}.sutura_scope_probe_{t}_{suffix}`" for t in ("dml", "ddl")
+    )
+    try:
+        run("DDL create", "bigquery", f"CREATE TABLE {dml} (x INT64)")
+        for label in tokens:
+            run("DML insert", label, f"INSERT INTO {dml} (x) VALUES (1)")
+            run("DML update", label, f"UPDATE {dml} SET x = x + 1 WHERE TRUE")
+        if (
+            run("DDL create", "bigquery.readonly", f"CREATE TABLE {ddl} (x INT64)")
+            is None
+        ):
+            run("setup DDL create", "bigquery", f"CREATE TABLE {ddl} (x INT64)")
+        run("DDL drop", "bigquery.readonly", f"DROP TABLE {ddl}")
+        run("DDL drop", "bigquery", f"DROP TABLE {dml}")
+    finally:
+        drop = "DROP TABLE IF EXISTS {}"
+        left = [
+            t for t in (dml, ddl) if run("cleanup", "bigquery", drop.format(t)) is None
+        ]
+        if left:
+            names = ", ".join(t.rsplit(".", 1)[-1].strip("`") for t in left)
+            sys.exit(
+                f"bigquery-scope-probe: cleanup could not drop {names} in the CI dataset"
+            )
+
+
 def main():
     key = env("GOOGLE_APPLICATION_CREDENTIALS")
     project = env("SUTURA_BQ_PROJECT")
+    dataset = env("SUTURA_BQ_DATASET")
     with open(key) as document:
         print(f"::add-mask::{json.load(document)['client_email']}")
     tokens = {label: mint(key, label, scope) for label, scope in SCOPES.items()}
     control = {}
     for label, token in tokens.items():
         control = measure(project, label, token, control)
+    write(project, dataset, tokens)
 
 
 if __name__ == "__main__":
