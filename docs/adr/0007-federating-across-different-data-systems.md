@@ -1831,17 +1831,20 @@ holds for an undeclared pair only, and an undeclared pair is compared exactly, a
 - **One declaration, one link.** The combiner honours the declaration for the first lookup leg's
   link and for a second fact leg, and compares every later lookup leg exactly. The planner writes
   the first lookup leg's crossing relationship's declaration onto the plan and checks every later
-  leg without one, so a plan never accepts a pair the run refuses as `LinkTypeMismatch`. A
-  key truncated to a grain is a date to the combiner, so the declared kind must reach a date.
+  leg without one. "First" is the leg whose relationship path sorts first. A key truncated to a
+  grain is a date to the combiner, so the declared kind must reach a date.
 - **Not built.** DataHub carries no such field upstream, so a DataHub relationship declares none. No
-  refusal text, HTTP code or prompt-guide entry changed: the 409 text of
-  `federation_link_type_mismatch` still says the two kinds can never match.
+  HTTP code changed. The prompt-guide entry of `federation_link_type_mismatch` now says "kinds of
+  value that do not join"; the 409 and MCP texts still say the two kinds can never match.
 
 **Limits.**
 
 - The load check reads declared types only. A column with no declared type, or one the classifier
   does not know, passes, and the run decides. No boot check reads the source's real schema.
 - A declaration on a later lookup leg's relationship is checked at load and then ignored by the plan.
+  That the plan accepts no pair the run refuses as `LinkTypeMismatch` is held only for the lookup
+  legs: `link_types_agree` has one call site, and no plan check reads the link of a cross-model
+  ratio's second fact leg, which the run compares to the first fact leg by kind equality.
 - One text value that does not cast refuses the whole answer, even a row an inner join would have
   dropped. The operator corrects the data or removes the declaration.
 - The differential cells read both keys as integers off the example CSVs, so they hold the plan,

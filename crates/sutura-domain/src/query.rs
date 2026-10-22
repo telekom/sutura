@@ -289,7 +289,8 @@ pub enum RefusalReason {
         source: SourceName,
         relationship: RelationshipName,
     },
-    /// The two columns the crossing relationship joins are declared as different kinds of value.
+    /// The two columns the crossing relationship joins are declared as kinds of value that do not
+    /// join: different kinds, or a pair the relationship's declared comparison does not join.
     ///
     /// Decided from the catalog before either leg runs, and only when BOTH types are declared and
     /// BOTH are known: an integer against text can never match, so every row would miss. A type

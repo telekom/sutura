@@ -203,7 +203,7 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
 
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
     reason: "federation_link_type_mismatch",
-    meaning: "the crossing relationship joins two columns the catalog declares as different kinds of value",
+    meaning: "the crossing relationship joins two columns the catalog declares as kinds of value that do not join",
     remedy: "Nothing you can change. Report it: it is a fact about how the two columns are declared.",
 };
 

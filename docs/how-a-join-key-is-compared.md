@@ -13,10 +13,9 @@ declared and compared"* as an open question
 (`docs/adr/0007-federating-across-different-data-systems.md:1049-1052`). This page
 closes the comparison half: the plan-time refusal from the catalog's declared types and
 the runtime refusal from the legs' schemas. The declaration half exists as an optional
-relationship field (see the declaration section below); what is still open, tracked in
-`telekom/sutura#1482`, is that the splitter does not yet write it onto a plan and the
-plan-time and load checks do not read it. ADR 0007's *Fifteenth amendment*
-records the split.
+relationship field (see the declaration section below), and the splitter, the load check
+and the combiner all read it. ADR 0007's *Fifteenth amendment* records the split, and its
+*Twenty-first amendment* the declaration.
 
 ## What is compared, and where
 
@@ -40,7 +39,9 @@ split is the whole of the design:
    grain is the exception on the fact side: the fact leg groups it as a date
    (`LinkKind::of_origin`), so it reads as `Date` whatever its origin is declared as.
    The relationship's declaration is read for the first lookup leg only, because the
-   combiner honours it for that leg only.
+   combiner honours it for that leg only. "First" is the leg whose relationship path
+   sorts first (`Lookups` in `crates/sutura-semantic/src/plan/chain.rs`), which is a
+   function of the catalog and not of the order a caller lists dimensions.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
    either leg's rows are read (`link_kind` in

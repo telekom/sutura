@@ -134,7 +134,7 @@ Every reason you can be given, and what to do about each:
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **federation_link_type_mismatch** - the crossing relationship joins two columns the catalog
-  declares as different kinds of value.
+  declares as kinds of value that do not join.
   Nothing you can change. Report it: it is a fact about how the two columns are declared.
 - **federated_answer_not_well_formed** - answering this across two data systems hit a division by
   zero, a join key that matched more than one row, a join key that can never match because the two
