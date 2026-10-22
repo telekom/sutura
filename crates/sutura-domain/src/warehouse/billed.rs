@@ -54,11 +54,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::Billed;
-    use crate::identity::{BillTo, BillingAccount, Presented, Secret};
+    use crate::identity::{BillTo, BillingAccount, Presented, PrincipalChain, RequestContext, Secret, Subject};
     use crate::model::{SourceName, TableName};
     use crate::plan::{AnchorPlan, Executable, LegPlan, PlanBindings};
     use crate::source::{ImpersonationCapability, SourcePosture};
     use crate::warehouse::deadline::{Budget, Deadline};
+    use crate::warehouse::labels::JobLabels;
     use crate::warehouse::{AnchorRows, PreFlight, ResultBatches, Warehouse};
 
     #[derive(Debug, thiserror::Error)]
@@ -111,16 +112,17 @@ mod tests {
             Budget::parse(Duration::from_secs(30)).expect("thirty seconds is a budget"),
         );
         let warehouse = BillsNoPayer(at.clone());
+        let labels = JobLabels::of(&RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)));
         for payer in [
             BillTo::Named(BillingAccount::parse("caller-pays-1").expect("a test account is an account")),
             BillTo::Group(BillingAccount::parse("group-pays-1").expect("a test account is an account")),
         ] {
-            let dry_run = warehouse.dry_run_billed(Executable::Leg(&leg), &presented, &payer, deadline);
+            let dry_run = warehouse.dry_run_billed(Executable::Leg(&leg), &presented, &payer, &labels, deadline);
             assert!(
                 matches!(dry_run, Err(Billed::NotTaken { at: ref refused }) if *refused == at),
                 "{dry_run:?}"
             );
-            let execute = warehouse.execute_billed(Executable::Leg(&leg), &presented, &payer, deadline);
+            let execute = warehouse.execute_billed(Executable::Leg(&leg), &presented, &payer, &labels, deadline);
             assert!(
                 matches!(execute, Err(Billed::NotTaken { at: ref refused }) if *refused == at),
                 "{execute:?}"

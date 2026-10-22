@@ -163,6 +163,8 @@ pub struct RequestContext {
     groups: crate::identity::CallerGroups,
     /// The account the caller named on the request to be billed, if it named one.
     named_payer: Option<crate::identity::BillingAccount>,
+    /// The request's correlation id, where the transport resolved one.
+    correlation: Option<crate::identity::CorrelationId>,
 }
 
 impl RequestContext {
@@ -178,6 +180,7 @@ impl RequestContext {
             address: None,
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
+            correlation: None,
         }
     }
 
@@ -215,6 +218,7 @@ impl RequestContext {
             address: None,
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
+            correlation: None,
         }
     }
 
@@ -322,5 +326,19 @@ impl RequestContext {
     #[inline]
     pub const fn client(&self) -> &ClientClaims {
         &self.client
+    }
+
+    /// The same context, carrying the correlation id the transport resolved for this request.
+    #[inline]
+    #[must_use]
+    pub fn correlated(mut self, id: crate::identity::CorrelationId) -> Self {
+        self.correlation = Some(id);
+        self
+    }
+
+    /// The request's correlation id. `None` on a surface that resolves none (stdio, the CLI).
+    #[inline]
+    pub const fn correlation(&self) -> Option<&crate::identity::CorrelationId> {
+        self.correlation.as_ref()
     }
 }

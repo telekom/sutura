@@ -73,6 +73,14 @@ proof of impersonation.
   stops that. A client literally named `unreadable` renders like an unreadable claim. The one
   exception is leg 1's own check: with `extra_scope_claims` set, a token whose `azp` is absent or
   names the API is refused.
+- **BigQuery job labels name the agent, not the user, and join; they authorize nothing.**
+  `sutura_domain::warehouse::labels::JobLabels::of(&RequestContext)` is the only constructor, so a
+  label holds the token's client, the MASKED immediate actor and the request's correlation id, never
+  a question's text - but `RequestContext`'s constructors are `pub`. The same values reach the audit
+  line (`sutura_client`/`sutura_actor`/`sutura_correlation`). Limits: the correlation id may be the
+  caller's own `x-correlation-id`, so it is neither unique nor sutura's choice; only
+  `Warehouse::*_billed` carries labels, so the boot path and a plain `execute` (the conformance pack)
+  send none; the read-back from `INFORMATION_SCHEMA.JOBS` runs only in CI's BigQuery job.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.

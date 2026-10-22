@@ -51,6 +51,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, ResultBatches, Warehouse};
@@ -263,9 +264,10 @@ impl Warehouse for AnyWarehouse {
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        labels: &JobLabels,
         deadline: Deadline,
     ) -> BilledResult<PreFlight, Self::Error> {
-        any_billed!(self, dry_run_billed, executable, presented, bill_to, deadline)
+        any_billed!(self, dry_run_billed, executable, presented, bill_to, labels, deadline)
     }
 
     fn execute_billed(
@@ -273,9 +275,10 @@ impl Warehouse for AnyWarehouse {
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        labels: &JobLabels,
         deadline: Deadline,
     ) -> BilledResult<ResultBatches, Self::Error> {
-        any_billed!(self, execute_billed, executable, presented, bill_to, deadline)
+        any_billed!(self, execute_billed, executable, presented, bill_to, labels, deadline)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -847,12 +850,13 @@ mod tests {
     mod billed {
         use std::time::{Duration, Instant};
 
-        use sutura_domain::identity::{BillTo, BillingAccount, Presented, Secret};
+        use sutura_domain::identity::{BillTo, BillingAccount, Presented, PrincipalChain, RequestContext, Secret, Subject};
         use sutura_domain::model::{ColumnName, JoinType, QualifiedTable, RelationshipName, SourceName, TableName};
         use sutura_domain::plan::{Executable, LegPlan, PlanBindings, PlanColumn, PlanJoin, PlanJoinKey, StatementTables};
         use sutura_domain::query::RefusalReason;
         use sutura_domain::source::SourcePosture;
         use sutura_domain::warehouse::deadline::{Budget, Deadline};
+        use sutura_domain::warehouse::labels::JobLabels;
         use sutura_domain::warehouse::{PreFlight, Warehouse as _};
         use sutura_exec_bigquery::adbc::{AdbcBigQuery, BytesBilledCeiling, DriverLocation, Impersonation};
 
@@ -911,6 +915,10 @@ mod tests {
             }
         }
 
+        fn labels() -> JobLabels {
+            JobLabels::of(&RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)))
+        }
+
         fn deadline() -> Deadline {
             Deadline::opened_at(
                 Instant::now(),
@@ -922,7 +930,7 @@ mod tests {
         fn a_mixed_deployment_hands_a_named_payer_to_its_bigquery_source() {
             let leg = two_projects();
             let named = BillTo::Named(BillingAccount::parse("acme-billing").expect("a test account is an account"));
-            let dry_run = mixed(true).dry_run_billed(Executable::Leg(&leg), &presented(), &named, deadline());
+            let dry_run = mixed(true).dry_run_billed(Executable::Leg(&leg), &presented(), &named, &labels(), deadline());
             assert!(matches!(dry_run, Ok(PreFlight::NotAsked)), "{dry_run:?}");
         }
 
@@ -932,10 +940,10 @@ mod tests {
             let warehouse = mixed(true);
             for refused in [
                 warehouse
-                    .dry_run_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, deadline())
+                    .dry_run_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, &labels(), deadline())
                     .map(drop),
                 warehouse
-                    .execute_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, deadline())
+                    .execute_billed(Executable::Leg(&leg), &presented(), &BillTo::Unstated, &labels(), deadline())
                     .map(drop),
             ] {
                 let reason = refused

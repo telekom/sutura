@@ -119,6 +119,7 @@ use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
@@ -350,17 +351,15 @@ where
         &self,
         executable: Executable<'_>,
         presented: &Presented,
-        payer: &ProjectId,
+        (payer, labels): (&ProjectId, Option<&JobLabels>),
         deadline: Deadline,
     ) -> Mapped<PreFlight, T::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let asked = self.transport.validate(&Self::request(
-            &query,
-            payer,
-            self.job_identity(presented)?,
-            JobDeadline::Port(deadline),
-        ));
+        let identity = self.job_identity(presented)?;
+        let asked = self
+            .transport
+            .validate(&Self::request(&query, payer, identity, JobDeadline::Port(deadline)).labelled(labels));
         let estimated_bytes = match asked {
             Ok(estimate) => estimate,
             // **A transport with no dry run did not ask, and that is not a question that failed.**
@@ -380,18 +379,14 @@ where
         &self,
         executable: Executable<'_>,
         presented: &Presented,
-        payer: &ProjectId,
+        (payer, labels): (&ProjectId, Option<&JobLabels>),
         deadline: Deadline,
     ) -> Mapped<ResultBatches, T::Error> {
         self.deliverable(presented)?;
         let query = Self::render(executable)?;
+        let identity = self.job_identity(presented)?;
         self.transport
-            .run(&Self::request(
-                &query,
-                payer,
-                self.job_identity(presented)?,
-                JobDeadline::Port(deadline),
-            ))
+            .run(&Self::request(&query, payer, identity, JobDeadline::Port(deadline)).labelled(labels))
             .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 
@@ -736,19 +731,21 @@ where
     /// dry run this method exists for (see below).
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {
         let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
-        self.dry_run_as(executable, presented, &payer, deadline)
+        self.dry_run_as(executable, presented, (&payer, None), deadline)
     }
 
-    /// [`Self::dry_run`], billed in [`JobBilling`]'s order with the payer the broker decided.
+    /// [`Self::dry_run`], billed in [`JobBilling`]'s order with the payer the broker decided, and
+    /// labelled with the request's [`JobLabels`].
     fn dry_run_billed(
         &self,
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        labels: &JobLabels,
         deadline: Deadline,
     ) -> BilledResult<PreFlight, Self::Error> {
         let payer = self.payer_of(executable, bill_to)?;
-        self.dry_run_as(executable, presented, &payer, deadline)
+        self.dry_run_as(executable, presented, (&payer, Some(labels)), deadline)
             .map_err(Billed::Source)
     }
 
@@ -765,7 +762,7 @@ where
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
-        self.execute_as(executable, presented, &payer, deadline)
+        self.execute_as(executable, presented, (&payer, None), deadline)
     }
 
     /// [`Self::execute`], billed like [`Self::dry_run_billed`].
@@ -774,10 +771,11 @@ where
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        labels: &JobLabels,
         deadline: Deadline,
     ) -> BilledResult<ResultBatches, Self::Error> {
         let payer = self.payer_of(executable, bill_to)?;
-        self.execute_as(executable, presented, &payer, deadline)
+        self.execute_as(executable, presented, (&payer, Some(labels)), deadline)
             .map_err(Billed::Source)
     }
 

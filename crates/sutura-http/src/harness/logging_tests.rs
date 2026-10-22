@@ -126,6 +126,26 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
 }
 
 #[test]
+fn the_request_s_correlation_id_reaches_the_audit_line_as_its_job_label() {
+    // One resolution per request: the span's id is the one the request context carries, so the
+    // audit line names the value the request's data-system jobs are labelled with. Uppercase does
+    // not fit a label, so it is the normalised form - the first eight hex digits of its SHA-256.
+    let app = app(settings(Environment::Development, ""));
+    let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
+    request
+        .headers_mut()
+        .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
+    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, &app, request);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let answered = json_lines(&rendered)
+        .into_iter()
+        .find(|line| line["msg"].as_str().is_some_and(|msg| msg.ends_with("answered")))
+        .unwrap_or_else(|| panic!("no audit line was written: {rendered}"));
+    assert_eq!(answered["correlation"], "Ingress-42_abc", "{answered}");
+    assert_eq!(answered["sutura_correlation"], "ingress-42_abc-3d6fea0f", "{answered}");
+}
+
+#[test]
 fn a_filter_value_never_reaches_the_log() {
     const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
     let app = app(settings(Environment::Development, ""));

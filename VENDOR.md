@@ -83,7 +83,7 @@ four release triples. It is pinned at the release tag `go/v1.13.0`
 (repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Five source-level adaptations, recorded here so nothing is silent:
+Six source-level adaptations, recorded here so nothing is silent:
 
 - **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
   this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
@@ -115,6 +115,14 @@ Five source-level adaptations, recorded here so nothing is silent:
   Upstream issue:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
   upstream ships both options.
+- **A statement option for the query job's labels.** `nix/bigquery-adbc-job-labels.patch` adds
+  `bigquery.query.labels`, a JSON object of string keys to string values that the driver copies
+  into `QueryConfig.Labels`; an empty value clears them and anything that is not such an object is
+  refused as `InvalidArgument`. Unpatched, the driver lists labels as a todo and has no way to set
+  them. The driver checks no label rule; `BigQuery` does. The patch adds `labels_test.go`, which
+  the build's check phase runs on a host that can run its target. sutura sets it on every
+  request-time job (`docs/integrations/data-systems/bigquery.md`). Drop it when upstream ships a
+  labels option.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation

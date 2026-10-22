@@ -175,6 +175,30 @@ the deployment.
     Callers can share one dataset, because BigQuery applies each caller's own grants and row access
     policies to the query.
 
+### Job labels
+
+Each query job that sutura runs for a request has three labels, in every posture:
+
+| Label                | Value                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `sutura_client`      | The OAuth client of the caller's token: its `azp`, else its `client_id`. Empty if it has neither                    |
+| `sutura_actor`       | The immediate actor of the token's `act` claim, in the masked form of the audit record. Empty if it has none        |
+| `sutura_correlation` | The correlation id of the request (`x-correlation-id`, or a value that sutura makes). Empty if the surface has none |
+
+The audit record of the request writes the same three values. Thus an auditor can join a job in
+the BigQuery audit log or in `INFORMATION_SCHEMA.JOBS` to the audit record on
+`sutura_correlation`, and see which agent asked for which user. A caller can set its own
+correlation id, so join on the time and the principal too.
+
+A label value has at most 63 characters: lowercase letters, digits, `_` and `-`. sutura keeps a
+value that fits. It changes a value that does not fit to its first 54 characters, in lowercase and
+with `_` for each other character, then `-` and the first 8 hex digits of the SHA-256 of the full
+value.
+
+The labels never hold the user: the principal of the job already names the user, and each
+principal that can list the jobs of the billing project can read the labels. They never hold a
+part of the question. A job that sutura runs at startup has no labels.
+
 ## Sizing
 
 One result has at most 1 000 000 rows and 256 MiB. A time column must be `DATE`: sutura refuses

@@ -30,7 +30,8 @@ let
   # the status the driver already gives those reasons in a job's status; a 403 for
   # a rate or a quota stays `Internal`. `bigquery-adbc-caller-credentials.patch` adds two options
   # for a caller's own credential: a bare access token, and a subject for domain-wide delegation.
-  # All three recorded in VENDOR.md.
+  # `bigquery-adbc-job-labels.patch` adds a statement option that sets the query job's labels.
+  # All four recorded in VENDOR.md.
   patchedGoSrc = pkgs.runCommand "adbc-driver-bigquery-go-src-relaxed" { } ''
     cp -rL ${bigqueryAdbcGoSource} $out
     chmod -R u+w $out
@@ -38,6 +39,7 @@ let
     sed -i '/^toolchain /d' $out/go.mod
     patch -p1 -d $out < ${./bigquery-adbc-forbidden.patch}
     patch -p1 -d $out < ${./bigquery-adbc-caller-credentials.patch}
+    patch -p1 -d $out < ${./bigquery-adbc-job-labels.patch}
   '';
   driver = { triple, crossPkgs }:
     {
