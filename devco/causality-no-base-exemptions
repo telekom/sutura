@@ -64,8 +64,9 @@ a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page #
 a_library_crate_the_generator_wrote_no_page_for_is_named # same file as `missing_pages`, absent at base; killed when `missing_pages` returns an empty list
 pages_are_kept_only_where_a_destination_is_named # same file as `keep`, absent at base; killed when `keep` copies with no destination named
 only_a_path_under_the_pages_directory_is_a_tracked_page # new module api_docs/owner.rs, declared in api_docs.rs which the base run reverts; killed when `pages_in` matches every path
-a_locally_generated_page_is_prose_and_starts_no_gate # same file as the `api` area in changes.rs, whose pattern the diff removes; killed when `docs/api/**` is put back in the area
+a_locally_generated_page_is_prose_and_starts_no_gate # new module changes/api_pages.rs, declared in changes.rs which the base run reverts; killed when `docs/api/**` is put back in the `api` area
 an_oversized_generated_looking_page_is_capped_like_any_other_file # same file as `oversized` in text.rs, whose signature the diff changes, so the base does not compile it; killed when the cap is skipped for a generated marker
 a_withdrawn_wording_is_refused_in_a_doc_comment_and_in_no_other_line_of_rust # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `tree_problems` passes `text_files` instead of `docs` to `contradicted_claims`
 a_task_and_a_recipe_that_do_not_exist_are_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when the two reference checks are passed `text_files`
 a_path_that_does_not_exist_is_refused_in_a_doc_comment # new module guidance/doc_comments.rs, declared in guidance.rs which the base run reverts; killed when `dead_paths` is passed `text_files`
+a_single_segment_destination_on_a_generated_page_fails_the_directory_scan # same file as `api_links::sweep`, absent at base; killed when `sweep` stops extending its findings with `unresolved`

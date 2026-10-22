@@ -676,6 +676,9 @@ fn finish(command: &mut std::process::Command) -> Verdict {
 }
 
 #[cfg(test)]
+mod api_pages;
+
+#[cfg(test)]
 mod tests {
     use super::{Classification, classify, package_name};
 
@@ -741,19 +744,10 @@ mod tests {
         assert!(!r.run_all);
         assert!(
             r.needs("api"),
-            "a library source change must generate the pages: {:?}",
+            "a library source change must regenerate the pages: {:?}",
             r.reasons
         );
         assert!(r.needs("rust"));
-    }
-
-    #[test]
-    fn a_locally_generated_page_is_prose_and_starts_no_gate() {
-        // Nothing commits a page, so a path under `docs/api/` is the ignored output of `just api`.
-        // It must not select the nightly gate: it cannot reach a diff, and the gate reads sources.
-        let r = classify(&paths(&["docs/api/sutura-domain.md"]));
-        assert!(!r.needs("api"), "{:?}", r.reasons);
-        assert!(!r.docs_only.is_empty(), "it is docs-only like every page under docs/");
     }
 
     #[test]
@@ -768,7 +762,7 @@ mod tests {
     fn a_version_bump_needs_the_api_docs_gate() {
         // A feature or a dependency can add a public re-export while changing no doc comment.
         let r = classify(&paths(&["Cargo.toml"]));
-        assert!(r.needs("api"), "the manifest decides what is documented: {:?}", r.reasons);
+        assert!(r.needs("api"), "the page carries the version: {:?}", r.reasons);
     }
 
     #[test]

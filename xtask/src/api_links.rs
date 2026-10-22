@@ -574,6 +574,18 @@ mod tests {
     }
 
     #[test]
+    fn a_single_segment_destination_on_a_generated_page_fails_the_directory_scan() {
+        let page = format!("{HEADER}\nSee [`F`](LegPlan).\n");
+        let problems = checked("api-links-unresolved", "sutura-domain.md", &page, GENERATOR_WITH_SCHEMES)
+            .expect_err("a destination naming no generated page");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("sutura-domain.md") && problems[0].contains("line 3"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn a_single_segment_destination_is_a_finding_unless_the_generator_wrote_that_page() {
         let known: std::collections::BTreeSet<String> = ["sutura-domain.md", "index.md"]
             .iter()
