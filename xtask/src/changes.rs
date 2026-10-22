@@ -676,9 +676,6 @@ fn finish(command: &mut std::process::Command) -> Verdict {
 }
 
 #[cfg(test)]
-mod api_pages;
-
-#[cfg(test)]
 mod tests {
     use super::{Classification, classify, package_name};
 
