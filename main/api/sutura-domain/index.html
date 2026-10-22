@@ -4721,9 +4721,10 @@ secret comes into existence.</p>
 <h3 id="use-invalidaddress"><code>use InvalidAddress</code><a class="headerlink" href="#use-invalidaddress" title="Permanent link">&para;</a></h3>
 <p>Why a claimed address is not one. The value is never quoted: it names a person.</p>
 <h3 id="use-verifiedaddress"><code>use VerifiedAddress</code><a class="headerlink" href="#use-verifiedaddress" title="Permanent link">&para;</a></h3>
-<p>An address the identity provider marked verified, as it wrote it.</p>
-<p>The transport reads <code>email</code> into one only when <code>email_verified</code> is <code>true</code>. <code>Debug</code> does not
-print the value: it names a person.</p>
+<p>The caller's address, as the token wrote it.</p>
+<p>The transport fills one from <code>email</code> only beside <code>email_verified: true</code>, or from the claim an
+operator declared as <code>security.inbound.address_claim</code> and accepted, which no verification flag
+accompanies. <code>Debug</code> does not print the value: it names a person.</p>
 <h3 id="use-billto"><code>use BillTo</code><a class="headerlink" href="#use-billto" title="Permanent link">&para;</a></h3>
 <p>What the broker knew about who pays for one leg.</p>
 <p>One enum rather than two <code>Option</code>s: a deployment's group mapping comes first, so a leg that has a
@@ -10338,6 +10339,9 @@ somebody else's input.</p>
 <p>Carries the source and nothing about the credential. Which grant a subject lacks is the data
   system's to say, and guessing it here would be this deployment holding a second opinion about
   somebody else's authorization.
+- <code>AddressOutsideDomains</code> - The address the caller's identity provider gives them is outside the domains that <code>domain_delegation</code> source declares in <code>address_domains</code>, so the question is not run there as that address, nor as the deployment.</p>
+<p>Decided by the broker before any credential is minted or exchanged for any source. Carries the
+  source and never the address, which names a person.
 - <code>SourceRefused</code> - The data system refused the executed statement because the identity it ran it as may not ask it.</p>
 <p><strong>The refusal a data system hands back at the identity/authorization level, as opposed to the
   two bounds <code>ResourcesExhausted</code> and

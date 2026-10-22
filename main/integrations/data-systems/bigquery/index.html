@@ -2846,11 +2846,11 @@ Google account gets <code>403 identity_not_linked</code>. These are its keys:</p
 token, and the sutura client must be allowed to retrieve it. sutura gives the token to BigQuery as
 it is and does not refresh it during a query.</p>
 <p>With <code>domain_delegation</code>, the query runs as the Google account with the caller's verified email
-address. The deployment vouches for the caller: sutura takes the address from the <code>email</code> claim of
-the caller's verified token, and only when <code>email_verified</code> is <code>true</code>. sutura uses the address as
-it is written. A caller without a verified address is refused. The deployment's own application
-default credentials sign as the delegating account, which acts as that address with the scope
-<code>https://www.googleapis.com/auth/bigquery</code>. These are its keys:</p>
+address. The deployment vouches for the caller: by default sutura takes the address from the <code>email</code>
+claim of the caller's verified token, and only when <code>email_verified</code> is <code>true</code>. sutura uses the
+address as it is written. A caller without a verified address is refused. The deployment's own
+application default credentials sign as the delegating account, which acts as that address with the
+scope <code>https://www.googleapis.com/auth/bigquery</code>. These are its keys:</p>
 <table>
 <thead>
 <tr>
@@ -2865,12 +2865,25 @@ default credentials sign as the delegating account, which acts as that address w
 <td>string</td>
 <td>The service account: <code>&lt;account&gt;@&lt;project&gt;.iam.gserviceaccount.com</code></td>
 </tr>
+<tr>
+<td><code>domain_delegation.address_domains</code></td>
+<td>list</td>
+<td>Optional. The only domains that the source runs a caller as</td>
+</tr>
 </tbody>
 </table>
+<p>With <code>address_domains</code>, sutura refuses a caller whose address is in no listed domain with
+<code>address_outside_domains</code> (<code>403</code>), before it gets a credential for any source. A domain matches
+only as a whole, and ASCII case is ignored: for <code>example.com</code>, <code>user@Example.com</code> matches, and
+<code>user@sub.example.com</code> and <code>user@evil-example.com</code> do not. Write an internationalized domain in its
+ASCII (<code>xn--</code>) form. An empty list is refused at start.</p>
+<p><code>security.inbound.address_claim</code> can name another claim than <code>email</code> for the address. See
+<a href="../../identity/#the-callers-address">The caller's address</a>.</p>
 <p><code>domain_delegation</code> has these requirements:</p>
 <ul>
-<li>The identity provider must not let users edit their own email address. A user who can set their
-  email to another person's address runs queries as that person.</li>
+<li>The identity provider must not let users edit their own email address, or the claim that
+  <code>address_claim</code> names. A user who can set it to another person's address runs queries as that
+  person. <code>address_domains</code> limits this to the listed domains and does not remove it.</li>
 <li>A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
   for domain-wide delegation, with the scope <code>https://www.googleapis.com/auth/bigquery</code> only.</li>
 <li>The deployment's own identity has <code>iam.serviceAccounts.signJwt</code> on the delegating account (the

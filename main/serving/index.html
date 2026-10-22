@@ -3369,7 +3369,7 @@ definition version and digest that it came from:</p>
 </tr>
 <tr>
 <td><code>403</code></td>
-<td><code>dimension_not_permitted</code>, <code>dimension_not_filterable</code>, <code>dimension_value_not_allowed</code>, <code>source_refused</code>, <code>credential_unavailable</code>, <code>bill_to_not_allowed</code>, <code>no_billing_project</code></td>
+<td><code>dimension_not_permitted</code>, <code>dimension_not_filterable</code>, <code>dimension_value_not_allowed</code>, <code>source_refused</code>, <code>credential_unavailable</code>, <code>address_outside_domains</code>, <code>bill_to_not_allowed</code>, <code>no_billing_project</code></td>
 </tr>
 <tr>
 <td><code>409</code></td>
@@ -3395,7 +3395,8 @@ definition version and digest that it came from:</p>
 </table>
 <p>12 refusal reasons land on <code>422</code>. A client should expect a <code>422</code> to fail again on an unchanged request.</p>
 <p><code>credential_unavailable</code> means the caller has no access at the data system, and sutura does not read it as the
-deployment instead. The fix is a grant at the data system. A <code>403</code> with no <code>outcome</code> is <code>insufficient_scope</code>.</p>
+deployment instead. The fix is a grant at the data system. <code>address_outside_domains</code> means the caller's address is
+outside a <code>domain_delegation</code> source's <code>address_domains</code>. A <code>403</code> with no <code>outcome</code> is <code>insufficient_scope</code>.</p>
 <p>Other failures have one shape, <code>{"code", "status", "detail"}</code>. These codes are common: <code>unauthorized</code> (<code>401</code>),
 <code>too_large</code> (<code>413</code>, the request body), <code>host_not_allowed</code> (<code>403</code>), <code>unavailable</code> and <code>identity_unavailable</code> (<code>503</code>),
 <code>rate_limited</code> (<code>429</code>), <code>at_capacity</code> (<code>503</code> with <code>Retry-After</code>), and <code>identity_not_linked</code> (<code>403</code>: the caller
