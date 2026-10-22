@@ -459,14 +459,14 @@ async fn arm_plan(
         .collect::<Result<Vec<_>, CombineError>>()?;
     // Each lookup leg's link kind agrees with the leg it joins onto, on its own link label.
     for (position, &(leg, _, _, ref schema)) in lookups.iter().enumerate() {
-        let link = InternalLabel::Link(position).label();
+        let link = InternalLabel::link(position).label();
         let onto = match leg.onto() {
             LegAt::Fact => &fact,
             LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
         };
         agreeing_link(onto.link_kind(&link)?, schema.link_kind(&link)?)?;
     }
-    let link = InternalLabel::Link(0).label();
+    let link = InternalLabel::link(0).label();
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
     // joined above on the link and the bucket, so its link kind must agree with the first.
     let second_fact = match (plan.second_fact(), legs.second_fact()) {
@@ -508,7 +508,7 @@ async fn arm_plan(
 
     // Each lookup leg on its own link, a leg that joins onto an earlier lookup leg among them.
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
-        let own = InternalLabel::Link(position).label();
+        let own = InternalLabel::link(position).label();
         refuse_ambiguous_link(context, table, &[&own], ceiling_bytes, working_set).await?;
     }
     // The second fact is joined on the link AND the bucket, so a second row for one pair fans

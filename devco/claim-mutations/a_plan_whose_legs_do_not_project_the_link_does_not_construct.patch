@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+--- a/crates/sutura-domain/src/plan/federated.rs
++++ b/crates/sutura-domain/src/plan/federated.rs
+@@ -234,7 +234,7 @@ impl FederatedPlan {
+                 });
+             }
+             let link = InternalLabel::link(position).label();
+-            for (side, on) in [(LegAt::Lookup(position), leg), (lookup.onto(), onto)] {
++            for (side, on) in [(lookup.onto(), onto)] {
+                 if !leg_has_key(on, &link) {
+                     return Err(FederatedPlanError::KeyNotOnLeg { side, label: link });
+                 }

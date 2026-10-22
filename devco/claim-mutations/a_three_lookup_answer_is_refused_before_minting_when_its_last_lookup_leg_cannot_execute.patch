@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -154,7 +154,7 @@ where
+     // kind - can mix a leg-capable adapter with one that takes the port's default, so this reads
+     // each leg's own instance rather than one `W::EXECUTES_LEGS` for the whole build. Refuses
+     // before minting or running anything, whichever leg cannot run.
+-    if !fact_warehouse.executes_legs() || other_legs.iter().any(|&(_, warehouse)| !warehouse.executes_legs()) {
++    if !fact_warehouse.executes_legs() || other_legs.iter().take(2).any(|&(_, warehouse)| !warehouse.executes_legs()) {
+         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+             reason: RefusalReason::FederationNotExecutable,
+         }));

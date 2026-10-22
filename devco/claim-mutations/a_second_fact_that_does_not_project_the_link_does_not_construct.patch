@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+--- a/crates/sutura-domain/src/plan/federated.rs
++++ b/crates/sutura-domain/src/plan/federated.rs
+@@ -261,7 +261,7 @@ impl FederatedPlan {
+             if shared == 0 {
+                 return Err(FederatedPlanError::FactsShareNoKey);
+             }
+-            if !leg_has_key(second, &link) {
++            if !leg_has_key(second, &link) && false {
+                 return Err(FederatedPlanError::KeyNotOnLeg {
+                     side: LegAt::Fact,
+                     label: link,

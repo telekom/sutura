@@ -53,7 +53,7 @@ fn leg() -> LegPlan {
         tables: StatementTables::only(TableName::parse("usage").expect("a test table is a table")),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("usage_date")),
         keys: vec![PlanKey::truncated(
-            ResultLabel::internal(InternalLabel::Link(0)),
+            ResultLabel::internal(InternalLabel::link(0)),
             on("usage_date"),
             Grain::Month,
         )],
@@ -106,7 +106,7 @@ fn a_truncated_link_is_a_date_at_the_start_of_its_month() {
     let batches = adapter
         .execute(Executable::Leg(&leg), &crate::test_leg(), crate::test_deadline())
         .expect("the leg runs");
-    let link = InternalLabel::Link(0).label();
+    let link = InternalLabel::link(0).label();
     let field = batches.schema().field_with_name(&link).expect("the leg projects its link");
     assert_eq!(
         field.data_type(),

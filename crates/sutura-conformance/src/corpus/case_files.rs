@@ -267,7 +267,7 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
         ))),
     };
     let federation = Federation::of(&measure);
-    let link = ResultLabel::internal(InternalLabel::Link(0));
+    let link = ResultLabel::internal(InternalLabel::link(0));
     let mut terms = Vec::new();
     let mut fact_keys = vec![PlanKey::new(link.clone(), plan_column(LINK_COLUMN))];
     for (leaf, label) in federation.carried().into_iter().zip(labels(&federation)) {
