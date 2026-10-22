@@ -41,6 +41,15 @@ pub(super) fn resources_exhausted(ceiling_bytes: u64) -> String {
     )
 }
 
+pub(super) fn address_outside_domains(source: &SourceName) -> String {
+    format!(
+        "the address your identity provider gives you is outside the domains the data system \
+         `{source}` is delegated for, so this deployment will not run your question there as that \
+         address - and it will not read it as itself instead. Asking the same question again returns \
+         this same refusal"
+    )
+}
+
 pub(super) fn credential_unavailable(source: &SourceName) -> String {
     format!(
         "you have no credential at the data system `{source}`, so this deployment will not \

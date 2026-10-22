@@ -86,20 +86,31 @@ token, and the sutura client must be allowed to retrieve it. sutura gives the to
 it is and does not refresh it during a query.
 
 With `domain_delegation`, the query runs as the Google account with the caller's verified email
-address. The deployment vouches for the caller: sutura takes the address from the `email` claim of
-the caller's verified token, and only when `email_verified` is `true`. sutura uses the address as
-it is written. A caller without a verified address is refused. The deployment's own application
-default credentials sign as the delegating account, which acts as that address with the read-only
-scope `https://www.googleapis.com/auth/bigquery.readonly` only. These are its keys:
+address. The deployment vouches for the caller: by default sutura takes the address from the `email`
+claim of the caller's verified token, and only when `email_verified` is `true`. sutura uses the
+address as it is written. A caller without a verified address is refused. The deployment's own
+application default credentials sign as the delegating account, which acts as that address with the
+read-only scope `https://www.googleapis.com/auth/bigquery.readonly` only. These are its keys:
 
 | Key                                    | Type   | Meaning                                                            |
 | -------------------------------------- | ------ | ------------------------------------------------------------------ |
 | `domain_delegation.delegating_account` | string | The service account: `<account>@<project>.iam.gserviceaccount.com` |
+| `domain_delegation.address_domains`    | list   | Optional. The only domains that the source runs a caller as        |
+
+With `address_domains`, sutura refuses a caller whose address is in no listed domain with
+`address_outside_domains` (`403`), before it gets a credential for any source. A domain matches
+only as a whole, and ASCII case is ignored: for `example.com`, `user@Example.com` matches, and
+`user@sub.example.com` and `user@evil-example.com` do not. Write an internationalized domain in its
+ASCII (`xn--`) form. An empty list is refused at start.
+
+`security.inbound.address_claim` can name another claim than `email` for the address. See
+[The caller's address](../identity.md#the-callers-address).
 
 `domain_delegation` has these requirements:
 
-- The identity provider must not let users edit their own email address. A user who can set their
-  email to another person's address runs queries as that person.
+- The identity provider must not let users edit their own email address, or the claim that
+  `address_claim` names. A user who can set it to another person's address runs queries as that
+  person. `address_domains` limits this to the listed domains and does not remove it.
 - A Google Workspace or Cloud Identity administrator authorizes the delegating account's client ID
   for domain-wide delegation, with the scope `https://www.googleapis.com/auth/bigquery.readonly`
   only.
@@ -184,6 +195,22 @@ the deployment.
 
     Callers can share one dataset, because BigQuery applies each caller's own grants and row access
     policies to the query.
+
+## Integration modes
+
+An `impersonation-at-source` source declares one of three modes. A `shared-service-user` source
+declares none. The table compares the four. `workload_identity` has two rows: with `delegation`, and
+without it.
+
+| Mode                                                  | Runs as                                             | Operator setup                                                                               | Operational advantage                                                       | Operational challenge                                                                   | Security advantage                               | Security limit                                                                                                                             |
+| ----------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`shared-service-user`](#identity)                    | The process's application default credentials       | Set `billing.service_account_project`. In `multi-user` mode, also set `acknowledged_because` | Callers need no grants of their own                                         | One identity bills and reads for every caller                                           | The mode sends no caller token to Google         | BigQuery cannot tell callers apart                                                                                                         |
+| [`workload_identity`](#identity) with `delegation`    | The caller's own principal in the pool              | Set up a pool, a client and a secret file per hop, and `direct` inbound                      | Callers need no Google account                                              | Each caller needs a pool principal and grants                                           | No service account at any step                   | The pool provider must accept only the pool audience                                                                                       |
+| [`workload_identity`](#settings) without `delegation` | The caller's own principal in the pool              | Set up a pool. With `direct` inbound, write `inbound_token_at_pool: accepted`                | Callers need no Google account. No hop and no client secret                 | Each caller needs a pool principal and grants                                           | No service account at any step                   | The pool gets the token that sutura verified, as it is. With `direct` inbound, the pool provider must accept the audience of sutura itself |
+| [`google_login`](#settings)                           | The caller's linked Google account                  | Set up the broker endpoint and `direct` inbound                                              | Grants that name Google accounts apply as they are                          | Each caller links an account. A long job can outlive the token                          | Grants on the caller's own Google account decide | The identity provider keeps the Google token                                                                                               |
+| [`domain_delegation`](#settings)                      | The Google account with the caller's verified email | Authorize the delegating account and grant `signJwt` on it                                   | Grants that name Google accounts apply as they are. Callers link no account | The identity provider must not let users edit their own email. sutura cannot check this | Each caller keeps their own Google grants        | The deployment vouches for the caller. The delegating account can act as any user in the domain                                            |
+
+A caller that a mode cannot run is refused. No mode falls back to another.
 
 ## Sizing
 

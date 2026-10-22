@@ -66,8 +66,9 @@ const QUERY: Subject = Subject {
     // each and joined above, so neither shape is refused. 35 since the lookup-leg planner DELETED
     // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs);
     // `PlanSpansTooManySources` stays and now counts the distinct data systems one answer reads
-    // against four.
-    variants: variants(35),
+    // against four. 36 since `AddressOutsideDomains` (`telekom/sutura#1554`) refuses an address
+    // outside a `domain_delegation` source's `address_domains`.
+    variants: variants(36),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

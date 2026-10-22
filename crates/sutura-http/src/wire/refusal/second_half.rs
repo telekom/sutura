@@ -88,6 +88,13 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "credential_unavailable",
         ),
         (
+            RefusalReason::AddressOutsideDomains {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "address_outside_domains",
+        ),
+        (
             RefusalReason::SourceRefused {
                 source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
             },

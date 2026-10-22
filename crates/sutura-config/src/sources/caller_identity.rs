@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::model::SourceName;
 
+use super::address_domains::AddressDomains;
 use super::workload_identity::WorkloadIdentityConfig;
 use super::{InvalidSourceRegistry, SourceKind};
 use crate::raw::{RawDomainDelegation, RawGoogleLogin, RawWorkloadIdentity};
@@ -75,6 +76,7 @@ impl GoogleLogin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomainDelegation {
     delegating_account: DelegatingAccount,
+    address_domains: Option<AddressDomains>,
 }
 
 impl DomainDelegation {
@@ -83,6 +85,13 @@ impl DomainDelegation {
     #[must_use]
     pub const fn delegating_account(&self) -> &DelegatingAccount {
         &self.delegating_account
+    }
+
+    /// The only domains a caller is run as; `None` runs every verified address.
+    #[inline]
+    #[must_use]
+    pub const fn address_domains(&self) -> Option<&AddressDomains> {
+        self.address_domains.as_ref()
     }
 }
 
@@ -228,6 +237,15 @@ pub(super) fn declared(
                     cause,
                 }
             })?,
+            address_domains: raw
+                .address_domains
+                .as_deref()
+                .map(AddressDomains::parse)
+                .transpose()
+                .map_err(|cause| InvalidSourceRegistry::AddressDomains {
+                    alias: alias.clone(),
+                    cause,
+                })?,
         }),
     }))
 }
@@ -289,6 +307,7 @@ mod tests {
     fn delegating_block(delegating_account: &str) -> RawDomainDelegation {
         RawDomainDelegation {
             delegating_account: String::from(delegating_account),
+            address_domains: None,
         }
     }
 

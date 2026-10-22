@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+index 7bc2709ee..04671e0c8 100644
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -319,7 +319,7 @@ where
+     let agreed = minted
+         .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
+         .map_err(|cause| Box::new(Err(ServiceError::Credentials { cause })))?;
+-    crate::granted(agreed).map_err(|reason| Box::new(Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason }))))
++    crate::granted(match agreed { sutura_domain::identity::Agreed::AddressOutsideDomains { source } => sutura_domain::identity::Agreed::Refused { source }, other => other }).map_err(|reason| Box::new(Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason }))))
+ }
+ 
+ /// What a combine produced, or the answer a failure of it is.

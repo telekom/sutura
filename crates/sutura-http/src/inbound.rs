@@ -93,6 +93,7 @@
 //! shape a second transport has to bend around. Which crate this code moves to when that surface
 //! acquires an inbound transport is an architecture decision, not a refactor.
 
+mod address;
 pub mod caller;
 pub mod gate;
 pub mod keys;

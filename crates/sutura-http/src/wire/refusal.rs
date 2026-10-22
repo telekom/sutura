@@ -61,8 +61,8 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 mod sentences;
 
 use sentences::{
-    credential_unavailable, dimension_not_conformed, multi_metric_top_not_executable, resources_exhausted, too_many_legs,
-    too_many_lookup_legs,
+    address_outside_domains, credential_unavailable, dimension_not_conformed, multi_metric_top_not_executable,
+    resources_exhausted, too_many_legs, too_many_lookup_legs,
 };
 
 use super::RefusalBody;
@@ -286,6 +286,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // about somebody else's authorization, and it would tell a caller something about a data
         // system they were just refused access to.
         RefusalReason::CredentialUnavailable { ref source } => (StatusCode::FORBIDDEN, credential_unavailable(source)),
+        // 403, the status `CredentialUnavailable` gets: who the caller is decides it, and no
+        // narrower question changes the address their identity provider sends.
+        RefusalReason::AddressOutsideDomains { ref source } => (StatusCode::FORBIDDEN, address_outside_domains(source)),
         // 403, and this is the DATA SYSTEM itself refusing the executed statement at the
         // identity/authorization level - the query-time sibling of the boot-time
         // `preflight_was_refused` split. It used to reach here as `ServiceError::Warehouse` and
@@ -503,6 +506,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::SourceUnavailable { .. }
         | RefusalReason::ResourcesExhausted { .. }
         | RefusalReason::CredentialUnavailable { .. }
+        | RefusalReason::AddressOutsideDomains { .. }
         | RefusalReason::SourceRefused { .. }
         | RefusalReason::BillToNotAllowed { .. }
         | RefusalReason::NoBillingProject { .. }

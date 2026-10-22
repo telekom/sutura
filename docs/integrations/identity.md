@@ -37,6 +37,8 @@ authenticates the deployment, and every question runs with the access of the dep
 | `algorithms`                | list        | required                             | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
 | `token_type`                | string      | `at+jwt`                             | The required `typ` header. `any` turns the check off                                                                          |
 | `accept_any_token_type`     | boolean     | `false`                              | Must be `true` beside `token_type: any`                                                                                       |
+| `address_claim`             | string      | `email`                              | The claim that holds the caller's address for a `domain_delegation` source. See [The caller's address](#the-callers-address)  |
+| `accept_address_claim`      | boolean     | `false`                              | Must be `true` beside an `address_claim` other than `email`                                                                   |
 
 `direct` cannot be used with `security.access_token`, because both use `Authorization: Bearer`.
 
@@ -57,6 +59,8 @@ authenticates the deployment, and every question runs with the access of the dep
 | `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
 | `accept_long_transit_lifetime` | boolean     | `false`                              | Must be `true` for a lifetime above 300                                       |
 | `transit_single_use`           | boolean     | `false`                              | Admit each assertion once, by its `jti`                                       |
+| `address_claim`                | string      | `email`                              | As for `direct`                                                               |
+| `accept_address_claim`         | boolean     | `false`                              | As for `direct`                                                               |
 
 Some gateways authenticate the calling application, for example with its OAuth 2.0 client
 credentials, and replace its token with their own assertion in `Authorization: Bearer`. For such a
@@ -132,6 +136,26 @@ subjects that the gateway signs an assertion for without `scope` get these scope
 them to the start-up log at `WARN`. An assertion with a `scope` claim, also an empty one, gets only
 the scopes of that claim. `granted_scopes` cannot hold `sutura:sql.run`.
 
+## The caller's address
+
+A BigQuery source with `domain_delegation` runs each query as the Google account with the caller's
+address. By default sutura reads the address from `email`, and only when `email_verified` is `true`.
+
+Some issuers never send `email_verified`, or send the Google address in another claim. For them, set
+`address_claim` to the claim that holds the address, for example `upn`, or `sub` behind a gateway
+that names the user in `sub`. sutura then reads that claim without `email_verified`, so the claim
+must be one that the issuer verifies and that users cannot change. sutura does not start unless
+`accept_address_claim: true` is set beside it, and it logs one `WARN` at each start.
+
+The claim must occur once in the token and hold one address: one `@`, printable ASCII, no spaces,
+at most 254 bytes. sutura does not change the case of the address. A token without such a value has
+no address, and a `domain_delegation` source refuses that caller with `credential_unavailable`.
+Writing `address_claim: email` is the default, and it still requires `email_verified: true`.
+
+To limit which addresses a source runs as, whatever claim they come from, set
+`domain_delegation.address_domains` on the source. See
+[BigQuery](data-systems/bigquery.md#settings).
+
 ## Microsoft Entra ID
 
 An Entra access token has `typ: JWT` and the application ID of your API in `aud`. Set:
@@ -148,6 +172,13 @@ In the app registration of the API, set `accessTokenAcceptedVersion` to `2`. A v
 a different issuer, and sutura refuses it. Register the API separately from every client: with
 `extra_scope_claims` set, a token must name its client in `azp`, and the client must differ from the
 API.
+
+An Entra access token has no `email_verified`, so a `domain_delegation` source refuses every caller
+by default. Entra sends `upn` in a version 2 access token only when the app registration of the API
+adds it as an optional claim. Then set `address_claim: upn` and `accept_address_claim: true`, and
+set `domain_delegation.address_domains` to the domains of your tenant. Microsoft documents `upn` as
+a value for display only, so the acknowledgement is yours: sutura cannot verify it. Do not use
+`preferred_username`, which Microsoft documents as mutable.
 
 ## ClickHouse token checker
 

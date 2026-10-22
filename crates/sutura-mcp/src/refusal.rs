@@ -185,6 +185,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              change in the question helps and retrying will not either. Say so, and say that \
              access to `{source}` is what would be needed."
         ),
+        RefusalReason::AddressOutsideDomains { ref source } => format!(
+            "the address the identity provider gives the person you are acting for is outside the \
+             domains the data system `{source}` is delegated for, and this deployment will not read \
+             it under its own identity instead. Nothing you can change in the question helps and \
+             retrying will not either. Say so."
+        ),
         // Written for an agent: this is the data system itself saying no about WHO asked, not a
         // credential the caller is missing. There is no retry that succeeds and no narrower
         // question that helps, so the sentence says stop and names the fix - a grant at that data
@@ -413,6 +419,9 @@ mod tests {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::AddressOutsideDomains {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },

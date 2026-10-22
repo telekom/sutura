@@ -88,6 +88,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
 /// lists in it. A code the table does not list is not checked against this list, and a refusal
 /// under an unregistered code counts nowhere (the registry ignores an unregistered key).
 const REFUSAL_REASONS: &[Label] = &[
+    label("address_outside_domains"),
     label("bill_to_not_allowed"),
     label("budget_exhausted"),
     label("credential_unavailable"),
