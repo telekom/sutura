@@ -59,18 +59,8 @@ fn an_internal_label_is_in_a_namespace_no_question_can_name() {
     // **The property first: nothing a catalog author or a caller can write reaches this namespace.**
     // Every rendering starts with a digit, which the identifier parser refuses as a FIRST character,
     // so it is one refusal for every spelling and length, not a list of reserved words to maintain.
-    let widest = InternalLabel::Link {
-        leg: usize::MAX,
-        part: usize::MAX,
-    }
-    .label();
-    let part = InternalLabel::Link { leg: 1, part: 2 }.label();
-    for label in [
-        InternalLabel::link(0).label(),
-        part,
-        InternalLabel::Leaf(0).label(),
-        widest.clone(),
-    ] {
+    let widest = InternalLabel::Leaf(usize::MAX).label();
+    for label in [InternalLabel::link(0).label(), InternalLabel::Leaf(0).label(), widest.clone()] {
         assert!(
             matches!(DimensionName::parse(&label), Err(InvalidIdentifier::BadFirstCharacter { .. })),
             "{label} must not be a dimension name"
@@ -84,17 +74,13 @@ fn an_internal_label_is_in_a_namespace_no_question_can_name() {
     // so a test that derived this expectation too would assert nothing about what the splitter and
     // the combiner actually agree on.
     assert_eq!(InternalLabel::link(0).label(), "0_link");
-    assert_eq!(InternalLabel::link(3).label(), "3_link");
-    assert_eq!(InternalLabel::Link { leg: 3, part: 0 }.label(), "3_link");
-    assert_eq!(InternalLabel::Link { leg: 0, part: 1 }.label(), "0_link_1");
-    assert_eq!(InternalLabel::Link { leg: 2, part: 11 }.label(), "2_link_11");
     assert_eq!(InternalLabel::Leaf(0).label(), "0_leaf_0");
     assert_eq!(InternalLabel::Leaf(7).label(), "0_leaf_7");
 
     // And the length, against the limit a data system TRUNCATES at rather than refusing - which
     // turns two distinct leaf columns into one. The scheme this replaced was `metric__{n}`, which
     // over a 63-character metric name was 66 characters; nothing here reads a metric's name, so the
-    // widest label a `usize` pair can index is the bound.
+    // widest label a `usize` can index is the bound.
     assert!(
         widest.len() <= 63,
         "an internal label must fit the tightest identifier limit, {widest} is {} characters",

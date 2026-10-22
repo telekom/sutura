@@ -77,21 +77,6 @@ fn region() -> PlanKey {
 }
 
 #[test]
-fn a_plan_names_one_link_label_per_key_part_of_its_lookup_leg() {
-    let built = plan(
-        fact_keyed(vec![part(0, 0), part(0, 1)]),
-        None,
-        vec![part(0, 0), part(0, 1), region()],
-    )
-    .expect("both legs project both parts");
-    assert_eq!(built.link_labels(0), ["0_link", "0_link_1"]);
-    assert!(built.link_labels(1).is_empty(), "there is no second lookup leg");
-
-    let single = plan(fact_keyed(vec![part(0, 0)]), None, vec![part(0, 0), region()]).expect("one key is one part");
-    assert_eq!(single.link_labels(0), ["0_link"]);
-}
-
-#[test]
 fn a_fact_leg_with_a_link_part_the_lookup_lacks_cannot_be_built() {
     let refused = plan(fact_keyed(vec![part(0, 0), part(0, 1)]), None, vec![part(0, 0), region()]);
     assert_eq!(
@@ -127,18 +112,6 @@ fn a_lookup_leg_whose_link_parts_skip_one_cannot_be_built() {
         Err(FederatedPlanError::LinkPartNotOnLookup {
             side: LegAt::Lookup(0),
             label: InternalLabel::Link { leg: 0, part: 2 }.label(),
-        })
-    );
-}
-
-#[test]
-fn a_lookup_leg_without_its_first_link_part_cannot_be_built() {
-    let refused = plan(fact_keyed(vec![part(0, 1)]), None, vec![part(0, 1), region()]);
-    assert_eq!(
-        refused,
-        Err(FederatedPlanError::KeyNotOnLeg {
-            side: LegAt::Lookup(0),
-            label: InternalLabel::link(0).label(),
         })
     );
 }

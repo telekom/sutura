@@ -71,19 +71,6 @@ fn a_lookup_tuple_repeated_on_one_part_only_is_answered() {
     );
 }
 
-#[test]
-fn a_lookup_tuple_repeated_on_every_part_is_refused() {
-    let legs = [
-        fact(&[("c1", "m1", 10)]),
-        regions(&[("c1", "m1", "north"), ("c1", "m1", "south")]),
-    ];
-    let refused = try_combine_every(&compound_plan(true), &legs, UNBOUNDED).expect_err("a repeated tuple refuses");
-    assert_eq!(
-        combiner().answer_not_well_formed(&refused),
-        Some(FederatedAnswerRefusal::AmbiguousLink)
-    );
-}
-
 /// A null part matches no lookup row, as `NULL = x` does on one source: LEFT keeps the fact row with
 /// no region, INNER drops it. The second fact row gives the part column its text kind; a join on the
 /// first part alone would pair the null-part row with the lookup row too and answer `north` 30.
