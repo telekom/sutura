@@ -92,8 +92,10 @@ an arm per metric.
 - `DimensionNotConformed` is raised at resolve time for a grouped or filtered dimension that does not
   end on the same model and column for every metric.
 - `QuestionNeedsTooManyLegs` is raised when the arms run more legs than `MAX_LEGS`.
-- `PlanSpansTooManySources` still holds per arm, and now also over the whole plan: more than two data
-  systems between all arms are refused.
+- `PlanSpansTooManySources` holds over the whole plan: more than four distinct data systems between
+  all arms are refused, where the limit was two before the twentieth amendment of
+  `0007-federating-across-different-data-systems.md`. An arm may read up to three lookup legs, and
+  `PlanNeedsTooManyLookupLegs` refuses a fourth.
 - `MetricsSpanDifferentModels` and `MultiMetricFederationNotExecutable` are retired: both shapes are
   planned. An adapter that runs no leg now refuses such a question as `FederationNotExecutable`.
 

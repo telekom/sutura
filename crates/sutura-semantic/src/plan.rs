@@ -1,10 +1,10 @@
 //! Plan: the resolved question becomes a [`QueryPlan`] or a [`FederatedPlan`], and three things are
 //! settled here and nowhere else.
 //!
-//! **The plan names its data systems.** A question whose joins reach a data system other than the
-//! metric's own is refused unless there is exactly one such system - two sources are served by
-//! splitting the question into a fact leg and a lookup leg and combining them above; three or more
-//! are refused before anything runs, because each source is a separate identity to satisfy.
+//! **The plan names its lookup legs.** A question whose joins cross onto a data system other than
+//! the metric's own is split into a fact leg and one lookup leg per crossing relationship, combined
+//! above; more than [`MAX_LOOKUP_LEGS`] legs are refused before anything runs, because each leg's
+//! source is a separate identity to satisfy.
 //!
 //! **Every value becomes a bind parameter, in the order the statement will refer to them.** That
 //! order is this module's contract with whatever executes the plan: for a dialect that writes `?`,
@@ -31,14 +31,14 @@ use std::collections::BTreeSet;
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::Metric;
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{DimensionName, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket,
     PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     plan_measure, plan_required_filter,
 };
-use sutura_domain::query::RefusalReason;
+use sutura_domain::query::{MAX_LOOKUP_LEGS, MAX_SOURCES, RefusalReason};
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
@@ -47,11 +47,8 @@ mod chain;
 mod drill_across;
 mod federated;
 
-use chain::{chain_joins, chain_leaving_its_crossing, column_of, every_dimension, every_remote_dimension, is_remote};
+use chain::{Lookups, chain_joins, column_of, every_dimension};
 use federated::federated_plan;
-
-/// The most data systems one answer may read, because each is a separate identity to satisfy.
-const MAX_SOURCES: usize = 2;
 
 /// What the plan stage decided to execute.
 ///
@@ -85,8 +82,8 @@ pub(crate) enum Plan {
 /// The same two arms `crate::resolve::ResolveError` already has, for the same reason. **The limit,
 /// next to the claim:** every [`FederatedPlanError`] variant is structurally unreachable from
 /// `federated_plan` as it stands - the splitter builds a `Fact` beside a `Lookup` on a source
-/// `is_remote` has already established is not its own, projects `InternalLabel::link(0)` onto both legs
-/// unconditionally, derives each answer key's side from the same predicate that filled that leg's
+/// `Lookups` has already established is not its own, projects each lookup leg's `InternalLabel::link`
+/// onto that leg and the leg it joins onto unconditionally, derives each answer key's side from the same predicate that filled that leg's
 /// keys, and projects a `Carried::Keys` leaf as a fact key under its own label. So this arm carries
 /// no test that can provoke it, and what it buys is that a future edit which makes one of those
 /// reachable produces an error rather than a governance refusal.
@@ -121,44 +118,15 @@ pub(crate) enum PlanError {
     /// [`MAX_LEGS`](sutura_domain::plan::MAX_LEGS), is a refusal and not this.
     #[error(transparent)]
     NotAssembledAcross(#[from] DrillAcrossPlanError),
-    /// `federated_plan` ran with no remote dimension it could join through.
+    /// `federated_plan` ran with no lookup leg it could join through.
     ///
     /// **A2: the same argument [`NotAssembled`](Self::NotAssembled) and [`NotBound`](Self::NotBound)
-    /// already carry, applied to a third invariant.** `plan` calls `federated_plan` only when exactly
-    /// one remote source exists, and a remote dimension has a join by construction - so no test
-    /// provokes this arm either. It used to be reported as
-    /// `RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 }`, a fabricated count with no
-    /// relationship to anything a caller asked; a caller cannot narrow their way out of our own
-    /// wiring, which is why this is not a [`RefusalReason`] at all.
+    /// already carry, applied to a third invariant.** `plan` calls `federated_plan` only when at
+    /// least one lookup leg exists, and a remote dimension has a join by construction - so no test
+    /// provokes this arm either. A caller cannot narrow their way out of our own wiring, which is
+    /// why this is not a [`RefusalReason`] at all.
     #[error("the federated splitter found no remote dimension to join the fact leg through")]
     NoRemoteJoin,
-    /// A resolved chain that crossed onto another data system and then left it: back onto the
-    /// metric's own, or onto a third.
-    ///
-    /// **The plan-time half of a refusal that used to exist only at load, and the reason for two is
-    /// that the load one was wrong in a way nothing downstream could see.** It compared each hop's
-    /// TARGET against the metric's source, so a chain crossing at hop 1 and returning at hop 2 was
-    /// accepted; [`chain::is_remote`] then read that chain off its last hop, called it local, and
-    /// [`mono_plan`] rendered the other system's table into one statement under a certified metric
-    /// name. `sutura_domain::catalog::Definitions::assemble` walks the chain remembering where it
-    /// crossed to now, which is the mechanism - and this is what holds if a bundle ever reaches the
-    /// plan stage without having been through it.
-    ///
-    /// A [`PlanError`] rather than a [`RefusalReason`], for [`NoRemoteJoin`](Self::NoRemoteJoin)'s
-    /// reason: a caller cannot narrow their question out of a catalog this workspace admitted, so
-    /// telling them to ask differently would be telling them to retry our defect. `hop` is 1-based,
-    /// matching the number the load-time report gives a catalog author.
-    ///
-    /// **Unlike the three arms above it, this one is provoked** -
-    /// `a_chain_that_leaves_its_source_is_refused_at_plan_time` in this module's tests
-    /// builds the resolution by hand, which is the only way past the load check, and that is also
-    /// the negative control for the load check being the real mechanism.
-    #[error("dimension {dimension} of metric {metric} leaves the data system it crossed to at hop {hop} of its chain")]
-    ChainLeavesItsSource {
-        metric: MetricName,
-        dimension: DimensionName,
-        hop: usize,
-    },
     /// A cross-model ratio reached the splitter with no `resolution.cross` to build its second
     /// fact leg from.
     ///
@@ -181,17 +149,13 @@ impl From<RefusalReason> for PlanError {
 /// Turns a resolution into a plan, or refuses it.
 ///
 /// **Two refusals are produced here and nowhere else, and both are about the SHAPE of the statement
-/// rather than about anything a caller wrote:** a plan that would read from more data systems than
-/// the deployment serves, and a statement whose tables could not be told apart inside it. Everything
+/// rather than about anything a caller wrote:** a plan that would read more lookup legs than the
+/// deployment serves, and a statement whose tables could not be told apart inside it. Everything
 /// a caller could have got wrong was already checked when their names were looked up.
 ///
 /// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
-///
-/// **A third thing is checked before either, and it is not a refusal:** a chain that crossed onto
-/// another data system and then leaves it cannot be rendered by either plan shape, and neither
-/// shape would notice - see [`PlanError::ChainLeavesItsSource`].
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     // The one-statement path builds one `PlannedMeasure` per metric, each guarded by its own required
     // filters so none of them leaks into another's column; the metrics share a model, a time column
@@ -206,16 +170,35 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
             });
         }
     }
-    let (measure, remote) = prechecked(resolution)?;
-    match remote {
+    let (measure, lookups) = prechecked(resolution)?;
+    match lookups.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution, measure)?))),
-        // Two are served; three or more refused, because each source is a separate identity.
-        _ => Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
-            sources: 1 + remote,
-            limit: MAX_SOURCES,
+        1..=MAX_LOOKUP_LEGS => {
+            let planned = federated_plan(resolution, measure, &lookups)?;
+            bounded_sources(planned.sources())?;
+            Ok(Plan::Federated(Box::new(planned)))
+        }
+        legs => Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
+            legs,
+            limit: MAX_LOOKUP_LEGS,
         })),
     }
+}
+
+/// Refuses a plan that reads more distinct data systems than one answer may.
+///
+/// The one count for the one-statement path and for a drill-across: the sources are the set the broker
+/// mints credentials for, so a source two legs read counts once. One fact leg and [`MAX_LOOKUP_LEGS`]
+/// lookup legs read four at most, so only a drill-across can be refused here.
+pub(super) fn bounded_sources<'a>(sources: impl Iterator<Item = &'a SourceName>) -> Result<(), PlanError> {
+    let sources = sources.collect::<BTreeSet<_>>().len();
+    if sources > MAX_SOURCES {
+        return Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
+            sources,
+            limit: MAX_SOURCES,
+        }));
+    }
+    Ok(())
 }
 
 /// Turns a resolved question into a plan: the one statement when every metric reads the same
@@ -233,7 +216,7 @@ pub(crate) fn plan_resolved(resolved: &Resolved<'_>) -> Result<Plan, PlanError> 
 fn one_statement(resolved: &Resolved<'_>) -> bool {
     let whole = &resolved.whole;
     let first = paths(whole);
-    every_remote_dimension(whole).next().is_none()
+    Lookups::of(whole).is_empty()
         && cross_model_term(whole).is_none()
         && resolved.per_metric.iter().all(|each| {
             each.model.name() == whole.model.name()
@@ -249,20 +232,21 @@ fn paths<'a>(resolution: &Resolution<'a>) -> Vec<Vec<&'a RelationshipName>> {
         .collect()
 }
 
-/// A metric's measure and the number of other data systems its dimensions reach, or the refusal.
-type Prechecked<'a> = Result<(&'a Measure, usize), PlanError>;
+/// A metric's measure and its lookup legs, or the refusal.
+type Prechecked<'r, 'a> = Result<(&'a Measure, Lookups<'r, 'a>), PlanError>;
 
-/// What one metric's resolution reads, refused where it cannot be planned: its measure, and how many
-/// data systems other than the metric's own its dimensions reach.
+/// What one metric's resolution reads, refused where it cannot be planned: its measure, and the
+/// lookup legs its dimensions' crossings open.
 ///
 /// Shared by the one-statement path and by each arm of a drill-across, which are each one metric's
 /// plan.
-fn prechecked<'a>(resolution: &Resolution<'a>) -> Prechecked<'a> {
+fn prechecked<'r, 'a>(resolution: &'r Resolution<'a>) -> Prechecked<'r, 'a> {
     let Some(measure) = resolution.metric.measure() else {
         return Err(PlanError::AuthoredSqlNotPlanned {
             metric: resolution.metric.name().clone(),
         });
     };
+    let lookups = Lookups::of(resolution);
     // `telekom/sutura#780`: a cross-model ratio plans as two fact statements joined above, both
     // bucketed through the metric's shared calendar - a conformed time dimension each fact joins
     // inside its own statement. Every shape that cannot be built that way is refused here by name,
@@ -287,32 +271,24 @@ fn prechecked<'a>(resolution: &Resolution<'a>) -> Prechecked<'a> {
                 model: cross.second.name().clone(),
             }));
         }
-        // The two facts are combined above on ONE link into a remote dimension, so the question
+        // The two facts are combined above on the link into a remote dimension, so the question
         // groups and filters by that dimension's model and nothing else: a same-source dimension
         // would group the first fact alone, and with no remote dimension there is no link.
-        if every_remote_dimension(resolution).next().is_none()
-            || every_dimension(resolution).any(|dimension| !is_remote(dimension, own))
-        {
+        if lookups.is_empty() || every_dimension(resolution).any(|dimension| lookups.index_of(dimension).is_none()) {
             return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: cross_metric.name().clone(),
                 model: cross.second.name().clone(),
             }));
         }
+        // The second fact joins the lookup on one link (`FactKeyNotShared`), so a ratio is served over
+        // one lookup leg. Not a wrong answer, a shape this build does not carry.
+        if lookups.len() > 1 {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+                metric: cross_metric.name().clone(),
+            }));
+        }
     }
-    if let Some((dimension, hop)) = chain_leaving_its_crossing(resolution) {
-        return Err(PlanError::ChainLeavesItsSource {
-            metric: resolution.metric.name().clone(),
-            dimension: dimension.clone(),
-            hop,
-        });
-    }
-    // Every source besides the metric's own that a chain reaches. The LAST hop decides which source
-    // a dimension reads from (`is_remote`'s note), so the filter cannot drop a source here: a remote
-    // dimension's last hop sits on that source by construction.
-    let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
-        .filter_map(|dim| dim.join.as_ref().and_then(|hops| hops.last()).map(|hop| hop.model.source()))
-        .collect();
-    Ok((measure, remote.len()))
+    Ok((measure, lookups))
 }
 
 /// The first metric (and the first term within it) whose `model` names one other than that metric's
@@ -354,7 +330,7 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
 
     // Every hop of every chain the question reaches - see `chain_joins`. `mono_plan` is dispatched
     // only for a question with no remote dimension at all, so no chain stops short here.
-    let joins = chain_joins(resolution, own_table, model.source());
+    let joins = chain_joins(resolution, own_table);
 
     let time_column = PlanColumn::new(own_table.clone(), resolution.metric.time_column().clone());
 
@@ -616,20 +592,16 @@ fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) ->
     PlanBindings::parse(filters, params)
 }
 /// The three properties of a chain a plan is a function of: which table qualifies hop N's origin
-/// column, that a chain which left its data system is refused here as well as at load, and that the
-/// join order does not depend on the order the caller listed their dimensions.
+/// column, that a chain which crosses data systems is planned as lookup legs, and that the join
+/// order and the legs do not depend on the order the caller listed their dimensions.
 ///
 /// Inline rather than a `plan/tests.rs`, and the reason is the causality gate rather than taste: it
 /// reconstructs a base tree by reverting every changed file that added no test, so a `mod tests;`
 /// line in a reverted `plan.rs` would orphan the file it declares and the base run would have no
 /// test to be red.
 ///
-/// A [`Resolution`] is built by hand here, and that is the ONLY venue two of these can be measured
-/// in. `sutura_domain::catalog::Definitions::assemble` refuses a cross-source chain at load, so no
-/// pinned bundle can carry one this far, and a question has no field that names a join - so the
-/// plan-time refusal is provokable from a hand-built resolution and from nothing else. Reaching
-/// past the load check is what makes that cell honest about being the SECOND reader of one rule.
-/// The end-to-end evidence for the first property is the two-hop dimension in
+/// A [`Resolution`] is built by hand here, because a question has no field that names a join and a
+/// chain placed on several data systems is cheaper to state than to assemble. The end-to-end evidence for the first property is the two-hop dimension in
 /// `examples/single-player`, which every rendering golden and the executed corpus read.
 #[cfg(test)]
 mod tests;

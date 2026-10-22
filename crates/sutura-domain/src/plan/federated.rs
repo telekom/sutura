@@ -563,6 +563,12 @@ pub enum FederatedPlanError {
     /// in `telekom/sutura#1531`.
     #[error("the {side:?} leg projects the link part `{label}`, which is outside the run of parts the lookup leg projects")]
     LinkPartNotOnLookup { side: LegAt, label: String },
+    /// The lookup legs are not a list [`LookupLegs`] parses.
+    ///
+    /// Unreachable through the one production splitter, which counts the legs against the cap before
+    /// it builds them and sorts each after the leg it joins onto.
+    #[error(transparent)]
+    Lookups(#[from] LookupLegsError),
 }
 
 /// The label of key part `part` of the lookup leg at `leg`.

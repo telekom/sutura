@@ -138,7 +138,6 @@ impl RefusalReason {
             Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
             Self::PlanNeedsTooManyLookupLegs { .. } => "plan_needs_too_many_lookup_legs",
             Self::FederationNotExecutable => "federation_not_executable",
-            Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
             Self::FederationLinkTypeMismatch { .. } => "federation_link_type_mismatch",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",

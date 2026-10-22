@@ -117,10 +117,9 @@ Every reason you can be given, and what to do about each:
   the same question again. If the SAME question is refused again immediately after a fresh window
   starts, its own estimate is over the ceiling by itself - waiting will never help that case, and
   narrowing the question is the only remedy.
-- **plan_spans_too_many_sources** - answering would need to read from more data systems than this
-  deployment serves (two at most).
-  Nothing you can change. Report it to a person - it is a fact about how the metric is defined, and
-  retrying or trying a different dimension will not avoid it.
+- **plan_spans_too_many_sources** - answering would need to read from more data systems than one
+  answer may (four at most).
+  Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.
 - **question_needs_too_many_legs** - answering would run more queries against the data systems than
   one question may.
   Ask for fewer metrics at a time.
@@ -132,8 +131,6 @@ Every reason you can be given, and what to do about each:
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the
   dimension on the second data system, or report it to a person.
-- **federation_link_ambiguous** - a remote dimension joins through more than one relationship.
-  Nothing you can change. Report it: it is a fact about how the metric is defined.
 - **federation_link_compound** - the crossing relationship declares more than one join key.
   Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **federation_link_type_mismatch** - the crossing relationship joins two columns the catalog

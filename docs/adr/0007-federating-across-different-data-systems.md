@@ -1623,7 +1623,9 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
   `CrossModelRatioSpansSources`. That is a shape this amendment does not build, and not a wrong answer.
   `github.com/telekom/sutura#1493` lifts it.
-- A multi-metric question still never federates (`MultiMetricFederationNotExecutable`).
+- A multi-metric question that does not share one statement is an arm per metric
+  (`20261018144926-drill-across-for-several-metrics.md`). Each arm is planned over its own lookup legs
+  and is refused above three, and `QuestionNeedsTooManyLegs` bounds the whole answer.
 - Two lookup legs may read one source, so the cap counts legs and not sources. That is the case for
   a chain that comes back to a system it left.
 
@@ -1764,3 +1766,42 @@ values, and both are dates, so no type check sees it. Such a ratio is refused as
 - The type check reads the catalog and not the data. A truncated key over an origin declared as an
   integer reads as a date: it is refused as a mismatch against a text or an integer target and
   planned against a date target, and a refusal names the declared types.
+
+## Twentieth amendment, 2026-10-21: the planner builds the lookup legs the plan carries
+
+The *Eighteenth amendment* left the planner making one lookup leg. This amendment builds the
+planner half of the *Seventeenth amendment* (`telekom/sutura#1342`), and it does not change the
+decision.
+
+- **Built.** The planner makes one lookup leg for each distinct path of crossing relationships. A
+  chain crosses wherever a hop lands on another data system than the hop before it, and each crossing
+  opens a leg: a chain's first crossing joins onto the fact leg, and each later crossing onto the leg
+  of the crossing before it. Legs are sorted by path, so a leg's parent comes
+  before it and its link label does not depend on the order the caller listed dimensions. A leg
+  joins as LEFT unless a filter reads one of its dimensions, for each leg and not once for the plan.
+  A dimension is read from the leg of its last crossing, so a chain that crosses and comes back is
+  planned as federated legs and never as one statement.
+- **Refusals changed.** `PlanNeedsTooManyLookupLegs { legs, limit }` is raised for a fourth lookup
+  leg. `PlanSpansTooManySources { sources, limit }` stays, against a limit of four distinct data
+  systems and not two, and the *Seventeenth amendment*'s deletion of it is not carried out: a
+  question over several metrics runs an arm each, every arm brings its own legs, and only the count
+  of distinct sources bounds the credentials one answer mints. `CrossModelRatioNeedsOneLookupLeg {
+  metric }` is raised by the planner for the first time (it was declared before): a cross-model
+  ratio still joins its second fact on one link. `FederationLinkAmbiguous`, `HopCrossesSource` and
+  `ChainLeavesItsSource` are deleted with their cells. The wire code `federation_link_ambiguous` no
+  longer exists, which is a breaking change.
+- **Not built.** A cross-model ratio over more than one lookup leg (`github.com/telekom/sutura#1493`).
+
+**Limits.**
+
+- The cells assert the shape of the plan. No cell here runs a plan the planner made with more than
+  one lookup leg through the combiner; the combiner is measured on plans built by hand
+  (*Eighteenth amendment*).
+- One answer reads at most four distinct data systems (`MAX_SOURCES`), one metric or several, held
+  by one check on the plan's sources after the plan is built. A source two legs read counts once. One
+  metric reaches four at most by its own cap of three lookup legs, so only several metrics are
+  refused by it. It is a constant for now, not a setting.
+- A leg is read whole, as before. The cap of three and the working-set ceiling are the only bounds
+  on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
+- Two crossings that start from one model by different relationships are two legs and are not
+  merged, even when they land on one remote model.
