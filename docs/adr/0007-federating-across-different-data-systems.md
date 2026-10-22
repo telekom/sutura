@@ -1618,7 +1618,8 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   relationships read it in two lookup legs, and each leg counts against the cap.
   `FederationLinkAmbiguous` is deleted with its cells. Removing its wire code
   `federation_link_ambiguous` is a breaking change too, and the build must say so.
-- A cross-model ratio keeps one lookup leg. Its second fact joins on one link (`FactKeyNotShared`).
+- A cross-model ratio keeps one lookup leg, held by the planner alone: the plan type and the combiner
+  take a second fact on the link of every lookup leg that joins onto the fact.
   The build refuses a ratio that would need more as `RefusalReason::CrossModelRatioNeedsOneLookupLeg
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
   `CrossModelRatioSpansSources`. That is a shape this amendment does not build, and not a wrong answer.

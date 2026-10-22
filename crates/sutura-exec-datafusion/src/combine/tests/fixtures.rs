@@ -402,6 +402,56 @@ pub(super) fn ratio_over_two_lookups_plan() -> FederatedPlan {
     .expect("a ratio over two lookup legs is a plan")
 }
 
+/// [`ratio_over_two_lookups_plan`] with `crm` joined onto `geo` instead of onto the fact.
+///
+/// Only `geo`'s customer link is a fact link now, so both fact legs group by it and the bucket, and
+/// `crm` meets `geo` on the product link, which `geo` projects beside its own.
+pub(super) fn ratio_over_a_chain_plan() -> FederatedPlan {
+    let flat = ratio_over_two_lookups_plan();
+    let customer_link_only = |leg: &LegPlan| match leg.clone() {
+        LegPlan::Fact {
+            source,
+            metric,
+            tables,
+            bucket,
+            terms,
+            bindings,
+            range,
+            ..
+        } => LegPlan::Fact {
+            source,
+            metric,
+            tables,
+            bucket,
+            keys: vec![linked(0, "customer_key")],
+            terms,
+            bindings,
+            range,
+        },
+        other @ LegPlan::Lookup { .. } => other,
+    };
+    let mut lookups = flat.lookups().legs().iter().map(|lookup| lookup.leg().clone());
+    let (mut geo, crm) = lookups
+        .next()
+        .zip(lookups.next())
+        .expect("the flat ratio has two lookup legs");
+    if let LegPlan::Lookup { keys, .. } = &mut geo {
+        keys.insert(1, linked(1, "product_key"));
+    }
+    FederatedPlan::new(
+        flat.metric().clone(),
+        ResultLabel::measure(flat.metric()),
+        flat.bucket().clone(),
+        customer_link_only(flat.fact()),
+        flat.second_fact().map(customer_link_only),
+        sutura_domain::plan::LookupLegs::parse(vec![LookupLeg::onto_fact(geo, true), LookupLeg::onto_lookup(crm, 0, true)])
+            .expect("a leg onto the fact and a leg onto it are a tree"),
+        flat.federation().clone(),
+        flat.keys().to_vec(),
+    )
+    .expect("a ratio over a chain is a plan")
+}
+
 pub(super) fn sum_plan(include_unmatched: bool) -> FederatedPlan {
     plan_for(
         "revenue",

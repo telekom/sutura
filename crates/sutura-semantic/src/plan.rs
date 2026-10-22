@@ -280,8 +280,9 @@ fn prechecked<'r, 'a>(resolution: &'r Resolution<'a>) -> Prechecked<'r, 'a> {
                 model: cross.second.name().clone(),
             }));
         }
-        // The second fact joins the lookup on one link (`FactKeyNotShared`), so a ratio is served over
-        // one lookup leg. Not a wrong answer, a shape this build does not carry.
+        // Only this refusal holds a ratio to one lookup leg: the plan type and the combiner take a
+        // second fact on the link of every lookup leg that joins onto the fact. Not a wrong answer, a
+        // shape the planner does not build.
         if lookups.len() > 1 {
             return Err(PlanError::Refused(RefusalReason::CrossModelRatioNeedsOneLookupLeg {
                 metric: cross_metric.name().clone(),

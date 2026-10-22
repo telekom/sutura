@@ -4,7 +4,9 @@ use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, InternalLabel, LinkKind};
 use sutura_domain::warehouse::{Real, ResultBatches, Value};
 
-use super::fixtures::{UNBOUNDED, batches_of, fan_in_plan, leaf, ratio_over_two_lookups_plan, try_combine_every};
+use super::fixtures::{
+    UNBOUNDED, batches_of, fan_in_plan, leaf, ratio_over_a_chain_plan, ratio_over_two_lookups_plan, try_combine_every,
+};
 use crate::combine::DataFusionCombiner;
 
 fn text(value: &str) -> Value {
@@ -249,5 +251,60 @@ fn a_second_fact_whose_second_link_kind_differs_is_refused() {
             &refused
         ),
         Some(FederatedAnswerRefusal::LinkTypeMismatch)
+    );
+}
+
+/// A lookup leg that joins onto another is no link of the facts: both carry the customer link alone,
+/// and `crm` meets `geo` on the product link inside the lookup side.
+#[test]
+fn a_ratio_over_a_chain_joins_the_facts_on_the_fact_parented_link_alone() {
+    let fact = |at: usize, rows: [(&str, i64); 2]| {
+        batches_of(
+            vec![link(0), named(TIME_BUCKET_LABEL), leaf(at)],
+            rows.iter()
+                .map(|&(customer, value)| vec![text(customer), text("2026-06"), Value::Integer(value)])
+                .collect(),
+        )
+    };
+    let geo = batches_of(
+        vec![link(0), link(1), named("region")],
+        vec![
+            vec![text("c1"), text("p1"), text("north")],
+            vec![text("c2"), text("p2"), text("south")],
+        ],
+    );
+    let crm = batches_of(
+        vec![link(1), named("segment")],
+        vec![vec![text("p1"), text("gold")], vec![text("p2"), text("silver")]],
+    );
+    let legs = [fact(0, [("c1", 100), ("c2", 30)]), fact(1, [("c1", 2), ("c2", 4)]), geo, crm];
+    assert_eq!(
+        combined_rows(&ratio_over_a_chain_plan(), &legs),
+        vec![
+            vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
+            vec![text("south"), text("silver"), text("2026-06"), quotient(7.5)],
+        ]
+    );
+}
+
+/// A cast can make two first-fact groups one key, and the probe that refuses them reads every fact
+/// link and the bucket: `("1", p1)` and `("01", p2)` cast to one customer but are two groups on the
+/// product link, so they are no repeated tuple.
+#[test]
+fn a_cast_first_fact_is_probed_for_a_repeated_tuple_of_every_link() {
+    let plan = ratio_over_two_lookups_plan().with_link_comparison(Some(LinkKind::ExactInteger));
+    let revenue = ratio_fact(0, &[(Some("1"), "p1", 100), (Some("01"), "p2", 50)]);
+    let orders = ratio_fact(1, &[(Some("1"), "p1", 2), (Some("1"), "p2", 1)]);
+    let geo = batches_of(vec![link(0), named("region")], vec![vec![Value::Integer(1), text("north")]]);
+    let crm = batches_of(
+        vec![link(1), named("segment")],
+        vec![vec![text("p1"), text("gold")], vec![text("p2"), text("silver")]],
+    );
+    assert_eq!(
+        combined_rows(&plan, &[revenue, orders, geo, crm]),
+        vec![
+            vec![text("north"), text("gold"), text("2026-06"), quotient(50.0)],
+            vec![text("north"), text("silver"), text("2026-06"), quotient(50.0)],
+        ]
     );
 }

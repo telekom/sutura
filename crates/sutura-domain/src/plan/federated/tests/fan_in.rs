@@ -197,6 +197,37 @@ fn a_second_fact_without_a_lookup_legs_link_does_not_construct() {
     );
 }
 
+/// A ratio over `geo` onto the fact and `crm` onto `geo`.
+fn ratio_plan_over_a_chain(fact: LegPlan, second: LegPlan) -> Result<FederatedPlan, FederatedPlanError> {
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact,
+        Some(second),
+        tree(vec![
+            LookupLeg::onto_fact(lookup_on("geo", &[0, 1], &["region"]), true),
+            LookupLeg::onto_lookup(lookup_on("crm", &[1], &["segment"]), 0, true),
+        ]),
+        federation(),
+        Vec::new(),
+    )
+}
+
+/// Only a lookup leg that joins onto the fact has its link on the facts: a chained leg meets the
+/// lookup side, which both facts share, so a fact carrying its link groups by a column nothing
+/// joins it on.
+#[test]
+fn a_ratio_over_a_chain_carries_only_the_fact_parented_link_on_its_facts() {
+    let built = ratio_plan_over_a_chain(fact_linking(&[0]), second_fact_linking(&[0]));
+    assert!(built.is_ok(), "a chain ratio carries link 0 on both facts, got {built:?}");
+    let refused = ratio_plan_over_a_chain(fact_linking(&[0, 1]), second_fact_linking(&[0, 1]));
+    assert!(
+        matches!(refused, Err(FederatedPlanError::FactKeyNotShared { .. })),
+        "the chained link is not a fact link, got {refused:?}"
+    );
+}
+
 fn batches(label: &str) -> ResultBatches {
     of_rows(&[String::from(label)], &[]).expect("an empty result of one column is well formed")
 }
