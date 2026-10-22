@@ -62,7 +62,7 @@ mod sentences;
 
 use sentences::{
     credential_unavailable, dimension_not_conformed, multi_metric_federation_not_executable, multi_metric_top_not_executable,
-    resources_exhausted, too_many_legs,
+    resources_exhausted, too_many_legs, too_many_lookup_legs,
 };
 
 use super::RefusalBody;
@@ -241,6 +241,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // 409, with `PlanSpansTooManySources`: answerable in principle, and this deployment will not
         // run that many queries for one question.
         RefusalReason::QuestionNeedsTooManyLegs { legs, limit } => (StatusCode::CONFLICT, too_many_legs(legs, limit)),
+        // 409, the status `PlanSpansTooManySources` gets: a question needing more lookup legs than
+        // the cap is answerable in principle and this deployment will not answer it, for the same
+        // reason - each leg's source is a separate identity to satisfy.
+        RefusalReason::PlanNeedsTooManyLookupLegs { legs, limit } => (StatusCode::CONFLICT, too_many_lookup_legs(legs, limit)),
         // A question that would need federation execution this deployment cannot do yet, a link shape
         // the combiner does not express, a measure that cannot recombine, an ill-formed federated
         // answer, or two tables sharing an identifier - all 409, because none of them is a data system
@@ -396,6 +400,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => {
             (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
         }
+        // 409, the status `CrossModelRatioSpansSources` gets: a shape this build does not serve, and
+        // not a grouping the caller got wrong.
+        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => (StatusCode::CONFLICT, needs_one_lookup_leg(metric)),
     };
     (
         status,
@@ -430,6 +437,13 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
         "`{metric}` measures a ratio over two fact models, and this question does not group only by a \
          dimension both `{metric}`'s model and `{model}` link to; group by such a dimension, and by \
          nothing else"
+    )
+}
+
+fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+    format!(
+        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
+         lookup leg; group by dimensions of one remote model"
     )
 }
 
@@ -495,6 +509,7 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::ResultTooLarge { .. }
         | RefusalReason::TimeRangeTooLong { .. }
         | RefusalReason::PlanSpansTooManySources { .. }
+        | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
         | RefusalReason::FederationNotExecutable
         | RefusalReason::FederationLinkAmbiguous { .. }
         | RefusalReason::FederationLinkCompound { .. }
@@ -511,7 +526,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::TopOverUncertifiedRows { .. }
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
         | RefusalReason::CrossModelRatioSpansSources { .. }
-        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => None,
+        | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
+        | RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => None,
     }
 }
 
@@ -687,6 +703,11 @@ mod tests {
                 RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
                 StatusCode::CONFLICT,
                 "plan_spans_too_many_sources",
+            ),
+            (
+                RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
+                StatusCode::CONFLICT,
+                "plan_needs_too_many_lookup_legs",
             ),
         ];
         reasons.extend(every_reason_the_second_half());

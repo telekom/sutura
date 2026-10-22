@@ -663,8 +663,8 @@ impl ExecutedAs {
     /// was settled before an answer format shipped rather than after.
     ///
     /// **What stood here denied both**, was true the day it was written, and stayed on the method the
-    /// answer path calls until somebody read the caller - republished on a page in the nav the whole
-    /// time, because `just api` regenerates a doc comment faithfully and regeneration is not
+    /// answer path calls until somebody read the caller - republished on the API reference the whole
+    /// time, because generation copies a doc comment faithfully and generation is not
     /// verification. `check-guidance` registers that wording now, and
     /// `xtask/src/guidance/absences.rs` is the reader for the direction a registered wording cannot
     /// hold: an absence nobody has got wrong yet.

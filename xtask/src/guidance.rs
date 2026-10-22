@@ -9,7 +9,10 @@
 //! everything that judges a SENTENCE - Rust source is deliberately out of that, see the filter in
 //! `run` - plus Rust source for the two citation checks (a CITATION is resolvable rather than
 //! read), for `versions` (a TOKEN beside a name read out of the manifests), and for the leg-2 rule
-//! (`///` and `//!` doc comments, through `absences::prose`).
+//! (`///` and `//!` doc comments, through `absences::prose`). The doc comments of `crates/*/src` and
+//! `dev/src` are also read by `stale`, `claims`, `references` and the path citations, the same way.
+//! `counts` and `hosts` read prose files only: a number or a host named in a doc comment is outside
+//! both.
 //!
 //! Eleven checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
@@ -103,6 +106,8 @@ mod hosts;
 mod pages;
 // `pages`' ordinal cells, in a file of their own so causality can measure them against `pages` as it
 // was: declared here, `pages.rs` stays revertible.
+#[cfg(test)]
+mod doc_comments;
 #[cfg(test)]
 mod ordinal_tests;
 // A module for `advice`'s reason, and it reads Rust for `constants`' one layer on: the name it
@@ -226,9 +231,8 @@ const FORBIDDEN: &[Forbidden] = &[
         why: "`docs/adr/0016`'s addendum decided the name is the deployment's, and the same change \
               wrote the opposite into five other places - a record, the plan, an example README \
               and two crate doc comments. That is exactly the one-cause-many-files shape this \
-              module exists for. Rust source is out of scope for the filter in `run`, and it does \
-              not have to be in it: a doc comment reaches `docs/api/**` through `just api`, which \
-              `check-api-docs` forces, so the generated page is where a comment gets caught",
+              module exists for. Rust source is out of scope for the filter in `run`, and a library \
+              crate's doc comments are read through `DOC_COMMENTS` instead",
         only: &[],
         except: &[],
     },
@@ -335,6 +339,10 @@ pub(in crate::guidance) fn spans(text: &str) -> Vec<&str> {
 
 mod references;
 
+/// The library source whose public doc comments the API reference publishes, and whose private ones
+/// are read here too: every first-party crate under `crates/` and the `dev` support crate.
+const DOC_COMMENTS: &[&str] = &["crates/*/src/**/*.rs", "dev/src/**/*.rs"];
+
 fn stale_phrases(read: &crate::causality::regions::PostImage<'_>, files: &[String]) -> Vec<String> {
     let mut problems = Vec::new();
     for rel in files {
@@ -405,8 +413,18 @@ fn tree_problems(
     files: &[String],
     text_files: &[String],
 ) -> TreeVerdict {
-    let mut problems = stale_phrases(read, text_files);
-    problems.extend(contradicted_claims(root, read, text_files));
+    // The prose scope plus the doc comments of the library crates, read through `absences::prose`:
+    // a `///` or `//!` line as written, every other line of a `.rs` file blanked, so a rule table
+    // in a string literal is not read. Scoped to `crates` and `dev` rather than to `files`, which is
+    // what keeps `xtask`'s own rule tables out of the scan.
+    let docs: Vec<String> = text_files
+        .iter()
+        .chain(files.iter().filter(|f| repo::matches_any(DOC_COMMENTS, f)))
+        .cloned()
+        .collect();
+    let docs_read = |rel: &str| read(rel).map(|text| absences::prose(rel, &text));
+    let mut problems = stale_phrases(&docs_read, &docs);
+    problems.extend(contradicted_claims(root, &docs_read, &docs));
     // `text_files` plus every `.rs`, whose doc comments the rule reads through `absences::prose`.
     // The CONDITION comes from another gate's parser rather than from a needle in a page:
     // `crate::venues::leg_two_citable` reads the claims matrix. Its own module header carries why
@@ -418,12 +436,12 @@ fn tree_problems(
         .collect();
     problems.extend(leg_two::problems(root, read, &leg_two_files));
     problems.extend(count_mismatches(read, files, text_files));
-    problems.extend(references::bad_task_references(read, text_files));
-    problems.extend(references::bad_recipe_references(root, read, text_files));
+    problems.extend(references::bad_task_references(&docs_read, &docs));
+    problems.extend(references::bad_recipe_references(root, &docs_read, &docs));
     // `files` and `text_files`, like `count_mismatches`: the mechanism is derived from ANY file, and
     // the scope limit is about where a claim may be made rather than about what may be read.
     problems.extend(host_mismatches(strict_read, files, text_files));
-    problems.extend(dead_paths(root, read, text_files));
+    problems.extend(dead_paths(root, &docs_read, &docs));
     // `files`, and INSIDE this function rather than beside its caller in `run`. It reads a doc
     // comment as PROSE and the code that would refute it, so neither list is `text_files` - but the
     // reason it is here is the one this function exists for: measured in review, replacing
@@ -510,7 +528,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     let (advice, cited) = advice::advice_problems(&root, &text_of, &files);
     problems.extend(advice);
     // Also `.rs`, and the same reason a third time: what a page PUBLISHES about a constant is a
-    // doc comment, and `docs/api/**` is regenerated from it - so the scope limit above would put
+    // doc comment, and the API reference is generated from it - so the scope limit above would put
     // this check on the derived copy rather than on the source of the claim.
     let (contradicted_constants, confirmed) = constant_problems(&text_of, &files);
     problems.extend(contradicted_constants);
