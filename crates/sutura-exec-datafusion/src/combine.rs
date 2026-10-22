@@ -57,6 +57,7 @@
 //! | a floating-point link key | ditto - from the TYPE, so an empty leg is judged too |
 //! | two legs whose link columns can never match | ditto, and it no longer depends on which cell happened to be first |
 //! | a non-numeric leaf | ditto |
+//! | a link pair its relationship declares a cast for | `cast`: the link column cast with `safe: false`, so a value that does not cast refuses the answer |
 //! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one |
 //! | a non-finite measure | one pass over the answer's measure column, and only when it is a float |
 //! | a leaf column mixing integer and real cells | **not representable**: an Arrow column has one type |
@@ -64,8 +65,8 @@
 
 use std::sync::Arc;
 
-use datafusion::arrow::array::{Array as _, Float64Array};
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::array::{Array as _, Float64Array, RecordBatch};
+use datafusion::arrow::datatypes::{DataType, SchemaRef};
 use datafusion::common::{Column, TableReference};
 use datafusion::datasource::MemTable;
 use datafusion::functions_aggregate::expr_fn::count;
@@ -82,6 +83,8 @@ use crate::pool::{self, WorkingSet};
 
 /// The one logical plan above the legs, and the labels and leaves it reads.
 mod arm;
+/// The cast a relationship's declared key comparison asks of a link column.
+mod cast;
 /// The drill-across merge: several arms joined above their legs, in this one session.
 mod merge;
 /// The provider a source and a subject give the plan cutter.
@@ -91,6 +94,7 @@ mod schema;
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
+use cast::{Cast, LinkCasts};
 use schema::{FACT, LegSchema, agreeing_link};
 
 /// The name the fact leg is registered under, so a column reference is QUALIFIED.
@@ -464,7 +468,9 @@ async fn arm_plan(
             LegAt::Fact => &fact,
             LegAt::Lookup(earlier) => &lookups.get(earlier).ok_or_else(|| missing_lookup(&link))?.3,
         };
-        agreeing_link(onto.link_kind(&link)?, schema.link_kind(&link)?)?;
+        // A relationship's declaration is the plan's one, and it names the first link.
+        let declared = plan.link_comparison().filter(|_| position == 0);
+        agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
     }
     let link = InternalLabel::Link(0).label();
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
@@ -480,8 +486,12 @@ async fn arm_plan(
         (None, _) => None,
     };
     if let Some(second) = &second_fact {
-        agreeing_link(fact.link_kind(&link)?, second.link_kind(&link)?)?;
+        agreeing_link(None, fact.link_kind(&link)?, second.link_kind(&link)?)?;
     }
+    let casts = match lookups.first() {
+        Some((_, _, _, lookup)) => LinkCasts::of(plan.link_comparison(), &link, &fact, lookup, second_fact.as_ref())?,
+        None => LinkCasts::default(),
+    };
     let leaves = leaf_labels(plan.federation(), &fact, second_fact.as_ref())?;
     fact.projects(plan.bucket_label())?;
     if let Some(second) = &second_fact {
@@ -498,12 +508,27 @@ async fn arm_plan(
         }
     }
 
-    register(context, FACT_TABLE, FACT, legs.fact())?;
-    for &(_, table, batches, _) in &lookups {
-        register(context, table, table, batches)?;
+    register_link(context, FACT_TABLE, FACT, legs.fact(), &link, casts.fact.as_ref())?;
+    for (position, &(_, table, batches, _)) in lookups.iter().enumerate() {
+        let own = InternalLabel::Link(position).label();
+        register_link(
+            context,
+            table,
+            table,
+            batches,
+            &own,
+            casts.lookup.as_ref().filter(|_| position == 0),
+        )?;
     }
     if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
-        register(context, SECOND_FACT_TABLE, SECOND_FACT, batches)?;
+        register_link(
+            context,
+            SECOND_FACT_TABLE,
+            SECOND_FACT,
+            batches,
+            &link,
+            casts.second_fact.as_ref(),
+        )?;
     }
 
     // Each lookup leg on its own link, a leg that joins onto an earlier lookup leg among them.
@@ -516,6 +541,10 @@ async fn arm_plan(
     if second_fact.is_some() {
         let on = [link.as_str(), plan.bucket_label()];
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        // A cast can make two first-fact groups one key, and each would meet the second fact's row.
+        if casts.fact.is_some() {
+            refuse_ambiguous_link(context, FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        }
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
@@ -599,8 +628,36 @@ impl FederationCombiner for DataFusionCombiner {
 /// buffers, so this copies no cell and reserves nothing against the pool. `crate::pool`'s header is
 /// where that limit on the ceiling's reach is stated.
 fn register(context: &SessionContext, table: &str, side: &'static str, batches: &ResultBatches) -> Result<(), CombineError> {
-    let memory = MemTable::try_new(Arc::clone(batches.schema()), vec![batches.batches().to_vec()])
-        .map_err(|cause| CombineError::Register { side, cause })?;
+    register_parts(context, table, side, batches.schema(), batches.batches().to_vec())
+}
+
+/// [`register`], with the leg's link column `label` cast first when its relationship declares one.
+fn register_link(
+    context: &SessionContext,
+    table: &str,
+    side: &'static str,
+    batches: &ResultBatches,
+    label: &str,
+    cast: Option<&Cast>,
+) -> Result<(), CombineError> {
+    match cast {
+        None => register(context, table, side, batches),
+        Some(cast) => {
+            let (schema, cast) = cast.apply(side, batches, label)?;
+            register_parts(context, table, side, &schema, cast)
+        }
+    }
+}
+
+/// `batches` under `schema`, registered as `table`.
+fn register_parts(
+    context: &SessionContext,
+    table: &str,
+    side: &'static str,
+    schema: &SchemaRef,
+    batches: Vec<RecordBatch>,
+) -> Result<(), CombineError> {
+    let memory = MemTable::try_new(Arc::clone(schema), vec![batches]).map_err(|cause| CombineError::Register { side, cause })?;
     // A merge registers each arm's legs under the same names in turn; the plan an earlier arm built
     // holds its own table, so the name is free again. Nothing is registered under it on the two-leg
     // path, where this finds nothing to remove.
