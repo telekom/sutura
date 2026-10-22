@@ -784,3 +784,6 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
     let refused = to_wire(&lookup, &sender);
     assert!(matches!(refused, Err(NotSendable::KeyTruncated { .. })), "{refused:?}");
 }
+
+#[cfg(test)]
+mod calendars;

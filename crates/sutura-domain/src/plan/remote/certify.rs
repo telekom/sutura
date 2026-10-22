@@ -53,9 +53,9 @@ pub enum LegNotCertified {
     /// The metric is not defined here at that grain.
     #[error("metric {metric} is not defined here at grain {grain:?}")]
     GrainNotDeclared { metric: MetricName, grain: Grain },
-    /// The bucket is not the metric's time column on the table this node buckets it on: the metric's
-    /// own table, or for a ratio across two models the shared calendar listed on the metric's own
-    /// source.
+    /// The bucket is not the column this node buckets the metric on for a leg on that source: the
+    /// metric's time column on its own table, or for a ratio across two models on the shared
+    /// calendar listed on the metric's own source, for a leg on that source only.
     #[error("metric {metric} does not bucket on column {column} of table {table}")]
     BucketNotTimeColumn {
         metric: MetricName,
@@ -191,20 +191,22 @@ fn filters(wire: &[PlanFilter], statement: &Statement<'_>, required: usize) -> R
         .try_for_each(|filter| statement.certifies(filter.predicate().column()))
 }
 
-/// The column this node buckets `metric` on, as the planner does: its time column on its own table,
-/// or, when its measure reads a second model, on the table of the shared calendar listed on the
-/// metric's own source. `None` when no listed calendar sits on that source.
-fn time_column(definitions: &Definitions, metric: &Metric) -> Option<PlanColumn> {
+/// The column this node buckets `metric` on for a leg on `source`, as the planner does: its time
+/// column on its own table for a metric that reads one model, and for a ratio across two models the
+/// time column on the shared calendar listed on the metric's own source, for a leg on that source
+/// only. `None` when the planner would bucket no leg on `source`.
+fn time_column(definitions: &Definitions, metric: &Metric, source: &SourceName) -> Option<PlanColumn> {
     let own = definitions.model(metric.model())?;
     let crosses = metric
         .measure()
         .is_some_and(|m| m.models().into_iter().flatten().any(|second| second != metric.model()));
-    let model = match metric.shared_calendars().filter(|_| crosses) {
-        Some(calendars) => calendars
+    let model = match (crosses, metric.shared_calendars()) {
+        (false, _) => own,
+        (true, Some(calendars)) if own.source() == source => calendars
             .iter()
             .filter_map(|name| definitions.model(name))
             .find(|calendar| calendar.source() == own.source())?,
-        None => own,
+        (true, _) => return None,
     };
     Some(PlanColumn::new(model.table_name().clone(), metric.time_column().clone()))
 }
@@ -290,7 +292,7 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
                     grain,
                 });
             }
-            if time_column(definitions, declared).as_ref() != Some(&column) {
+            if time_column(definitions, declared, &source).as_ref() != Some(&column) {
                 return Err(LegNotCertified::BucketNotTimeColumn {
                     metric: name.clone(),
                     table: column.table().clone(),
