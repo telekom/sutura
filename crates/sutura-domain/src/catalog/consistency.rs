@@ -24,6 +24,7 @@ use crate::measure::Term;
 use crate::model::{
     Aggregate, ColumnName, DimensionName, IdentifierCase, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
+use crate::plan::LinkKind;
 
 /// Everything a catalog said, with its cross-references checked.
 ///
@@ -115,6 +116,14 @@ pub enum InconsistentDefinitions {
         relationship: RelationshipName,
         model: ModelName,
         column: ColumnName,
+    },
+    #[error(
+        "relationship {relationship} declares its keys compare as {}, which the declared types of its columns contradict",
+        .declared.word()
+    )]
+    RelationshipComparisonContradicted {
+        relationship: RelationshipName,
+        declared: LinkKind,
     },
     #[error("dimension {dimension} of metric {metric} names column {column}, which model {model} does not declare")]
     UnknownDimensionColumn {
