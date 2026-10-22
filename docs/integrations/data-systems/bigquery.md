@@ -211,8 +211,9 @@ masked actor shows the first character of each part of a human actor's id and wh
 `@` separators are. The same principal sees the `azp` (or `client_id`) of the caller's token as it
 is.
 
-If the host cannot supply randomness for the id, sutura refuses the request with
-`503 no_randomness` before it runs any job. It never runs a job without an id.
+If the host cannot supply randomness for the id, sutura refuses an HTTP request with
+`503 no_randomness` before it runs any job, so a job for an HTTP request always has an id. A job
+that the stdio surface or the CLI runs has an empty `sutura_correlation`.
 
 ## Sizing
 

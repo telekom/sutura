@@ -52,6 +52,25 @@ where
     crate::testing::serving(pinned, warehouses, crate::testing::broker(), settings, None)
 }
 
+/// The router over a warehouse that can be held, drawing each request's job-label id from `draw`.
+pub(super) fn held_drawing_from(draw: crate::correlation::Draw) -> (Router, crate::testing::Held) {
+    let (warehouses, held) = crate::testing::warehouse_that_can_be_held();
+    let service = crate::surface::LocalService::start(
+        &crate::testing::catalog_of(bundle()),
+        warehouses,
+        crate::testing::sink(),
+        crate::testing::broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the test bundle validates");
+    let state = crate::testing::state_over(std::sync::Arc::new(service), settings(Environment::Development, ""));
+    (
+        crate::router(&state.drawing_from(draw)).expect("the test router assembles"),
+        held,
+    )
+}
+
 /// One question, and the three things a refused caller must be given.
 ///
 /// Returns the status, the `code` and the `detail`, parsed out of the body rather than matched as a
