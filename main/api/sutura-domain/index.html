@@ -11276,6 +11276,13 @@ somebody else's input.</p>
   executes it where the registered adapter can run a leg and otherwise refuses it as
   <code>FederationNotExecutable</code>). So this is the bound on
   an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+- <code>PlanNeedsTooManyLookupLegs</code> - The plan would need more lookup legs than one answer may carry.</p>
+<p>Refused rather than run in parts, because each leg's data system is a separate identity to
+  satisfy, and a plan that runs partly as somebody else is the failure this design exists to
+  prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
+  model through two relationships count twice, and a chain that crosses twice spends two. The
+  "too many" is a named count against <code>MAX_LOOKUP_LEGS</code>. Narrowable: ask for fewer remote
+  dimensions.
 - <code>FederationNotExecutable</code> - The question asked is served by two sources, but this build has no adapter that can execute a leg.</p>
 <p><strong>A fact about the two adapters this answer would run on, read per LEG.</strong> <code>Warehouses&lt;W&gt;</code>
   holds one adapter TYPE, but that type can itself be a closed enum over every kind a build
@@ -11507,7 +11514,11 @@ somebody else's input.</p>
   dimension's model, so the question groups and filters by that model's dimensions and nothing
   else, and the second fact <code>model</code> declares its own relationship into it on the column the
   first fact links through, truncated to the same grain or not at all. Narrowable: group by a
-  dimension both facts link to.</p>
+  dimension both facts link to.
+- <code>CrossModelRatioNeedsOneLookupLeg</code> - A cross-model ratio asked by dimensions that need more than one lookup leg.</p>
+<p>The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
+  is a shape this build does not carry, and not a wrong answer; <code>github.com/telekom/sutura#1493</code>
+  lifts it. Narrowable: group by the dimensions of one remote model.</p>
 <h4 id="methods_86">Methods<a class="headerlink" href="#methods_86" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-585-1"><a id="__codelineno-585-1" name="__codelineno-585-1" href="#__codelineno-585-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
