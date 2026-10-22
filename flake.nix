@@ -1130,6 +1130,18 @@
           '');
         };
 
+        # `nix run .#bigquery-scope-probe` - #1553's measurement, run by
+        # `.github/workflows/bigquery-scope-probe.yml`: which BigQuery and Storage Read calls Google
+        # accepts with a `bigquery.readonly` token. Python because the Storage Read API is gRPC
+        # and no crate here links a gRPC or HTTP client - the driver owns the transport.
+        apps.bigquery-scope-probe = {
+          type = "app";
+          program = "${pkgs.writers.writePython3Bin "sutura-bigquery-scope-probe" {
+            libraries = with pkgs.python3Packages; [ google-auth google-cloud-bigquery-storage requests ];
+            flakeIgnore = [ "E203" "E501" "W503" ];
+          } (builtins.readFile ./nix/bigquery-scope-probe.py)}/bin/sutura-bigquery-scope-probe";
+        };
+
         # A hosted app: the test loads its own BigQuery tables through ADBC, then reads the
         # certified metric from the provisioned DataHub tier through the served binary. The
         # Keycloak tier verifies the caller; the BigQuery source uses one shared CI identity.

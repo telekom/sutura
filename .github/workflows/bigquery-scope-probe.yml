@@ -1,0 +1,69 @@
+# #1553's measurement: which BigQuery and Storage Read calls Google accepts with a token scoped to
+# `bigquery.readonly`. `nix/bigquery-scope-probe.py` carries what it calls and how to read a line.
+#
+# It runs on a pull request that changes the probe and on dispatch. It never runs on every push,
+# because it is a measurement: it exits 0 whatever Google refuses and fails only when a token cannot
+# be minted. A same-repository pull request is the only pull request that can receive the bq-test
+# credential, so the `if:` refuses a fork or Dependabot, as the other bq-test jobs do.
+#
+# Every `${{ }}` below reads `secrets.*`, `vars.*`, `runner.temp` or the event's repository names,
+# none of which reaches a shell body.
+name: bigquery-scope-probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/bigquery-scope-probe.yml
+      - nix/bigquery-scope-probe.py
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  bigquery-scope-probe:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')
+    runs-on: rust-mcp-16core
+    timeout-minutes: 20
+    environment: bq-test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+      - name: Place credential outside the checkout
+        env:
+          SUTURA_BQ_KEY: ${{ secrets.svc_suturua_bq_ci }}
+        run: |
+          set -eu
+          if [ -z "${SUTURA_BQ_KEY:-}" ]; then
+            echo "bq-test has no CI credential" >&2
+            exit 1
+          fi
+          umask 077
+          printenv SUTURA_BQ_KEY > "$RUNNER_TEMP/bq-key.json"
+      - name: Mask resource names and read the project off the key
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+        run: |
+          set -eu
+          project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
+            || { echo "the CI credential names no project_id" >&2; exit 1; }
+          if [ -z "$project" ]; then
+            echo "the CI credential names an empty project_id" >&2
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$project"
+          printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
+      - name: Probe the bigquery.readonly scope
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
+        run: nix run .#bigquery-scope-probe
+      - name: Remove credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bq-key.json"

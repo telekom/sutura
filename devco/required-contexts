@@ -218,6 +218,9 @@ ci.yml:e2e-datahub-adbc
 # timed out undiagnosed (37152629712), so how it behaves under load is unproven.
 ci.yml:bigquery-conformance
 
+# #1553's scope measurement: it exits 0 on any refusal, so its green is not a verdict to gate on.
+bigquery-scope-probe.yml:bigquery-scope-probe
+
 # The Oracle docker tier, advisory for `bigquery-driver-check`'s reason: category-gated on
 # `data_source_oracle` or `catalog_rdbms`, so it reports nothing on most pull requests, and a required context that
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
