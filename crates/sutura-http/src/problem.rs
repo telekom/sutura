@@ -150,6 +150,16 @@ fn is_identifier(key: &str) -> bool {
     }
 }
 
+/// Why a request's `Sutura-Bill-To` header was not used. Neither variant echoes the value.
+#[derive(Debug, thiserror::Error)]
+pub enum UnusableBillTo {
+    #[error("`Sutura-Bill-To` is not a billing account name: {0}")]
+    NotAnAccount(sutura_domain::identity::UnusableBillingAccount),
+    /// `/v1/sql/run` bills no statement to a named payer, so a named one is refused, never dropped.
+    #[error("`Sutura-Bill-To` is not read on `/v1/sql/run`; send the statement without it")]
+    RawStatement,
+}
+
 /// Why a request could not be answered.
 ///
 /// One enum rather than a status code chosen per call site: the status, the code and the sentence
@@ -209,6 +219,8 @@ pub enum Failure {
     /// again would reach a caller through here, which is why the assertion lives beside the chain
     /// and not beside this variant.
     NotAQuestion { detail: Detail },
+    /// The `Sutura-Bill-To` header could not be used; the cause says why.
+    UnusableBillTo { cause: UnusableBillTo },
     /// The body is larger than the configured bound.
     ///
     /// Separate from [`Self::NotAQuestion`] even though both arrive as the same extractor
@@ -265,7 +277,7 @@ impl Failure {
             Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed | Self::IdentityNotLinked => {
                 StatusCode::FORBIDDEN
             }
-            Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
+            Self::NotAQuestion { .. } | Self::UnusableBillTo { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
@@ -293,6 +305,7 @@ impl Failure {
             | Self::ToolNotEnabled { .. }
             | Self::HostNotAllowed
             | Self::NotAQuestion { .. }
+            | Self::UnusableBillTo { .. }
             | Self::TooLarge
             | Self::RateLimited
             | Self::Timeout
@@ -311,6 +324,7 @@ impl Failure {
             Self::ToolNotEnabled { .. } => "tool_not_enabled",
             Self::HostNotAllowed => "host_not_allowed",
             Self::NotAQuestion { .. } => "not_a_question",
+            Self::UnusableBillTo { .. } => "unusable_bill_to",
             Self::TooLarge => "too_large",
             Self::RateLimited => "rate_limited",
             Self::Timeout => "timeout",
@@ -340,6 +354,7 @@ impl Failure {
             }
             Self::HostNotAllowed => String::from("this deployment does not answer this Host"),
             Self::NotAQuestion { ref detail } => detail.to_string(),
+            Self::UnusableBillTo { ref cause } => cause.to_string(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
             Self::RateLimited => String::from("too many requests; slow down and retry"),
             Self::Timeout => String::from("the request exceeded this service's time bound"),

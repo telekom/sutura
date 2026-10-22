@@ -13,7 +13,7 @@
 //! What a measure cannot say is held by `deny_unknown_fields` on [`MeasureDoc`]: no `dimensions:`
 //! of its own (the cube's list is the only one), no `model:`, `time_column:` or `grains:`.
 //! `hierarchies:` is refused by name on [`CubeDoc`] the same way: a roll-up order has no domain
-//! representation. A measure's `shared_calendar:` is its own, so a cross-model ratio can sit beside
+//! representation. A measure's `shared_calendar:` list is its own, so a cross-model ratio can sit beside
 //! one-model siblings whose metrics do not change.
 
 use std::collections::BTreeSet;
@@ -67,7 +67,7 @@ struct MeasureDoc {
     description: Option<Description>,
     /// [`MetricDoc`]'s `shared_calendar`, per measure: a cross-model ratio's conformed calendar.
     #[serde(default)]
-    shared_calendar: Option<ModelName>,
+    shared_calendar: Option<Vec<ModelName>>,
 }
 
 /// Why a cube document cannot become metrics.

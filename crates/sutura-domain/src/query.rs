@@ -158,6 +158,24 @@ pub enum RefusalReason {
     MetricsSpanDifferentModels { first: MetricName, other: MetricName },
     /// More metrics than [`MAX_METRICS`] one question may name together.
     TooManyMetrics { requested: usize, limit: usize },
+    /// A question named several metrics, and a dimension it groups or filters by does not end on
+    /// the same model and column for `first` and `other`.
+    ///
+    /// **A dimension only joins the metrics' answers when it ends on the same model and column for
+    /// every metric.** Reading the first metric's column for all of them would label another
+    /// metric's numbers with a grouping it never computed. The check is structural: two columns
+    /// that mean the same thing but are two copies are refused too. Refused naming the dimension
+    /// and the first pair that disagree, never a guess at which of them is wrong.
+    DimensionNotConformed {
+        dimension: DimensionName,
+        first: MetricName,
+        other: MetricName,
+    },
+    /// A question needs more legs than one answer may run, counting every leg of every metric.
+    ///
+    /// Each leg is held whole before the answers are merged, so the leg count bounds held memory
+    /// the way [`TooManyMetrics`](RefusalReason::TooManyMetrics) bounds the statement.
+    QuestionNeedsTooManyLegs { legs: usize, limit: usize },
     /// The same metric named twice in one question. Refused rather than de-duplicated, the same way
     /// a duplicated dimension is: a caller who sent it twice believes something about the result
     /// that is not true.
@@ -410,11 +428,8 @@ pub enum RefusalReason {
     /// credentials decision: the identity that ran the query WAS presented, and the source refuses
     /// it.
     ///
-    /// **A refusal rather than an error, and the distinction is the whole variant.** It used to
-    /// arrive as [`crate::warehouse::Warehouse::execute`]'s `Err` and leave the transport as the
-    /// `503` a dead data system produces - so a caller was told to retry an authorization decision
-    /// that will refuse again at the same place. It is an answer, and the answer does not change by
-    /// asking again.
+    /// **A refusal rather than an error, and the distinction is the whole variant**: not the `503` a
+    /// dead data system produces, because the answer does not change by asking again.
     ///
     /// **It is the query-time sibling of the boot-time
     /// [`Warehouse::preflight_was_refused`](crate::warehouse::Warehouse::preflight_was_refused)
@@ -427,6 +442,10 @@ pub enum RefusalReason {
     /// system's to say, and echoing them would publish a foreign authorization decision into a log,
     /// a UI and an agent's context.
     SourceRefused { source: SourceName },
+    /// The request named a payer this source does not bill, so nothing ran.
+    BillToNotAllowed { source: SourceName },
+    /// No payer could be decided for this source's job - no mapped group, more than one project read, none named.
+    NoBillingProject { source: SourceName },
     /// This answer ran out of the time it was given, at the data system or before it was ever
     /// asked.
     ///
@@ -527,13 +546,14 @@ pub enum RefusalReason {
     /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
     /// part of the metric's definition, not of the question.
     CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
-    /// A cross-model ratio whose second fact model or shared calendar sits on another data system
-    /// than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+    /// A cross-model ratio whose second fact model sits on another data system than the metric's
+    /// own (`telekom/sutura#780`); `model` names it.
     ///
     /// Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-    /// so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-    /// model lives is the catalog's, not the question's. A calendar declared once per source is
-    /// the shape that would lift this, and it is not built.
+    /// so both facts share the metric's. Each source lists its own calendar (`docs/adr/0002`'s sixth
+    /// amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+    /// lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+    /// own source is the shape that would lift this, and it is not built.
     CrossModelRatioSpansSources { metric: MetricName, model: ModelName },
     /// A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
     ///
@@ -687,6 +707,12 @@ mod tests {
                 other: MetricName::parse("margin").expect("a test metric"),
             },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
+            RefusalReason::DimensionNotConformed {
+                dimension: DimensionName::parse("region").expect("a test dimension"),
+                first: MetricName::parse("revenue").expect("a test metric"),
+                other: MetricName::parse("margin").expect("a test metric"),
+            },
+            RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName {
                 metric: MetricName::parse("revenue").expect("a test metric"),
             },

@@ -37,6 +37,7 @@ Cargo.lock
 devenv.lock
 flake.lock
 pixi.lock
+package-lock.json
 
 # The changelog. git-cliff writes it from the commit history at every version bump, one section
 # per release, so its length is a function of the release history rather than of how it is

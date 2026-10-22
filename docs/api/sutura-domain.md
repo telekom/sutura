@@ -999,8 +999,8 @@ derived from anything else here.
 
 **`data_type` is descriptive text.** It is a quote of what the source called the column -
 `"STRING"`, `"character varying"`, `"NUMERIC(38,9)"` - for a person reading the catalog. The one
-branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join across
-kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
+branch on it is `LinkKind::declared`, which reads it only to REFUSE a federated join or a pair of
+shared calendars across kinds; `sutura_sql` has its own closed vocabulary for what a statement may execute, and
 `ColumnType`'s own doc names review as what holds "never a cast", not the type system, because
 nothing here stops another reader of `Self::data_type` from treating it as one.
 
@@ -1735,11 +1735,11 @@ pub fn required_filters(&self) -> &[RequiredFilter]
 The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
-pub const fn shared_calendar(&self) -> Option<&ModelName>
+pub const fn shared_calendars(&self) -> Option<&SharedCalendars>
 ```
 
-The conformed calendar model both fact models of a cross-model ratio reach through a
-`via`, or `None` for a one-model metric that buckets through its own `time_column`.
+The conformed calendar models a cross-model ratio buckets its fact legs through, or `None` for
+a one-model metric that buckets through its own `time_column`.
 
 ```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
@@ -1753,16 +1753,25 @@ pub const fn time_column(&self) -> &ColumnName
 pub fn with_shared_calendar(self, calendar: ModelName) -> Self
 ```
 
-Declares the conformed calendar model both fact models of a cross-model ratio reach
-through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
-so every existing caller of `Metric::new` compiles unchanged - a one-model metric has
-no shared calendar, and its on-disk shape and digest do not move the day this field ships.
+Declares the one calendar model a metric whose facts all sit on a single source buckets
+through: `Self::with_shared_calendars` over a one-model list.
 
-The name is checked at load by `Definitions::assemble`
-(`InconsistentDefinitions::SharedCalendarNotReachable`): the calendar model must exist,
-and both the metric's own model and every cross-model ratio term's model must reach it
-through a declared relationship. The builder does not check, because the relationships
-are cross-references only the assembled `Definitions` can see.
+```rust
+pub fn with_shared_calendars(self, calendars: SharedCalendars) -> Self
+```
+
+Declares the conformed calendar models a cross-model ratio buckets its fact legs through, one
+per data system a fact model lives on (`telekom/sutura#780`). A builder rather than a
+constructor argument, so every existing caller of `Metric::new` compiles unchanged - a
+one-model metric has no shared calendar, and its on-disk shape and digest do not move.
+
+The list is checked at load by `Definitions::assemble`
+(`InconsistentDefinitions::SharedCalendarNotReachable`,
+`InconsistentDefinitions::SharedCalendarsShareASource`,
+`InconsistentDefinitions::NoSharedCalendarOnSource`,
+`InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType`). The builder does not check,
+because the sources and relationships are cross-references only the assembled
+`Definitions` can see.
 
 #### Implements
 
@@ -1828,7 +1837,7 @@ A `super::Column`'s data type, as a source's own dictionary spells it: `"STRING"
 `"character varying"`, `"NUMERIC(38,9)"`.
 
 **Descriptive text, never a cast BY ANYTHING THAT EXISTS TODAY.** The one branch on it is
-`LinkKind::declared`, which reads it to REFUSE a federated join across kinds and nothing else,
+`LinkKind::declared`, which reads it to REFUSE a federated join or a pair of shared calendars across kinds and nothing else,
 and `sutura_sql` has its own closed vocabulary for what a statement may execute - but that is an
 absence rather than a mechanism: nothing stops a future reader of `Column::data_type` from
 treating it as one, and review is what holds this claim, not a type-level guarantee. Stated
@@ -2020,6 +2029,21 @@ one note body is. Choosing the two together is the whole point of bounding eithe
 Counted in characters rather than bytes, for the reason
 `crate::knowledge`'s phrase limit gives: a value may be German or Greek text, and a limit in
 bytes would make one value legal in one language and not in another.
+
+### `use InvalidSharedCalendars`
+
+Why a list of shared calendars could not be built.
+
+### `use SharedCalendars`
+
+The calendar models a cross-model ratio buckets its fact legs through: one per data system a
+fact lives on (the architecture decision's sixth amendment).
+
+**Non-empty and repeat-free by construction.** That a listed model exists, sits on a source no
+other listed model sits on, and is reached from each fact model are cross-references, so
+`Definitions::assemble` checks them - the type holds only what it
+can see. Kept as a set, so the order an author lists them in does not move the definition digest.
+There is no `Deserialize`: an adapter owns how a document spells the list and converts.
 
 ### `use Definitions`
 
@@ -3189,6 +3213,39 @@ secret comes into existence.
 #### Implements
 
 `Clone`, `Debug`
+
+### `use InvalidAddress`
+
+Why a claimed address is not one. The value is never quoted: it names a person.
+
+### `use VerifiedAddress`
+
+An address the identity provider marked verified, as it wrote it.
+
+The transport reads `email` into one only when `email_verified` is `true`. `Debug` does not
+print the value: it names a person.
+
+### `use BillTo`
+
+What the broker knew about who pays for one leg.
+
+One enum rather than two `Option`s: a deployment's group mapping comes first, so a leg that has a
+group's account never also carries the caller's own choice.
+
+### `use BillingAccount`
+
+The name of an account a caller's work is charged to: 1 to 64 bytes of printable ASCII.
+
+Neutral on purpose: an adapter re-parses it into its own account type and refuses one it cannot
+use, so nothing here names a data system.
+
+### `use CallerGroups`
+
+The values of the caller's verified `groups` claim.
+
+### `use UnusableBillingAccount`
+
+Why a written billing account name is not one.
 
 ### `use ComputeContext`
 
@@ -7406,14 +7463,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 ### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 ### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 ### `use FederatedAnswerRefusal`
 
@@ -8367,7 +8424,8 @@ yet, so no question reaches it.
 
 **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 memory a question can hold grows with its leg count. `MAX_LEGS` bounds it at construction. The
-refusal a caller sees comes with the planner, which does not read the cap yet.
+refusal a caller sees, `RefusalReason::QuestionNeedsTooManyLegs`,
+is declared; the planner that raises it does not read the cap yet.
 
 The architecture decision records the decision and its limits.
 
@@ -8404,7 +8462,8 @@ The answer's group-by labels in question order.
 pub fn legs(&self) -> Vec<&LegPlan>
 ```
 
-Every leg this arm runs.
+Every leg this arm runs, in the order `execute_across` runs them: a joined arm's
+`FederatedPlan::legs`.
 
 ```rust
 pub fn measure_label(&self) -> &str
@@ -8914,14 +8973,14 @@ it takes came from `FederationCombiner::plan`. The type does not hold which legs
 
 #### `use ExecuteError`
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
 #### `use Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### `use FederationCombiner`
 
@@ -9418,7 +9477,7 @@ application, and an adapter still never calls another adapter. `sutura_app` impl
 pub enum ExecuteError<L, C>
 ```
 
-Why `FederationCombiner::execute` gave no answer.
+Why `FederationCombiner::execute` or `DrillAcrossCombiner::execute_across` gave no answer.
 
 The combine runs only after every leg answered, so a leg's error wins over the combine's.
 
@@ -9499,7 +9558,7 @@ Behind `fixtures`, so nothing published holds it.
 
 ###### Implements
 
-`Clone`, `Copy`, `Debug`, `Default`, `FederationCombiner`
+`Clone`, `Copy`, `Debug`, `Default`, `DrillAcrossCombiner`, `FederationCombiner`
 
 ##### `struct NothingCombined`
 
@@ -9515,8 +9574,8 @@ What `RefusingCombiner` answers with.
 
 ##### `type_alias Executed`
 
-What `FederationCombiner::execute` returns, named so its signature is not a
-`type_complexity` finding.
+What `FederationCombiner::execute` and `DrillAcrossCombiner::execute_across` return, named so
+their signatures are not a `type_complexity` finding.
 
 #### Module `label`
 
@@ -10695,6 +10754,17 @@ somebody else's input.
   metric named against the first, so the pair reported is always the first metric and the
   first one that disagreed with it, never a third-party guess at which is "wrong".
 - `TooManyMetrics` - More metrics than `MAX_METRICS` one question may name together.
+- `DimensionNotConformed` - A question named several metrics, and a dimension it groups or filters by does not end on the same model and column for `first` and `other`.
+
+  **A dimension only joins the metrics' answers when it ends on the same model and column for
+  every metric.** Reading the first metric's column for all of them would label another
+  metric's numbers with a grouping it never computed. The check is structural: two columns
+  that mean the same thing but are two copies are refused too. Refused naming the dimension
+  and the first pair that disagree, never a guess at which of them is wrong.
+- `QuestionNeedsTooManyLegs` - A question needs more legs than one answer may run, counting every leg of every metric.
+
+  Each leg is held whole before the answers are merged, so the leg count bounds held memory
+  the way `TooManyMetrics` bounds the statement.
 - `DuplicateMetricName` - The same metric named twice in one question. Refused rather than de-duplicated, the same way a duplicated dimension is: a caller who sent it twice believes something about the result that is not true.
 - `MultiMetricFederationNotExecutable` - A question named more than one metric and also reached a remote dimension.
 
@@ -10910,11 +10980,8 @@ somebody else's input.
   credentials decision: the identity that ran the query WAS presented, and the source refuses
   it.
 
-  **A refusal rather than an error, and the distinction is the whole variant.** It used to
-  arrive as `crate::warehouse::Warehouse::execute`'s `Err` and leave the transport as the
-  `503` a dead data system produces - so a caller was told to retry an authorization decision
-  that will refuse again at the same place. It is an answer, and the answer does not change by
-  asking again.
+  **A refusal rather than an error, and the distinction is the whole variant**: not the `503` a
+  dead data system produces, because the answer does not change by asking again.
 
   **It is the query-time sibling of the boot-time
   `Warehouse::preflight_was_refused`
@@ -10926,6 +10993,8 @@ somebody else's input.
   Carries the source and nothing about which permission or which identity: both are the data
   system's to say, and echoing them would publish a foreign authorization decision into a log,
   a UI and an agent's context.
+- `BillToNotAllowed` - The request named a payer this source does not bill, so nothing ran.
+- `NoBillingProject` - No payer could be decided for this source's job - no mapped group, more than one project read, none named.
 - `DeadlineExceeded` - This answer ran out of the time it was given, at the data system or before it was ever asked.
 
   **A refusal rather than a failure, and the architecture decision argues both directions once rather
@@ -11015,12 +11084,13 @@ somebody else's input.
   executable. Only a local catalog can declare one (its `shared_calendar:` key); no other
   catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
   part of the metric's definition, not of the question.
-- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model or shared calendar sits on another data system than the metric's own (`telekom/sutura#780`); `model` names the one that does.
+- `CrossModelRatioSpansSources` - A cross-model ratio whose second fact model sits on another data system than the metric's own (`telekom/sutura#780`); `model` names it.
 
   Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-  so both facts and the calendar share the metric's. Not narrowable by the caller: where a
-  model lives is the catalog's, not the question's. A calendar declared once per source is
-  the shape that would lift this, and it is not built.
+  so both facts share the metric's. Each source lists its own calendar (the architecture decision's sixth
+  amendment), so the calendar never decides this. Not narrowable by the caller: where a model
+  lives is the catalog's, not the question's. A second fact leg joining the calendar of its
+  own source is the shape that would lift this, and it is not built.
 - `CrossModelRatioWithoutSharedDimension` - A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
 
   The two facts are aggregated in two statements and joined above on ONE link into a remote
@@ -12363,17 +12433,16 @@ declaration is told why, not just that.
 
 - `PerSubjectCredential` - There is a place in this adapter's path for the ASKING SUBJECT to arrive, so a source declared `SourcePosture::ImpersonationAtSource` can be opened here.
 
-  **The name is accurate again, and a round of this doc argued the opposite.** It said the
+  **The name is accurate at every source but a `domain_delegation` one.** A round of this doc said the
   variant was "wider than its name" because the only shipping adapter that declared it
   delivered a `SubjectPrincipal` - a principal
   the data system switches to on a connection the DEPLOYMENT authenticated, with nothing the
-  subject possesses in the chain. That mechanism was deleted:
-  `sutura-exec-bigquery` federates the asker's own verified assertion and REFUSES the principal
-  shape, so a subject's own credential is exactly what arrives.
+  subject possesses in the chain. `sutura-exec-bigquery` federates the asker's own verified
+  assertion and REFUSES that shape at every source but one declared `domain_delegation`.
 
-  **So a third variant naming the principal switch has nothing left to name**, and this is
-  where that decision is recorded rather than in the adapter that prompted it. Should a future
-  adapter deliver the weaker shape, the vocabulary question comes back with it.
+  **A `domain_delegation` source delivers the weaker shape under this variant**: the
+  deployment vouches for a verified address. It opts in per source, so no third variant names
+  it; this is where that decision is recorded rather than in the adapter that prompted it.
 
   **What this variant still does NOT tell a reader**, and the boot check does not need it to:
   how much of the caller's own authorization is in the chain at the source. That is the
@@ -13015,6 +13084,57 @@ statement's own adapter is the only thing that has already checked its rows are 
 the driver's own row type carries one value per declared column by construction. Building a
 `RowSet` here would ask that type's constructor to re-verify a shape only the adapter could have
 gotten wrong.
+
+### Module `billed`
+
+A port call that carries who pays for it.
+
+#### `enum Billed`
+
+```rust
+pub enum Billed<E>
+```
+
+Why a billed port call did not run.
+
+##### Variants
+
+- `NotTaken` - The leg states a payer this source does not bill, so nothing ran.
+- `Undecided` - No payer could be decided for this source's job, so nothing ran.
+- `Source` - The source's own failure.
+
+##### Methods
+
+```rust
+pub fn into_source(self) -> Result<E, RefusalReason>
+```
+
+The source's own failure, or the refusal a payer decision made before the source was asked.
+
+# Errors
+
+The `RefusalReason` for `Billed::NotTaken` and `Billed::Undecided`.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `fn unstated`
+
+```rust
+pub fn unstated<E>(bill_to: &crate::identity::BillTo, source: &crate::model::SourceName) -> BilledResult<(), E>
+```
+
+Refuses a stated payer at a source that bills no job to one.
+
+# Errors
+
+`Billed::NotTaken` for anything but `BillTo::Unstated`.
+
+#### `type_alias BilledResult`
+
+What a billed port call answers. Named because the spelled-out form is over the
+`type_complexity` threshold this workspace tightened.
 
 ### Module `csv`
 

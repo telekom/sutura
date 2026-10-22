@@ -96,7 +96,8 @@ impl LinkKind {
     /// nothing here returns it, and [`QuotedColumnType`] is what lets a refusal carry the type.
     ///
     /// This is the one place the catalog's declared type is BRANCHED on. It reads the type to
-    /// refuse a join, and never to cast, render or execute anything.
+    /// refuse a join, or two shared calendars of different kinds, and never to cast, render or
+    /// execute anything.
     pub fn declared(declared: &ColumnType) -> Option<Self> {
         let lowered = declared.as_str().to_ascii_lowercase();
         let (name, parameters) = match lowered.split_once('(') {

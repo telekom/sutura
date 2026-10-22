@@ -1,6 +1,8 @@
 //! Read the endpoint's identity under the leg's presented credential.
 
-use sutura_domain::identity::Presented;
+use std::collections::BTreeSet;
+
+use sutura_domain::identity::{BillTo, Presented};
 use sutura_domain::warehouse::Value;
 
 use crate::transport::{JobDeadline, JobRequest, JobTransport};
@@ -57,11 +59,20 @@ impl core::fmt::Debug for SessionUser {
 /// composition's, and `docs/where-identity-is-proven.md` is where it is kept.
 const SESSION_USER: &str = "SELECT SESSION_USER() AS session_user";
 
-pub(super) fn session_user<T>(warehouse: &BigQueryWarehouse<T>, presented: &Presented) -> Mapped<SessionUser, T::Error>
+pub(super) fn session_user<T>(
+    warehouse: &BigQueryWarehouse<T>,
+    presented: &Presented,
+    bill_to: &BillTo,
+) -> Mapped<SessionUser, T::Error>
 where
     T: JobTransport,
 {
     warehouse.deliverable(presented)?;
+    let payer =
+        crate::billing::payer(&warehouse.billing, bill_to, &BTreeSet::new()).map_err(|_no_payer| BigQueryError::NoPayer {
+            at: String::from(warehouse.source.as_str()),
+            projects: Vec::new(),
+        })?;
     // No parameters, for `load_fixture`'s reason inverted: there is no question to carry a
     // value FROM. And the leg's own identity where it names one, which is the entire point -
     // an identity read submitted under the transport's own identity would answer the
@@ -72,9 +83,8 @@ where
     let request = JobRequest::new(
         SESSION_USER,
         &[],
-        &warehouse.billing_project,
-        &warehouse.default_dataset,
-        BigQueryWarehouse::<T>::job_identity(presented, &warehouse.source)?,
+        &payer,
+        warehouse.job_identity(presented)?,
         JobDeadline::Boot,
     );
     let answered = warehouse

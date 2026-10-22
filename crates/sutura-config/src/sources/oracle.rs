@@ -131,11 +131,9 @@ fn declared(
 ///
 /// The `files` key, the three `bigquery` keys, and the two dialled keys this kind does not read: the
 /// driver dials a TCP listener, and names the database by `service_name` rather than `database`.
-fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 6] {
+fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bool) -> [(&'static str, bool); 4] {
     [
         ("data_dir", written(entry.data_dir)),
-        ("billing_project", written(entry.billing_project)),
-        ("dataset", written(entry.dataset)),
         ("max_bytes_billed", entry.max_bytes_billed.is_some()),
         ("unix_socket", written(entry.unix_socket)),
         ("database", written(entry.database)),

@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-domain/src/catalog/calendar.rs b/crates/sutura-domain/src/catalog/calendar.rs
+index a906ff94d..f15c46f1d 100644
+--- a/crates/sutura-domain/src/catalog/calendar.rs
++++ b/crates/sutura-domain/src/catalog/calendar.rs
+@@ -32,9 +32,6 @@ impl SharedCalendars {
+                 return Err(InvalidSharedCalendars::Repeated(repeat));
+             }
+         }
+-        if calendars.is_empty() {
+-            return Err(InvalidSharedCalendars::Empty);
+-        }
+         Ok(Self(calendars))
+     }
+ 

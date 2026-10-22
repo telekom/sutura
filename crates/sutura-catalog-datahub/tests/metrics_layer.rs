@@ -37,7 +37,7 @@ mod tests {
         let definitions = pinned.definitions();
         assert!(!definitions.models().is_empty(), "the recorded corpus declares no table");
         for model in definitions.models().values() {
-            let cube = model.name().as_str();
+            let cube = model.table_name().as_str();
             let members = cubes
                 .get(cube)
                 .unwrap_or_else(|| panic!("no cube `{cube}` in the example model: {cubes:?}"));

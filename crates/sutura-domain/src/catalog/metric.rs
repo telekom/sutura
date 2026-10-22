@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Anchor, Audience, Description, Dimension, InconsistentDefinitions, Metric};
+use super::{Anchor, Audience, Description, Dimension, InconsistentDefinitions, Metric, SharedCalendars};
 use crate::expression::Computation;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{ColumnName, DimensionName, Grain, IdentifierCase, MetricName, ModelName};
@@ -107,7 +107,7 @@ impl Metric {
             anchor,
             description,
             audience,
-            shared_calendar: None,
+            shared_calendars: None,
         })
     }
 
@@ -179,27 +179,37 @@ impl Metric {
         self.dimensions.get(name)
     }
 
-    /// Declares the conformed calendar model both fact models of a cross-model ratio reach
-    /// through a `via` (`telekom/sutura#780`). A builder rather than a constructor argument,
-    /// so every existing caller of [`Metric::new`] compiles unchanged - a one-model metric has
-    /// no shared calendar, and its on-disk shape and digest do not move the day this field ships.
-    ///
-    /// The name is checked at load by [`Definitions::assemble`](super::Definitions::assemble)
-    /// ([`InconsistentDefinitions::SharedCalendarNotReachable`]): the calendar model must exist,
-    /// and both the metric's own model and every cross-model ratio term's model must reach it
-    /// through a declared relationship. The builder does not check, because the relationships
-    /// are cross-references only the assembled [`Definitions`](super::Definitions) can see.
+    /// Declares the one calendar model a metric whose facts all sit on a single source buckets
+    /// through: [`Self::with_shared_calendars`] over a one-model list.
     #[inline]
     #[must_use]
-    pub fn with_shared_calendar(mut self, calendar: ModelName) -> Self {
-        self.shared_calendar = Some(calendar);
+    pub fn with_shared_calendar(self, calendar: ModelName) -> Self {
+        self.with_shared_calendars(SharedCalendars::single(calendar))
+    }
+
+    /// Declares the conformed calendar models a cross-model ratio buckets its fact legs through, one
+    /// per data system a fact model lives on (`telekom/sutura#780`). A builder rather than a
+    /// constructor argument, so every existing caller of [`Metric::new`] compiles unchanged - a
+    /// one-model metric has no shared calendar, and its on-disk shape and digest do not move.
+    ///
+    /// The list is checked at load by [`Definitions::assemble`](super::Definitions::assemble)
+    /// ([`InconsistentDefinitions::SharedCalendarNotReachable`],
+    /// [`InconsistentDefinitions::SharedCalendarsShareASource`],
+    /// [`InconsistentDefinitions::NoSharedCalendarOnSource`],
+    /// [`InconsistentDefinitions::SharedCalendarsDisagreeOnTimeType`]). The builder does not check,
+    /// because the sources and relationships are cross-references only the assembled
+    /// [`Definitions`](super::Definitions) can see.
+    #[inline]
+    #[must_use]
+    pub fn with_shared_calendars(mut self, calendars: SharedCalendars) -> Self {
+        self.shared_calendars = Some(calendars);
         self
     }
 
-    /// The conformed calendar model both fact models of a cross-model ratio reach through a
-    /// `via`, or `None` for a one-model metric that buckets through its own `time_column`.
+    /// The conformed calendar models a cross-model ratio buckets its fact legs through, or `None` for
+    /// a one-model metric that buckets through its own `time_column`.
     #[inline]
-    pub const fn shared_calendar(&self) -> Option<&ModelName> {
-        self.shared_calendar.as_ref()
+    pub const fn shared_calendars(&self) -> Option<&SharedCalendars> {
+        self.shared_calendars.as_ref()
     }
 }

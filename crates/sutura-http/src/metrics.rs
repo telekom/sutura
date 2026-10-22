@@ -76,6 +76,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
     label("tool_not_enabled"),
     UNAUTHORIZED,
     label("unavailable"),
+    label("unusable_bill_to"),
 ];
 
 /// The closed set of `reason` labels for `sutura_refusals_total`: exactly `RefusalReason::code`'s
@@ -87,12 +88,14 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
 /// lists in it. A code the table does not list is not checked against this list, and a refusal
 /// under an unregistered code counts nowhere (the registry ignores an unregistered key).
 const REFUSAL_REASONS: &[Label] = &[
+    label("bill_to_not_allowed"),
     label("budget_exhausted"),
     label("credential_unavailable"),
     label("cross_model_ratio_spans_sources"),
     label("cross_model_ratio_without_shared_calendar"),
     label("cross_model_ratio_without_shared_dimension"),
     label("deadline_exceeded"),
+    label("dimension_not_conformed"),
     label("dimension_not_filterable"),
     label("dimension_not_permitted"),
     label("dimension_value_not_allowed"),
@@ -108,8 +111,10 @@ const REFUSAL_REASONS: &[Label] = &[
     label("metrics_span_different_models"),
     label("multi_metric_federation_not_executable"),
     label("multi_metric_top_not_executable"),
+    label("no_billing_project"),
     label("plan_spans_too_many_sources"),
     label("plan_tables_share_an_identifier"),
+    label("question_needs_too_many_legs"),
     label("resources_exhausted"),
     label("result_too_large"),
     label("source_refused"),
@@ -399,6 +404,9 @@ mod tests {
             Failure::IdentityUnavailable,
             Failure::IdentityNotLinked,
             Failure::AtCapacity { retry_after_seconds: 1 },
+            Failure::UnusableBillTo {
+                cause: crate::problem::UnusableBillTo::RawStatement,
+            },
         ];
         for failure in &every {
             // No wildcard: a new failure cannot compile this test until its relationship to the
@@ -409,6 +417,7 @@ mod tests {
                 | Failure::ToolNotEnabled { .. }
                 | Failure::HostNotAllowed
                 | Failure::NotAQuestion { .. }
+                | Failure::UnusableBillTo { .. }
                 | Failure::TooLarge
                 | Failure::RateLimited
                 | Failure::Timeout

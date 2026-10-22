@@ -66,17 +66,17 @@ pub(crate) fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
 /// `dim_customer`, so the table behind it is a real file - which keeps a refusal about identity
 /// from being satisfied by a missing CSV.
 pub(super) fn bundle_with_an_anchor(source: &str) -> PinnedDefinitions {
-    bundle_with_a_metric(source, true)
+    bundle_with_a_metric(source, true, "dim_customer")
 }
 
 /// [`bundle_with_an_anchor`]'s metric with no anchor, so a service starts over it without asking
 /// the source anything at boot.
 #[cfg(feature = "bigquery")]
 pub(super) fn bundle_with_an_unanchored_metric(source: &str) -> PinnedDefinitions {
-    bundle_with_a_metric(source, false)
+    bundle_with_a_metric(source, false, "acme-analytics.warehouse.dim_customer")
 }
 
-fn bundle_with_a_metric(source: &str, anchored: bool) -> PinnedDefinitions {
+fn bundle_with_a_metric(source: &str, anchored: bool, table: &str) -> PinnedDefinitions {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, AnchorValue, Audience, Metric};
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
@@ -86,7 +86,7 @@ fn bundle_with_a_metric(source: &str, anchored: bool) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("customers").expect("a test model is a model"),
         SourceName::parse(source).expect("a test source is a source"),
-        TableName::parse("dim_customer").expect("a test table is a table"),
+        sutura_domain::model::QualifiedTable::parse(table).expect("a test table is a table path"),
         BTreeSet::from([column("customer_key"), column("signed_up_on")]),
         Description::default(),
     );

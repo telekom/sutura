@@ -61,6 +61,10 @@ model must be on the `bigquery` platform, and sutura binds it to the source whos
 catalog `name`. A model on a platform that is not mapped is refused at load, by name.
 The [federated](../../examples/federated.md) example maps `postgres` and `clickhouse`.
 
+A relationship endpoint (`from` or `to` of a semantic model) joins only through the exact dataset urn
+it names, and that urn must name a dataset the same read returned. An endpoint that names any other
+dataset, on any platform or environment, is refused, and the error names the endpoint and the urn.
+
 ## Identity
 
 The reader sends the token from `token_file` on every request. It is one token for every caller,

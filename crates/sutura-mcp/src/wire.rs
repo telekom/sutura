@@ -2,7 +2,8 @@
 //!
 //! # Why this crate has its own wire type
 //!
-//! `sutura-http` already holds one - `QuestionBody`, with the same six fields. Sharing the STRUCT
+//! `sutura-http` already holds one - `QuestionBody`, with the same six fields (this one adds `bill_to`, which `/v1` reads from its
+//! `Sutura-Bill-To` header). Sharing the STRUCT
 //! would mean this adapter depending on that one, and *an adapter never calls another adapter* is
 //! the rule the whole layout rests on: a shape owned by one transport is a shape every other
 //! transport has to reach through it. [`CatalogContent`] is the same story against
@@ -79,9 +80,13 @@ pub use catalog::{CatalogContent, DescribeCatalogArgs, DimensionContent, MetricC
 pub mod raw;
 pub use raw::{MalformedStatement, RawContent, RunSqlArgs};
 
+// The three nested clauses of `ask_metric`'s arguments, for the reason `catalog` has its own module.
+pub mod clauses;
+pub use clauses::{FilterArgs, LastArgs, RangeArgs, TopArgs};
+
 /// One governed question, as a tool call carries it.
 ///
-/// The six fields are the whole input surface of this deployment. There is no field for SQL, a
+/// The seven fields are the whole input surface of this deployment. There is no field for SQL, a
 /// table, a filter expression or a row-id list, and an argument naming one is a parse error rather
 /// than a key that gets ignored.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -109,86 +114,33 @@ pub struct AskArgs {
     /// An order and a caller-chosen row limit, bounding a wide group-by instead of asking for
     /// every group - `github.com/telekom/sutura#777`.
     top: Option<TopArgs>,
+    // Declared so the schema advertises it and `deny_unknown_fields` admits it; `payer` reads it.
+    /// The billing account to run this question's jobs under. Taken only by a source whose
+    /// deployment sets `billing.caller_may_name`; on any other source the question is refused.
+    #[serde(rename = "bill_to")]
+    _bill_to: Option<String>,
 }
 
-/// A `top` clause: rank by `by`, in `direction`, keep the first `n`.
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TopArgs {
-    /// How many groups to return. Must be positive, and no more than this deployment will
-    /// certify - a larger count is the same refusal an unbounded question over that many groups
-    /// already gets.
-    n: u32,
-    /// `metric` ranks by the question's own measure; `period` ranks by the time bucket.
-    by: String,
-    /// `desc` for the largest first, `asc` for the smallest.
-    direction: String,
-}
+/// `bill_to` is not a billing account name. The cause names the rule broken, never the value.
+#[derive(Debug, thiserror::Error)]
+#[error("`bill_to` is not a billing account name")]
+pub struct UnusableBillTo(#[source] sutura_domain::identity::UnusableBillingAccount);
 
-/// A half-open period: `start` is included, `end` is not. Either an absolute period
-/// (`start`/`end`) or a period relative to today (`last`) - never both, never neither.
+/// The payer an `ask_metric` call's `bill_to` names, if it is a string. Any other type is left to
+/// [`AskArgs`]'s own parse to refuse.
 ///
-/// Half-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a
-/// last day that differs per month. Both dates are ISO `YYYY-MM-DD`.
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct RangeArgs {
-    /// The first day included, as `YYYY-MM-DD` - for example `2026-06-01`. Mutually exclusive
-    /// with `last`.
-    start: Option<String>,
-    /// The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`. Mutually exclusive
-    /// with `last`.
-    end: Option<String>,
-    /// A period ending today (or yesterday, unless `include_current`), resolved against this
-    /// deployment's own clock. Mutually exclusive with `start`/`end`.
-    last: Option<LastArgs>,
-}
-
-/// A count of calendar periods before today, resolved at request time rather than authored as
-/// dates - `telekom/sutura#778`.
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LastArgs {
-    /// How many `unit`s back. Must not be zero.
-    count: u32,
-    /// One of `day`, `week`, `month`, `quarter` or `year`.
-    unit: String,
-    /// Whether today's own, possibly partial, period is included.
-    #[serde(default)]
-    include_current: bool,
-}
-
-/// One filter: a dimension, and what it must - or must not - equal.
+/// # Errors
 ///
-/// Tagged by `op`, mirroring `sutura_domain::query::Filter` - `github.com/telekom/sutura#968`. Every
-/// value, in either shape, is still checked against the metric's own allowlist; `In`/`NotIn` widen
-/// the predicate's shape and never the source of a value.
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
-pub enum FilterArgs {
-    /// The dimension equals this one value.
-    Eq {
-        /// The dimension to filter on, by the name the metric declares it under.
-        dimension: String,
-        /// The value it must equal. Where the catalog declares an allowlist, only a declared
-        /// value is accepted.
-        value: String,
-    },
-    /// The dimension equals one of these values. At least one.
-    In {
-        /// The dimension to filter on, by the name the metric declares it under.
-        dimension: String,
-        #[schemars(length(min = 1))]
-        values: Vec<String>,
-    },
-    /// The dimension equals none of these values. At least one. A row whose value for this
-    /// dimension is unmatched/NULL (an unresolved join key) is excluded, not included.
-    NotIn {
-        /// The dimension to filter on, by the name the metric declares it under.
-        dimension: String,
-        #[schemars(length(min = 1))]
-        values: Vec<String>,
-    },
+/// [`UnusableBillTo`] for a string that is not a billing account name.
+pub fn payer(
+    arguments: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Result<Option<sutura_domain::identity::BillingAccount>, UnusableBillTo> {
+    arguments
+        .and_then(|arguments| arguments.get("bill_to"))
+        .and_then(serde_json::Value::as_str)
+        .map(sutura_domain::identity::BillingAccount::parse)
+        .transpose()
+        .map_err(UnusableBillTo)
 }
 
 /// Why an arguments object is not a question.
@@ -254,15 +206,8 @@ fn query_of(args: AskArgs, clock: &impl sutura_runtime::relative_range::WallCloc
             } => RawFilter::not_in_set(dimension, values),
         })
         .collect();
-    let last = args
-        .range
-        .last
-        .map(|last| sutura_runtime::relative_range::LastWire::new(last.count, last.unit, last.include_current));
-    let (start, end) = sutura_runtime::relative_range::resolve_range(clock, args.range.start, args.range.end, last)?;
-    let top = args
-        .top
-        .as_ref()
-        .map(|top| sutura_domain::question::RawTop::new(top.n, &top.by, &top.direction));
+    let (start, end) = args.range.resolve(clock)?;
+    let top = args.top.as_ref().map(TopArgs::raw);
     let query = sutura_domain::question::parse_query(&args.metrics, &args.grain, &start, &end, &args.dimensions, &filters, top)
         .map_err(|cause| match cause {
         sutura_domain::question::QuestionInputError::Malformed(cause) => MalformedQuestion::Question(cause),

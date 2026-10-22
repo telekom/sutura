@@ -120,6 +120,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = ["the sutura authors", "2026 tt-a1i (Archify)", "2025 Cocoon AI"]
 SPDX-License-Identifier = "Apache-2.0 AND MIT"
 
+# The meetup deck's Slidev theme, copied from metaxy's own deck. Its licence is Apache-2.0 and
+# its LICENSE names no holder. `VENDOR.md` has the commit and what changed locally.
+[[annotations]]
+path = "slides/2026-introducing-sutura/theme/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the metaxy authors"
+SPDX-License-Identifier = "Apache-2.0"
+
 # The brand icons. Each is a product's own logo, copied unchanged, and `SOURCES.md` beside them
 # records where from. The five projects publish theirs under their repository licence.
 # A logo is also a trademark, which no licence here grants: it names the product.

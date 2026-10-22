@@ -55,6 +55,18 @@ const TOO_MANY_METRICS: Guide = Guide {
     remedy: "Ask two narrower questions instead.",
 };
 
+const DIMENSION_NOT_CONFORMED: Guide = Guide {
+    reason: "dimension_not_conformed",
+    meaning: "a dimension does not end on the same model and column for two of the named metrics, so it cannot be used for both",
+    remedy: "Ask for those metrics separately, or leave that dimension out.",
+};
+
+const QUESTION_NEEDS_TOO_MANY_LEGS: Guide = Guide {
+    reason: "question_needs_too_many_legs",
+    meaning: "answering would run more queries against the data systems than one question may",
+    remedy: "Ask for fewer metrics at a time.",
+};
+
 const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
@@ -226,6 +238,23 @@ const CREDENTIAL_UNAVAILABLE: Guide = Guide {
              it, and you cannot.",
 };
 
+const BILL_TO_NOT_ALLOWED: Guide = Guide {
+    reason: "bill_to_not_allowed",
+    meaning: "the request named who pays, and a source the question reaches bills no job to a payer \
+              named on the request - nothing ran",
+    remedy: "Ask again without naming a payer. Who may name one is this deployment's setting, not \
+             something the question can change.",
+};
+
+const NO_BILLING_PROJECT: Guide = Guide {
+    reason: "no_billing_project",
+    meaning: "no payer could be decided for a source's job: no group of the caller's is mapped to a \
+              billing project, the question reads more than one project, and no payer was named - nothing \
+              ran",
+    remedy: "Ask a question over the tables of one project, or name a payer where the source allows one. \
+             Which groups map to a payer is this deployment's setting.",
+};
+
 const SOURCE_REFUSED: Guide = Guide {
     reason: "source_refused",
     meaning: "the data system itself refused the question because the identity it would run as is \
@@ -306,6 +335,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
     &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
+    &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
     &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
@@ -329,6 +359,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     // not narrow.
     &BUDGET_EXHAUSTED,
     &PLAN_SPANS_TOO_MANY_SOURCES,
+    &QUESTION_NEEDS_TOO_MANY_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
@@ -353,6 +384,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
+    &BILL_TO_NOT_ALLOWED,
+    &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
 ];
 
@@ -377,6 +410,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
+        RefusalReason::DimensionNotConformed { .. } => &DIMENSION_NOT_CONFORMED,
         RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
         RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
         RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
@@ -386,6 +420,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
+        RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
@@ -394,6 +429,8 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
+        RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,
+        RefusalReason::NoBillingProject { .. } => &NO_BILLING_PROJECT,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,

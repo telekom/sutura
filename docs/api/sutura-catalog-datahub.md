@@ -210,6 +210,32 @@ data system the deployment's decision rather than this adapter's.
 
 `Clone`, `Debug`, `SemanticCatalog`
 
+## `fn model_name`
+
+```rust
+pub fn model_name(platform: &str, table: &str) -> String
+```
+
+The model a dataset on `platform` over `table` is read as.
+
+Its platform, then each part of its table path, `__` between them and `_` for every character a
+model name refuses - `bigquery` and `acme-prod.sales.orders` read as
+`bigquery__acme_prod__sales__orders`.
+
+A name past `MODEL_NAME_LIMIT` keeps its first 54 characters, then `_` and eight hex digits
+of the FNV-1a hash of the whole mapped name, so a long path still names a model a data system
+keeps whole. A metric document names its model by this function's answer.
+
+A function of the dataset alone, so reading another dataset never renames one. Two datasets it
+maps to one name - two urns that differ only in their environment, only where a character
+became `_`, or in a long tail whose hashes collide - are refused as one model declared twice by
+`Definitions::assemble`.
+
+## `constant MODEL_NAME_LIMIT`
+
+The longest name `model_name` gives: the domain's identifier limit, which a data system
+truncates past rather than refuses.
+
 ## Module `document`
 
 The ingestion shape a `super::AspectReader` returns: what this adapter needs from `DataHub`.
@@ -323,6 +349,9 @@ pub struct DatasetAspect
 What a `dataset` entity supplies a model: a table, its columns, the platform it lives on, and a
 description.
 
+It names no model: `crate::DataHubCatalog` reads the model name off the platform and the
+table, so no reader chooses one.
+
 `column_metadata` and `primary_key` are both additive - see `Self::with_column_metadata` and
 `Self::with_primary_key` - rather than `Self::new` parameters, so every existing fixture and
 test in this crate keeps compiling. Both are `#[serde(default)]`, so a recorded document that
@@ -345,11 +374,7 @@ pub fn description(&self) -> &str
 ```
 
 ```rust
-pub fn name(&self) -> &str
-```
-
-```rust
-pub const fn new(name: String, table: String, platform: String, columns: Vec<String>, description: String) -> Self
+pub const fn new(table: String, platform: String, columns: Vec<String>, description: String) -> Self
 ```
 
 A dataset aspect.
@@ -861,8 +886,8 @@ refuse an unexpected shape as a typed `HttpReaderError::UnexpectedShape` naming 
 the field, rather than reading past a missing or mistyped key with a default - a guess that
 happened to be wrong would otherwise certify a bundle silently missing a model or a relationship.
 The `dataset` half is read live through this reader only by `tests/provisioned/golden.rs`
-(evidence only of a run of it, over the golden catalog's models, with `table == name` and no
-nullability); `tests/provisioned/wire_pages.rs`'s dataset-page cell asserts what the platform
+(evidence only of a run of it, over the golden catalog's models, with the table their urn names and
+no nullability); `tests/provisioned/wire_pages.rs`'s dataset-page cell asserts what the platform
 serves through the test's own copy of this mapping, not through this reader, and it is evidence
 only of a run of it.
 
@@ -971,6 +996,7 @@ variant - so this stays inspectable by a caller that knows to downcast, the `Era
   **Refused rather than guessed** - see the module header on which of the three entity shapes
   this applies to. `field` is a dotted path (`"schemaMetadata.value.fields[].fieldPath"`) so a
   refusal names exactly where the document stopped matching this reader's expectation.
+- `EndpointNotADatasetRead` - A relationship endpoint names a dataset urn this read did not return, so it joins no model: an endpoint resolves only through the exact urn its model was read from.
 - `NotTheCanonicalShape` - The page's own field mapped into this crate's canonical aspect shape and that decode failed - a defect in this reader's mapping rather than in the page, since every field reaching `serde_json::from_value` here was already read out of the page by name above.
 - `Paging` - The pages could not be followed to a whole list: a cursor repeated, a page made no progress, the entity bound was passed, or the list ended short of its reported total.
 
@@ -1097,10 +1123,10 @@ time from whichever feature both a reader and its composition root's tests turn 
 pub fn dataset_page() -> serde_json::Value
 ```
 
-One `dataset` page, over the two models the certified fixture metric needs: `orders` (carrying
+One `dataset` page, over the two tables the certified fixture metric needs: `orders` (carrying
 every column the metric's measure, time column and required filter name) and `customers`
-(carrying the dimension's column). Model name and table are the same string, because
-`HttpAspectReader::read_datasets`'s own doc names that as a real limit rather than hiding it.
+(carrying the dimension's column). Each urn names a bare table on `bigquery`, so the catalog
+reads the models `bigquery__orders` and `bigquery__customers`.
 
 ### `fn relationship_page`
 

@@ -32,14 +32,14 @@
 
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName, QualifiedTable};
+use sutura_domain::model::{Aggregate, ColumnName, DimensionName, MetricName, QualifiedTable, TableQualifier};
 use sutura_domain::plan::{
     AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanColumn, PlanFilter, PlanKey,
     PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::warehouse::{ParamValue, Real, RowSet, Value};
 
-use super::{LOOKUP_TABLE, bucket, lookup_source, range, range_bindings, source, table};
+use super::{LOOKUP_TABLE, bucket, located, lookup_source, range, range_bindings, source, table};
 use crate::corpus::{Case, FederatedCase};
 
 /// Every case file, embedded at compile time.
@@ -161,9 +161,14 @@ pub(super) enum CaseError {
 /// length of `FILES`, so a corpus that lost a file is a compile error and a corpus that lost an entry
 /// is caught by the test that counts the directory.
 pub(super) fn load() -> Vec<Case> {
+    load_at(None)
+}
+
+/// [`load`], every plan reading the corpus table under `at`.
+pub(super) fn load_at(at: Option<&TableQualifier>) -> Vec<Case> {
     FILES
         .iter()
-        .map(|(file, content)| parse(file, content).unwrap_or_else(|e| panic!("{e}")))
+        .map(|(file, content)| parse_at(file, content, at).unwrap_or_else(|e| panic!("{e}")))
         .collect()
 }
 
@@ -176,7 +181,13 @@ pub(super) fn load_federated() -> Vec<FederatedCase> {
 }
 
 /// Parses one case file into a [`Case`].
+#[cfg(test)]
 fn parse(file: &'static str, content: &str) -> Result<Case, CaseError> {
+    parse_at(file, content, None)
+}
+
+/// `parse`, the plan reading the corpus table under `at`.
+fn parse_at(file: &'static str, content: &str, at: Option<&TableQualifier>) -> Result<Case, CaseError> {
     let sections = Sections::read(file, content, &["name", "metric", "aggregate", "column", "keys", "order"])?;
     let metric = sections.metric()?;
     let aggregate = parse_aggregate(file, sections.required("aggregate")?)?;
@@ -190,7 +201,7 @@ fn parse(file: &'static str, content: &str) -> Result<Case, CaseError> {
     let plan = QueryPlan::new(
         source(),
         metric.clone(),
-        StatementTables::only(table()),
+        StatementTables::only(located(at)),
         bucket(),
         keys,
         PlanMeasure::Simple {
