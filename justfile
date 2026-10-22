@@ -888,13 +888,14 @@ ci-cube-tier: cube-acceptance
 oracle-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "oracle-acceptance: scope sutura-exec-oracle and sutura-catalog-rdbms - the live Oracle cells."
+    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms and the served source-password cell of sutura-cli - the live Oracle cells."
     echo "oracle-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     just dev-up-oracle
     export SUTURA_DEV_REQUIRE_TIER=1
     export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
     export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
     export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
+    cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
     cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a

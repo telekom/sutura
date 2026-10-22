@@ -229,6 +229,117 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line() {
     assert!(leaked.is_empty(), "a source password was logged: {leaked:?}");
 }
 
+/// The example catalog, copied beside `case`'s configuration directory without any `anchor:` block:
+/// the binary re-runs every anchor at boot, against tables an empty Oracle does not hold.
+#[cfg(feature = "oracle")]
+fn unanchored_catalog(case: &str) -> std::path::PathBuf {
+    let root = crate::harness::derived_beside(&crate::harness::config_path(case));
+    drop(std::fs::remove_dir_all(&root));
+    std::fs::create_dir_all(&root).expect("the derived directory is creatable");
+    let catalog = root.join("catalog");
+    let copied = std::process::Command::new("cp")
+        .arg("-R")
+        .arg(example_root().join("catalog"))
+        .arg(&catalog)
+        .status()
+        .expect("cp runs");
+    assert!(copied.success(), "the example catalog did not copy");
+    for entry in std::fs::read_dir(catalog.join("metrics")).expect("the copied metrics directory reads") {
+        let metric = entry.expect("a metrics directory entry reads").path();
+        let text = std::fs::read_to_string(&metric).expect("a copied metric reads");
+        let mut inside = false;
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                inside = *line == "anchor:" || (inside && line.starts_with(' '));
+                !inside
+            })
+            .collect();
+        std::fs::write(&metric, kept.join("\n")).expect("a derived metric writes");
+    }
+    catalog
+}
+
+/// The served binary against the compose Oracle tier (`just oracle-acceptance`): the same password
+/// sent for real, and the same absence asserted, as the Postgres cell. The tier holds none of the
+/// example's tables, so the question is refused when it is asked; the login witness is that the
+/// binary booted on the right password and was refused on [`CANARY`] under otherwise identical settings.
+#[cfg(feature = "oracle")]
+#[test]
+#[ignore = "requires just oracle-acceptance"]
+fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary() {
+    let provisioned = sutura_dev::provisioned::here(std::path::Path::new(env!("CARGO_MANIFEST_DIR")), "oracle");
+    let endpoint = provisioned
+        .endpoint()
+        .expect("the named acceptance task requires an Oracle endpoint");
+    let required = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("the acceptance task sets {name}"));
+    let (user, password, anchors) = (
+        required("SUTURA_DEV_USER"),
+        required("SUTURA_DEV_PASSWORD"),
+        required("SUTURA_ORACLE_TIER_CA"),
+    );
+    let case = "source-password-oracle-tier";
+    let canary = format!("{case}-canary");
+    let settings = |case: &str, file: &PasswordFile| {
+        let entry = format!(
+            "  {LOCAL_SOURCE}:\n    kind: \"oracle\"\n    host: \"{}\"\n    port: {}\n    service_name: \"FREEPDB1\"\n    \
+             user: \"{user}\"\n    password_file: \"{}\"\n    transport_mode: \"verified\"\n    \
+             transport_anchors: \"{anchors}\"\n    posture: \"shared-service-user\"\n",
+            endpoint.host(),
+            endpoint.port(),
+            file.0.display()
+        );
+        settings_over(
+            &unanchored_catalog(case),
+            &example_root().join("data"),
+            crate::harness::AGENT_LOOPBACK,
+            SINGLE_USER,
+            &entry,
+        )
+    };
+    let right = PasswordFile::holding(case, &password);
+    let wrong = PasswordFile::holding(&canary, CANARY);
+
+    let (replies, mut lines) = asked(crate::harness::start_configured_with_environment(
+        case,
+        &settings(case, &right),
+        None,
+        &TRACE,
+        &[],
+    ));
+    let [v1, _, mcp] = &replies;
+    assert!(
+        v1.status >= 400,
+        "the tier holds none of the example's tables, so the question must be refused, or what it said below is not an error path:\n{}\n{}",
+        v1.body,
+        mcp.body
+    );
+    let refused = crate::harness::refused_to_start(
+        sutura_config::Environment::Development,
+        crate::harness::written(&canary, &settings(&canary, &wrong)),
+        &TRACE,
+    );
+    assert!(
+        refused.iter().any(|line| line.contains("could not connect to Oracle")),
+        "the wrong password must be refused at the login, or its absence below proves nothing:\n{}",
+        refused.join("\n")
+    );
+    lines.extend(refused);
+
+    assert!(
+        lines.iter().any(|line| line.contains(TRACE_LEVEL)),
+        "no `trace` line was captured, so the capture is not a record of everything logged"
+    );
+    // A password shorter than `RUN` cannot be searched for: the tier's default fixture password is
+    // one, and as a whole word it would match every line the binary writes.
+    let mut secrets = vec![("the wrong password", CANARY)];
+    if password.len() >= RUN {
+        secrets.push(("the right password", &password));
+    }
+    let leaked = found(&secrets, &replies, &lines);
+    assert!(leaked.is_empty(), "a source password was sent back or logged: {leaked:?}");
+}
+
 #[cfg(feature = "clickhouse")]
 #[test]
 fn a_clickhouse_source_password_reaches_no_reply_and_no_log_line() {
