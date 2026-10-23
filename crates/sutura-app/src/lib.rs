@@ -36,7 +36,7 @@ use sutura_domain::identity::{
 };
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::{DrillAcrossCombiner, Executable, FederationCombiner, RowCeilings};
+use sutura_domain::plan::{Ceilings, DrillAcrossCombiner, Executable, FederationCombiner};
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::billed::Billed;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -472,7 +472,7 @@ pub fn answer<W, B, C>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 ) -> Answering<W, B, C>
 where
     W: Warehouse + Sync,
@@ -484,7 +484,7 @@ where
 {
     let pinned = definitions.get();
     let view = scoped_for(pinned, context);
-    let compiled = compile(query, &view, row_ceilings.top()).map_err(|cause| ServiceError::Compile { cause })?;
+    let compiled = compile(query, &view, ceilings).map_err(|cause| ServiceError::Compile { cause })?;
     // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
     // the plan itself, for its own dialect.
@@ -501,7 +501,7 @@ where
                 working_set_bytes,
                 deadline,
                 ledger,
-                row_ceilings,
+                ceilings,
             );
         }
         Compiled::DrillAcross { plan } => {
@@ -515,7 +515,7 @@ where
                 working_set_bytes,
                 deadline,
                 ledger,
-                row_ceilings,
+                ceilings,
             );
         }
         Compiled::Planned { plan } => plan,

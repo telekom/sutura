@@ -14,13 +14,17 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{AnswerKey, InternalLabel, LegAt, LookupLeg, PlanPredicate, QueryPlan};
+use sutura_domain::plan::{
+    AnswerKey, InternalLabel, LegAt, LegCeiling, LookupLeg, LookupLegCeiling, PlanCeilings, PlanPredicate, QueryPlan,
+    SourceCeiling,
+};
 use sutura_domain::query::RefusalReason;
 
-use super::{Plan, PlanError, plan};
+use super::{Plan, PlanError};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 use crate::{CompileFailure, Compiled};
 
+mod compound_link;
 mod corpus;
 mod drill_across;
 mod federation;
@@ -78,6 +82,20 @@ fn declared(name: &str, col: &str, via: &[&str]) -> Dimension {
         ),
         None,
         Description::default(),
+    )
+}
+
+/// [`super::plan`] under the default ceilings, which every cell but the ceilings' own plans under.
+fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+    super::plan(resolution, PlanCeilings::DEFAULT)
+}
+
+/// The plan ceilings of a deployment that configured `sources`, `lookup_legs` and `legs`.
+fn ceilings(sources: usize, lookup_legs: usize, legs: usize) -> PlanCeilings {
+    PlanCeilings::new(
+        SourceCeiling::parse(sources).expect("a test source ceiling parses"),
+        LookupLegCeiling::parse(lookup_legs).expect("a test lookup leg ceiling parses"),
+        LegCeiling::parse(legs).expect("a test leg ceiling parses"),
     )
 }
 
@@ -315,6 +333,69 @@ fn the_legs_and_their_links_do_not_depend_on_the_order_the_dimensions_are_asked(
     }
 }
 
+/// One metric under a configured ceiling of three: three data systems plan, and a fourth - its fact
+/// leg beside three lookup legs - is refused naming the configured number rather than the default.
+#[test]
+fn one_metric_reads_up_to_a_configured_ceiling_of_three_data_systems_and_not_four() {
+    let three = ceilings(3, 3, 6);
+    let within = Corpus::placed("a", "a", "b");
+    let planned = super::plan(&within.asking(vec![within.key("region"), within.key("brand")]), three);
+    assert!(
+        matches!(planned, Ok(Plan::Federated(_))),
+        "local, a and b are three data systems, got {:?}",
+        planned.err()
+    );
+    let over = Corpus::spread("a", "b", "c", "local");
+    let Err(PlanError::Refused(reason)) = super::plan(&over.asking(vec![over.key("region"), over.key("family")]), three) else {
+        panic!("a fact leg and three lookup legs on other data systems are four, over a ceiling of three");
+    };
+    assert_eq!(reason, RefusalReason::PlanSpansTooManySources { sources: 4, limit: 3 });
+}
+
+/// One metric under a configured lookup leg ceiling, each side of a value below and above the default
+/// three: at one, a single lookup leg plans and two are refused naming one; at four, the four lookup
+/// legs the default refuses plan.
+#[test]
+fn one_metric_reads_up_to_a_configured_lookup_leg_ceiling_lower_or_higher_than_three() {
+    let one = ceilings(4, 1, 6);
+    let single = Corpus::placed("elsewhere", "elsewhere", "local");
+    let planned = super::plan(&single.asking(vec![single.key("region")]), one);
+    assert!(
+        matches!(planned, Ok(Plan::Federated(_))),
+        "one lookup leg plans under one, got {:?}",
+        planned.err()
+    );
+    let two = Corpus::placed("a", "a", "b");
+    let Err(PlanError::Refused(reason)) = super::plan(&two.asking(vec![two.key("region"), two.key("brand")]), one) else {
+        panic!("two lookup legs are over a lookup leg ceiling of one");
+    };
+    assert_eq!(reason, RefusalReason::PlanNeedsTooManyLookupLegs { legs: 2, limit: 1 });
+    let four = Corpus::spread("a", "b", "c", "d");
+    let Ok(Plan::Federated(planned)) = super::plan(&four.asking(vec![four.key("region"), four.key("brand")]), ceilings(5, 4, 6))
+    else {
+        panic!("four lookup legs plan under a lookup leg ceiling of four");
+    };
+    assert_eq!(planned.lookups().legs().len(), 4);
+}
+
+/// One metric under a configured leg ceiling below the default six: its fact leg and three lookup legs
+/// are four legs, which plan under four and are refused under three, naming three.
+#[test]
+fn one_metric_runs_up_to_a_configured_leg_ceiling_and_not_one_leg_more() {
+    let corpus = Corpus::spread("a", "b", "c", "local");
+    let asked = || corpus.asking(vec![corpus.key("region"), corpus.key("family")]);
+    let planned = super::plan(&asked(), ceilings(4, 3, 4));
+    assert!(
+        matches!(planned, Ok(Plan::Federated(_))),
+        "four legs plan under four, got {:?}",
+        planned.err()
+    );
+    let Err(PlanError::Refused(reason)) = super::plan(&asked(), ceilings(4, 3, 3)) else {
+        panic!("four legs are over a leg ceiling of three");
+    };
+    assert_eq!(reason, RefusalReason::QuestionNeedsTooManyLegs { legs: 4, limit: 3 });
+}
+
 /// A question that would read four lookup legs is refused by name, with the count and the cap.
 #[test]
 fn a_question_that_needs_four_lookup_legs_is_refused_with_the_count() {
@@ -423,80 +504,5 @@ fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
             PlanError::Refused(RefusalReason::PlanTablesShareAnIdentifier { ref table }) if table.as_str() == "dim_customers"
         ),
         "expected the shared-identifier refusal, got {refused:?}"
-    );
-}
-
-/// A relationship crossing into a remote source with MORE THAN ONE join key is refused by its
-/// own name, `FederationLinkCompound`, which names the one relationship that declares them. Built by hand for the same reason every federated-splitter cell here
-/// is: `Definitions::assemble` never puts two remote-crossing keys in front of a caller's
-/// question on its own, so the splitter's own guard is the only venue that provokes this.
-#[test]
-fn a_compound_crossing_relationship_is_refused_by_its_own_name() {
-    let facts = model("facts", "local", &["amount_cents", "day", "customer_key", "month"]);
-    let customers = model("customers", "elsewhere", &["customer_key", "month", "region_code"]);
-    let crossing = Relationship::new(
-        RelationshipName::parse("facts_customer").expect("a test relationship is a relationship"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        ModelName::parse("customers").expect("a test model is a model"),
-        JoinType::ManyToOne,
-        JoinKeys::of(vec![
-            JoinKey::Equal {
-                origin: column("customer_key"),
-                target: column("customer_key"),
-            },
-            JoinKey::Equal {
-                origin: column("month"),
-                target: column("month"),
-            },
-        ])
-        .expect("two keys is a non-empty set"),
-    );
-    let metric = Metric::new(
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        Vec::new(),
-        column("day"),
-        BTreeSet::from([Grain::Month]),
-        vec![declared("region", "region_code", &["facts_customer"])],
-        None,
-        Description::default(),
-        Audience::Open,
-    )
-    .expect("one dimension is distinct");
-    let dimension = metric
-        .dimension(&dimension_name("region"))
-        .expect("the metric declares this dimension");
-    let resolution = Resolution {
-        metric: &metric,
-        metrics: vec![&metric],
-        model: &facts,
-        grain: Grain::Month,
-        range: TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range"),
-        keys: vec![ResolvedDimension {
-            dimension,
-            join: Some(vec![ResolvedJoin {
-                relationship: &crossing,
-                model: &customers,
-            }]),
-        }],
-        filters: Vec::new(),
-        top: None,
-        cross: None,
-    };
-    let Err(refused) = plan(&resolution) else {
-        panic!("a compound crossing relationship must be refused, not planned");
-    };
-    assert!(
-        matches!(
-            refused,
-            PlanError::Refused(RefusalReason::FederationLinkCompound { ref relationship, .. })
-                if relationship.as_str() == "facts_customer"
-        ),
-        "expected FederationLinkCompound naming facts_customer, got {refused:?}"
     );
 }

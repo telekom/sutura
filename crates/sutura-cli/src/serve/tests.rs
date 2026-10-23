@@ -181,8 +181,8 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
     // this binary: `sutura-exec-datafusion` declares `Warehouse::EXECUTES_LEGS`, so the splitter's
     // federated plan runs as two legs and the combiner assembles them - `served.rs`'s
     // `a_served_deployment_answers_a_question_spanning_two_sources` asks this deployment one and
-    // gets rows. (More than three lookup legs are still refused at plan time, which is where the blanket
-    // bound always belonged.)
+    // gets rows. (More lookup legs than the configured ceiling are still refused at plan time, which is where
+    // the blanket bound always belonged.)
     //
     // What survives, and what this asserts, is the half that is still a misconfiguration: a source
     // the catalog reads and the deployment never declared. There is nothing to open it as, no

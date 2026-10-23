@@ -5,13 +5,14 @@
 
 use super::top_test::{outcome_over, outcome_with, top_one_plan};
 use super::*;
-use sutura_domain::plan::{FederatedRowCeiling, RowCeiling, RowCeilings};
+use sutura_domain::plan::{Ceilings, FederatedRowCeiling, PlanCeilings, RowCeiling};
 use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
 
-fn ceilings(rows: u32) -> RowCeilings {
-    RowCeilings::new(
+fn ceilings(rows: u32) -> Ceilings {
+    Ceilings::new(
         RowCeiling::DEFAULT,
         FederatedRowCeiling::parse(rows).expect("a test ceiling is a ceiling"),
+        PlanCeilings::DEFAULT,
     )
 }
 
@@ -76,7 +77,7 @@ fn a_combined_answer_at_the_configured_ceiling_is_answered_whole() {
 
 #[test]
 fn the_default_ceiling_answers_what_it_always_answered() {
-    let outcome = outcome_with(&federated_plan(), RowCeilings::DEFAULT);
+    let outcome = outcome_with(&federated_plan(), Ceilings::DEFAULT);
     assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
 }
 
@@ -87,9 +88,10 @@ fn the_default_ceiling_answers_what_it_always_answered() {
 fn a_ceiling_above_the_single_source_cap_answers_a_wider_combined_set_in_full() {
     let over_the_cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the cap fits a usize") + 2;
     let (fact_rows, lookup_rows) = wide_legs(over_the_cap);
-    let ceilings = RowCeilings::new(
+    let ceilings = Ceilings::new(
         RowCeiling::DEFAULT,
         FederatedRowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a ceiling above the cap"),
+        PlanCeilings::DEFAULT,
     );
 
     let outcome = outcome_over(&federated_plan(), ceilings, fact_rows, lookup_rows);
@@ -127,9 +129,10 @@ fn a_top_ranked_over_a_set_wider_than_the_single_source_cap_is_answered_whole_un
         TopDirection::Desc,
     );
     let plan = federated_plan().with_top(top);
-    let raised = RowCeilings::new(
+    let raised = Ceilings::new(
         RowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a row ceiling above the cap"),
         FederatedRowCeiling::parse(sutura_domain::plan::MAX_ROWS * 2).expect("a federated ceiling above the cap"),
+        PlanCeilings::DEFAULT,
     );
     let (fact_rows, lookup_rows) = wide_legs(over_the_cap);
 

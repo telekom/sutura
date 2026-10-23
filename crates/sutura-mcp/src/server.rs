@@ -223,7 +223,7 @@ pub struct AgentSurface<S> {
     prose: sutura_app::prompt::CatalogProse,
     list_physical_schema: bool,
     /// The configured row ceilings the `initialize` prompt states.
-    row_ceilings: sutura_domain::plan::RowCeilings,
+    ceilings: sutura_domain::plan::Ceilings,
     /// How many questions may be executing at once, and how long a call waits for a turn.
     ///
     /// Held by value and not behind an `Option`: a deployment that forgot to bound its execution is
@@ -311,7 +311,7 @@ impl<S> AgentSurface<S> {
             asking,
             prose,
             list_physical_schema: false,
-            row_ceilings: sutura_domain::plan::RowCeilings::DEFAULT,
+            ceilings: sutura_domain::plan::Ceilings::DEFAULT,
             admission,
             request: tracing::Span::none(),
             reply,
@@ -334,10 +334,10 @@ impl<S> AgentSurface<S> {
     }
 
     /// The row ceilings this deployment configured, which the prompt states.
-    /// [`RowCeilings::DEFAULT`](sutura_domain::plan::RowCeilings::DEFAULT) unless set.
+    /// [`Ceilings::DEFAULT`](sutura_domain::plan::Ceilings::DEFAULT) unless set.
     #[must_use]
-    pub const fn row_ceilings(mut self, row_ceilings: sutura_domain::plan::RowCeilings) -> Self {
-        self.row_ceilings = row_ceilings;
+    pub const fn ceilings(mut self, ceilings: sutura_domain::plan::Ceilings) -> Self {
+        self.ceilings = ceilings;
         self
     }
 
@@ -419,7 +419,7 @@ where
         context.peer.set_peer_info(request.clone());
         let inputs = PromptInputs::new(&self.tools, self.prose, self.operator_instructions.as_deref())
             .listing_physical_schema(self.list_physical_schema)
-            .row_ceilings(self.row_ceilings);
+            .ceilings(self.ceilings);
         std::future::ready(self.asked(&context).and_then(|asked| {
             let definitions = self.service.definitions();
             let view = sutura_app::scoped_for(&definitions, asked.context());

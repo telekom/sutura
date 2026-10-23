@@ -20,14 +20,14 @@ fn a_written_ceiling_reaches_settings_as_a_parsed_federated_row_ceiling() {
         settings.federated_row_ceiling(),
         FederatedRowCeiling::parse(500).expect("500 is a federated row ceiling")
     );
-    assert_eq!(settings.row_ceilings().federated(), settings.federated_row_ceiling());
+    assert_eq!(settings.ceilings().federated(), settings.federated_row_ceiling());
 }
 
 #[test]
 fn no_written_ceiling_defaults_to_the_compiled_bound() {
     let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
     assert_eq!(settings.federated_row_ceiling(), FederatedRowCeiling::DEFAULT);
-    assert_eq!(settings.row_ceilings().top(), RowCeiling::DEFAULT);
+    assert_eq!(settings.ceilings().top(), RowCeiling::DEFAULT);
 }
 
 #[test]

@@ -107,7 +107,7 @@ mod tests {
         let compiled = compile(
             &june_revenue(),
             &sutura_domain::pinned::view::ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the example question compiles");
         match compiled {

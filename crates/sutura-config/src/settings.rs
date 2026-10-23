@@ -19,7 +19,9 @@ use std::path::PathBuf;
 
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::pinned::InvalidVersion;
-use sutura_domain::plan::{FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidRowCeiling, RowCeiling, RowCeilings};
+use sutura_domain::plan::{
+    Ceilings, FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidPlanCeiling, InvalidRowCeiling, PlanCeilings, RowCeiling,
+};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture, host_is_loopback};
 
 use crate::api::ApiSettings;
@@ -403,6 +405,21 @@ pub enum SettingsError {
         #[source]
         cause: InvalidFederatedRowCeiling,
     },
+    #[error("`governance.source_ceiling` is not usable")]
+    SourceCeiling {
+        #[source]
+        cause: InvalidPlanCeiling,
+    },
+    #[error("`governance.lookup_leg_ceiling` is not usable")]
+    LookupLegCeiling {
+        #[source]
+        cause: InvalidPlanCeiling,
+    },
+    #[error("`governance.leg_ceiling` is not usable")]
+    LegCeiling {
+        #[source]
+        cause: InvalidPlanCeiling,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -446,6 +463,7 @@ pub struct Settings {
     spend_budget: Option<SpendBudget>,
     row_ceiling: RowCeiling,
     federated_row_ceiling: FederatedRowCeiling,
+    plan_ceilings: PlanCeilings,
 }
 
 impl Settings {
@@ -500,6 +518,7 @@ impl Settings {
             spend_budget: parse::parse_spend_budget(raw)?,
             row_ceiling: parse::parse_row_ceiling(raw)?,
             federated_row_ceiling: parse::parse_federated_row_ceiling(raw)?,
+            plan_ceilings: parse::parse_plan_ceilings(raw)?,
             sources,
         })
     }
@@ -913,10 +932,10 @@ impl Settings {
         self.federated_row_ceiling
     }
 
-    /// Both row ceilings, as the one value a service is composed with.
+    /// Every configured ceiling, as the one value a service is composed with.
     #[inline]
-    pub const fn row_ceilings(&self) -> RowCeilings {
-        RowCeilings::new(self.row_ceiling, self.federated_row_ceiling)
+    pub const fn ceilings(&self) -> Ceilings {
+        Ceilings::new(self.row_ceiling, self.federated_row_ceiling, self.plan_ceilings)
     }
 
     /// What goes into the agent-facing system prompt beyond the pinned bundle and the tool list.

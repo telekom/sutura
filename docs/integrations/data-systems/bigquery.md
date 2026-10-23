@@ -140,6 +140,22 @@ cargo build --release -p sutura-cli --features bigquery
 That build links no driver. It loads the driver from the absolute path in
 `SUTURA_BIGQUERY_ADBC_DRIVER`.
 
+## Job location
+
+sutura sends no job location and declares no default dataset. Each model names its table as
+`project.dataset.table`. BigQuery [determines the job location from the resources in the request](https://cloud.google.com/bigquery/docs/locations#specify_locations),
+including the datasets those tables belong to. sutura leaves this selection to BigQuery rather
+than looking up table locations itself.
+
+For a request with no resource from which BigQuery can determine a location, BigQuery uses its
+configured default location, or the `US` multi-region when no default is configured. That is a
+service default, not a sutura setting.
+
+This source has no setting that constrains a job to an explicit region. Google also warns that a
+query sent without a location may be temporarily stored in BigQuery router logs while the service
+determines where to run it. Location inference therefore provides no explicit residency guarantee
+from sutura.
+
 ## Example
 
 The [multi player](../../examples/multi-player.md) example writes this source with Pulumi:

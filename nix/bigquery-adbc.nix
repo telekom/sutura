@@ -43,7 +43,7 @@ let
 in
 buildGoModule {
   pname = "adbc-driver-bigquery";
-  version = "1.13.0"; # provenance is the flake-locked `bigquery-adbc-src` tag go/v1.13.0
+  version = "1.14.1"; # provenance is the flake-locked `bigquery-adbc-src` tag go/v1.14.1
   inherit src vendorHash;
   proxyVendor = true;
 
@@ -91,7 +91,7 @@ buildGoModule {
   '' + ''
     runHook postBuild
   '';
-  # The tests `bigquery-adbc-forbidden.patch` adds for its 403 reason table,
+  # The upstream REST 403 reason-table test, and the tests
   # `bigquery-adbc-caller-credentials.patch` adds for its two options and
   # `bigquery-adbc-jobs-query.patch` adds for its jobs.query option. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
@@ -102,7 +102,7 @@ buildGoModule {
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused'
+    tests='TestErrToAdbcErrMapsRestForbidden|TestSafeWaitForJobBacksOffBetweenPolls|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused'
     GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
     cat "$TMPDIR/go-test.log"
     # `-run` passes when a name stops matching, so every listed name has to pass.

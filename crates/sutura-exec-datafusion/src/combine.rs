@@ -108,7 +108,9 @@ const FACT_TABLE: &str = "fact";
 /// The names the lookup legs are registered under, by position, and the side word each one's
 /// refusals carry. See [`FACT_TABLE`]. One per leg [`MAX_LOOKUP_LEGS`] allows, so a plan cannot
 /// carry a lookup leg with no table to register it under.
-const LOOKUP_TABLES: [&str; MAX_LOOKUP_LEGS] = ["lookup", "lookup_1", "lookup_2"];
+const LOOKUP_TABLES: [&str; MAX_LOOKUP_LEGS] = [
+    "lookup", "lookup_1", "lookup_2", "lookup_3", "lookup_4", "lookup_5", "lookup_6", "lookup_7",
+];
 
 /// The table the leg at `at` is registered under, or `label` missing from a lookup leg the plan
 /// does not carry - which `FederatedPlan::new` does not build.

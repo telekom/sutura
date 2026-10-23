@@ -30,6 +30,13 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use super::harness::{answered, bundle, two_engines};
 use crate::adapters::{CatalogUnderTest, DIM_CALENDAR, FCT_TICKET_MONTHLY, questions, read_question, stem};
 
+// A crossing relationship with more than one key (`telekom/sutura#1490`), answered. A child of this
+// module so it reads the derivation helpers as they are; `#[cfg(test)]` on the declaration so
+// `xtask test-causality` reads it as a test module.
+#[cfg(test)]
+#[path = "compound_key.rs"]
+mod compound_key;
+
 /// The data system the derived two-source catalog puts the dimension model on.
 ///
 /// A second alias and nothing else: the same `DuckDB`, opened as its own in-memory database with

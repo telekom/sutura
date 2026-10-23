@@ -1,22 +1,22 @@
 --- a/bigquery_database.go
 +++ b/bigquery_database.go
-@@ -63,6 +63,7 @@
+@@ -65,6 +65,7 @@
 
  	bulkIngestMethod      string
  	bulkIngestCompression string
 +	throughJobsQuery      bool
- }
 
- func (d *databaseImpl) Open(ctx context.Context) (adbc.ConnectionWithContext, error) {
-@@ -90,6 +91,7 @@
- 		quotaProject:               d.quotaProject,
+ 	customUserAgent string
+ }
+@@ -95,6 +96,7 @@
+ 		queryDefaults:              d.queryDefaults,
  		bulkIngestMethod:           d.bulkIngestMethod,
  		bulkIngestCompression:      d.bulkIngestCompression,
 +		throughJobsQuery:           d.throughJobsQuery,
+ 		customUserAgent:            d.customUserAgent,
  	}
 
- 	err := conn.newClient(ctx)
-@@ -301,6 +303,15 @@
+@@ -315,6 +317,15 @@
  			}
  		}
  		d.bulkIngestCompression = value
@@ -29,9 +29,9 @@
 +			}
 +		}
 +		d.throughJobsQuery = through
+ 	case OptionCustomUserAgent:
+ 		d.customUserAgent = value
  	default:
- 		return d.DatabaseImplBase.SetOption(ctx, key, value)
- 	}
 --- a/connection.go
 +++ b/connection.go
 @@ -43,6 +43,7 @@
@@ -42,8 +42,8 @@
  	"google.golang.org/api/googleapi"
  	"google.golang.org/api/impersonate"
  	"google.golang.org/api/iterator"
-@@ -88,6 +89,9 @@
- 	bulkIngestCompression string
+@@ -92,6 +93,9 @@
+ 	customUserAgent string
 
  	client *bigquery.Client
 +	// service runs jobs.query for throughJobsQuery.
@@ -52,7 +52,7 @@
  }
 
  func (c *connectionImpl) GetCatalogs(ctx context.Context, catalogFilter *string) ([]string, error) {
-@@ -899,6 +903,12 @@
+@@ -920,6 +924,12 @@
  	}
 
  	c.client = client
@@ -65,9 +65,33 @@
  	return nil
  }
 
+--- a/job_query.go
++++ b/job_query.go
+@@ -77,6 +77,9 @@
+ //
+ // post-condition: ArrowIterator and schemaEnhancer are both non-nil if err is nil; other fields may be populated if possible
+ func runQuery(ctx context.Context, logger *slog.Logger, client *bigquery.Client, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, schemaEnhancer, string, int64, error) {
++	if st.cnxn.throughJobsQuery {
++		return runThroughJobsQuery(ctx, logger, query, executeUpdate, st)
++	}
+ 	// Parameterized execution reuses the query struct, including its job ID policy, so reset it
+ 	jobIDConfig := query.JobIDConfig
+ 	defer func() { query.JobIDConfig = jobIDConfig }()
+@@ -142,6 +145,11 @@
+ 		}
+ 		activeJob.setJob(job)
+ 	}
++	return readJob(ctx, logger, client, query, executeUpdate, job, activeJob, enhancer, readRowsFastPath)
++}
++
++// readJob waits for the job and reads its statistics and any result rows.
++func readJob(ctx context.Context, logger *slog.Logger, client *bigquery.Client, query *bigquery.Query, executeUpdate bool, job *bigquery.Job, activeJob *jobCancellation, enhancer schemaEnhancer, readRowsFastPath bool) (bigquery.ArrowIterator, schemaEnhancer, string, int64, error) {
+ 	jobID := job.ID()
+
+ 	// The project id, location, and job id are all URL-safe:
 --- /dev/null
 +++ b/jobs_query.go
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,188 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -197,7 +221,7 @@
 +}
 +
 +// runThroughJobsQuery is runQuery with the job started by jobs.query.
-+func runThroughJobsQuery(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
++func runThroughJobsQuery(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, schemaEnhancer, string, int64, error) {
 +	client := st.cnxn.client
 +	req, err := queryRequest(ctx, query, client.Project(), client.Location)
 +	if err != nil {
@@ -212,7 +236,11 @@
 +		if err != nil {
 +			return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "read dry run schema")
 +		}
-+		return nil, js, "", resp.TotalBytesProcessed, nil
++		it, err := newDryRunArrowIterator(js.Statistics, "")
++		if err != nil {
++			return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "create dry run Arrow iterator")
++		}
++		return it, &jobStatisticsSchemaEnhancer{stats: js.Statistics}, "", resp.TotalBytesProcessed, nil
 +	}
 +	ref := resp.JobReference
 +	if ref == nil || ref.JobId == "" {
@@ -232,7 +260,7 @@
 +		return nil, nil, ref.JobId, -1, errToAdbcErr(adbc.StatusInternal, err, "get job")
 +	}
 +	activeJob.setJob(job)
-+	return readJob(ctx, logger, query, executeUpdate, job, activeJob)
++	return readJob(ctx, logger, client, query, executeUpdate, job, activeJob, nil, false)
 +}
 +
 +// dryRunStatus is the status a jobs.insert dry run reports; jobs.query creates no job for one.
@@ -254,7 +282,7 @@
 +}
 --- /dev/null
 +++ b/jobs_query_test.go
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,237 @@
 +package bigquery
 +
 +import (
@@ -392,8 +420,9 @@
 +	for _, r := range got {
 +		calls = append(calls, r.method+" "+r.path)
 +	}
-+	if want := []string{"POST /queries", "GET /jobs/j1", "GET /queries/j1"}; len(calls) < len(want) || !slices.Equal(calls[:len(want)], want) || slices.Contains(calls, "POST /jobs") {
-+		t.Fatalf("requests %v, want %v first and no jobs.insert", calls, want)
++	// The driver completes a DML-shaped result from job status without fetching result rows.
++	if want := []string{"POST /queries", "GET /jobs/j1"}; !slices.Equal(calls, want) {
++		t.Fatalf("requests %v, want exactly %v and no jobs.insert", calls, want)
 +	}
 +	if got[0].auth != "Bearer caller-token" {
 +		t.Errorf("jobs.query authorized as %q, want the connection's own token", got[0].auth)
@@ -491,27 +520,3 @@
 +	err := openWith(t, map[string]string{OptionQueryThroughJobsQuery: "yes"})
 +	wantInvalidArgument(t, err, OptionQueryThroughJobsQuery)
 +}
---- a/record_reader.go
-+++ b/record_reader.go
-@@ -71,6 +71,9 @@
- }
-
- func runQuery(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, st *statement) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
-+	if st.cnxn.throughJobsQuery {
-+		return runThroughJobsQuery(ctx, logger, query, executeUpdate, st)
-+	}
- 	// Parameterized execution reuses query, including its job ID policy.
- 	jobIDConfig := query.JobIDConfig
- 	defer func() { query.JobIDConfig = jobIDConfig }()
-@@ -83,6 +86,11 @@
- 		return nil, nil, "", -1, errToAdbcErr(adbc.StatusInternal, err, "run query")
- 	}
- 	activeJob.setJob(job)
-+	return readJob(ctx, logger, query, executeUpdate, job, activeJob)
-+}
-+
-+// readJob waits for job to finish and reads its statistics and any result rows.
-+func readJob(ctx context.Context, logger *slog.Logger, query *bigquery.Query, executeUpdate bool, job *bigquery.Job, activeJob *jobCancellation) (bigquery.ArrowIterator, *bigquery.JobStatus, string, int64, error) {
- 	jobID := job.ID()
-
- 	// The project id, location, and job id are all URL-safe:

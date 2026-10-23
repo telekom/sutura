@@ -854,7 +854,7 @@ fn a_metric_on_each_platform_plans_over_its_own_table() {
         let compiled = sutura_semantic::compile(
             &question,
             &sutura_domain::pinned::view::ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the question compiles");
         let sutura_semantic::Compiled::Planned { ref plan } = compiled else {

@@ -172,12 +172,9 @@ const TAG: &str = "query";
                            `cross_model_ratio_link_ambiguous`: a ratio over two fact models has a \
                            second fact that does not declare exactly one relationship for each \
                            lookup leg. \
-                           `federation_link_compound`: the one relationship crossing into the \
-                           second data system declares more than one join key, and the combiner \
-                           links two legs on a single column. `federation_link_type_mismatch`: the \
-                           two columns that relationship joins are declared as different kinds of \
-                           value, so no row can match. None is an outage and none is \
-                           worth retrying unchanged; asking without the dimension on the second \
+                           `federation_link_type_mismatch`: the two columns the crossing \
+                           relationship joins are declared as different kinds of value, so no row \
+                           can match. None is an outage and none is worth retrying unchanged; asking without the dimension on the second \
                            data system is what sometimes helps.",
             body = OutcomeBody
         ),

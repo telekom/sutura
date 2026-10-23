@@ -13,7 +13,7 @@
 use std::path::Path;
 
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content};
 use sutura_domain::warehouse::{Real, RowSet, Value};
@@ -94,7 +94,7 @@ fn answer_rows(metric: &str, rows: Vec<Vec<Value>>) -> RowSet {
 
 fn compiled(catalog: &Path) -> Compiled {
     let query: Query = serde_norway::from_str(QUESTION).expect("the question is a question");
-    compile(&query, &ScopedView::everything(&bundle(catalog)), RowCeiling::DEFAULT).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(&bundle(catalog)), Ceilings::DEFAULT).expect("the derived catalog is consistent")
 }
 
 /// **A fact whose day truncates to a month answers what one source answers.**
@@ -178,8 +178,7 @@ fn a_truncated_crossing_key_against_a_text_target_is_refused_before_either_leg_r
 fn a_second_fact_linking_at_another_grain_than_the_first_is_refused_before_any_leg_runs() {
     let query: Query = serde_norway::from_str(TWO_FACT_BY_QUARTER).expect("the question is a question");
     let compiled = |catalog: &Path| {
-        compile(&query, &ScopedView::everything(&bundle(catalog)), RowCeiling::DEFAULT)
-            .expect("the derived catalog is consistent")
+        compile(&query, &ScopedView::everything(&bundle(catalog)), Ceilings::DEFAULT).expect("the derived catalog is consistent")
     };
     let control = with_fiscal_months("federated-differential-fiscal-grain-control");
     assert!(

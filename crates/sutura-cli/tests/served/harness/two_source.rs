@@ -84,10 +84,9 @@ const CHAINED_DIMENSION: &str = "  - name: sales_area\n    column: sales_area\n 
 /// `usage_subscription` landed, `product_family` reaches through it and then
 /// `subscription_product`. Moving `daily_usage` off [`LOCAL_SOURCE`] (`bigquery.rs`'s and
 /// `two_kind`'s own deployments both do) makes hop 1 the crossing, and that hop is the compound
-/// `usage_subscription`: a federated plan links on one key, and a compound crossing is refused by
-/// name (`a_compound_crossing_relationship_is_refused_by_its_own_name`), so `product_family` would
-/// not be answered here. Called wherever `daily_usage.md` moves, so those deployments carry the
-/// dimensions they can answer.
+/// `usage_subscription`: a question grouped by `product_family` would run as two legs, and these
+/// deployments are built so that no question needs one. Called wherever `daily_usage.md` moves, so
+/// those deployments carry the dimensions they can answer.
 #[cfg(feature = "postgres")]
 pub(crate) fn without_the_product_family_dimension(root: &Path) {
     let metric = root.join("metrics").join("voice_minutes.md");

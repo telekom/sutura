@@ -1888,7 +1888,83 @@ lookup leg through the combiner. That sentence is false now. It is left as writt
 - A cell compares a plan's rows to the rows of one engine over the same CSV files. A defect both
   topologies share cancels, and this comparison cannot see it.
 
-## Twenty-third amendment, 2026-10-23: a cross-model ratio is served over up to three lookup legs
+## Twenty-third amendment, 2026-10-23: the three plan bounds are settings
+
+**Each fixed bound on a plan becomes its own `governance` key** (`github.com/telekom/sutura#1532`),
+parsed at startup into a `sutura_domain::plan` newtype and handed to the planner with the row
+ceilings:
+
+| Key                  | Newtype            | Default | Hard maximum          | Refused at plan time as      |
+| -------------------- | ------------------ | ------- | --------------------- | ---------------------------- |
+| `source_ceiling`     | `SourceCeiling`    | 4       | 16 (`MAX_LEGS`)       | `PlanSpansTooManySources`    |
+| `lookup_leg_ceiling` | `LookupLegCeiling` | 3       | 8 (`MAX_LOOKUP_LEGS`) | `PlanNeedsTooManyLookupLegs` |
+| `leg_ceiling`        | `LegCeiling`       | 6       | 16 (`MAX_LEGS`)       | `QuestionNeedsTooManyLegs`   |
+
+Absent, each is the bound it replaces, so a deployment that configures nothing is bounded as before.
+Zero and a value above the hard maximum do not load, and each refusal names the configured number.
+The three are independent: several metrics over the same two data systems run many legs and read few
+sources. The leg ceiling now bounds one metric's plan too, not only a drill-across, and the planner
+counts legs before `DrillAcrossPlan::new`, so the refusal names the setting and not the type's cap.
+`MAX_SOURCES` is deleted. Under a source ceiling below four a single metric can be refused too, so
+the twentieth amendment's "only several metrics are refused by it" holds for the default only.
+
+**The hard maximums are round numbers, not measured ones.** `MAX_LOOKUP_LEGS` (8) sizes
+`LookupLegs` and the combiner's table names; `MAX_LEGS` is twice it and sizes `DrillAcrossPlan`;
+the source ceiling cannot usefully exceed it, because every leg reads one data system. No plan over
+more than three lookup legs has been measured, and the working-set ceiling, not these, bounds bytes.
+
+**Limits.** The planner holds the configured bounds, not the plan types: `FederatedPlan::new` and
+`DrillAcrossPlan::new` hold only the hard maximums, and the executor does not count sources or legs
+again before the broker mints. A plan over the source ceiling is refused inside `compile`, before
+any mint; a cell counts the broker's mints for a one-metric plan, and none does for several metrics.
+Boot anchors and the offline `compile` command plan under the
+defaults; an anchor reads one data system and runs one leg, so no ceiling refuses one.
+
+## Twenty-fourth amendment, 2026-10-23: the planner links a crossing relationship on every one of its keys
+
+The *Nineteenth amendment* left a crossing with more than one key refused as
+`FederationLinkCompound`, and the *Eighteenth amendment* named that a shape not built and not a wrong
+answer (`telekom/sutura#1490`). The plan already carries a link label per key part and the combiner
+joins on all of them; this amendment builds the planner half and deletes the refusal.
+
+- **Built.** A lookup leg's crossing relationship gives one link part per key, in key order, under
+  the label of its leg and part. The fact leg projects each key as the plain column, or the column
+  truncated to its grain at the source, the same text the single-source join renders. The lookup leg
+  projects each target as stored under the same labels, and the combine joins on all of them. A
+  lookup leg that a later crossing joins onto also carries that crossing's parts, so the later leg
+  joins on every one.
+- **Type check per part.** `link_types_agree` reads every key pair, not the first, so a text target
+  under any part is `FederationLinkTypeMismatch` before either leg runs. A declared comparison is
+  accepted on a relationship with one key only, so it applies to part 0 and every other part compares
+  exactly.
+- **A second fact** links through a relationship whose keys are the crossing's keys, matched by
+  target column and grain and taken in the crossing's order, whatever order the second fact declares
+  them in. A key more, fewer or at another grain is `CrossModelRatioWithoutSharedDimension`, as for
+  one key.
+- **Refusal deleted.** `RefusalReason::FederationLinkCompound` and the wire code
+  `federation_link_compound` no longer exist, a breaking change. The 409 codes are one fewer. Every
+  case where a compound link could give a wrong answer has a refusal of its own: a type that cannot
+  join, a lookup tuple that repeats (`AmbiguousLink`, which groups by all parts, so a value repeated
+  on one part alone is not a repeat), a second fact at another grain, and the boot check of a
+  declared `many_to_one`.
+- **A null part** matches no lookup row, in both topologies, as `NULL = x` does in the single-source
+  join: a LEFT leg keeps the row with null remote keys and an INNER leg drops it.
+
+**Limits.**
+
+- The cells run in process, on dates. A source with a session zone that is not UTC, and BigQuery
+  `DATE_TRUNC` over a `TIMESTAMP`, are held by the rendered statement text alone, as in the
+  *Nineteenth amendment*. Oracle returns a timestamp as text and is refused against a date lookup
+  once the legs have run.
+- The cross-model ratio still reads one lookup leg, so a second fact's compound link is held for that
+  one leg only.
+- No dialect golden holds a fact leg with two link parts; the offline evidence for BigQuery,
+  ClickHouse and Oracle is the renderer's existing cells for a compound key and for a truncated one.
+- The cell for a later crossing with two keys has no hand-worked literal: it compares two engines and
+  two `DuckDB` databases to the one-source answer, anchored by a row count, so a defect that every
+  topology shares cancels in it.
+
+## Twenty-fifth amendment, 2026-10-23: a cross-model ratio is served over several lookup legs
 
 The *Twentieth amendment* left a cross-model ratio on one lookup leg, because its second fact joined
 the lookup on one link (`telekom/sutura#1493`). The plan type and the combiner now take a second fact
@@ -1911,7 +1987,8 @@ refusal. It does not change the decision.
   serves which leg. A caller can only leave dimensions out: leaving out one of two that reach the
   same model, or all that do, can plan it. The wire code
   `cross_model_ratio_needs_one_lookup_leg` no longer exists, which is a breaking change.
-- **The bound.** A ratio reads at most two fact legs and three lookup legs, five in all, under one
+- **The bound.** A ratio reads at most two fact legs and three
+  lookup legs, five in all, under one
   charge and five identities. The cap of three lookup legs and the byte ceiling are the only bounds;
   the question-wide bound is `telekom/sutura#1471`.
 

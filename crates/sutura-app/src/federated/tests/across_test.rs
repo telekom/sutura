@@ -162,7 +162,7 @@ where
         FEDERATED_BUDGET,
         test_deadline(),
         ledger,
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a drill-across answer is not an error")
     .into_outcome()

@@ -154,8 +154,8 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
     reason: "plan_spans_too_many_sources",
-    meaning: "answering would need to read from more data systems than one answer may (four at \
-              most)",
+    meaning: "answering would need to read from more data systems than this deployment lets one \
+              answer read (the refusal names its limit)",
     remedy: "Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.",
 };
 
@@ -183,8 +183,8 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
 
 const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
     reason: "plan_needs_too_many_lookup_legs",
-    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
-    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
+    meaning: "answering would need more lookup legs than this deployment serves (the refusal names its limit)",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg.",
 };
 
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
@@ -193,12 +193,6 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
               systems, so the question cannot be answered yet",
     remedy: "Not a data system being down, so do not retry as if it were. Ask the same metric \
              without the dimension on the second data system, or report it to a person.",
-};
-
-const FEDERATION_LINK_COMPOUND: Guide = Guide {
-    reason: "federation_link_compound",
-    meaning: "the crossing relationship declares more than one join key",
-    remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
 };
 
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
@@ -361,7 +355,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
-    &FEDERATION_LINK_COMPOUND,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -421,7 +414,6 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
-        RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
