@@ -3,6 +3,11 @@
 
 use super::*;
 
+/// The receiver's verdict, read by the cell itself: no helper here asserts a refusal.
+fn judged(json: Value, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
+    parsed(json, &pinned(ORDINARY), params)
+}
+
 fn lookup() -> (Value, Vec<ParamValue>) {
     let (leg, params) = region_leg(&pinned(ORDINARY));
     (sent(&leg, &pinned(ORDINARY)), params)
@@ -48,9 +53,9 @@ fn a_dimension_key_names_only_a_declared_dimension_on_its_own_column() {
     ] {
         let mut tampered = json.clone();
         tampered["keys"][0] = key(label, of_table, of_column);
-        let refused = refusal(tampered, params.clone());
+        let refused = judged(tampered, params.clone());
         assert!(
-            matches!(refused, LegNotCertified::DimensionNotDeclared { ref dimension, .. } if dimension.as_str() == label),
+            matches!(refused, Err(LegNotCertified::DimensionNotDeclared { ref dimension, .. }) if dimension.as_str() == label),
             "{label} on {of_table}.{of_column}: {refused:?}"
         );
     }
@@ -60,9 +65,9 @@ fn a_dimension_key_names_only_a_declared_dimension_on_its_own_column() {
 fn a_fact_leg_joins_only_what_its_metric_declares() {
     let (mut revenue, params) = fact();
     revenue["joins"] = json!(["orders_channel", "orders_calendar"]);
-    let refused = refusal(revenue, params);
+    let refused = judged(revenue, params);
     assert!(
-        matches!(refused, LegNotCertified::RelationshipNotCertified { ref relationship } if *relationship == relationship_name("orders_calendar")),
+        matches!(refused, Err(LegNotCertified::RelationshipNotCertified { ref relationship }) if *relationship == relationship_name("orders_calendar")),
         "{refused:?}"
     );
     for joins in [
@@ -71,9 +76,9 @@ fn a_fact_leg_joins_only_what_its_metric_declares() {
     ] {
         let (mut refund, params) = refunds();
         refund["joins"] = joins.clone();
-        let refused = refusal(refund, params);
+        let refused = judged(refund, params);
         assert!(
-            matches!(refused, LegNotCertified::RelationshipNotCertified { ref relationship } if *relationship == relationship_name("refunds_order")),
+            matches!(refused, Err(LegNotCertified::RelationshipNotCertified { ref relationship }) if *relationship == relationship_name("refunds_order")),
             "{joins}: {refused:?}"
         );
     }
@@ -87,9 +92,9 @@ fn a_second_model_leg_keys_nothing_on_the_metrics_own_table() {
         .as_array_mut()
         .expect("keys are a list")
         .push(key("0_leaf_0", "orders", "amount_cents"));
-    let refused = refusal(json, params);
+    let refused = judged(json, params);
     assert!(
-        matches!(refused, LegNotCertified::RelationshipNotCertified { ref relationship } if *relationship == relationship_name("refunds_order")),
+        matches!(refused, Err(LegNotCertified::RelationshipNotCertified { ref relationship }) if *relationship == relationship_name("refunds_order")),
         "{refused:?}"
     );
 }
@@ -101,9 +106,9 @@ fn a_measure_key_names_only_a_column_the_metric_measures_on_its_root() {
         .as_array_mut()
         .expect("keys are a list")
         .push(key("0_leaf_0", "orders", "customer_id"));
-    let refused = refusal(json, params);
+    let refused = judged(json, params);
     assert!(
-        matches!(refused, LegNotCertified::TermNotMetrics { ref column, .. } if *column == self::column("customer_id")),
+        matches!(refused, Err(LegNotCertified::TermNotMetrics { ref column, .. }) if *column == self::column("customer_id")),
         "{refused:?}"
     );
     let (mut json, params) = lookup();
@@ -111,8 +116,8 @@ fn a_measure_key_names_only_a_column_the_metric_measures_on_its_root() {
         .as_array_mut()
         .expect("keys are a list")
         .push(key("0_leaf_0", "customers", "region_id"));
-    let refused = refusal(json, params);
-    assert!(matches!(refused, LegNotCertified::KeyNotDeclared { .. }), "{refused:?}");
+    let refused = judged(json, params);
+    assert!(matches!(refused, Err(LegNotCertified::KeyNotDeclared { .. })), "{refused:?}");
 }
 
 #[test]
@@ -121,17 +126,17 @@ fn a_link_key_names_only_a_key_of_a_relationship_between_two_sources() {
     for of_column in ["status", "channel_id"] {
         let mut tampered = json.clone();
         tampered["keys"][1] = key("0_link", "orders", of_column);
-        let refused = refusal(tampered, params.clone());
+        let refused = judged(tampered, params.clone());
         assert!(
-            matches!(refused, LegNotCertified::LinkNotDeclared { ref column, .. } if column.as_str() == of_column),
+            matches!(refused, Err(LegNotCertified::LinkNotDeclared { ref column, .. }) if column.as_str() == of_column),
             "{of_column}: {refused:?}"
         );
     }
     let (mut json, params) = lookup();
     json["keys"][0] = key("0_link", "customers", "region_id");
-    let refused = refusal(json, params);
+    let refused = judged(json, params);
     assert!(
-        matches!(refused, LegNotCertified::LinkNotDeclared { ref column, .. } if column.as_str() == "region_id"),
+        matches!(refused, Err(LegNotCertified::LinkNotDeclared { ref column, .. }) if column.as_str() == "region_id"),
         "{refused:?}"
     );
 }
@@ -141,12 +146,15 @@ fn a_filter_names_only_a_filterable_dimension_and_its_allowed_values() {
     let (json, params) = lookup();
     let mut elsewhere = params.clone();
     elsewhere[0] = ParamValue::Text(String::from("MARS"));
-    let refused = refusal(json.clone(), elsewhere);
-    assert!(matches!(refused, LegNotCertified::ValueNotAllowed { .. }), "{refused:?}");
+    let refused = judged(json.clone(), elsewhere);
+    assert!(matches!(refused, Err(LegNotCertified::ValueNotAllowed { .. })), "{refused:?}");
     let mut defined = json;
     defined["filters"][0]["origin"] = json!("definition");
-    let refused = refusal(defined, params);
-    assert!(matches!(refused, LegNotCertified::FilterNotDeclared { .. }), "{refused:?}");
+    let refused = judged(defined, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::FilterNotDeclared { .. })),
+        "{refused:?}"
+    );
 
     let (json, mut params) = fact();
     params.push(ParamValue::Text(String::from("web")));
@@ -156,9 +164,9 @@ fn a_filter_names_only_a_filterable_dimension_and_its_allowed_values() {
             .as_array_mut()
             .expect("filters are a list")
             .push(requested(of_table, of_column, 3));
-        let refused = refusal(tampered, params.clone());
+        let refused = judged(tampered, params.clone());
         assert!(
-            matches!(refused, LegNotCertified::FilterNotDeclared { ref column, .. } if column.as_str() == of_column),
+            matches!(refused, Err(LegNotCertified::FilterNotDeclared { ref column, .. }) if column.as_str() == of_column),
             "{of_table}.{of_column}: {refused:?}"
         );
     }
@@ -167,9 +175,9 @@ fn a_filter_names_only_a_filterable_dimension_and_its_allowed_values() {
     status["predicate"]["equals"]["param"] = json!(3);
     refunded["filters"].as_array_mut().expect("filters are a list").push(status);
     params[3] = ParamValue::Text(String::from("refunded"));
-    let refused = refusal(refunded, params);
+    let refused = judged(refunded, params);
     assert!(
-        matches!(refused, LegNotCertified::FilterNotDeclared { ref column, .. } if column.as_str() == "status"),
+        matches!(refused, Err(LegNotCertified::FilterNotDeclared { ref column, .. }) if column.as_str() == "status"),
         "{refused:?}"
     );
 }
@@ -185,9 +193,9 @@ fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters()
             "keys": [key("0_link", root, "id")],
             "filters": [],
         });
-        let refused = refusal(json, Vec::new());
+        let refused = judged(json, Vec::new());
         assert!(
-            matches!(refused, LegNotCertified::TableNotCertified { .. }),
+            matches!(refused, Err(LegNotCertified::TableNotCertified { .. })),
             "{source_name}.{root}: {refused:?}"
         );
     }
@@ -199,8 +207,11 @@ fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters()
         "keys": [key("0_link", "orders", "amount_cents")],
         "filters": [],
     });
-    let refused = refusal(json, Vec::new());
-    assert!(matches!(refused, LegNotCertified::TableNotCertified { .. }), "{refused:?}");
+    let refused = judged(json, Vec::new());
+    assert!(
+        matches!(refused, Err(LegNotCertified::TableNotCertified { .. })),
+        "{refused:?}"
+    );
 }
 
 #[test]
@@ -213,9 +224,9 @@ fn the_metrics_own_leg_of_a_ratio_joins_its_calendar_through_the_planners_relati
 #[test]
 fn a_fact_leg_joins_its_calendar_only_through_the_relationship_the_planner_picks() {
     let (json, params) = own_ratio_leg(&["orders_ship_calendar"]);
-    let refused = refusal(json, params);
+    let refused = judged(json, params);
     assert!(
-        matches!(refused, LegNotCertified::CalendarNotJoined { ref metric } if *metric == metric_name("net_revenue")),
+        matches!(refused, Err(LegNotCertified::CalendarNotJoined { ref metric }) if *metric == metric_name("net_revenue")),
         "{refused:?}"
     );
 }
