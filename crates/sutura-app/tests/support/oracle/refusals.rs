@@ -40,7 +40,7 @@ use super::{column, dimension, source, version};
 /// second identity to satisfy; `docs/adr/0007`'s splitter serves up to the configured lookup leg ceiling by
 /// splitting the question into a fact leg and its lookup legs, so what this fake now provokes is
 /// `sutura_semantic::Compiled::Federated`. The refusal it was built for is
-/// `PlanNeedsTooManyLookupLegs`, which needs four lookup legs and no fake here has them.
+/// `PlanNeedsTooManyLookupLegs`, which needs more lookup legs than the configured ceiling and no fake here has them.
 ///
 /// **Two models and one metric rather than the whole catalog, and the reduction is deliberate.**
 /// Nothing here ever executes and nothing compares it against a document, so carrying eleven
