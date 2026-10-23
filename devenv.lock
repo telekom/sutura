@@ -20,16 +20,16 @@
     "bigquery-adbc-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789060970,
-        "narHash": "sha256-yQvdURtglqlpN4saSXCufTAOR6EMkx4MlQvbeiYPpks=",
+        "lastModified": 1792670495,
+        "narHash": "sha256-2QY2cnE4rqEnwPEp5d1iJrN0lNVnFeIgD5ns6PglNiY=",
         "owner": "adbc-drivers",
         "repo": "bigquery",
-        "rev": "5f1e65dc8a904c39cdf79ef9e19140139c1becb4",
+        "rev": "a25673b703d7e80f8ec646569997d384b343f1ea",
         "type": "github"
       },
       "original": {
         "owner": "adbc-drivers",
-        "ref": "go/v1.13.0",
+        "ref": "go/v1.14.1",
         "repo": "bigquery",
         "type": "github"
       }

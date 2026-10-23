@@ -41,7 +41,7 @@
     # including the two static musl ones - gets a hermetic, reproducible native
     # driver (telekom/sutura#913). Apache-2.0. The Go driver's `go/pkg` facade
     # (c-shared, `-tags driverlib`) is what `adbc_driver_manager` dlopens.
-    bigquery-adbc-src.url = "github:adbc-drivers/bigquery/go/v1.13.0";
+    bigquery-adbc-src.url = "github:adbc-drivers/bigquery/go/v1.14.1";
     bigquery-adbc-src.flake = false;
     # The ADBC PostgreSQL driver (`c/driver/postgresql`, C++ over libpq), self-built
     # per release triple like the BigQuery one (telekom/sutura#913). Apache-2.0.
