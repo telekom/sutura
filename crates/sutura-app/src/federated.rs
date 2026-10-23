@@ -39,7 +39,7 @@
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::plan::{ExecuteError, FederatedPlan, FederationCombiner, LegPlan, RowCeilings};
+use sutura_domain::plan::{Ceilings, ExecuteError, FederatedPlan, FederationCombiner, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -120,8 +120,8 @@ pub(crate) type LegPreflight<W, B, C> =
 /// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
 /// against the request, each leg's own presented credential, and a provenance that records BOTH
 /// identities via [`ExecutedAs::and`]. The combiner applies the working-set ceiling, and the answer
-/// carries a row cap, `row_ceilings.federated()` (`github.com/telekom/sutura#828`) - unless the plan
-/// carries case 2's `top` (`github.com/telekom/sutura#777`), in which case `row_ceilings.top()` bounds
+/// carries a row cap, `ceilings.federated()` (`github.com/telekom/sutura#828`) - unless the plan
+/// carries case 2's `top` (`github.com/telekom/sutura#777`), in which case `ceilings.top()` bounds
 /// the combined set BEFORE it is ranked, and the row cap below never runs for this answer at all.
 pub(crate) fn answer_federated<W, B, C>(
     (pinned, schema_digest): (&PinnedDefinitions, &SchemaDigest),
@@ -133,7 +133,7 @@ pub(crate) fn answer_federated<W, B, C>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 ) -> Answering<W, B, C>
 where
     W: Warehouse + Sync,
@@ -218,20 +218,11 @@ where
     // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
     // is taken once, above the combine.
     if let Some(top) = plan.top() {
-        return ranked_answer::<W, B, C>(
-            plan,
-            &answer,
-            row_ceilings,
-            top,
-            &credentials,
-            pinned,
-            schema_digest,
-            executed_as,
-        );
+        return ranked_answer::<W, B, C>(plan, &answer, ceilings, top, &credentials, pinned, schema_digest, executed_as);
     }
     bounded_answer::<W, B, C>(
         answer,
-        row_ceilings,
+        ceilings,
         &credentials,
         (pinned, schema_digest),
         executed_as,
@@ -368,7 +359,7 @@ where
 /// `metrics`.
 fn bounded_answer<'m, W, B, C>(
     answer: RowSet,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
     credentials: &BoundToTheRequest,
     (pinned, schema_digest): (&PinnedDefinitions, &SchemaDigest),
     executed_as: ExecutedAs,
@@ -379,7 +370,7 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
-    let federated_ceiling = row_ceilings.federated().get();
+    let federated_ceiling = ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
     }
@@ -450,7 +441,7 @@ const fn too_many_rows(credentials: &BoundToTheRequest, limit: u32) -> Answered 
 fn ranked_answer<W, B, C>(
     plan: &FederatedPlan,
     combined: &RowSet,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
     top: sutura_domain::query::Top,
     credentials: &BoundToTheRequest,
     pinned: &PinnedDefinitions,
@@ -462,7 +453,7 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
-    let top_ceiling = row_ceilings.top().get();
+    let top_ceiling = ceilings.top().get();
     if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), top_ceiling) {
         return Ok(Answered::under(
             credentials,
@@ -471,7 +462,7 @@ where
             },
         ));
     }
-    let federated_ceiling = row_ceilings.federated().get();
+    let federated_ceiling = ceilings.federated().get();
     if exceeds_row_cap(combined.rows().len(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
     }

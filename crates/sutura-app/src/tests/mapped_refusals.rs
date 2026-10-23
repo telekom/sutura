@@ -12,7 +12,7 @@ use sutura_domain::knowledge::{Knowledge, KnowledgeCapabilities};
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-use sutura_domain::plan::{RefusingCombiner, RowCeilings};
+use sutura_domain::plan::{Ceilings, RefusingCombiner};
 use sutura_domain::query::Query;
 use sutura_domain::raw::{RawRefusalReason, RawStatement};
 
@@ -41,7 +41,7 @@ fn an_authored_metric_through_answer_is_a_compile_failure() {
         1 << 30,
         test_deadline(),
         &SpendLedger::no_budget(),
-        RowCeilings::DEFAULT,
+        Ceilings::DEFAULT,
     )
     .expect_err("an authored metric has no representation in the semantic plan");
     assert!(

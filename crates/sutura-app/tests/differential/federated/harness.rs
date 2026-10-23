@@ -7,7 +7,7 @@ use sutura_app::Validated;
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
-use sutura_domain::plan::{RowCeiling, RowCeilings};
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
@@ -48,7 +48,7 @@ pub(super) fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) 
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
-    compile(&query, &ScopedView::everything(pinned), RowCeiling::DEFAULT).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(pinned), Ceilings::DEFAULT).expect("the derived catalog is consistent")
 }
 
 /// The one-source side: the ENGINE, over every table the bundle names.
@@ -281,6 +281,22 @@ where
     W: sutura_domain::warehouse::Warehouse + Sync,
     W::Error: Send,
 {
+    answered_under(side, query, name, combiner, combine_bytes, Ceilings::DEFAULT)
+}
+
+/// [`answered_within`] under `ceilings` rather than every default.
+pub(super) fn answered_under<W>(
+    side: &Side<W>,
+    query: &Query,
+    name: &str,
+    combiner: &sutura_exec_datafusion::DataFusionCombiner,
+    combine_bytes: u64,
+    ceilings: Ceilings,
+) -> Result<ToolOutcome, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
+{
     match sutura_app::answer(
         &side.bundle,
         query,
@@ -291,7 +307,7 @@ where
         combine_bytes,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        RowCeilings::DEFAULT,
+        ceilings,
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),
@@ -598,9 +614,9 @@ enum Split {
 
 /// Whether this question is a two-source question, decided by compiling it against both bundles.
 fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &PinnedDefinitions) -> Split {
-    let here = compile(query, &ScopedView::everything(one), RowCeiling::DEFAULT)
+    let here = compile(query, &ScopedView::everything(one), Ceilings::DEFAULT)
         .unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
-    let there = compile(query, &ScopedView::everything(two), RowCeiling::DEFAULT)
+    let there = compile(query, &ScopedView::everything(two), Ceilings::DEFAULT)
         .unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
     match (here, there) {
         (Compiled::Planned { .. }, Compiled::Federated { .. } | Compiled::DrillAcross { .. }) => Split::Yes,

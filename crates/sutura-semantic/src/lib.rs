@@ -169,7 +169,7 @@ pub enum CompileFailure {
 /// use sutura_semantic::{BundleInconsistent, compile};
 ///
 /// fn _only_a_broken_bundle(query: &Query, pinned: &PinnedDefinitions) -> Option<BundleInconsistent> {
-///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
+///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::Ceilings::DEFAULT).err()
 /// }
 /// ```
 ///
@@ -182,20 +182,20 @@ pub enum CompileFailure {
 /// use sutura_semantic::{CompileFailure, compile};
 ///
 /// fn _either_way(query: &Query, pinned: &PinnedDefinitions) -> Option<CompileFailure> {
-///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::RowCeiling::DEFAULT).err()
+///     compile(query, &ScopedView::everything(pinned), sutura_domain::plan::Ceilings::DEFAULT).err()
 /// }
 /// ```
 pub fn compile(
     query: &Query,
     view: &ScopedView<'_>,
-    row_ceiling: sutura_domain::plan::RowCeiling,
+    ceilings: sutura_domain::plan::Ceilings,
 ) -> Result<Compiled, CompileFailure> {
-    let resolved = match resolve::resolve(query, view, row_ceiling) {
+    let resolved = match resolve::resolve(query, view, ceilings.top()) {
         Ok(resolved) => resolved,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),
     };
-    match plan::plan_resolved(&resolved) {
+    match plan::plan_resolved(&resolved, ceilings.plan()) {
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),

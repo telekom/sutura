@@ -13,13 +13,13 @@
 use sutura_domain::federation::Federation;
 use sutura_domain::measure::Measure;
 use sutura_domain::plan::{
-    Arm, DrillAcrossPlan, DrillAcrossPlanError, LegPlan, LocalArm, PlanBucket, PlanColumn, PlanKey, ResultLabel, StatementTables,
+    Arm, DrillAcrossPlan, LegPlan, LocalArm, PlanBucket, PlanCeilings, PlanColumn, PlanKey, ResultLabel, StatementTables,
 };
-use sutura_domain::query::{MAX_LOOKUP_LEGS, RefusalReason};
+use sutura_domain::query::RefusalReason;
 
 use super::chain::{chain_joins, column_of};
 use super::federated::{federated_plan, leg_terms};
-use super::{Plan, PlanError, bounded_sources, prechecked, predicates_and_params};
+use super::{Plan, PlanError, bounded_legs, bounded_sources, prechecked, predicates_and_params, too_many_lookup_legs};
 use crate::resolve::{Resolution, ResolvedFilter};
 
 /// An arm for `first`, `second` and each of `rest`, joined above.
@@ -27,30 +27,32 @@ use crate::resolve::{Resolution, ResolvedFilter};
 /// # Errors
 ///
 /// A refusal any one metric earns as a question of its own, [`RefusalReason::QuestionNeedsTooManyLegs`]
-/// for a question over more legs than one answer may run, and [`RefusalReason::PlanSpansTooManySources`]
-/// for arms that read more distinct data systems between them than one answer may.
-pub(super) fn plan(first: &Resolution<'_>, second: &Resolution<'_>, rest: &[Resolution<'_>]) -> Result<Plan, PlanError> {
-    let rest = rest.iter().map(arm).collect::<Result<Vec<_>, _>>()?;
-    let plan = DrillAcrossPlan::new(arm(first)?, arm(second)?, rest).map_err(|cause| match cause {
-        DrillAcrossPlanError::TooManyLegs { legs, limit } => {
-            PlanError::Refused(RefusalReason::QuestionNeedsTooManyLegs { legs, limit })
-        }
-        other => PlanError::NotAssembledAcross(other),
-    })?;
-    bounded_sources(plan.sources())?;
+/// for arms that run more legs between them than `ceilings` allows, and
+/// [`RefusalReason::PlanSpansTooManySources`] for arms that read more distinct data systems between them.
+/// The leg count is refused before [`DrillAcrossPlan::new`] is asked, so the refusal names the
+/// configured ceiling and never the plan type's own cap.
+pub(super) fn plan(
+    first: &Resolution<'_>,
+    second: &Resolution<'_>,
+    rest: &[Resolution<'_>],
+    ceilings: PlanCeilings,
+) -> Result<Plan, PlanError> {
+    let (first, second) = (arm(first, ceilings)?, arm(second, ceilings)?);
+    let rest = rest.iter().map(|each| arm(each, ceilings)).collect::<Result<Vec<_>, _>>()?;
+    let legs = [&first, &second].into_iter().chain(&rest).map(|each| each.legs().len()).sum();
+    bounded_legs(legs, ceilings.legs())?;
+    let plan = DrillAcrossPlan::new(first, second, rest)?;
+    bounded_sources(plan.sources(), ceilings.sources())?;
     Ok(Plan::DrillAcross(Box::new(plan)))
 }
 
-/// One metric's arm: joined through one to three lookup legs when it reaches other data systems, local when none.
-fn arm(resolution: &Resolution<'_>) -> Result<Arm, PlanError> {
+/// One metric's arm: joined through its lookup legs when it reaches other data systems, local when none.
+fn arm(resolution: &Resolution<'_>, ceilings: PlanCeilings) -> Result<Arm, PlanError> {
     let (measure, lookups) = prechecked(resolution)?;
     match lookups.len() {
         0 => local_arm(resolution, measure).map(|local| Arm::Local(Box::new(local))),
-        1..=MAX_LOOKUP_LEGS => federated_plan(resolution, measure, &lookups).map(|joined| Arm::Joined(Box::new(joined))),
-        legs => Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
-            legs,
-            limit: MAX_LOOKUP_LEGS,
-        })),
+        legs if legs > ceilings.lookup_legs().get() => Err(too_many_lookup_legs(legs, ceilings)),
+        _ => federated_plan(resolution, measure, &lookups).map(|joined| Arm::Joined(Box::new(joined))),
     }
 }
 

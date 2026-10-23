@@ -160,7 +160,7 @@ fn refused_as_not_given_out(runs: Runs, at: &str, executes: usize) {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("a leg that is not among the cut's own legs is this workspace's own defect, not an answer");
     let crate::ServiceError::Miswired {
