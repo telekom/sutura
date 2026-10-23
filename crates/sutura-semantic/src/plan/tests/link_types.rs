@@ -6,7 +6,7 @@
 //! while these cells stay, and the base tree would no longer compile.
 
 use sutura_domain::catalog::{Column, ColumnType};
-use sutura_domain::plan::{KeyValue, PlanColumn};
+use sutura_domain::plan::{KeyValue, LinkKind, PlanColumn};
 
 use super::*;
 
@@ -16,6 +16,9 @@ struct Typed {
     hops: Vec<(Relationship, Model)>,
     metric: Metric,
 }
+
+/// What a crossing's origin and target columns declare, each a type or none.
+type Declared<'a> = (Option<&'a str>, Option<&'a str>);
 
 fn typed_column(name: &str, declared: Option<&str>) -> Column {
     Column::new(
@@ -109,6 +112,54 @@ impl Typed {
             )],
             ("region", &["facts_month"]),
         )
+    }
+
+    /// `facts.customer_key` and `customers.id` declared as the first two, then `customers.region_code`
+    /// against `regions.code` as the last two, `customers` on one data system and `regions` on a
+    /// third, so the second crossing is the SECOND lookup leg.
+    fn crossing_twice(first: Declared<'_>, second: Declared<'_>) -> Self {
+        Self::over(
+            fact_model(typed_column("customer_key", first.0)),
+            vec![
+                (
+                    relationship("facts_customer", ("facts", "customer_key"), ("customers", "id")),
+                    typed_model(
+                        "customers",
+                        "remote",
+                        [typed_column("id", first.1), typed_column("region_code", second.0)],
+                    ),
+                ),
+                (
+                    relationship("customers_region", ("customers", "region_code"), ("regions", "code")),
+                    typed_model(
+                        "regions",
+                        "third",
+                        [typed_column("code", second.1), Column::from(column("region"))],
+                    ),
+                ),
+            ],
+            ("region", &["facts_customer", "customers_region"]),
+        )
+    }
+
+    /// The `at`th relationship of the chain, declared to compare its keys as `kind`.
+    fn declaring(mut self, at: usize, kind: LinkKind) -> Self {
+        self.hops = self
+            .hops
+            .into_iter()
+            .enumerate()
+            .map(|(hop, (relationship, model))| {
+                if hop == at {
+                    (
+                        relationship.with_comparison(kind).expect("a test relationship has one key"),
+                        model,
+                    )
+                } else {
+                    (relationship, model)
+                }
+            })
+            .collect();
+        self
     }
 
     fn over(facts: Model, hops: Vec<(Relationship, Model)>, region: (&str, &[&str])) -> Self {
@@ -375,4 +426,105 @@ fn a_truncated_crossing_key_is_checked_as_a_date_whatever_its_origin_is_declared
 
 fn refused_truncated(origin: Option<&str>, target: Option<&str>) -> Option<RefusalReason> {
     refused(&Typed::truncated_at_the_first_hop(origin, target), false)
+}
+
+/// The comparison a federated plan of `typed` carries, or `None` for a plan that declares none.
+fn carried(typed: &Typed) -> Option<LinkKind> {
+    let Ok(Plan::Federated(planned)) = plan(&typed.asking(false)) else {
+        panic!("a crossing between data systems plans as federated");
+    };
+    planned.link_comparison()
+}
+
+/// A crossing whose two columns declare kinds the relationship's own declaration joins is planned, in
+/// either order and under both join directions, and the plan carries the declaration for the
+/// combiner. A pair the declaration does not join stays refused.
+#[test]
+fn a_bigint_key_and_a_numeric_scale_nine_key_declared_exact_decimal_plan() {
+    for (fact, lookup) in [
+        ("BIGINT", "NUMERIC(38,9)"),
+        ("NUMERIC(38,9)", "BIGINT"),
+        ("NUMERIC(38,9)", "decimal(18,2)"),
+    ] {
+        for inner in [false, true] {
+            let typed = Typed::crossing_at_the_first_hop(Some(fact), Some(lookup)).declaring(0, LinkKind::ExactDecimal);
+            assert_eq!(refused(&typed, inner), None, "{fact} against {lookup} (inner: {inner})");
+        }
+    }
+    let typed = Typed::crossing_at_the_first_hop(Some("BIGINT"), Some("NUMERIC(38,9)")).declaring(0, LinkKind::ExactDecimal);
+    assert_eq!(carried(&typed), Some(LinkKind::ExactDecimal));
+    for (fact, lookup) in [
+        ("BIGINT", "VARCHAR"),
+        ("NUMERIC(38,9)", "VARCHAR"),
+        ("DATE", "NUMERIC(38,9)"),
+        ("BIGINT", "DATE"),
+    ] {
+        let typed = Typed::crossing_at_the_first_hop(Some(fact), Some(lookup)).declaring(0, LinkKind::ExactDecimal);
+        let code = refused(&typed, false).map(|reason| reason.code());
+        assert_eq!(code, Some(MISMATCH), "{fact} against {lookup} is no cast pair");
+    }
+}
+
+#[test]
+fn a_varchar_key_and_a_bigint_key_declared_exact_integer_plan() {
+    for (fact, lookup) in [("VARCHAR", "BIGINT"), ("BIGINT", "VARCHAR"), ("VARCHAR(20)", "NUMERIC(38,0)")] {
+        for inner in [false, true] {
+            let typed = Typed::crossing_at_the_first_hop(Some(fact), Some(lookup)).declaring(0, LinkKind::ExactInteger);
+            assert_eq!(refused(&typed, inner), None, "{fact} against {lookup} (inner: {inner})");
+        }
+    }
+    let typed = Typed::crossing_at_the_first_hop(Some("VARCHAR"), Some("BIGINT")).declaring(0, LinkKind::ExactInteger);
+    assert_eq!(carried(&typed), Some(LinkKind::ExactInteger));
+    // A cast needs an anchor of the declared kind, and a decimal does not read as an integer.
+    for (fact, lookup) in [
+        ("VARCHAR", "VARCHAR"),
+        ("NUMERIC(38,9)", "BIGINT"),
+        ("VARCHAR", "NUMERIC(38,9)"),
+        ("DATE", "VARCHAR"),
+    ] {
+        let typed = Typed::crossing_at_the_first_hop(Some(fact), Some(lookup)).declaring(0, LinkKind::ExactInteger);
+        let code = refused(&typed, false).map(|reason| reason.code());
+        assert_eq!(code, Some(MISMATCH), "{fact} against {lookup} is no cast pair");
+    }
+    // The first crossing of a chain reads its own declaration, and the plan carries it.
+    let chain = Typed::crossing_twice((Some("VARCHAR"), Some("BIGINT")), (Some("BIGINT"), Some("BIGINT")))
+        .declaring(0, LinkKind::ExactInteger);
+    assert_eq!(refused(&chain, false), None);
+    assert_eq!(carried(&chain), Some(LinkKind::ExactInteger));
+    // A key truncated to a grain reaches the combiner as a date, which no integer cast reaches.
+    let truncated = Typed::truncated_at_the_first_hop(Some("BIGINT"), Some("VARCHAR")).declaring(0, LinkKind::ExactInteger);
+    assert_eq!(refused(&truncated, false).map(|reason| reason.code()), Some(MISMATCH));
+}
+
+/// A declaration does not turn an undeclared column type into a pair: with no type on one side the
+/// plan defers, as without a declaration, and the run decides.
+#[test]
+fn a_declaration_beside_an_undeclared_column_type_defers_as_before() {
+    for (fact, lookup) in [(None, Some("BIGINT")), (Some("VARCHAR"), None), (None, None)] {
+        let typed = Typed::crossing_at_the_first_hop(fact, lookup).declaring(0, LinkKind::ExactInteger);
+        assert_eq!(refused(&typed, false), None, "{fact:?} against {lookup:?}");
+        assert_eq!(carried(&typed), Some(LinkKind::ExactInteger));
+    }
+}
+
+/// The combiner reads a declaration for the FIRST lookup leg only and compares every later leg
+/// exactly, so a plan that read the second crossing's declaration would accept a pair the run refuses
+/// as `LinkTypeMismatch`.
+#[test]
+fn a_declaration_on_a_later_lookup_leg_does_not_make_the_plan_accept_what_the_run_refuses() {
+    let exact = (Some("BIGINT"), Some("BIGINT"));
+    let text_against_integer = (Some("VARCHAR"), Some("BIGINT"));
+    let later = Typed::crossing_twice(exact, text_against_integer).declaring(1, LinkKind::ExactInteger);
+    let code = refused(&later, false).map(|reason| reason.code());
+    assert_eq!(
+        code,
+        Some(MISMATCH),
+        "the second leg is compared exactly whatever its relationship declares"
+    );
+
+    let both = Typed::crossing_twice(text_against_integer, text_against_integer)
+        .declaring(0, LinkKind::ExactInteger)
+        .declaring(1, LinkKind::ExactInteger);
+    let code = refused(&both, false).map(|reason| reason.code());
+    assert_eq!(code, Some(MISMATCH), "a first leg's declaration does not carry to the second");
 }

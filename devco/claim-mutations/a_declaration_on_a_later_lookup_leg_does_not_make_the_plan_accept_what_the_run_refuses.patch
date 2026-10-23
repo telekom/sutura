@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
+index 0e8caff59..1500ece2e 100644
+--- a/crates/sutura-semantic/src/plan/federated.rs
++++ b/crates/sutura-semantic/src/plan/federated.rs
+@@ -67,7 +67,7 @@ pub(super) fn federated_plan(
+         // Decided from the catalog's declared types before either leg runs, which is what makes the
+         // refusal free: the combiner's own check needs both legs' schemas, which means running them.
+         // The combiner reads a declaration for the first lookup leg only, so only that leg's check does.
+-        let declared = relationship.comparison().filter(|_| at == 0);
++        let declared = relationship.comparison().filter(|_| at < 3);
+         link_types_agree(relationship, declared, leg.origin, leg.crossing.model)?;
+     }
+ 
