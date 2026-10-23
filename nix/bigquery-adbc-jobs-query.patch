@@ -282,7 +282,7 @@
 +}
 --- /dev/null
 +++ b/jobs_query_test.go
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,237 @@
 +package bigquery
 +
 +import (
@@ -420,8 +420,9 @@
 +	for _, r := range got {
 +		calls = append(calls, r.method+" "+r.path)
 +	}
-+	if want := []string{"POST /queries", "GET /jobs/j1", "GET /queries/j1"}; len(calls) < len(want) || !slices.Equal(calls[:len(want)], want) || slices.Contains(calls, "POST /jobs") {
-+		t.Fatalf("requests %v, want %v first and no jobs.insert", calls, want)
++	// The driver completes a DML-shaped result from job status without fetching result rows.
++	if want := []string{"POST /queries", "GET /jobs/j1"}; !slices.Equal(calls, want) {
++		t.Fatalf("requests %v, want exactly %v and no jobs.insert", calls, want)
 +	}
 +	if got[0].auth != "Bearer caller-token" {
 +		t.Errorf("jobs.query authorized as %q, want the connection's own token", got[0].auth)
