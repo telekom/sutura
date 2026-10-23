@@ -240,6 +240,12 @@ principal of the job is the user's own principal, so the job names the user. Wit
 `shared-service-user`, the job runs as the deployment's own principal, so the job does not
 name the user. Only a join of `sutura_correlation` to the audit record names the user.
 
+With `domain_delegation`, the audit record also writes `delegated_as`: the source and the address
+that the job runs as, in the masked form of the audit record, for example
+`warehouse=a***.o***@e***.c***`. The record has this field also when the call fails, for example
+when BigQuery does not answer. The full address is the `user_email` of the job in
+`INFORMATION_SCHEMA.JOBS`, which an auditor finds on `sutura_correlation`.
+
 The labels never hold the user's subject in either posture, because each principal that can
 list the jobs of the billing project can read the labels. They never hold a part of the
 question. A job that sutura runs at startup has no labels.

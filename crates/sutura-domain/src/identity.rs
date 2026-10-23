@@ -41,6 +41,7 @@ mod billing;
 mod compute_context;
 pub mod correlation;
 mod credential;
+mod delegated_as;
 mod delegation;
 mod principal;
 
@@ -52,12 +53,13 @@ pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
+pub use crate::identity::delegated_as::DelegatedAs;
 pub use crate::identity::delegation::{
     Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, RequestedAudience, UnusableAudience,
 };
 pub use crate::identity::principal::{
-    Actor, ActorChain, ActorsInOrder, Attribution, ClientClaim, ClientClaims, InvalidPrincipalId, OAuthClient, PrincipalChain,
-    RequestContext, Subject, SubjectId, SubjectKey, TaskId,
+    Actor, ActorChain, ActorsInOrder, Attribution, ClientClaim, ClientClaims, DelegatedPrincipal, InvalidPrincipalId,
+    OAuthClient, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey, TaskId,
 };
 
 /// An opaque secret that nothing can render.

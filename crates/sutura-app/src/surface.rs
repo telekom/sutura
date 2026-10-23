@@ -91,6 +91,7 @@ use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
 
+use crate::noting::NotingBroker;
 use crate::proof::{pin_schemas, validate_with};
 use crate::spend::SpendLedger;
 use crate::warehouses::Warehouses;
@@ -263,13 +264,9 @@ fn broker_failure(cause: ErasedCause) -> SurfaceFailure {
 /// The variants are exhaustive and stay exhaustive - a transport chooses its status code from the
 /// split - and each one carries the cause it was built from rather than a rendering of it.
 ///
-/// **No audit record is written for either, and that is the limit on "every call is recorded".**
-/// `sutura_domain::audit` records an *outcome* - an answer or a refusal - and neither of these is
-/// one: a bundle that will not compile and a data system that did not answer are our own faults
-/// rather than answers to a question. A transport logs them, with the cause chain, which is what
-/// [`cause_chain`] is for. Widening the record to cover a failure means giving
-/// `sutura_domain::audit::RecordedOutcome` a third variant, and that is a change to what a record
-/// means rather than a field added to one.
+/// **Each one is recorded as `failed`, by [`Self::as_str`] alone.** The audit record names the
+/// variant and who the call was delegated as; the cause chain stays on the transport's own log line,
+/// which is what [`cause_chain`] is for, because a cause can quote what a data system answered.
 #[derive(Debug, thiserror::Error)]
 pub enum SurfaceFailure {
     /// The pinned bundle would not compile this question, or the splitter built a two-source plan
@@ -338,6 +335,20 @@ pub enum SurfaceFailure {
         #[source]
         cause: ErasedCause,
     },
+}
+
+impl SurfaceFailure {
+    /// The variant's spelling, for the audit record.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match *self {
+            Self::Compile { .. } => "compile",
+            Self::Warehouse { .. } => "warehouse",
+            Self::Broker { .. } => "broker",
+            Self::NotLinked { .. } => "not_linked",
+            Self::Miswired { .. } => "miswired",
+        }
+    }
 }
 
 /// What a refresh did to the served bundle.
@@ -651,11 +662,12 @@ where
         // ONE snapshot for the whole question: taken here, passed down, never read again, so a
         // refresh that lands mid-question cannot give it a second bundle.
         let snapshot = self.snapshot();
+        let noting = NotingBroker::over(&self.broker);
         let answered = crate::answer(
             &snapshot,
             query,
             context,
-            &self.broker,
+            &noting,
             &self.warehouses,
             &self.combiner,
             self.working_set_bytes,
@@ -701,24 +713,29 @@ where
             // compiled it - a splitter or registry invariant, not something a caller can provoke.
             // Same class as `Combine`/`Unreadable` above: this workspace's own wiring, not a refusal.
             ServiceError::AnswersDoNotCertify { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-        })?;
-        // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
-        // that exists only for the transports that remember to write one, and this is the one line
-        // in the workspace where "before the outcome returns" is a property somebody can point at.
+        });
+        // Here, and before the result returns. Not in the transport: a record the transport writes is
+        // a record that exists only for the transports that remember to write one, and this is the
+        // one line in the workspace where "before the outcome returns" is a property somebody can
+        // point at. An answer, a refusal and a failure all reach it - a failure so that a call the
+        // source did not answer still names who it was delegated as.
         //
-        // Both outcomes reach it, because the `?` above is the only path that skips it - see the
-        // limit stated on `SurfaceFailure` below.
         // The deadline the credentials this call ran under carried travels with the outcome for
         // exactly this line - `docs/adr/0008` fixes it as part of the record's content, and
         // `sutura_app::Answered` is what carries it here without putting it on the caller-facing
         // provenance. `None` is a question declined before the broker was asked.
-        let labels = JobLabels::of(context);
+        let (labels, delegated) = (JobLabels::of(context), noting.delegated());
+        let record = match answered {
+            Ok(ref answered) => CallRecord::of(context.chain(), answered.outcome(), answered.executed_until()),
+            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),
+        };
         self.sink.record(
-            &CallRecord::of(context.chain(), answered.outcome(), answered.executed_until())
+            &record
                 .naming_client(context.client())
-                .labelled(&labels),
+                .labelled(&labels)
+                .delegating(&delegated),
         );
-        Ok(answered.into_outcome())
+        answered.map(crate::Answered::into_outcome)
     }
 
     fn run_sql(
@@ -727,29 +744,34 @@ where
         statement: &sutura_domain::raw::RawStatement,
         deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        let answered =
-            crate::run_sql(context, statement, &self.broker, &self.warehouses, deadline).map_err(|error| match error {
-                crate::RunSqlError::Broker { cause } => broker_failure(Box::new(cause)),
-                crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                // Only an adapter that declares `Warehouse::ACCEPTS_RAW_STATEMENTS` and then answers no
-                // raw statement reaches this: `run_sql` has already refused the deployments that are
-                // not one raw-capable source, as a refusal the caller reads. Reported as a wiring defect
-                // rather than panicking, because a port that CAN return this is a port whose contract
-                // says it might.
-                crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
-                    cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
-                },
-            })?;
-        // Same ordering as `answer`: written before the `Ok`, both outcomes reaching it, so a raw
-        // call is recorded exactly as reliably as a certified one.
-        let labels = JobLabels::of(context);
+        let noting = NotingBroker::over(&self.broker);
+        let answered = crate::run_sql(context, statement, &noting, &self.warehouses, deadline).map_err(|error| match error {
+            crate::RunSqlError::Broker { cause } => broker_failure(Box::new(cause)),
+            crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            // Only an adapter that declares `Warehouse::ACCEPTS_RAW_STATEMENTS` and then answers no
+            // raw statement reaches this: `run_sql` has already refused the deployments that are
+            // not one raw-capable source, as a refusal the caller reads. Reported as a wiring defect
+            // rather than panicking, because a port that CAN return this is a port whose contract
+            // says it might.
+            crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
+                cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
+            },
+        });
+        // Same ordering as `answer`, every outcome and failure reaching it, so a raw call is recorded
+        // exactly as reliably as a certified one.
+        let (labels, delegated) = (JobLabels::of(context), noting.delegated());
+        let record = match answered {
+            Ok(ref answered) => CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until()),
+            Err(ref failure) => CallRecord::failed_raw(context.chain(), statement, failure.as_str()),
+        };
         self.sink.record(
-            &CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until())
+            &record
                 .naming_client(context.client())
-                .labelled(&labels),
+                .labelled(&labels)
+                .delegating(&delegated),
         );
-        Ok(answered.into_outcome())
+        answered.map(crate::AnsweredRaw::into_outcome)
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
@@ -786,200 +808,4 @@ impl<W, S, B, C> core::fmt::Debug for LocalService<W, S, B, C> {
 }
 
 #[cfg(test)]
-mod tests {
-    use sutura_domain::model::Grain;
-    use sutura_domain::pinned::NotValidated;
-    use sutura_domain::pinned::view::ScopedView;
-    use sutura_domain::query::Query;
-
-    use super::{LocalService, ServiceNotStarted, Surface as _};
-    use crate::tests::{asked_by_a_person, june, metric, shared, source, test_deadline};
-    use crate::tests_support::{
-        AuthoredWarehouse, DiscardingAuditSink, FixedBroker, FixedCatalog, RawCapableWarehouse, authored_bundle, bundle_over,
-    };
-    use crate::{Warehouses, verify_and_validate};
-
-    #[test]
-    fn an_authored_metric_does_not_boot_against_the_in_process_engine() {
-        // The mechanism under test is `Warehouse::EXECUTES_AUTHORED_SQL` read inside
-        // `verify_and_validate`, through the real composition path and the one adapter every shipped
-        // binary links. Red on base by construction (`authored_bundle` cannot be built there); the
-        // compiled mutation is `const EXECUTES_AUTHORED_SQL: bool = true;` on `DataFusionWarehouse`,
-        // under which this test alone goes red.
-        let catalog = FixedCatalog::of(authored_bundle(metric(), source()));
-        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
-        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
-            source(),
-            shared(),
-            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
-        )
-        .expect("the in-process engine starts");
-        let error = LocalService::start(
-            &catalog,
-            Warehouses::of(engine),
-            DiscardingAuditSink,
-            FixedBroker::GrantsShared,
-            sutura_domain::plan::RefusingCombiner,
-            1 << 30,
-        )
-        .expect_err("the in-process engine cannot execute authored SQL");
-        let ServiceNotStarted::NotValidated { cause } = error else {
-            panic!("the authored computation must be the startup refusal: {error:?}");
-        };
-        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric: metric() });
-    }
-
-    #[test]
-    fn the_authored_sql_example_does_not_boot_against_the_in_process_engine() {
-        // The other half of the fixture above, over the directory `examples/authored-sql` and the
-        // README under it actually claim about: not a hand-built bundle, but
-        // `LocalCatalog::load` through the real composition path `sutura query`, `sutura mcp` and
-        // `sutura serve` all take. `LocalCatalog::capabilities()` is `everything()`
-        // (`crates/sutura-catalog-local/src/lib.rs`), so composing this directory first requires the
-        // example to carry every kind that declares: a second model, a relationship, a dimension
-        // reached through it, a required filter, an anchor, and the four knowledge documents. Red
-        // before those existed, at `CompositionError::Unfaithful` - a one-model, one-metric catalog
-        // does not compose, which a review of this checkpoint found before the example carried
-        // enough to reach the authored check at all. The compiled mutation is the same as the test
-        // above.
-        use std::path::Path;
-
-        use sutura_catalog_local::LocalCatalog;
-        use sutura_domain::pinned::DefinitionVersion;
-
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/authored-sql/catalog");
-        let version = DefinitionVersion::parse("authored-sql-example").expect("a fixed version is a version");
-        let catalog = LocalCatalog::new(source(), root, version);
-        let ceiling = core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive");
-        let engine = sutura_exec_datafusion::DataFusionWarehouse::new(
-            source(),
-            shared(),
-            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling),
-        )
-        .expect("the in-process engine starts");
-        let error = LocalService::start(
-            &catalog,
-            Warehouses::of(engine),
-            DiscardingAuditSink,
-            FixedBroker::GrantsShared,
-            sutura_domain::plan::RefusingCombiner,
-            1 << 30,
-        )
-        .expect_err("the example carries an authored metric the in-process engine cannot execute");
-        let ServiceNotStarted::NotValidated { cause } = error else {
-            panic!("the example must compose and then hit the authored-SQL refusal: {error:?}");
-        };
-        let metric = sutura_domain::model::MetricName::parse("order_value_spread").expect("the example metric name is a name");
-        assert_eq!(cause, NotValidated::AuthoredSqlNotExecutable { metric });
-    }
-
-    #[test]
-    fn an_adapter_declaring_authored_sql_support_passes_only_the_capability_gate() {
-        // The other direction, so the gate above is a capability read and not an unconditional
-        // refusal of the key. What the declaring fake does NOT get is an answer: the plan carries no
-        // SQL, so the compiler names the metric rather than substituting a measure. No adapter this
-        // workspace ships makes the declaration; the fake exists to hold the gate's shape.
-        let pinned = authored_bundle(metric(), source());
-        verify_and_validate(pinned.clone(), &Warehouses::of(AuthoredWarehouse::new(source(), shared())))
-            .expect("the declaring fake passes startup because this bundle has no anchors");
-        let question = Query::single(metric(), Grain::Month, june(), Vec::new(), Vec::new());
-        let error = sutura_semantic::compile(
-            &question,
-            &ScopedView::everything(&pinned),
-            sutura_domain::plan::Ceilings::DEFAULT,
-        )
-        .expect_err("an authored computation has no representation in the semantic plan");
-        match error {
-            sutura_semantic::CompileFailure::AuthoredSqlNotPlanned { metric: failed } => assert_eq!(failed, metric()),
-            other => panic!("the compiler must name the authored metric rather than substitute a measure: {other:?}"),
-        }
-    }
-
-    /// `#666`'s review, finding 3: the constructor `CallRecord::of_raw` was tested directly, but
-    /// nothing reached `LocalService::run_sql`'s own `self.sink.record(...)` call - a mutation that
-    /// builds the record and never sinks it (`crates/sutura-app/src/surface.rs:449-454`) left the
-    /// whole suite green. This calls `run_sql` through the real `Surface` implementation, over a
-    /// sink that only a genuine `record` call can reach.
-    #[test]
-    fn run_sql_writes_one_record_per_outcome_carrying_the_statement_text() {
-        use sutura_domain::audit::{AuditSink, CallRecord, RecordedOutcome};
-        use sutura_domain::raw::RawStatement;
-
-        /// `Send + Sync + 'static`, without `std::sync::Mutex` (`clippy.toml` disallows it) or a
-        /// `tokio` dependency this crate does not have: a channel is `Sync` for a `Send` item and
-        /// needs neither.
-        struct RecordingSink {
-            sender: std::sync::mpsc::Sender<String>,
-        }
-
-        impl AuditSink for RecordingSink {
-            fn record(&self, record: &CallRecord<'_>) {
-                let statement = record.statement().map(|text| text.as_str().to_owned());
-                let line = match *record.outcome() {
-                    RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows} statement={statement:?}"),
-                    RecordedOutcome::RawRefused { reason, .. } => {
-                        format!("raw_refused reason={reason:?} statement={statement:?}")
-                    }
-                    RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => String::from("certified"),
-                };
-                drop(self.sender.send(line));
-            }
-        }
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-        // An empty catalog: no metric, so no anchor `LocalService::start` would re-run against
-        // this fake - `RawCapableWarehouse` answers only the raw path, deliberately, and boot must
-        // not touch the certified one to reach it.
-        let catalog = FixedCatalog::of(bundle_over(&[]));
-        let warehouse = RawCapableWarehouse::answering_rows(source(), shared(), 1);
-        let service = LocalService::start(
-            &catalog,
-            Warehouses::of(warehouse),
-            RecordingSink { sender },
-            FixedBroker::GrantsShared,
-            sutura_domain::plan::RefusingCombiner,
-            1 << 30,
-        )
-        .expect("an empty catalog with no anchors boots against any warehouse");
-
-        let context = asked_by_a_person();
-        let answered_statement = RawStatement::parse("select 1").expect("a test statement is a statement");
-        drop(
-            service
-                .run_sql(&context, &answered_statement, test_deadline())
-                .expect("the fake warehouse answers `select 1`"),
-        );
-        let refused_statement = RawStatement::parse("refuse me").expect("a test statement is a statement");
-        drop(
-            service
-                .run_sql(&context, &refused_statement, test_deadline())
-                .expect("a refusal is a result, not an `Err`"),
-        );
-
-        let lines: Vec<String> = receiver.try_iter().collect();
-        assert_eq!(lines.len(), 2, "{lines:?}");
-        assert!(lines[0].starts_with("raw_answered"), "{lines:?}");
-        assert!(lines[0].contains("select 1"), "{lines:?}");
-        assert!(lines[1].starts_with("raw_refused"), "{lines:?}");
-        assert!(lines[1].contains("refuse me"), "{lines:?}");
-    }
-
-    #[test]
-    fn a_caller_with_no_linked_account_is_not_an_identity_provider_outage() {
-        use sutura_domain::identity::DelegationFailed;
-        let at_hop = |cause| DelegationFailed::AtHop {
-            hop: 1,
-            cause: Box::new(cause),
-        };
-        let not_linked = super::broker_failure(Box::new(at_hop(DelegationFailed::NotLinked)));
-        assert!(
-            matches!(not_linked, super::SurfaceFailure::NotLinked { .. }),
-            "{not_linked:?}"
-        );
-        let refused = super::broker_failure(Box::new(at_hop(DelegationFailed::Refused {
-            status: 400,
-            error: Some(String::from("invalid_request")),
-        })));
-        assert!(matches!(refused, super::SurfaceFailure::Broker { .. }), "{refused:?}");
-    }
-}
+mod tests;

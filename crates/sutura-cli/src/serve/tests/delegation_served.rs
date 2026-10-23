@@ -308,7 +308,7 @@ const RUN: usize = 12;
 /// cells share one, each reads every other's lines too, which only adds to what an absence is
 /// checked against. The subscriber reads `RUST_LOG` before `trace`, so the cell refuses to read a
 /// capture its probe did not reach.
-fn logged() -> &'static sutura_runtime::testing::Capture {
+pub(in crate::serve) fn logged() -> &'static sutura_runtime::testing::Capture {
     static CAPTURE: std::sync::OnceLock<sutura_runtime::testing::Capture> = std::sync::OnceLock::new();
     CAPTURE.get_or_init(|| {
         let sink = sutura_runtime::testing::Capture::new();

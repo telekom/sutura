@@ -102,6 +102,7 @@ impl AuditSink for TracingAuditSink {
         let [(_, sutura_client), (_, sutura_actor), (_, sutura_correlation)] = record
             .labels()
             .map_or([("", ""); 3], sutura_domain::warehouse::labels::JobLabels::pairs);
+        let delegated_as = delegated_as(record);
         match *record.outcome() {
             // `executed_as` is the field that answers the incident question this line exists for, and
             // it was missing until a review asked it: a verified subject's question can be ANSWERED
@@ -122,6 +123,7 @@ impl AuditSink for TracingAuditSink {
                 sutura_client,
                 sutura_actor,
                 sutura_correlation,
+                delegated_as,
                 rows,
                 definition_version = %provenance.version(),
                 executed_as = executed_as(record),
@@ -141,6 +143,7 @@ impl AuditSink for TracingAuditSink {
                 sutura_client,
                 sutura_actor,
                 sutura_correlation,
+                delegated_as,
                 reason = ?reason,
                 "refused"
             ),
@@ -160,6 +163,7 @@ impl AuditSink for TracingAuditSink {
                 sutura_client,
                 sutura_actor,
                 sutura_correlation,
+                delegated_as,
                 rows,
                 statement = statement.as_str(),
                 credential_until = executed_until(record),
@@ -176,9 +180,44 @@ impl AuditSink for TracingAuditSink {
                 sutura_client,
                 sutura_actor,
                 sutura_correlation,
+                delegated_as,
                 reason = reason.code(),
                 statement = statement.as_str(),
                 "raw_refused"
+            ),
+            // A call that failed rather than ended. Written so a delegated call the source did not
+            // answer still names the principal it was delegated as; the cause chain stays on the
+            // transport's own line.
+            RecordedOutcome::Failed { failure } => tracing::info!(
+                subject_established = who.established,
+                subject = who.subject,
+                actors = who.actors,
+                acting = who.acting,
+                task = who.task,
+                azp,
+                client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
+                delegated_as,
+                failure,
+                "failed"
+            ),
+            RecordedOutcome::RawFailed { failure, statement } => tracing::info!(
+                subject_established = who.established,
+                subject = who.subject,
+                actors = who.actors,
+                acting = who.acting,
+                task = who.task,
+                azp,
+                client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
+                delegated_as,
+                failure,
+                statement = statement.as_str(),
+                "raw_failed"
             ),
         }
     }
@@ -210,6 +249,21 @@ fn executed_until(record: &CallRecord<'_>) -> String {
         Some(Expiry::NothingExpires) => String::from("never"),
         Some(Expiry::At { unix_seconds }) => unix_seconds.to_string(),
     }
+}
+
+/// The principal each delegated leg was minted as, `source=principal` in source order, masked.
+///
+/// Empty when no leg was delegated or the call site named none - read beside `executed_as`, never on
+/// its own. Masked by [`sutura_domain::identity::DelegatedPrincipal`]'s own construction, so this
+/// cannot render a raw name.
+fn delegated_as(record: &CallRecord<'_>) -> String {
+    record.delegated_as().map_or_else(String::new, |delegated| {
+        delegated
+            .legs()
+            .map(|(source, principal)| format!("{source}={principal}"))
+            .collect::<Vec<String>>()
+            .join(",")
+    })
 }
 
 fn executed_as(record: &CallRecord<'_>) -> String {
@@ -437,5 +491,68 @@ mod tests {
         let rendered = written(&PrincipalChain::of(Subject::TheDeploymentItself));
         assert!(rendered.contains("\"subject_established\":\"deployment\""), "{rendered}");
         assert!(rendered.contains("\"subject\":\"\""), "{rendered}");
+    }
+
+    /// A grant whose one leg the deployment vouched for as `Analyst.One@Example.com`.
+    fn delegated() -> sutura_domain::identity::DelegatedAs {
+        use sutura_domain::identity::{DelegatedAs, LegCredentials, Minted, Presented, PrincipalName, SourceSet};
+        use sutura_domain::model::SourceName;
+
+        let ledger = SourceName::parse("ledger").expect("a test source is a source");
+        let name = PrincipalName::parse("Analyst.One@Example.com").expect("a test principal is a principal");
+        let credentials = LegCredentials::minted(
+            Subject::verified("analyst-one").expect("a test subject is a subject"),
+            Expiry::NothingExpires,
+            &SourceSet::of(ledger.clone()),
+            std::collections::BTreeMap::from([(ledger, Presented::SubjectPrincipal { name })]),
+        )
+        .expect("the leg covers the source");
+        DelegatedAs::minted(&Minted::Granted { credentials })
+    }
+
+    fn line(rendered: &str) -> serde_json::Value {
+        serde_json::from_str(rendered.trim()).expect("one record is one JSON object")
+    }
+
+    #[test]
+    fn a_delegated_leg_is_on_the_audit_line_masked_and_never_raw() {
+        let chain = PrincipalChain::of(Subject::verified("analyst-one").expect("a test subject is a subject"));
+        let delegated = delegated();
+        let (answer, refusal) = (an_answer_on_a_shared_source(), a_refusal());
+        for (outcome, message) in [(&answer, "answered"), (&refusal, "refused")] {
+            let rendered = crate::testing::capture(|| {
+                TracingAuditSink::new().record(&CallRecord::of(&chain, outcome, None).delegating(&delegated));
+            });
+            let record = line(&rendered);
+            assert_eq!(record["msg"], message, "{rendered}");
+            assert_eq!(record["delegated_as"], "ledger=A***.O***@E***.c***", "{rendered}");
+            assert!(
+                !rendered.contains("Analyst.One"),
+                "the raw principal reached the line: {rendered}"
+            );
+        }
+        assert_eq!(
+            line(&written(&chain))["delegated_as"],
+            "",
+            "nothing delegated is an empty field"
+        );
+    }
+
+    #[test]
+    fn a_failed_call_is_recorded_with_the_principal_it_was_delegated_as() {
+        let chain = PrincipalChain::of(Subject::verified("analyst-one").expect("a test subject is a subject"));
+        let delegated = delegated();
+        let statement = sutura_domain::raw::RawStatement::parse("select 1").expect("a test statement is a statement");
+        for (record, message) in [
+            (CallRecord::failed(&chain, "warehouse"), "failed"),
+            (CallRecord::failed_raw(&chain, &statement, "warehouse"), "raw_failed"),
+        ] {
+            let rendered = crate::testing::capture(|| TracingAuditSink::new().record(&record.delegating(&delegated)));
+            let written = line(&rendered);
+            assert_eq!(written["msg"], message, "{rendered}");
+            assert_eq!(written["failure"], "warehouse", "{rendered}");
+            assert_eq!(written["delegated_as"], "ledger=A***.O***@E***.c***", "{rendered}");
+            assert_eq!(written["subject"], "a***", "{rendered}");
+        }
     }
 }
