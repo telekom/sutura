@@ -43,6 +43,7 @@ fn fact_linking(links: &[usize]) -> LegPlan {
 fn lookup_on(on: &str, links: &[usize], keys: &[&str]) -> LegPlan {
     LegPlan::Lookup {
         source: source(on),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys: links
             .iter()

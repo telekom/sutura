@@ -53,6 +53,7 @@ fn second_fact_keyed(keys: Vec<PlanKey>) -> LegPlan {
 fn lookup_keyed(keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Lookup {
         source: source("geo"),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),

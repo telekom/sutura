@@ -94,6 +94,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
     // a missing column when a leg had not projected it. A plan that cannot be joined is not a plan.
     let unlinked = LegPlan::Lookup {
         source: source(REMOTE_SOURCE),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys: vec![key("region", FACT)],
         bindings: PlanBindings::none(),

@@ -73,8 +73,8 @@ Node A plans the question and runs the combine. Node B owns the source of one le
    filter is a declared dimension reached through its own chain, and a filter binds only values in
    that dimension's allowlist unless it is the metric's required filter; each link key is a key of
    a declared relationship between two sources; and a lookup leg is rooted where such a
-   relationship enters B's source. A lookup leg names no metric, so B reads it against every
-   metric's dimension chains into its root. The refusal is a new variant
+   relationship enters B's source. A lookup leg names its metric, with that metric's digest, and B
+   reads it against that metric's dimension chains into its root. The refusal is a new variant
    `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
    (`crates/sutura-domain/src/query.rs:137`), added in #137 step 3. A maps it to the same variant,
    naming its `node` source. So B judges a leg by B's own certified definition, and a leg that

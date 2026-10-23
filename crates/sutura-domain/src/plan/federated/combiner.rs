@@ -464,6 +464,7 @@ mod tests {
     fn lookup_plan() -> LegPlan {
         LegPlan::Lookup {
             source: source("geo"),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: table("dim_region").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),

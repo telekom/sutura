@@ -143,17 +143,18 @@ impl LegTerm {
 /// }
 /// ```
 ///
-/// A lookup leg has no bucket, no terms, no range and no metric, and that is the type rather than a
-/// check somebody runs:
+/// A lookup leg names its metric and has no bucket, no terms and no range, and that is the type
+/// rather than a check somebody runs:
 ///
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
-/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
 /// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
-/// fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
+/// fn _dated(source: SourceName, metric: MetricName, table: QualifiedTable, range: TimeRange) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
+///         metric,
 ///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::none(),
@@ -163,12 +164,13 @@ impl LegTerm {
 /// ```
 ///
 /// ```
-/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
 /// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
-/// fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
+/// fn _undated(source: SourceName, metric: MetricName, table: QualifiedTable) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
+///         metric,
 ///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::none(),
@@ -183,13 +185,20 @@ impl LegTerm {
 /// `compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
 ///
 /// ```compile_fail,E0559
-/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
 /// use sutura_domain::plan::{LegPlan, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
-/// fn _loose(source: SourceName, table: QualifiedTable, filters: Vec<PlanFilter>, params: Vec<ParamValue>) -> LegPlan {
+/// fn _loose(
+///     source: SourceName,
+///     metric: MetricName,
+///     table: QualifiedTable,
+///     filters: Vec<PlanFilter>,
+///     params: Vec<ParamValue>,
+/// ) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
+///         metric,
 ///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         filters,
@@ -199,18 +208,20 @@ impl LegTerm {
 /// ```
 ///
 /// ```
-/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
 /// use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
 /// fn _parsed(
 ///     source: SourceName,
+///     metric: MetricName,
 ///     table: QualifiedTable,
 ///     filters: Vec<PlanFilter>,
 ///     params: Vec<ParamValue>,
 /// ) -> Result<LegPlan, IncoherentBindings> {
 ///     Ok(LegPlan::Lookup {
 ///         source,
+///         metric,
 ///         table: StatementTables::only(table),
 ///         keys: Vec::new(),
 ///         bindings: PlanBindings::parse(filters, params)?,
@@ -328,9 +339,10 @@ pub enum LegPlan {
     /// Read off one remote dimension model: its join key, the columns the answer groups by, and
     /// whatever filters went with it.
     ///
-    /// No bucket, no terms, no range and no metric. A dimension table has no time column, so a range
-    /// would be a predicate on a column that is not there; nothing is aggregated, so there is no
-    /// term and no measure label; and the metric belongs to the fact leg.
+    /// No bucket, no terms and no range. A dimension table has no time column, so a range would be a
+    /// predicate on a column that is not there; and nothing is aggregated, so there is no term and
+    /// no measure label. It names the metric whose dimension it reads, which aggregates nothing here
+    /// and is what a node that receives the leg reads its dimensions against.
     ///
     /// **It may join further, inside the data system it reads.** A chain that crosses onto this
     /// system and carries on - `customers` then the `regions` beside it - is one statement here: the
@@ -344,6 +356,7 @@ pub enum LegPlan {
     /// splitter and is deliberately not a field here.
     Lookup {
         source: SourceName,
+        metric: MetricName,
         #[serde(flatten)]
         table: StatementTables,
         keys: Vec<PlanKey>,

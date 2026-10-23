@@ -414,12 +414,13 @@ fn two_fact_second() -> LegPlan {
 
 /// The `customers` half of the same question, on a second data system, carrying no filter.
 ///
-/// No bucket, no terms, no range, no metric - and with no filter, no `WHERE` clause at all. That
+/// No bucket, no terms, no range - and with no filter, no `WHERE` clause at all. That
 /// last one is why `generate_leg` cannot reuse `generate`'s unconditional fold: a whole plan always
 /// carries the two bounds of its range, and this shape carries nothing.
 fn lookup_unfiltered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         bindings: PlanBindings::none(),
@@ -435,6 +436,7 @@ fn lookup_unfiltered() -> LegPlan {
 fn lookup_joined() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: StatementTables::parse(
             table(REMOTE_TABLE),
             vec![PlanJoin::new(
@@ -462,6 +464,7 @@ fn lookup_joined() -> LegPlan {
 fn lookup_filtered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         bindings: PlanBindings::parse(

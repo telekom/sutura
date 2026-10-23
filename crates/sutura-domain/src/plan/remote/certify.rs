@@ -5,8 +5,9 @@
 //! what its metric declares ([`surface`]): each join is a hop of one of the metric's dimension
 //! chains or the planner's join to its calendar, each dimension key or filter is a declared
 //! dimension reached through its own chain, each filter value is in the dimension's allowlist, and
-//! each link is a key of a declared relationship between two sources. A lookup leg is rooted where
-//! such a relationship enters this source. A fact leg is checked in this order: the metric's
+//! each link is a key of a declared relationship between two sources. A lookup leg names its
+//! metric, whose digest is checked as a fact leg's is, and is rooted where such a relationship
+//! enters this source. A fact leg is checked in this order: the metric's
 //! digest; the root table and the joins, each from the root or an earlier join's target; the grain
 //! and the bucket column; the range's length; the terms; the joins against the metric's surface
 //! and the calendar join; the keys and filters, each bounded before it is walked; the range's
@@ -514,12 +515,18 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
         }
         LegWire::Lookup {
             source,
+            metric,
             table,
             joins,
             keys: wire_keys,
             filters: wire_filters,
         } => {
+            pinned.agrees_on(&metric)?;
             let definitions = pinned.definitions();
+            let name = metric.metric();
+            let declared = definitions
+                .metric(name)
+                .ok_or_else(|| NotAgreed::MetricUnknown { metric: name.clone() })?;
             let entered = |model: &Model| {
                 definitions.relationships().values().any(|relationship| {
                     relationship.target_model() == model.name()
@@ -529,7 +536,7 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
                 })
             };
             let statement = statement(definitions, &source, &table, &joins, entered)?;
-            let surface = Surface::of_lookup(definitions, statement.root);
+            let surface = Surface::of_lookup(definitions, declared, statement.root);
             declared_joins(&joins, &surface)?;
             let scope = Scope {
                 definitions,
@@ -542,6 +549,7 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
             declared_filters(&wire_filters, &params, (&surface, &joins), |_| false)?;
             Ok(LegPlan::Lookup {
                 source,
+                metric: name.clone(),
                 table: statement.tables,
                 keys,
                 bindings: PlanBindings::parse(wire_filters, params)?,

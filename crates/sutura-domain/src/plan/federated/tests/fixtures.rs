@@ -166,6 +166,7 @@ pub(super) fn try_distinct_plan(fact: LegPlan) -> Result<FederatedPlan, Federate
 pub(super) fn lookup_leg() -> LegPlan {
     LegPlan::Lookup {
         source: source(REMOTE_SOURCE),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys: vec![link_key(FACT), key("region", FACT)],
         bindings: PlanBindings::none(),

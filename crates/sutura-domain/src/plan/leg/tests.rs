@@ -87,6 +87,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
 fn lookup() -> LegPlan {
     LegPlan::Lookup {
         source: other_source(),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table("dim_customer").into(),
         keys: vec![
             key("customer_key", "dim_customer", "customer_key"),
@@ -145,6 +146,7 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
     // claim `docs/adr/0007` makes when it says a dimension model has no time column and no measure.
     let LegPlan::Lookup {
         ref source,
+        metric: ref _metric,
         table: ref _table,
         ref keys,
         ref bindings,

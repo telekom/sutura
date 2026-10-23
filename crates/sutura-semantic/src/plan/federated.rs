@@ -300,6 +300,7 @@ fn lookup_legs(
         })?;
         let leg = LegPlan::Lookup {
             source: shape.crossing.model.source().clone(),
+            metric: resolution.metric.name().clone(),
             table: tables,
             keys,
             bindings: super::requested_for(&filters, table)?,

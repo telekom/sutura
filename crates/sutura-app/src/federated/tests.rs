@@ -77,6 +77,7 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source,
+        metric: metric(),
         table: table.clone().into(),
         keys: vec![link(), key("region")],
         bindings: PlanBindings::none(),

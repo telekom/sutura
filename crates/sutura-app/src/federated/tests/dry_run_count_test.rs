@@ -183,6 +183,7 @@ fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
         LookupLeg::onto_fact(
             LegPlan::Lookup {
                 source: SourceName::parse(on).expect("a test source"),
+                metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
                 table: table.clone().into(),
                 keys: vec![link(leg)],
                 bindings: PlanBindings::none(),

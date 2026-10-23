@@ -355,6 +355,7 @@ mod tests {
         let federation = federation();
         let lookup = LegPlan::Lookup {
             source: SourceName::parse("geo").expect("a test source"),
+            metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: table(FACT).into(),
             keys: vec![link_key(), region_key()],
             bindings: PlanBindings::none(),

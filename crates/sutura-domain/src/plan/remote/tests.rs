@@ -316,6 +316,7 @@ fn region_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
     let params = vec![ParamValue::Text(String::from("EMEA"))];
     let leg = LegPlan::Lookup {
         source: source("crm"),
+        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: StatementTables::parse(
             table("customers"),
             vec![PlanJoin::hop(relationship, &table("customers"), regions)],
@@ -794,6 +795,7 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
     let (leg, _) = region_leg(&sender);
     let LegPlan::Lookup {
         source,
+        metric,
         table,
         keys,
         bindings,
@@ -808,6 +810,7 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
     );
     let lookup = LegPlan::Lookup {
         source,
+        metric,
         table,
         keys: std::iter::once(month).chain(keys.into_iter().skip(1)).collect(),
         bindings,

@@ -5,15 +5,15 @@
 //! definitions. [`to_wire`] is the sender's half and [`LegWire::parse`] the receiver's.
 //!
 //! **What the document names, and what it never carries.** It names a source, a table path, the
-//! relationships a statement joins through, columns, a grain and the metric a fact leg measures,
-//! with that metric's digest. It carries no join key, join type, joined table or statement: the
+//! relationships a statement joins through, columns, a grain, and the metric a fact leg measures
+//! or a lookup leg reads a dimension of, with that metric's digest. It carries no join key, join type, joined table or statement: the
 //! receiver writes each join from its own relationship
 //! ([`PlanJoin::hop`](crate::plan::PlanJoin::hop)), so a sender cannot make the receiver join on a
 //! pair of columns the receiver never declared. Parameter values are not in it either - they
 //! travel beside it as the Arrow batch the ADR decides - so `parse` takes them as an argument and
 //! [`PlanBindings::parse`](crate::plan::PlanBindings::parse) holds the pair coherent.
 //!
-//! **The digest is per metric.** A fact leg names its metric as one [`MetricDigest`], so a leg with
+//! **The digest is per metric.** A leg names its metric as one [`MetricDigest`], so a leg with
 //! no digest does not deserialize, and the receiver compares only that digest
 //! ([`PinnedDefinitions::agrees_on`]): a bundle digest that differs is not read.
 //!
@@ -23,9 +23,9 @@
 //! column, reached through its own chain; a filter is on a filterable dimension and binds only
 //! values in its allowlist, unless it is the metric's own required filter. Each link key is a key
 //! of a declared relationship between two sources, and every other key is a column the measure
-//! reads on the leg's root table. A lookup leg is rooted where such a relationship enters this
-//! source, and names no metric, so it is read against every metric's dimension chains into that
-//! root.
+//! reads on the leg's root table. A lookup leg names its metric, with that metric's digest, and is
+//! rooted where such a relationship enters this source; its joins, keys and filters are read
+//! against that metric's dimension chains into its root.
 //!
 //! **Limits, stated where the parse is.** The digest detects a version gap between two honest
 //! nodes and is no control against a hostile sender. The parse does not compare an aggregate with
@@ -149,9 +149,11 @@ pub enum LegWire {
         filters: Vec<PlanFilter>,
         range: TimeRange,
     },
-    /// One remote dimension's share: its key and the columns the answer groups by.
+    /// One remote dimension's share: its key and the columns the answer groups by, with the metric
+    /// whose dimension it reads and that metric's digest as one value.
     Lookup {
         source: SourceName,
+        metric: MetricDigest,
         table: QualifiedTable,
         joins: Vec<RelationshipName>,
         keys: Vec<WireKey>,
@@ -229,8 +231,9 @@ pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, Not
             filters,
             range,
         },
-        LegPlan::Lookup { .. } => LegWire::Lookup {
+        LegPlan::Lookup { ref metric, .. } => LegWire::Lookup {
             source,
+            metric: pinned.metric_digest(metric)?,
             table,
             joins,
             keys: keys(leg.keys())?,

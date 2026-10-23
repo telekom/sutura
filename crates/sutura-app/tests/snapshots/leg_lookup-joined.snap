@@ -4,6 +4,7 @@ expression: leg
 ---
 lookup:
   source: crm
+  metric: revenue
   table: dim_customer
   joins:
     - relationship: customer_region

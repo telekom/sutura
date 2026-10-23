@@ -87,6 +87,7 @@ fn two_fact_plan_of(
     let second_fact = fact_leg("orders", &orders_table, true);
     let lookup = LegPlan::Lookup {
         source: SourceName::parse("geo").expect("a test source"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: fact_table.clone().into(),
         keys: vec![
             link(&fact_table),

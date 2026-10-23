@@ -184,10 +184,12 @@ fn a_filter_names_only_a_filterable_dimension_and_its_allowed_values() {
 
 #[test]
 fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters() {
+    let (region, _) = lookup();
     for (source_name, root) in [("sales", "orders"), ("crm", "regions")] {
         let json = json!({
             "leg": "lookup",
             "source": source_name,
+            "metric": region["metric"],
             "table": root,
             "joins": [],
             "keys": [key("0_link", root, "id")],
@@ -202,6 +204,7 @@ fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters()
     let json = json!({
         "leg": "lookup",
         "source": "sales",
+        "metric": region["metric"],
         "table": "orders",
         "joins": [],
         "keys": [key("0_link", "orders", "amount_cents")],
@@ -210,6 +213,18 @@ fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters()
     let refused = judged(json, Vec::new());
     assert!(
         matches!(refused, Err(LegNotCertified::TableNotCertified { .. })),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_lookup_leg_reads_only_its_own_metrics_dimensions() {
+    let (mut json, params) = lookup();
+    let (refund, _) = refunds();
+    json["metric"] = refund["metric"].clone();
+    let refused = judged(json, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::RelationshipNotCertified { ref relationship }) if *relationship == relationship_name("customers_region")),
         "{refused:?}"
     );
 }

@@ -443,6 +443,7 @@ mod tests {
         let federation = sum("amount");
         let lookup = LegPlan::Lookup {
             source: source("geo"),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: table("dim_region").into(),
             keys: vec![link(), key(dimension_label("region"), "region")],
             bindings: PlanBindings::none(),
@@ -504,6 +505,7 @@ mod tests {
         let federation = sum("amount");
         let lookup = LegPlan::Lookup {
             source: source("geo"),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: table("dim_region").into(),
             keys: vec![link(), key(dimension_label("region"), "region")],
             bindings: PlanBindings::none(),
@@ -710,6 +712,7 @@ mod tests {
     fn a_local_arm_over_a_lookup_leg_does_not_construct() {
         let lookup = LegPlan::Lookup {
             source: source("geo"),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: table("dim_region").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),

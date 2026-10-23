@@ -2,9 +2,9 @@
 //!
 //! A fact leg rooted on its metric's own model may join the hops of the metric's dimension chains
 //! that stay on its source, and key or filter on a dimension whose whole chain stays there. A lookup
-//! leg names no metric, so it is read against every metric: it may join the hops a dimension chain
-//! makes after it crosses into the leg's root, and key or filter on a dimension whose chain ends
-//! there. A fact leg bucketed on a shared calendar may also join that calendar, through the one
+//! leg names its metric too: it may join the hops one of that metric's dimension chains makes after
+//! it crosses into the leg's root, and key or filter on a dimension whose chain ends there. A fact
+//! leg bucketed on a shared calendar may also join that calendar, through the one
 //! relationship the planner picks for its root.
 
 use std::collections::BTreeSet;
@@ -77,38 +77,37 @@ impl<'d> Surface<'d> {
         surface
     }
 
-    /// A lookup leg's surface: what every metric's dimension chains name after crossing into `root`.
-    pub(super) fn of_lookup(definitions: &'d Definitions, root: &'d Model) -> Self {
+    /// A lookup leg's surface: what `metric`'s dimension chains name after crossing into `root`.
+    pub(super) fn of_lookup(definitions: &'d Definitions, metric: &'d Metric, root: &'d Model) -> Self {
         let mut surface = Self {
             joins: BTreeSet::new(),
             reaches: Vec::new(),
         };
-        for metric in definitions.metrics().values() {
-            let Some(own) = definitions.model(metric.model()) else {
+        let Some(own) = definitions.model(metric.model()) else {
+            return surface;
+        };
+        let dimensions = metric.dimensions().values();
+        for dimension in dimensions {
+            let Some(hops) = dimension.via().and_then(|chain| hops(definitions, chain)) else {
                 continue;
             };
-            for dimension in metric.dimensions().values() {
-                let Some(hops) = dimension.via().and_then(|chain| hops(definitions, chain)) else {
-                    continue;
-                };
-                let mut at = own;
-                let mut through: Option<Vec<&'d RelationshipName>> = None;
-                for &(name, target) in &hops {
-                    if target.source() != at.source() {
-                        through = (target.name() == root.name()).then(Vec::new);
-                    } else if let Some(joined) = through.as_mut() {
-                        joined.push(name);
-                        surface.joins.insert(name);
-                    }
-                    at = target;
+            let mut at = own;
+            let mut through: Option<Vec<&'d RelationshipName>> = None;
+            for &(name, target) in &hops {
+                if target.source() != at.source() {
+                    through = (target.name() == root.name()).then(Vec::new);
+                } else if let Some(joined) = through.as_mut() {
+                    joined.push(name);
+                    surface.joins.insert(name);
                 }
-                if let Some(through) = through {
-                    surface.reaches.push(Reach {
-                        dimension,
-                        column: PlanColumn::new(at.table_name().clone(), dimension.column().clone()),
-                        through,
-                    });
-                }
+                at = target;
+            }
+            if let Some(through) = through {
+                surface.reaches.push(Reach {
+                    dimension,
+                    column: PlanColumn::new(at.table_name().clone(), dimension.column().clone()),
+                    through,
+                });
             }
         }
         surface
