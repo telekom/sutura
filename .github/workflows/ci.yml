@@ -1807,6 +1807,7 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_REGION: ${{ vars.SUTURA_BQ_REGION }}
         run: nix run .#bigquery-conformance -- --no-capture
       - name: Remove credential
         if: always()
