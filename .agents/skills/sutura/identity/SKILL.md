@@ -86,8 +86,11 @@ proof of impersonation.
   federated loopback source keeps; only `Warehouse::*_billed` carries labels, so the boot path
   and a plain `execute` (the conformance pack) send none; under `shared-service-user` the job's
   principal is the deployment, so only the `sutura_correlation` join names the user; the
-  read-back from `INFORMATION_SCHEMA.JOBS` is a live cell of the `bigquery-conformance` CI job
-  that has no recorded run yet and fails while the `SUTURA_BQ_REGION` variable is unset.
+  read-back from `INFORMATION_SCHEMA.JOBS` is a live cell of the `bigquery-conformance` CI job; it
+  passed there (it finds the job by its correlation label and reads its client and actor labels
+  back), under the one CI identity in `shared-service-user`, so it shows BigQuery kept the labels
+  for that run and nothing about a served human caller, and it fails while `SUTURA_BQ_REGION` is
+  unset.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
