@@ -67,8 +67,9 @@ const QUERY: Subject = Subject {
     // `FederationLinkAmbiguous` (two relationships into one remote model are two lookup legs);
     // `PlanSpansTooManySources` stays and now counts the distinct data systems one answer reads
     // against four. 36 since `AddressOutsideDomains` (`telekom/sutura#1554`) refuses an address
-    // outside a `domain_delegation` source's `address_domains`.
-    variants: variants(36),
+    // outside a `domain_delegation` source's `address_domains`. 35 since the planner DELETED
+    // `FederationLinkCompound` (`telekom/sutura#1490`): a compound crossing key links on every part.
+    variants: variants(35),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

@@ -105,10 +105,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
         RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
         RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkCompound {
-            source: source("geo"),
-            relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
-        },
         RefusalReason::FederationLinkTypeMismatch {
             relationship: RelationshipName::parse("orders_customer").expect("a fixture relationship is a relationship"),
             fact_type: quoted("DATE"),
@@ -178,7 +174,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
             | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::FederationNotExecutable
-            | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
             | RefusalReason::PlanTablesShareAnIdentifier { .. }

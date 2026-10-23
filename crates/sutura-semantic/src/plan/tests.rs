@@ -24,6 +24,7 @@ use super::{Plan, PlanError};
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter, ResolvedFilterValue, ResolvedJoin};
 use crate::{CompileFailure, Compiled};
 
+mod compound_link;
 mod corpus;
 mod drill_across;
 mod federation;
@@ -502,80 +503,5 @@ fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
             PlanError::Refused(RefusalReason::PlanTablesShareAnIdentifier { ref table }) if table.as_str() == "dim_customers"
         ),
         "expected the shared-identifier refusal, got {refused:?}"
-    );
-}
-
-/// A relationship crossing into a remote source with MORE THAN ONE join key is refused by its
-/// own name, `FederationLinkCompound`, which names the one relationship that declares them. Built by hand for the same reason every federated-splitter cell here
-/// is: `Definitions::assemble` never puts two remote-crossing keys in front of a caller's
-/// question on its own, so the splitter's own guard is the only venue that provokes this.
-#[test]
-fn a_compound_crossing_relationship_is_refused_by_its_own_name() {
-    let facts = model("facts", "local", &["amount_cents", "day", "customer_key", "month"]);
-    let customers = model("customers", "elsewhere", &["customer_key", "month", "region_code"]);
-    let crossing = Relationship::new(
-        RelationshipName::parse("facts_customer").expect("a test relationship is a relationship"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        ModelName::parse("customers").expect("a test model is a model"),
-        JoinType::ManyToOne,
-        JoinKeys::of(vec![
-            JoinKey::Equal {
-                origin: column("customer_key"),
-                target: column("customer_key"),
-            },
-            JoinKey::Equal {
-                origin: column("month"),
-                target: column("month"),
-            },
-        ])
-        .expect("two keys is a non-empty set"),
-    );
-    let metric = Metric::new(
-        MetricName::parse("revenue").expect("a test metric is a metric"),
-        ModelName::parse("facts").expect("a test model is a model"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        Vec::new(),
-        column("day"),
-        BTreeSet::from([Grain::Month]),
-        vec![declared("region", "region_code", &["facts_customer"])],
-        None,
-        Description::default(),
-        Audience::Open,
-    )
-    .expect("one dimension is distinct");
-    let dimension = metric
-        .dimension(&dimension_name("region"))
-        .expect("the metric declares this dimension");
-    let resolution = Resolution {
-        metric: &metric,
-        metrics: vec![&metric],
-        model: &facts,
-        grain: Grain::Month,
-        range: TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range"),
-        keys: vec![ResolvedDimension {
-            dimension,
-            join: Some(vec![ResolvedJoin {
-                relationship: &crossing,
-                model: &customers,
-            }]),
-        }],
-        filters: Vec::new(),
-        top: None,
-        cross: None,
-    };
-    let Err(refused) = plan(&resolution) else {
-        panic!("a compound crossing relationship must be refused, not planned");
-    };
-    assert!(
-        matches!(
-            refused,
-            PlanError::Refused(RefusalReason::FederationLinkCompound { ref relationship, .. })
-                if relationship.as_str() == "facts_customer"
-        ),
-        "expected FederationLinkCompound naming facts_customer, got {refused:?}"
     );
 }

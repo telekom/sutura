@@ -131,8 +131,6 @@ Every reason you can be given, and what to do about each:
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the
   dimension on the second data system, or report it to a person.
-- **federation_link_compound** - the crossing relationship declares more than one join key.
-  Nothing you can change. Report it: it is a fact about how the relationship is defined.
 - **federation_link_type_mismatch** - the crossing relationship joins two columns the catalog
   declares as kinds of value that do not join.
   Nothing you can change. Report it: it is a fact about how the two columns are declared.

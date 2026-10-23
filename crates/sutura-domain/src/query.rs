@@ -277,15 +277,6 @@ pub enum RefusalReason {
     /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
     /// capability and nothing else.
     FederationNotExecutable,
-    /// The relationship crossing into the remote data system declares more than one join key.
-    ///
-    /// One relationship, correctly declared - a compound key is exactly what `telekom/sutura#967`
-    /// exists to allow inside one data system - but the combiner links two legs on a single column,
-    /// and a compound key would need one per column, which the lookup leg's shape does not carry.
-    FederationLinkCompound {
-        source: SourceName,
-        relationship: RelationshipName,
-    },
     /// The two columns the crossing relationship joins are declared as kinds of value that do not
     /// join: different kinds, or a pair the relationship's declared comparison does not join.
     ///
@@ -749,10 +740,6 @@ mod tests {
             RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkCompound {
-                source: SourceName::parse("warehouse").expect("a test source"),
-                relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
-            },
             RefusalReason::FederationLinkTypeMismatch {
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
                 fact_type: crate::plan::QuotedColumnType::from(

@@ -66,7 +66,7 @@ use sentences::{
 };
 
 use super::RefusalBody;
-use link::{federation_link_compound, link_type_mismatch};
+use link::link_type_mismatch;
 
 /// The status, the code and the sentence for one refusal.
 ///
@@ -241,13 +241,9 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the combiner does not express, a measure that cannot recombine, an ill-formed federated
         // answer, or two tables sharing an identifier - all 409, because none of them is a data system
         // being down and a caller must not retry any of them as an outage. Each sentence is built by
-        // its own small function below `refused` - split out once `github.com/telekom/sutura#967`'s
-        // `FederationLinkCompound` pushed this match over `clippy::too_many_lines`.
+        // its own small function below `refused` - split out once that match grew over
+        // `clippy::too_many_lines`.
         RefusalReason::FederationNotExecutable => (StatusCode::CONFLICT, federation_not_executable()),
-        RefusalReason::FederationLinkCompound {
-            ref source,
-            ref relationship,
-        } => (StatusCode::CONFLICT, federation_link_compound(source, relationship)),
         RefusalReason::FederationLinkTypeMismatch {
             ref relationship,
             fact_type: ref fact,
@@ -405,10 +401,10 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
 }
 
 // The sentences for the federation/plan-shape 409 group above, one function each - split out
-// of [`refused`] once `github.com/telekom/sutura#967`'s `FederationLinkCompound` pushed that match
-// over `clippy::too_many_lines`. Each is well formed and cannot be expressed as one statement yet,
-// which is a conflict between what was asked and what this deployment can build rather than a
-// data system being down, so none of them is worth retrying as an outage.
+// of [`refused`] once that match grew over `clippy::too_many_lines`. Each is well formed and
+// cannot be expressed as one statement yet, which is a conflict between what was asked and what
+// this deployment can build rather than a data system being down, so none of them is worth retrying
+// as an outage.
 
 fn federation_not_executable() -> String {
     String::from("this deployment has no adapter that can execute one half of a question spanning two data systems")
@@ -499,7 +495,6 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::PlanSpansTooManySources { .. }
         | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
         | RefusalReason::FederationNotExecutable
-        | RefusalReason::FederationLinkCompound { .. }
         | RefusalReason::FederationLinkTypeMismatch { .. }
         | RefusalReason::FederatedAnswerNotWellFormed { .. }
         | RefusalReason::PlanTablesShareAnIdentifier { .. }
