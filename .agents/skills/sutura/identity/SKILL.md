@@ -73,6 +73,24 @@ proof of impersonation.
   stops that. A client literally named `unreadable` renders like an unreadable claim. The one
   exception is leg 1's own check: with `extra_scope_claims` set, a token whose `azp` is absent or
   names the API is refused.
+- **BigQuery job labels name the agent, not the user, and join; they authorize nothing.**
+  `sutura_domain::warehouse::labels::JobLabels::of(&RequestContext)` is the only constructor, so a
+  label holds the token's client, the MASKED immediate actor and 128 random bits DRAWN for the
+  request, never a question's text - but `RequestContext`'s constructors are `pub`. The caller's
+  `x-correlation-id` stays in the span: `RequestContext::correlated` takes `[u8; 16]`, not
+  text. The same values reach the audit line
+  (`sutura_client`/`sutura_actor`/`sutura_correlation`).
+  Limits: the id is unique with overwhelming probability, not by construction; a host that will
+  not supply randomness refuses the request `503 no_randomness` before any job
+  (`sutura_http::correlation::resolve` and `capability::establish_asked`), the same rule the
+  federated loopback source keeps; only `Warehouse::*_billed` carries labels, so the boot path
+  and a plain `execute` (the conformance pack) send none; under `shared-service-user` the job's
+  principal is the deployment, so only the `sutura_correlation` join names the user; the
+  read-back from `INFORMATION_SCHEMA.JOBS` is a live cell of the `bigquery-conformance` CI job; it
+  passed there (it finds the job by its correlation label and reads its client and actor labels
+  back), under the one CI identity in `shared-service-user`, so it shows BigQuery kept the labels
+  for that run and nothing about a served human caller, and it fails while `SUTURA_BQ_REGION` is
+  unset.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
@@ -241,8 +259,9 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   grants that matter are BigQuery roles and row access policies whose member is
   `principal://.../subject/<sub>`. **Limit:** nothing here sees a live IAM policy, so a caller with
   no grant fails at BigQuery on their FIRST QUESTION (`source_refused`), never at boot - a REST
-  `403` access denial reads as `Unauthorized` only through `nix/bigquery-adbc-forbidden.patch`
-  (upstream maps it to `Internal`, which answers 503 `unavailable`). The observed adapter run
+  `403` access denial reads as `Unauthorized` in the pinned driver's `go/util.go`, held by its
+  `TestErrToAdbcErrMapsRestForbidden` in the driver build's check phase on runnable targets.
+  The observed adapter run
   below shows Google accepting fixture federation; it does not show a served human caller.
 - **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
   a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no

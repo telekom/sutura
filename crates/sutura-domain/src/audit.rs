@@ -72,6 +72,7 @@ use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
 use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
 use crate::source::ExecutedAs;
+use crate::warehouse::labels::JobLabels;
 
 /// Where a record of one call goes.
 ///
@@ -122,6 +123,7 @@ pub struct CallRecord<'a> {
     outcome: RecordedOutcome<'a>,
     executed_until: Option<Expiry>,
     client: Option<&'a ClientClaims>,
+    labels: Option<&'a JobLabels>,
 }
 
 /// How the call ended, as the two outcomes a question has.
@@ -180,6 +182,7 @@ impl<'a> CallRecord<'a> {
             outcome: recorded,
             executed_until,
             client: None,
+            labels: None,
         }
     }
 
@@ -210,6 +213,7 @@ impl<'a> CallRecord<'a> {
             outcome: recorded,
             executed_until,
             client: None,
+            labels: None,
         }
     }
 
@@ -283,6 +287,21 @@ impl<'a> CallRecord<'a> {
     #[inline]
     pub const fn client(&self) -> Option<&ClientClaims> {
         self.client
+    }
+
+    /// The same record, carrying the labels this call's data-system jobs were given, so a job and
+    /// its record join on the same values.
+    #[inline]
+    #[must_use]
+    pub const fn labelled(mut self, labels: &'a JobLabels) -> Self {
+        self.labels = Some(labels);
+        self
+    }
+
+    /// The labels this call's jobs carried, where the call site named them.
+    #[inline]
+    pub const fn labels(&self) -> Option<&JobLabels> {
+        self.labels
     }
 
     /// Who the call is attributable to.

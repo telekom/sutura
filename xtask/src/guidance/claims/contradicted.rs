@@ -480,7 +480,7 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "`sutura_app`'s federated answer path builds the second leg and \
                   `crates/sutura-domain/src/plan/federated.rs` declares what groups the \
                   two, so the record's shape is settled rather than provisional. A plan names one \
-                  data system per LEG and at most three lookup legs beside the fact leg - more \
+                  data system per LEG and at most `governance.lookup_leg_ceiling` lookup legs (three by default) beside the fact leg - more \
                   refuse as `PlanNeedsTooManyLookupLegs` - and whether the legs decide identity the \
                   same way is not a plan-stage fact at all, since a posture belongs to an opened \
                   adapter; it is not refused ANYWHERE since `docs/adr/0040`, and is disclosed per \

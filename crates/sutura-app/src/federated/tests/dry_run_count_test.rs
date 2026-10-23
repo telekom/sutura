@@ -116,7 +116,7 @@ fn a_federated_answer_dry_runs_each_leg_exactly_once() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a federated answer is not an error")
     .into_outcome();
@@ -249,7 +249,7 @@ fn three_lookup_legs_dry_run_once_each() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a federated answer is not an error")
     .into_outcome();
@@ -292,7 +292,7 @@ fn a_three_lookup_answer_is_refused_before_minting_when_its_last_lookup_leg_cann
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .map(crate::Answered::into_outcome);
 

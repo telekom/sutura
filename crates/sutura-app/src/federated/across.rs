@@ -13,7 +13,7 @@
 
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{Arm, DrillAcrossCombiner, DrillAcrossPlan, RowCeilings};
+use sutura_domain::plan::{Arm, Ceilings, DrillAcrossCombiner, DrillAcrossPlan};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::SchemaDigest;
@@ -38,7 +38,7 @@ pub(crate) fn answer_drill_across<W, B, C>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 ) -> Answering<W, B, C>
 where
     W: Warehouse + Sync,
@@ -62,11 +62,12 @@ where
     // The legs are the plan's own, by address: `Charged` spends a token per `&LegPlan` that
     // `plan.legs()` returned, and `execute_across` walks `Arm::legs` over the same plan.
     let every_leg = core::iter::once((fact, fact_warehouse)).chain(other_legs.iter().copied());
-    let charged = match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
+    let labels = sutura_domain::warehouse::labels::JobLabels::of(context);
+    let charged = match preflight_and_charge::<_, B, C>(every_leg, (&credentials, &labels), deadline, ledger, context) {
         Ok(charged) => charged,
         Err(error) => return error.answered_under(&credentials),
     };
-    let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, &credentials, deadline);
+    let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
     let assembled = match settled::<W, B, C>(
         combiner,
         &credentials,
@@ -78,7 +79,7 @@ where
     let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     bounded_answer::<W, B, C>(
         answer,
-        row_ceilings,
+        ceilings,
         &credentials,
         (pinned, schema_digest),
         executed_as,

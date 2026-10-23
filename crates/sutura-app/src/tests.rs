@@ -72,7 +72,7 @@ where
         1 << 30,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
 }
 
@@ -757,7 +757,7 @@ fn top_with_more_than_one_metric_is_refused_before_a_plan_exists() {
     let compiled = sutura_semantic::compile(
         &asked,
         &sutura_domain::pinned::view::ScopedView::everything(&pinned),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is not a compile error");
     let sutura_semantic::Compiled::Refused { reason } = compiled else {

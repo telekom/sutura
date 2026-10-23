@@ -44,6 +44,7 @@ pub mod billed;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod csv;
 pub mod estimate;
+pub mod labels;
 /// The pre-flight's own vocabulary: what a data system said about the tables a bundle names.
 ///
 /// **`pub mod` with no re-export beside it, and that is a documentation decision rather than a
@@ -583,10 +584,12 @@ pub trait Warehouse {
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error>;
 
-    /// [`dry_run`](Warehouse::dry_run) for a leg that may name who pays.
+    /// [`dry_run`](Warehouse::dry_run) for a request-time leg: one that may name who pays, and that
+    /// carries the request's [`labels::JobLabels`].
     ///
     /// **Fails closed by default**: a source that does not override this bills no job to a payer,
-    /// so a stated one is refused before the source is asked, never dropped.
+    /// so a stated one is refused before the source is asked, never dropped. The default ignores the
+    /// labels: only a source whose jobs take labels reads them.
     ///
     /// # Errors
     ///
@@ -596,6 +599,7 @@ pub trait Warehouse {
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        _labels: &labels::JobLabels,
         deadline: Deadline,
     ) -> billed::BilledResult<PreFlight, Self::Error> {
         billed::unstated(bill_to, self.source())?;
@@ -613,6 +617,7 @@ pub trait Warehouse {
         executable: Executable<'_>,
         presented: &Presented,
         bill_to: &BillTo,
+        _labels: &labels::JobLabels,
         deadline: Deadline,
     ) -> billed::BilledResult<ResultBatches, Self::Error> {
         billed::unstated(bill_to, self.source())?;

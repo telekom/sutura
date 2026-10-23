@@ -42,7 +42,10 @@ mod anchor_tests;
 
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
-pub use crate::plan::ceiling::{FederatedRowCeiling, InvalidFederatedRowCeiling, RowCeilings};
+pub use crate::plan::ceiling::{
+    Ceilings, FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidPlanCeiling, LegCeiling, LookupLegCeiling, PlanCeilings,
+    SourceCeiling,
+};
 pub use crate::plan::drill_across::{
     Arm, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, DrillAcrossPlanError, LocalArm, MAX_LEGS,
 };

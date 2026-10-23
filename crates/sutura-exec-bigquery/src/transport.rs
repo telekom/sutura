@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
 
 /// How a request writes its bind parameters.
@@ -125,6 +126,7 @@ pub struct JobRequest<'job> {
     billing_project: &'job ProjectId,
     identity: JobIdentity<'job>,
     deadline: JobDeadline,
+    labels: Option<&'job JobLabels>,
 }
 
 impl<'job> JobRequest<'job> {
@@ -154,7 +156,23 @@ impl<'job> JobRequest<'job> {
             billing_project,
             identity,
             deadline,
+            labels: None,
         }
+    }
+
+    /// The same request, carrying the asking request's [`JobLabels`]. `None` is the boot path and a
+    /// plain port call with no request behind it, and such a job carries no labels.
+    #[must_use]
+    pub(crate) const fn labelled(mut self, labels: Option<&'job JobLabels>) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    /// The labels this job is to carry, where a request asked for it.
+    #[inline]
+    #[must_use]
+    pub const fn labels(&self) -> Option<&JobLabels> {
+        self.labels
     }
 
     /// The statement, with its values still absent from it.
@@ -243,7 +261,7 @@ impl<'job> JobRequest<'job> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectId(String);
 
-/// The dataset unqualified table names resolve in, as this adapter holds it.
+/// A dataset identifier, as this adapter holds it.
 ///
 /// `Ord` for the reason [`ProjectId`]'s is derived, plus one of its own: this type PRESERVES case, so
 /// the derived ordering and the derived equality are the case-sensitive comparison a dataset id
@@ -491,8 +509,7 @@ impl HeldTables {
 impl DatasetAddress {
     /// Addresses a dataset: the source's billing project, the dataset's own project, and its id.
     ///
-    /// The first two are equal for an unqualified model and differ for a cross-project one, which is
-    /// exactly the case the role distinction exists for.
+    /// The billing and owning projects may differ; each model names its owning project explicitly.
     #[must_use]
     pub const fn of(billed_to: ProjectId, project: ProjectId, dataset: DatasetId) -> Self {
         Self {
@@ -540,7 +557,7 @@ impl DatasetAddress {
 pub enum NamedResource {
     /// The project a job is billed to - [`ProjectId`].
     Project,
-    /// The dataset unqualified table names resolve in - [`DatasetId`].
+    /// The dataset named by a model or metadata request - [`DatasetId`].
     Dataset,
 }
 
@@ -716,10 +733,9 @@ pub trait JobTransport {
     /// if it had.
     ///
     /// **It takes a [`DatasetAddress`] rather than reading one off a [`JobRequest`]**, because there
-    /// is no job: a bundle whose models name a second dataset is one call per dataset, and a request
-    /// carries exactly one default dataset. The project is the one the dataset lives in, which for an
-    /// unqualified model is the source's billing project and for a qualified one is whatever the path
-    /// names.
+    /// is no job: a bundle whose models name a second dataset needs one call per dataset.
+    /// Each model names its owning project and dataset explicitly; a job's billing project does not
+    /// resolve either component.
     ///
     /// # Errors
     ///

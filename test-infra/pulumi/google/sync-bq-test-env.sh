@@ -98,6 +98,7 @@ for gh_name, f in paths.items():
 
 VARS = {
     "SUTURA_BQ_DATASET": "ci_dataset",
+    "SUTURA_BQ_REGION": "ci_dataset_location",
     "SUTURA_BQ_TABLE": "ci_table",
     # The policied dataset `cross_resource.rs`'s live fixture reads alongside `SUTURA_BQ_RLS_PROJECT`
     # (`crates/sutura-exec-bigquery/tests/cross_resource_fixture/live.rs`, removed with the HTTP wire

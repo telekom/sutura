@@ -126,7 +126,7 @@ pub enum LookupLegsError {
 
 #[cfg(test)]
 mod tests {
-    use super::{LegAt, LookupLeg, LookupLegs, LookupLegsError};
+    use super::{LegAt, LookupLeg, LookupLegs, LookupLegsError, MAX_LOOKUP_LEGS};
     use crate::model::{SourceName, TableName};
     use crate::plan::PlanBindings;
     use crate::plan::leg::LegPlan;
@@ -143,12 +143,18 @@ mod tests {
     }
 
     #[test]
-    fn lookup_legs_are_one_to_three_and_name_only_an_earlier_parent() {
+    fn lookup_legs_are_one_to_the_cap_and_name_only_an_earlier_parent() {
         let onto_fact = || LookupLeg::onto_fact(leg(), true);
+        assert_eq!(MAX_LOOKUP_LEGS, 8, "the plan type carries eight lookup legs");
         assert_eq!(LookupLegs::parse(Vec::new()), Err(LookupLegsError::Count { legs: 0 }));
+        let at_cap =
+            LookupLegs::parse(std::iter::repeat_with(onto_fact).take(MAX_LOOKUP_LEGS).collect()).expect("the cap is carried");
+        assert_eq!(at_cap.legs().len(), MAX_LOOKUP_LEGS);
         assert_eq!(
-            LookupLegs::parse(vec![onto_fact(), onto_fact(), onto_fact(), onto_fact()]),
-            Err(LookupLegsError::Count { legs: 4 })
+            LookupLegs::parse(std::iter::repeat_with(onto_fact).take(MAX_LOOKUP_LEGS + 1).collect()),
+            Err(LookupLegsError::Count {
+                legs: MAX_LOOKUP_LEGS + 1
+            })
         );
         let chain = LookupLegs::parse(vec![onto_fact(), LookupLeg::onto_lookup(leg(), 0, false), onto_fact()])
             .expect("a leg onto an earlier leg is a tree");

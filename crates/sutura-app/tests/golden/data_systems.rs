@@ -91,7 +91,7 @@ where
             1 << 30,
             crate::adapters::deadline(),
             &sutura_app::SpendLedger::no_budget(),
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         );
         settings(W::NAME).bind(|| match answered.map(sutura_app::Answered::into_outcome) {
             Ok(ToolOutcome::Refusal { ref reason }) => {
@@ -166,7 +166,7 @@ where
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
@@ -251,7 +251,7 @@ where
             1 << 30,
             crate::adapters::deadline(),
             &sutura_app::SpendLedger::no_budget(),
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME))
         .into_outcome();
@@ -343,7 +343,7 @@ where
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
@@ -393,7 +393,7 @@ where
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a non-zero denominator answers")
     .into_outcome();
@@ -619,7 +619,7 @@ fn every_corpus_plan_on_bigquery_names_the_project_it_bills() {
         let compiled = compile(
             &read_question(&path),
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {

@@ -28,7 +28,7 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
         let Compiled::Planned { ref plan } = compiled else {
@@ -73,7 +73,7 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
@@ -205,7 +205,7 @@ fn quotes_every_identifier(dialect: Dialect) {
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
@@ -264,7 +264,7 @@ fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {
@@ -372,7 +372,7 @@ fn some_question_asks_for_every_grain_a_metric_declares() {
         let compiled = compile(
             &asked_question,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {

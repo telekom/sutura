@@ -94,7 +94,7 @@ const TAG: &str = "run_sql";
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,
-            description = "Worth retrying: `at_capacity` or `identity_unavailable`.",
+            description = "Worth retrying: `at_capacity`, `identity_unavailable` or `no_randomness`.",
             body = crate::problem::ProblemBody
         ),
     )

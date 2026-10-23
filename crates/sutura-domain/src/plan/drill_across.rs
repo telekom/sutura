@@ -17,7 +17,8 @@
 //! **The cap is a property of the plan.** Each leg's result is held whole before the combine, so the
 //! memory a question can hold grows with its leg count. [`MAX_LEGS`] bounds it at construction. The
 //! refusal a caller sees, [`RefusalReason::QuestionNeedsTooManyLegs`](crate::query::RefusalReason),
-//! is raised by the planner when [`DrillAcrossPlan::new`] refuses a plan over the cap.
+//! is raised by the planner against the deployment's [`LegCeiling`](crate::plan::LegCeiling), which
+//! is at most [`MAX_LEGS`], before it builds this.
 //!
 //! `docs/adr/20261018144926-drill-across-for-several-metrics` records the decision and its limits.
 
@@ -33,8 +34,13 @@ use crate::plan::federated::{FederatedPlan, labels};
 use crate::plan::leg::LegPlan;
 use crate::plan::{AnswerKey, PlanBucket, ResultLabel};
 
-/// The most legs one question may run, over every arm.
-pub const MAX_LEGS: usize = 6;
+/// The most legs any deployment may let one question run, over every arm, and the most a
+/// [`DrillAcrossPlan`] holds.
+///
+/// The configured bound is [`LegCeiling`](crate::plan::LegCeiling), six by default; this is the
+/// one the plan type is sized to. Twice [`MAX_LOOKUP_LEGS`](crate::query::MAX_LOOKUP_LEGS), a round
+/// number stated as one, not a measured one.
+pub const MAX_LEGS: usize = 2 * crate::query::MAX_LOOKUP_LEGS;
 
 /// One metric's share of a drill-across question.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -693,14 +699,18 @@ mod tests {
 
     #[test]
     fn a_plan_holds_the_cap_and_refuses_one_leg_past_it() {
-        assert_eq!(MAX_LEGS, 6);
-        let at_cap = DrillAcrossPlan::new(joined("a"), joined("b"), vec![joined("c")]).expect("three joined arms are six legs");
+        assert_eq!(MAX_LEGS, 16);
+        let joined_arms = |names: &[&str]| names.iter().copied().map(joined).collect::<Vec<_>>();
+        let at_cap = DrillAcrossPlan::new(joined("a"), joined("b"), joined_arms(&["c", "d", "e", "f", "g", "h"]))
+            .expect("eight joined arms are sixteen legs");
         assert_eq!(at_cap.legs().len(), MAX_LEGS);
-        let past = DrillAcrossPlan::new(joined("a"), joined("b"), vec![joined("c"), local("d")]);
+        let mut over = joined_arms(&["c", "d", "e", "f", "g", "h"]);
+        over.push(local("i"));
+        let past = DrillAcrossPlan::new(joined("a"), joined("b"), over);
         assert_eq!(
             past,
             Err(DrillAcrossPlanError::TooManyLegs {
-                legs: 7,
+                legs: 17,
                 limit: MAX_LEGS
             })
         );

@@ -210,6 +210,9 @@ fn switched(permitted: Permitted, run_sql_enabled: bool) -> Permitted {
 /// documentation. Where an absent value IS a refusal is the agent surface: a mount only happens
 /// behind a declared inbound identity, and the outer `require_verified_caller` layer installed
 /// there refuses an unverified caller before this ever runs.
+///
+/// **It does refuse a request `crate::correlation::resolve` drew no job-label id for**, as
+/// `503 no_randomness`, so no job runs without the label that ties it to its audit record.
 pub(crate) async fn establish_asked(
     State(state): State<crate::state::ServiceState>,
     mut request: Request,
@@ -230,7 +233,14 @@ pub(crate) async fn establish_asked(
         },
     );
     let permitted = switched(permitted, state.settings().tools().run_sql_enabled());
-    drop(request.extensions_mut().insert(Asked::established(context, permitted)));
+    let Some(&crate::correlation::Drawn(drawn)) = request.extensions().get::<crate::correlation::Drawn>() else {
+        return Failure::NoRandomness.into_response();
+    };
+    drop(
+        request
+            .extensions_mut()
+            .insert(Asked::established(context.correlated(drawn), permitted)),
+    );
     next.run(request).await
 }
 

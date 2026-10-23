@@ -1101,3 +1101,10 @@ where each stands, without touching the earlier dated text.
   `a_dataset_on_an_unmapped_platform_is_refused`). The composition root's mapping is
   `catalogs[].platforms` (`sutura-cli`'s `open_one_datahub_catalog`; `bigquery` alone when none is
   written) - so any unmapped platform is refused by name at load, not guessed.
+
+## Fifth amendment, 2026-10-22: a plan reads up to the configured source ceiling, not two
+
+The lineage paragraph's "a plan reads at most two data systems" is no longer true. One answer reads
+at most as many distinct data systems as `governance.source_ceiling` allows - four by default, 16
+at most (`docs/adr/0007-federating-across-different-data-systems.md`, twenty-third amendment). The
+conclusion stands: knowing where a column came from upstream still changes nothing on the query path.

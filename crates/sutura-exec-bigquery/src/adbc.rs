@@ -236,7 +236,8 @@ pub enum AdbcError {
 /// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
 /// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
 /// what the service does with it, and what it does not bound. It also clears the driver's default
-/// project, for the reason [`DEFAULT_PROJECT_OPTION`] gives.
+/// project, for the reason [`DEFAULT_PROJECT_OPTION`] gives, and labels a request-time job with
+/// [`LABELS_OPTION`].
 ///
 /// **And the TIME bound: a request-time call's own [`Deadline`] becomes the job's `jobTimeoutMs`.**
 /// `now` is an argument for the reason [`Deadline::remaining_at`] takes one. A deadline already
@@ -258,6 +259,17 @@ where
         OptionValue::String(String::new()),
     )
     .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    if let Some(labels) = request.labels() {
+        let pairs = labels
+            .pairs()
+            .into_iter()
+            .map(|(key, value)| (String::from(key), serde_json::Value::from(value)));
+        stmt.set_option(
+            OptionStatement::Other(LABELS_OPTION.to_owned()),
+            OptionValue::String(serde_json::Value::Object(pairs.collect()).to_string()),
+        )
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    }
     stmt.set_option(
         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
         OptionValue::Int(max_bytes_billed.as_int()),
@@ -324,12 +336,17 @@ const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 /// means: every table this adapter renders is named `project.dataset.table`.
 const DEFAULT_PROJECT_OPTION: &str = "bigquery.query.default_project_id";
 
+/// The statement option `nix/bigquery-adbc-job-labels.patch` adds for the query job's labels: a JSON
+/// object the driver copies into `QueryConfig.Labels`. Sent only for a request that carries
+/// [`sutura_domain::warehouse::labels::JobLabels`], so a boot-path job is unlabelled.
+const LABELS_OPTION: &str = "bigquery.query.labels";
+
 /// The pinned driver's own name for `BigQuery`'s `maximumBytesBilled` job configuration.
 ///
 /// **Read off the driver's option table rather than guessed** - `go/driver.go`'s
 /// `OptionQueryMaxBytesBilled`, which `go/statement.go`'s `SetOptionInt` assigns to
 /// `queryConfig.MaxBytesBilled`. The flake pins that source (`bigquery-adbc-src`, tag
-/// `go/v1.13.0`), so the string and the version it is true of move together.
+/// `go/v1.14.1`), so the string and the version it is true of move together.
 ///
 /// **An INTEGER option, which decides how it is sent.** `adbc_ffi` routes an
 /// `OptionValue::Int` to `StatementSetOptionInt` only at ADBC 1.1.0, and the driver is opened at
@@ -572,7 +589,7 @@ fn worker_vanished() -> AdbcError {
 /// asked for runs only once it eventually does, however long that is. Once `execute` DOES return -
 /// normally, with the driver's own error, or because the pinned driver's own `Cancel`
 /// (`go/statement_cancel.go`'s `Cancel`, pinned at `bigquery-adbc-src` rev
-/// `5f1e65dc8a904c39cdf79ef9e19140139c1becb4`) interrupted a still-open network call underneath it -
+/// `a25673b703d7e80f8ec646569997d384b343f1ea`) interrupted a still-open network call underneath it -
 /// the queued cancel runs and the `BigQuery` job it names is asked to stop, whether or not this
 /// process is still waiting for an answer.
 ///

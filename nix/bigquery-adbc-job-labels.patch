@@ -1,0 +1,173 @@
+diff --git a/driver.go b/driver.go
+--- a/driver.go
++++ b/driver.go
+@@ -95,6 +95,8 @@
+ 	OptionQueryDryRun                  = "bigquery.query.dry_run"
+ 	OptionQueryCreateSession           = "bigquery.query.create_session"
+ 	OptionQueryJobTimeout              = "bigquery.query.job_timeout"
++	// OptionQueryLabels sets the labels of the query job from a JSON object of string keys to string values.
++	OptionQueryLabels = "bigquery.query.labels"
+
+ 	OptionQueryJobCreationMode = "bigquery.query.job_creation_mode"
+ 	JobCreationModeRequired    = "required"
+diff --git a/labels_test.go b/labels_test.go
+--- a/labels_test.go
++++ b/labels_test.go
+@@ -0,0 +1,116 @@
++package bigquery
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"maps"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++)
++
++// The labels option reaches BigQuery as the query job's labels, empty values included.
++func TestQueryLabels(t *testing.T) {
++	ctx := context.Background()
++	bodies := make(chan []byte, 4)
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.HasPrefix(r.URL.Path, "/bigquery/v2/") && r.Method == http.MethodPost {
++			b, _ := io.ReadAll(r.Body)
++			select {
++			case bodies <- b:
++			default:
++			}
++		}
++		http.Error(w, `{"error":{"code":404,"message":"none"}}`, http.StatusNotFound)
++	}))
++	defer srv.Close()
++
++	db, err := NewDriver(memory.DefaultAllocator).NewDatabaseWithContext(ctx, map[string]string{
++		"bigquery.project_id":        "test-project",
++		"bigquery.endpoint":          srv.URL + "/bigquery/v2/",
++		"bigquery.storage_endpoint":  srv.Listener.Addr().String(),
++		"bigquery.auth_type":         "access_token",
++		"bigquery.auth.access_token": "caller-token",
++	})
++	if err != nil {
++		t.Fatalf("database: %v", err)
++	}
++	cnxn, err := db.Open(ctx)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cnxn.Close(ctx)
++	stmt, err := cnxn.NewStatement(ctx)
++	if err != nil {
++		t.Fatalf("statement: %v", err)
++	}
++	defer stmt.Close(ctx)
++	want := map[string]string{
++		"sutura_client":      "agent",
++		"sutura_actor":       "",
++		"sutura_correlation": "c-1",
++	}
++	if err := stmt.SetOption(ctx, OptionQueryLabels, `{"sutura_client":"agent","sutura_actor":"","sutura_correlation":"c-1"}`); err != nil {
++		t.Fatalf("set option: %v", err)
++	}
++	if err := stmt.SetSqlQuery(ctx, "SELECT 1"); err != nil {
++		t.Fatalf("query: %v", err)
++	}
++	_, _, _ = stmt.ExecuteQuery(ctx)
++	select {
++	case body := <-bodies:
++		var req struct {
++			Labels        map[string]string `json:"labels"`
++			Configuration struct {
++				Labels map[string]string `json:"labels"`
++			} `json:"configuration"`
++		}
++		if err := json.Unmarshal(body, &req); err != nil {
++			t.Fatalf("decode request body %s: %v", body, err)
++		}
++		got := req.Labels
++		if got == nil {
++			got = req.Configuration.Labels
++		}
++		if !maps.Equal(got, want) {
++			t.Fatalf("labels %v, want %v", got, want)
++		}
++	default:
++		t.Fatal("no request reached the endpoint")
++	}
++}
++
++func TestQueryLabelsNotAnObjectRefused(t *testing.T) {
++	ctx := context.Background()
++	db, err := NewDriver(memory.DefaultAllocator).NewDatabaseWithContext(ctx, map[string]string{
++		"bigquery.project_id":        "test-project",
++		"bigquery.auth_type":         "access_token",
++		"bigquery.auth.access_token": "caller-token",
++	})
++	if err != nil {
++		t.Fatalf("database: %v", err)
++	}
++	cnxn, err := db.Open(ctx)
++	if err != nil {
++		t.Fatalf("open: %v", err)
++	}
++	defer cnxn.Close(ctx)
++	stmt, err := cnxn.NewStatement(ctx)
++	if err != nil {
++		t.Fatalf("statement: %v", err)
++	}
++	defer stmt.Close(ctx)
++	for _, v := range []string{"[1]", "null"} {
++		err = stmt.SetOption(ctx, OptionQueryLabels, v)
++		var adbcErr adbc.Error
++		if !errors.As(err, &adbcErr) || adbcErr.Code != adbc.StatusInvalidArgument {
++			t.Fatalf("%s: got %v, want InvalidArgument", v, err)
++		}
++	}
++}
+diff --git a/statement.go b/statement.go
+--- a/statement.go
++++ b/statement.go
+@@ -24,6 +24,7 @@
+
+ import (
+ 	"context"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"log/slog"
+@@ -46,7 +47,6 @@
+ // - TimePartitioning
+ // - RangePartitioning
+ // - Clustering
+-// - Labels
+ // - DestinationEncryptionConfig
+ // - SchemaUpdateOptions
+ // - ConnectionProperties
+@@ -343,7 +343,21 @@
+ 			}
+ 		}
+ 		st.bulkIngestCompression = v
++	case OptionQueryLabels:
++		if v == "" {
++			st.queryConfig.Labels = nil
++		} else {
++			var labels map[string]string
++			// `null` decodes to a nil map and would clear the labels: refused like any non-object.
++			if err := json.Unmarshal([]byte(v), &labels); err != nil || labels == nil {
++				return adbc.Error{
++					Code: adbc.StatusInvalidArgument,
++					Msg:  fmt.Sprintf("[bq] `%s` must be a JSON object of string labels", OptionQueryLabels),
++				}
++			}
++			st.queryConfig.Labels = labels
++		}
+ 	case OptionQueryJobCreationMode, OptionQueryResultsFormat, OptionQueryArrowSerializationOptionsBufferCompression:
+ 		return setQueryOption(&st.queryConfig, key, v)
+
+ 	default:

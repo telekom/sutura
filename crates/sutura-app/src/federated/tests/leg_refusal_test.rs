@@ -36,7 +36,7 @@ fn a_federated_leg_that_hits_the_volume_bound_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a bound is a refusal, not an error")
     .into_outcome();
@@ -93,7 +93,7 @@ fn a_federated_answer_within_the_row_cap_but_too_wide_to_encode_is_refused() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a bound is a refusal, not an error")
     .into_outcome();
@@ -138,7 +138,7 @@ fn a_federated_leg_the_source_refuses_is_refused_not_a_503() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a source refusal is a refusal, not an error")
     .into_outcome();
@@ -283,7 +283,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a link type mismatch is a refusal, not an error")
     .into_outcome();
@@ -310,7 +310,7 @@ fn a_federated_answer_whose_legs_disagree_on_link_column_type_is_refused_under_a
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a link type mismatch is a refusal, not an error")
     .into_outcome();
@@ -355,7 +355,7 @@ fn when_both_legs_fail_the_fact_legs_error_is_the_one_surfaced() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("two transient failures leave as a warehouse error, not a refusal");
     assert!(
@@ -393,7 +393,7 @@ fn a_federated_address_outside_the_delegated_domains_is_its_own_refusal() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();

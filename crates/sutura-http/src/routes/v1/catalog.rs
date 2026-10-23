@@ -54,7 +54,8 @@ const TAG: &str = "catalog";
         (
             status = 503,
             description = "Worth retrying: `identity_unavailable`, the key set this deployment \
-                           verifies tokens against could not be read.",
+                           verifies tokens against could not be read; or `no_randomness`, the host \
+                           gave no randomness for the request's job-label id.",
             body = crate::problem::ProblemBody
         ),
     )

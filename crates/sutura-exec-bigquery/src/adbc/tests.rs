@@ -461,6 +461,58 @@ fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ce
 }
 
 #[test]
+fn a_request_time_job_carries_exactly_the_three_labels_of_the_verified_caller_and_its_request() {
+    use sutura_domain::identity::{Actor, ActorChain, ClientClaim, ClientClaims, PrincipalChain, RequestContext, Subject};
+    use sutura_domain::warehouse::labels::JobLabels;
+
+    let chain = PrincipalChain::of(Subject::verified("person-1").expect("a test subject is a subject"))
+        .acting(ActorChain::of(Actor::parse("agent").expect("a test actor is an actor")));
+    let context = RequestContext::of(chain)
+        .naming_client(ClientClaims::of(Some(ClientClaim::read(Some("claude-code"))), None))
+        .correlated([0x11; 16]);
+    let labels = JobLabels::of(&context);
+    let project = project();
+    let request = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
+    let mut statement = Recording::new();
+    super::prepared(
+        &mut statement,
+        &request.labelled(Some(&labels)),
+        None,
+        a_gibibyte(),
+        Instant::now(),
+    )
+    .expect("the recording statement accepts the labels");
+    let sent: Vec<serde_json::Value> = statement
+        .string_options
+        .iter()
+        .filter(|(key, _)| key == "bigquery.query.labels")
+        .map(|(_, value)| serde_json::from_str(value).expect("the labels option is JSON"))
+        .collect();
+    assert_eq!(
+        sent,
+        vec![serde_json::json!({
+            "sutura_client": "claude-code",
+            "sutura_actor": "a___-d27ffc08",
+            "sutura_correlation": "11111111111111111111111111111111",
+        })],
+        "the job's labels are not exactly the caller's client, masked actor and drawn request id"
+    );
+    // THE CONTROL: a request with no labels (the boot path) sends no labels option at all.
+    let mut unlabelled = Recording::new();
+    let boot = JobRequest::new("SELECT 1", &[], &project, JobIdentity::Transport, JobDeadline::Boot);
+    super::prepared(&mut unlabelled, &boot, None, a_gibibyte(), Instant::now())
+        .expect("the recording statement accepts the boot path");
+    assert!(
+        unlabelled
+            .string_options
+            .iter()
+            .all(|(key, _)| key != "bigquery.query.labels"),
+        "{:?}",
+        unlabelled.string_options
+    );
+}
+
+#[test]
 fn every_statement_this_transport_submits_clears_the_drivers_default_project() {
     // The driver seeds a statement's default project from `bigquery.project_id`, and with no
     // dataset beside it the service refuses every inserted job: *Required parameter is missing:

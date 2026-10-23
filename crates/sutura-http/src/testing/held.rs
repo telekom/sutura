@@ -3,8 +3,8 @@
 //!
 //! Split out of `testing.rs` for that file's own `max-lines` reason.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The longest a held statement is held, whatever the test does.
@@ -18,6 +18,8 @@ const ARRIVAL_WITHIN: Duration = Duration::from_secs(10);
 pub(super) struct Switch {
     held: AtomicBool,
     holding: AtomicUsize,
+    /// The `sutura_correlation` label of the first job the warehouse was asked to run.
+    labelled: OnceLock<String>,
 }
 
 impl Switch {
@@ -39,6 +41,11 @@ impl Switch {
         }
         self.holding.fetch_sub(1, Ordering::SeqCst);
     }
+
+    /// Keeps the first job's label; a later one is not recorded.
+    pub(super) fn label(&self, correlation: &str) {
+        drop(self.labelled.set(String::from(correlation)));
+    }
 }
 
 /// Whether the fake is currently refusing to return.
@@ -52,6 +59,11 @@ impl Held {
     /// From here on, a statement does not come back.
     pub(crate) fn arm(&self) {
         self.0.held.store(true, Ordering::SeqCst);
+    }
+
+    /// The `sutura_correlation` label of the first job run, if one ran.
+    pub(crate) fn labelled(&self) -> Option<&str> {
+        self.0.labelled.get().map(String::as_str)
     }
 
     /// Let whatever is waiting finish, so the blocking pool drains with the test.

@@ -6,8 +6,12 @@
 use sutura_domain::plan::{Arm, DrillAcrossPlan};
 
 use super::*;
-use crate::plan::plan_resolved;
 use crate::resolve::{CrossModel, Resolved};
+
+/// [`crate::plan::plan_resolved`] under the default ceilings.
+fn plan_resolved(resolved: &Resolved<'_>) -> Result<Plan, PlanError> {
+    crate::plan::plan_resolved(resolved, PlanCeilings::DEFAULT)
+}
 
 fn june() -> TimeRange {
     TimeRange::new(
@@ -375,5 +379,103 @@ fn an_answer_over_several_metrics_reads_four_data_systems_and_not_five() {
         ),
         "local, a, b, c and d are five data systems, got {:?}",
         refused.err()
+    );
+}
+
+/// The configured ceiling bounds several metrics both ways: raised to five, the five-source answer the
+/// default refuses plans; lowered to three, a four-source answer is refused naming three.
+#[test]
+fn several_metrics_are_held_to_the_configured_ceiling_and_not_the_default() {
+    let ceiling = |sources| ceilings(sources, 3, 6);
+    let twin = twin();
+    let first = Corpus::spread("a", "b", "local", "local");
+    let five = Corpus::spread("c", "d", "local", "local");
+    let raised = across(crate::plan::plan_resolved(
+        &arms_over(&first, &five, &twin, &["region"]),
+        ceiling(5),
+    ));
+    assert_eq!(
+        raised.sources().collect::<BTreeSet<_>>().len(),
+        5,
+        "local, a, b, c and d plan under a ceiling of five"
+    );
+    let four = Corpus::spread("a", "c", "local", "local");
+    let lowered = crate::plan::plan_resolved(&arms_over(&first, &four, &twin, &["region"]), ceiling(3));
+    assert!(
+        matches!(
+            lowered,
+            Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
+                sources: 4,
+                limit: 3
+            }))
+        ),
+        "local, a, b and c are four data systems over a ceiling of three, got {:?}",
+        lowered.err()
+    );
+}
+
+/// The configured leg ceiling counts every leg of every metric, each side of a value below and above
+/// the default six: two legs per joined arm, so four arms plan under eight and five are refused
+/// naming eight, and two arms plan under four and three are refused naming four.
+#[test]
+fn several_metrics_are_held_to_the_configured_leg_ceiling_lower_or_higher_than_six() {
+    let corpus = TwoSources::new();
+    let metrics: Vec<Metric> = ["a", "b", "c", "d", "e"].into_iter().map(simple).collect();
+    let ask = |count: usize, legs: usize| {
+        let named: Vec<&Metric> = metrics.iter().take(count).collect();
+        crate::plan::plan_resolved(&resolved(&corpus, &named, true), ceilings(4, 3, legs))
+    };
+    assert_eq!(across(ask(4, 8)).legs().len(), 8, "four joined arms plan under eight");
+    assert!(
+        matches!(
+            ask(5, 8),
+            Err(PlanError::Refused(RefusalReason::QuestionNeedsTooManyLegs {
+                legs: 10,
+                limit: 8
+            }))
+        ),
+        "five joined arms are ten legs, over eight"
+    );
+    assert_eq!(across(ask(2, 4)).legs().len(), 4, "two joined arms plan under four");
+    assert!(
+        matches!(
+            ask(3, 4),
+            Err(PlanError::Refused(RefusalReason::QuestionNeedsTooManyLegs {
+                legs: 6,
+                limit: 4
+            }))
+        ),
+        "three joined arms are six legs, over four"
+    );
+}
+
+/// The configured lookup leg ceiling bounds each arm of several metrics, each side of the default three:
+/// raised to four, the arm over four lookup legs the default refuses plans; lowered to one, an arm over
+/// two is refused naming one.
+#[test]
+fn an_arm_is_held_to_the_configured_lookup_leg_ceiling_lower_or_higher_than_three() {
+    let twin = twin();
+    let four = Corpus::spread("a", "b", "c", "d");
+    let raised = across(crate::plan::plan_resolved(
+        &arms_over(&four, &four, &twin, &["region", "brand"]),
+        ceilings(5, 4, 10),
+    ));
+    assert_eq!(
+        raised.legs().len(),
+        10,
+        "a fact leg and four lookup legs, for each of two arms"
+    );
+    let two = Corpus::placed("a", "a", "b");
+    let lowered = crate::plan::plan_resolved(&arms_over(&two, &two, &twin, &["region", "brand"]), ceilings(4, 1, 6));
+    assert!(
+        matches!(
+            lowered,
+            Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
+                legs: 2,
+                limit: 1
+            }))
+        ),
+        "an arm over two lookup legs is refused naming the configured one, got {:?}",
+        lowered.err()
     );
 }

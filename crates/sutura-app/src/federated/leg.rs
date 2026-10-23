@@ -19,6 +19,7 @@ use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContex
 use sutura_domain::plan::{Executable, FederationCombiner, LegPlan, LegRunner};
 use sutura_domain::query::{RefusalReason, ResultBound};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{PreFlight, ResultBatches, Warehouse};
 
 use crate::{ServiceError, SpendLedger, Warehouses, deadline_exceeded, now_in_unix_seconds};
@@ -28,7 +29,7 @@ use super::{LegAnswer, LegCleared, LegError, LegPreflight};
 /// Pre-flights one leg against its own adapter, under that source's own presented credential.
 pub(crate) fn dry_run_leg<W, B, C>(
     warehouse: &W,
-    credentials: &BoundToTheRequest,
+    (credentials, labels): (&BoundToTheRequest, &JobLabels),
     leg: &LegPlan,
     deadline: Deadline,
 ) -> LegPreflight<W, B, C>
@@ -54,7 +55,7 @@ where
     // produces. `working_set_exhausted` and `result_did_not_fit` are deliberately not asked of the
     // pre-flight, mirroring the mono path: a check reads no data, so neither bound can have fired.
     let bill_to = credentials.bill_to_for(leg.source());
-    match warehouse.dry_run_billed(Executable::Leg(leg), presented, bill_to, deadline) {
+    match warehouse.dry_run_billed(Executable::Leg(leg), presented, bill_to, labels, deadline) {
         Ok(preflight) => Ok(preflight),
         Err(billed) => {
             let cause = billed.into_source().map_err(LegError::Refusal)?;
@@ -79,7 +80,7 @@ where
 /// own dry run is caught by this leg's own `still_usable_at`.
 pub(crate) fn run_leg<W, B, C>(
     warehouse: &W,
-    credentials: &BoundToTheRequest,
+    (credentials, labels): (&BoundToTheRequest, &JobLabels),
     leg: &LegPlan,
     deadline: Deadline,
 ) -> LegAnswer<W, B, C>
@@ -104,6 +105,7 @@ where
         Executable::Leg(leg),
         presented,
         credentials.bill_to_for(leg.source()),
+        labels,
         deadline,
     ) {
         Ok(rows) => Ok(rows),
@@ -153,7 +155,7 @@ where
 /// What it returns is one token for each leg it cleared, which the leg runner spends.
 pub(crate) fn preflight_and_charge<'a, W, B, C>(
     legs: impl IntoIterator<Item = (&'a LegPlan, &'a W)>,
-    credentials: &BoundToTheRequest,
+    asked: (&BoundToTheRequest, &JobLabels),
     deadline: Deadline,
     ledger: &SpendLedger,
     context: &RequestContext,
@@ -168,7 +170,7 @@ where
     for (leg, warehouse) in legs {
         if let PreFlight::Accepted {
             estimated_bytes: Some(bytes),
-        } = dry_run_leg::<_, B, C>(warehouse, credentials, leg, deadline)?
+        } = dry_run_leg::<_, B, C>(warehouse, asked, leg, deadline)?
         {
             priced = Some(priced.unwrap_or(0).saturating_add(bytes.bytes()));
         }
@@ -205,6 +207,7 @@ pub(crate) struct LegsAtTheirSources<'a, W, B, C> {
     charged: Charged<'a>,
     warehouses: &'a Warehouses<W>,
     credentials: &'a BoundToTheRequest,
+    labels: &'a JobLabels,
     deadline: Deadline,
     span: tracing::Span,
     ports: Ports<B, C>,
@@ -218,13 +221,14 @@ impl<'a, W, B, C> LegsAtTheirSources<'a, W, B, C> {
     pub(crate) fn new(
         charged: Charged<'a>,
         warehouses: &'a Warehouses<W>,
-        credentials: &'a BoundToTheRequest,
+        (credentials, labels): (&'a BoundToTheRequest, &'a JobLabels),
         deadline: Deadline,
     ) -> Self {
         Self {
             charged,
             warehouses,
             credentials,
+            labels,
             deadline,
             span: tracing::Span::current(),
             ports: PhantomData,
@@ -257,6 +261,6 @@ where
                 source: leg.source().clone(),
             }));
         };
-        run_leg::<_, B, C>(warehouse, self.credentials, leg, self.deadline)
+        run_leg::<_, B, C>(warehouse, (self.credentials, self.labels), leg, self.deadline)
     }
 }

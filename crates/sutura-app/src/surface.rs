@@ -85,10 +85,11 @@ use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::{DrillAcrossCombiner, RowCeilings};
+use sutura_domain::plan::{Ceilings, DrillAcrossCombiner};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 
 use crate::proof::{pin_schemas, validate_with};
 use crate::spend::SpendLedger;
@@ -480,7 +481,7 @@ pub struct LocalService<W, S, B, C> {
     combiner: C,
     working_set_bytes: u64,
     spend_ledger: SpendLedger,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 }
 
 impl<W, S, B, C> LocalService<W, S, B, C>
@@ -571,7 +572,7 @@ where
             combiner,
             working_set_bytes,
             spend_ledger: SpendLedger::no_budget(),
-            row_ceilings: RowCeilings::DEFAULT,
+            ceilings: Ceilings::DEFAULT,
         })
     }
 
@@ -588,14 +589,14 @@ where
         self
     }
 
-    /// Replaces the row ceilings, for a composition root that read them out of its settings - the
-    /// `top` one is `github.com/telekom/sutura#777`, the federated one `github.com/telekom/sutura#828`.
-    /// [`Self::with_spend_ledger`]'s reason applies unchanged: every existing caller of
-    /// [`Self::start`] and [`Self::start_composed`] keeps [`RowCeilings::DEFAULT`], which is
-    /// [`sutura_domain::plan::MAX_ROWS`] for both and the behaviour every deployment already had.
+    /// Replaces the ceilings, for a composition root that read them out of its settings - the `top`
+    /// one is `github.com/telekom/sutura#777`, the federated one `github.com/telekom/sutura#828`, the
+    /// source one `github.com/telekom/sutura#1532`. [`Self::with_spend_ledger`]'s reason applies
+    /// unchanged: every existing caller of [`Self::start`] and [`Self::start_composed`] keeps
+    /// [`Ceilings::DEFAULT`], the behaviour every deployment already had.
     #[must_use]
-    pub const fn with_row_ceilings(mut self, row_ceilings: RowCeilings) -> Self {
-        self.row_ceilings = row_ceilings;
+    pub const fn with_ceilings(mut self, ceilings: Ceilings) -> Self {
+        self.ceilings = ceilings;
         self
     }
 
@@ -660,7 +661,7 @@ where
             self.working_set_bytes,
             deadline,
             &self.spend_ledger,
-            self.row_ceilings,
+            self.ceilings,
         )
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
@@ -711,8 +712,11 @@ where
         // exactly this line - `docs/adr/0008` fixes it as part of the record's content, and
         // `sutura_app::Answered` is what carries it here without putting it on the caller-facing
         // provenance. `None` is a question declined before the broker was asked.
+        let labels = JobLabels::of(context);
         self.sink.record(
-            &CallRecord::of(context.chain(), answered.outcome(), answered.executed_until()).naming_client(context.client()),
+            &CallRecord::of(context.chain(), answered.outcome(), answered.executed_until())
+                .naming_client(context.client())
+                .labelled(&labels),
         );
         Ok(answered.into_outcome())
     }
@@ -739,9 +743,11 @@ where
             })?;
         // Same ordering as `answer`: written before the `Ok`, both outcomes reaching it, so a raw
         // call is recorded exactly as reliably as a certified one.
+        let labels = JobLabels::of(context);
         self.sink.record(
             &CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until())
-                .naming_client(context.client()),
+                .naming_client(context.client())
+                .labelled(&labels),
         );
         Ok(answered.into_outcome())
     }
@@ -880,7 +886,7 @@ mod tests {
         let error = sutura_semantic::compile(
             &question,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect_err("an authored computation has no representation in the semantic plan");
         match error {

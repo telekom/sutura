@@ -131,10 +131,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              data systems. Nothing you can change in the question helps and this is not an outage \
              to retry; ask without the dimension on the second data system, or report it.",
         ),
-        RefusalReason::FederationLinkCompound {
-            ref source,
-            ref relationship,
-        } => compound_link(source, relationship),
         RefusalReason::FederationLinkTypeMismatch {
             ref relationship,
             ref fact_type,
@@ -280,13 +276,6 @@ fn question_needs_too_many_legs(legs: usize, limit: usize) -> String {
     )
 }
 
-fn compound_link(source: &sutura_domain::model::SourceName, relationship: &sutura_domain::model::RelationshipName) -> String {
-    format!(
-        "the relationship `{relationship}` crossing into `{source}` declares more than one join key, and the two legs \
-         link on a single column"
-    )
-}
-
 /// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
 fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
@@ -385,11 +374,6 @@ mod tests {
             RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkCompound {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
-                    .expect("a test relationship is a relationship"),
-            },
             RefusalReason::FederationLinkTypeMismatch {
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
                     .expect("a test relationship is a relationship"),
