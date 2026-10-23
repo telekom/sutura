@@ -1,0 +1,1273 @@
+use crate::reader::ArrowStreamReader;
+use adbc_core::constants::{
+    ADBC_INGEST_OPTION_MODE, ADBC_INGEST_OPTION_MODE_APPEND, ADBC_INGEST_OPTION_MODE_CREATE,
+    ADBC_INGEST_OPTION_MODE_CREATE_APPEND, ADBC_INGEST_OPTION_MODE_REPLACE,
+    ADBC_INGEST_OPTION_TARGET_DB_SCHEMA, ADBC_INGEST_OPTION_TARGET_TABLE,
+};
+use adbc_core::error::{Error, Status};
+use adbc_core::options::{OptionStatement, OptionValue};
+use adbc_core::{Optionable, PartitionedResult, Statement};
+use arrow_array::cast::{AsArray, as_largestring_array, as_string_array};
+use arrow_array::types::{
+    Date32Type, Date64Type, Decimal32Type, Decimal64Type, Decimal128Type, Decimal256Type,
+    DurationMicrosecondType, DurationMillisecondType, DurationNanosecondType, DurationSecondType,
+    Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Time32MillisecondType,
+    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
+    UInt32Type, UInt64Type,
+};
+use arrow_array::{Array, RecordBatch, RecordBatchIterator, RecordBatchReader};
+use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
+use clickhouse::Client;
+use clickhouse::query::Query;
+
+use crate::options::OptionValueExt;
+use crate::writer::ArrowStreamWriter;
+use crate::{AugmentedClient, Result, TokioContext, options, random_id};
+use clickhouse::_priv::sql_escape_identifier;
+use clickhouse_ext_arrow::ArrowQueryExt;
+use std::time::Duration;
+
+#[cfg(doc)]
+use adbc_core::options::IngestMode;
+use uuid::Uuid;
+
+/// ClickHouse ADBC [`Statement`] implementation.
+///
+/// This inherits the session ID of the parent [`ClickhouseConnection`][super::ClickhouseConnection].
+///
+/// A random query ID is generated upon creation of the object. It may be read back or overridden
+/// using [`options::QUERY_ID`].
+///
+/// [Query parameters] are supported using [`Self::bind()`] to bind a single `RecordBatch`.
+///
+/// # Bulk Ingest
+/// To insert data in bulk:
+///
+/// * Set [`OptionStatement::TargetTable`] via [`Self::set_option()`] to enable bulk ingest
+///   * Or set a SQL query of the form `INSERT INTO ... FORMAT ArrowStream`
+///     via [`Self::set_sql_query()`]
+///   * For qualified table names, use [`OptionStatement::TargetDbSchema`] to set the database
+///     portion of the table name, e.g. `foo` in `foo.bar`
+/// * Bind a batch of data using [`Self::bind()`] or a stream of data using [`Self::bind_stream()`]
+/// * Execute the statement with [`Self::execute_update()`]
+///
+/// [Query parameters]: https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters
+pub struct ClickhouseStatement {
+    client: AugmentedClient,
+    tokio: TokioContext,
+    mode: StatementMode,
+    bind: Option<BindType>,
+}
+
+enum StatementMode {
+    Unset,
+    SqlQuery(String),
+    BulkIngest(IngestOptions),
+}
+
+struct IngestOptions {
+    target_schema: Option<String>,
+    target_table: Option<String>,
+}
+
+enum BindType {
+    Single(RecordBatch),
+    Stream(Box<dyn RecordBatchReader + Send>),
+}
+
+impl ClickhouseStatement {
+    pub(crate) fn new(mut client: AugmentedClient, tokio: TokioContext) -> Self {
+        client.set_setting(options::as_setting::QUERY_ID, random_id("query"));
+
+        Self {
+            client,
+            tokio,
+            mode: StatementMode::Unset,
+            bind: None,
+        }
+    }
+}
+
+impl Statement for ClickhouseStatement {
+    /// Bind a single `RecordBatch` to this query.
+    ///
+    /// If the SQL contains a normal query (e.g. `SELECT`), the `RecordBatch` may have
+    /// no more than one row. Types will be converted client-side to their ClickHouse equivalents
+    /// and bound as [query parameters].
+    ///
+    /// If "bulk ingest" mode is configured with [`OptionStatement::TargetTable`],
+    /// or the SQL query is of the form `INSERT INTO ... FORMAT ArrowStream`,
+    /// the `RecordBatch` may have arbitrary many rows. The data will be sent to ClickHouse in
+    /// the [Arrow IPC format] and converted server-side.
+    ///
+    /// This may be called before or after [`Self::set_sql_query()`]. Binding is performed
+    /// during the call to [`Self::execute()`] or [`Self::execute_update()`].
+    ///
+    /// # Data Type Support
+    /// Most Arrow scalar types are supported, with some exceptions.
+    /// See [the crate root docs][crate#data-type-support] for remarks and limitations on
+    /// the datatypes supported by this API.
+    ///
+    /// See also `bind_scalar()` in `src/statement.rs` for the actual implementation.
+    ///
+    /// [query parameters]: https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters
+    /// [Arrow IPC format]: https://arrow.apache.org/docs/format/Columnar.html#format-ipc
+    fn bind(&mut self, batch: RecordBatch) -> adbc_core::error::Result<()> {
+        self.bind = Some(BindType::Single(batch));
+        Ok(())
+    }
+
+    /// Bind an `Iterator` of `RecordBatch` to this query.
+    ///
+    /// If the SQL contains a normal query (e.g. `SELECT`), this behaves identically
+    /// to [`Self::bind()`]. The iterator may only return one `RecordBatch`, which may contain
+    /// at most one row.
+    ///
+    /// If "bulk ingest" mode is configured with [`OptionStatement::TargetTable`],
+    /// or the SQL query is of the form `INSERT INTO ... FORMAT ArrowStream`,
+    /// the iterator may return arbitrarily many `RecordBatch`es, and they may contain arbitrarily
+    /// many rows. The data will be sent to ClickHouse in the [Arrow IPC format]
+    /// and converted server-side.
+    ///
+    /// This may be called before or after [`Self::set_sql_query()`]. Binding is performed
+    /// during the call to [`Self::execute()`] or [`Self::execute_update()`].
+    ///
+    /// # Data Type Support
+    /// Most Arrow scalar types are supported, with some exceptions.
+    /// See [the crate root docs][crate#data-type-support] for remarks and limitations on
+    /// the datatypes supported by this API.
+    ///
+    /// See also `bind_scalar()` in `src/statement.rs` for the actual implementation.
+    ///
+    /// [Arrow IPC format]: https://arrow.apache.org/docs/format/Columnar.html#format-ipc
+    fn bind_stream(
+        &mut self,
+        reader: Box<dyn RecordBatchReader + Send>,
+    ) -> adbc_core::error::Result<()> {
+        self.bind = Some(BindType::Stream(reader));
+        Ok(())
+    }
+
+    /// Execute a query that returns a result set.
+    ///
+    /// # Errors
+    /// * If "bulk ingest" mode is enabled via [`OptionStatement::TargetTable`],
+    ///   or the set SQL query is of the form `INSERT INTO ... FORMAT ArrowStream`,
+    ///   as [`Self::execute_update()`] should be used instead.
+    /// * If the `RecordBatch` bound with [`Self::bind()`] contains more than one row.
+    /// * If the `RecordBatchReader` bound with [`Self::bind_stream()`] returns more than one
+    ///   `RecordBatch` or a `RecordBatch` with more than one row.
+    fn execute(&mut self) -> Result<Box<dyn RecordBatchReader + Send + 'static>, Error> {
+        let sql = match &self.mode {
+            StatementMode::Unset => {
+                return Err(Error::with_message_and_status(
+                    "SQL query or bulk ingest options must be set before statement execution",
+                    Status::InvalidState,
+                ));
+            }
+            StatementMode::BulkIngest(_) => {
+                // There isn't a sensible thing to return here since bulk inserts aren't generally
+                // expected to return a result set; we could return an empty reader, but that would
+                // require adding special casing to `ArrowStreamReader`, or dynamic dispatch.
+                // https://arrow.apache.org/adbc/current/format/specification.html#bulk-data-ingestion
+                return Err(Error::with_message_and_status(
+                    "bulk ingest may only be used with `Statement::execute_update()`",
+                    Status::InvalidState,
+                ));
+            }
+            StatementMode::SqlQuery(sql) => {
+                if is_streaming_insert(sql) {
+                    // Same as above
+                    return Err(Error::with_message_and_status(
+                        "bulk ingest may only be used with `Statement::execute_update()`",
+                        Status::InvalidState,
+                    ));
+                }
+
+                sql
+            }
+        };
+
+        Ok(Box::new(fetch_blocking(
+            &self.client,
+            &self.tokio,
+            sql,
+            self.bind.take(),
+            self.client.query_timeout(),
+        )?))
+    }
+
+    /// Execute a query that does not return a result set.
+    fn execute_update(&mut self) -> adbc_core::error::Result<Option<i64>> {
+        let ingest = match &self.mode {
+            StatementMode::Unset => {
+                return Err(Error::with_message_and_status(
+                    "SQL query or bulk ingest options must be set before statement execution",
+                    Status::InvalidState,
+                ));
+            }
+            StatementMode::BulkIngest(options) => {
+                let schema = match &self.bind {
+                    Some(BindType::Stream(stream)) => stream.schema(),
+                    Some(BindType::Single(batch)) => batch.schema(),
+                    None => {
+                        return Err(Error::with_message_and_status(
+                            "bulk ingest requires `Statement::bind()` or `Statement::bind_stream`",
+                            Status::InvalidState,
+                        ));
+                    }
+                };
+
+                options.to_ingest(&schema)?
+            }
+            StatementMode::SqlQuery(sql) => {
+                if !is_streaming_insert(sql) {
+                    // FIXME: implement proper support for `X-ClickHouse-Summary` header
+                    execute_blocking(
+                        &self.client,
+                        &self.tokio,
+                        sql,
+                        self.bind.take(),
+                        self.client.query_timeout(),
+                    )?;
+                    return Ok(None);
+                }
+
+                Ingest {
+                    sql: sql.into(),
+                    collection_name: None,
+                }
+            }
+        };
+
+        let stream = match self.bind.take() {
+            Some(BindType::Stream(stream)) => stream,
+            Some(BindType::Single(batch)) => {
+                let schema = batch.schema();
+                // Converting to a trait object to reduce monomorphization overhead.
+                Box::new(RecordBatchIterator::new([Ok(batch)], schema))
+            }
+            None => {
+                return Err(Error::with_message_and_status(
+                    "streaming insert requires `Statement::bind()` or `Statement::bind_stream`",
+                    Status::InvalidState,
+                ));
+            }
+        };
+
+        execute_streaming_ingest(
+            &self.client,
+            &self.tokio,
+            ingest,
+            stream,
+            self.client.query_timeout(),
+        )
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/16>
+    fn execute_schema(&mut self) -> adbc_core::error::Result<Schema> {
+        err_unimplemented!("ClickhouseStatement::execute_schema()")
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/17>
+    fn execute_partitions(&mut self) -> adbc_core::error::Result<PartitionedResult> {
+        err_unimplemented!("ClickhouseStatement::execute_partitions()")
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/18>
+    fn get_parameter_schema(&self) -> adbc_core::error::Result<Schema> {
+        err_unimplemented!("ClickhouseStatement::get_parameter_schema()")
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/19>
+    fn prepare(&mut self) -> adbc_core::error::Result<()> {
+        err_unimplemented!("ClickhouseStatement::prepare()")
+    }
+
+    /// Set the SQL for this [`Statement`].
+    ///
+    /// The SQL is sent to the server verbatim: a literal `?` is **not** treated as a bind
+    /// placeholder. To parameterize a query, reference [query parameters] as `{name: Type}`
+    /// in the SQL and supply the values via [`Self::bind()`].
+    ///
+    /// For normal queries, e.g. `SELECT`, the `FORMAT` clause may be omitted.
+    /// Use of any explicit format other than `ArrowStream` may result in an execution error.
+    ///
+    /// For bulk ingest, the query should be of the form `INSERT INTO ... FORMAT ArrowStream`.
+    ///
+    /// Alternatively, bulk ingest may be declaratively configured via [`OptionStatement`],
+    /// e.g. setting [`OptionStatement::TargetTable`], which overrides the set SQL query.
+    ///
+    /// Overwrites any previously set bulk ingest options, e.g. [`OptionStatement::TargetTable`].
+    ///
+    /// [query parameters]: https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters
+    fn set_sql_query(&mut self, query: impl AsRef<str>) -> adbc_core::error::Result<()> {
+        self.mode = StatementMode::SqlQuery(query.as_ref().to_string());
+        Ok(())
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/21>
+    fn set_substrait_plan(&mut self, _plan: impl AsRef<[u8]>) -> adbc_core::error::Result<()> {
+        err_unimplemented!("ClickhouseStatement::set_substrait_plan()")
+    }
+
+    /// # Not Implemented
+    /// Currently will return an error with [`Status::NotImplemented`].
+    ///
+    /// See the tracking issue for details and subscribe for updates:
+    /// <https://github.com/ClickHouse/adbc_clickhouse/issues/20>
+    fn cancel(&mut self) -> adbc_core::error::Result<()> {
+        err_unimplemented!("ClickhouseStatement::cancel()")
+    }
+}
+
+impl Optionable for ClickhouseStatement {
+    type Option = OptionStatement;
+
+    /// Set one of the options from [`OptionStatement`]. Note that not all options are currently supported.
+    ///
+    /// # Supported [`OptionStatement`] Options
+    ///
+    /// * [`OptionStatement::TargetDbSchema`]: set the target database for "bulk ingest" operation.
+    ///   Overrides the SQL query previously set by [`Statement::set_sql_query()`].
+    ///   Requires [`OptionStatement::TargetTable`] to be set before execute.
+    ///   Automatically escaped.
+    /// * [`OptionStatement::TargetTable`]: set the target table name for "bulk ingest" operation.
+    ///   Overrides the SQL query previously set by [`Statement::set_sql_query()`].
+    ///   Automatically escaped.
+    /// * [`OptionStatement::IngestMode`]: set the ingest mode to use.
+    ///   Only [`IngestMode::Append`] ([`ADBC_INGEST_OPTION_MODE_APPEND`]) is currently supported,
+    ///   and is the default in "bulk ingest" operation.
+    ///   Setting any other ingest mode will return an error with [`Status::NotImplemented`]
+    /// * [`OptionStatement::Other`]: ClickHouse-specific options listed in the
+    ///   [`options`][crate::options] module. See that module for details.
+    ///   Any custom option string not explicitly supported will return
+    ///   an error with [`Status::InvalidArguments`].
+    ///
+    /// # Unsupported [`OptionStatement`] Options
+    ///
+    /// Explicitly unsupported options:
+    /// * [`OptionStatement::TargetCatalog`]: ClickHouse does not have a concept of "catalogs".
+    ///   Attempting to set this option will return an error with [`Status::InvalidArguments`].
+    ///
+    /// All other options will currently return an error with [`Status::NotImplemented`].
+    fn set_option(
+        &mut self,
+        key: Self::Option,
+        value: OptionValue,
+    ) -> adbc_core::error::Result<()> {
+        match key {
+            OptionStatement::TargetTable => {
+                self.mode.make_ingest().target_table =
+                    Some(value.try_string(ADBC_INGEST_OPTION_TARGET_TABLE)?);
+            }
+
+            OptionStatement::TargetDbSchema => {
+                self.mode.make_ingest().target_schema =
+                    Some(value.try_string(ADBC_INGEST_OPTION_TARGET_DB_SCHEMA)?);
+            }
+
+            OptionStatement::TargetCatalog => {
+                return Err(Error::with_message_and_status(
+                    format!(
+                        "error setting option {:?} = {value:?}: ClickHouse does not have catalogs",
+                        key.as_ref()
+                    ),
+                    Status::InvalidArguments,
+                ));
+            }
+
+            OptionStatement::IngestMode => {
+                self.set_ingest_mode(&value.try_string(ADBC_INGEST_OPTION_MODE)?)?;
+            }
+
+            // OptionStatement::Temporary => {}
+            // OptionStatement::Incremental => {}
+            // OptionStatement::Progress => {}
+            // OptionStatement::MaxProgress => {}
+            OptionStatement::Other(s) => {
+                self.set_custom_option(&s, value)?;
+            }
+            other => {
+                return Err(Error::with_message_and_status(
+                    format!("unimplemented connection option: {:?}", other.as_ref()),
+                    Status::NotImplemented,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_option_string(&self, key: Self::Option) -> adbc_core::error::Result<String> {
+        match key {
+            // OptionStatement::IngestMode => {}
+            // OptionStatement::TargetTable => {}
+            // OptionStatement::TargetCatalog => {}
+            // OptionStatement::TargetDbSchema => {}
+            // OptionStatement::Temporary => {}
+            // OptionStatement::Incremental => {}
+            // OptionStatement::Progress => {}
+            // OptionStatement::MaxProgress => {}
+            OptionStatement::Other(s) => self.get_custom_option(&s),
+            other => Err(Error::with_message_and_status(
+                format!("unimplemented connection option: {:?}", other.as_ref()),
+                Status::NotImplemented,
+            )),
+        }
+    }
+
+    fn get_option_bytes(&self, key: Self::Option) -> adbc_core::error::Result<Vec<u8>> {
+        err_unimplemented!("ClickhouseStatement::get_option_bytes({key:?})")
+    }
+
+    fn get_option_int(&self, key: Self::Option) -> adbc_core::error::Result<i64> {
+        err_unimplemented!("ClickhouseStatement::get_option_int({key:?})")
+    }
+
+    fn get_option_double(&self, key: Self::Option) -> adbc_core::error::Result<f64> {
+        err_unimplemented!("ClickhouseStatement::get_option_double({key:?})")
+    }
+}
+
+impl ClickhouseStatement {
+    fn set_ingest_mode(&mut self, mode_string: &str) -> Result<()> {
+        // FIXME: I've upstreamed this as `impl FromStr for IngestMode` but it's not released yet
+        // Should be in `adbc_core = "0.23.1"` or `0.24.0`
+        match mode_string {
+            ADBC_INGEST_OPTION_MODE_APPEND => {
+                // No-op
+                Ok(())
+            }
+            ADBC_INGEST_OPTION_MODE_CREATE
+            | ADBC_INGEST_OPTION_MODE_REPLACE
+            | ADBC_INGEST_OPTION_MODE_CREATE_APPEND => Err(Error::with_message_and_status(
+                format!("ingest mode {mode_string:?} not currently implemented"),
+                Status::NotImplemented,
+            )),
+            _ => Err(Error::with_message_and_status(
+                format!("unknown ingest mode {mode_string:?}"),
+                Status::InvalidArguments,
+            )),
+        }
+    }
+
+    fn set_custom_option(&mut self, key: &str, value: OptionValue) -> Result<()> {
+        if let Some(name) = options::setting_name(key) {
+            self.client.set_setting(name, value.try_string(key)?);
+            return Ok(());
+        }
+
+        match key {
+            options::PRODUCT_INFO => {
+                self.client.set_product_info(&value.try_into()?);
+            }
+            options::SESSION_ID => {
+                self.client
+                    .set_setting(options::as_setting::SESSION_ID, value.try_string(key)?);
+            }
+            options::QUERY_ID => {
+                self.client
+                    .set_setting(options::as_setting::QUERY_ID, value.try_string(key)?);
+            }
+            options::OUTPUT_STRING_AS_STRING => {
+                self.client.set_setting(
+                    options::as_setting::OUTPUT_STRING_AS_STRING,
+                    value.try_string(key)?,
+                );
+            }
+            options::QUERY_TIMEOUT => {
+                self.client
+                    .set_query_timeout(options::parse_timeout(key, &value.try_string(key)?)?);
+            }
+            other => {
+                return Err(Error::with_message_and_status(
+                    format!("unexpected statement option {other:?}"),
+                    Status::InvalidArguments,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_custom_option(&self, key: &str) -> Result<String> {
+        if let Some(name) = options::setting_name(key) {
+            return self
+                .client
+                .get_option(name)
+                .map(Into::into)
+                .ok_or_else(|| options::setting_not_set(name));
+        }
+
+        match key {
+            options::QUERY_ID => Ok(self
+                .client
+                .get_option(options::as_setting::QUERY_ID)
+                .unwrap_or("")
+                .into()),
+            options::QUERY_TIMEOUT => self
+                .client
+                .query_timeout()
+                .map(|timeout| timeout.as_secs().to_string())
+                .ok_or_else(|| {
+                    Error::with_message_and_status("no query timeout configured", Status::NotFound)
+                }),
+            other => Err(Error::with_message_and_status(
+                format!("unimplemented connection option: {other:?}"),
+                Status::NotImplemented,
+            )),
+        }
+    }
+}
+
+impl StatementMode {
+    fn make_ingest(&mut self) -> &mut IngestOptions {
+        if let StatementMode::Unset | StatementMode::SqlQuery(_) = self {
+            *self = Self::BulkIngest(IngestOptions::default());
+        }
+
+        let StatementMode::BulkIngest(options) = self else {
+            unreachable!()
+        };
+
+        options
+    }
+}
+
+// `#[derive(Default)]`` would likely need to be un-converted later to set other defaults,
+// e.g. `IngestMode`.
+#[expect(clippy::derivable_impls)]
+impl Default for IngestOptions {
+    fn default() -> Self {
+        IngestOptions {
+            target_schema: None,
+            target_table: None,
+        }
+    }
+}
+
+impl IngestOptions {
+    fn to_ingest(&self, schema: &Schema) -> Result<Ingest> {
+        let table = self.target_table.as_ref().ok_or_else(|| {
+            Error::with_message_and_status(
+                format!(
+                    "option {ADBC_INGEST_OPTION_TARGET_TABLE:?} must be set to use bulk ingest"
+                ),
+                Status::InvalidState,
+            )
+        })?;
+
+        if schema.fields().is_empty() {
+            return Err(Error::with_message_and_status(
+                "bulk ingest schema is empty",
+                Status::InvalidState,
+            ));
+        }
+
+        let mut collection_name = String::new();
+
+        if let Some(ref schema) = self.target_schema {
+            sql_escape_identifier(schema, &mut collection_name)
+                .map_err(|e| ArrowError::ExternalError(e.into()))?;
+
+            collection_name.push('.');
+        }
+
+        sql_escape_identifier(table, &mut collection_name)
+            .map_err(|e| ArrowError::ExternalError(e.into()))?;
+
+        let mut sql = format!("INSERT INTO {collection_name}(");
+
+        let mut comma = false;
+        for field in schema.fields() {
+            if comma {
+                sql.push_str(", ");
+            }
+
+            sql_escape_identifier(field.name(), &mut sql)
+                .map_err(|e| ArrowError::ExternalError(e.into()))?;
+
+            comma = true;
+        }
+
+        sql.push_str(") FORMAT ArrowStream");
+
+        Ok(Ingest {
+            sql,
+            collection_name: Some(collection_name),
+        })
+    }
+}
+
+struct Ingest {
+    sql: String,
+    collection_name: Option<String>,
+}
+
+fn bind_query(mut query: Query, bind: Option<BindType>) -> Result<Query, Error> {
+    match bind {
+        // It's not clear if `bind_stream` is meant to be used with anything but bulk ingestion,
+        // but one suggested use-case is that each batch in the stream represents a single execution
+        // of the query.
+        //
+        // I don't think the Arrow team want to commit to those semantics until we have a
+        // multi-result-set API: https://github.com/apache/arrow-adbc/pull/3871
+        Some(BindType::Stream(mut stream)) => {
+            let args = stream.next().transpose()?;
+
+            if stream.next().transpose()?.is_some() {
+                return Err(Error::with_message_and_status(
+                    "received more than one record batch from `Statement::bind_stream`",
+                    Status::InvalidData,
+                ));
+            }
+
+            if let Some(args) = args {
+                query = bind_record_batch(query, args)?;
+            }
+        }
+        Some(BindType::Single(args)) => {
+            query = bind_record_batch(query, args)?;
+        }
+        None => (),
+    }
+
+    Ok(query)
+}
+
+fn bind_record_batch(mut query: Query, batch: RecordBatch) -> Result<Query, Error> {
+    match batch.num_rows() {
+        0 => return Ok(query),
+        // TODO: we can bind this as arrays, but we need to disambiguate the case of 1 row
+        // because it can either be bound as a scalar or a 1-element array;
+        // thinking that this should be an error unless the user explicitly enables an option
+        // like `"bind_params_as_arrays" = true`
+        2.. => {
+            return Err(Error::with_message_and_status(
+                "binding a RecordBatch with more than one row is only allowed for non-streaming inserts; \
+                streaming inserts must start with `INSERT INTO` (after any comments) and end with `FORMAT ArrowStream`",
+                Status::InvalidArguments,
+            ));
+        }
+        _ => (),
+    }
+
+    let schema = batch.schema_ref();
+
+    for (field, column) in schema.fields.iter().zip(batch.columns()) {
+        query = bind_scalar(query, field, column)?;
+    }
+
+    Ok(query)
+}
+
+fn bind_scalar(query: Query, field: &Field, array: &dyn Array) -> Result<Query, Error> {
+    let name = field.name();
+
+    if array.is_null(0) {
+        // The exact type doesn't matter because it just serializes to a literal `NULL`
+        return Ok(query.param(name, Option::<String>::None));
+    }
+
+    match array.data_type() {
+        DataType::Null => Ok(query.param(name, Option::<String>::None)),
+        DataType::Boolean => Ok(query.param(name, array.as_boolean().value(0))),
+        DataType::Int8 => Ok(query.param(name, array.as_primitive::<Int8Type>().value(0))),
+        DataType::Int16 => Ok(query.param(name, array.as_primitive::<Int16Type>().value(0))),
+        DataType::Int32 => Ok(query.param(name, array.as_primitive::<Int32Type>().value(0))),
+        DataType::Int64 => Ok(query.param(name, array.as_primitive::<Int64Type>().value(0))),
+        DataType::UInt8 => Ok(query.param(name, array.as_primitive::<UInt8Type>().value(0))),
+        DataType::UInt16 => Ok(query.param(name, array.as_primitive::<UInt16Type>().value(0))),
+        DataType::UInt32 => Ok(query.param(name, array.as_primitive::<UInt32Type>().value(0))),
+        DataType::UInt64 => Ok(query.param(name, array.as_primitive::<UInt64Type>().value(0))),
+
+        // I don't think this is the same `Float16` as ClickHouse's` BFloat16`.
+        // `Float16` seems to be the standard IEEE-754 half-precision floating-point,
+        // whereas `BFloat16` dedicates 3 more bits to the exponent for
+        // more dynamic range at the cost of precision.
+        // Thus, we can't assume them to be interchangeable.
+        // DataType::Float16 => Ok(query.param(name, array.as_primitive::<Float16Type>().value(0))),
+        DataType::Float32 => Ok(query.param(name, array.as_primitive::<Float32Type>().value(0))),
+        DataType::Float64 => Ok(query.param(name, array.as_primitive::<Float64Type>().value(0))),
+        // The timezone doesn't really matter because the Arrow format specifies that
+        // it's always in UTC. Because ClickHouse doesn't support the concept of "naive" timestamps
+        // without a time zone, the Arrow format schema advises to treat those as if they were UTC:
+        // https://github.com/apache/arrow/blob/8e13dbc4d37247e3e9f79adfa852f482f10edec0/format/Schema.fbs#L371-L381
+        DataType::Timestamp(unit, _tz) => {
+            let datetime = match unit {
+                TimeUnit::Second => array
+                    .as_primitive::<TimestampSecondType>()
+                    .value_as_datetime(0),
+                TimeUnit::Millisecond => array
+                    .as_primitive::<TimestampMillisecondType>()
+                    .value_as_datetime(0),
+                TimeUnit::Microsecond => array
+                    .as_primitive::<TimestampMicrosecondType>()
+                    .value_as_datetime(0),
+                TimeUnit::Nanosecond => array
+                    .as_primitive::<TimestampNanosecondType>()
+                    .value_as_datetime(0),
+            }
+            .ok_or_else(|| {
+                Error::with_message_and_status(
+                    format!("Timestamp value out of supported range for param {name:?}"),
+                    Status::InvalidArguments,
+                )
+            })?;
+
+            // FIXME: we have no way to ensure timestamps are interpreted with the correct time zone
+            // https://github.com/ClickHouse/ClickHouse/issues/95913
+            //
+            // To match the server behavior, we should serialize timestamps with a timezone as UTC,
+            // and serialize them as naive otherwise: https://github.com/ClickHouse/ClickHouse/blob/db27d85fb2d2fa137d531d08dff13109a86cead5/src/Processors/Formats/Impl/ArrowColumnToCHColumn.cpp#L402-L406
+            Ok(query.param(name, datetime))
+        }
+        DataType::Date32 => Ok(query.param(
+            name,
+            Date32Type::to_naive_date_opt(array.as_primitive::<Date32Type>().value(0)).ok_or_else(
+                || {
+                    Error::with_message_and_status(
+                        format!("Date32 value out of supported range for param {name:?}"),
+                        Status::InvalidArguments,
+                    )
+                },
+            )?,
+        )),
+        DataType::Date64 => Ok(query.param(
+            name,
+            Date64Type::to_naive_date_opt(array.as_primitive::<Date64Type>().value(0)).ok_or_else(
+                || {
+                    Error::with_message_and_status(
+                        format!("Date64 value out of supported range for param {name:?}"),
+                        Status::InvalidArguments,
+                    )
+                },
+            )?,
+        )),
+        DataType::Time32(unit) => {
+            let time = match unit {
+                TimeUnit::Second => array.as_primitive::<Time32SecondType>().value_as_time(0),
+                TimeUnit::Millisecond => array
+                    .as_primitive::<Time32MillisecondType>()
+                    .value_as_time(0),
+                _ => {
+                    return Err(Error::with_message_and_status(
+                        format!("invalid TimeUnit for type Time32 of param {name:?}: {unit:?}"),
+                        Status::InvalidArguments,
+                    ));
+                }
+            }
+            .ok_or_else(|| {
+                Error::with_message_and_status(
+                    format!("Time32 value out of supported range for param {name:?}"),
+                    Status::InvalidArguments,
+                )
+            })?;
+
+            Ok(query.param(name, time))
+        }
+        DataType::Time64(unit) => {
+            let time = match unit {
+                TimeUnit::Microsecond => array
+                    .as_primitive::<Time64MicrosecondType>()
+                    .value_as_time(0),
+                TimeUnit::Nanosecond => array
+                    .as_primitive::<Time64NanosecondType>()
+                    .value_as_time(0),
+                _ => {
+                    return Err(Error::with_message_and_status(
+                        format!("invalid TimeUnit for type Time64 of param {name:?}: {unit:?}"),
+                        Status::InvalidArguments,
+                    ));
+                }
+            }
+            .ok_or_else(|| {
+                Error::with_message_and_status(
+                    format!("Time64 value out of supported range for param {name:?}"),
+                    Status::InvalidArguments,
+                )
+            })?;
+
+            Ok(query.param(name, time))
+        }
+        DataType::Duration(unit) => {
+            let duration = match unit {
+                TimeUnit::Second => array
+                    .as_primitive::<DurationSecondType>()
+                    .value_as_duration(0),
+                TimeUnit::Millisecond => array
+                    .as_primitive::<DurationMillisecondType>()
+                    .value_as_duration(0),
+                TimeUnit::Microsecond => array
+                    .as_primitive::<DurationMicrosecondType>()
+                    .value_as_duration(0),
+                TimeUnit::Nanosecond => array
+                    .as_primitive::<DurationNanosecondType>()
+                    .value_as_duration(0),
+            }
+            .ok_or_else(|| {
+                Error::with_message_and_status(
+                    format!("Duration value out of supported range for param {name:?}"),
+                    Status::InvalidArguments,
+                )
+            })?;
+
+            Ok(query.param(name, duration))
+        }
+
+        // TODO: CH *has* an Interval type, but it only supports one "level" at a time:
+        // https://clickhouse.com/docs/sql-reference/operators#interval
+        // There's also no corresponding type in `clickhouse-rs`
+        // DataType::Interval(_) => {}
+
+        // Special recognition for the `arrow.uuid` type to bind as a UUID and not a bytestring.
+        //
+        // This could be `.try_extension_type(arrow_schema::extensions::Uuid)`
+        // but in `arrow-schema = "58.3.0"` it rejects the metadata ClickHouse server returns.
+        DataType::FixedSizeBinary(16) if field.extension_type_name() == Some("arrow.uuid") => {
+            let value = array.as_fixed_size_binary().value(0);
+
+            Ok(query.param(
+                name,
+                Uuid::from_slice(value).map_err(|_| {
+                    // Technically any 16 arbitrary bytes is a valid UUID;
+                    // any unrecognized version is just treated as non-standard.
+                    //
+                    // The only possible error is that the slice is the wrong length,
+                    // which is technically a logic error or bug since we already checked the type,
+                    // but a panic here is potentially problematic since FFI is likely involved.
+                    Error::with_message_and_status(
+                        format!("expected 16 bytes for UUID parameter, got {}", value.len()),
+                        Status::InvalidArguments,
+                    )
+                })?,
+            ))
+        }
+
+        // Wrapping with `serde_bytes::Bytes` is required to serialize as a bytestring
+        // instead of an array of integers.
+        DataType::Binary => Ok(query.param(
+            name,
+            serde_bytes::Bytes::new(array.as_binary::<i32>().value(0)),
+        )),
+        DataType::FixedSizeBinary(_) => Ok(query.param(
+            name,
+            serde_bytes::Bytes::new(array.as_fixed_size_binary().value(0)),
+        )),
+        DataType::LargeBinary => Ok(query.param(
+            name,
+            serde_bytes::Bytes::new(array.as_binary::<i64>().value(0)),
+        )),
+        DataType::BinaryView => Ok(query.param(
+            name,
+            serde_bytes::Bytes::new(array.as_binary_view().value(0)),
+        )),
+
+        // This is less annoying than `AsArray::as_string()`
+        DataType::Utf8 => Ok(query.param(name, as_string_array(array).value(0))),
+        DataType::LargeUtf8 => Ok(query.param(name, as_largestring_array(array).value(0))),
+        DataType::Utf8View => Ok(query.param(name, array.as_string_view().value(0))),
+
+        // TODO
+        // DataType::List(_) => {}
+        // DataType::ListView(_) => {}
+        // DataType::FixedSizeList(_, _) => {}
+        // DataType::LargeList(_) => {}
+        // DataType::LargeListView(_) => {}
+        // DataType::Struct(_) => {}
+        // DataType::Union(_, _) => {}
+        // DataType::Dictionary(_, _) => {}
+        DataType::Decimal32(_, _) => Ok(query.param(
+            name,
+            array.as_primitive::<Decimal32Type>().value_as_string(0),
+        )),
+        DataType::Decimal64(_, _) => Ok(query.param(
+            name,
+            array.as_primitive::<Decimal64Type>().value_as_string(0),
+        )),
+        DataType::Decimal128(_, _) => Ok(query.param(
+            name,
+            array.as_primitive::<Decimal128Type>().value_as_string(0),
+        )),
+        DataType::Decimal256(_, _) => Ok(query.param(
+            name,
+            array.as_primitive::<Decimal256Type>().value_as_string(0),
+        )),
+
+        // TODO
+        // DataType::Map(_, _) => {}
+        // DataType::RunEndEncoded(_, _) => {}
+        other => Err(Error::with_message_and_status(
+            format!("unsupported data type {other:?} for param {name:?}"),
+            Status::InvalidArguments,
+        )),
+    }
+}
+
+fn execute_streaming_ingest(
+    client: &Client,
+    tokio: &TokioContext,
+    ingest: Ingest,
+    mut stream: Box<dyn RecordBatchReader + Send>,
+    query_timeout: Option<Duration>,
+) -> Result<Option<i64>> {
+    // In case any methods we invoke result in a call to Tokio
+    // This whole function could just be inside a `tokio.block_on()`
+    // but that results in a larger generated future type
+    let _guard = tokio.enter();
+
+    let insert = client
+        .insert_formatted_with(ingest.sql)
+        // Clients will expect the insert to be fully committed by the time this returns (?)
+        .with_setting("wait_end_of_query", "1")
+        .buffered();
+
+    tracing::record_all!(
+        insert._priv_span(),
+        db.collection.name = ingest.collection_name,
+    );
+
+    // Begins the request and writes the header
+    let mut writer = ArrowStreamWriter::begin(tokio, &stream.schema(), insert)?;
+
+    // `insert` is automatically aborted on-drop.
+    while let Some(batch) = stream.next().transpose()? {
+        writer.write(&batch)?;
+    }
+
+    let mut insert = writer.finish()?;
+
+    let end = insert.end();
+
+    let result = match query_timeout {
+        Some(duration) => tokio
+            .block_on(tokio::time::timeout(duration, end))
+            .map_err(|_| timeout_error())?,
+        None => tokio.block_on(end),
+    };
+
+    result.map_err(|e| {
+        Error::with_message_and_status(
+            format!("error finishing streaming insert: {e}"),
+            Status::Internal,
+        )
+    })?;
+
+    // FIXME: add support for parsing the `X-ClickHouse-Summary` header
+    Ok(None)
+}
+
+fn fetch_blocking(
+    client: &Client,
+    tokio: &TokioContext,
+    sql: &str,
+    bind: Option<BindType>,
+    query_timeout: Option<Duration>,
+) -> Result<ArrowStreamReader, Error> {
+    // `ArrowQueryExt::fetch_arrow()` spawns a task internally.
+    // This whole function could just be inside a `tokio.block_on()`
+    // but that results in a larger generated future type
+    let _guard = tokio.enter();
+
+    // Raw so a literal `?` is not treated as a bind placeholder;
+    // parameters are bound server-side via `Query::param()`.
+    let mut query = client.query_raw(sql);
+    query = bind_query(query, bind)?;
+
+    let cursor = query.fetch_arrow().map_err(|e| {
+        Error::with_message_and_status(format!("error executing query: {e}"), Status::Internal)
+    })?;
+
+    // The request future is only driven while polling `ArrowStreamReader::begin()`;
+    // bounding it with `tokio::time::timeout` and dropping it on expiry closes the
+    // in-flight HTTP connection (whether the server then stops the query depends on its
+    // settings, e.g. `cancel_http_readonly_queries_on_client_close`).
+    let begin = ArrowStreamReader::begin(tokio.clone(), cursor);
+
+    let reader = match query_timeout {
+        Some(duration) => tokio
+            .block_on(tokio::time::timeout(duration, begin))
+            .map_err(|_| timeout_error())?,
+        None => tokio.block_on(begin),
+    }
+    .map_err(Into::<Error>::into)?;
+
+    Ok(reader)
+}
+
+fn execute_blocking(
+    client: &Client,
+    tokio: &TokioContext,
+    sql: &str,
+    bind: Option<BindType>,
+    query_timeout: Option<Duration>,
+) -> Result<Option<i64>, Error> {
+    // In case any methods we invoke result in a call to Tokio
+    // This whole function could just be inside a `tokio.block_on()`
+    // but that results in a larger generated future type
+    let _guard = tokio.enter();
+
+    let mut query = client.query_raw(sql).with_setting("wait_end_of_query", "1");
+    query = bind_query(query, bind)?;
+
+    let execute = query.execute();
+
+    let result = match query_timeout {
+        Some(duration) => tokio
+            .block_on(tokio::time::timeout(duration, execute))
+            .map_err(|_| timeout_error())?,
+        None => tokio.block_on(execute),
+    };
+
+    result.map_err(|e| {
+        Error::with_message_and_status(format!("error executing query: {e}"), Status::Internal)
+    })?;
+
+    // TODO: parse `X-ClickHouse-Summary` and return rows modified
+    // https://github.com/ClickHouse/adbc_clickhouse/issues/15
+    Ok(None)
+}
+
+fn timeout_error() -> Error {
+    Error::with_message_and_status("query execution timed out", Status::Timeout)
+}
+
+fn is_streaming_insert(sql: &str) -> bool {
+    starts_with_ignore_ascii_case(
+        trim_sql_start(sql),
+        "INSERT INTO"
+    )
+        // A comment like `-- FORMAT ArrowStream` might be treated as a false-positive,
+        // but I would consider that a degenerate case
+        && ends_with_ignore_ascii_case(sql.trim_end(), "FORMAT ArrowStream")
+}
+
+/// Skip blank lines and comments at the start of the SQL string.
+fn trim_sql_start(mut sql: &str) -> &str {
+    loop {
+        // Skip leading whitespace
+        sql = sql.trim_start();
+
+        if let Some(rest) = sql.strip_prefix("/*") {
+            // Consume all characters until the closing tag
+            let Some((_, remainder)) = rest.split_once("*/") else {
+                // The whole rest of the SQL string is a comment!
+                return "";
+            };
+
+            sql = remainder;
+            continue;
+        }
+
+        // Possibly more efficient than `sql.starts_with(..)` three times?
+        if matches!(sql.get(..2), Some("--" | "#!" | "# ")) {
+            // Consume the rest of the line
+            let Some((_, remainder)) = sql.split_once('\n') else {
+                // The whole rest of the SQL string is a comment!
+                return "";
+            };
+
+            sql = remainder;
+            continue;
+        }
+
+        break;
+    }
+
+    sql
+}
+
+fn starts_with_ignore_ascii_case(s: &str, tokens: &str) -> bool {
+    s.get(..tokens.len())
+        .is_some_and(|s| s.eq_ignore_ascii_case(tokens))
+}
+
+fn ends_with_ignore_ascii_case(s: &str, tokens: &str) -> bool {
+    let Some(start) = s.len().checked_sub(tokens.len()) else {
+        return false;
+    };
+
+    s.get(start..)
+        .is_some_and(|s| s.eq_ignore_ascii_case(tokens))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_streaming_insert, trim_sql_start};
+
+    #[test]
+    fn test_trim_sql_start_identity() {
+        // Strings that should not be trimmed
+        let unmodified_strings = [
+            "INSERT INTO foo VALUES (1, 2)",
+            "SELECT\n\
+                -- internal comments should be ignored
+                foo,\n\
+                bar,\n\
+                baz\n\
+             FROM quux\n\
+             WHERE foo = 1 AND bar = 2",
+        ];
+
+        for s in unmodified_strings {
+            assert_eq!(trim_sql_start(s), s);
+        }
+    }
+
+    #[test]
+    fn test_trim_sql_start_trimmed() {
+        // leading spaces
+        assert_eq!(
+            trim_sql_start("    INSERT INTO foo VALUES (1, 2)"),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading tabs
+        assert_eq!(
+            trim_sql_start("\t\t\t\tINSERT INTO foo VALUES (1, 2)"),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading newlines
+        assert_eq!(
+            trim_sql_start("\n\n\n\nINSERT INTO foo VALUES (1, 2)"),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading mixed whitespace
+        assert_eq!(
+            trim_sql_start("\n \t\r\nINSERT INTO foo VALUES (1, 2)"),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading line comment
+        assert_eq!(
+            trim_sql_start(
+                "-- insert into foo\n\
+                INSERT INTO foo VALUES (1, 2)"
+            ),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading C-style comment
+        assert_eq!(
+            trim_sql_start(
+                "/* insert into foo */\n\
+                INSERT INTO foo VALUES (1, 2)"
+            ),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // leading C-style multiline comment
+        assert_eq!(
+            trim_sql_start(
+                "/*\n\
+                        insert into foo\n\
+                    */\n\
+                INSERT INTO foo VALUES (1, 2)"
+            ),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // mixed comments and whitespace
+        assert_eq!(
+            trim_sql_start(
+                "\
+                -- multiline comment tag in a line comment shouldn't cause the rest to be ignored
+                -- insert into `foo` /*\n\
+                \t\t\r\n\
+                /*\n\
+                insert into foo\n\
+                -- line comment should be irrelevant to the end of this multiline comment(?) */\n\
+                INSERT INTO foo VALUES (1, 2)"
+            ),
+            "INSERT INTO foo VALUES (1, 2)"
+        );
+
+        // Degenerate cases
+
+        // Technically a syntax error
+        assert_eq!(trim_sql_start("/*/INSERT INTO foo VALUES (1, 2)"), "");
+
+        // oops, all comment (missing newline)
+        assert_eq!(
+            trim_sql_start(
+                "-- insert into foo\
+                INSERT INTO foo VALUES (1, 2)"
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_is_streaming_insert_positive() {
+        let should_match = [
+            // Normal format
+            "INSERT INTO foo FORMAT ArrowStream",
+            // SQL is case-insensitive (format name might not be but close enough)
+            "insert into foo format arrowstream",
+            // leading whitespace
+            "     INSERT INTO foo FORMAT ArrowStream",
+            // trailing whitespace (might be a syntax error)
+            "INSERT INTO foo FORMAT ArrowStream    ",
+            // leading comment
+            "-- streaming insert into `foo`\n\
+             INSERT INTO foo FORMAT ArrowStream",
+            // c-style comment
+            "/* streaming insert into `foo */ INSERT INTO foo FORMAT ArrowStream",
+        ];
+
+        for s in should_match {
+            assert!(
+                is_streaming_insert(s),
+                "is_streaming_insert false negative: {s:?}"
+            )
+        }
+    }
+
+    #[test]
+    fn test_is_streaming_insert_negative() {
+        let should_not_match = [
+            // Normal insert
+            "INSERT INTO foo VALUES (1, 2)",
+            // case-insensitive
+            "insert into foo values (1, 2)",
+            // not an insert
+            "SELECT * FROM foo",
+            // oops, all comment (missing newline)
+            "-- streaming insert into `foo`\
+             INSERT INTO foo FORMAT ArrowStream",
+            // trailing comment (probably a syntax error)
+            "INSERT INTO foo FORMAT ArrowStream -- streaming insert into `foo`",
+        ];
+
+        for s in should_not_match {
+            assert!(
+                !is_streaming_insert(s),
+                "is_streaming_insert false positive: {s:?}"
+            )
+        }
+    }
+}
