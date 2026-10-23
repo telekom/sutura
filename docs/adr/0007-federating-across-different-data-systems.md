@@ -1864,14 +1864,17 @@ lookup leg through the combiner. That sentence is false now. It is left as writt
   in-process engine for each data system, and hold the rows to the rows of one engine over every
   table (content, then order):
   - two remote dimensions on two different data systems, one lookup leg each, both joined onto the
-    fact leg;
+    fact leg, asked over June and over July 2026 - July holds a product key that matches no product,
+    so only a LEFT join of the second leg keeps that row;
   - a chain that crosses to a second data system and comes back, so the second lookup leg joins onto
     the first.
 
   Each cell asserts the shape of its plan before it compares, so an agreement over a plan with one
   leg cannot pass for either.
-- **Not built.** No cell runs three lookup legs, a filter that makes one leg INNER, a drill-across
-  arm over several legs, or a second data system of another kind than the engine. The comparison
+- **Not built.** No cell runs a plan the planner made through the combiner with three lookup legs, a
+  filter that makes one leg INNER, a drill-across arm over several legs, or a second data system of
+  another kind than the engine; the combiner reads three lookup legs on a hand-built plan
+  (*Eighteenth amendment*) and a fact leg on another adapter in an existing cell. The comparison
   runs one corpus, with one operating-system identity for every leg. `DrillAcrossPlan::new` does not
   check the four-source bound; only the planner does (*Twentieth amendment*).
 

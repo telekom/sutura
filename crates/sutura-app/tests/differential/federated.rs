@@ -194,9 +194,15 @@ fn two_relationships_on_one_remote_source_plan_two_lookup_legs() {
 /// One question answered by one engine over every table and by one engine per data system in
 /// `sources`, the rows' content and then their order held to agree. `Ok` is the row count, so a cell
 /// can tell an agreement over nothing from one over an answer.
-fn one_source_agrees(corpus: &corpus::Derived, sources: &[&str], dimensions: &str, name: &str) -> Result<usize, String> {
+fn one_source_agrees(
+    corpus: &corpus::Derived,
+    sources: &[&str],
+    dimensions: &str,
+    (start, end): (&str, &str),
+    name: &str,
+) -> Result<usize, String> {
     let query: Query = serde_norway::from_str(&format!(
-        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [{dimensions}]\n"
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: {start}\n  end: {end}\ndimensions: [{dimensions}]\n"
     ))
     .map_err(|e| e.to_string())?;
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new().map_err(|e| e.to_string())?;
@@ -229,10 +235,14 @@ fn two_lookup_legs_on_two_sources_answer_the_one_source_rows() {
         legs.iter().all(|(_, onto)| *onto == LegAt::Fact),
         "both legs join onto the fact leg: {legs:?}"
     );
-    match one_source_agrees(&corpus, &["local", LOOKUP_SOURCE, "inventory"], dimensions, "fan-in") {
-        Ok(0) => panic!("fan-in: the agreement is over no rows, so it says nothing"),
-        Ok(_) => {}
-        Err(why) => panic!("fan-in: {why}"),
+    // July holds a subscription whose product key matches no product, a miss only the second leg's
+    // LEFT join keeps; June's keys all match, so June alone cannot tell that join from an INNER one.
+    for months in [("2026-06-01", "2026-07-01"), ("2026-07-01", "2026-08-01")] {
+        match one_source_agrees(&corpus, &["local", LOOKUP_SOURCE, "inventory"], dimensions, months, "fan-in") {
+            Ok(0) => panic!("fan-in {months:?}: the agreement is over no rows, so it says nothing"),
+            Ok(_) => {}
+            Err(why) => panic!("fan-in {months:?}: {why}"),
+        }
     }
 }
 
@@ -252,7 +262,13 @@ fn a_chain_that_crosses_and_comes_back_answers_the_one_source_rows() {
         ],
         "the chain crosses to the second source and back, the return joining onto the crossing"
     );
-    match one_source_agrees(&corpus, &["local", LOOKUP_SOURCE], dimensions, "chain-returns") {
+    match one_source_agrees(
+        &corpus,
+        &["local", LOOKUP_SOURCE],
+        dimensions,
+        ("2026-06-01", "2026-07-01"),
+        "chain-returns",
+    ) {
         Ok(0) => panic!("chain-returns: the agreement is over no rows, so it says nothing"),
         Ok(_) => {}
         Err(why) => panic!("chain-returns: {why}"),
