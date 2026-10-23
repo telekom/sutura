@@ -19,7 +19,7 @@
 //! [`TwoFact::NotAsked`] from a system that call said runs here.
 
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{Real, RowSet, Value};
@@ -116,7 +116,7 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
     let one = compile(
         &query,
         &ScopedView::everything(&bundle(&derived.one_source)),
-        RowCeiling::DEFAULT,
+        Ceilings::DEFAULT,
     )
     .expect("the question compiles on one source");
     assert!(
@@ -130,7 +130,7 @@ fn the_two_fact_ratio_is_the_figure_its_rows_add_up_to() {
     );
     let two = bundle(&derived.two_source);
     let Compiled::Federated { plan } =
-        compile(&query, &ScopedView::everything(&two), RowCeiling::DEFAULT).expect("the question compiles on two sources")
+        compile(&query, &ScopedView::everything(&two), Ceilings::DEFAULT).expect("the question compiles on two sources")
     else {
         panic!("{NAME}: a two-fact question over the two-source catalog federates");
     };
@@ -156,7 +156,7 @@ fn a_second_fact_linking_through_a_truncated_key_answers_the_ratio() {
     let Compiled::Federated { plan } = compile(
         &query,
         &ScopedView::everything(&bundle(&corpus.two_source)),
-        RowCeiling::DEFAULT,
+        Ceilings::DEFAULT,
     )
     .expect("the question compiles") else {
         panic!("{NAME}: a two-fact question over the two-source catalog federates");

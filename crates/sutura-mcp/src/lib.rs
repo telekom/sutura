@@ -228,7 +228,7 @@ pub async fn serve_stdio<S>(
     permitted: sutura_app::Permitted,
     prose: sutura_app::prompt::CatalogProse,
     list_physical_schema: bool,
-    row_ceilings: sutura_domain::plan::RowCeilings,
+    ceilings: sutura_domain::plan::Ceilings,
     admission: sutura_runtime::Admission,
     reply: sutura_config::RequestTimeout,
     tools: std::sync::Arc<[sutura_app::prompt::Tool]>,
@@ -248,7 +248,7 @@ where
             operator_instructions,
         )
         .listing_physical_schema(list_physical_schema)
-        .row_ceilings(row_ceilings),
+        .ceilings(ceilings),
         rmcp::transport::stdio(),
     )
     .await

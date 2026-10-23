@@ -3,8 +3,10 @@
 //!
 //! **The plan names its lookup legs.** A question whose joins cross onto a data system other than
 //! the metric's own is split into a fact leg and one lookup leg per crossing relationship, combined
-//! above; more than [`MAX_LOOKUP_LEGS`] legs are refused before anything runs, because each leg's
-//! source is a separate identity to satisfy.
+//! above; more lookup legs than the deployment's [`LookupLegCeiling`] are refused before anything
+//! runs, because each leg's source is a separate identity to satisfy.
+//!
+//! [`LookupLegCeiling`]: sutura_domain::plan::LookupLegCeiling
 //!
 //! **Every value becomes a bind parameter, in the order the statement will refer to them.** That
 //! order is this module's contract with whatever executes the plan: for a dialect that writes `?`,
@@ -34,11 +36,11 @@ use sutura_domain::measure::Measure;
 use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName, TableName};
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
-    DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, PlanBindings, PlanBucket,
-    PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
-    plan_measure, plan_required_filter,
+    DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, LegCeiling, PlanBindings,
+    PlanBucket, PlanCeilings, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan,
+    ResultLabel, SourceCeiling, StatementTables, plan_measure, plan_required_filter,
 };
-use sutura_domain::query::{MAX_LOOKUP_LEGS, MAX_SOURCES, RefusalReason};
+use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
 use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
@@ -58,7 +60,7 @@ use federated::federated_plan;
 pub(crate) enum Plan {
     /// One whole answer from one data system.
     Mono(Box<QueryPlan>),
-    /// Two legs from two data systems, combined above.
+    /// A fact leg and one to the configured number of lookup legs on other data systems, combined above.
     Federated(Box<FederatedPlan>),
     /// One arm per metric, each answered on its own and joined above.
     DrillAcross(Box<DrillAcrossPlan>),
@@ -114,8 +116,9 @@ pub(crate) enum PlanError {
     ///
     /// [`NotAssembled`](Self::NotAssembled)'s argument again: every arm is built from the same
     /// question, so its keys, bucket and range agree, no metric is named twice, and a `top` is refused
-    /// when the question resolves. The one variant a caller can cause, a question over more legs than
-    /// [`MAX_LEGS`](sutura_domain::plan::MAX_LEGS), is a refusal and not this.
+    /// when the question resolves. The one variant a caller could cause, a question over more legs than
+    /// [`MAX_LEGS`](sutura_domain::plan::MAX_LEGS), is refused against the deployment's
+    /// [`LegCeiling`](sutura_domain::plan::LegCeiling) - at most `MAX_LEGS` - before the plan is built.
     #[error(transparent)]
     NotAssembledAcross(#[from] DrillAcrossPlanError),
     /// `federated_plan` ran with no lookup leg it could join through.
@@ -148,15 +151,15 @@ impl From<RefusalReason> for PlanError {
 
 /// Turns a resolution into a plan, or refuses it.
 ///
-/// **Two refusals are produced here and nowhere else, and both are about the SHAPE of the statement
-/// rather than about anything a caller wrote:** a plan that would read more lookup legs than the
-/// deployment serves, and a statement whose tables could not be told apart inside it. Everything
+/// **The refusals produced here are about the SHAPE of the plan rather than about anything a caller
+/// wrote:** a plan that would read more lookup legs, legs or data systems than `ceilings` allows, and
+/// a statement whose tables could not be told apart inside it. Everything
 /// a caller could have got wrong was already checked when their names were looked up.
 ///
 /// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
 /// function's discipline: a whole-answer plan and a fact leg each take their tables as a
 /// [`StatementTables`], so neither can be built without the answer.
-pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
+pub(crate) fn plan(resolution: &Resolution<'_>, ceilings: PlanCeilings) -> Result<Plan, PlanError> {
     // The one-statement path builds one `PlannedMeasure` per metric, each guarded by its own required
     // filters so none of them leaks into another's column; the metrics share a model, a time column
     // and every dimension's path (`one_statement`). No authored-SQL metric can be part of a question
@@ -173,29 +176,49 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, PlanError> {
     let (measure, lookups) = prechecked(resolution)?;
     match lookups.len() {
         0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
-        1..=MAX_LOOKUP_LEGS => {
+        legs if legs > ceilings.lookup_legs().get() => Err(too_many_lookup_legs(legs, ceilings)),
+        _ => {
             let planned = federated_plan(resolution, measure, &lookups)?;
-            bounded_sources(planned.sources())?;
+            bounded_legs(planned.legs().len(), ceilings.legs())?;
+            bounded_sources(planned.sources(), ceilings.sources())?;
             Ok(Plan::Federated(Box::new(planned)))
         }
-        legs => Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
-            legs,
-            limit: MAX_LOOKUP_LEGS,
-        })),
     }
 }
 
-/// Refuses a plan that reads more distinct data systems than one answer may.
+/// The refusal for one metric's plan over `legs` lookup legs, past the deployment's ceiling.
+pub(super) const fn too_many_lookup_legs(legs: usize, ceilings: PlanCeilings) -> PlanError {
+    PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
+        legs,
+        limit: ceilings.lookup_legs().get(),
+    })
+}
+
+/// Refuses an answer that runs more legs than the deployment's `ceiling`, every leg of every metric
+/// counted.
+pub(super) const fn bounded_legs(legs: usize, ceiling: LegCeiling) -> Result<(), PlanError> {
+    if legs > ceiling.get() {
+        return Err(PlanError::Refused(RefusalReason::QuestionNeedsTooManyLegs {
+            legs,
+            limit: ceiling.get(),
+        }));
+    }
+    Ok(())
+}
+
+/// Refuses a plan that reads more distinct data systems than the deployment's `ceiling`.
 ///
 /// The one count for the one-statement path and for a drill-across: the sources are the set the broker
-/// mints credentials for, so a source two legs read counts once. One fact leg and [`MAX_LOOKUP_LEGS`]
-/// lookup legs read four at most, so only a drill-across can be refused here.
-pub(super) fn bounded_sources<'a>(sources: impl Iterator<Item = &'a SourceName>) -> Result<(), PlanError> {
+/// mints credentials for, so a source two legs read counts once.
+pub(super) fn bounded_sources<'a>(
+    sources: impl Iterator<Item = &'a SourceName>,
+    ceiling: SourceCeiling,
+) -> Result<(), PlanError> {
     let sources = sources.collect::<BTreeSet<_>>().len();
-    if sources > MAX_SOURCES {
+    if sources > ceiling.get() {
         return Err(PlanError::Refused(RefusalReason::PlanSpansTooManySources {
             sources,
-            limit: MAX_SOURCES,
+            limit: ceiling.get(),
         }));
     }
     Ok(())
@@ -203,10 +226,10 @@ pub(super) fn bounded_sources<'a>(sources: impl Iterator<Item = &'a SourceName>)
 
 /// Turns a resolved question into a plan: the one statement when every metric reads the same
 /// dimensions the same way, an arm per metric otherwise.
-pub(crate) fn plan_resolved(resolved: &Resolved<'_>) -> Result<Plan, PlanError> {
+pub(crate) fn plan_resolved(resolved: &Resolved<'_>, ceilings: PlanCeilings) -> Result<Plan, PlanError> {
     match resolved.per_metric.as_slice() {
-        [first, second, rest @ ..] if !one_statement(resolved) => drill_across::plan(first, second, rest),
-        _ => plan(&resolved.whole),
+        [first, second, rest @ ..] if !one_statement(resolved) => drill_across::plan(first, second, rest, ceilings),
+        _ => plan(&resolved.whole, ceilings),
     }
 }
 

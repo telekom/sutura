@@ -164,10 +164,10 @@ A **data system** runs the query. It has two kinds of adapter:
   runs it.
 
 **Several sources in one question.** sutura splits the plan into legs, runs each leg on its own source, and joins the
-results. One crossing relationship is one lookup leg. It refuses a plan with more than three lookup legs
-(`PlanNeedsTooManyLookupLegs`), and an answer that reads more than four distinct data systems, which only several metrics can reach
-(`PlanSpansTooManySources`). A Cube source cannot run a leg, so a multi-source question that names one is refused
-(`FederationNotExecutable`).
+results. One crossing relationship is one lookup leg. It refuses a plan with more lookup legs than
+`governance.lookup_leg_ceiling` allows, three by default (`PlanNeedsTooManyLookupLegs`), and an answer that reads more
+distinct data systems than `governance.source_ceiling` allows, four by default (`PlanSpansTooManySources`). A Cube
+source cannot run a leg, so a multi-source question that names one is refused (`FederationNotExecutable`).
 
 **Identity for each leg.** Each leg runs in the identity mode of its source: `shared-service-user` or
 secure-impersonation. The answer records one `executed_as` entry for each source. A combined total can include rows that

@@ -347,3 +347,30 @@ prompt:
 #
 # governance:
 #   federated_row_ceiling: 10000
+#
+# `source_ceiling` is absent by default, which resolves to 4 - every deployment's behaviour before
+# this key existed. It bounds how many distinct data systems one answer reads, one metric or
+# several; each is an identity the broker mints credentials for. A plan over it is refused as
+# `plan_spans_too_many_sources`, naming the number. Zero does not load, and neither does a value
+# above its hard maximum (16).
+#
+# governance:
+#   source_ceiling: 4
+#
+# `lookup_leg_ceiling` is absent by default, which resolves to 3 - every deployment's behaviour
+# before this key existed. It bounds how many lookup legs - one per crossing relationship - one
+# metric's plan reads; a plan over it is refused as `plan_needs_too_many_lookup_legs`, naming the
+# number. It may be set lower or higher. Zero does not load, and neither does a value above its
+# hard maximum (8).
+#
+# governance:
+#   lookup_leg_ceiling: 3
+#
+# `leg_ceiling` is absent by default, which resolves to 6 - every deployment's behaviour before
+# this key existed. It bounds how many legs - statements against a data system - one answer runs,
+# every leg of every metric counted; an answer over it is refused as
+# `question_needs_too_many_legs`, naming the number. It is its own bound and does not follow
+# `lookup_leg_ceiling`. Zero does not load, and neither does a value above its hard maximum (16).
+#
+# governance:
+#   leg_ceiling: 6

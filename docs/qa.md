@@ -33,7 +33,7 @@ would send the first caller's rows to the second caller. For the same reason, su
 
 ## Can a question span several data systems?
 
-Yes. sutura splits the question into a fact leg and up to three lookup legs, runs each leg at its source and joins the
+Yes. sutura splits the question into a fact leg and up to `governance.lookup_leg_ceiling` lookup legs (three by default), runs each leg at its source and joins the
 results. Each leg runs in the identity mode of its source, and the answer records the mode of each leg.
 
 ## Why can I not edit definitions here?

@@ -117,16 +117,16 @@ Every reason you can be given, and what to do about each:
   the same question again. If the SAME question is refused again immediately after a fresh window
   starts, its own estimate is over the ceiling by itself - waiting will never help that case, and
   narrowing the question is the only remedy.
-- **plan_spans_too_many_sources** - answering would need to read from more data systems than one
-  answer may (four at most).
+- **plan_spans_too_many_sources** - answering would need to read from more data systems than this
+  deployment lets one answer read (the refusal names its limit).
   Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.
 - **question_needs_too_many_legs** - answering would run more queries against the data systems than
   one question may.
   Ask for fewer metrics at a time.
 - **plan_needs_too_many_lookup_legs** - answering would need more lookup legs than this deployment
-  serves (three at most).
+  serves (the refusal names its limit).
   Ask for fewer dimensions that live in other data systems; each join into another data system costs
-  one lookup leg, and three is the most.
+  one lookup leg.
 - **federation_not_executable** - this deployment has no adapter that can execute one half of a
   question spanning two data systems, so the question cannot be answered yet.
   Not a data system being down, so do not retry as if it were. Ask the same metric without the

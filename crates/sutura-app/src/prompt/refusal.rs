@@ -154,8 +154,8 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
     reason: "plan_spans_too_many_sources",
-    meaning: "answering would need to read from more data systems than one answer may (four at \
-              most)",
+    meaning: "answering would need to read from more data systems than this deployment lets one \
+              answer read (the refusal names its limit)",
     remedy: "Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.",
 };
 
@@ -183,8 +183,8 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
 
 const PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS: Guide = Guide {
     reason: "plan_needs_too_many_lookup_legs",
-    meaning: "answering would need more lookup legs than this deployment serves (three at most)",
-    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg, and three is the most.",
+    meaning: "answering would need more lookup legs than this deployment serves (the refusal names its limit)",
+    remedy: "Ask for fewer dimensions that live in other data systems; each join into another data system costs one lookup leg.",
 };
 
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {

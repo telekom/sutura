@@ -76,7 +76,9 @@
 
 use sutura_domain::pinned::NotValidated;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::{LegAt, RowCeiling};
+use sutura_domain::plan::{
+    Ceilings, FederatedRowCeiling, LegAt, LegCeiling, LookupLegCeiling, PlanCeilings, RowCeiling, SourceCeiling,
+};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{RowSet, Value};
@@ -291,14 +293,66 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
     .expect("a top question is a question");
 
     let Compiled::Federated { plan: case_2_plan } =
-        compile(&case_2, &ScopedView::everything(&two), RowCeiling::DEFAULT).expect("case 2 compiles")
+        compile(&case_2, &ScopedView::everything(&two), Ceilings::DEFAULT).expect("case 2 compiles")
     else {
         panic!("a region question over the two-source catalog must federate");
     };
     assert!(case_2_plan.top().is_some(), "case 2 ranks the combine instead");
     // `top` does not narrow what the mono side can do: it still plans whole on one source.
-    let mono = compile(&case_2, &ScopedView::everything(&one), RowCeiling::DEFAULT).expect("the mono question compiles");
+    let mono = compile(&case_2, &ScopedView::everything(&one), Ceilings::DEFAULT).expect("the mono question compiles");
     assert!(matches!(mono, Compiled::Planned { .. }), "{mono:?}");
+}
+
+/// The configured source ceiling reaches the planner through `answer`: under a ceiling of one data
+/// system, a question the two-source catalog splits is refused naming the configured number, and the
+/// broker counts no mint. The default ceiling answers it with one mint, so the count is not dead.
+#[test]
+fn a_ceiling_of_one_data_system_refuses_a_two_source_question_through_answer() {
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let two = harness::two_engines(harness::bundle(&derived().two_source));
+    let by_region: Query = serde_norway::from_str(
+        "metrics: [recurring_revenue]\ngrain: month\nrange: { start: 2026-06-01, end: 2026-07-01 }\ndimensions: [region]\n",
+    )
+    .expect("a region question is a question");
+    let one = Ceilings::new(
+        RowCeiling::DEFAULT,
+        FederatedRowCeiling::DEFAULT,
+        PlanCeilings::new(
+            SourceCeiling::parse(1).expect("one is a source ceiling"),
+            LookupLegCeiling::DEFAULT,
+            LegCeiling::DEFAULT,
+        ),
+    );
+    let broker = harness::MintCounting::default();
+    let outcome = harness::answered_through(&two, &broker, &by_region, "by-region", (&combiner, harness::BUDGET), one);
+    assert!(
+        matches!(
+            outcome,
+            Ok(ToolOutcome::Refusal {
+                reason: RefusalReason::PlanSpansTooManySources { sources: 2, limit: 1 }
+            })
+        ),
+        "two data systems over a configured ceiling of one must refuse naming one, not {outcome:?}"
+    );
+    assert_eq!(
+        broker.asked(),
+        0,
+        "the ceiling refuses before the broker is asked for a credential"
+    );
+    let control = harness::MintCounting::default();
+    let answered = harness::answered_through(
+        &two,
+        &control,
+        &by_region,
+        "by-region",
+        (&combiner, harness::BUDGET),
+        Ceilings::DEFAULT,
+    );
+    assert!(
+        matches!(answered, Ok(ToolOutcome::Answer { .. })),
+        "the default ceiling answers it: {answered:?}"
+    );
+    assert_eq!(control.asked(), 1, "the counter reads a mint when there is one");
 }
 
 /// **What the splitter hands the fact leg for a distinct count: the column as a KEY under the leaf's
@@ -313,7 +367,7 @@ fn a_distinct_count_is_a_key_of_the_fact_leg_and_not_a_term() {
             .into_iter()
             .find(|(at, _)| at == name)
             .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
-        match compile(&query, &ScopedView::everything(&two), RowCeiling::DEFAULT) {
+        match compile(&query, &ScopedView::everything(&two), Ceilings::DEFAULT) {
             Ok(Compiled::Federated { plan }) => plan,
             other => panic!("{name} is a two-source question, not {other:?}"),
         }

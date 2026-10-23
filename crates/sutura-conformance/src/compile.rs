@@ -588,7 +588,7 @@ fn compiled_plan(pinned: &PinnedDefinitions, question: &Query, what: &str) -> Bo
     match compile(
         question,
         &ScopedView::everything(pinned),
-        sutura_domain::plan::RowCeiling::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     ) {
         Ok(Compiled::Planned { plan }) => plan,
         Ok(Compiled::Refused { reason }) => panic!("{what} answered a question this corpus compiles with a refusal: {reason:?}"),
@@ -695,7 +695,7 @@ where
         match compile(
             &agent.question,
             &ScopedView::everything(&subject),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         ) {
             Ok(Compiled::Refused { reason }) => {
                 let rendered = format!("{reason:?}");

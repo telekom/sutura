@@ -432,7 +432,7 @@ fn from_the_registry(
                 return Err(format!(
                     "`sources.{source}` is a BigQuery dataset, and {} was given on the command line \
                      as a data directory - a dataset has none, so the argument selects nothing. Drop \
-                     it; the dataset that entry declares is what will be read",
+                     it; the tables that entry's models name are what will be read",
                     given.display()
                 ));
             }

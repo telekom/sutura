@@ -1,5 +1,5 @@
-//! The federated splitter: a question over several data systems becomes a fact leg and up to
-//! [`MAX_LOOKUP_LEGS`](sutura_domain::query::MAX_LOOKUP_LEGS) lookup legs.
+//! The federated splitter: a question over several data systems becomes a fact leg and up to the
+//! deployment's [`LookupLegCeiling`](sutura_domain::plan::LookupLegCeiling) lookup legs.
 //!
 //! **A module rather than three functions in `plan.rs`, and the seam is the same one `chain`
 //! documents: one concept, one file, one reader.** Split out under `cargo xtask max-lines`'s limit:

@@ -79,27 +79,17 @@ comparing the two define sets, not built here.
 The native ADBC BigQuery driver is the Foundry `adbc-drivers/bigquery` (Apache-2.0),
 **self-built from source** rather than pulled as a CDN `.so` from `dbc install bigquery` -
 a CDN binary has no aarch64-musl artifact and is not reproducible for this repository's
-four release triples. It is pinned at the release tag `go/v1.13.0`
-(repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
+four release triples. It is pinned at the release tag `go/v1.14.1`
+(repo rev `a25673b7`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Six source-level adaptations, recorded here so nothing is silent:
+Five source-level adaptations, recorded here so nothing is silent:
 
-- **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
-  this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
+- **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.3`) above what
+  nixpkgs' `go_1_27` provides. `nix/bigquery-adbc-drivers.nix` relaxes the floor
   to `go 1.27` and drops any `toolchain` directive at the source, so both the module-vendoring
-  FOD and the build accept the pinned toolchain. `1.27.1` is a patch floor; the relax changes
+  FOD and the build accept the pinned toolchain. `1.27.3` is a patch floor; the relax changes
   the directive, not dependencies.
-- **A REST 403 access denial reads as `Unauthorized`.** `nix/bigquery-adbc-forbidden.patch`
-  changes `errToAdbcErr` (`go/util.go`): a `googleapi` 403 whose reason is `accessDenied`,
-  `billingNotEnabled` or `blocked` gets `Unauthorized`, the status the driver already gives those
-  reasons in a job's status. Unpatched, a caller without the grant to run a job gets `Internal`, so
-  sutura answered it as a data system that did not answer. A 403 for a rate or a quota stays
-  `Internal`. `patch` fails the build when a driver bump moves the patched lines. The patch also
-  adds `forbidden_test.go`, which the build's check phase runs, so a changed reason table fails the
-  build on a host that can run its target; a cross build that cannot skips it. Upstream issue:
-  [`adbc-drivers/bigquery#329`](https://github.com/adbc-drivers/bigquery/issues/329). Drop it
-  when upstream maps the same reasons.
 - **Two options for a caller's own Google credential.** `nix/bigquery-adbc-caller-credentials.patch`
   adds the `bigquery.auth_type` value `access_token` with `bigquery.auth.access_token`, a bare OAuth
   2.0 access token the driver sends as it is and never refreshes, and `bigquery.impersonate.subject`,
@@ -132,9 +122,13 @@ Six source-level adaptations, recorded here so nothing is silent:
   scope no job can be (the driver logs the failed cancel); `jobs.query` is sent once, without the
   client library's retry. The patch adds `jobs_query_test.go`, which the build's check phase runs
   on a host that can run its target. sutura sets the option only for a `domain_delegation` source,
-  beside the read-only scope. It touches no line the other driver patches change, so it applies
-  before or after any of them. No upstream issue yet. Drop it when upstream starts a query with
-  `jobs.query`.
+  beside the read-only scope. Its tests also need the caller-credentials patch's access-token
+  option. No upstream issue yet. `go/v1.14.1` starts a query with `jobs.query` itself under
+  `bigquery.query.job_creation_mode=optional`, through the client library's `Query.TryRead`. That
+  does not replace this patch: the pinned client library's fast-path probe declines any
+  configuration with a job timeout, which sutura sets whenever a request carries a port deadline,
+  and a dry run never takes that path. Drop it when upstream's `jobs.query` path carries a job
+  timeout and a dry run and refuses a configuration it cannot carry.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation

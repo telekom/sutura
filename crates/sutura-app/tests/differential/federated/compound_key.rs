@@ -16,7 +16,7 @@
 use std::path::Path;
 
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::{InternalLabel, KeyValue, PlanKey, RowCeiling};
+use sutura_domain::plan::{Ceilings, InternalLabel, KeyValue, PlanKey};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content};
 use sutura_domain::warehouse::{Real, RowSet, Value};
@@ -100,7 +100,7 @@ fn row(family: Option<&str>, day: &str, minutes: f64) -> Vec<Value> {
 
 fn compiled_question(catalog: &Path, question: &str) -> Compiled {
     let query: Query = serde_norway::from_str(question).expect("the question is a question");
-    compile(&query, &ScopedView::everything(&bundle(catalog)), RowCeiling::DEFAULT).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(&bundle(catalog)), Ceilings::DEFAULT).expect("the derived catalog is consistent")
 }
 
 /// What every topology must answer: the one source, two engines and two `DuckDB`s.
@@ -302,7 +302,7 @@ fn a_second_fact_linking_through_a_compound_key_answers_the_ratio() {
     let Compiled::Federated { plan } = compile(
         &query,
         &ScopedView::everything(&bundle(&corpus.two_source)),
-        RowCeiling::DEFAULT,
+        Ceilings::DEFAULT,
     )
     .expect("the question compiles") else {
         panic!("a two-fact question over the two-source catalog federates");
