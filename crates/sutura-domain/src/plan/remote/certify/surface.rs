@@ -2,9 +2,10 @@
 //!
 //! A fact leg rooted on its metric's own model may join the hops of the metric's dimension chains
 //! that stay on its source, key or filter on a dimension whose whole chain stays there, and link on
-//! the hop where such a chain first crosses to another source. A fact leg rooted on a second model
-//! of the measure links on a relationship from its root to where one of those crossings lands, on
-//! the same key. A lookup leg names its metric too, and is rooted only where one of that metric's
+//! every key part of the hop where such a chain first crosses to another source. A fact leg rooted
+//! on a second model of the measure links on a relationship from its root to where one of those
+//! crossings lands, with one key for each of the crossing's keys, in the crossing's key order. A
+//! lookup leg names its metric too, and is rooted only where one of that metric's
 //! chains crosses into it: it links on that crossing hop and on the next crossing out of the part
 //! of the chain it reads, may join the hops between them, and keys or filters on a dimension whose
 //! chain ends there. A fact leg bucketed on a shared calendar may also join that calendar, through
@@ -13,8 +14,8 @@
 use std::collections::BTreeSet;
 
 use super::Statement;
-use crate::catalog::{Definitions, Dimension, Metric, Model, Relationship};
-use crate::model::{DimensionName, RelationshipName};
+use crate::catalog::{Definitions, Dimension, JoinKey, Metric, Model, Relationship};
+use crate::model::{ColumnName, DimensionName, ModelName, RelationshipName};
 use crate::plan::PlanColumn;
 
 /// A dimension a leg may name: the column it reads and the joins its chain reaches it through.
@@ -32,11 +33,45 @@ enum End {
     Target,
 }
 
+/// A link the leg may carry: the model it is read on, at which end, and its key columns by part.
+struct Link<'d> {
+    end: End,
+    model: &'d ModelName,
+    parts: Vec<&'d ColumnName>,
+}
+
+impl<'d> Link<'d> {
+    /// One end of a crossing hop, its parts in the hop's key order.
+    fn of(hop: &'d Relationship, end: End) -> Self {
+        let (model, parts) = match end {
+            End::Origin => (hop.origin_model(), hop.keys().iter().map(JoinKey::origin).collect()),
+            End::Target => (hop.target_model(), hop.keys().iter().map(JoinKey::target).collect()),
+        };
+        Self { end, model, parts }
+    }
+
+    /// Whether the leg's `statement` holds the model this link is read on.
+    fn held(&self, statement: &Statement<'_>) -> bool {
+        match self.end {
+            End::Origin => statement.models.iter().any(|at| at.name() == self.model),
+            End::Target => statement.root.name() == self.model,
+        }
+    }
+
+    /// Whether `column` is part `part` of this link.
+    fn reads(&self, definitions: &Definitions, part: usize, column: &PlanColumn) -> bool {
+        self.parts.get(part).is_some_and(|&at| at == column.column())
+            && definitions
+                .model(self.model)
+                .is_some_and(|model| model.table_name() == column.table())
+    }
+}
+
 /// The joins, dimensions and links one leg may name.
 pub(super) struct Surface<'d> {
     joins: BTreeSet<&'d RelationshipName>,
     reaches: Vec<Reach<'d>>,
-    links: Vec<(&'d Relationship, End)>,
+    links: Vec<Link<'d>>,
 }
 
 /// One hop of a dimension chain and the model it lands on.
@@ -88,14 +123,27 @@ pub(super) fn crossed_into(definitions: &Definitions, metric: &Metric, model: &M
     })
 }
 
-/// Whether `second` links onto where `crossing` lands, on the same single key.
-fn links_onto(second: &Relationship, crossing: &Relationship) -> bool {
+/// `second`'s link onto where `crossing` lands, as the planner builds it: the same number of keys,
+/// each of `second`'s keys on a crossing key's target and grain, its parts in the crossing's key
+/// order.
+fn link_onto<'d>(second: &'d Relationship, crossing: &Relationship) -> Option<Link<'d>> {
+    let same = |own: &JoinKey, other: &JoinKey| own.target() == other.target() && own.grain() == other.grain();
     let (ours, theirs) = (second.keys(), crossing.keys());
-    ours.len() == 1
-        && theirs.len() == 1
-        && second.target_model() == crossing.target_model()
-        && ours.first().target() == theirs.first().target()
-        && ours.first().grain() == theirs.first().grain()
+    if second.target_model() != crossing.target_model()
+        || ours.len() != theirs.len()
+        || !ours.iter().all(|key| theirs.iter().any(|own| same(own, key)))
+    {
+        return None;
+    }
+    let parts = theirs
+        .iter()
+        .map(|own| ours.iter().find(|key| same(own, key)).map(JoinKey::origin))
+        .collect::<Option<Vec<_>>>()?;
+    Some(Link {
+        end: End::Origin,
+        model: second.origin_model(),
+        parts,
+    })
 }
 
 impl<'d> Surface<'d> {
@@ -117,10 +165,8 @@ impl<'d> Surface<'d> {
             surface.links = definitions
                 .relationships()
                 .values()
-                .filter(|second| {
-                    second.origin_model() == root.name() && crossings.iter().any(|crossing| links_onto(second, crossing))
-                })
-                .map(|second| (second, End::Origin))
+                .filter(|second| second.origin_model() == root.name())
+                .flat_map(|second| crossings.iter().filter_map(move |crossing| link_onto(second, crossing)))
                 .collect();
             return surface;
         }
@@ -134,7 +180,7 @@ impl<'d> Surface<'d> {
                 .count();
             surface.joins.extend(hops.iter().take(local).map(|&(hop, _)| hop.name()));
             if let Some(&(crossing, _)) = hops.get(local) {
-                surface.links.push((crossing, End::Origin));
+                surface.links.push(Link::of(crossing, End::Origin));
             } else {
                 let at = hops.last().map_or(root, |&(_, target)| target);
                 surface.reaches.push(Reach {
@@ -167,11 +213,11 @@ impl<'d> Surface<'d> {
             for &(hop, target) in &hops {
                 if target.source() != at.source() {
                     if through.is_some() {
-                        surface.links.push((hop, End::Origin));
+                        surface.links.push(Link::of(hop, End::Origin));
                     }
                     through = (target.name() == root.name()).then(Vec::new);
                     if through.is_some() {
-                        surface.links.push((hop, End::Target));
+                        surface.links.push(Link::of(hop, End::Target));
                     }
                 } else if let Some(joined) = through.as_mut() {
                     joined.push(hop.name());
@@ -217,22 +263,27 @@ impl<'d> Surface<'d> {
         self.on(column, joins).filter(|dimension| dimension.is_filterable())
     }
 
-    /// Whether `column` is key part `part` of one of the leg's crossing hops, at the end the leg
-    /// holds: the origin on a model of `statement`, or the target on its root.
+    /// Whether `column` is key part `part` of one of the leg's links, on a model the leg holds.
     pub(super) fn links(&self, definitions: &Definitions, statement: &Statement<'_>, part: usize, column: &PlanColumn) -> bool {
-        self.links.iter().any(|&(hop, end)| {
-            let Some(key) = hop.keys().iter().nth(part) else {
-                return false;
-            };
-            let (model, key_column) = match end {
-                End::Origin => (hop.origin_model(), key.origin()),
-                End::Target => (hop.target_model(), key.target()),
-            };
-            let held = match end {
-                End::Origin => statement.models.iter().any(|at| at.name() == model),
-                End::Target => statement.root.name() == model,
-            };
-            held && column.column() == key_column && definitions.model(model).is_some_and(|at| at.table_name() == column.table())
+        self.links
+            .iter()
+            .any(|link| link.held(statement) && link.reads(definitions, part, column))
+    }
+
+    /// Whether `carried`, the parts one link label carries, are every part of one of the leg's
+    /// links and nothing else, each part once.
+    pub(super) fn completes(
+        &self,
+        definitions: &Definitions,
+        statement: &Statement<'_>,
+        carried: &[(usize, &PlanColumn)],
+    ) -> bool {
+        let parts: BTreeSet<usize> = carried.iter().map(|&(part, _)| part).collect();
+        self.links.iter().any(|link| {
+            link.held(statement)
+                && parts.len() == carried.len()
+                && parts.len() == link.parts.len()
+                && carried.iter().all(|&(part, column)| link.reads(definitions, part, column))
         })
     }
 }

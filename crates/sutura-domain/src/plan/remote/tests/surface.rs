@@ -304,3 +304,57 @@ fn a_fact_leg_joins_its_calendar_only_through_the_relationship_the_planner_picks
         "{refused:?}"
     );
 }
+
+/// The refund leg of `net_revenue`, linked on `links` and nothing else.
+fn refunds_linked(links: &[(&str, &str)]) -> (Value, Vec<ParamValue>) {
+    let (mut json, params) = refunds();
+    json["keys"] = Value::Array(
+        links
+            .iter()
+            .map(|&(label, of_column)| key(label, "refunds", of_column))
+            .collect(),
+    );
+    (json, params)
+}
+
+#[test]
+fn a_second_fact_links_on_every_part_of_a_compound_crossing_in_the_crossings_order() {
+    let (json, params) = refunds_linked(&[("0_link", "ref_a"), ("0_link_1", "ref_b")]);
+    let accepted = judged(json, params);
+    assert!(accepted.is_ok(), "{accepted:?}");
+}
+
+#[test]
+fn a_second_fact_link_part_off_its_metrics_crossing_is_refused() {
+    let (json, params) = refunds_linked(&[("0_link", "ref_a"), ("0_link_1", "amount_cents")]);
+    let refused = judged(json, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::LinkNotDeclared { ref column, .. }) if column.as_str() == "amount_cents"),
+        "{refused:?}"
+    );
+    let (json, params) = refunds_linked(&[("0_link", "ref_b"), ("0_link_1", "ref_a")]);
+    let refused = judged(json, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::LinkNotDeclared { ref column, .. }) if column.as_str() == "ref_b"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_link_carries_every_part_of_its_crossing_each_once() {
+    for links in [vec![("0_link", "ref_a")], vec![("0_link", "ref_a"), ("0_link", "ref_a")]] {
+        let (json, params) = refunds_linked(&links);
+        let refused = judged(json, params);
+        assert!(
+            matches!(refused, Err(LegNotCertified::LinkIncomplete { leg: 0 })),
+            "{links:?}: {refused:?}"
+        );
+    }
+    let (mut json, params) = own_ratio_leg(&["orders_calendar"]);
+    json["keys"] = json!([key("0_link", "orders", "ref_a")]);
+    let refused = judged(json, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::LinkIncomplete { leg: 0 })),
+        "{refused:?}"
+    );
+}

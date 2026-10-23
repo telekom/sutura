@@ -15,6 +15,8 @@
 
 mod surface;
 
+use std::collections::BTreeMap;
+
 use self::surface::Surface;
 use super::{LegWire, WireBucket, WireKey, WireLabel, WireTerm};
 use crate::calendar::TimeRange;
@@ -93,6 +95,9 @@ pub enum LegNotCertified {
     /// A link key is not a key column of one of the metric's crossing hops, at the end the leg holds.
     #[error("column {column} of table {table} is not a key of a crossing this leg's metric declares")]
     LinkNotDeclared { table: TableName, column: ColumnName },
+    /// One link label does not carry every key part of one of the metric's crossing hops, each once.
+    #[error("link {leg} does not carry every key part of one crossing this leg's metric declares")]
+    LinkIncomplete { leg: usize },
     /// A lookup leg carries a key that only a fact leg's measure can name.
     #[error("a lookup leg does not carry a measure key on column {column} of table {table}")]
     KeyNotDeclared { table: TableName, column: ColumnName },
@@ -149,9 +154,20 @@ const fn within(part: LegPart, len: usize, limit: usize) -> Result<(), LegNotCer
     Ok(())
 }
 
-/// The dimension keys, one link for each lookup leg, and at most two distinct keys: what a
-/// splitter's leg can group by.
-pub(super) const MAX_KEYS: usize = MAX_DIMENSIONS + MAX_LOOKUP_LEGS + 2;
+/// The dimension keys, one link for each key part of each lookup leg's crossing, and at most two
+/// distinct keys: what a splitter's leg can group by. A crossing has at most as many key parts as
+/// the widest relationship `definitions` declares.
+pub(super) fn max_keys(definitions: &Definitions) -> usize {
+    let parts = definitions
+        .relationships()
+        .values()
+        .map(|relationship| relationship.keys().len())
+        .max()
+        .unwrap_or(1);
+    MAX_DIMENSIONS
+        .saturating_add(MAX_LOOKUP_LEGS.saturating_mul(parts))
+        .saturating_add(2)
+}
 
 /// One term or a ratio of two, and `Avg` expands each into two.
 const MAX_TERMS: usize = 4;
@@ -221,6 +237,9 @@ struct Scope<'s> {
     joins: &'s [RelationshipName],
 }
 
+/// The parts one link label carries, each with its column, in the order the leg lists them.
+type Carried = Vec<(usize, PlanColumn)>;
+
 /// The keys, each a declared column of the statement under a label the leg may carry: a dimension
 /// reached through its own chain, a link on one of the metric's crossing hops, or, on a fact leg,
 /// a column the measure reads on the root table.
@@ -230,8 +249,10 @@ fn keys(
     scope: &Scope<'_>,
     measured: Option<&Measured<'_>>,
 ) -> Result<Vec<PlanKey>, LegNotCertified> {
-    within(LegPart::Keys, wire.len(), MAX_KEYS)?;
-    wire.into_iter()
+    within(LegPart::Keys, wire.len(), max_keys(scope.definitions))?;
+    let mut links: BTreeMap<usize, Carried> = BTreeMap::new();
+    let keys = wire
+        .into_iter()
         .map(|key| {
             let column = &key.column;
             statement.certifies(column)?;
@@ -262,11 +283,21 @@ fn keys(
                     }
                     Some(_) => {}
                 },
-                WireLabel::Dimension(_) | WireLabel::Internal(InternalLabel::Link { .. }) => {}
+                WireLabel::Internal(InternalLabel::Link { leg, part }) => {
+                    links.entry(leg).or_default().push((part, column.clone()));
+                }
+                WireLabel::Dimension(_) => {}
             }
             Ok(PlanKey::new(key.label.into_label(), key.column))
         })
-        .collect()
+        .collect::<Result<Vec<_>, LegNotCertified>>()?;
+    for (&leg, carried) in &links {
+        let carried: Vec<(usize, &PlanColumn)> = carried.iter().map(|(part, column)| (*part, column)).collect();
+        if !scope.surface.completes(scope.definitions, statement, &carried) {
+            return Err(LegNotCertified::LinkIncomplete { leg });
+        }
+    }
+    Ok(keys)
 }
 
 /// Every join is one `surface` declares.

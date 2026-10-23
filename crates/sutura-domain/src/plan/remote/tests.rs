@@ -69,6 +69,27 @@ fn relationship(name: &str, origin: &str, target: &str, origin_key: &str, target
     )
 }
 
+/// A relationship on one key per column in `columns`, each column of the same name on both sides,
+/// in the order given.
+fn compound(name: &str, origin: &str, target: &str, columns: &[&str]) -> Relationship {
+    Relationship::new(
+        relationship_name(name),
+        model_name(origin),
+        model_name(target),
+        JoinType::ManyToOne,
+        JoinKeys::of(
+            columns
+                .iter()
+                .map(|key| JoinKey::Equal {
+                    origin: column(key),
+                    target: column(key),
+                })
+                .collect(),
+        )
+        .expect("a test relationship declares a key"),
+    )
+}
+
 fn metric_name(raw: &str) -> MetricName {
     MetricName::parse(raw).expect("a test metric is a metric")
 }
@@ -96,7 +117,9 @@ const ORDINARY: Bundle = Bundle {
 };
 
 /// `sales` owns `orders`, `channels`, `refunds` and `calendar`; `crm` owns `customers`, `regions`
-/// and `accounts`. `revenue` crosses into `customers` and `accounts`, `net_revenue` into `accounts`.
+/// and `accounts` and `ledgers`. `revenue` crosses into `customers` and `accounts`, `net_revenue`
+/// into `accounts` and, on a two-part key, into `ledgers`, which `refunds_ledger` also reaches on
+/// the same two keys declared in the other order.
 fn pinned(bundle: Bundle) -> PinnedDefinitions {
     let models = vec![
         model(
@@ -112,18 +135,29 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
                 "day_key",
                 "ship_day_key",
                 "account_id",
+                "ref_a",
+                "ref_b",
             ],
         ),
         model("channels", "sales", &["id", "channel_name"]),
         model(
             "refunds",
             "sales",
-            &["refund_cents", "amount_cents", "order_id", "account_id", "day_key"],
+            &[
+                "refund_cents",
+                "amount_cents",
+                "order_id",
+                "account_id",
+                "day_key",
+                "ref_a",
+                "ref_b",
+            ],
         ),
         model("calendar", "sales", &["day_key", "order_date"]),
         model("customers", "crm", &["id", "region_id"]),
         model("regions", "crm", &["id", "region_name"]),
         model("accounts", "crm", &["id", "segment", "tier"]),
+        model("ledgers", "crm", &["ref_a", "ref_b", "book"]),
     ];
     let relationships = vec![
         relationship("orders_channel", "orders", "channels", "channel_id", "id"),
@@ -135,6 +169,8 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         relationship("refunds_order", "refunds", "orders", "order_id", "id"),
         relationship("orders_account", "orders", "accounts", "account_id", "id"),
         relationship("refunds_account", "refunds", "accounts", "account_id", "id"),
+        compound("orders_ledger", "orders", "ledgers", &["ref_a", "ref_b"]),
+        compound("refunds_ledger", "refunds", "ledgers", &["ref_b", "ref_a"]),
         relationship("orders_ship_calendar", "orders", "calendar", "ship_day_key", "day_key"),
     ];
     let channel = Dimension::new(
@@ -168,6 +204,13 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
             Description::default(),
         )
     };
+    let book = Dimension::new(
+        DimensionName::parse("book").expect("a test dimension is a dimension"),
+        column("book"),
+        Some(ViaChain::of(vec![relationship_name("orders_ledger")]).expect("a chain has a hop")),
+        None,
+        Description::default(),
+    );
     let ship_day = Dimension::new(
         DimensionName::parse("ship_day").expect("a test dimension is a dimension"),
         column("order_date"),
@@ -209,7 +252,7 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        vec![ship_day, on_accounts("segment")],
+        vec![ship_day, on_accounts("segment"), book],
         None,
         Description::default(),
         Audience::Open,
@@ -747,9 +790,9 @@ fn a_part_longer_than_the_receivers_own_definitions_could_make_is_refused() {
 }
 
 #[test]
-fn a_fact_leg_may_carry_a_key_for_every_dimension_every_lookup_link_and_two_distinct_keys() {
-    let limit = super::certify::MAX_KEYS;
-    assert_eq!(limit, crate::query::MAX_DIMENSIONS + crate::query::MAX_LOOKUP_LEGS + 2);
+fn a_fact_leg_may_carry_a_key_for_every_dimension_every_lookup_link_part_and_two_distinct_keys() {
+    let widest = 2;
+    let limit = crate::query::MAX_DIMENSIONS + crate::query::MAX_LOOKUP_LEGS * widest + 2;
     let (json, params) = fact();
     let mut full = json.clone();
     full["keys"] = Value::Array(vec![json["keys"][0].clone(); limit]);
