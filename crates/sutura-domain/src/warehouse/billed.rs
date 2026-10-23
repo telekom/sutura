@@ -100,6 +100,7 @@ mod tests {
         let at = SourceName::parse("ledger").expect("a test source is a source");
         let leg = LegPlan::Lookup {
             source: at.clone(),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: TableName::parse("dim_customer").expect("a test table is a table").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),

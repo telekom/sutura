@@ -17,12 +17,12 @@ use sutura_domain::model::{ColumnName, RelationshipName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LinkKind, LookupLeg, LookupLegs, PlanBucket,
-    PlanColumn, PlanKey, PlanTerm, QuotedColumnType, ResultLabel, StatementTables, labels,
+    PlanColumn, PlanJoin, PlanKey, PlanTerm, QuotedColumnType, ResultLabel, StatementTables, labels,
 };
 use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
-use super::chain::{Lookups, chain_joins, column_of, hop_join};
+use super::chain::{Lookups, chain_joins, column_of};
 use crate::resolve::{Resolution, ResolvedFilter};
 
 /// Splits a question over several data systems into a fact leg and its lookup legs.
@@ -126,7 +126,7 @@ pub(super) fn federated_plan(
     // hop's target" is how one of them came to be qualified by the metric's table instead.
     let mut joins = chain_joins(resolution, own_table);
     if let Some(cross) = resolution.cross.as_ref() {
-        joins.push(hop_join(cross.own_to_calendar, own_table, cross.calendar));
+        joins.push(PlanJoin::hop(cross.own_to_calendar, own_table, cross.calendar));
     }
 
     let bucket = PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column);
@@ -307,6 +307,7 @@ fn lookup_legs(
         })?;
         let leg = LegPlan::Lookup {
             source: shape.crossing.model.source().clone(),
+            metric: resolution.metric.name().clone(),
             table: tables,
             keys,
             bindings: super::requested_for(&filters, table)?,
@@ -446,7 +447,7 @@ fn second_fact_leg(
     }
     let tables = StatementTables::parse(
         second.table().clone(),
-        vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
+        vec![PlanJoin::hop(cross.second_to_calendar, second.table_name(), cross.calendar)],
     )
     .map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
         table: ambiguous.alias().clone(),

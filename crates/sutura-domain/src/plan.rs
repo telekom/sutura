@@ -21,6 +21,7 @@
 //! exhaustive.
 
 use crate::calendar::TimeRange;
+use crate::catalog::{JoinKey, Model, Relationship};
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
 use crate::query::Top;
@@ -35,13 +36,14 @@ pub mod federated;
 pub mod key;
 pub mod label;
 pub mod leg;
+pub mod remote;
 pub mod tables;
 
 #[cfg(test)]
 mod anchor_tests;
 
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
-pub use crate::plan::bindings::{IncoherentBindings, PlanBindings};
+pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{
     Ceilings, FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidPlanCeiling, LegCeiling, LookupLegCeiling, PlanCeilings,
     SourceCeiling,
@@ -59,6 +61,9 @@ pub use crate::plan::federated::{NothingCombined, RefusingCombiner};
 pub use crate::plan::key::{KeyValue, PlanKey};
 pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
+pub use crate::plan::remote::{
+    InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
+};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// Why [`QueryPlan::resolve_tables`] could not produce a valid plan.
@@ -146,7 +151,8 @@ impl RowCeiling {
 /// Qualified always, even when there is only one table. An unqualified column in a statement that
 /// later grows a join binds to whichever table happens to have it, and that is a wrong number rather
 /// than an error.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanColumn {
     table: TableName,
     column: ColumnName,
@@ -237,6 +243,39 @@ impl PlanJoin {
     #[must_use]
     pub const fn keys(&self) -> &crate::nonempty::NonEmpty<PlanJoinKey> {
         &self.keys
+    }
+
+    /// The join one declared relationship makes, written from the relationship and nothing else.
+    ///
+    /// One definition for the splitter and for a node that receives a leg naming only the
+    /// relationship: two copies of "one join per hop, the origin columns qualified by the table the
+    /// hop starts at" is how one of them came to be qualified by the metric's table instead.
+    #[must_use]
+    pub fn hop(relationship: &Relationship, origin: &TableName, target: &Model) -> Self {
+        let target_table = target.table_name();
+        let keys = relationship.keys().map(|key| match key {
+            JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
+                origin: PlanColumn::new(origin.clone(), o.clone()),
+                target: PlanColumn::new(target_table.clone(), t.clone()),
+            },
+            JoinKey::TruncatedEqual {
+                origin: o,
+                grain,
+                target: t,
+            } => PlanJoinKey::TruncatedEqual {
+                origin: PlanColumn::new(origin.clone(), o.clone()),
+                grain: *grain,
+                target: PlanColumn::new(target_table.clone(), t.clone()),
+            },
+        });
+        // The joined model's own path: a dimension table in another dataset is still one
+        // statement. Its columns are qualified by the bare name beside it.
+        Self::new(
+            relationship.name().clone(),
+            target.table().clone(),
+            relationship.join_type(),
+            keys,
+        )
     }
 }
 
@@ -354,8 +393,8 @@ impl PlanBucket {
 /// [`Term`] restated over [`PlanColumn`] rather than [`ColumnName`]. Mirrored at the same level the
 /// domain names it, so an adapter that renders one half of a ratio and one that renders a whole
 /// measure reach for the same function instead of each flattening two levels its own way.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlanTerm {
     Aggregate { aggregate: Aggregate, column: PlanColumn },
     CountIf { column: PlanColumn },
@@ -456,8 +495,8 @@ impl PlannedMeasure {
 /// index resolves is a relation between this predicate and a parameter LIST, so it is parsed over
 /// the pair rather than wrapped around the number; a predicate outside a parsed set reaches no
 /// renderer and no executor. [`crate::plan::bindings`] carries the argument and the limit.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlanPredicate {
     /// `column >= param`, the inclusive start of the range.
     AtOrAfter {
@@ -552,7 +591,7 @@ pub(crate) use bound_params::BoundParams;
 /// requested one came from the question and was checked against an allowlist. Keeping the two
 /// distinguishable in the plan is what lets a golden assert that the definitional ones are always
 /// present.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PredicateOrigin {
     /// From the metric's own definition: a required filter, or the bounded time range.
@@ -562,7 +601,8 @@ pub enum PredicateOrigin {
 }
 
 /// A predicate and where it came from.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanFilter {
     origin: PredicateOrigin,
     predicate: PlanPredicate,

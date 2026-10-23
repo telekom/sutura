@@ -157,6 +157,7 @@ use crate::model::{
     SourceName, TableName,
 };
 use crate::pinned::DefinitionVersion;
+use crate::plan::remote::WireLabel;
 
 /// One character per check that any parser in this crate makes, so a combination of two can reach
 /// the seam between two checks.
@@ -385,6 +386,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
     checked += survives("DefinitionVersion", |raw| DefinitionVersion::parse(raw).ok(), &all);
     checked += survives("DefinitionDigest", |raw| DefinitionDigest::parse(raw).ok(), &all);
     checked += survives("Date", |raw| Date::parse(raw).ok(), &all);
+    checked += survives("WireLabel", |raw| WireLabel::parse(raw).ok(), &all);
 
     // The size of the generated space, so a generator that silently collapsed - an alphabet emptied,
     // a sweep bound read as zero - fails here rather than passing over nothing. The per-row
@@ -395,7 +397,7 @@ fn a_parsed_value_serializes_the_way_it_came_and_reparses_unchanged() {
         "the generated space is not the one this test was measured on"
     );
     assert_eq!(
-        checked, 23_483,
+        checked, 23_587,
         "a different number of generated values parsed than this test was measured on, so some parser's accept set moved"
     );
 }

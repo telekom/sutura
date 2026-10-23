@@ -19,9 +19,9 @@ use std::collections::BTreeMap;
 use std::iter::once;
 use std::slice::Iter;
 
-use sutura_domain::catalog::{JoinKey, Model, Relationship};
+use sutura_domain::catalog::Model;
 use sutura_domain::model::{RelationshipName, TableName};
-use sutura_domain::plan::{PlanColumn, PlanJoin, PlanJoinKey};
+use sutura_domain::plan::{PlanColumn, PlanJoin};
 
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedJoin};
 
@@ -201,7 +201,7 @@ fn walk(hops: &[ResolvedJoin<'_>], from: &TableName) -> Vec<PlanJoin> {
     let mut origin = from;
     hops.iter()
         .map(|hop| {
-            let join = hop_join(hop.relationship, origin, hop.model);
+            let join = PlanJoin::hop(hop.relationship, origin, hop.model);
             origin = hop.model.table_name();
             join
         })
@@ -233,42 +233,6 @@ fn unique_chains(chains: impl Iterator<Item = Vec<PlanJoin>>) -> Vec<PlanJoin> {
         }
     }
     joins
-}
-
-/// One hop as a statement's `JOIN`: `relationship`, starting from the table `origin`, into `target`.
-///
-/// One join term per declared key, in the key's order. `origin` is where this hop's statement
-/// starts - the metric's table for hop 1, each previous hop's target after - so every key's origin
-/// column is qualified by it and its target by the joined table. `JoinKeys::map` holds the
-/// relationship's own non-emptiness in its return type, so the plan's key list is `NonEmpty` by
-/// construction too - no `expect` needed to say so. Also how a fact leg joins its shared calendar
-/// (`telekom/sutura#780`).
-pub(super) fn hop_join(relationship: &Relationship, origin: &TableName, target: &Model) -> PlanJoin {
-    let target_table = target.table_name();
-    let keys = relationship.keys().map(|key| match key {
-        JoinKey::Equal { origin: o, target: t } => PlanJoinKey::Equal {
-            origin: PlanColumn::new(origin.clone(), o.clone()),
-            target: PlanColumn::new(target_table.clone(), t.clone()),
-        },
-        JoinKey::TruncatedEqual {
-            origin: o,
-            grain,
-            target: t,
-        } => PlanJoinKey::TruncatedEqual {
-            origin: PlanColumn::new(origin.clone(), o.clone()),
-            grain: *grain,
-            target: PlanColumn::new(target_table.clone(), t.clone()),
-        },
-    });
-    PlanJoin::new(
-        relationship.name().clone(),
-        // The joined model's own path: a dimension table in another dataset is still one
-        // statement. Its columns are qualified by the bare name beside it, for the reason
-        // `mono_plan`'s `own_table` gives.
-        target.table().clone(),
-        relationship.join_type(),
-        keys,
-    )
 }
 
 /// Every dimension the question mentions, grouped by or filtered on.

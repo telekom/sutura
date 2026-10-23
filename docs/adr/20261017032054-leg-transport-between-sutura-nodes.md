@@ -62,9 +62,19 @@ Node A plans the question and runs the combine. Node B owns the source of one le
 3. **A typed leg crosses the wire, never SQL text.** The domain holds one wire document for a leg,
    on the `Query` precedent: `Deserialize` with `deny_unknown_fields`. B parses it into a `LegPlan`
    against its own certified catalog, and never trusts the sender's leg for what a metric means. B
-   refuses every leg that names a metric, table, column or metric term that B does not certify, or
-   that omits a required filter of B's own definition of the metric
-   (`crates/sutura-domain/src/measure.rs:383-389`). The refusal is a new variant
+   refuses every leg that names a metric, table, column or metric term that B does not certify, and
+   every fact leg that reads a term off a table other than its own root, that is rooted on the
+   metric's own table and omits a required filter of B's own definition of the metric
+   (`crates/sutura-domain/src/measure.rs:383-389`), or that is not bounded by its own range on B's
+   bucket column for the metric, at most `query::MAX_RANGE_DAYS` long: B holds the time bound
+   itself, as its own planner does. A lookup leg carries no range. A remote leg may only name what
+   its metric declares: each join is a hop of one of the metric's dimension chains, or the
+   relationship B's planner joins the leg's root to its shared calendar by; each dimension key or
+   filter is a declared dimension reached through its own chain, and a filter binds only values in
+   that dimension's allowlist unless it is the metric's required filter; each link key is one of
+   the metric's crossing hops; and a lookup leg is rooted only where one of the metric's chains
+   crosses into B's source. A lookup leg names its metric, with that metric's digest, and B reads
+   it against that metric's dimension chains into its root. The refusal is a new variant
    `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
    (`crates/sutura-domain/src/query.rs:137`), added in #137 step 3. A maps it to the same variant,
    naming its `node` source. So B judges a leg by B's own certified definition, and a leg that
@@ -97,19 +107,19 @@ Node A plans the question and runs the combine. Node B owns the source of one le
 
 ## The refusals this adds
 
-| Where      | Refused                                                                                                  | Why                                                                                                                                                             |
-| ---------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A, load    | A `node` source with no `delegation`, with `delegation` on a shared entry, or with an `http://` endpoint | The `InvalidDelegation` set, reused (`crates/sutura-config/src/sources/placement.rs:667-688`). No caller's raw token is sent, and no token crosses in the clear |
-| A, load    | A `delegation` while the inbound mode is not `direct`                                                    | Existing: `NotFitToServe::DelegationWithoutDirectInbound` (`crates/sutura-config/src/settings/posture.rs:200-216`)                                              |
-| A, load    | The last hop's audience equals A's own resource identifier                                               | Such a token is valid at A too, so it is the caller's own token by another route                                                                                |
-| A, request | An anonymous caller, or a caller with no assertion                                                       | Existing, at the broker (`crates/sutura-config/src/credentials/declared.rs:38-39`)                                                                              |
-| A, request | An exchange that fails, or returns the wrong audience, the wrong type or an expired token                | Existing: `DelegationFailed`, `503 identity_unavailable`                                                                                                        |
-| A, request | A `Presented` other than `SubjectToken`                                                                  | Decision 2                                                                                                                                                      |
-| B, boot    | The Flight surface on, and the inbound mode not `direct`                                                 | B must verify the exchanged token as its own caller                                                                                                             |
-| B, boot    | The Flight mount with a declared inbound identity that is not attached                                   | The router does not build, as for `/mcp` (`crates/sutura-http/src/router.rs:599-612`)                                                                           |
-| B, request | A token that does not verify                                                                             | `401` before any handler                                                                                                                                        |
-| B, request | A leg over a shared source, over a source that runs no legs, or over a `node` source                     | Decisions 7 and 9                                                                                                                                               |
-| B, request | A leg with an uncertified metric, table, column or term, or with no required filter of B's definition    | Decision 3: `RemoteLegNotCertified`                                                                                                                             |
+| Where      | Refused                                                                                                                                                                                                                                                                   | Why                                                                                                                                                             |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A, load    | A `node` source with no `delegation`, with `delegation` on a shared entry, or with an `http://` endpoint                                                                                                                                                                  | The `InvalidDelegation` set, reused (`crates/sutura-config/src/sources/placement.rs:667-688`). No caller's raw token is sent, and no token crosses in the clear |
+| A, load    | A `delegation` while the inbound mode is not `direct`                                                                                                                                                                                                                     | Existing: `NotFitToServe::DelegationWithoutDirectInbound` (`crates/sutura-config/src/settings/posture.rs:200-216`)                                              |
+| A, load    | The last hop's audience equals A's own resource identifier                                                                                                                                                                                                                | Such a token is valid at A too, so it is the caller's own token by another route                                                                                |
+| A, request | An anonymous caller, or a caller with no assertion                                                                                                                                                                                                                        | Existing, at the broker (`crates/sutura-config/src/credentials/declared.rs:38-39`)                                                                              |
+| A, request | An exchange that fails, or returns the wrong audience, the wrong type or an expired token                                                                                                                                                                                 | Existing: `DelegationFailed`, `503 identity_unavailable`                                                                                                        |
+| A, request | A `Presented` other than `SubjectToken`                                                                                                                                                                                                                                   | Decision 2                                                                                                                                                      |
+| B, boot    | The Flight surface on, and the inbound mode not `direct`                                                                                                                                                                                                                  | B must verify the exchanged token as its own caller                                                                                                             |
+| B, boot    | The Flight mount with a declared inbound identity that is not attached                                                                                                                                                                                                    | The router does not build, as for `/mcp` (`crates/sutura-http/src/router.rs:599-612`)                                                                           |
+| B, request | A token that does not verify                                                                                                                                                                                                                                              | `401` before any handler                                                                                                                                        |
+| B, request | A leg over a shared source, over a source that runs no legs, or over a `node` source                                                                                                                                                                                      | Decisions 7 and 9                                                                                                                                               |
+| B, request | A leg with an uncertified metric, table, column or term, or a fact leg with a term off its root table, with no time bound of B's own, or rooted on the metric's own table with no required filter of B's definition, or a join, key or filter its metric does not declare | Decision 3: `RemoteLegNotCertified`                                                                                                                             |
 
 Each new variant is enrolled in `check-refusal-coverage`. Each refusal gets its own cell.
 
@@ -268,8 +278,8 @@ another version than A's", and leaves that bullet as written.
 - It does not cover the model, table and column definitions that the leg reads, the relationships
   that its dimensions reach through (`via`), the glossary or the contribution manifest. A column
   that B declares with another type, a model that B has moved to another source, or other keys on a
-  relationship, does not move the digest of a metric that did not change. Decision 3's check
-  refuses only a name that B does not certify, or a missing required filter. It does not compare
+  relationship, does not move the digest of a metric that did not change. Of those differences,
+  decision 3's check refuses only a name that B does not certify, or a missing required filter. It does not compare
   the type of a column with A's type. B plans the leg with its own declarations, so a leg with a
   different column type runs. Nothing in this record refuses that gap.
 - It is not a control against a hostile sender. The digest is not a secret, and a holder of a token

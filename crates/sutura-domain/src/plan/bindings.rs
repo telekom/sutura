@@ -56,7 +56,8 @@
 //! changes is that a predicate outside a parsed set reaches no renderer and no executor. The check
 //! runs once, here; after `Ok` nothing re-checks.
 
-use crate::plan::PlanFilter;
+use crate::calendar::TimeRange;
+use crate::plan::{PlanColumn, PlanFilter, PredicateOrigin};
 use crate::warehouse::ParamValue;
 
 /// Why a set of filters and parameters is not a coherent binding.
@@ -204,6 +205,33 @@ impl PlanBindings {
 /// can take back in - only [`PlanBindings::parse`] does that - so naming it does not reopen the
 /// bypass the two deleted tuple aliases were.
 type BoundParts = (Vec<PlanFilter>, Vec<ParamValue>);
+
+/// The range's two bounds on `time_column`, each binding the next parameter - the head of every
+/// fact leg's predicates, and the whole of a second fact leg's (`telekom/sutura#780`).
+///
+/// The planner writes a leg's time bound with it and a receiving node certifies one against it, so
+/// the two cannot spell the bound differently.
+pub fn range_filters(range: TimeRange, time_column: &PlanColumn, params: &mut Vec<ParamValue>) -> [PlanFilter; 2] {
+    let start = params.len();
+    params.push(ParamValue::Date(range.start()));
+    params.push(ParamValue::Date(range.end()));
+    [
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            crate::plan::PlanPredicate::AtOrAfter {
+                column: time_column.clone(),
+                param: start,
+            },
+        ),
+        PlanFilter::new(
+            PredicateOrigin::Definition,
+            crate::plan::PlanPredicate::Before {
+                column: time_column.clone(),
+                param: start.saturating_add(1),
+            },
+        ),
+    ]
+}
 
 #[cfg(test)]
 mod tests;

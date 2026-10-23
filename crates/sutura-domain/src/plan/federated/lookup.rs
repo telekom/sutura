@@ -136,6 +136,7 @@ mod tests {
     fn leg() -> LegPlan {
         LegPlan::Lookup {
             source: SourceName::parse("geo").expect("a test source is a source"),
+            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
             table: TableName::parse("dim_region").expect("a test table is a table").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),

@@ -38,7 +38,7 @@ use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, LegCeiling, PlanBindings,
     PlanBucket, PlanCeilings, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan,
-    ResultLabel, SourceCeiling, StatementTables, plan_measure, plan_required_filter,
+    ResultLabel, SourceCeiling, StatementTables, plan_measure, plan_required_filter, range_filters,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -526,30 +526,6 @@ fn guards_and_shared(
     let head = measures.remove(0);
     Ok((NonEmpty::of(head, measures), PlanBindings::parse(all_filters, params)?))
 }
-/// The range's two bounds on `time_column`, each binding the next parameter - the head of every
-/// fact leg's predicates, and the whole of a second fact leg's (`telekom/sutura#780`).
-fn range_filters(range: TimeRange, time_column: &PlanColumn, params: &mut Vec<ParamValue>) -> [PlanFilter; 2] {
-    let start = params.len();
-    params.push(ParamValue::Date(range.start()));
-    params.push(ParamValue::Date(range.end()));
-    [
-        PlanFilter::new(
-            PredicateOrigin::Definition,
-            PlanPredicate::AtOrAfter {
-                column: time_column.clone(),
-                param: start,
-            },
-        ),
-        PlanFilter::new(
-            PredicateOrigin::Definition,
-            PlanPredicate::Before {
-                column: time_column.clone(),
-                param: start.saturating_add(1),
-            },
-        ),
-    ]
-}
-
 /// A second fact leg's bindings: the range on the shared calendar and nothing else - the metric's
 /// required filters constrain its own model's columns, which the second fact's statement does not read.
 fn range_only(range: TimeRange, time_column: &PlanColumn) -> Result<PlanBindings, IncoherentBindings> {

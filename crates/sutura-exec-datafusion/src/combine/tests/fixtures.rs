@@ -154,6 +154,7 @@ fn fact_leg(federation: &Federation) -> LegPlan {
 fn lookup_leg() -> LegPlan {
     LegPlan::Lookup {
         source: source("geo"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys: vec![link_key(), key("region")],
         bindings: PlanBindings::none(),
@@ -208,6 +209,7 @@ pub(super) fn fan_in_plan() -> FederatedPlan {
     };
     let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
         source: source(on),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),
@@ -283,6 +285,7 @@ fn compound_lookup() -> LegPlan {
     keys.push(key("region"));
     LegPlan::Lookup {
         source: source("geo"),
+        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),

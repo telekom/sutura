@@ -164,4 +164,26 @@ impl InternalLabel {
             Self::Leaf(position) => format!("{LEAF}{position}"),
         }
     }
+
+    /// The label that spells exactly `text`, if any: the inverse of [`Self::label`].
+    ///
+    /// Canonical spellings only, so `0_leaf_07` and `0_link_0` name nothing and a label read off the
+    /// wire is the one this process would have written.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let parsed = if let Some(position) = text.strip_prefix(LEAF) {
+            Self::Leaf(position.parse().ok()?)
+        } else {
+            let (leg, part) = text.split_once(LINK)?;
+            Self::Link {
+                leg: leg.parse().ok()?,
+                part: if part.is_empty() {
+                    0
+                } else {
+                    part.strip_prefix('_')?.parse().ok()?
+                },
+            }
+        };
+        (parsed.label() == text).then_some(parsed)
+    }
 }

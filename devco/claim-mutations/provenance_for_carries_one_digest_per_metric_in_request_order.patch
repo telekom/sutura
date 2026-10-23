@@ -1,25 +1,21 @@
 diff --git a/crates/sutura-domain/src/pinned.rs b/crates/sutura-domain/src/pinned.rs
-index 119339a82..fc24e846f 100644
+index 3474eff56..3ea6ef2c3 100644
 --- a/crates/sutura-domain/src/pinned.rs
 +++ b/crates/sutura-domain/src/pinned.rs
-@@ -478,7 +478,7 @@ impl PinnedDefinitions {
+@@ -441,10 +441,11 @@ impl PinnedDefinitions {
          executed_as: ExecutedAs,
          metrics: impl IntoIterator<Item = &'a MetricName>,
      ) -> Result<Provenance, NotDigestible> {
 -        let metric_digests = metrics
 +        let mut metric_digests = metrics
              .into_iter()
-             .map(|name| {
-                 DefinitionDigest::of_metric(&self.definitions, name).map(|digest| MetricDigest {
-@@ -487,6 +487,7 @@ impl PinnedDefinitions {
-                 })
-             })
+             .map(|name| self.metric_digest(name))
              .collect::<Result<Vec<_>, _>>()?;
 +        metric_digests.reverse();
          Ok(Provenance::new(
              self.version.clone(),
              self.digest.clone(),
-@@ -691,7 +692,7 @@ impl AnchorReport {
+@@ -649,7 +650,7 @@ impl AnchorReport {
                  None => {
                      return Err(NotValidated::AnchorUnchecked { metric: metric.clone() });
                  }
