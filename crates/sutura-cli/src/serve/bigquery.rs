@@ -74,9 +74,9 @@ pub(crate) fn open_bigquery(
 ///
 /// **Every value it needs is declared on the source entry.** Who its jobs are billed to, the
 /// bytes-billed ceiling and - where the source impersonates - the audience of the pool the caller's
-/// assertion is exchanged against. The request timeout no longer reaches this function: the `wire` half's `QueryDeadline`
-/// and bytes-billed ceiling went away with the transport, and the ADBC driver bounds a job under
-/// its own settings.
+/// assertion is exchanged against. The request timeout does not reach this function: each job
+/// carries what is left of its question's own deadline as its `jobTimeoutMs`, and the ceiling is
+/// parsed here and sent on every statement as `bigquery.query.max_bytes_billed`.
 ///
 /// The audience is parsed HERE as well as in `sutura-config`, and that is the single-owner rule
 /// rather than laziness: the crate that puts a value into a request is the one whose parse decides
