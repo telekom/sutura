@@ -296,12 +296,13 @@ fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domai
     )
 }
 
-/// Written for an agent: nothing in the question picks which of a model's relationships serves a lookup leg.
+/// Written for an agent: the question cannot pick which of a model's relationships serves a lookup leg, and can only leave dimensions out.
 fn link_ambiguous(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
         "`{metric}` measures a ratio over two fact models, and `{model}` does not declare exactly one \
-         relationship for each lookup leg this question reads. Nothing you can change in the question \
-         helps; report it to the person you are acting for."
+         relationship for each lookup leg this question reads. Asking for fewer dimensions from one \
+         remote model can help: leave out one of two that reach it, or all of them. If the question \
+         needs them, report it to the person you are acting for."
     )
 }
 

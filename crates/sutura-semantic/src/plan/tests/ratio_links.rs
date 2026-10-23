@@ -12,10 +12,10 @@ use super::*;
 
 /// `revenue_per_visit` over `facts` and `visits`, with four remote dimensions: `region` and
 /// `billing_region` reach `customers` through two relationships, `tier` reaches `accounts`, and
-/// `segment` reaches `segments` through `customers`, a chain that crosses twice. `visits` links to
-/// `customers` always, to `accounts` when `visits_account`, and to `customers` a second time when
-/// `visits_referrer`.
-fn ratio_over_lookups(visits_account: bool, visits_referrer: bool) -> PinnedDefinitions {
+/// `segment` reaches `segments` through `customers`, a chain that crosses twice. `visits` carries
+/// the relationships of `visits_links`, out of `visits_customer`, `visits_account` and
+/// `visits_referrer` (a second relationship into `customers`).
+fn ratio_over_lookups(visits_links: &[&str]) -> PinnedDefinitions {
     let models = vec![
         model(
             "facts",
@@ -39,21 +39,15 @@ fn ratio_over_lookups(visits_account: bool, visits_referrer: bool) -> PinnedDefi
         relationship("customers_segment", ("customers", "segment_key"), ("segments", "segment_key")),
         relationship("facts_calendar", ("facts", "day_key"), ("calendar", "day_key")),
         relationship("visits_calendar", ("visits", "day_key"), ("calendar", "day_key")),
-        relationship("visits_customer", ("visits", "customer_key"), ("customers", "customer_key")),
     ];
-    if visits_account {
-        relationships.push(relationship(
-            "visits_account",
-            ("visits", "account_key"),
-            ("accounts", "account_key"),
-        ));
-    }
-    if visits_referrer {
-        relationships.push(relationship(
-            "visits_referrer",
-            ("visits", "referrer_key"),
-            ("customers", "customer_key"),
-        ));
+    for (name, from, to_model, to) in [
+        ("visits_customer", "customer_key", "customers", "customer_key"),
+        ("visits_account", "account_key", "accounts", "account_key"),
+        ("visits_referrer", "referrer_key", "customers", "customer_key"),
+    ] {
+        if visits_links.contains(&name) {
+            relationships.push(relationship(name, ("visits", from), (to_model, to)));
+        }
     }
     let metric = Metric::new(
         MetricName::parse("revenue_per_visit").expect("a test metric is a metric"),
@@ -124,7 +118,10 @@ fn triple(label: InternalLabel, table: &str, column: &str) -> ReadLink {
 /// and each lookup leg joins onto the fact.
 #[test]
 fn a_ratio_grouped_by_two_remote_models_plans_both_facts_on_both_links() {
-    let planned = federated(ask(&ratio_over_lookups(true, false), &["region", "tier"]));
+    let planned = federated(ask(
+        &ratio_over_lookups(&["visits_customer", "visits_account"]),
+        &["region", "tier"],
+    ));
     let second = planned.second_fact().expect("a cross-model ratio carries a second fact leg");
     assert_eq!(
         links_of(planned.fact().keys()),
@@ -149,7 +146,7 @@ fn a_ratio_grouped_by_two_remote_models_plans_both_facts_on_both_links() {
 /// `segments` it does not have.
 #[test]
 fn a_ratio_over_a_chain_that_crosses_twice_links_both_facts_on_the_first_leg_only() {
-    let planned = federated(ask(&ratio_over_lookups(false, false), &["region", "segment"]));
+    let planned = federated(ask(&ratio_over_lookups(&["visits_customer"]), &["region", "segment"]));
     let second = planned.second_fact().expect("a cross-model ratio carries a second fact leg");
     assert_eq!(
         links_of(planned.fact().keys()),
@@ -163,22 +160,32 @@ fn a_ratio_over_a_chain_that_crosses_twice_links_both_facts_on_the_first_leg_onl
     assert_eq!(onto, [LegAt::Fact, LegAt::Lookup(0)]);
 }
 
-/// A second fact that reaches the first leg's model and not the second's has no link for it, and the
-/// ratio is refused by the existing reason that says to regroup.
+/// A second fact that misses one of the lookup legs has no link for it, and the ratio is refused by
+/// the existing reason that says to regroup, whichever leg it misses. The legs sort `accounts`
+/// before `customers`: a second fact linked to `customers` alone misses the first, one linked to
+/// `accounts` alone reaches the first and misses a later one. The cell asserts on the answer itself,
+/// because a planner that stops at the first leg answers an error and not a refusal.
 #[test]
 fn a_second_fact_that_does_not_reach_a_lookup_leg_is_refused_as_without_a_shared_dimension() {
-    let reason = refusal(ask(&ratio_over_lookups(false, false), &["region", "tier"]));
-    assert!(
-        matches!(reason, RefusalReason::CrossModelRatioWithoutSharedDimension { ref model, .. } if model.as_str() == "visits"),
-        "expected CrossModelRatioWithoutSharedDimension naming visits, got {reason:?}"
-    );
+    for visits_links in [&["visits_customer"][..], &["visits_account"]] {
+        let answer = ask(&ratio_over_lookups(visits_links), &["region", "tier"]);
+        assert!(
+            matches!(
+                answer,
+                Ok(Compiled::Refused {
+                    reason: RefusalReason::CrossModelRatioWithoutSharedDimension { ref model, .. }
+                }) if model.as_str() == "visits"
+            ),
+            "{visits_links:?}: expected CrossModelRatioWithoutSharedDimension naming visits, got {answer:?}"
+        );
+    }
 }
 
 /// A second fact with two relationships that both fit one lookup leg (a customer and a referrer) does
 /// not say which serves it, and the first of them was used.
 #[test]
 fn a_second_fact_with_two_relationships_into_one_model_is_refused_not_guessed() {
-    let reason = refusal(ask(&ratio_over_lookups(false, true), &["region"]));
+    let reason = refusal(ask(&ratio_over_lookups(&["visits_customer", "visits_referrer"]), &["region"]));
     assert!(
         matches!(reason, RefusalReason::CrossModelRatioLinkAmbiguous { ref model, .. } if model.as_str() == "visits"),
         "expected CrossModelRatioLinkAmbiguous naming visits, got {reason:?}"
@@ -190,7 +197,7 @@ fn a_second_fact_with_two_relationships_into_one_model_is_refused_not_guessed() 
 /// the billing region by its customer.
 #[test]
 fn a_second_fact_relationship_serving_two_lookup_legs_is_refused() {
-    let reason = refusal(ask(&ratio_over_lookups(false, false), &["region", "billing_region"]));
+    let reason = refusal(ask(&ratio_over_lookups(&["visits_customer"]), &["region", "billing_region"]));
     assert!(
         matches!(reason, RefusalReason::CrossModelRatioLinkAmbiguous { ref model, .. } if model.as_str() == "visits"),
         "expected CrossModelRatioLinkAmbiguous naming visits, got {reason:?}"

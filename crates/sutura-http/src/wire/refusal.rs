@@ -391,7 +391,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             (StatusCode::UNPROCESSABLE_ENTITY, without_shared_dimension(metric, model))
         }
         // 409, the status `CrossModelRatioSpansSources` gets: which relationship serves a lookup leg is
-        // the catalog's to say, so the caller has no grouping to change.
+        // the catalog's to say, and a caller can only leave dimensions out.
         RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => (StatusCode::CONFLICT, ambiguous(metric, model)),
     };
     (
@@ -430,11 +430,13 @@ fn without_shared_dimension(metric: &sutura_domain::model::MetricName, model: &s
     )
 }
 
-/// `CrossModelRatioLinkAmbiguous`: the catalog decides, so there is nothing to narrow.
+/// `CrossModelRatioLinkAmbiguous`: the catalog decides which relationship serves which leg, and a
+/// caller can only ask for fewer dimensions from one remote model.
 fn ambiguous(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
         "`{metric}` measures a ratio over two fact models, and `{model}` does not declare exactly one \
-         relationship for each lookup leg this question reads; report it to a person"
+         relationship for each lookup leg this question reads; ask for fewer dimensions from one \
+         remote model, or report it to a person"
     )
 }
 

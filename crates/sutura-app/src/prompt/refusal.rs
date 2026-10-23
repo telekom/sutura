@@ -320,7 +320,7 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
 const CROSS_MODEL_RATIO_LINK_AMBIGUOUS: Guide = Guide {
     reason: "cross_model_ratio_link_ambiguous",
     meaning: "a two-fact ratio whose second model does not name one relationship for each lookup leg",
-    remedy: "Nothing you can change in the question. Report it: the catalog has to say which relationship serves which dimension.",
+    remedy: "Ask for fewer dimensions from one remote model: leaving out one of two that reach it, or all of them, can plan it. If the question needs them, report it: the catalog has to say which relationship serves which dimension.",
 };
 
 /// Every refusal a caller can be given, in the order the prompt lists them.

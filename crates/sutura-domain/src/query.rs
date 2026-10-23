@@ -566,8 +566,9 @@ pub enum RefusalReason {
     /// Each lookup leg a ratio groups by is joined to both facts on its own link, so the second fact
     /// needs exactly one relationship into that leg's model on the column the leg links through. Two
     /// relationships that qualify (a bill-to and a ship-to), or one relationship that would serve two
-    /// legs, leave the choice to a guess, and a wrong guess is a wrong ratio. Not narrowable by the
-    /// caller: which relationship serves which leg is the catalog's, not the question's.
+    /// legs, leave the choice to a guess, and a wrong guess is a wrong ratio. Which relationship
+    /// serves which leg is the catalog's to say; a caller can only leave dimensions out, one of two
+    /// that reach the same model or all that do.
     CrossModelRatioLinkAmbiguous { metric: MetricName, model: ModelName },
 }
 

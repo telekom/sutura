@@ -1908,7 +1908,8 @@ refusal. It does not change the decision.
 - **Refusals changed.** `CrossModelRatioNeedsOneLookupLeg` is deleted: a ratio over several legs is
   served. `CrossModelRatioLinkAmbiguous { metric, model }` is new, with the wire code
   `cross_model_ratio_link_ambiguous` and status 409, because the catalog decides which relationship
-  serves which leg and a caller cannot narrow it. The wire code
+  serves which leg. A caller can only leave dimensions out: leaving out one of two that reach the
+  same model, or all that do, can plan it. The wire code
   `cross_model_ratio_needs_one_lookup_leg` no longer exists, which is a breaking change.
 - **The bound.** A ratio reads at most two fact legs and three lookup legs, five in all, under one
   charge and five identities. The cap of three lookup legs and the byte ceiling are the only bounds;
