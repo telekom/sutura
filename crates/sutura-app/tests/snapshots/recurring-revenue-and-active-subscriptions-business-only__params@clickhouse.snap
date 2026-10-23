@@ -5,6 +5,7 @@ expression: query.params()
 - Text: active
 - Text: active
 - Text: active
+- Text: active
 - Date: 2026-06-01
 - Date: 2026-07-01
 - Text: business

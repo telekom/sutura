@@ -80,6 +80,7 @@ mod deadline;
 pub mod execute_as;
 #[cfg(feature = "fixtures")]
 pub mod fixture;
+mod sum;
 pub mod tls;
 pub mod transport;
 
@@ -506,35 +507,13 @@ where
         clickhouse_type: String::from(kind),
     };
     match kind {
-        "Tuple(String, Dynamic)" => {
-            let serde_json::Value::Array(mut pair) = value else {
-                return Err(unsupported());
-            };
-            if pair.len() != 2 {
-                return Err(unsupported());
-            }
-            let Some(inner) = pair.pop() else {
-                return Err(unsupported());
-            };
-            let Some(serde_json::Value::String(inner_type)) = pair.pop() else {
-                return Err(unsupported());
-            };
-            let inner_kind = inner_type
-                .strip_prefix("Nullable(")
-                .and_then(|rest| rest.strip_suffix(')'))
-                .unwrap_or(&inner_type);
-            if matches!(inner_kind, "Int128" | "UInt128" | "Int64" | "UInt64" | "Float32" | "Float64")
-                || inner_kind.starts_with("Decimal(")
-            {
-                if inner.is_null() {
-                    Ok(Value::Null)
-                } else {
-                    cell_of(label, &inner_type, inner)
-                }
-            } else {
-                Err(unsupported())
-            }
-        }
+        sum::TUPLE => sum::read(value).map_err(|cause| match cause {
+            sum::SumTextError::NotFinite(cause) => ClickHouseError::NotFinite {
+                column: String::from(label),
+                cause,
+            },
+            sum::SumTextError::Malformed => unsupported(),
+        }),
         "String" | "Date" | "Date32" => match value {
             serde_json::Value::String(text) => Ok(Value::Text(text)),
             serde_json::Value::Null => Ok(Value::Null),

@@ -52,7 +52,13 @@ fn clickhouse_sum_widens_integer_results_without_changing_float_or_decimal_sums(
     )
     .expect("the sum renders for ClickHouse");
     assert!(clickhouse.contains("toTypeName"), "{clickhouse}");
-    assert!(clickhouse.contains("Dynamic"), "{clickhouse}");
+    assert!(!clickhouse.contains("Dynamic"), "{clickhouse}");
+    assert!(
+        !clickhouse.contains("toString"),
+        "a text total would sort lexically in ORDER BY: {clickhouse}"
+    );
+    assert!(clickhouse.contains("toDecimal256"), "{clickhouse}");
+    assert!(clickhouse.contains("Nullable(Decimal(76, 0))"), "{clickhouse}");
     for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::BigQuery, Dialect::Oracle] {
         let rendered = render(
             &super::term_expression(&term, None, dialect, &mut Vec::new()).into_inner(),
@@ -61,6 +67,31 @@ fn clickhouse_sum_widens_integer_results_without_changing_float_or_decimal_sums(
         .expect("the sum renders for this dialect");
         assert!(!rendered.contains("accurateCastOrNull"), "{dialect}: {rendered}");
     }
+}
+
+#[test]
+fn a_clickhouse_ratio_reads_its_sums_as_one_double_each_without_a_tuple() {
+    let sum_of = |column: &str| sutura_domain::plan::PlanTerm::Aggregate {
+        aggregate: Aggregate::Sum,
+        column: PlanColumn::new(
+            TableName::parse("orders").expect("a test table is a table"),
+            ColumnName::parse(column).expect("a test column is a column"),
+        ),
+    };
+    let ratio = sutura_domain::plan::PlanMeasure::Ratio {
+        numerator: sum_of("amount"),
+        denominator: sum_of("quantity"),
+        zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+    };
+    let sql = render(
+        &super::measure_expression(&ratio, None, Dialect::ClickHouse, &mut Vec::new()).into_inner(),
+        Dialect::ClickHouse,
+    )
+    .expect("the ratio renders for ClickHouse");
+    assert!(!sql.contains("tupleElement"), "{sql}");
+    assert!(!sql.contains("Dynamic"), "{sql}");
+    assert_eq!(sql.matches("toFloat64(sum(accurateCastOrNull(").count(), 2, "{sql}");
+    assert_eq!(sql.matches("toFloat64(sum(\"orders\"").count(), 2, "{sql}");
 }
 
 #[test]

@@ -8,10 +8,10 @@
 //! rendered text more than once: a ratio guards both its numerator and its denominator
 //! (`measure_expression`'s `Ratio` arm calls `ratio_term_expression` twice, once per side), and
 //! `ClickHouse`'s 64-bit-overflow `SUM` widening (`sum_for_clickhouse`) embeds the guarded column
-//! twice more, once per candidate formula. For a dialect that writes a bare `?` with no index
-//! (`PlaceholderStyle::Question`), a repeated embedding is a repeated `?` in the final text - and
-//! `crate::generate::generate` has to hand the transport as many bound values as there are `?`s, in
-//! the same order. So every place a guard is actually EMBEDDED calls [`Guard::record`], which
+//! three times, once per candidate slot (twice for a ratio's `sum_as_double_for_clickhouse`). For a
+//! dialect that writes a bare `?` with no index (`PlaceholderStyle::Question`), a repeated embedding
+//! is a repeated `?` in the final text - and `crate::generate::generate` has to hand the transport as
+//! many bound values as there are `?`s, in the same order. So every place a guard is actually EMBEDDED calls [`Guard::record`], which
 //! appends that guard's own parameter values (in the order its own placeholders render) to the
 //! caller's `emitted` list - and `generate` uses that list, rather than `plan.params()` verbatim,
 //! for any dialect that binds a plain statement by occurrence: `Question` (DuckDB, BigQuery,
@@ -102,43 +102,100 @@ fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
     }
 }
 
-/// `ClickHouse`'s native `sum` wraps at 64 bits. Keep the original aggregate for Float and Decimal.
+/// `ClickHouse`'s native `sum` wraps at 64 bits. Widen an integer sum; keep the original for Float and Decimal.
+///
+/// **The result is `tuple(type name, integer, decimal, float)`, never a `Dynamic`.** The sum's type
+/// depends on the column's declared type, so one expression has to answer an integer, a decimal or a
+/// float - and the server refuses to write a `Dynamic` into an Arrow stream (`Code: 48`, measured
+/// through the vendored driver against the tier). The type name is a per-query constant and says which
+/// of the three numeric slots holds the total; the other two are `NULL`. A slot is a typed number, not
+/// text, because the same expression is re-rendered in `ORDER BY`, where a text total would sort
+/// `"9"` after `"10"`: the tuple compares its constant name, then the numeric slot, and a `NULL`
+/// total sorts last as a plain nullable column does. The integer slot is `Decimal(76, 0)` through
+/// `toDecimal256` - the one route from an `Int128` to an exact decimal, since `CAST` refuses it - so
+/// every `Int128` the widened sum can hold is exact. The decimal slot is `Decimal(76, 38)`; a decimal
+/// column of a wider scale is refused by the adapter from the type name, not truncated silently.
 ///
 /// **The type probe never needs the guard.** `toTypeName(sum(col))`'s result depends on `col`'s
-/// declared column type, not on which rows are summed, so both type checks read `bare`. Only the
-/// two candidate VALUES need the guard, and each embeds it exactly once - `Guard::record` is called
-/// once per candidate, which is what makes the final `?` count match `emitted`'s length for this
-/// dialect.
+/// declared column type, not on which rows are summed, so every type check reads `bare`. Only the
+/// three candidate VALUES need the guard, and each embeds it exactly once - `Guard::record` is called
+/// once per candidate, in the order they render, which is what makes the final `?` count match
+/// `emitted`'s length for this dialect.
 fn sum_for_clickhouse(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<ParamValue>) -> Expr {
-    let probe_type = || builder::func("toTypeName", [builder::sum(bare.clone())]);
-    let is_integer = probe_type().in_list([
-        builder::lit("Int64"),
-        builder::lit("UInt64"),
-        builder::lit("Nullable(Int64)"),
-        builder::lit("Nullable(UInt64)"),
-    ]);
-    let guarded_value = |emitted: &mut Vec<ParamValue>| {
-        guard.map_or_else(
-            || bare.clone(),
-            |g| {
-                g.record(emitted);
-                builder::case().when(g.expr().clone(), bare.clone()).build()
-            },
-        )
-    };
+    let no_integer = || builder::null().cast("Nullable(Decimal(76, 0))");
+    let no_decimal = || builder::null().cast("Nullable(Decimal(76, 38))");
+    let no_float = || builder::null().cast("Nullable(Float64)");
     let widened = builder::func(
         "tuple",
         [
             builder::lit("Int128"),
-            builder::sum(builder::func(
-                "accurateCastOrNull",
-                [guarded_value(emitted), builder::lit("Int128")],
-            ))
-            .cast("Dynamic"),
+            builder::func("toDecimal256", [widened_sum(bare, guard, emitted), builder::lit(0)]),
+            no_decimal(),
+            no_float(),
         ],
     );
-    let original = builder::func("tuple", [probe_type(), builder::sum(guarded_value(emitted)).cast("Dynamic")]);
-    builder::func("if", [is_integer, widened, original])
+    let decimal = builder::func(
+        "toDecimal256",
+        [builder::sum(guarded_value(bare, guard, emitted)), builder::lit(38)],
+    );
+    let float = builder::func("toFloat64", [builder::sum(guarded_value(bare, guard, emitted))]);
+    let original = builder::func(
+        "tuple",
+        [
+            probe_type(bare),
+            no_integer(),
+            builder::func(
+                "if",
+                [probe_type(bare).like(builder::lit("%Decimal(%")), decimal, builder::null()],
+            ),
+            builder::func("if", [probe_type(bare).like(builder::lit("%Float%")), float, builder::null()]),
+        ],
+    );
+    builder::func("if", [is_integer_sum(bare), widened, original])
+}
+
+/// The same sum as one `Float64`, for a ratio: a ratio divides in floating point, so it needs the
+/// magnitude and none of the exact digits the tuple carries.
+fn sum_as_double_for_clickhouse(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<ParamValue>) -> Expr {
+    let widened = builder::func("toFloat64", [widened_sum(bare, guard, emitted)]);
+    let original = builder::func("toFloat64", [builder::sum(guarded_value(bare, guard, emitted))]);
+    builder::func("if", [is_integer_sum(bare), widened, original])
+}
+
+/// `toTypeName(sum(col))`, a constant per column type.
+fn probe_type(bare: &Expr) -> Expr {
+    builder::func("toTypeName", [builder::sum(bare.clone())])
+}
+
+/// Whether the column's sum is one of the integer types `ClickHouse` wraps (or, for `Int128`, would not
+/// widen further), so the widened `Int128` sum is the one to read.
+fn is_integer_sum(bare: &Expr) -> Expr {
+    probe_type(bare).in_list(
+        ["Int64", "UInt64", "Int128"]
+            .into_iter()
+            .flat_map(|name| [name.to_owned(), format!("Nullable({name})")])
+            .map(|name| builder::lit(name.as_str())),
+    )
+}
+
+/// The column's `Int128` sum: `accurateCastOrNull` gives `NULL`, not a wrapped number, for a value that
+/// does not fit - and for a float row, which is why the type check comes first.
+fn widened_sum(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<ParamValue>) -> Expr {
+    builder::sum(builder::func(
+        "accurateCastOrNull",
+        [guarded_value(bare, guard, emitted), builder::lit("Int128")],
+    ))
+}
+
+/// The column, wrapped in the metric's guard where there is one - one embedding, recorded once.
+fn guarded_value(bare: &Expr, guard: Option<&Guard>, emitted: &mut Vec<ParamValue>) -> Expr {
+    guard.map_or_else(
+        || bare.clone(),
+        |g| {
+            g.record(emitted);
+            builder::case().when(g.expr().clone(), bare.clone()).build()
+        },
+    )
 }
 
 /// A term's column, wrapped in `guard` when one is present - one embedding, recorded once.
@@ -190,19 +247,12 @@ pub(super) fn term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: D
 }
 
 fn ratio_term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: Dialect, emitted: &mut Vec<ParamValue>) -> Expr {
-    let value = term_expression(term, guard, dialect, emitted);
-    if dialect == Dialect::ClickHouse
-        && matches!(
-            term,
-            PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                ..
-            }
-        )
-    {
-        builder::func("tupleElement", [value, builder::lit(2)]).cast("DOUBLE")
-    } else {
-        value
+    match *term {
+        PlanTerm::Aggregate {
+            aggregate: Aggregate::Sum,
+            column: ref col,
+        } if dialect == Dialect::ClickHouse => sum_as_double_for_clickhouse(&column(col), guard, emitted),
+        _ => term_expression(term, guard, dialect, emitted),
     }
 }
 
