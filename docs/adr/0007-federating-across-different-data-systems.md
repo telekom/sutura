@@ -1960,3 +1960,6 @@ joins on all of them; this amendment builds the planner half and deletes the ref
   one leg only.
 - No dialect golden holds a fact leg with two link parts; the offline evidence for BigQuery,
   ClickHouse and Oracle is the renderer's existing cells for a compound key and for a truncated one.
+- The cell for a later crossing with two keys has no hand-worked literal: it compares two engines and
+  two `DuckDB` databases to the one-source answer, anchored by a row count, so a defect that every
+  topology shares cancels in it.
