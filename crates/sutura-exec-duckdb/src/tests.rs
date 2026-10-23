@@ -160,6 +160,8 @@ fn a_type_neither_adapter_maps_names_itself_rather_than_being_rendered() {
         "TIMESTAMP '2026-06-01 00:00:00'",
         "[1]",
         "NULL::TIMESTAMP",
+        // Untyped, it keeps the engine's own `NULL` type, which the driver hands over as Arrow `Null`.
+        "NULL",
     ] {
         let refusal = refused(unmapped);
         assert!(
