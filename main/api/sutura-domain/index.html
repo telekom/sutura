@@ -10587,10 +10587,13 @@ somebody else's input.</p>
   else, and the second fact <code>model</code> declares its own relationship into it on the column the
   first fact links through, truncated to the same grain or not at all. Narrowable: group by a
   dimension both facts link to.
-- <code>CrossModelRatioNeedsOneLookupLeg</code> - A cross-model ratio asked by dimensions that need more than one lookup leg.</p>
-<p>The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
-  is a shape this build does not carry, and not a wrong answer; <code>github.com/telekom/sutura#1493</code>
-  lifts it. Narrowable: group by the dimensions of one remote model.</p>
+- <code>CrossModelRatioLinkAmbiguous</code> - A cross-model ratio whose second fact <code>model</code> does not name which of its relationships serves a lookup leg (<code>github.com/telekom/sutura#1493</code>).</p>
+<p>Each lookup leg a ratio groups by is joined to both facts on its own link, so the second fact
+  needs exactly one relationship into that leg's model on the column the leg links through. Two
+  relationships that qualify (a bill-to and a ship-to), or one relationship that would serve two
+  legs, leave the choice to a guess, and a wrong guess is a wrong ratio. Which relationship
+  serves which leg is the catalog's to say; a caller can only leave dimensions out, one of two
+  that reach the same model or all that do.</p>
 <h4 id="methods_87">Methods<a class="headerlink" href="#methods_87" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-597-1"><a id="__codelineno-597-1" name="__codelineno-597-1" href="#__codelineno-597-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
