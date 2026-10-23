@@ -6,7 +6,7 @@ use sutura_domain::catalog::{Definitions, SharedCalendars};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::Query;
 
 use super::*;
@@ -220,7 +220,7 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
 
 /// `revenue_per_visit` by month over June, grouped by `by`, through `compile` as a served question is.
 pub(super) fn ask(pinned: &PinnedDefinitions, by: &[&str]) -> Result<Compiled, CompileFailure> {
-    compile(&by_month_over_june(by), &ScopedView::everything(pinned), RowCeiling::DEFAULT)
+    compile(&by_month_over_june(by), &ScopedView::everything(pinned), Ceilings::DEFAULT)
 }
 
 fn by_month_over_june(by: &[&str]) -> Query {

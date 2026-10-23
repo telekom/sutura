@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+index 684239101..2903c3273 100644
+--- a/crates/sutura-app/src/lib.rs
++++ b/crates/sutura-app/src/lib.rs
+@@ -489,7 +489,12 @@ where
+     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
+     // the plan itself, for its own dialect.
+     let plan = match compiled {
+-        Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
++        Compiled::Refused { reason } => {
++            if let Some((source, _)) = warehouses.each().next() {
++                let _ = broker.mint(context, &SourceSet::of(source.clone()));
++            }
++            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason }));
++        }
+         Compiled::Federated { plan } => {
+             return answer_federated(
+                 (pinned, definitions.schemas().digest()),

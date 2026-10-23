@@ -69,7 +69,7 @@ fn a_bigquery_job_carries_its_callers_labels_back_out_of_information_schema_jobs
         1 << 30,
         crate::adapters::deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("the question is answered")
     .into_outcome();

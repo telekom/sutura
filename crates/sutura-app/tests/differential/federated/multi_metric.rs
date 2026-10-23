@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_domain::warehouse::{RowSet, Value};
@@ -38,12 +38,8 @@ where
 
 /// A catalog's compiled answer to `text`.
 fn compiled(catalog: &std::path::Path, text: &str) -> Compiled {
-    compile(
-        &question(text),
-        &ScopedView::everything(&bundle(catalog)),
-        RowCeiling::DEFAULT,
-    )
-    .expect("the derived catalog compiles the question")
+    compile(&question(text), &ScopedView::everything(&bundle(catalog)), Ceilings::DEFAULT)
+        .expect("the derived catalog compiles the question")
 }
 
 /// Two metrics by a dimension on a second data system: an arm each, joined to the lookup, and the

@@ -6,7 +6,7 @@
 //! Nothing here is `pub` - these are helpers `Settings::parse` calls, moved to a sibling module so
 //! the file that describes the posture is not also the file that parses a thousand lines of it.
 
-use sutura_domain::plan::{FederatedRowCeiling, RowCeiling};
+use sutura_domain::plan::{FederatedRowCeiling, LegCeiling, LookupLegCeiling, PlanCeilings, RowCeiling, SourceCeiling};
 
 use super::SettingsError;
 use crate::environment::Environment;
@@ -253,6 +253,25 @@ pub(super) fn parse_federated_row_ceiling(raw: &RawSettings) -> Result<Federated
         || Ok(FederatedRowCeiling::DEFAULT),
         |rows| FederatedRowCeiling::parse(rows).map_err(|cause| SettingsError::FederatedRowCeiling { cause }),
     )
+}
+
+/// The plan's three ceilings - each type's `DEFAULT` when its `governance` key is absent, which is
+/// every deployment's behaviour before these keys existed. Zero and a value above the maximum are
+/// startup refusals naming the key, never a clamp.
+pub(super) fn parse_plan_ceilings(raw: &RawSettings) -> Result<PlanCeilings, SettingsError> {
+    let sources = raw.governance.source_ceiling.map_or_else(
+        || Ok(SourceCeiling::DEFAULT),
+        |sources| SourceCeiling::parse(sources).map_err(|cause| SettingsError::SourceCeiling { cause }),
+    )?;
+    let lookup_legs = raw.governance.lookup_leg_ceiling.map_or_else(
+        || Ok(LookupLegCeiling::DEFAULT),
+        |legs| LookupLegCeiling::parse(legs).map_err(|cause| SettingsError::LookupLegCeiling { cause }),
+    )?;
+    let legs = raw.governance.leg_ceiling.map_or_else(
+        || Ok(LegCeiling::DEFAULT),
+        |legs| LegCeiling::parse(legs).map_err(|cause| SettingsError::LegCeiling { cause }),
+    )?;
+    Ok(PlanCeilings::new(sources, lookup_legs, legs))
 }
 
 /// The keys that shape the agent-facing prompt and bound its operator section.

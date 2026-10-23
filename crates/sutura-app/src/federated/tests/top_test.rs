@@ -23,7 +23,11 @@ pub(super) fn top_one_plan() -> sutura_domain::plan::FederatedPlan {
 fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome {
     outcome_with(
         &top_one_plan(),
-        sutura_domain::plan::RowCeilings::new(row_ceiling, sutura_domain::plan::FederatedRowCeiling::DEFAULT),
+        sutura_domain::plan::Ceilings::new(
+            row_ceiling,
+            sutura_domain::plan::FederatedRowCeiling::DEFAULT,
+            sutura_domain::plan::PlanCeilings::DEFAULT,
+        ),
     )
 }
 
@@ -34,18 +38,15 @@ fn case_two_outcome(row_ceiling: sutura_domain::plan::RowCeiling) -> ToolOutcome
 /// plan, the ceilings and what they assert, and the setup around them was byte-identical once the
 /// combiner became an argument. The ceilings are the only knob, because they are the only thing
 /// `github.com/telekom/sutura#777`'s and `#828`'s refusals read.
-pub(super) fn outcome_with(
-    plan: &sutura_domain::plan::FederatedPlan,
-    row_ceilings: sutura_domain::plan::RowCeilings,
-) -> ToolOutcome {
-    outcome_over(plan, row_ceilings, federated_fact_rows(), federated_lookup_rows())
+pub(super) fn outcome_with(plan: &sutura_domain::plan::FederatedPlan, ceilings: sutura_domain::plan::Ceilings) -> ToolOutcome {
+    outcome_over(plan, ceilings, federated_fact_rows(), federated_lookup_rows())
 }
 
 /// [`outcome_with`] over chosen leg results, for a cell whose combined answer must be wider than
 /// the shared fixtures'.
 pub(super) fn outcome_over(
     plan: &sutura_domain::plan::FederatedPlan,
-    row_ceilings: sutura_domain::plan::RowCeilings,
+    ceilings: sutura_domain::plan::Ceilings,
     fact_rows: RowSet,
     lookup_rows: RowSet,
 ) -> ToolOutcome {
@@ -75,7 +76,7 @@ pub(super) fn outcome_over(
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        row_ceilings,
+        ceilings,
     )
     .expect("a case-2 top is answered or refused, never an error")
     .into_outcome()

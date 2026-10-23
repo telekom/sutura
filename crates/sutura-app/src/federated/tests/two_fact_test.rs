@@ -189,7 +189,7 @@ fn answered(plan: &sutura_domain::plan::FederatedPlan, fact: RowSet, second: Row
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a cross-model ratio is not an error")
     .into_outcome()
@@ -311,7 +311,7 @@ fn a_two_fact_answer_records_all_three_sources_in_executed_as() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a three-leg cross-posture answer is an Ok")
     .into_outcome();
@@ -374,7 +374,7 @@ fn the_ledger_charges_every_leg_of_the_cut_before_any_leg_runs() {
         FEDERATED_BUDGET,
         test_deadline(),
         &ledger,
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -427,7 +427,7 @@ fn a_two_fact_answer_whose_second_source_lacks_a_warehouse_is_refused() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -474,7 +474,7 @@ fn a_second_fact_whose_credential_disagrees_with_its_adapters_posture_never_exec
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("a leg that is not its posture's shape is a wiring failure, not an answer");
     assert!(
@@ -647,7 +647,7 @@ fn a_two_fact_plan_with_a_minimum_leaf_is_not_combined() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .err();
     assert!(

@@ -110,7 +110,7 @@ fn both_legs_of_a_federated_answer_carry_the_requests_correlation_label() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a federated answer is not an error")
     .into_outcome();

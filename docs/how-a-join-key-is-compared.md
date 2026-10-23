@@ -1,6 +1,6 @@
 # How a federated join key is compared
 
-A federated answer joins a fact leg and up to three lookup legs, each on its own link column.
+A federated answer joins a fact leg and up to `governance.lookup_leg_ceiling` lookup legs (three by default), each on its own link column.
 This page is the record of how that join is compared, what is refused before any row
 is read, and what is **not** covered. It exists because the failure mode is a green
 answer that proves less than it looks like: before the refusal existed, a type

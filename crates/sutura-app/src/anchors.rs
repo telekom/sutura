@@ -9,7 +9,7 @@ use sutura_domain::catalog::Anchor;
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::{AnchorPlan, RowCeiling};
+use sutura_domain::plan::{AnchorPlan, Ceilings};
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{Compiled, compile};
@@ -74,7 +74,7 @@ where
     // No dimensions and no filters: an anchor is the metric's own number, not a slice of it. No
     // `top` either, so the compiled default row ceiling is exact rather than a stand-in.
     let question = Query::single(metric.clone(), grain, anchor.range(), Vec::new(), Vec::new());
-    let compiled = match compile(&question, &ScopedView::everything(pinned), RowCeiling::DEFAULT) {
+    let compiled = match compile(&question, &ScopedView::everything(pinned), Ceilings::DEFAULT) {
         Ok(compiled) => compiled,
         Err(cause) => {
             let (message, chain) = flatten(&cause);

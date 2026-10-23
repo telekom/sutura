@@ -181,7 +181,7 @@ where
         let compiled = compile(
             &question,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
         settings(C::NAME).bind(|| match compiled {
@@ -214,7 +214,7 @@ where
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("a refusal is not an error");
         let reason = compiled
@@ -260,7 +260,7 @@ where
         let compiled = compile(
             &asked,
             &ScopedView::everything(&pinned),
-            sutura_domain::plan::RowCeiling::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
         )
         .expect("the corpus compiles");
         let Compiled::Planned { ref plan } = compiled else {

@@ -7,6 +7,6 @@ diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
      let (pinned, labels) = (definitions.get(), JobLabels::of(context));
 -    let view = scoped_for(pinned, context);
 +    let view = ScopedView::everything(pinned);
-     let compiled = compile(query, &view, row_ceilings.top()).map_err(|cause| ServiceError::Compile { cause })?;
+     let compiled = compile(query, &view, ceilings).map_err(|cause| ServiceError::Compile { cause })?;
      // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
      // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
