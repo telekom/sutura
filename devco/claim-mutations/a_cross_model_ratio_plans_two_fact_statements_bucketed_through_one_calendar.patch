@@ -1,19 +1,19 @@
 diff --git a/crates/sutura-semantic/src/plan/federated.rs b/crates/sutura-semantic/src/plan/federated.rs
-index bd07ed88e..1d5504e77 100644
+index 4a8db9748..b1ff95ee2 100644
 --- a/crates/sutura-semantic/src/plan/federated.rs
 +++ b/crates/sutura-semantic/src/plan/federated.rs
-@@ -432,7 +432,13 @@ fn second_fact_leg(
-         keys: links
-             .into_iter()
-             .enumerate()
--            .map(|(part, key)| origin_key(link_label(0, part), second.table_name(), key))
-+            .map(|(part, key)| {
-+                PlanKey::truncated(
-+                    link_label(0, part),
-+                    PlanColumn::new(second.table_name().clone(), key.origin().clone()),
-+                    sutura_domain::model::Grain::Month,
-+                )
-+            })
-             .collect(),
-         terms: second_terms,
-         bindings: super::range_only(resolution.range, bucket.column())?,
+@@ -441,7 +441,13 @@ fn second_fact_leg(
+             links
+                 .into_iter()
+                 .enumerate()
+-                .map(|(part, key)| origin_key(link_label(at, part), second.table_name(), key)),
++                .map(|(part, key)| {
++                    PlanKey::truncated(
++                        link_label(at, part),
++                        PlanColumn::new(second.table_name().clone(), key.origin().clone()),
++                        sutura_domain::model::Grain::Month,
++                    )
++                }),
+         );
+     }
+     let tables = StatementTables::parse(

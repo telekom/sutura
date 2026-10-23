@@ -158,9 +158,11 @@ Every reason you can be given, and what to do about each:
   Nothing you can change in the question. Report it: it is a fact about where the models live.
 - **cross_model_ratio_without_shared_dimension** - not grouped by only a shared dimension.
   Group only by a dimension both fact models link to; if the metric has none, report it.
-- **cross_model_ratio_needs_one_lookup_leg** - a two-fact ratio grouped by dimensions that need more
-  than one lookup leg.
-  Group only by dimensions of one remote model; if you need both, report it.
+- **cross_model_ratio_link_ambiguous** - a two-fact ratio whose second model does not name one
+  relationship for each lookup leg.
+  Ask for fewer dimensions from one remote model: leaving out one of two that reach it, or all of
+  them, can plan it. If the question needs them, report it: the catalog has to say which
+  relationship serves which dimension.
 - **source_unavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.
