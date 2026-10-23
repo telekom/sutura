@@ -134,4 +134,4 @@ and sixteen (`MAX_LEGS`) at most, and it now bounds a one-metric plan too. The p
 of every arm before `DrillAcrossPlan::new` and refuses `QuestionNeedsTooManyLegs` naming the
 configured number; `MAX_LEGS` is only the plan type's own cap. Each arm's lookup legs are bounded by
 `governance.lookup_leg_ceiling`, three by default. `docs/adr/0007-federating-across-different-data-systems.md`'s
-twenty-second amendment records the three plan bounds together.
+twenty-third amendment records the three plan bounds together.

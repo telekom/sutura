@@ -9,7 +9,7 @@ use crate::measure::Measure;
 use crate::model::Aggregate;
 use crate::plan::leg::LegPlan;
 use crate::plan::{
-    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegAt, LookupLegs, PlanBindings, PlanColumn, PlanKey,
+    AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegAt, LookupLeg, LookupLegs, PlanBindings, PlanColumn, PlanKey,
     ResultLabel, StatementTables,
 };
 
@@ -161,6 +161,44 @@ fn a_second_fact_must_project_every_link_part_and_nothing_beside_them() {
         extra,
         Err(FederatedPlanError::FactKeyNotShared {
             label: String::from("unrelated")
+        })
+    );
+}
+
+/// Every part of the link of EACH lookup leg that joins onto the fact is a fact link, not only the
+/// first leg's: `geo` has one part and `crm` two, and a second fact lacking `crm`'s second part is
+/// refused by that part.
+#[test]
+fn a_second_fact_must_project_every_link_part_of_every_lookup_leg_onto_the_fact() {
+    let lookups = || {
+        LookupLegs::parse(vec![
+            LookupLeg::onto_fact(lookup_keyed(vec![part(0, 0), region()]), true),
+            LookupLeg::onto_fact(lookup_keyed(vec![part(1, 0), part(1, 1), key("segment", FACT)]), true),
+        ])
+        .expect("two legs onto the fact are a tree")
+    };
+    let ratio = |second: Vec<PlanKey>| {
+        FederatedPlan::new(
+            metric("revenue"),
+            ResultLabel::measure(&metric("revenue")),
+            bucket(),
+            fact_keyed(vec![part(0, 0), part(1, 0), part(1, 1)]),
+            Some(second_fact_keyed(second)),
+            lookups(),
+            federation(),
+            Vec::new(),
+        )
+    };
+    let built = ratio(vec![part(0, 0), part(1, 0), part(1, 1)]);
+    assert!(
+        built.is_ok(),
+        "both facts carrying every part of both legs are a plan: {built:?}"
+    );
+    assert_eq!(
+        ratio(vec![part(0, 0), part(1, 0)]),
+        Err(FederatedPlanError::KeyNotOnLeg {
+            side: LegAt::Fact,
+            label: InternalLabel::Link { leg: 1, part: 1 }.label(),
         })
     );
 }

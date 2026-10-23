@@ -1,7 +1,9 @@
 //! Fan-in: a plan with more than one lookup leg, a lookup leg that joins onto another, and the
 //! results that must stand for every one of them.
 
-use super::fixtures::{FACT, FACT_SOURCE, bucket, column, dimension, key, metric, range, source, table, term};
+use super::fixtures::{
+    FACT, FACT_SOURCE, SECOND_FACT_SOURCE, bucket, column, dimension, key, metric, range, source, table, term,
+};
 use crate::federation::Federation;
 use crate::measure::Measure;
 use crate::model::{Aggregate, SourceName};
@@ -138,6 +140,91 @@ fn a_lookup_leg_whose_parent_does_not_project_its_link_is_refused() {
             side: crate::plan::LegAt::Lookup(0),
             label: InternalLabel::link(1).label(),
         })
+    );
+}
+
+/// A second fact leg that projects the link of each lookup leg in `links`, and no term: the
+/// federation here names no second model.
+fn second_fact_linking(links: &[usize]) -> LegPlan {
+    LegPlan::Fact {
+        source: source(SECOND_FACT_SOURCE),
+        metric: metric("revenue"),
+        tables: StatementTables::only(table("dim_orders")),
+        bucket: bucket(),
+        keys: links.iter().map(|&leg| link(leg)).collect(),
+        terms: Vec::new(),
+        bindings: PlanBindings::none(),
+        range: range(),
+    }
+}
+
+/// Two lookup legs, `geo` and `crm`, both onto the fact, beside a second fact leg.
+fn ratio_plan_over_two_lookups(fact: LegPlan, second: LegPlan) -> Result<FederatedPlan, FederatedPlanError> {
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact,
+        Some(second),
+        tree(vec![
+            LookupLeg::onto_fact(lookup_on("geo", &[0], &["region"]), true),
+            LookupLeg::onto_fact(lookup_on("crm", &[1], &["segment"]), true),
+        ]),
+        federation(),
+        Vec::new(),
+    )
+}
+
+/// Each lookup leg that joins onto the fact meets both facts on its own link, so a ratio over two
+/// of them is a plan when both facts carry both links.
+#[test]
+fn a_ratio_over_two_lookup_legs_constructs_when_both_facts_carry_both_links() {
+    let built = ratio_plan_over_two_lookups(fact_linking(&[0, 1]), second_fact_linking(&[0, 1]));
+    assert!(built.is_ok(), "two facts carrying both links are a plan, got {built:?}");
+}
+
+/// A second fact that lacks the link of a lookup leg cannot meet that leg, and is refused by the
+/// link it lacks.
+#[test]
+fn a_second_fact_without_a_lookup_legs_link_does_not_construct() {
+    let refused = ratio_plan_over_two_lookups(fact_linking(&[0, 1]), second_fact_linking(&[0]));
+    assert_eq!(
+        refused,
+        Err(FederatedPlanError::KeyNotOnLeg {
+            side: crate::plan::LegAt::Fact,
+            label: InternalLabel::link(1).label(),
+        })
+    );
+}
+
+/// A ratio over `geo` onto the fact and `crm` onto `geo`.
+fn ratio_plan_over_a_chain(fact: LegPlan, second: LegPlan) -> Result<FederatedPlan, FederatedPlanError> {
+    FederatedPlan::new(
+        metric("revenue"),
+        ResultLabel::measure(&metric("revenue")),
+        bucket(),
+        fact,
+        Some(second),
+        tree(vec![
+            LookupLeg::onto_fact(lookup_on("geo", &[0, 1], &["region"]), true),
+            LookupLeg::onto_lookup(lookup_on("crm", &[1], &["segment"]), 0, true),
+        ]),
+        federation(),
+        Vec::new(),
+    )
+}
+
+/// Only a lookup leg that joins onto the fact has its link on the facts: a chained leg meets the
+/// lookup side, which both facts share, so a fact carrying its link groups by a column nothing
+/// joins it on.
+#[test]
+fn a_ratio_over_a_chain_carries_only_the_fact_parented_link_on_its_facts() {
+    let built = ratio_plan_over_a_chain(fact_linking(&[0]), second_fact_linking(&[0]));
+    assert!(built.is_ok(), "a chain ratio carries link 0 on both facts, got {built:?}");
+    let refused = ratio_plan_over_a_chain(fact_linking(&[0, 1]), second_fact_linking(&[0, 1]));
+    assert!(
+        matches!(refused, Err(FederatedPlanError::FactKeyNotShared { .. })),
+        "the chained link is not a fact link, got {refused:?}"
     );
 }
 

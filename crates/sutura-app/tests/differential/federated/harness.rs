@@ -123,6 +123,22 @@ pub(super) fn two_engines(pinned: PinnedDefinitions) -> Side<sutura_exec_datafus
     }
 }
 
+/// One ENGINE per data system in `sources`, each holding only its own tables: [`two_engines`] for a
+/// topology of any size, so a question that reads three data systems is answered over three.
+pub(super) fn engines_over(pinned: PinnedDefinitions, sources: &[&str]) -> Side<sutura_exec_datafusion::DataFusionWarehouse> {
+    let mut engines = sources.iter().map(|name| {
+        let name = SourceName::parse(name).expect("a source alias is a name");
+        opened_on(&derived().data, &name, &pinned)
+    });
+    let first = engines.next().expect("a topology holds a data system");
+    let warehouses = engines
+        .try_fold(sutura_app::Warehouses::of(first), sutura_app::Warehouses::and)
+        .expect("one registry, one engine per source");
+    let bundle = sutura_app::verify_and_validate(pinned, &warehouses)
+        .expect("the anchors and the declarations hold on one engine per source");
+    Side { bundle, warehouses }
+}
+
 /// The two-engine side with every engine opened at a `ceiling_bytes` working set, which bounds what
 /// one leg may hold and what the combine may hold.
 ///

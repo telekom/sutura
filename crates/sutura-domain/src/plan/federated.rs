@@ -276,7 +276,7 @@ impl FederatedPlan {
         // two statements on one source are still two statements. The two must share a key label -
         // the column they join on above. Without one the join is impossible, which is the chasm
         // trap made a type refusal rather than a NULL-padded row.
-        let links = lookup_links(&lookups, 0);
+        let links = fact_links(&lookups);
         if let Some(second) = &second_fact {
             if !matches!(second, LegPlan::Fact { .. }) {
                 return Err(FederatedPlanError::NotFact {
@@ -297,7 +297,7 @@ impl FederatedPlan {
                     label: label.clone(),
                 });
             }
-            // Each fact groups by the link and nothing else. A key only one fact carries would
+            // Each fact groups by those links and nothing else. A key only one fact carries would
             // group that fact alone, fan the other's rows out across it, and answer a null key for
             // every row only the other fact reached - the chasm trap and a NULL-padded dimension.
             if let Some(extra) = fact
@@ -497,6 +497,12 @@ impl FederatedPlan {
         lookup_links(&self.lookups, leg)
     }
 
+    /// The labels both facts of a cross-model ratio carry: every part of the link of each lookup leg
+    /// that joins onto the fact, in leg order and then key order.
+    pub fn fact_link_labels(&self) -> Vec<String> {
+        fact_links(&self.lookups)
+    }
+
     /// The metric this answer is measured in.
     pub const fn metric(&self) -> &MetricName {
         &self.metric
@@ -583,12 +589,13 @@ pub enum FederatedPlanError {
     /// production splitter projects `InternalLabel::Link` on both fact legs unconditionally.
     #[error("the two fact legs share no key, so no join is possible")]
     FactsShareNoKey,
-    /// A two-fact plan whose fact legs group by a key besides the link (`telekom/sutura#780`).
+    /// A two-fact plan whose fact legs group by a key besides the links of the lookup legs that
+    /// join onto the fact (`telekom/sutura#780`).
     ///
     /// Reached only by direct construction: `plan()` refuses a question grouped by a dimension
     /// only one fact reaches as `CrossModelRatioWithoutSharedDimension`, and this holds the same
     /// shape as a type.
-    #[error("a fact leg of a two-fact plan groups by `{label}`, which is not the link both facts share")]
+    #[error("a fact leg of a two-fact plan groups by `{label}`, which is not a link both facts share")]
     FactKeyNotShared { label: String },
     /// A lookup leg, or the leg it joins onto, projects a link part outside the run of parts the
     /// lookup leg projects from part 0: a part the other leg lacks, or one the lookup leg skips.
@@ -623,6 +630,17 @@ fn lookup_links(lookups: &LookupLegs, leg: usize) -> Vec<String> {
     lookups.legs().get(leg).map_or_else(Vec::new, |lookup| {
         (0..link_parts(lookup.leg(), leg)).map(|part| link_label(leg, part)).collect()
     })
+}
+
+/// The link labels of every lookup leg of `lookups` that joins onto the fact, leg by leg.
+fn fact_links(lookups: &LookupLegs) -> Vec<String> {
+    lookups
+        .legs()
+        .iter()
+        .enumerate()
+        .filter(|(_, lookup)| lookup.onto() == LegAt::Fact)
+        .flat_map(|(position, _)| lookup_links(lookups, position))
+        .collect()
 }
 
 /// Whether a [`LegPlan`] projects a key under `label`.

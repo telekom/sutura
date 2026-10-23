@@ -1618,7 +1618,8 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   relationships read it in two lookup legs, and each leg counts against the cap.
   `FederationLinkAmbiguous` is deleted with its cells. Removing its wire code
   `federation_link_ambiguous` is a breaking change too, and the build must say so.
-- A cross-model ratio keeps one lookup leg. Its second fact joins on one link (`FactKeyNotShared`).
+- A cross-model ratio keeps one lookup leg, held by the planner alone: the plan type and the combiner
+  take a second fact on the link of every lookup leg that joins onto the fact.
   The build refuses a ratio that would need more as `RefusalReason::CrossModelRatioNeedsOneLookupLeg
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
   `CrossModelRatioSpansSources`. That is a shape this amendment does not build, and not a wrong answer.
@@ -1854,7 +1855,40 @@ holds for an undeclared pair only, and an undeclared pair is compared exactly, a
   cells over in-memory legs.
 - The cast reads text the way Arrow does: a sign, leading zeros and surrounding spaces are one key.
 
-## Twenty-second amendment, 2026-10-23: the three plan bounds are settings
+## Twenty-second amendment, 2026-10-23: a plan the planner made with several lookup legs is answered as one source answers
+
+The *Twentieth amendment*'s first Limit says no cell runs a plan the planner made with more than one
+lookup leg through the combiner. That sentence is false now. It is left as written.
+
+- **Built** (`telekom/sutura#1342`, the last part). Two cells in
+  `crates/sutura-app/tests/differential/federated.rs` plan a question and then answer it, over one
+  in-process engine for each data system, and hold the rows to the rows of one engine over every
+  table (content, then order):
+  - two remote dimensions on two different data systems, one lookup leg each, both joined onto the
+    fact leg, asked over June and over July 2026 - July holds a product key that matches no product,
+    so only a LEFT join of the second leg keeps that row;
+  - a chain that crosses to a second data system and comes back, so the second lookup leg joins onto
+    the first.
+
+  Each cell asserts the shape of its plan before it compares, so an agreement over a plan with one
+  leg cannot pass for either.
+- **Not built.** No cell runs a plan the planner made with more than one lookup leg through the
+  combiner over three lookup legs, a filter that makes one leg INNER, a drill-across arm over several
+  legs, or a second data system of another kind than the engine. The combiner reads three lookup legs
+  on a hand-built plan (*Eighteenth amendment*), and existing cells answer planner-made plans with
+  one lookup leg that is INNER, or whose fact leg is on another adapter. The comparison
+  runs one corpus, with one operating-system identity for every leg. `DrillAcrossPlan::new` does not
+  check the four-source bound; only the planner does (*Twentieth amendment*).
+
+**Limits.**
+
+- The cells are claim cells: they pin behaviour `main` already had, so no base run reddens them.
+  Each is held by a committed mutation that must fail it by its own assertion; the mutation is
+  review-held evidence that the combiner is under the cell, and no more.
+- A cell compares a plan's rows to the rows of one engine over the same CSV files. A defect both
+  topologies share cancels, and this comparison cannot see it.
+
+## Twenty-third amendment, 2026-10-23: the three plan bounds are settings
 
 **Each fixed bound on a plan becomes its own `governance` key** (`github.com/telekom/sutura#1532`),
 parsed at startup into a `sutura_domain::plan` newtype and handed to the planner with the row
