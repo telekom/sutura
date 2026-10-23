@@ -3376,8 +3376,9 @@ column of a compound key need identify a row on its own.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_comparison</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">comparison</span><span class="p">:</span><span class="w"> </span><span class="nc">LinkKind</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidComparison</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Declares the kind this relationship's two keys compare as, refusing a compound key.</p>
-<p>A federated link joins on one column, so a declaration on a compound key could only be read
-as applying to some of its keys. A truncated single key is not refused here.</p>
+<p>The combiner applies a declared comparison to the first part of one link only, so a declaration on
+a compound key could only be read as applying to some of its keys. A truncated single key is
+not refused here.</p>
 <h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-invalidcomparison"><code>enum InvalidComparison</code><a class="headerlink" href="#enum-invalidcomparison" title="Permanent link">&para;</a></h3>
@@ -3386,7 +3387,7 @@ as applying to some of its keys. A truncated single key is not refused here.</p>
 <p>Why a relationship cannot declare a comparison.</p>
 <h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
 <ul>
-<li><code>CompoundKey</code> - A federated link joins on one column, so a comparison has one key pair to apply to.</li>
+<li><code>CompoundKey</code> - A comparison has one key pair to apply to.</li>
 </ul>
 <h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
@@ -10312,10 +10313,6 @@ somebody else's input.</p>
   build unable to run a leg, or did sutura fail to assemble a plan it had already decided on</em>.
   That failure leaves as <code>sutura_semantic::CompileFailure</code> now, so this variant means the
   capability and nothing else.
-- <code>FederationLinkCompound</code> - The relationship crossing into the remote data system declares more than one join key.</p>
-<p>One relationship, correctly declared - a compound key is exactly what <code>telekom/sutura#967</code>
-  exists to allow inside one data system - but the combiner links two legs on a single column,
-  and a compound key would need one per column, which the lookup leg's shape does not carry.
 - <code>FederationLinkTypeMismatch</code> - The two columns the crossing relationship joins are declared as kinds of value that do not join: different kinds, or a pair the relationship's declared comparison does not join.</p>
 <p>Decided from the catalog before either leg runs, and only when BOTH types are declared and
   BOTH are known: an integer against text can never match, so every row would miss. A type
