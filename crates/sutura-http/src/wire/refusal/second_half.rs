@@ -3,7 +3,7 @@
 //! same private items that module does.
 
 use axum::http::StatusCode;
-use sutura_domain::model::{DimensionName, MetricName, SourceName, TableName};
+use sutura_domain::model::{DimensionName, MetricName, TableName};
 use sutura_domain::query::RefusalReason;
 
 use super::tests::{Expected, metric};
@@ -28,15 +28,6 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             RefusalReason::FederationNotExecutable,
             StatusCode::CONFLICT,
             "federation_not_executable",
-        ),
-        (
-            RefusalReason::FederationLinkCompound {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-                relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
-                    .expect("a test relationship is a relationship"),
-            },
-            StatusCode::CONFLICT,
-            "federation_link_compound",
         ),
         (
             RefusalReason::FederationLinkTypeMismatch {

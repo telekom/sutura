@@ -1854,3 +1854,42 @@ holds for an undeclared pair only, and an undeclared pair is compared exactly, a
   the carried declaration and the run refusal, not a cast. The casts are held by the combiner's own
   cells over in-memory legs.
 - The cast reads text the way Arrow does: a sign, leading zeros and surrounding spaces are one key.
+
+## Twenty-second amendment, 2026-10-23: the planner links a crossing relationship on every one of its keys
+
+The *Nineteenth amendment* left a crossing with more than one key refused as
+`FederationLinkCompound`, and the *Eighteenth amendment* named that a shape not built and not a wrong
+answer (`telekom/sutura#1490`). The plan already carries a link label per key part and the combiner
+joins on all of them; this amendment builds the planner half and deletes the refusal.
+
+- **Built.** A lookup leg's crossing relationship gives one link part per key, in key order, under
+  the label of its leg and part. The fact leg projects each key as the plain column, or the column
+  truncated to its grain at the source, the same text the single-source join renders. The lookup leg
+  projects each target as stored under the same labels, and the combine joins on all of them.
+- **Type check per part.** `link_types_agree` reads every key pair, not the first, so a text target
+  under any part is `FederationLinkTypeMismatch` before either leg runs. A declared comparison is
+  accepted on a relationship with one key only, so it applies to part 0 and every other part compares
+  exactly.
+- **A second fact** links through a relationship whose keys are the crossing's keys, matched by
+  target column and grain and taken in the crossing's order, whatever order the second fact declares
+  them in. A key more, fewer or at another grain is `CrossModelRatioWithoutSharedDimension`, as for
+  one key.
+- **Refusal deleted.** `RefusalReason::FederationLinkCompound` and the wire code
+  `federation_link_compound` no longer exist, a breaking change. The 409 codes are one fewer. Every
+  case where a compound link could give a wrong answer has a refusal of its own: a type that cannot
+  join, a lookup tuple that repeats (`AmbiguousLink`, which groups by all parts, so a value repeated
+  on one part alone is not a repeat), a second fact at another grain, and the boot check of a
+  declared `many_to_one`.
+- **A null part** matches no lookup row, in both topologies, as `NULL = x` does in the single-source
+  join: a LEFT leg keeps the row with null remote keys and an INNER leg drops it.
+
+**Limits.**
+
+- The cells run in process, on dates. A source with a session zone that is not UTC, and BigQuery
+  `DATE_TRUNC` over a `TIMESTAMP`, are held by the rendered statement text alone, as in the
+  *Nineteenth amendment*. Oracle returns a timestamp as text and is refused against a date lookup
+  once the legs have run.
+- The cross-model ratio still reads one lookup leg, so a second fact's compound link is held for that
+  one leg only.
+- No dialect golden holds a fact leg with two link parts; the offline evidence for BigQuery,
+  ClickHouse and Oracle is the renderer's existing cells for a compound key and for a truncated one.

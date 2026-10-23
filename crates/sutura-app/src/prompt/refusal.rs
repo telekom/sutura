@@ -195,12 +195,6 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
              without the dimension on the second data system, or report it to a person.",
 };
 
-const FEDERATION_LINK_COMPOUND: Guide = Guide {
-    reason: "federation_link_compound",
-    meaning: "the crossing relationship declares more than one join key",
-    remedy: "Nothing you can change. Report it: it is a fact about how the relationship is defined.",
-};
-
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
     reason: "federation_link_type_mismatch",
     meaning: "the crossing relationship joins two columns the catalog declares as kinds of value that do not join",
@@ -361,7 +355,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
-    &FEDERATION_LINK_COMPOUND,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
     // dimension, and it is not a passing outage.
@@ -421,7 +414,6 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
-        RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,

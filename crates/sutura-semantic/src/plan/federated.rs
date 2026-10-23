@@ -10,10 +10,10 @@
 //! Nothing here decides which plan SHAPE a question gets - `super::plan` does that, and calls
 //! [`federated_plan`] only once it has already decided there is at least one lookup leg, and at most the cap.
 
-use sutura_domain::catalog::{ColumnType, JoinKey, Model, Relationship};
+use sutura_domain::catalog::{ColumnType, JoinKey, JoinKeys, Model, Relationship};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{ColumnName, SourceName, TableName};
+use sutura_domain::model::{ColumnName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LinkKind, LookupLeg, LookupLegs, PlanBucket,
@@ -29,8 +29,9 @@ use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
 ///
 /// The metric's own rows (and any same-source dimension) form the fact leg; each crossing
 /// relationship forms one lookup leg ([`Lookups`]). A leg's link is the crossing relationship's join
-/// column, projected from the leg that holds its origin - the fact leg, or the lookup leg an earlier
-/// crossing opened - and from the leg it opens, under the same label, so the combiner can find it. A
+/// columns, one link part per key, projected from the leg that holds their origin - the fact leg, or
+/// the lookup leg an earlier crossing opened - and from the leg it opens, under the same labels, so the
+/// combiner can find them. A
 /// chain's hops before its first crossing join on the fact leg, and its hops after a crossing join
 /// inside that crossing's leg. A measure that cannot decompose (a distinct count) is pulled up: the
 /// fact leg carries its column as one more key and the combine counts the distinct values above.
@@ -58,12 +59,12 @@ pub(super) fn federated_plan(
     let Some(first) = lookups.first() else {
         return Err(PlanError::NoRemoteJoin);
     };
-    // One link per lookup leg: the combiner links two legs on a single column, so a leg's crossing
-    // relationship must declare exactly one key, and its two columns must be kinds that compare.
-    let mut crossing_keys: Vec<&JoinKey> = Vec::with_capacity(lookups.len());
+    // One link part per key of a lookup leg's crossing relationship, and each part's two columns must be
+    // kinds that compare.
+    let mut crossing_keys: Vec<&JoinKeys> = Vec::with_capacity(lookups.len());
     for (at, leg) in lookups.iter().enumerate() {
         let relationship = leg.crossing.relationship;
-        crossing_keys.push(one_crossing_key(relationship, leg.crossing.model.source())?);
+        crossing_keys.push(relationship.keys());
         // Decided from the catalog's declared types before either leg runs, which is what makes the
         // refusal free: the combiner's own check needs both legs' schemas, which means running them.
         // The combiner reads a declaration for the first lookup leg only, so only that leg's check does.
@@ -92,7 +93,9 @@ pub(super) fn federated_plan(
         .enumerate()
         .filter(|(_, (leg, _))| leg.parent.is_none())
     {
-        fact_keys.push(origin_key(link_label(at), leg.origin.table_name(), key));
+        for (part, key) in key.iter().enumerate() {
+            fact_keys.push(origin_key(link_label(at, part), leg.origin.table_name(), key));
+        }
     }
 
     // Filters split by which leg owns the column they constrain.
@@ -245,9 +248,10 @@ pub(super) fn leg_terms(
     (terms, second_terms)
 }
 
-/// The label a lookup leg's link travels under, on the leg that opens it and the leg it joins onto.
-fn link_label(leg: usize) -> ResultLabel {
-    ResultLabel::internal(InternalLabel::link(leg))
+/// The label key part `part` of a lookup leg's link travels under, on the leg that opens it and the leg
+/// it joins onto.
+fn link_label(leg: usize, part: usize) -> ResultLabel {
+    ResultLabel::internal(InternalLabel::Link { leg, part })
 }
 
 /// One lookup leg per crossing path, each joined onto the leg that holds its link's origin.
@@ -258,22 +262,25 @@ fn link_label(leg: usize) -> ResultLabel {
 fn lookup_legs(
     resolution: &Resolution<'_>,
     lookups: &Lookups<'_, '_>,
-    crossing_keys: &[&JoinKey],
+    crossing_keys: &[&JoinKeys],
 ) -> Result<LookupLegs, PlanError> {
     let mut legs: Vec<LookupLeg> = Vec::with_capacity(lookups.len());
     for (at, (shape, key)) in lookups.iter().zip(crossing_keys).enumerate() {
         let table = shape.crossing.model.table_name();
-        let mut keys = vec![PlanKey::new(
-            link_label(at),
-            PlanColumn::new(table.clone(), key.target().clone()),
-        )];
+        let mut keys: Vec<PlanKey> = key
+            .iter()
+            .enumerate()
+            .map(|(part, key)| PlanKey::new(link_label(at, part), PlanColumn::new(table.clone(), key.target().clone())))
+            .collect();
         for (child, (later, later_key)) in lookups
             .iter()
             .zip(crossing_keys)
             .enumerate()
             .filter(|(_, (later, _))| later.parent == Some(at))
         {
-            keys.push(origin_key(link_label(child), later.origin.table_name(), later_key));
+            for (part, later_key) in later_key.iter().enumerate() {
+                keys.push(origin_key(link_label(child, part), later.origin.table_name(), later_key));
+            }
         }
         for dimension in resolution
             .keys
@@ -313,22 +320,6 @@ fn lookup_legs(
     Ok(LookupLegs::parse(legs).map_err(FederatedPlanError::from)?)
 }
 
-/// The one key a crossing relationship links its two legs on, refusing a compound one.
-///
-/// The combiner links the legs on ONE column under ONE label, so a compound crossing key would need
-/// a label per key: refused BY NAME as `FederationLinkCompound`. A key truncated to a grain is one
-/// column too: the fact leg truncates it at the source ([`origin_key`]) and the lookup leg
-/// projects the target as it is.
-fn one_crossing_key<'r>(relationship: &'r Relationship, source: &SourceName) -> Result<&'r JoinKey, PlanError> {
-    if relationship.keys().len() != 1 {
-        return Err(PlanError::Refused(RefusalReason::FederationLinkCompound {
-            source: source.clone(),
-            relationship: relationship.name().clone(),
-        }));
-    }
-    Ok(relationship.keys().first())
-}
-
 /// The fact leg's link key: the origin column, truncated to the key's grain when it declares one.
 fn origin_key(label: ResultLabel, table: &TableName, key: &JoinKey) -> PlanKey {
     let column = PlanColumn::new(table.clone(), key.origin().clone());
@@ -346,9 +337,9 @@ fn declared_type<'m>(model: &'m Model, column: &ColumnName) -> Option<&'m Column
 /// Refuses a crossing whose two key columns are declared as kinds that do not join.
 ///
 /// With no `declared` comparison two kinds join when they are equal. A relationship's own comparison is
-/// passed for the first lookup leg alone, because the combiner honours a declaration on that leg's
-/// link only and compares every later leg exactly: a plan that accepted a pair the run refuses would
-/// fail as `LinkTypeMismatch` after both legs ran.
+/// passed for the first lookup leg alone, and applies to its first key part alone, because the combiner
+/// honours a declaration on that link only and compares every other part and leg exactly: a plan that
+/// accepted a pair the run refuses would fail as `LinkTypeMismatch` after both legs ran.
 ///
 /// **Only when both types are declared and both are known, and everything else defers.** A column
 /// with no declared type, or a type [`LinkKind::declared`] does not classify, says nothing about
@@ -361,35 +352,38 @@ fn link_types_agree(
     fact_side: &Model,
     lookup_side: &Model,
 ) -> Result<(), PlanError> {
-    let key = relationship.keys().first();
-    let (Some(fact), Some(lookup)) = (
-        declared_type(fact_side, key.origin()),
-        declared_type(lookup_side, key.target()),
-    ) else {
-        return Ok(());
-    };
-    match (LinkKind::of_origin(key, fact), LinkKind::declared(lookup)) {
-        (Some(on_fact), Some(on_lookup)) if !LinkKind::joins(declared, on_fact, on_lookup) => {
-            Err(PlanError::Refused(RefusalReason::FederationLinkTypeMismatch {
+    for (part, key) in relationship.keys().iter().enumerate() {
+        let (Some(fact), Some(lookup)) = (
+            declared_type(fact_side, key.origin()),
+            declared_type(lookup_side, key.target()),
+        ) else {
+            continue;
+        };
+        if let (Some(on_fact), Some(on_lookup)) = (LinkKind::of_origin(key, fact), LinkKind::declared(lookup))
+            && !LinkKind::joins(declared.filter(|_| part == 0), on_fact, on_lookup)
+        {
+            return Err(PlanError::Refused(RefusalReason::FederationLinkTypeMismatch {
                 relationship: relationship.name().clone(),
                 fact_type: QuotedColumnType::from(fact),
                 lookup_type: QuotedColumnType::from(lookup),
-            }))
+            }));
         }
-        _ => Ok(()),
     }
+    Ok(())
 }
 
 /// The second fact leg of a cross-model ratio (`telekom/sutura#780`): its OWN statement over the
 /// second fact's table, joined to the shared calendar, bucketed and bounded on the calendar exactly
 /// as the first leg is, and linked to the lookup through the second fact's own relationship.
 ///
-/// `Ok(None)` when no leaf names another model - every one-model metric. The link is the second
-/// fact's relationship into the model the first fact crosses into, joining the SAME lookup column
-/// the lookup leg projects under the link label, truncated to the same grain or not at all: a
-/// second fact linking on raw values beside a first fact linking on months would meet the lookup on
-/// different values. Without such a relationship the two facts share no dimension and the ratio is
-/// refused by name rather than linked on a column borrowed from the first fact's key.
+/// `Ok(None)` when no leaf names another model - every one-model metric. Each link part is the second
+/// fact's key into the SAME lookup column the lookup leg projects under that part's label, truncated
+/// to the same grain or not at all: a second fact linking on raw values beside a first fact linking
+/// on months would meet the lookup on different values. The second fact's relationship must carry
+/// exactly the crossing's keys, matched by target and grain and in whatever order it declares them;
+/// a key more or fewer would link on a different tuple. Without such a relationship the two facts
+/// share no dimension and the ratio is refused by name rather than linked on a column borrowed from
+/// the first fact's key.
 fn second_fact_leg(
     resolution: &Resolution<'_>,
     crossing: &ResolvedJoin<'_>,
@@ -403,19 +397,27 @@ fn second_fact_leg(
         return Err(PlanError::NoSecondFactModel);
     };
     let second = cross.second;
-    let crossing_key = crossing.relationship.keys().first();
-    let Some(link) = cross.second_relationships.iter().find(|relationship| {
-        relationship.target_model() == crossing.model.name()
-            && relationship.keys().len() == 1
-            && relationship.keys().first().target() == crossing_key.target()
-            && relationship.keys().first().grain() == crossing_key.grain()
-    }) else {
+    let same = |own: &JoinKey, other: &JoinKey| own.target() == other.target() && own.grain() == other.grain();
+    let crossing_keys = crossing.relationship.keys();
+    let links = cross.second_relationships.iter().find_map(|relationship| {
+        let keys = relationship.keys();
+        if relationship.target_model() != crossing.model.name()
+            || keys.len() != crossing_keys.len()
+            || !keys.iter().all(|key| crossing_keys.iter().any(|own| same(own, key)))
+        {
+            return None;
+        }
+        crossing_keys
+            .iter()
+            .map(|own| keys.iter().find(|key| same(own, key)))
+            .collect::<Option<Vec<&JoinKey>>>()
+    });
+    let Some(links) = links else {
         return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
             metric: resolution.metric.name().clone(),
             model: second.name().clone(),
         }));
     };
-    let link_key = link.keys().first();
     let tables = StatementTables::parse(
         second.table().clone(),
         vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
@@ -428,7 +430,11 @@ fn second_fact_leg(
         metric: resolution.metric.name().clone(),
         tables,
         bucket: bucket.clone(),
-        keys: vec![origin_key(link_label(0), second.table_name(), link_key)],
+        keys: links
+            .into_iter()
+            .enumerate()
+            .map(|(part, key)| origin_key(link_label(0, part), second.table_name(), key))
+            .collect(),
         terms: second_terms,
         bindings: super::range_only(resolution.range, bucket.column())?,
         range: resolution.range,

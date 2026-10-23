@@ -1,12 +1,8 @@
 //! The sentences for a crossing into a second data system whose join key cannot be built, each
 //! answered as a `409`.
 
-use sutura_domain::model::{RelationshipName, SourceName};
+use sutura_domain::model::RelationshipName;
 use sutura_domain::plan::QuotedColumnType;
-
-pub(super) fn federation_link_compound(source: &SourceName, relationship: &RelationshipName) -> String {
-    format!("`{relationship}` crossing into `{source}` declares more than one join key")
-}
 
 pub(super) fn link_type_mismatch(relationship: &RelationshipName, fact: &QuotedColumnType, lookup: &QuotedColumnType) -> String {
     format!(
