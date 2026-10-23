@@ -49,8 +49,17 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             (false, Some(_)) => refusals.push(NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: alias.clone() }),
             (true, Some(_)) | (false, None) => {}
         }
+        let hops = source.workload_identity().map_or_else(
+            || match *source.placement() {
+                crate::SourcePlacement::Oracle { ref delegation, .. } | crate::SourcePlacement::Cube { ref delegation, .. } => {
+                    delegation.as_slice()
+                }
+                _ => &[],
+            },
+            |wif| wif.delegation(),
+        );
         if let Some(resource) = own
-            && let Some(last) = source.workload_identity().and_then(|wif| wif.delegation().last())
+            && let Some(last) = hops.last()
             && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
         {
             refusals.push(NotFitToServe::DelegationToTheDeploymentsOwnAudience { alias: alias.clone() });

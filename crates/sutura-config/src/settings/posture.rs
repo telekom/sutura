@@ -237,14 +237,15 @@ pub enum NotFitToServe {
          source, or security.inbound.mode is not `direct`. Remove the key"
     )]
     InboundTokenAtPoolWithoutEffect { alias: SourceName },
-    /// A `direct` deployment's last `workload_identity.delegation` hop asks for this deployment's
-    /// own audience, so the pool would receive a token minted for this deployment - what
-    /// `inbound_token_at_pool: accepted` acknowledges, here unacknowledged. The comparison is of the
-    /// configured strings only; an identity provider that maps audiences is not seen.
+    /// A `direct` deployment's last delegation hop - `workload_identity.delegation`, or an Oracle or
+    /// Cube `delegation` - asks for this deployment's own audience, so the data system would receive
+    /// a token minted for this deployment: what `inbound_token_at_pool: accepted` acknowledges for a
+    /// pool, here unacknowledged. The comparison is of the configured strings only; an identity
+    /// provider that maps audiences is not seen.
     #[error(
-        "`sources.{alias}.workload_identity.delegation`'s last hop asks for this deployment's own \
-         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
-         receive a token minted for this deployment. Ask the last hop for the pool's own audience"
+        "`sources.{alias}`'s last delegation hop asks for this deployment's own audience \
+         (`security.inbound.resource` or `security.inbound.audience`), so the data system would \
+         receive a token minted for this deployment. Ask the last hop for the data system's own audience"
     )]
     DelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
