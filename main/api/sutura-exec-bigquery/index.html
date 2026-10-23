@@ -3176,7 +3176,7 @@ request, and a too-short id is a diagnostic the settings tree already gives.</p>
 <h3 id="struct-datasetid"><code>struct DatasetId</code><a class="headerlink" href="#struct-datasetid" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetId</span>
 </span></code></pre></div>
-<p>The dataset unqualified table names resolve in, as this adapter holds it.</p>
+<p>A dataset identifier, as this adapter holds it.</p>
 <p><code>Ord</code> for the reason <code>ProjectId</code>'s is derived, plus one of its own: this type PRESERVES case, so
 the derived ordering and the derived equality are the case-sensitive comparison a dataset id
 really wants.</p>
@@ -3221,8 +3221,7 @@ place the distinction from <code>Self::project</code> bites - see this type's ow
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">billed_to</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">project</span><span class="p">:</span><span class="w"> </span><span class="nc">ProjectId</span><span class="p">,</span><span class="w"> </span><span class="n">dataset</span><span class="p">:</span><span class="w"> </span><span class="nc">DatasetId</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Addresses a dataset: the source's billing project, the dataset's own project, and its id.</p>
-<p>The first two are equal for an unqualified model and differ for a cross-project one, which is
-exactly the case the role distinction exists for.</p>
+<p>The billing and owning projects may differ; each model names its owning project explicitly.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ProjectId</span>
 </span></code></pre></div>
 <p>The project the dataset LIVES in, which is the one written into the request path.</p>
@@ -3387,7 +3386,7 @@ wording lives, so <code>UnusableResourceName</code>'s sentences read exactly as 
 <h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Project</code> - The project a job is billed to - <code>ProjectId</code>.</li>
-<li><code>Dataset</code> - The dataset unqualified table names resolve in - <code>DatasetId</code>.</li>
+<li><code>Dataset</code> - The dataset named by a model or metadata request - <code>DatasetId</code>.</li>
 </ul>
 <h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>

@@ -3364,19 +3364,17 @@ backticked SQL identifier, and nothing here has ever been exercised against one.
 needs it gets a considered change with a test, not a widened character set.</p>
 <p>No <code>Default</code>: a default project is a project somebody else pays for.</p>
 <h2 id="use-datasetid"><code>use DatasetId</code><a class="headerlink" href="#use-datasetid" title="Permanent link">&para;</a></h2>
-<p>The dataset unqualified table names in a generated statement resolve within.</p>
-<p><strong>Why this is configuration and not catalog:</strong> a model in the catalog names a bare <code>table:</code>, and
-which dataset that table lives in is a property of the deployment's connection rather than of the
-metric's definition. The same catalog served against a staging dataset and a production one is one
-catalog and two deployments, which is exactly the split this type keeps.</p>
-<p>The generated statement therefore stays a bare, quoted table name in every dialect - the request
-carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
-<code>sutura-sql</code> has to know this exists.</p>
+<p>A <code>BigQuery</code> dataset id: the middle part of the <code>project.dataset.table</code> path a model names.</p>
+<p><strong>No <code>sources:</code> key reads it.</strong> A source declares no default dataset - a <code>dataset</code> key is refused
+at load - and every model names its table in full, so the dataset travels inside the table path
+that <code>sutura-domain</code> parses and not beside the SQL. Nothing but this module's tests constructs a
+<code>DatasetId</code> today; the type the adapter writes into a request is
+<code>sutura_exec_bigquery::transport::DatasetId</code>.</p>
 <p><code>parse</code> accepts <code>[A-Za-z0-9_]</code>, 1 to 1024 characters. Unlike <code>BillingProject</code> this one does not
 reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
-not an identifier is a misconfiguration worth refusing when the file is read rather than on the
-first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
-would turn a working declaration into a dataset that does not exist.</p>
+not an identifier is worth refusing when it is parsed rather than on the first question. Case is
+PRESERVED, because a dataset id is case-sensitive and folding it here would turn a name that
+works into a dataset that does not exist.</p>
 <h2 id="use-hostname"><code>use HostName</code><a class="headerlink" href="#use-hostname" title="Permanent link">&para;</a></h2>
 <p>A <code>postgres</code> source's host or address, exactly as written.</p>
 <p><strong>Unrepresentable rather than checked, per <code>secure-by-design</code>.</strong> Before this type, <code>host</code> was a
@@ -6701,11 +6699,12 @@ it carries a project id.</p>
 <p>Where a source's data is, per kind, plus the two <code>BigQuery</code> resource newtypes.
 Where a declared source's data actually is, in the terms its own kind uses.</p>
 <p><strong>One enum rather than a struct of optional fields, and the difference is unrepresentable versus
-checked.</strong> A files source has a directory and no billing project; a <code>BigQuery</code> source has a
-billing project and a dataset and no directory. Carried as <code>Option</code> fields on one struct, the
-wrong combination would be representable - a <code>BigQuery</code> source with a data directory and no
-project - and every reader would have to decide for itself what an absence meant. As two variants
-there is nothing to decide: a reader matches, and the compiler asks about a third kind.</p>
+checked.</strong> A files source has a directory and no billing policy; a <code>BigQuery</code> source has a
+billing policy and a bytes-billed ceiling and no directory. Carried as <code>Option</code> fields on one
+struct, the wrong combination would be representable - a <code>BigQuery</code> source with a data directory
+and no billing policy - and every reader would have to decide for itself what an absence meant.
+As two variants there is nothing to decide: a reader matches, and the compiler asks about a third
+kind.</p>
 <p>This module is also where the two <code>BigQuery</code> newtypes live, and their <code>parse</code> functions carry an
 argument that is <strong>ours rather than the provider's format rules restated</strong> - see
 <code>BillingProject</code>.</p>
@@ -6754,19 +6753,17 @@ number that counts whitespace the value does not have.</p>
 <h4 id="struct-datasetid"><code>struct DatasetId</code><a class="headerlink" href="#struct-datasetid" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-336-1"><a id="__codelineno-336-1" name="__codelineno-336-1" href="#__codelineno-336-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetId</span>
 </span></code></pre></div>
-<p>The dataset unqualified table names in a generated statement resolve within.</p>
-<p><strong>Why this is configuration and not catalog:</strong> a model in the catalog names a bare <code>table:</code>, and
-which dataset that table lives in is a property of the deployment's connection rather than of the
-metric's definition. The same catalog served against a staging dataset and a production one is one
-catalog and two deployments, which is exactly the split this type keeps.</p>
-<p>The generated statement therefore stays a bare, quoted table name in every dialect - the request
-carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
-<code>sutura-sql</code> has to know this exists.</p>
+<p>A <code>BigQuery</code> dataset id: the middle part of the <code>project.dataset.table</code> path a model names.</p>
+<p><strong>No <code>sources:</code> key reads it.</strong> A source declares no default dataset - a <code>dataset</code> key is refused
+at load - and every model names its table in full, so the dataset travels inside the table path
+that <code>sutura-domain</code> parses and not beside the SQL. Nothing but this module's tests constructs a
+<code>DatasetId</code> today; the type the adapter writes into a request is
+<code>sutura_exec_bigquery::transport::DatasetId</code>.</p>
 <p><code>parse</code> accepts <code>[A-Za-z0-9_]</code>, 1 to 1024 characters. Unlike <code>BillingProject</code> this one does not
 reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
-not an identifier is a misconfiguration worth refusing when the file is read rather than on the
-first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
-would turn a working declaration into a dataset that does not exist.</p>
+not an identifier is worth refusing when it is parsed rather than on the first question. Case is
+PRESERVED, because a dataset id is case-sensitive and folding it here would turn a name that
+works into a dataset that does not exist.</p>
 <h5 id="methods_59">Methods<a class="headerlink" href="#methods_59" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-337-1"><a id="__codelineno-337-1" name="__codelineno-337-1" href="#__codelineno-337-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
@@ -6967,19 +6964,11 @@ be skipped" look like the same sentence and are not.</p>
 <h5 id="variants_45">Variants<a class="headerlink" href="#variants_45" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Files</code> - A directory of Parquet, CSV or NDJSON files - each text format plain or compressed - read by the in-process engine.</li>
-<li><code>BigQuery</code> - A <code>BigQuery</code> dataset, plus the project its jobs are billed to.</li>
+<li><code>BigQuery</code> - A <code>BigQuery</code> source's billing policy and query ceiling.</li>
 </ul>
-<p><strong>The limit, worth stating because the deployment it cannot describe is the one this file's
-  other argument names:</strong> the dataset's OWN project is unrepresentable. The endpoint's
-  <code>defaultDataset</code> resolves an omitted project in the request's project - the billing one - so
-  this placement can only describe a dataset that lives inside the project paying for the job. A
-  dataset owned by a different project than the payer is precisely the case where payer and data
-  owner are different parties because they are different projects, which is the same argument
-  <code>BillingProject</code> makes for existing. <code>location</code> is the same question one size smaller: a
-  dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
-  <code>project</code> nor a <code>location</code> field is added yet because this seam has no transport consuming
-  them; the limit is also stated in the architecture decision, and the change that adds the wire is the one
-  that decides the fields.
+<p>Each model names its own project, dataset and table; this source declares no default
+  dataset. The adapter sends no job location, leaving <code>BigQuery</code> to infer it from the
+  referenced resources. <strong>Limit:</strong> this placement cannot constrain a job to an explicit region.
 - <code>Postgres</code> - A <code>PostgreSQL</code> database, reached over a connection the deployment declares.</p>
 <p><strong>The static-credential half of Postgres: one connection under the declared identity.</strong> The
   password never appears in the settings tree - it is declared as a FILE, and there is no
