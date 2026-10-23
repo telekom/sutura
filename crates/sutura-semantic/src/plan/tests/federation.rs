@@ -527,17 +527,6 @@ fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
     }
 }
 
-/// A ratio asked by dimensions on two remote systems needs two lookup legs, which the second fact's
-/// one link cannot serve: a refusal that names the metric, and not a plan over the first leg alone.
-#[test]
-fn a_cross_model_ratio_over_two_lookup_legs_is_refused_by_name() {
-    let reason = refusal(ask(&two_facts(&ONE_SOURCE), &["region", "tier"]));
-    assert!(
-        matches!(reason, RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } if metric.as_str() == "revenue_per_visit"),
-        "expected CrossModelRatioNeedsOneLookupLeg naming revenue_per_visit, got {reason:?}"
-    );
-}
-
 /// A calendar model over the second fact's own table would put both facts' tables in the first
 /// leg's statement - the chasm trap. It is refused as the alias clash it also is (review G8), and
 /// this cell pins that, so an aliasing scheme that one day admits a self-join cannot admit this.

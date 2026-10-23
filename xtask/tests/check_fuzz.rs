@@ -30,8 +30,13 @@ const UNLISTED_CRATE: &str = "sutura_unlisted_by_the_fuzzed_tree_surface";
 const FUZZ_YAML: &str =
     "on:\n  workflow_dispatch: {}\njobs:\n  fuzz:\n    strategy:\n      matrix:\n        target:\n          - probe\n";
 
-/// Every site `check-fuzz` requires to run the fuzz-scoped `cargo deny` (`fuzz/deny_wiring.rs`).
-const DENY: &[u8] = b"cargo deny --manifest-path fuzz/Cargo.toml check\n";
+/// Every site `check-fuzz` requires to run the fuzz-scoped and the driver-scoped `cargo deny`
+/// (`fuzz/deny_wiring.rs`).
+const DENY: &[u8] = b"cargo deny --manifest-path fuzz/Cargo.toml check\nbash nix/deny-clickhouse-driver.sh\n";
+
+/// The same sites with only one of the two runs.
+const DENY_FUZZ_ONLY: &[u8] = b"cargo deny --manifest-path fuzz/Cargo.toml check\n";
+const DENY_DRIVER_ONLY: &[u8] = b"bash nix/deny-clickhouse-driver.sh\n";
 
 const RELEASE_YAML: &str = "on:\n  push:\n    tags: [v*]\njobs:\n  build:\n    steps:\n      - run: echo nothing\n";
 
@@ -42,14 +47,18 @@ fn probe_source(crate_name: &str) -> String {
 }
 
 fn observe(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str) -> std::process::Output {
+    observe_with_deny(case, target_crate, root_lock, fuzz_lock, DENY)
+}
+
+fn observe_with_deny(case: &str, target_crate: &str, root_lock: &str, fuzz_lock: &str, deny: &[u8]) -> std::process::Output {
     let tree = scratch_tree::Tree::of(
         &format!("check-fuzz-{case}"),
         &[
             ("Cargo.toml", b"[workspace]\n" as &[u8]),
             ("Cargo.lock", root_lock.as_bytes()),
-            ("flake.nix", DENY),
-            ("justfile", DENY),
-            ("nix/run-gate.sh", DENY),
+            ("flake.nix", deny),
+            ("justfile", deny),
+            ("nix/run-gate.sh", deny),
             (
                 "fuzz/Cargo.toml",
                 b"[package]\nname = \"fuzz\"\n\n[[bin]]\nname = \"probe\"\npath = \"fuzz_targets/probe.rs\"\n\n[profile.release]\npanic = \"abort\"\n",
@@ -121,5 +130,30 @@ fn a_fuzz_lock_pin_the_root_lock_does_not_hold_is_refused() {
     assert!(
         stderr.contains("fuzz/Cargo.lock pins yoke-derive at \"0.8.3\", but Cargo.lock pins it at \"0.8.2\""),
         "the refusal must name the package and both versions: {stderr}"
+    );
+}
+
+/// The driver lock's `cargo deny` is required at every site, refused by the real binary - so the
+/// call that folds `deny_wiring::driver_gaps` into the gate is held, not only the unit cells over it.
+#[test]
+fn a_site_without_the_driver_deny_script_is_refused() {
+    let output = observe_with_deny("driver-deny", "std", "", "", DENY_FUZZ_ONLY);
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("does not run `nix/deny-clickhouse-driver.sh`"),
+        "the refusal must name the script: {stderr}"
+    );
+}
+
+/// The same for the fuzz lock's run, whose `deny_wiring::gaps` call no other cell held.
+#[test]
+fn a_site_without_the_fuzz_deny_run_is_refused() {
+    let output = observe_with_deny("fuzz-deny", "std", "", "", DENY_DRIVER_ONLY);
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("does not run `cargo deny --manifest-path fuzz/Cargo.toml`"),
+        "the refusal must name the fuzz run: {stderr}"
     );
 }

@@ -154,7 +154,7 @@ impl RefusalReason {
             Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
             Self::CrossModelRatioSpansSources { .. } => "cross_model_ratio_spans_sources",
             Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
-            Self::CrossModelRatioNeedsOneLookupLeg { .. } => "cross_model_ratio_needs_one_lookup_leg",
+            Self::CrossModelRatioLinkAmbiguous { .. } => "cross_model_ratio_link_ambiguous",
         }
     }
 }

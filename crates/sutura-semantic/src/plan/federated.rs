@@ -13,7 +13,7 @@
 use sutura_domain::catalog::{ColumnType, JoinKey, JoinKeys, Model, Relationship};
 use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::measure::Measure;
-use sutura_domain::model::{ColumnName, TableName};
+use sutura_domain::model::{ColumnName, RelationshipName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     AnswerKey, FederatedPlan, FederatedPlanError, InternalLabel, LegPlan, LinkKind, LookupLeg, LookupLegs, PlanBucket,
@@ -23,7 +23,7 @@ use sutura_domain::query::RefusalReason;
 
 use super::PlanError;
 use super::chain::{Lookups, chain_joins, column_of, hop_join};
-use crate::resolve::{Resolution, ResolvedFilter, ResolvedJoin};
+use crate::resolve::{Resolution, ResolvedFilter};
 
 /// Splits a question over several data systems into a fact leg and its lookup legs.
 ///
@@ -169,7 +169,7 @@ pub(super) fn federated_plan(
         range: resolution.range,
     };
 
-    let second_fact = second_fact_leg(resolution, first.crossing, &bucket, second_terms)?;
+    let second_fact = second_fact_leg(resolution, lookups, &bucket, second_terms)?;
     let plan = FederatedPlan::new(
         metric.name().clone(),
         ResultLabel::measure(metric.name()),
@@ -374,7 +374,8 @@ fn link_types_agree(
 
 /// The second fact leg of a cross-model ratio (`telekom/sutura#780`): its OWN statement over the
 /// second fact's table, joined to the shared calendar, bucketed and bounded on the calendar exactly
-/// as the first leg is, and linked to the lookup through the second fact's own relationship.
+/// as the first leg is, and linked to every lookup leg that joins onto the fact through the second
+/// fact's own relationship into that leg's model.
 ///
 /// `Ok(None)` when no leaf names another model - every one-model metric. Each link part is the second
 /// fact's key into the SAME lookup column the lookup leg projects under that part's label, truncated
@@ -384,9 +385,15 @@ fn link_types_agree(
 /// a key more or fewer would link on a different tuple. Without such a relationship the two facts
 /// share no dimension and the ratio is refused by name rather than linked on a column borrowed from
 /// the first fact's key.
+///
+/// **A leg needs exactly one such relationship, and no relationship may serve two legs.** With two
+/// that fit (a bill-to and a ship-to), or with one fitting two legs, the second fact would meet the
+/// lookup on a guess, and a wrong guess is a wrong ratio: refused as `CrossModelRatioLinkAmbiguous`.
+/// A leg that joins onto another lookup leg needs no link on the second fact; it joins inside the
+/// lookup side, which both facts share.
 fn second_fact_leg(
     resolution: &Resolution<'_>,
-    crossing: &ResolvedJoin<'_>,
+    lookups: &Lookups<'_, '_>,
     bucket: &PlanBucket,
     second_terms: Vec<LegTerm>,
 ) -> Result<Option<LegPlan>, PlanError> {
@@ -397,27 +404,46 @@ fn second_fact_leg(
         return Err(PlanError::NoSecondFactModel);
     };
     let second = cross.second;
+    let (metric, model) = (resolution.metric.name(), second.name());
     let same = |own: &JoinKey, other: &JoinKey| own.target() == other.target() && own.grain() == other.grain();
-    let crossing_keys = crossing.relationship.keys();
-    let links = cross.second_relationships.iter().find_map(|relationship| {
-        let keys = relationship.keys();
-        if relationship.target_model() != crossing.model.name()
-            || keys.len() != crossing_keys.len()
-            || !keys.iter().all(|key| crossing_keys.iter().any(|own| same(own, key)))
-        {
-            return None;
+    let mut keys: Vec<PlanKey> = Vec::new();
+    let mut serving: Vec<&RelationshipName> = Vec::new();
+    for (at, leg) in lookups.iter().enumerate().filter(|(_, leg)| leg.parent.is_none()) {
+        let crossing_keys = leg.crossing.relationship.keys();
+        let mut fitting = cross.second_relationships.iter().filter_map(|relationship| {
+            let own = relationship.keys();
+            if relationship.target_model() != leg.crossing.model.name()
+                || own.len() != crossing_keys.len()
+                || !own.iter().all(|key| crossing_keys.iter().any(|crossing| same(crossing, key)))
+            {
+                return None;
+            }
+            crossing_keys
+                .iter()
+                .map(|crossing| own.iter().find(|key| same(crossing, key)))
+                .collect::<Option<Vec<&JoinKey>>>()
+                .map(|links| (relationship, links))
+        });
+        let Some((link, links)) = fitting.next() else {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
+                metric: metric.clone(),
+                model: model.clone(),
+            }));
+        };
+        if fitting.next().is_some() || serving.contains(&link.name()) {
+            return Err(PlanError::Refused(RefusalReason::CrossModelRatioLinkAmbiguous {
+                metric: metric.clone(),
+                model: model.clone(),
+            }));
         }
-        crossing_keys
-            .iter()
-            .map(|own| keys.iter().find(|key| same(own, key)))
-            .collect::<Option<Vec<&JoinKey>>>()
-    });
-    let Some(links) = links else {
-        return Err(PlanError::Refused(RefusalReason::CrossModelRatioWithoutSharedDimension {
-            metric: resolution.metric.name().clone(),
-            model: second.name().clone(),
-        }));
-    };
+        serving.push(link.name());
+        keys.extend(
+            links
+                .into_iter()
+                .enumerate()
+                .map(|(part, key)| origin_key(link_label(at, part), second.table_name(), key)),
+        );
+    }
     let tables = StatementTables::parse(
         second.table().clone(),
         vec![hop_join(cross.second_to_calendar, second.table_name(), cross.calendar)],
@@ -430,11 +456,7 @@ fn second_fact_leg(
         metric: resolution.metric.name().clone(),
         tables,
         bucket: bucket.clone(),
-        keys: links
-            .into_iter()
-            .enumerate()
-            .map(|(part, key)| origin_key(link_label(0, part), second.table_name(), key))
-            .collect(),
+        keys,
         terms: second_terms,
         bindings: super::range_only(resolution.range, bucket.column())?,
         range: resolution.range,

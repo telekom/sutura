@@ -35,6 +35,8 @@
 , postgresAdbcDrivers
 # The per-triple ADBC DuckDB derivations - their musl static archives, see `adbcArchiveFor`.
 , duckdbAdbcDrivers
+# The per-triple ADBC ClickHouse derivations - their musl static archives, see `adbcArchiveFor`.
+, clickhouseAdbcDrivers
 # The Postgres tier (`nix/postgres-tier.nix`), started inside `linkedDriversTests`' tier run.
 , postgresTier
 # The PostgreSQL driver this host mounts, as a path - see `presetMountedDrivers`.
@@ -73,12 +75,13 @@ let
   # **The PostgreSQL archive on the two musl triples only** (`telekom/sutura#913` stage 1): a static
   # binary has no other route to a driver, and every other build mounts the `.so`. Its directory
   # carries libpq and static OpenSSL 3, so every musl release ships OpenSSL (`docs/adr/0018`).
-  # The DuckDB archive likewise, on the musl triples only, for the same reason.
+  # The DuckDB and ClickHouse archives likewise, on the musl triples only, for the same reason.
   adbcArchiveFor = target:
     let
       drv = adbcDrivers."adbc-driver-bigquery-${target}" or null;
       postgres = postgresAdbcDrivers."adbc-driver-postgresql-${target}" or null;
       duckdb = duckdbAdbcDrivers."adbc-driver-duckdb-${target}" or null;
+      clickhouse = clickhouseAdbcDrivers."adbc-driver-clickhouse-${target}" or null;
     in
     pkgs.lib.optionalAttrs (drv != null) {
       SUTURA_ADBC_ARCHIVE_DIR = "${drv}/lib";
@@ -86,6 +89,8 @@ let
       SUTURA_ADBC_POSTGRES_ARCHIVE_DIR = "${postgres}/lib";
     } // pkgs.lib.optionalAttrs (duckdb != null && pkgs.lib.hasSuffix "-linux-musl" target) {
       SUTURA_ADBC_DUCKDB_ARCHIVE_DIR = "${duckdb}/lib";
+    } // pkgs.lib.optionalAttrs (clickhouse != null && pkgs.lib.hasSuffix "-linux-musl" target) {
+      SUTURA_ADBC_CLICKHOUSE_ARCHIVE_DIR = "${clickhouse}/lib";
     };
 
   # Targets we CROSS-build. Deliberately excludes the host architecture: on an x86_64 builder
@@ -360,20 +365,21 @@ let
     in
     { inherit crossLib args; };
 
-  # ALL THREE LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
-  # decision, in a TEST build: the release hands its link the same three archives
+  # ALL FOUR LINKED DRIVERS IN ONE STATIC MUSL BINARY, RUN - `github.com/telekom/sutura#913`'s musl
+  # decision, in a TEST build: the release hands its link the same archives
   # (`adbcArchiveFor`) and `sutura doctor` only initialises the PostgreSQL one - only a
-  # `kind: duckdb` source calls the DuckDB one - so this is where libpq RUNS and where DuckDB
-  # answers a query. It
+  # `kind: duckdb` source calls the DuckDB one, and no adapter calls the ClickHouse one yet - so
+  # this is where libpq RUNS, where DuckDB answers a query and where the ClickHouse driver's HTTP
+  # client dials. It
   # builds `crates/sutura-adbc/tests/linked.rs` for x86_64-unknown-linux-musl with every archive
-  # directory and RUNS its two linked cells, which only an x86_64-linux builder can, so the
+  # directory and RUNS its three linked cells, which only an x86_64-linux builder can, so the
   # attribute exists there alone. A failing cell fails the build; the rest of the verdict - that each cell's LINKED arm is what ran, since a build that stopped linking an
   # archive passes the unlinked arm - is `nix/bigquery-driver-check.sh`'s `linked_verdict` over the
   # `linked.log` this installs, and that script self-checks the function before it reads a log. `nix/bigquery-driver-check.sh` realises it in CI.
   linkedDriversTests = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
     let
       target = "x86_64-unknown-linux-musl";
-      cells = builtins.concatStringsSep " " (map (d: "tests::the_${d}_driver_is_there_exactly_where_its_archive_is_linked") [ "postgres" "duckdb" ]);
+      cells = builtins.concatStringsSep " " (map (d: "tests::the_${d}_driver_is_there_exactly_where_its_archive_is_linked") [ "postgres" "duckdb" "clickhouse" ]);
       inherit (crossEnv { inherit target; profile = "ci"; }) crossLib args;
       testArgs = args // adbcArchiveFor target // {
         pname = "sutura-adbc-linked";
@@ -403,6 +409,9 @@ let
         doInstallCargoArtifacts = false;
         buildPhaseCargoCommand = ''
           set -o pipefail
+          # The linked ClickHouse cell opens a connection with no declared TLS root, and the driver then
+          # needs a platform root store, which the build sandbox points at a file that does not exist.
+          export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
           cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cells} --nocapture 2>&1 | tee linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";

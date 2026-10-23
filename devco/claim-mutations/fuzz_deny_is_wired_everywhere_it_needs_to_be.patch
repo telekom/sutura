@@ -1,5 +1,5 @@
 diff --git a/nix/run-gate.sh b/nix/run-gate.sh
-index 390020334..e9a3a189f 100644
+index 758b8f073..6130a9726 100644
 --- a/nix/run-gate.sh
 +++ b/nix/run-gate.sh
 @@ -78,7 +78,6 @@ supply-chain)
@@ -7,6 +7,6 @@ index 390020334..e9a3a189f 100644
          }
          deny_run cargo deny check
 -        deny_run cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
+         deny_run bash nix/deny-clickhouse-driver.sh
      elif command -v nix >/dev/null 2>&1; then
          echo "run-gate: local cargo-deny unavailable, using nix (same pin as CI)"
-         exec nix run .#deny

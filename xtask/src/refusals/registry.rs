@@ -69,6 +69,9 @@ const QUERY: Subject = Subject {
     // against four. 36 since `AddressOutsideDomains` (`telekom/sutura#1554`) refuses an address
     // outside a `domain_delegation` source's `address_domains`. 35 since the planner DELETED
     // `FederationLinkCompound` (`telekom/sutura#1490`): a compound crossing key links on every part.
+    // `telekom/sutura#1493` then DELETED `CrossModelRatioNeedsOneLookupLeg` and ADDED
+    // `CrossModelRatioLinkAmbiguous`: a ratio is served over several lookup legs, and a second fact
+    // whose relationships do not name one per leg is refused.
     variants: variants(35),
 };
 

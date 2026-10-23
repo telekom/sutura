@@ -242,12 +242,12 @@ ci:
     # adbc-driver-bigquery IS in this list: it is the one venue that realises the four cross
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
-    # adbc-driver-postgresql and adbc-driver-duckdb are in it for the same reason, over their C++ builds.
+    # adbc-driver-postgresql, -duckdb and -clickhouse are in it for the same reason, over their own builds.
     # postgres-linked-driver runs the adapter's tier cells through the LINKED static musl driver; only
     # an x86_64-linux host executes it, and anywhere else the check is a stub that says so.
     # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
     # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb postgres-linked-driver vendored-oracledb slides; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver vendored-oracledb slides; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -287,11 +287,11 @@ gates: hygiene
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
-    # `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s header) - the line
-    # above never reads it. `-A license-not-encountered` because `deny.toml`'s root-only allow
-    # entries (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are unused in this smaller graph and
-    # `unused-allowed-license = "deny"` would refuse them here for a reason that is not a finding.
+    # `fuzz/` (its own workspace, `fuzz/Cargo.toml`'s header) and the vendored ClickHouse driver have locks
+    # the line above never reads. `-A license-not-encountered`: `deny.toml`'s root-only allow entries
+    # (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are unused in those smaller graphs, which is not a finding.
     cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
+    bash nix/deny-clickhouse-driver.sh
     # The DERIVING half of the attribution gate, here because it runs `cargo metadata`, which needs a
     # registry the nix sandbox has not got. The document is generated and NOT committed, so there is
     # nothing to byte-compare; `check-attribution-owner` holds the ABSENCE of a committed copy.

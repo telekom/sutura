@@ -427,7 +427,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers clickhouseAdbcDrivers postgresTier
             postgresAdbcHostDriver duckdbHostDriver wholeTree;
           inherit (commonArgs) version;
         };
@@ -454,6 +454,17 @@
         # The ADBC DuckDB driver archives, the same four triples and a separate set for the same
         # reason. No source input: `nix/duckdb-adbc.nix` says why nixpkgs' `duckdb` is the driver.
         duckdbAdbcDrivers = import ./nix/duckdb-adbc-drivers.nix { inherit pkgs; };
+
+        # The ADBC ClickHouse driver, the same four triples and a separate set for the same reason,
+        # and this host's own build beside it: the mounted driver for `checks.nextest` and the dev
+        # shell, where no archive is linked (only the musl triples link one).
+        clickhouseAdbcDrivers = import ./nix/clickhouse-adbc-drivers.nix { inherit pkgs crane; noArtifacts = inheritedArtifacts null; };
+        clickhouseAdbcHost = import ./nix/clickhouse-adbc.nix {
+          inherit pkgs crane;
+          noArtifacts = inheritedArtifacts null;
+          crossSystemName = system;
+        };
+        clickhouseAdbcHostDriver = "${clickhouseAdbcHost}/lib/libadbc_driver_clickhouse${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
         # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
         # archive is linked (only the musl triples link one). Every `kind: postgres` source is
@@ -507,6 +518,8 @@
           # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
           # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
           adbc-driver-postgresql-host = postgresAdbcHost;
+          # And this host's mounted ClickHouse driver, for the same reason.
+          adbc-driver-clickhouse-host = clickhouseAdbcHost;
 
           slides = slides;
 
@@ -557,7 +570,7 @@
           });
 
         }
-        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers // clickhouseAdbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
@@ -676,6 +689,26 @@
             printf '%d ADBC DuckDB driver triples built\n' "$found" > "$out/result"
           '';
 
+          # The ClickHouse driver: `adbc-driver-postgresql`'s count, for the fourth driver. Four triples
+          # build, so each musl archive exists and `nix/clickhouse-adbc.nix`'s build phase has
+          # refused one that holds a COMDAT group or defines anything but `AdbcClickhouseInit`, and linked
+          # a C and a Rust probe against it;
+          # a gnu triple also carries the `.so` a deployment mounts. Running it is `linkedDriversTests`
+          # again, and only on x86_64-linux.
+          adbc-driver-clickhouse = pkgs.runCommand "adbc-driver-clickhouse-check" {
+            buildInputs = builtins.attrValues clickhouseAdbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              test -f "$d/lib/libadbc_driver_clickhouse.a" || { echo "missing libadbc_driver_clickhouse.a in $d" >&2; exit 1; }
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC ClickHouse driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC ClickHouse driver triples built\n' "$found" > "$out/result"
+          '';
+
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
@@ -751,13 +784,15 @@
             # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` just as `nix/with-tier.sh`
             # carries them into `just test`. `runHook preCheck` evaluates in the phase shell, so
             # exports there reach the tests.
+            # `SSL_CERT_FILE` is the platform root store the ClickHouse driver reads for a connection with no
+            # declared TLS root, which the sandbox sets to a file that does not exist (`crates/sutura-adbc/tests/clickhouse.rs`).
             # The ClickHouse tier beside it, started and credentialed the same way: the requirement
             # below is one flag for every tier, so a tier this sandbox did not start would fail its
             # cells closed rather than skip them.
             # `examples/demo-chatinterface` has a hyphen, so `-m unittest examples.demo-chatinterface.test_behavior`
             # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
             # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
-            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\" && export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
             # `check-boundaries`' paired falsifier resolves `fuzz/`'s graph offline - measured
@@ -766,6 +801,8 @@
             # The driver every Postgres cell opens, as the composition root would on a host that
             # links none - the tier is useless to an ADBC-only adapter without it.
             SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
+            # And the ClickHouse driver `crates/sutura-adbc/tests/clickhouse.rs` opens by path.
+            SUTURA_CLICKHOUSE_ADBC_DRIVER = clickhouseAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -1008,20 +1045,23 @@
         # that happens to ship Rust it would have silently audited using *that* cargo - a
         # second, unpinned toolchain, which is the drift this flake exists to remove.
         #
-        # TWO INVOCATIONS, ONE `deny.toml`. `fuzz/` is its own cargo workspace (its own
-        # manifest, its own lock - see `fuzz/Cargo.toml`'s header), so the first `cargo deny
+        # ONE `deny.toml` for every invocation. `fuzz/` is its own cargo workspace (its own
+        # manifest, its own lock - see `fuzz/Cargo.toml`'s header), so the root `cargo deny
         # check` above only ever reads the ROOT graph and `fuzz/Cargo.lock` was never
-        # advisory-checked at all. The second run points `--manifest-path` at it. Same config
-        # both times: `deny.toml`'s `[[licenses.exceptions]]`-equivalent `exceptions` entry
-        # scopes `libfuzzer-sys`'s NCSA half to that one crate, so it does not need to be in
-        # the global `allow` list - which matters because `unused-allowed-license = "deny"`
-        # would then fail the ROOT run over an entry the root graph never reaches. What the
-        # root config's `allow` list DOES carry that `fuzz/`'s graph does not reach -
+        # advisory-checked at all. The fuzz invocation points `--manifest-path` at it. Same
+        # config each time: `deny.toml`'s `[[licenses.exceptions]]`-equivalent `exceptions`
+        # entry scopes `libfuzzer-sys`'s NCSA half to that one crate, so it does not need to
+        # be in the global `allow` list - which matters because `unused-allowed-license =
+        # "deny"` would then fail the ROOT run over an entry the root graph never reaches.
+        # What the root config's `allow` list DOES carry that `fuzz/`'s graph does not reach -
         # `CDLA-Permissive-2.0` (the DuckDB/BigQuery TLS cert data set) and the `bzip2-1.0.6`
         # compression codec, neither of which `fuzz/`'s dependency set pulls in - is exactly
         # what `unused-allowed-license` is FOR on the root run and would be a false refusal on
         # the fuzz-only one, so `-A license-not-encountered` disables only that one lint for
-        # the second invocation. `bans`/`advisories`/`sources` stay fully denied on both.
+        # the fuzz invocation. The driver invocation runs `nix/deny-clickhouse-driver.sh`
+        # against the vendored driver's own lock (`nix/clickhouse-adbc.Cargo.lock`), which
+        # the root run and the fuzz run never read. `bans`/`advisories`/`sources` stay fully
+        # denied in every invocation.
         apps.deny = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
@@ -1029,6 +1069,7 @@
             export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             cargo deny check "$@"
             cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered "$@"
+            bash ${./nix/deny-clickhouse-driver.sh} "$@"
           '');
         };
 
@@ -1338,6 +1379,7 @@
             # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
             # its setup, before the cell's own assertion - measured on #1286's first CI run.
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_CLICKHOUSE_ADBC_DRIVER="${clickhouseAdbcHostDriver}"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
@@ -1366,6 +1408,7 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-claim-mutation-kills" ''
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:${clickhouseTier.tier}/bin:$PATH"
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_CLICKHOUSE_ADBC_DRIVER="${clickhouseAdbcHostDriver}"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}

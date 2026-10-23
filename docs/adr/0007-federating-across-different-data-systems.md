@@ -1963,3 +1963,45 @@ joins on all of them; this amendment builds the planner half and deletes the ref
 - The cell for a later crossing with two keys has no hand-worked literal: it compares two engines and
   two `DuckDB` databases to the one-source answer, anchored by a row count, so a defect that every
   topology shares cancels in it.
+
+## Twenty-fifth amendment, 2026-10-23: a cross-model ratio is served over several lookup legs
+
+The *Twentieth amendment* left a cross-model ratio on one lookup leg, because its second fact joined
+the lookup on one link (`telekom/sutura#1493`). The plan type and the combiner now take a second fact
+on every link part of each lookup leg that joins onto the fact, and this amendment lifts the planner's
+refusal. It does not change the decision.
+
+- **Built.** Each lookup leg that joins onto the fact is linked to both facts on its own link. Both
+  fact legs group by the links of those legs and by the bucket, and by nothing else. The combine
+  joins the two facts on every link and the bucket (a full join, as before), and joins each lookup
+  onto its parent. A leg that joins onto another lookup leg needs no link on either fact: it joins
+  inside the lookup side that both facts share. The leaves are summed above the join, so a row that
+  met no partner on one link still lands in its group, and the ratio is of totals.
+- **The second fact's link for a leg** is its relationship into that leg's model, on exactly the keys
+  and grains the leg links through (*Twenty-fourth amendment*). Zero such relationships is `CrossModelRatioWithoutSharedDimension`,
+  as before. Two that fit one leg, or one that would serve two legs (a bill-to and a ship-to on the
+  first fact, one customer relationship on the second), is a new refusal.
+- **Refusals changed.** `CrossModelRatioNeedsOneLookupLeg` is deleted: a ratio over several legs is
+  served. `CrossModelRatioLinkAmbiguous { metric, model }` is new, with the wire code
+  `cross_model_ratio_link_ambiguous` and status 409, because the catalog decides which relationship
+  serves which leg. A caller can only leave dimensions out: leaving out one of two that reach the
+  same model, or all that do, can plan it. The wire code
+  `cross_model_ratio_needs_one_lookup_leg` no longer exists, which is a breaking change.
+- **The bound.** A ratio reads at most two fact legs and as many lookup legs as the deployment's
+  `lookup_leg_ceiling` allows (*Twenty-third amendment*: three by default, eight at most), under one
+  charge and one identity per leg. The configured ceilings and the byte ceiling are the only bounds;
+  the question-wide bound is `telekom/sutura#1471`.
+
+**Limits.**
+
+- The second fact's relationship is matched to a leg by model, column and grain. A catalog cannot
+  yet name which relationship serves which, so an ambiguity is refused and not resolved.
+- A null link value joins nothing on either fact. Both rows land in the group their lookup gives a
+  missing key, and their leaves are summed; no refusal covers it, and one cell pins it.
+- The combine is measured on plans built by hand and the planner on the plan it builds. No cell runs
+  a two-lookup ratio from a question to rows, and no differential cell runs one per data system,
+  because that needs a second remote model in each system's corpus.
+- The *Twenty-fourth amendment*'s limit that a cross-model ratio reads one lookup leg no longer
+  holds: a second fact's compound link is matched for every leg that joins onto the fact.
+- The kind of each second-fact link is checked against the first fact's when the legs have run. The
+  catalog's declared types for the second fact's relationships are not checked at plan time.

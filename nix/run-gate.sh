@@ -59,13 +59,16 @@ supply-chain)
         # match is on the fetch error specifically, never on the exit code alone, because
         # swallowing a genuine advisory is the one outcome worse than a blocked push.
         #
-        # TWO RUNS: `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s
-        # header), so the root run above never reads it. `-A license-not-encountered` because
-        # `deny.toml`'s root-only allow entries (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are
-        # unused in this smaller graph and `unused-allowed-license = "deny"` would refuse them
-        # here for a reason that is not a finding - same reasoning as `apps.deny` in `flake.nix`,
-        # which this local route deliberately duplicates rather than shells out to, for the
-        # reason every other arm here does: no nix required on a host that has cargo-deny.
+        # `fuzz/` is its own cargo workspace with its own lock (`fuzz/Cargo.toml`'s header),
+        # so the root run above never reads it; the fuzz run here does, with `-A
+        # license-not-encountered` because `deny.toml`'s root-only allow entries
+        # (`CDLA-Permissive-2.0`, `bzip2-1.0.6`) are unused in this smaller graph and
+        # `unused-allowed-license = "deny"` would refuse them here for a reason that is not a
+        # finding - same reasoning as `apps.deny` in `flake.nix`, which this local route
+        # deliberately duplicates rather than shells out to, for the reason every other arm
+        # here does: no nix required on a host that has cargo-deny. The driver run
+        # (`nix/deny-clickhouse-driver.sh`) reads the vendored ClickHouse driver's own lock
+        # (`nix/clickhouse-adbc.Cargo.lock`), which the root run and the fuzz run never read.
         deny_run() {
             output="$("$@" 2>&1)" && status=0 || status=$?
             printf '%s\n' "$output"
@@ -79,6 +82,7 @@ supply-chain)
         }
         deny_run cargo deny check
         deny_run cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
+        deny_run bash nix/deny-clickhouse-driver.sh
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: local cargo-deny unavailable, using nix (same pin as CI)"
         exec nix run .#deny
