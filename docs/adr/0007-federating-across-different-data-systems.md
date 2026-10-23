@@ -1871,10 +1871,11 @@ lookup leg through the combiner. That sentence is false now. It is left as writt
 
   Each cell asserts the shape of its plan before it compares, so an agreement over a plan with one
   leg cannot pass for either.
-- **Not built.** No cell runs a plan the planner made through the combiner with three lookup legs, a
-  filter that makes one leg INNER, a drill-across arm over several legs, or a second data system of
-  another kind than the engine; the combiner reads three lookup legs on a hand-built plan
-  (*Eighteenth amendment*) and a fact leg on another adapter in an existing cell. The comparison
+- **Not built.** No cell runs a plan the planner made with more than one lookup leg through the
+  combiner over three lookup legs, a filter that makes one leg INNER, a drill-across arm over several
+  legs, or a second data system of another kind than the engine. The combiner reads three lookup legs
+  on a hand-built plan (*Eighteenth amendment*), and existing cells answer planner-made plans with
+  one lookup leg that is INNER, or whose fact leg is on another adapter. The comparison
   runs one corpus, with one operating-system identity for every leg. `DrillAcrossPlan::new` does not
   check the four-source bound; only the planner does (*Twentieth amendment*).
 
