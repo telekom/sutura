@@ -43,12 +43,6 @@ const METRIC_UNKNOWN: Guide = Guide {
              whole of what exists.",
 };
 
-const METRICS_SPAN_DIFFERENT_MODELS: Guide = Guide {
-    reason: "metrics_span_different_models",
-    meaning: "two named metrics do not share a model or a time column",
-    remedy: "Ask about each metric separately - one at a time executes.",
-};
-
 const TOO_MANY_METRICS: Guide = Guide {
     reason: "too_many_metrics",
     meaning: "more metrics than one question may carry",
@@ -71,12 +65,6 @@ const DUPLICATE_METRIC_NAME: Guide = Guide {
     reason: "duplicate_metric_name",
     meaning: "the same metric was sent twice in one question",
     remedy: "Send it once - refused rather than de-duplicated.",
-};
-
-const MULTI_METRIC_FEDERATION_NOT_EXECUTABLE: Guide = Guide {
-    reason: "multi_metric_federation_not_executable",
-    meaning: "this build does not federate several metrics, and the question reached a remote dimension",
-    remedy: "Ask about each metric separately.",
 };
 
 const MULTI_METRIC_TOP_NOT_EXECUTABLE: Guide = Guide {
@@ -166,10 +154,9 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 
 const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
     reason: "plan_spans_too_many_sources",
-    meaning: "answering would need to read from more data systems than this deployment serves (two at \
+    meaning: "answering would need to read from more data systems than one answer may (four at \
               most)",
-    remedy: "Nothing you can change. Report it to a person - it is a fact about how the metric is \
-             defined, and retrying or trying a different dimension will not avoid it.",
+    remedy: "Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.",
 };
 
 const FEDERATED_ANSWER_NOT_WELL_FORMED: Guide = Guide {
@@ -208,12 +195,6 @@ const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
              without the dimension on the second data system, or report it to a person.",
 };
 
-const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
-    reason: "federation_link_ambiguous",
-    meaning: "a remote dimension joins through more than one relationship",
-    remedy: "Nothing you can change. Report it: it is a fact about how the metric is defined.",
-};
-
 const FEDERATION_LINK_COMPOUND: Guide = Guide {
     reason: "federation_link_compound",
     meaning: "the crossing relationship declares more than one join key",
@@ -222,7 +203,7 @@ const FEDERATION_LINK_COMPOUND: Guide = Guide {
 
 const FEDERATION_LINK_TYPE_MISMATCH: Guide = Guide {
     reason: "federation_link_type_mismatch",
-    meaning: "the crossing relationship joins two columns the catalog declares as different kinds of value",
+    meaning: "the crossing relationship joins two columns the catalog declares as kinds of value that do not join",
     remedy: "Nothing you can change. Report it: it is a fact about how the two columns are declared.",
 };
 
@@ -232,6 +213,14 @@ const SOURCE_UNAVAILABLE: Guide = Guide {
     remedy: "Nothing you can change. Report it to a person. This is the one refusal that looks like \
              an outage and is still not one to retry: the answer will not become available by \
              asking again.",
+};
+
+const ADDRESS_OUTSIDE_DOMAINS: Guide = Guide {
+    reason: "address_outside_domains",
+    meaning: "the address the identity provider gives the person you are acting for is outside the \
+              domains that data system is delegated for",
+    remedy: "Nothing you can change in the question, and retrying returns it again. Say so: which \
+             address the identity provider sends is a setting a person changes, not you.",
 };
 
 const CREDENTIAL_UNAVAILABLE: Guide = Guide {
@@ -345,11 +334,9 @@ const CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG: Guide = Guide {
 /// `prompt::tests` asserts against it is a second net rather than the first.*
 pub(super) const GUIDES: &[&Guide] = &[
     &METRIC_UNKNOWN,
-    &METRICS_SPAN_DIFFERENT_MODELS,
     &TOO_MANY_METRICS,
     &DIMENSION_NOT_CONFORMED,
     &DUPLICATE_METRIC_NAME,
-    &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
     &MULTI_METRIC_TOP_NOT_EXECUTABLE,
     &GRAIN_NOT_SUPPORTED,
     &DIMENSION_NOT_PERMITTED,
@@ -374,7 +361,6 @@ pub(super) const GUIDES: &[&Guide] = &[
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
     &FEDERATION_NOT_EXECUTABLE,
-    &FEDERATION_LINK_AMBIGUOUS,
     &FEDERATION_LINK_COMPOUND,
     &FEDERATION_LINK_TYPE_MISMATCH,
     // With the federation family, for the same reason: the move is to drop the second-source
@@ -401,6 +387,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &BILL_TO_NOT_ALLOWED,
     &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
+    &ADDRESS_OUTSIDE_DOMAINS,
 ];
 
 /// The guide for one refusal.
@@ -417,10 +404,8 @@ pub(super) const GUIDES: &[&Guide] = &[
 pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
     match *reason {
         RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
-        RefusalReason::MetricsSpanDifferentModels { .. } => &METRICS_SPAN_DIFFERENT_MODELS,
         RefusalReason::TooManyMetrics { .. } => &TOO_MANY_METRICS,
         RefusalReason::DuplicateMetricName { .. } => &DUPLICATE_METRIC_NAME,
-        RefusalReason::MultiMetricFederationNotExecutable { .. } => &MULTI_METRIC_FEDERATION_NOT_EXECUTABLE,
         RefusalReason::MultiMetricTopNotExecutable { .. } => &MULTI_METRIC_TOP_NOT_EXECUTABLE,
         RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
         RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
@@ -433,20 +418,20 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
-        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::QuestionNeedsTooManyLegs { .. } => &QUESTION_NEEDS_TOO_MANY_LEGS,
         RefusalReason::PlanNeedsTooManyLookupLegs { .. } => &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
-        RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::FederationLinkCompound { .. } => &FEDERATION_LINK_COMPOUND,
         RefusalReason::FederationLinkTypeMismatch { .. } => &FEDERATION_LINK_TYPE_MISMATCH,
         RefusalReason::FederatedAnswerNotWellFormed { .. } => &FEDERATED_ANSWER_NOT_WELL_FORMED,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
+        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::SourceRefused { .. } => &SOURCE_REFUSED,
         RefusalReason::BillToNotAllowed { .. } => &BILL_TO_NOT_ALLOWED,
         RefusalReason::NoBillingProject { .. } => &NO_BILLING_PROJECT,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
+        RefusalReason::AddressOutsideDomains { .. } => &ADDRESS_OUTSIDE_DOMAINS,
         RefusalReason::DeadlineExceeded { .. } => &DEADLINE_EXCEEDED,
         RefusalReason::BudgetExhausted { .. } => &BUDGET_EXHAUSTED,
         RefusalReason::TopOverUncertifiedRows { .. } => &TOP_OVER_UNCERTIFIED_ROWS,

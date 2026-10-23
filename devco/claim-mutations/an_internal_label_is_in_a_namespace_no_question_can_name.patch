@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated/label.rs b/crates/sutura-domain/src/plan/federated/label.rs
+--- a/crates/sutura-domain/src/plan/federated/label.rs
++++ b/crates/sutura-domain/src/plan/federated/label.rs
+@@ -131,7 +131,7 @@ pub enum InternalLabel {
+ }
+ 
+ /// What a link label carries after its lookup leg's position.
+-const LINK: &str = "_link";
++const LINK: &str = "_lnk";
+ 
+ /// What one carried leaf's label carries before its position.
+ const LEAF: &str = "0_leaf_";

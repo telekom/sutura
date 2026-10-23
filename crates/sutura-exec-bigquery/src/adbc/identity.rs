@@ -82,8 +82,14 @@ const IMPERSONATE_SCOPES: &str = "bigquery.impersonate.scopes";
 /// The user the delegating account acts as: the vendored driver patch's `OptionImpersonateSubject`.
 const IMPERSONATE_SUBJECT: &str = "bigquery.impersonate.subject";
 
-/// The one scope that runs a query: `jobs.insert` refuses `bigquery.readonly`.
-const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+/// The one scope a delegated job asks for. Google refuses `jobs.insert`, `jobs.cancel` and so any
+/// write job with it, and accepts `jobs.query`, `jobs.get`, `jobs.getQueryResults` and the Storage
+/// Read API (measured with a service account's own token, not a delegated one).
+const BIGQUERY_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
+
+/// The vendored driver patch's `OptionQueryThroughJobsQuery`: every query starts with `jobs.query`,
+/// the one call that starts a job under [`BIGQUERY_READONLY_SCOPE`].
+const QUERY_THROUGH_JOBS_QUERY: &str = "bigquery.query.through_jobs_query";
 
 /// The options one job's identity becomes, as the driver's database option pairs.
 ///
@@ -272,15 +278,20 @@ fn access_token_options(token: &Secret) -> DatabaseOptions {
     ]
 }
 
-/// The three options that run one job as `address` through domain-wide delegation, only ever
-/// together: the delegating account, the one scope a query needs, and the address. No auth type is
-/// set, so the base credential is the deployment's own application default credentials, which sign
-/// as the account.
+/// The four options that run one job as `address` through domain-wide delegation, only ever
+/// together: the delegating account, the read-only scope, the address, and the `jobs.query` path
+/// that scope can start a job on. No auth type is set, so the base credential is the deployment's
+/// own application default credentials, which sign as the account.
+///
+/// **The limit of the read-only scope is cancellation.** Google refuses `jobs.cancel` with it, so a
+/// job this transport stops waiting for at the caller's deadline runs on to its end or to
+/// `jobTimeoutMs`: `maximumBytesBilled` still caps its bytes, nothing caps its slot time.
 fn delegation_options(account: &DelegatingAccount, address: &PrincipalName) -> DatabaseOptions {
     [
         (IMPERSONATE_TARGET, account.0.as_str()),
-        (IMPERSONATE_SCOPES, BIGQUERY_SCOPE),
+        (IMPERSONATE_SCOPES, BIGQUERY_READONLY_SCOPE),
         (IMPERSONATE_SUBJECT, address.as_str()),
+        (QUERY_THROUGH_JOBS_QUERY, "true"),
     ]
     .into_iter()
     .map(|(key, value)| (OptionDatabase::Other(key.into()), OptionValue::String(String::from(value))))
@@ -326,7 +337,8 @@ mod tests {
 
     use super::{
         AUTH_ACCESS_TOKEN, AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, DelegatingAccount,
-        IMPERSONATE_SCOPES, IMPERSONATE_SUBJECT, IMPERSONATE_TARGET, Impersonation, UnusableDelegatingAccount, authenticate,
+        IMPERSONATE_SCOPES, IMPERSONATE_SUBJECT, IMPERSONATE_TARGET, Impersonation, QUERY_THROUGH_JOBS_QUERY,
+        UnusableDelegatingAccount, authenticate,
     };
     use crate::adbc::AdbcError;
     use crate::adbc::subject::WorkloadPool;
@@ -483,8 +495,9 @@ mod tests {
             .collect();
         for (key, value) in [
             (IMPERSONATE_TARGET, "dwd-bigquery@acme-analytics.iam.gserviceaccount.com"),
-            (IMPERSONATE_SCOPES, "https://www.googleapis.com/auth/bigquery"),
+            (IMPERSONATE_SCOPES, "https://www.googleapis.com/auth/bigquery.readonly"),
             (IMPERSONATE_SUBJECT, "Analyst.A@example.com"),
+            (QUERY_THROUGH_JOBS_QUERY, "true"),
         ] {
             assert!(
                 sent.iter()
@@ -492,8 +505,9 @@ mod tests {
                 "{key} = {value} is not sent: {sent:?}"
             );
         }
-        // No auth type: the base credential is the deployment's own, never a caller's token.
-        assert_eq!(sent.len(), 3, "{sent:?}");
+        // No auth type: the base credential is the deployment's own, never a caller's token. And no
+        // second scope: the read-only one is the only one asked for.
+        assert_eq!(sent.len(), 4, "{sent:?}");
     }
 
     #[test]

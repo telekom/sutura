@@ -269,6 +269,8 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# The served Oracle cell provisions its own table through the same driver as the adapter.
+oracledb = { workspace = true }
 # `#[cfg(test)]` modules in `src/` and the integration tests under `tests/` parse JSON
 # records (audit, MCP, served). Already in the resolved graph through the normal dependencies;
 # this names it for the test code that uses it directly. `import wren`'s parse moved with the

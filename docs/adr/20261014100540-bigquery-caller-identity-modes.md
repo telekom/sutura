@@ -164,3 +164,55 @@ and no `dataset`; both keys are refused at load with a message naming the key th
 
 Why: one source project made every caller need `bigquery.jobs.create` in a project they do not
 otherwise hold, and billed one project for every caller's queries.
+
+## Fourth amendment, 2026-10-22: a declared address claim and a domain limit
+
+**Status of the amendment: accepted** (issue #1554). Two issuers that sutura documents never send
+`email_verified`: Entra ID, and a gateway that names the user in `sub`. With them mode c refused
+every caller.
+
+- **The claim is declared at `security.inbound.address_claim`**, because it is a property of the
+  issuer, not of a source. Absent, empty or `email` is the default above: `email`, only beside
+  `email_verified: true`. Any other claim is read with no verification flag, so it starts only
+  beside `accept_address_claim: true`, and each start logs one `WARN`. The acknowledgement states
+  that the issuer verifies the claim and users cannot change it; sutura cannot check either.
+- **The declared claim is read from the signed payload a second time**, after the signature
+  verified, by a reader that keeps only that one key. The default path deserializes what it did
+  before. A claim that occurs more than once, escaped spellings included, gives no address: reading
+  either value would choose which one to believe. The address is parsed as the second amendment
+  states.
+- **`domain_delegation.address_domains` limits the addresses a source runs as**, whatever claim
+  they come from. A domain matches whole, ASCII case ignored (RFC 4343), never by suffix. An address
+  outside the list is refused with its own refusal, `address_outside_domains`, decided by the
+  broker before any credential is minted or exchanged for any source. An empty list is refused at
+  load.
+
+The limit: the address parse is the one the second amendment states, so `<a@example.com>` parses.
+`address_domains` never matches its domain; without that key it reaches Google as the subject, and
+no test here observes what Google answers.
+
+## Fifth amendment, 2026-10-22: mode c asks for `bigquery.readonly` only
+
+**Status of the amendment: accepted** (issue #1553). This replaces the decision **The scope is a
+constant, not a key** above, the scope named in **The trust shift in mode c**, and the scope and
+the count of options in the second amendment's third point.
+
+- **Mode c asks for `https://www.googleapis.com/auth/bigquery.readonly`, still a constant.** A
+  credential that can act as any user in the domain should carry the smallest scope that reads.
+  With that scope Google refuses `jobs.insert` and `jobs.cancel`, and accepts `jobs.query`,
+  `jobs.get`, `jobs.getQueryResults` and the Storage Read API. A probe measured this on 2026-10-22
+  with a service account's own token, not a token from domain-wide delegation.
+- **The driver starts a mode c query with `jobs.query`.** `nix/bigquery-adbc-jobs-query.patch`
+  adds a database option that does this; sutura sets it only beside the read-only scope. The rows
+  still come through the Storage Read API, and `maximumBytesBilled` and `jobTimeoutMs` go on the
+  same request.
+- **sutura cannot cancel a mode c job.** Google refuses `jobs.cancel` with the read-only scope. When
+  sutura stops waiting at the caller's deadline, the job runs on to its end or to `jobTimeoutMs`.
+  `maximumBytesBilled` caps its bytes. Nothing in sutura caps its slot time.
+- **A statement that writes is refused through `jobs.query` with the read-only scope, for the four
+  statements measured.** A second probe on 2026-10-22 sent `CREATE TABLE`, `INSERT`, `UPDATE` and
+  `DROP TABLE`. Google refused each with `403 accessDenied`, and a `bigquery`-scope control ran all
+  four. Not measured: `DELETE`, `MERGE`, `ALTER`, `LOAD DATA`, `EXPORT DATA`, and any of them with
+  a token from domain-wide delegation. At a mode c source sutura sends only the queries it renders.
+
+Why: the full `bigquery` scope let the delegating account start any job as any user in the domain.

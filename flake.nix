@@ -1199,11 +1199,12 @@
         };
 
         # The Oracle venue (#127): starts the compose `oracle` profile and runs its `#[ignore]`d
-        # cells - `sutura-exec-oracle`'s acceptance cell and `sutura-catalog-rdbms`'s live dictionary
-        # cells (#972) - the only venue that executes a statement against a live Oracle, since a
-        # nix check has no docker socket. The `oracle-tier` CI job runs it; `just oracle-acceptance`
-        # is the by-hand twin. No teardown: the CI runner is ephemeral, and a tier a developer
-        # started by hand is neither adopted nor stopped.
+        # cells - `sutura-exec-oracle`'s acceptance cell, `sutura-catalog-rdbms`'s live dictionary
+        # cells (#972) and `sutura-cli`'s served source-password cell - the only venue that
+        # executes a statement against a live Oracle, since a nix check has no docker socket. The
+        # `oracle-tier` CI job runs it; `just oracle-acceptance` is the by-hand twin. No teardown:
+        # the CI runner is ephemeral, and a tier a developer started by hand is neither adopted nor
+        # stopped.
         apps.oracle-acceptance = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-oracle-acceptance" ''
@@ -1213,13 +1214,19 @@
             ${cargoLinkEnv}
             ${cargoWarmStart}
             bash nix/oracle-tier-tls.sh
+            export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
+            export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
             cargo run -q -p xtask -- dev-up --with oracle
             export SUTURA_DEV_REQUIRE_TIER=1
             export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
-            export SUTURA_DEV_USER="''${SUTURA_DEV_USER:-sutura}"
-            export SUTURA_DEV_PASSWORD="''${SUTURA_DEV_PASSWORD:-sutura}"
-            exec cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
+            set +e
+            cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
+            status=$?
+            (
+              exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
+            ) || status=$?
+            exit "$status"
           '');
         };
 

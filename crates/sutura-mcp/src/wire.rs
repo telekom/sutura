@@ -93,10 +93,11 @@ pub use clauses::{FilterArgs, LastArgs, RangeArgs, TopArgs};
 #[serde(deny_unknown_fields)]
 pub struct AskArgs {
     /// The metrics to ask about, by the names this catalog defines them under - for example
-    /// `["revenue"]`. A set of several is answered as one grouped statement with one column per
-    /// metric WHEN every one shares a model, a time column, a grain and every dimension listed
-    /// below (`github.com/telekom/sutura#968`); otherwise ask about each separately. More than
-    /// [`MAX_METRICS`], or the same name repeated, is refused.
+    /// `["revenue"]`. A set of several is answered with one column per metric WHEN every one
+    /// declares the grain and every dimension listed below, and each dimension ends on the same model
+    /// and column for all of them (`github.com/telekom/sutura#968`); a question that runs more
+    /// queries or reads more data systems than one answer may is refused, and then ask about each
+    /// separately. More than [`MAX_METRICS`], or the same name repeated, is refused.
     #[schemars(length(min = 1, max = MAX_METRICS))]
     metrics: Vec<String>,
     /// The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and

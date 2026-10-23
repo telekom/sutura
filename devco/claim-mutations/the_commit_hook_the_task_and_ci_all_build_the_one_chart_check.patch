@@ -1,0 +1,13 @@
+diff --git a/dev/src/justfile.rs b/dev/src/justfile.rs
+index f53fd144c..5b78029dd 100644
+--- a/dev/src/justfile.rs
++++ b/dev/src/justfile.rs
+@@ -68,7 +68,7 @@ pub fn text(root: &Path) -> Result<String, Refused> {
+         whole.push('\n');
+         whole.push_str(&imported);
+     }
+-    Ok(whole)
++    Ok(whole.replace("run-gate.sh", "run-gate"))
+ }
+ 
+ fn read(root: &Path, path: PathBuf) -> Result<String, Refused> {

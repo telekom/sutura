@@ -667,6 +667,9 @@ pub enum Minted {
     /// This subject has no credential at that source, and asking differently will not help: what is
     /// missing is a grant at the data system, or a different subject.
     Refused { source: SourceName },
+    /// The caller's verified address is outside the domains that source delegates for, so it is not
+    /// run as that address. `crate::query::RefusalReason::AddressOutsideDomains` in the application.
+    AddressOutsideDomains { source: SourceName },
 }
 
 /// What a broker answered, checked against the request it was asked about.
@@ -691,6 +694,8 @@ pub enum Agreed {
     Granted { credentials: BoundToTheRequest },
     /// This subject has no credential at that source - and the source is one the request named.
     Refused { source: SourceName },
+    /// [`Minted::AddressOutsideDomains`], at a source the request named.
+    AddressOutsideDomains { source: SourceName },
 }
 
 /// A grant that has been checked against the request it came back for.
@@ -890,14 +895,16 @@ impl Minted {
         sources: &SourceSet,
         now_unix_seconds: u64,
     ) -> Result<Agreed, CredentialsDoNotFitTheRequest> {
-        match self {
-            Self::Refused { source } => {
-                if sources.contains(&source) {
-                    Ok(Agreed::Refused { source })
-                } else {
-                    Err(CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { at: source })
-                }
+        let asked = |source: SourceName| {
+            if sources.contains(&source) {
+                Ok(source)
+            } else {
+                Err(CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { at: source })
             }
+        };
+        match self {
+            Self::Refused { source } => asked(source).map(|source| Agreed::Refused { source }),
+            Self::AddressOutsideDomains { source } => asked(source).map(|source| Agreed::AddressOutsideDomains { source }),
             Self::Granted { credentials } => {
                 if credentials.asked_by() != asked_by {
                     return Err(CredentialsDoNotFitTheRequest::AnotherSubject {

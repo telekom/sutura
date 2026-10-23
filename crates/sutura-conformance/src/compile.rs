@@ -592,7 +592,7 @@ fn compiled_plan(pinned: &PinnedDefinitions, question: &Query, what: &str) -> Bo
     ) {
         Ok(Compiled::Planned { plan }) => plan,
         Ok(Compiled::Refused { reason }) => panic!("{what} answered a question this corpus compiles with a refusal: {reason:?}"),
-        Ok(Compiled::Federated { .. }) => panic!("{what} federated a mono corpus question"),
+        Ok(Compiled::Federated { .. } | Compiled::DrillAcross { .. }) => panic!("{what} federated a mono corpus question"),
         Err(cause) => panic!("{what} would not compile the corpus: {cause}"),
     }
 }
@@ -705,7 +705,7 @@ where
                     agent.expected
                 );
             }
-            Ok(Compiled::Planned { .. } | Compiled::Federated { .. }) => {
+            Ok(Compiled::Planned { .. } | Compiled::Federated { .. } | Compiled::DrillAcross { .. }) => {
                 panic!("refusal {case} was answered by the catalog under test")
             }
             Err(cause) => panic!("refusal {case} failed to compile, not to be refused: {cause}"),

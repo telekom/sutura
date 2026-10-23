@@ -192,6 +192,7 @@ pub(super) fn direct_pinning(path: &str, algorithms: PinnedAlgorithms, token_typ
         key_set: KeySetLocation::File(KeySetFile::parse(path).expect("a test path is a path")),
         algorithms,
         token_type,
+        address_claim: sutura_config::AddressClaim::VerifiedEmail,
     }
 }
 

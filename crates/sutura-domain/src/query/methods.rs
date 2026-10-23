@@ -121,10 +121,8 @@ impl RefusalReason {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::MetricUnknown { .. } => "metric_unknown",
-            Self::MetricsSpanDifferentModels { .. } => "metrics_span_different_models",
             Self::TooManyMetrics { .. } => "too_many_metrics",
             Self::DuplicateMetricName { .. } => "duplicate_metric_name",
-            Self::MultiMetricFederationNotExecutable { .. } => "multi_metric_federation_not_executable",
             Self::MultiMetricTopNotExecutable { .. } => "multi_metric_top_not_executable",
             Self::GrainNotSupported { .. } => "grain_not_supported",
             Self::DimensionNotPermitted { .. } => "dimension_not_permitted",
@@ -140,7 +138,6 @@ impl RefusalReason {
             Self::QuestionNeedsTooManyLegs { .. } => "question_needs_too_many_legs",
             Self::PlanNeedsTooManyLookupLegs { .. } => "plan_needs_too_many_lookup_legs",
             Self::FederationNotExecutable => "federation_not_executable",
-            Self::FederationLinkAmbiguous { .. } => "federation_link_ambiguous",
             Self::FederationLinkCompound { .. } => "federation_link_compound",
             Self::FederationLinkTypeMismatch { .. } => "federation_link_type_mismatch",
             Self::FederatedAnswerNotWellFormed { .. } => "federated_answer_not_well_formed",
@@ -148,6 +145,7 @@ impl RefusalReason {
             Self::SourceUnavailable { .. } => "source_unavailable",
             Self::ResourcesExhausted { .. } => "resources_exhausted",
             Self::CredentialUnavailable { .. } => "credential_unavailable",
+            Self::AddressOutsideDomains { .. } => "address_outside_domains",
             Self::SourceRefused { .. } => "source_refused",
             Self::BillToNotAllowed { .. } => "bill_to_not_allowed",
             Self::NoBillingProject { .. } => "no_billing_project",

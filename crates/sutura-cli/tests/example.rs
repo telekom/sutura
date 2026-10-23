@@ -370,6 +370,7 @@ mod tests {
                     statements += 1;
                     assert_eq!(plan.legs().len(), 2, "{name} federated into something other than two legs");
                 }
+                Compiled::DrillAcross { .. } => panic!("{name} named several metrics, which the example corpus does not"),
             });
         }
         // Both halves have to be non-empty or the assertions above are vacuous: a corpus of only

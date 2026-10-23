@@ -31,6 +31,10 @@ mod refusals;
 #[cfg(test)]
 mod fan_in;
 
+/// A relationship with more than one key.
+#[cfg(test)]
+mod link_parts;
+
 /// `2^53`: every integer below it is exactly representable as an `f64`.
 const TWO_POW_53: i64 = 1 << 53;
 

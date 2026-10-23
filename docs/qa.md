@@ -31,10 +31,10 @@ and values that the catalog allows. A question with an unknown field, such as `s
 Under row-level security, two callers who ask the same question can see different rows. A cache keyed on the question
 would send the first caller's rows to the second caller. For the same reason, sutura keeps no scheduled copy of the data.
 
-## Can a question span two data systems?
+## Can a question span several data systems?
 
-Yes. sutura splits the question into a fact leg and a lookup leg, runs each leg at its source and joins the results. Each
-leg runs in the identity mode of its source, and the answer records the mode of each leg.
+Yes. sutura splits the question into a fact leg and up to three lookup legs, runs each leg at its source and joins the
+results. Each leg runs in the identity mode of its source, and the answer records the mode of each leg.
 
 ## Why can I not edit definitions here?
 

@@ -1,0 +1,12 @@
+diff --git a/xtask/src/tasks.rs b/xtask/src/tasks.rs
+index 95a41f592..0ca09bf32 100644
+--- a/xtask/src/tasks.rs
++++ b/xtask/src/tasks.rs
+@@ -64,6 +64,7 @@ fn read_set(root: &Path) -> Option<Vec<Source>> {
+     justfiles::read(root)
+         .inspect_err(|refused| eprintln!("xtask: {refused}"))
+         .ok()
++        .map(|set| set.into_iter().take(1).collect())
+ }
+ 
+ /// The recipe names in this repo's justfile and the files it imports, or `None` when they could not be read.

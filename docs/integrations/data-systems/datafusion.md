@@ -14,7 +14,7 @@ has it.
 
 - The data is files in one directory: on a laptop, in a demo, or for one operator.
 - No data system login is necessary.
-- sutura also uses DataFusion to join the two legs of a federated answer.
+- sutura also uses DataFusion to join the legs of a federated answer.
 
 ## Settings
 

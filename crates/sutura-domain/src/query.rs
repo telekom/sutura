@@ -44,6 +44,13 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// whole table that survives the question's own filters, so the cap bounds how many such reads one
 /// question starts; the working-set ceiling bounds their bytes.
 pub const MAX_LOOKUP_LEGS: usize = 3;
+/// The most distinct data systems one answer may read, for one metric or several.
+///
+/// A constant for now and not a setting: each data system is an identity the broker mints for, so
+/// the count bounds how many such mints one question starts. One fact leg beside
+/// [`MAX_LOOKUP_LEGS`] lookup legs reads four at most, so a single metric never reaches it; a
+/// question over several metrics can, because each arm brings its own legs.
+pub const MAX_SOURCES: usize = 4;
 /// The most metrics one question may name together.
 ///
 /// A bound for the same reason the time range and the dimension count are bounded: each
@@ -147,15 +154,6 @@ pub struct Query {
 pub enum RefusalReason {
     /// No metric of that name is in the pinned bundle.
     MetricUnknown { metric: MetricName },
-    /// A question named more than one metric, and two of them do not declare the same model or
-    /// the same time column.
-    ///
-    /// **A mixed-model set is unrepresentable as one grouped statement.** Two metrics over two
-    /// physical tables have no shared `FROM`, and two metrics on one table but two different time
-    /// columns would group by an ambiguous bucket - `sutura_semantic::resolve` compares every
-    /// metric named against the first, so the pair reported is always the first metric and the
-    /// first one that disagreed with it, never a third-party guess at which is "wrong".
-    MetricsSpanDifferentModels { first: MetricName, other: MetricName },
     /// More metrics than [`MAX_METRICS`] one question may name together.
     TooManyMetrics { requested: usize, limit: usize },
     /// A question named several metrics, and a dimension it groups or filters by does not end on
@@ -180,13 +178,6 @@ pub enum RefusalReason {
     /// a duplicated dimension is: a caller who sent it twice believes something about the result
     /// that is not true.
     DuplicateMetricName { metric: MetricName },
-    /// A question named more than one metric and also reached a remote dimension.
-    ///
-    /// **A multi-metric question never federates.** The combiner links exactly two legs on one
-    /// column and produces one measure column; there is no shape here for several certified
-    /// columns arriving through a join. Refused by name, naming every metric asked, rather than
-    /// silently answered as though only the first metric had been named.
-    MultiMetricFederationNotExecutable { metrics: Vec<MetricName> },
     /// A question named more than one metric and also asked for `top`.
     ///
     /// **`top` names no metric to rank by**, and the two rendering paths disagree about which
@@ -245,16 +236,15 @@ pub enum RefusalReason {
     /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
     /// reflect into a message that reaches a log, a UI and an agent's context.
     TimeRangeTooLong { days: i32, limit: i32 },
-    /// The plan would need to read from more than the deployment serves.
+    /// The plan would read more distinct data systems than one answer may.
     ///
     /// Refused rather than run in parts, because each data system is a separate identity to satisfy,
-    /// and a plan that runs partly as somebody else is the failure this design exists to prevent.
-    ///
-    /// **Exactly two is served** - a question that spans two sources is split into two legs and
-    /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
-    /// executes it where the registered adapter can run a leg and otherwise refuses it as
-    /// [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)). So this is the bound on
-    /// an unbounded fan-out: the "too many" is a named count against the limit the deployment serves.
+    /// and a plan that runs partly as somebody else is the failure this design exists to prevent. The
+    /// count is of distinct sources, the set the broker mints credentials for once per answer, so it
+    /// bounds one metric and several metrics alike. A lookup leg that reads a source another leg
+    /// already reads does not add to it. Narrowable: ask for fewer dimensions that live in other
+    /// data systems, or for fewer metrics at a time. The "too many" is a named count against
+    /// [`MAX_SOURCES`].
     PlanSpansTooManySources { sources: usize, limit: usize },
     /// The plan would need more lookup legs than one answer may carry.
     ///
@@ -290,26 +280,17 @@ pub enum RefusalReason {
     /// That failure leaves as `sutura_semantic::CompileFailure` now, so this variant means the
     /// capability and nothing else.
     FederationNotExecutable,
-    /// The question's remote dimensions join the metric's own through more than one relationship.
-    ///
-    /// The combiner links the two legs on a single column; two relationships on one remote data
-    /// system would need two link columns, which the lookup leg does not carry. Refused rather than
-    /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
-    /// many sources are involved.
-    FederationLinkAmbiguous { source: SourceName },
     /// The relationship crossing into the remote data system declares more than one join key.
     ///
-    /// **Distinct from [`FederationLinkAmbiguous`](Self::FederationLinkAmbiguous), which names two
-    /// relationships crossing at once.** This is one relationship, correctly declared - a compound
-    /// key is exactly what `telekom/sutura#967` exists to allow inside one data system - but the
-    /// combiner links two legs on a single column, and a compound key would need one per column,
-    /// which the lookup leg's shape does not carry. Named for what is actually true rather than
-    /// reused from the ambiguity case, so a caller is not told two relationships exist when one does.
+    /// One relationship, correctly declared - a compound key is exactly what `telekom/sutura#967`
+    /// exists to allow inside one data system - but the combiner links two legs on a single column,
+    /// and a compound key would need one per column, which the lookup leg's shape does not carry.
     FederationLinkCompound {
         source: SourceName,
         relationship: RelationshipName,
     },
-    /// The two columns the crossing relationship joins are declared as different kinds of value.
+    /// The two columns the crossing relationship joins are declared as kinds of value that do not
+    /// join: different kinds, or a pair the relationship's declared comparison does not join.
     ///
     /// Decided from the catalog before either leg runs, and only when BOTH types are declared and
     /// BOTH are known: an integer against text can never match, so every row would miss. A type
@@ -423,6 +404,13 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+    /// The address the caller's identity provider gives them is outside the domains that
+    /// `domain_delegation` source declares in `address_domains`, so the question is not run there as
+    /// that address, nor as the deployment.
+    ///
+    /// Decided by the broker before any credential is minted or exchanged for any source. Carries the
+    /// source and never the address, which names a person.
+    AddressOutsideDomains { source: SourceName },
     /// The data system refused the executed statement because the identity it ran it as may not ask
     /// it.
     ///
@@ -717,10 +705,6 @@ mod tests {
             RefusalReason::MetricUnknown {
                 metric: MetricName::parse("revenue").expect("a test metric"),
             },
-            RefusalReason::MetricsSpanDifferentModels {
-                first: MetricName::parse("revenue").expect("a test metric"),
-                other: MetricName::parse("margin").expect("a test metric"),
-            },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
             RefusalReason::DimensionNotConformed {
                 dimension: DimensionName::parse("region").expect("a test dimension"),
@@ -730,12 +714,6 @@ mod tests {
             RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName {
                 metric: MetricName::parse("revenue").expect("a test metric"),
-            },
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![
-                    MetricName::parse("revenue").expect("a test metric"),
-                    MetricName::parse("margin").expect("a test metric"),
-                ],
             },
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![
@@ -771,12 +749,9 @@ mod tests {
                 bound: ResultBound::Rows { limit: 10_000 },
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source"),
                 relationship: RelationshipName::parse("usage_subscription").expect("a test relationship"),
@@ -806,6 +781,9 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source"),
+            },
+            RefusalReason::AddressOutsideDomains {
                 source: SourceName::parse("warehouse").expect("a test source"),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },

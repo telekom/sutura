@@ -292,6 +292,14 @@ pub enum SettingsError {
          write the class the issuer mints, or set `security.inbound.accept_any_token_type: true`"
     )]
     InboundAnyTokenTypeNotAccepted,
+    /// `security.inbound.address_claim` names a claim other than `email`, with no by-name acceptance.
+    #[error(
+        "`security.inbound.address_claim` is `{claim}`, so a `domain_delegation` source runs each caller \
+         as the Google account that claim names, with no `email_verified` beside it. Set \
+         `security.inbound.accept_address_claim: true` only if the issuer verifies the claim and users \
+         cannot change it; otherwise remove the key"
+    )]
+    InboundAddressClaimNotAccepted { claim: crate::inbound::ClaimName },
     /// A transit lifetime above [`crate::inbound::ProofLifetime::SHORT_LIVED_SECONDS`] with no by-name
     /// acceptance of it.
     #[error(

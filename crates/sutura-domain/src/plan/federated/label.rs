@@ -113,12 +113,19 @@ pub fn labels(federation: &Federation) -> Vec<InternalLabel> {
 /// *silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
 /// columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
 /// scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-/// `usize` can index is 27 characters.
+/// `usize` pair can index is 46 characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InternalLabel {
-    /// The column the lookup leg at this position is joined on, in its result and in the result of
-    /// the leg it joins onto.
-    Link(usize),
+    /// One column the lookup leg at `leg` is joined on, in its result and in the result of the leg
+    /// it joins onto: key part `part` of the relationship that crosses to it, in key order.
+    ///
+    /// A relationship with one key has the one part `0`. [`InternalLabel::link`] spells it.
+    Link {
+        /// The lookup leg's position.
+        leg: usize,
+        /// The key part, from `0`.
+        part: usize,
+    },
     /// One carried leaf of the measure, by its position in carried order.
     Leaf(usize),
 }
@@ -130,27 +137,52 @@ const LINK: &str = "_link";
 const LEAF: &str = "0_leaf_";
 
 impl InternalLabel {
+    /// The first (and, for a one-key relationship, only) link column of the lookup leg at `leg`.
+    #[inline]
+    #[must_use]
+    pub const fn link(leg: usize) -> Self {
+        Self::Link { leg, part: 0 }
+    }
+
+    /// Whether `text` spells a link label of the lookup leg at `leg`, of any part.
+    #[must_use]
+    pub(crate) fn is_link_of(leg: usize, text: &str) -> bool {
+        text.strip_prefix(&format!("{leg}{LINK}"))
+            .is_some_and(|part| part.is_empty() || part.strip_prefix('_').is_some_and(|n| n.parse::<usize>().is_ok()))
+    }
+
     /// The text this label carries in a leg's result.
     ///
     /// The one place the reserved namespace is spelled. A caller that needs it as a column name
-    /// takes it from here, so no call site holds a second copy of the spelling.
+    /// takes it from here, so no call site holds a second copy of the spelling. `is_link_of`
+    /// reads the link spelling back, and is held only by the stray-part cells.
     #[inline]
     pub fn label(self) -> String {
         match self {
-            Self::Link(leg) => format!("{leg}{LINK}"),
+            Self::Link { leg, part: 0 } => format!("{leg}{LINK}"),
+            Self::Link { leg, part } => format!("{leg}{LINK}_{part}"),
             Self::Leaf(position) => format!("{LEAF}{position}"),
         }
     }
 
     /// The label that spells exactly `text`, if any: the inverse of [`Self::label`].
     ///
-    /// Canonical spellings only, so `0_leaf_07` names nothing and a label read off the wire is the
-    /// one this process would have written.
+    /// Canonical spellings only, so `0_leaf_07` and `0_link_0` name nothing and a label read off the
+    /// wire is the one this process would have written.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let parsed = match text.strip_prefix(LEAF) {
-            Some(position) => Self::Leaf(position.parse().ok()?),
-            None => Self::Link(text.strip_suffix(LINK)?.parse().ok()?),
+        let parsed = if let Some(position) = text.strip_prefix(LEAF) {
+            Self::Leaf(position.parse().ok()?)
+        } else {
+            let (leg, part) = text.split_once(LINK)?;
+            Self::Link {
+                leg: leg.parse().ok()?,
+                part: if part.is_empty() {
+                    0
+                } else {
+                    part.strip_prefix('_')?.parse().ok()?
+                },
+            }
         };
         (parsed.label() == text).then_some(parsed)
     }

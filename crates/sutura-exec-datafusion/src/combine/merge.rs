@@ -279,7 +279,7 @@ mod tests {
 
     fn link_key() -> PlanKey {
         PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link(0)),
+            ResultLabel::internal(InternalLabel::link(0)),
             PlanColumn::new(table(FACT), column("customer_key")),
         )
     }
@@ -497,7 +497,7 @@ mod tests {
         let (arm, plan) = joined("revenue");
         let drill = plan_of(vec![arm, local("visits")]);
         let fact = batches(
-            [InternalLabel::Link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
+            [InternalLabel::link(0).label(), String::from(TIME_BUCKET_LABEL), leaf()],
             vec![
                 [text("c1"), text("2026-06"), Value::Integer(100)],
                 [text("c2"), text("2026-06"), Value::Integer(200)],
@@ -505,7 +505,7 @@ mod tests {
         );
         let lookup = of_row_set(
             &RowSet::new(
-                vec![InternalLabel::Link(0).label(), String::from("region")],
+                vec![InternalLabel::link(0).label(), String::from("region")],
                 vec![vec![text("c1"), text("north")], vec![text("c2"), text("north")]],
             )
             .expect("a test lookup"),

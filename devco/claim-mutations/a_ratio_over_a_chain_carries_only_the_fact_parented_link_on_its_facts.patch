@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated.rs b/crates/sutura-domain/src/plan/federated.rs
+index b33ec6269..dbfd800cb 100644
+--- a/crates/sutura-domain/src/plan/federated.rs
++++ b/crates/sutura-domain/src/plan/federated.rs
+@@ -638,7 +638,6 @@ fn fact_links(lookups: &LookupLegs) -> Vec<String> {
+         .legs()
+         .iter()
+         .enumerate()
+-        .filter(|(_, lookup)| lookup.onto() == LegAt::Fact)
+         .flat_map(|(position, _)| lookup_links(lookups, position))
+         .collect()
+ }

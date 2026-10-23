@@ -203,7 +203,7 @@ expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
       "type": "string"
     },
     "metrics": {
-      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. A set of several is answered as one grouped statement with one column per\nmetric WHEN every one shares a model, a time column, a grain and every dimension listed\nbelow (`github.com/telekom/sutura#968`); otherwise ask about each separately. More than\n[`MAX_METRICS`], or the same name repeated, is refused.",
+      "description": "The metrics to ask about, by the names this catalog defines them under - for example\n`[\"revenue\"]`. A set of several is answered with one column per metric WHEN every one\ndeclares the grain and every dimension listed below, and each dimension ends on the same model\nand column for all of them (`github.com/telekom/sutura#968`); a question that runs more\nqueries or reads more data systems than one answer may is refused, and then ask about each\nseparately. More than [`MAX_METRICS`], or the same name repeated, is refused.",
       "items": {
         "type": "string"
       },

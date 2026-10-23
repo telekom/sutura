@@ -44,9 +44,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     let code = reason.code();
     let detail = match *reason {
         RefusalReason::MetricUnknown { ref metric } => format!("this catalog defines no metric called `{metric}`"),
-        RefusalReason::MetricsSpanDifferentModels { ref first, ref other } => {
-            format!("`{first}` and `{other}` do not share a model and a time column")
-        }
         RefusalReason::TooManyMetrics { requested, limit } => {
             format!("{requested} metrics were asked for; at most {limit} are allowed")
         }
@@ -59,7 +56,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         RefusalReason::DuplicateMetricName { ref metric } => {
             format!("`{metric}` is listed more than once")
         }
-        RefusalReason::MultiMetricFederationNotExecutable { ref metrics } => multi_metric_federation_not_executable(metrics),
         RefusalReason::MultiMetricTopNotExecutable { ref metrics } => multi_metric_top_not_executable(metrics),
         RefusalReason::GrainNotSupported { ref metric, grain } => {
             format!("`{metric}` is not defined at `{grain}` grain")
@@ -135,10 +131,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              data systems. Nothing you can change in the question helps and this is not an outage \
              to retry; ask without the dimension on the second data system, or report it.",
         ),
-        RefusalReason::FederationLinkAmbiguous { ref source } => format!(
-            "the dimensions on `{source}` join through more than one relationship, and the two \
-             legs link on a single column"
-        ),
         RefusalReason::FederationLinkCompound {
             ref source,
             ref relationship,
@@ -192,6 +184,12 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              this deployment will not read it under its own identity instead. Nothing you can \
              change in the question helps and retrying will not either. Say so, and say that \
              access to `{source}` is what would be needed."
+        ),
+        RefusalReason::AddressOutsideDomains { ref source } => format!(
+            "the address the identity provider gives the person you are acting for is outside the \
+             domains the data system `{source}` is delegated for, and this deployment will not read \
+             it under its own identity instead. Nothing you can change in the question helps and \
+             retrying will not either. Say so."
         ),
         // Written for an agent: this is the data system itself saying no about WHO asked, not a
         // credential the caller is missing. There is no retry that succeeds and no narrower
@@ -255,14 +253,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 fn metric_names(metrics: &[sutura_domain::model::MetricName]) -> String {
     let names: Vec<&str> = metrics.iter().map(sutura_domain::model::MetricName::as_str).collect();
     names.join(", ")
-}
-
-fn multi_metric_federation_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
-    format!(
-        "{} were asked together, and the question also reaches a dimension on another data system; this build does not \
-         federate several metrics",
-        metric_names(metrics)
-    )
 }
 
 fn multi_metric_top_not_executable(metrics: &[sutura_domain::model::MetricName]) -> String {
@@ -356,10 +346,6 @@ mod tests {
     fn every_reason() -> Vec<RefusalReason> {
         vec![
             RefusalReason::MetricUnknown { metric: metric() },
-            RefusalReason::MetricsSpanDifferentModels {
-                first: metric(),
-                other: MetricName::parse("margin").expect("a test metric is a metric"),
-            },
             RefusalReason::TooManyMetrics { requested: 9, limit: 8 },
             RefusalReason::DimensionNotConformed {
                 dimension: dimension(),
@@ -368,9 +354,6 @@ mod tests {
             },
             RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
             RefusalReason::DuplicateMetricName { metric: metric() },
-            RefusalReason::MultiMetricFederationNotExecutable {
-                metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
-            },
             RefusalReason::MultiMetricTopNotExecutable {
                 metrics: vec![metric(), MetricName::parse("margin").expect("a test metric is a metric")],
             },
@@ -399,12 +382,9 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
             RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
             RefusalReason::FederationNotExecutable,
-            RefusalReason::FederationLinkAmbiguous {
-                source: SourceName::parse("warehouse").expect("a test source is a source"),
-            },
             RefusalReason::FederationLinkCompound {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
                 relationship: sutura_domain::model::RelationshipName::parse("usage_subscription")
@@ -439,6 +419,9 @@ mod tests {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::AddressOutsideDomains {
                 source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
             RefusalReason::DeadlineExceeded { budget_seconds: 29 },

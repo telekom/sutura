@@ -395,9 +395,6 @@ fn heredoc_word(line: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
-/// The file every task this page cites is defined in.
-const JUSTFILE: &str = "justfile";
-
 /// The commands that RUN this workspace's tests.
 ///
 /// Whole commands rather than words, and read through [`command_of`] rather than off the raw line,
@@ -457,7 +454,7 @@ fn header(line: &str) -> Option<Header> {
     })
 }
 
-/// Every recipe [`JUSTFILE`] defines, by name.
+/// Every recipe the justfile text defines, by name.
 fn recipes(text: &str) -> BTreeMap<String, Recipe> {
     let mut out: BTreeMap<String, Recipe> = BTreeMap::new();
     let mut current: Option<String> = None;
@@ -513,11 +510,15 @@ fn recipes(text: &str) -> BTreeMap<String, Recipe> {
 /// passes, and that residue is review's - narrowed from *any CI-invoked task* to *any CI-invoked
 /// task that runs tests*.
 ///
-/// `None` when the justfile cannot be read or defines no test task at all, which its caller turns
+/// Read over the justfile and the files it imports as one text, because delegation crosses files.
+///
+/// `None` when the justfile set cannot be read or defines no test task at all, which its caller turns
 /// into a failure: a set that found nothing would refuse every citable cell, and a scan that
 /// passes - or fails - by finding nothing is what a text gate is most prone to.
 pub(super) fn test_tasks(root: &Path) -> Option<BTreeSet<String>> {
-    let text = std::fs::read_to_string(root.join(JUSTFILE)).ok()?;
+    let text = crate::tasks::justfiles::text(root)
+        .inspect_err(|refused| eprintln!("xtask: {refused}"))
+        .ok()?;
     let found = test_tasks_in(&text);
     (!found.is_empty()).then_some(found)
 }
@@ -660,6 +661,19 @@ mod tests {
         std::fs::remove_dir_all(&root).expect("remove fixture");
         let expected = std::collections::BTreeSet::from([String::from("after-the-terminator")]);
         assert_eq!(found, Some(expected));
+    }
+
+    #[test]
+    fn a_test_task_that_delegates_into_another_file_is_a_test_task() {
+        let tree = crate::scratch_tree::Tree::of(
+            "venues-imported-delegate",
+            &[
+                ("justfile", b"import \"just/gates.just\"\n\ngates: unit\n    echo done\n"),
+                ("just/gates.just", b"unit:\n    cargo nextest run --workspace\n"),
+            ],
+        );
+        let found = super::test_tasks(tree.root()).expect("the set defines a test task");
+        assert!(found.contains("unit") && found.contains("gates"), "{found:?}");
     }
 
     /// The task name every shape below tries to resolve, spelled once.

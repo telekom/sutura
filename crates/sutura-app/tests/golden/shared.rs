@@ -103,8 +103,10 @@ pub(crate) fn question(file: &str) -> Query {
 ///
 /// A table rather than a test each, so the exhaustiveness assertion can be written against it.
 ///
-/// Three variants are absent on purpose, because no question file can reach one, and each has its
-/// own test in `golden/service.rs` instead. `FederationNotExecutable` needs a plan naming two data
+/// Five variants are absent on purpose, because no question file can reach one. `DimensionNotConformed`
+/// and `QuestionNeedsTooManyLegs` need several metrics over a catalog built for the one question, and
+/// the differential `federated/multi_metric.rs` provokes them. The other three have a test in
+/// `golden/service.rs` instead. `FederationNotExecutable` needs a plan naming two data
 /// systems and `SourceUnavailable` a plan for a data system nobody opened - both decided above the
 /// port, by the service rather than by the compiler. `ResultTooLarge` is the third and is absent for
 /// a different reason worth keeping straight: it is decided AFTER a data system has answered, and
@@ -119,7 +121,6 @@ pub(crate) const PROVOKED: &[(&str, &str)] = &[
     // An unlisted value inside an `In` set - `github.com/telekom/sutura#968`. Same variant as the
     // `Eq` case above, reached once per value rather than once - see `sutura_semantic::resolve`.
     ("refused-value-not-allowed-in-set", "DimensionValueNotAllowed"),
-    ("refused-metrics-span-different-models", "MetricsSpanDifferentModels"),
     // More metrics than `MAX_METRICS`, refused before any agreement check - `github.com/telekom/sutura#968`.
     ("refused-too-many-metrics", "TooManyMetrics"),
     ("refused-duplicate-metric-name", "DuplicateMetricName"),

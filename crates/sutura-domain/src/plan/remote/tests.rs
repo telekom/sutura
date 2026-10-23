@@ -262,7 +262,7 @@ fn revenue_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
                 ResultLabel::dimension(&DimensionName::parse("channel_name").expect("a dimension")),
                 col("channels", "channel_name"),
             ),
-            PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), col("orders", "customer_id")),
+            PlanKey::new(ResultLabel::internal(InternalLabel::link(0)), col("orders", "customer_id")),
         ],
         terms: vec![LegTerm::new(
             PlanTerm::Aggregate {
@@ -293,7 +293,7 @@ fn region_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         )
         .expect("two tables"),
         keys: vec![
-            PlanKey::new(ResultLabel::internal(InternalLabel::Link(0)), col("customers", "id")),
+            PlanKey::new(ResultLabel::internal(InternalLabel::link(0)), col("customers", "id")),
             PlanKey::new(
                 ResultLabel::dimension(&DimensionName::parse("region_name").expect("a dimension")),
                 col("regions", "region_name"),
@@ -331,7 +331,7 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         .expect("two tables"),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("calendar", "order_date")),
         keys: vec![PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link(0)),
+            ResultLabel::internal(InternalLabel::link(0)),
             col("refunds", "order_id"),
         )],
         terms: vec![LegTerm::new(
@@ -720,11 +720,13 @@ fn values_that_the_predicates_do_not_bind_are_refused() {
 #[test]
 fn a_label_that_names_neither_an_internal_label_nor_a_dimension_does_not_parse() {
     let (mut json, _) = fact();
-    for label in ["0_leaf_07", "0_other", "not a name", ""] {
+    for label in ["0_leaf_07", "0_link_0", "0_link_", "0_link_01", "0_other", "not a name", ""] {
         json["keys"][0]["label"] = json!(label);
         assert!(received(json.clone()).is_err(), "{label:?}");
     }
-    WireLabel::parse("0_leaf_7").expect("a canonical internal label");
+    for label in ["0_leaf_7", "2_link", "2_link_1"] {
+        WireLabel::parse(label).expect("a canonical internal label");
+    }
 }
 
 #[test]
@@ -771,7 +773,7 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
         panic!("a lookup leg");
     };
     let month = PlanKey::truncated(
-        ResultLabel::internal(InternalLabel::Link(0)),
+        ResultLabel::internal(InternalLabel::link(0)),
         col("customers", "id"),
         Grain::Month,
     );

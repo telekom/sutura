@@ -152,7 +152,7 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // 403: the data system refused it at the identity/authorization level - the same status a
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
-        // 409, the status `RefusalReason::PlanSpansTooManySources` gets: answerable in principle, and
+        // 409, the status `RefusalReason::PlanNeedsTooManyLookupLegs` gets: answerable in principle, and
         // this deployment is arranged not to combine sources in one statement. The two deployment-
         // shape refusals share it: the request is well formed and conflicts with how this deployment
         // is arranged, which is neither a malformed request (400) nor a server fault (500), so the

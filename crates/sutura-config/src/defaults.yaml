@@ -120,6 +120,12 @@ security:
   #       # is the ordinary arrangement. Write `any` to switch the check off; it does not start
   #       # without `accept_any_token_type: true`, and the startup log says so at WARN on every boot.
   #       # token_type: "at+jwt"
+  #       # Both modes: the claim a `domain_delegation` source reads the caller's address from.
+  #       # Absent means `email` beside `email_verified: true`. Another claim is read with no
+  #       # verification flag, does not start without `accept_address_claim: true`, and is logged at
+  #       # WARN on every boot.
+  #       # address_claim: "upn"
+  #       # accept_address_claim: true
   #
   #   security:
   #     inbound:

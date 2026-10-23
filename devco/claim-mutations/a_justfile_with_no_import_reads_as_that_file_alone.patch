@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks/justfiles.rs b/xtask/src/tasks/justfiles.rs
+index 596870188..b13c32d84 100644
+--- a/xtask/src/tasks/justfiles.rs
++++ b/xtask/src/tasks/justfiles.rs
+@@ -101,7 +101,7 @@ pub(crate) fn read(root: &Path) -> Result<Vec<Source>, Refused> {
+         }
+         set.push(file);
+     }
+-    Ok(set)
++    Ok(set.into_iter().skip(1).collect())
+ }
+ 
+ fn load(root: &Path, path: PathBuf) -> Result<Source, Refused> {

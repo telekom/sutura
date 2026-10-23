@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -165,7 +165,7 @@ where
+ {
+     let mut priced: Option<u64> = None;
+     let mut cleared = Vec::new();
+-    for (leg, warehouse) in legs {
++    for (leg, warehouse) in legs.into_iter().take(2) {
+         if let PreFlight::Accepted {
+             estimated_bytes: Some(bytes),
+         } = dry_run_leg::<_, B, C>(warehouse, credentials, leg, deadline)?

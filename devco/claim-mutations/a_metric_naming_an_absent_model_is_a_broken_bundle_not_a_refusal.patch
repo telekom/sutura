@@ -1,9 +1,8 @@
 diff --git a/crates/sutura-semantic/src/resolve.rs b/crates/sutura-semantic/src/resolve.rs
-index ce4dd5467..4cb3a3d93 100644
 --- a/crates/sutura-semantic/src/resolve.rs
 +++ b/crates/sutura-semantic/src/resolve.rs
-@@ -163,8 +163,7 @@ pub(crate) fn resolve<'a>(query: &Query, view: &ScopedView<'a>, row_ceiling: Row
-     let definitions = view.pinned().definitions();
+@@ -363,8 +363,7 @@
+     let definitions = pinned.definitions();
      let model = definitions
          .model(metric.model())
 -        .ok_or_else(|| BundleInconsistent::NoSuchModel {
@@ -11,4 +10,4 @@ index ce4dd5467..4cb3a3d93 100644
 +        .ok_or_else(|| BundleInconsistent::JoinTargetMissing {
              model: metric.model().clone(),
          })?;
- 
+     let keys = query
