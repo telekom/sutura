@@ -139,6 +139,10 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// How an impersonating `oracle` source opens each question's session - see
+    /// `crate::sources::caller_session`.
+    #[serde(default)]
+    pub(crate) caller_session: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]

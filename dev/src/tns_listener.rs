@@ -10,6 +10,7 @@
 //! framing the driver reads first, so a driver that follows the redirect reaches
 //! [`RedirectingListener::target`] and is closed there, before any authentication.
 //! [`authenticating`] and [`marking`] go one step further and no more: neither completes a login.
+//! [`logging_in`] completes one and closes the connection at the next message - see its module.
 //!
 //! Each speaks over the accepted TCP stream itself, or, through the `_over` forms, over a session a
 //! test opens on it - TLS, for a driver that sends a token only over `tcps`. This crate
@@ -19,6 +20,10 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
+
+mod logged_in;
+
+pub use logged_in::{Sent, Serving, logging_in};
 
 /// A listener that redirects every client to a second loopback listener, and records whether that
 /// second listener was dialled.

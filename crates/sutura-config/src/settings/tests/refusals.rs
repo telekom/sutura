@@ -135,3 +135,84 @@ fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
         }
     }
 }
+
+/// Every message in the chain of what `Settings::load` refused `overlay` for, joined.
+fn refused_for(overlay: &str) -> String {
+    let sources = Sources::defaults(Environment::Development).with_overlay(overlay);
+    let error = Settings::load(&sources).expect_err("the overlay is refused");
+    let mut rendered = Vec::new();
+    let mut cause: Option<&dyn core::error::Error> = Some(error.reason());
+    while let Some(error) = cause {
+        rendered.push(error.to_string());
+        cause = error.source();
+    }
+    rendered.join(" | ")
+}
+
+/// An `oracle` source declared with `posture` and `extra`, under a single-user deployment that
+/// verifies `direct` callers.
+fn oracle_source(posture: &str, extra: &str) -> String {
+    format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}sources:\n  warehouse:\n    \
+         kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \"orcl.example.com\"\n    \
+         user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    transport_mode: \"verified\"\n    \
+         transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    posture: \"{posture}\"\n{extra}",
+        super::inbound::DIRECT_INBOUND
+    )
+}
+
+// The three refusals of `sources.<alias>.caller_session`, read through their messages: each names
+// the key, and none repeats an operator's value.
+
+#[test]
+fn a_caller_session_on_a_shared_oracle_source_is_refused_at_load() {
+    let rendered = refused_for(&oracle_source(
+        "shared-service-user",
+        "    acknowledged_because: \"a test\"\n    caller_session: \"end-user-context\"\n",
+    ));
+    assert!(
+        rendered.contains(
+            "`sources.warehouse.caller_session` is not usable: it is written on a source that is not \
+             `impersonation-at-source`"
+        ),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn a_caller_session_on_another_kind_is_refused_at_load() {
+    for (kind, entry) in [
+        ("files", "    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n"),
+        (
+            "cube",
+            "    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    token_file: \"/etc/sutura/cube-token\"\n",
+        ),
+    ] {
+        let rendered = refused_for(&format!(
+            "sources:\n  local:\n{entry}    posture: \"shared-service-user\"\n    acknowledged_because: \"a test\"\n    \
+             caller_session: \"end-user-context\"\n"
+        ));
+        assert!(
+            rendered.contains(&format!("`sources.local` is `kind: {kind}` and declares a `caller_session`")),
+            "{kind}: {rendered}"
+        );
+        assert!(!rendered.contains("unknown field"), "{kind}: {rendered}");
+    }
+}
+
+#[test]
+fn an_unknown_caller_session_is_refused_without_repeating_it() {
+    let delegation = "    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+                      client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        \
+                      audience: \"database-client-id\"\n";
+    let rendered = refused_for(&oracle_source(
+        "impersonation-at-source",
+        &format!("{delegation}    caller_session: \"shared-pool-7f3a\"\n"),
+    ));
+    assert!(
+        rendered
+            .contains("`sources.warehouse.caller_session` is not usable: the only values are `own-login` and `end-user-context`"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("shared-pool-7f3a"), "{rendered}");
+}

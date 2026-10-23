@@ -1,6 +1,6 @@
 ---
 title: Oracle
-description: Answer questions over an Oracle Database as one declared user, or as each caller with their own token.
+description: Answer questions over an Oracle Database as one declared user, or as each caller with their own token or end-user security context.
 ---
 
 # Oracle
@@ -13,6 +13,8 @@ source kind is `oracle`. The adapter is built with the `oracle` feature.
 
 - Your data is in an Oracle Database that accepts OAuth 2.0 access tokens, each caller has their
   own database user, and each query must run with the permissions of that user.
+- Your data is in an Oracle AI Database with Deep Data Security, its data grants decide what each
+  caller may read, and callers have no database user of their own.
 - Your data is in an Oracle Database, and one database user may read it for all callers.
 
 Oracle Database 19.18 or later (not 21c) accepts these tokens.
@@ -22,21 +24,22 @@ Oracle Database 19.18 or later (not 21c) accepts these tokens.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                               | Type          | Default          | Meaning                                                                                                                                                                                  |
-| --------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host`                            | string        | required         | The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies                                                                                                |
-| `port`                            | integer       | required         | The TCPS listener port, often `2484`                                                                                                                                                     |
-| `service_name`                    | string        | required         | The service name: letters, digits, `_` and `.`                                                                                                                                           |
-| `user`                            | string        | required         | The user that sutura connects as                                                                                                                                                         |
-| `password_file`                   | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                               |
-| `transport_mode`                  | string        | required         | `verified`. `plaintext` and `mutual` are refused                                                                                                                                         |
-| `transport_anchors`               | absolute path | required         | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                                     |
-| `delegation`                      | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                        |
-| `delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
-| `delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
-| `delegation[].client_secret_file` | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                          |
-| `delegation[].grant`              | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token` |
-| `delegation[].audience`           | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                              |
+| Key                               | Type          | Default          | Meaning                                                                                                                                                                                                                                                              |
+| --------------------------------- | ------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`                            | string        | required         | The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies                                                                                                                                                                            |
+| `port`                            | integer       | required         | The TCPS listener port, often `2484`                                                                                                                                                                                                                                 |
+| `service_name`                    | string        | required         | The service name: letters, digits, `_` and `.`                                                                                                                                                                                                                       |
+| `user`                            | string        | required         | The user that sutura connects as                                                                                                                                                                                                                                     |
+| `password_file`                   | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                                                                                                           |
+| `transport_mode`                  | string        | required         | `verified`. `plaintext` and `mutual` are refused                                                                                                                                                                                                                     |
+| `transport_anchors`               | absolute path | required         | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                                                                                                                 |
+| `caller_session`                  | string        | `own-login`      | For `impersonation-at-source`: `own-login` sends the token from `delegation` as the login of each query's session; `end-user-context` logs each session in as `user` and sends that token as its end-user security context. Not allowed on any other posture or kind |
+| `delegation`                      | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                                                                                                    |
+| `delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                                                                                             |
+| `delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                                                                                             |
+| `delegation[].client_secret_file` | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                                                                                                      |
+| `delegation[].grant`              | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token`                                                                             |
+| `delegation[].audience`           | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                                                                                                          |
 
 sutura connects at startup, so it does not start if the listener or the login fails. The connect to
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
@@ -120,6 +123,21 @@ query ends.
   `security.inbound.mode: direct`.
 - sutura also connects as `user` at startup to check the source. No caller's query runs on that
   connection.
+
+With `caller_session: end-user-context`, sutura opens a session for each query as `user` and
+attaches the token from the last hop as the session's end-user security context, both as the
+end-user token and as the database access token. The database checks the token and applies the
+data grants of the caller it names. sutura closes the session when the query ends, so no session
+carries the context of two callers.
+
+- The database uses an identity provider that it trusts for the token: `IDENTITY_PROVIDER_TYPE`
+  and `IDENTITY_PROVIDER_CONFIG`. The audience of the last hop is the audience that this
+  configuration names.
+- A table that the source reads needs `SET USE DATA GRANTS ONLY`. Without it, a query reads the
+  table with the permissions of `user`.
+- sutura sends no data roles and no attributes.
+- sutura does not start when the database does not offer end-user security contexts, or when the
+  source is not `transport_mode: verified`.
 
 The database can also map the tokens of many callers to one shared schema. The query then runs with
 the shared schema's grants plus the global roles that the database maps from the caller's token.

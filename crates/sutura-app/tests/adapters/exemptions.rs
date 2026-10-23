@@ -94,8 +94,9 @@ const EXEMPTIONS: &[Exemption] = &[
         system: "oracle",
         from: Exempt::Unavailable,
         runs_in: None,
-        because: "no gate provisions an Oracle and no CSV importer attaches this corpus to one - see its \
-                  impl; its acceptance cell runs one whole-plan case outside this matrix",
+        because: "no nix check provisions an Oracle (the image is proprietary and the sandbox has no docker), and \
+                  the `oracle-tier` CI job that does runs no CSV importer for this corpus - see its impl; its \
+                  acceptance cells run outside this matrix",
     },
 ];
 
