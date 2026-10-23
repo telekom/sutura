@@ -1805,3 +1805,32 @@ decision.
   on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
 - Two crossings that start from one model by different relationships are two legs and are not
   merged, even when they land on one remote model.
+
+## Twenty-first amendment, 2026-10-23: a plan the planner made with several lookup legs is answered as one source answers
+
+The *Twentieth amendment*'s first Limit says no cell runs a plan the planner made with more than one
+lookup leg through the combiner. That sentence is false now. It is left as written.
+
+- **Built** (`telekom/sutura#1342`, the last part). Two cells in
+  `crates/sutura-app/tests/differential/federated.rs` plan a question and then answer it, over one
+  in-process engine for each data system, and hold the rows to the rows of one engine over every
+  table (content, then order):
+  - two remote dimensions on two different data systems, one lookup leg each, both joined onto the
+    fact leg;
+  - a chain that crosses to a second data system and comes back, so the second lookup leg joins onto
+    the first.
+
+  Each cell asserts the shape of its plan before it compares, so an agreement over a plan with one
+  leg cannot pass for either.
+- **Not built.** No cell runs three lookup legs, a filter that makes one leg INNER, a drill-across
+  arm over several legs, or a second data system of another kind than the engine. The comparison
+  runs one corpus, with one operating-system identity for every leg. `DrillAcrossPlan::new` does not
+  check the four-source bound; only the planner does (*Twentieth amendment*).
+
+**Limits.**
+
+- The cells are claim cells: they pin behaviour `main` already had, so no base run reddens them.
+  Each is held by a committed mutation that must fail it by its own assertion; the mutation is
+  review-held evidence that the combiner is under the cell, and no more.
+- A cell compares a plan's rows to the rows of one engine over the same CSV files. A defect both
+  topologies share cancels, and this comparison cannot see it.
