@@ -882,20 +882,21 @@ cube-acceptance:
 # says the `cube` cells run instead of `just test`.
 ci-cube-tier: cube-acceptance
 
-# Start the Oracle tier and run its live cells - the adapter's acceptance cell (#127) and the
-# catalog reader's (#972) - failing rather than skipping. CI runs the same cells through
-# `nix run .#oracle-acceptance`; keep the two filters aligned.
+# Oracle adapter, catalog and served password cells. Keep the CI app's filters aligned.
 oracle-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "oracle-acceptance: scope sutura-exec-oracle and sutura-catalog-rdbms - the live Oracle cells."
-    echo "oracle-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms and sutura-cli's served source-password cell. NOT a gate: run \`just test\` for the whole suite."
+    export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
+    export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
     just dev-up-oracle
     export SUTURA_DEV_REQUIRE_TIER=1
     export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
-    export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
-    export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-sutura}"
+    set +e
     cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
+    status=$?
+    cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
+    exit "$status"
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
