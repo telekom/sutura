@@ -2942,7 +2942,7 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 <p>A driver message with every console job link cut out, so no rendered error says where a job ran,
 and the status the driver gave it.</p>
 <p>The pinned driver appends <code>(Query: &lt;link&gt;)</code> to the message of any error after the job was
-created (<code>go/record_reader.go</code>'s <code>runQuery</code>), and the link names the project, location and job.</p>
+created (<code>go/job_query.go</code>'s <code>readJob</code>), and the link names the project, location and job.</p>
 <p><strong>The limit:</strong> this seal is rustc's ordinary privacy, not this repo's <code>check-newtype-leaks</code>
 gate - private fields in a child module, so a <code>DriverMessage { .. }</code> in <code>super</code> is <code>E0451</code>.
 Only <code>driver_message.rs</code> itself can skip <code>of</code>.</p>
