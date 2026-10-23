@@ -645,6 +645,15 @@ impl LegCredentials {
     pub fn count(&self) -> usize {
         self.by_source.len()
     }
+
+    /// Each leg the deployment vouches for by name, and the name: a NAME, never a [`Presented`], so
+    /// this is no path to a value an adapter executes with. For `super::delegated_as` alone.
+    pub(super) fn vouched(&self) -> impl Iterator<Item = (&SourceName, &PrincipalName)> {
+        self.by_source.iter().filter_map(|(source, presented)| match *presented {
+            Presented::SubjectPrincipal { ref name } => Some((source, name)),
+            Presented::SubjectToken { .. } | Presented::SubjectSignIn { .. } | Presented::SharedServiceUser { .. } => None,
+        })
+    }
 }
 
 /// What minting produced: credentials, or a refusal.

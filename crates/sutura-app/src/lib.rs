@@ -119,6 +119,8 @@ pub mod spend;
 // the two transports that cannot see each other. See the module documentation.
 pub mod question;
 
+mod noting;
+
 mod proof;
 
 pub use crate::asked::Asked;
