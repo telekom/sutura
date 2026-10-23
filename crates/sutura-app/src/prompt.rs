@@ -95,7 +95,7 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::pinned::view::ScopedView;
-use sutura_domain::plan::RowCeilings;
+use sutura_domain::plan::Ceilings;
 
 // The bounds section, its own module for the reason `knowledge` has one: this file is at the limit
 // `cargo xtask max-lines` enforces and cannot be exempted.
@@ -255,7 +255,7 @@ pub struct PromptInputs<'a> {
     prose: CatalogProse,
     instructions: Option<&'a str>,
     list_physical_schema: bool,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 }
 
 impl<'a> PromptInputs<'a> {
@@ -272,7 +272,7 @@ impl<'a> PromptInputs<'a> {
             prose,
             instructions,
             list_physical_schema: false,
-            row_ceilings: RowCeilings::DEFAULT,
+            ceilings: Ceilings::DEFAULT,
         }
     }
 
@@ -283,10 +283,10 @@ impl<'a> PromptInputs<'a> {
     }
 
     /// The row ceilings this deployment configured, so the bounds the prompt states are the ones the
-    /// service enforces (`github.com/telekom/sutura#828`). [`RowCeilings::DEFAULT`] unless set.
+    /// service enforces (`github.com/telekom/sutura#828`). [`Ceilings::DEFAULT`] unless set.
     #[must_use]
-    pub const fn row_ceilings(mut self, row_ceilings: RowCeilings) -> Self {
-        self.row_ceilings = row_ceilings;
+    pub const fn ceilings(mut self, ceilings: Ceilings) -> Self {
+        self.ceilings = ceilings;
         self
     }
 
@@ -337,7 +337,7 @@ pub fn render(view: &ScopedView<'_>, inputs: &PromptInputs<'_>) -> String {
         // names were considered and rejected. Empty - and therefore dropped - unless the provider
         // declares that it records such a thing.
         knowledge::not_defined(notes, inputs.prose, audience),
-        bounds::bounds(inputs.row_ceilings),
+        bounds::bounds(inputs.ceilings),
         no_such_field(inputs),
         operations(inputs.tools),
         knowledge::declaration(notes, audience),

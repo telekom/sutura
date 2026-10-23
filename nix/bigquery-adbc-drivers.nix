@@ -23,21 +23,17 @@
 { pkgs, bigqueryAdbcGoSource, buildDriver }:
 # `buildDriver` is `import ./bigquery-adbc.nix`; `pkgs` is the HOST package set.
 let
-  # The driver advertises a go-1.27.1 floor that this nixpkgs' go_1_27 (1.27.0)
-  # rejects, both in the module-vendoring FOD and the build. Relax it at the
-  # source so both see it. `bigquery-adbc-forbidden.patch` maps a REST 403 whose
-  # reason is `accessDenied`, `billingNotEnabled` or `blocked` to `Unauthorized`,
-  # the status the driver already gives those reasons in a job's status; a 403 for
-  # a rate or a quota stays `Internal`. `bigquery-adbc-caller-credentials.patch` adds two options
+  # Relax the source's Go patch-version floor to its minor so module vendoring
+  # and builds use nixpkgs' go_1_27. The released driver maps a REST 403 access denial to
+  # Unauthorized; `bigquery-adbc-caller-credentials.patch` adds two options
   # for a caller's own credential: a bare access token, and a subject for domain-wide delegation.
   # `bigquery-adbc-jobs-query.patch` adds a database option that starts every query with
-  # jobs.query, which a `bigquery.readonly` token may call. All four recorded in VENDOR.md.
+  # jobs.query, which a `bigquery.readonly` token may call. All three recorded in VENDOR.md.
   patchedGoSrc = pkgs.runCommand "adbc-driver-bigquery-go-src-relaxed" { } ''
     cp -rL ${bigqueryAdbcGoSource} $out
     chmod -R u+w $out
     sed -i 's#^go 1\.[0-9.]*$#go 1.27#' $out/go.mod
     sed -i '/^toolchain /d' $out/go.mod
-    patch -p1 -d $out < ${./bigquery-adbc-forbidden.patch}
     patch -p1 -d $out < ${./bigquery-adbc-caller-credentials.patch}
     patch -p1 -d $out < ${./bigquery-adbc-jobs-query.patch}
   '';
@@ -47,7 +43,7 @@ let
         pkgs = crossPkgs;
         src = patchedGoSrc;
         crossSystemName = triple;
-        vendorHash = "sha256-EijrXEBhQvaJR0k9jrGawDDELAOKeRVuPjCe9UnXNQI=";
+        vendorHash = "sha256-24s3puW4WS1S8DcmciKl0jMaEY0iruA7xTgoSfqd6UY=";
       };
     };
 in

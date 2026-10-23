@@ -44,7 +44,7 @@ use super::subject::{SubjectSource, WorkloadPool};
 
 /// The driver option naming which authentication shape the database uses.
 ///
-/// Pinned `go/v1.13.0`'s `OptionAuthType`. `json_credential_string` is the arm whose value is a
+/// Pinned `go/v1.14.1`'s `OptionAuthType`. `json_credential_string` is the arm whose value is a
 /// credential DOCUMENT rather than a path, which is what lets a per-request document exist at all.
 const AUTH_TYPE: &str = "bigquery.auth_type";
 
@@ -53,7 +53,7 @@ const AUTH_TYPE_JSON_STRING: &str = "json_credential_string";
 
 /// The driver option naming which KIND of credential document the value is.
 ///
-/// Pinned `go/v1.13.0`'s `OptionAuthCredentialsType`; its `SetOption` accepts
+/// Pinned `go/v1.14.1`'s `OptionAuthCredentialsType`; its `SetOption` accepts
 /// `option.ExternalAccount` by name, and `go/connection.go` passes both straight to
 /// `option.WithAuthCredentialsJSON`.
 const AUTH_CREDENTIALS_TYPE: &str = "bigquery.auth.credentials_type";
@@ -72,7 +72,7 @@ const AUTH_TYPE_ACCESS_TOKEN: &str = "access_token";
 /// The driver option carrying that access token: the patch's `OptionAuthAccessToken`.
 const AUTH_ACCESS_TOKEN: &str = "bigquery.auth.access_token";
 
-/// The account the deployment's own credential impersonates: pinned `go/v1.13.0`'s
+/// The account the deployment's own credential impersonates: pinned `go/v1.14.1`'s
 /// `OptionImpersonateTargetPrincipal`.
 const IMPERSONATE_TARGET: &str = "bigquery.impersonate.target_principal";
 

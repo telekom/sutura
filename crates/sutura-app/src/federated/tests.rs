@@ -172,7 +172,7 @@ fn a_federated_answer_mints_once_runs_both_legs_and_records_both_identities() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a federated answer is not an error")
     .into_outcome();
@@ -230,7 +230,7 @@ fn a_federated_answer_sums_both_legs_estimates_before_charging_the_ledger_once()
         FEDERATED_BUDGET,
         test_deadline(),
         &ledger,
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -336,7 +336,7 @@ fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a pre-flight refusal is a governed answer")
     .into_outcome();
@@ -395,7 +395,7 @@ fn a_federated_lookup_preflight_refusal_means_neither_leg_ever_executes() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a pre-flight refusal is a governed answer")
     .into_outcome();
@@ -448,7 +448,7 @@ fn a_federated_fact_preflight_failure_keeps_its_warehouse_cause_and_no_partial_a
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("a transient pre-flight failure remains a warehouse error");
     assert!(matches!(
@@ -506,7 +506,7 @@ fn a_federated_lookup_preflight_failure_means_the_fact_leg_never_executes() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect_err("a transient pre-flight failure remains a warehouse error");
     assert!(matches!(
@@ -563,7 +563,7 @@ fn a_federated_answer_that_crosses_the_working_set_is_refused_not_error() {
         1,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -619,7 +619,7 @@ fn a_deterministic_combine_failure_is_a_refusal_not_a_service_error() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a deterministic combine failure is a refusal, not a `ServiceError`")
     .into_outcome();
@@ -685,7 +685,7 @@ fn an_answer_whose_legs_run_under_two_postures_is_answered_and_records_both() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a cross-posture answer is an Ok")
     .into_outcome();
@@ -747,7 +747,7 @@ fn two_shared_sources_with_different_acknowledgements_are_still_answered() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("two shared legs are answered")
     .into_outcome();
@@ -804,7 +804,7 @@ fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();
@@ -918,7 +918,7 @@ fn a_federated_answer_is_refused_when_only_one_leg_can_execute() {
         FEDERATED_BUDGET,
         test_deadline(),
         &SpendLedger::no_budget(),
-        sutura_domain::plan::RowCeilings::DEFAULT,
+        sutura_domain::plan::Ceilings::DEFAULT,
     )
     .expect("a refusal is an Ok")
     .into_outcome();

@@ -380,6 +380,18 @@ pub(crate) struct RawGovernance {
     /// `clippy::struct_field_names`, and the key is the operator-facing name.
     #[serde(default, rename = "federated_row_ceiling")]
     pub(crate) federated_rows: Option<u32>,
+    /// The most distinct data systems one answer may read - `SourceCeiling::DEFAULT` (4) when absent,
+    /// which is every deployment's behaviour before this key existed. Bounded above by `SourceCeiling::MAX`.
+    #[serde(default)]
+    pub(crate) source_ceiling: Option<usize>,
+    /// The most lookup legs one metric's plan may read - `LookupLegCeiling::DEFAULT` (3) when absent,
+    /// which is every deployment's behaviour before this key existed. Bounded above by `LookupLegCeiling::MAX`.
+    #[serde(default)]
+    pub(crate) lookup_leg_ceiling: Option<usize>,
+    /// The most legs one answer may run, every leg of every metric counted - `LegCeiling::DEFAULT` (6)
+    /// when absent, which is every deployment's behaviour before this key existed. Bounded above by `LegCeiling::MAX`.
+    #[serde(default)]
+    pub(crate) leg_ceiling: Option<usize>,
 }
 
 /// The pair of numbers `RawGovernance::per_replica_spend_ceiling` holds together.

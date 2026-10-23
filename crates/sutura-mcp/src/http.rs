@@ -134,7 +134,7 @@ pub fn service<S>(
     surface: Arc<S>,
     prose: CatalogProse,
     list_physical_schema: bool,
-    row_ceilings: sutura_domain::plan::RowCeilings,
+    ceilings: sutura_domain::plan::Ceilings,
     admission: Admission,
     reply: RequestTimeout,
     max_body: BodyLimit,
@@ -156,7 +156,7 @@ where
                 operator_instructions.clone(),
             )
             .listing_physical_schema(list_physical_schema)
-            .row_ceilings(row_ceilings)
+            .ceilings(ceilings)
             // Stateless mode builds this per request, inside the request's own span.
             .within_request(tracing::Span::current()))
         },
@@ -326,7 +326,7 @@ mod tests {
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),
@@ -370,7 +370,7 @@ mod tests {
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),
@@ -422,7 +422,7 @@ mod tests {
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),
@@ -483,7 +483,7 @@ mod tests {
             Arc::new(testing::FailingSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),
@@ -540,7 +540,7 @@ mod tests {
             Arc::new(testing::RestrictedKnowledgeSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),
@@ -592,7 +592,7 @@ mod tests {
             Arc::new(testing::RestrictedKnowledgeSurface::new()),
             CatalogProse::Quoted,
             false,
-            sutura_domain::plan::RowCeilings::DEFAULT,
+            sutura_domain::plan::Ceilings::DEFAULT,
             admission(),
             reply(),
             settings().server().max_body(),

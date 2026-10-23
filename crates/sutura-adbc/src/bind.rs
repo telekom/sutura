@@ -8,7 +8,7 @@
 //!
 //! # The shape, read off the pinned driver rather than assumed
 //!
-//! `adbc_core::Statement::bind` takes ONE [`RecordBatch`]. In the pinned `go/v1.13.0` driver,
+//! `adbc_core::Statement::bind` takes ONE [`RecordBatch`]. In the pinned `go/v1.14.1` driver,
 //! `statement.Bind` wraps it in a reader and `record_reader.go`'s `newRecordReader` then loops
 //! `boundParameters.Next()`, and inside each batch `queryRecordWithSchemaCallback` loops
 //! `for i := range int(rec.NumRows())` - **running the whole query once per ROW** and appending each

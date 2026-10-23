@@ -2,19 +2,22 @@
 //! classifier and the `MUST_BE_REACHED` table - plus the `DuckDB`-side differential test.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sutura_app::Validated;
+use sutura_domain::identity::{CredentialBroker, Minted, RequestContext, SourceSet};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
-use sutura_domain::plan::{RowCeiling, RowCeilings};
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
 use sutura_semantic::{Compiled, compile};
 
 use crate::adapters::{
-    ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source, version,
+    BrokerCannotFail, ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source,
+    version,
 };
 
 use super::corpus::{LOOKUP_SOURCE, derived, every_question, lookup_source};
@@ -48,7 +51,7 @@ pub(super) fn compiled_dimensions(pinned: &PinnedDefinitions, dimensions: &str) 
          dimensions: [{dimensions}]\n"
     ))
     .expect("the topology question is valid");
-    compile(&query, &ScopedView::everything(pinned), RowCeiling::DEFAULT).expect("the derived catalog is consistent")
+    compile(&query, &ScopedView::everything(pinned), Ceilings::DEFAULT).expect("the derived catalog is consistent")
 }
 
 /// The one-source side: the ENGINE, over every table the bundle names.
@@ -297,20 +300,76 @@ where
     W: sutura_domain::warehouse::Warehouse + Sync,
     W::Error: Send,
 {
+    answered_under(side, query, name, combiner, combine_bytes, Ceilings::DEFAULT)
+}
+
+/// [`answered_within`] under `ceilings` rather than every default.
+pub(super) fn answered_under<W>(
+    side: &Side<W>,
+    query: &Query,
+    name: &str,
+    combiner: &sutura_exec_datafusion::DataFusionCombiner,
+    combine_bytes: u64,
+    ceilings: Ceilings,
+) -> Result<ToolOutcome, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
+{
+    answered_through(side, &shared_credential(), query, name, (combiner, combine_bytes), ceilings)
+}
+
+/// [`answered_under`] asking `broker` for the credential, so a cell can read what it was asked.
+pub(super) fn answered_through<W, B>(
+    side: &Side<W>,
+    broker: &B,
+    query: &Query,
+    name: &str,
+    (combiner, combine_bytes): (&sutura_exec_datafusion::DataFusionCombiner, u64),
+    ceilings: Ceilings,
+) -> Result<ToolOutcome, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
+    B: CredentialBroker,
+    B::Error: Send,
+{
     match sutura_app::answer(
         &side.bundle,
         query,
         &a_caller(),
-        &shared_credential(),
+        broker,
         &side.warehouses,
         combiner,
         combine_bytes,
         deadline(),
         &sutura_app::SpendLedger::no_budget(),
-        RowCeilings::DEFAULT,
+        ceilings,
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),
+    }
+}
+
+/// [`shared_credential`] that counts the mints asked of it.
+#[derive(Default)]
+pub(super) struct MintCounting {
+    asked: AtomicUsize,
+}
+
+impl MintCounting {
+    /// How many times the broker was asked for a credential.
+    pub(super) fn asked(&self) -> usize {
+        self.asked.load(Ordering::Relaxed)
+    }
+}
+
+impl CredentialBroker for MintCounting {
+    type Error = BrokerCannotFail;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        self.asked.fetch_add(1, Ordering::Relaxed);
+        shared_credential().mint(context, sources)
     }
 }
 
@@ -614,9 +673,9 @@ enum Split {
 
 /// Whether this question is a two-source question, decided by compiling it against both bundles.
 fn split_or_not(name: &str, query: &Query, one: &PinnedDefinitions, two: &PinnedDefinitions) -> Split {
-    let here = compile(query, &ScopedView::everything(one), RowCeiling::DEFAULT)
+    let here = compile(query, &ScopedView::everything(one), Ceilings::DEFAULT)
         .unwrap_or_else(|e| panic!("{name} does not compile on one source: {e}"));
-    let there = compile(query, &ScopedView::everything(two), RowCeiling::DEFAULT)
+    let there = compile(query, &ScopedView::everything(two), Ceilings::DEFAULT)
         .unwrap_or_else(|e| panic!("{name} does not compile on two sources: {e}"));
     match (here, there) {
         (Compiled::Planned { .. }, Compiled::Federated { .. } | Compiled::DrillAcross { .. }) => Split::Yes,

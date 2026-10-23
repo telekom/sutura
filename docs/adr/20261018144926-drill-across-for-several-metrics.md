@@ -126,3 +126,12 @@ All of this is tracked in `github.com/telekom/sutura#1471`.
   source two arms read is one entry.
 - **The plan type cannot check that two arms read the same real-world thing.** Whether a dimension is
   conformed is the planner's check, on the catalog's declared model and column.
+
+## First amendment, 2026-10-23: the cap of six legs is a setting
+
+The decision's "at most six legs, over every arm" becomes `governance.leg_ceiling`, six by default
+and sixteen (`MAX_LEGS`) at most, and it now bounds a one-metric plan too. The planner counts the legs
+of every arm before `DrillAcrossPlan::new` and refuses `QuestionNeedsTooManyLegs` naming the
+configured number; `MAX_LEGS` is only the plan type's own cap. Each arm's lookup legs are bounded by
+`governance.lookup_leg_ceiling`, three by default. `docs/adr/0007-federating-across-different-data-systems.md`'s
+twenty-third amendment records the three plan bounds together.

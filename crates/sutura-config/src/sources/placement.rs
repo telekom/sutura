@@ -1,11 +1,12 @@
 //! Where a declared source's data actually is, in the terms its own kind uses.
 //!
 //! **One enum rather than a struct of optional fields, and the difference is unrepresentable versus
-//! checked.** A files source has a directory and no billing project; a `BigQuery` source has a
-//! billing project and a dataset and no directory. Carried as `Option` fields on one struct, the
-//! wrong combination would be representable - a `BigQuery` source with a data directory and no
-//! project - and every reader would have to decide for itself what an absence meant. As two variants
-//! there is nothing to decide: a reader matches, and the compiler asks about a third kind.
+//! checked.** A files source has a directory and no billing policy; a `BigQuery` source has a
+//! billing policy and a bytes-billed ceiling and no directory. Carried as `Option` fields on one
+//! struct, the wrong combination would be representable - a `BigQuery` source with a data directory
+//! and no billing policy - and every reader would have to decide for itself what an absence meant.
+//! As two variants there is nothing to decide: a reader matches, and the compiler asks about a third
+//! kind.
 //!
 //! This module is also where the two `BigQuery` newtypes live, and their `parse` functions carry an
 //! argument that is **ours rather than the provider's format rules restated** - see
@@ -51,22 +52,19 @@ use super::transport::{SourceTransport, TrustAnchors};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BillingProject(String);
 
-/// The dataset unqualified table names in a generated statement resolve within.
+/// A `BigQuery` dataset id: the middle part of the `project.dataset.table` path a model names.
 ///
-/// **Why this is configuration and not catalog:** a model in the catalog names a bare `table:`, and
-/// which dataset that table lives in is a property of the deployment's connection rather than of the
-/// metric's definition. The same catalog served against a staging dataset and a production one is one
-/// catalog and two deployments, which is exactly the split this type keeps.
-///
-/// The generated statement therefore stays a bare, quoted table name in every dialect - the request
-/// carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
-/// `sutura-sql` has to know this exists.
+/// **No `sources:` key reads it.** A source declares no default dataset - a `dataset` key is refused
+/// at load - and every model names its table in full, so the dataset travels inside the table path
+/// that `sutura-domain` parses and not beside the SQL. Nothing but this module's tests constructs a
+/// `DatasetId` today; the type the adapter writes into a request is
+/// `sutura_exec_bigquery::transport::DatasetId`.
 ///
 /// `parse` accepts `[A-Za-z0-9_]`, 1 to 1024 characters. Unlike [`BillingProject`] this one does not
 /// reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
-/// not an identifier is a misconfiguration worth refusing when the file is read rather than on the
-/// first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
-/// would turn a working declaration into a dataset that does not exist.
+/// not an identifier is worth refusing when it is parsed rather than on the first question. Case is
+/// PRESERVED, because a dataset id is case-sensitive and folding it here would turn a name that
+/// works into a dataset that does not exist.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DatasetId(String);
 
@@ -504,19 +502,11 @@ pub enum SourcePlacement {
         /// Absolute, because a service's working directory is whatever its supervisor chose.
         data_dir: PathBuf,
     },
-    /// A `BigQuery` dataset, plus the project its jobs are billed to.
+    /// A `BigQuery` source's billing policy and query ceiling.
     ///
-    /// **The limit, worth stating because the deployment it cannot describe is the one this file's
-    /// other argument names:** the dataset's OWN project is unrepresentable. The endpoint's
-    /// `defaultDataset` resolves an omitted project in the request's project - the billing one - so
-    /// this placement can only describe a dataset that lives inside the project paying for the job. A
-    /// dataset owned by a different project than the payer is precisely the case where payer and data
-    /// owner are different parties because they are different projects, which is the same argument
-    /// [`BillingProject`] makes for existing. `location` is the same question one size smaller: a
-    /// dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
-    /// `project` nor a `location` field is added yet because this seam has no transport consuming
-    /// them; the limit is also stated in `docs/adr/0017`, and the change that adds the wire is the one
-    /// that decides the fields.
+    /// Each model names its own project, dataset and table; this source declares no default
+    /// dataset. The adapter sends no job location, leaving `BigQuery` to infer it from the
+    /// referenced resources. **Limit:** this placement cannot constrain a job to an explicit region.
     BigQuery {
         /// Who the source's jobs are billed to, by posture.
         billing: crate::sources::billing::SourceBilling,

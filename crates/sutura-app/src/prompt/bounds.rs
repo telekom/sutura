@@ -1,21 +1,21 @@
 //! The bounds section: the numbers a question is held to, quoted from where they are enforced.
 
-use sutura_domain::plan::{MAX_ROWS, RowCeilings};
+use sutura_domain::plan::{Ceilings, MAX_ROWS};
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_RANGE_DAYS};
 
 use super::wrap;
 
 /// The bounds a question is held to, with the numbers read from the domain rather than typed - and,
 /// for the two row ceilings, from the deployment's own configuration.
-pub(super) fn bounds(row_ceilings: RowCeilings) -> String {
+pub(super) fn bounds(ceilings: Ceilings) -> String {
     // `checked_div` rather than `/`, because the restriction category bans a bare integer division
     // and the divisor is a literal that cannot be zero: the fallback is unreachable and is written
     // as a fallback rather than as an `expect`, which is denied outside tests.
     let years = MAX_RANGE_DAYS.checked_div(365).unwrap_or(0);
-    let top_rows = row_ceilings.top().get();
+    let top_rows = ceilings.top().get();
     // A two-source answer has its own ceiling, which is only worth a sentence where it is not the
     // single-source cap already stated, so a deployment that configures nothing reads as it always did.
-    let two_sources = match row_ceilings.federated().get() {
+    let two_sources = match ceilings.federated().get() {
         MAX_ROWS => String::new(),
         rows => format!(" A question spanning two data systems is held to {rows} rows instead."),
     };

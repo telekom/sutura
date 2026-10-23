@@ -1887,3 +1887,35 @@ lookup leg through the combiner. That sentence is false now. It is left as writt
   review-held evidence that the combiner is under the cell, and no more.
 - A cell compares a plan's rows to the rows of one engine over the same CSV files. A defect both
   topologies share cancels, and this comparison cannot see it.
+
+## Twenty-third amendment, 2026-10-23: the three plan bounds are settings
+
+**Each fixed bound on a plan becomes its own `governance` key** (`github.com/telekom/sutura#1532`),
+parsed at startup into a `sutura_domain::plan` newtype and handed to the planner with the row
+ceilings:
+
+| Key                  | Newtype            | Default | Hard maximum          | Refused at plan time as      |
+| -------------------- | ------------------ | ------- | --------------------- | ---------------------------- |
+| `source_ceiling`     | `SourceCeiling`    | 4       | 16 (`MAX_LEGS`)       | `PlanSpansTooManySources`    |
+| `lookup_leg_ceiling` | `LookupLegCeiling` | 3       | 8 (`MAX_LOOKUP_LEGS`) | `PlanNeedsTooManyLookupLegs` |
+| `leg_ceiling`        | `LegCeiling`       | 6       | 16 (`MAX_LEGS`)       | `QuestionNeedsTooManyLegs`   |
+
+Absent, each is the bound it replaces, so a deployment that configures nothing is bounded as before.
+Zero and a value above the hard maximum do not load, and each refusal names the configured number.
+The three are independent: several metrics over the same two data systems run many legs and read few
+sources. The leg ceiling now bounds one metric's plan too, not only a drill-across, and the planner
+counts legs before `DrillAcrossPlan::new`, so the refusal names the setting and not the type's cap.
+`MAX_SOURCES` is deleted. Under a source ceiling below four a single metric can be refused too, so
+the twentieth amendment's "only several metrics are refused by it" holds for the default only.
+
+**The hard maximums are round numbers, not measured ones.** `MAX_LOOKUP_LEGS` (8) sizes
+`LookupLegs` and the combiner's table names; `MAX_LEGS` is twice it and sizes `DrillAcrossPlan`;
+the source ceiling cannot usefully exceed it, because every leg reads one data system. No plan over
+more than three lookup legs has been measured, and the working-set ceiling, not these, bounds bytes.
+
+**Limits.** The planner holds the configured bounds, not the plan types: `FederatedPlan::new` and
+`DrillAcrossPlan::new` hold only the hard maximums, and the executor does not count sources or legs
+again before the broker mints. A plan over the source ceiling is refused inside `compile`, before
+any mint; a cell counts the broker's mints for a one-metric plan, and none does for several metrics.
+Boot anchors and the offline `compile` command plan under the
+defaults; an anchor reads one data system and runs one leg, so no ceiling refuses one.

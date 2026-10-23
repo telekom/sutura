@@ -38,19 +38,14 @@ pub type MetricNames = NonEmpty<MetricName>;
 /// scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 /// a person asks and refuses the ones a loop generates.
 pub const MAX_DIMENSIONS: usize = 4;
-/// The most lookup legs one federated answer may read: one per crossing relationship.
+/// The most lookup legs any deployment may configure for one metric's plan, and the most
+/// [`LookupLegs`](crate::plan::LookupLegs) holds.
 ///
-/// A constant and not a setting, and changing it amends `docs/adr/0007`. Each lookup leg reads its
-/// whole table that survives the question's own filters, so the cap bounds how many such reads one
-/// question starts; the working-set ceiling bounds their bytes.
-pub const MAX_LOOKUP_LEGS: usize = 3;
-/// The most distinct data systems one answer may read, for one metric or several.
-///
-/// A constant for now and not a setting: each data system is an identity the broker mints for, so
-/// the count bounds how many such mints one question starts. One fact leg beside
-/// [`MAX_LOOKUP_LEGS`] lookup legs reads four at most, so a single metric never reaches it; a
-/// question over several metrics can, because each arm brings its own legs.
-pub const MAX_SOURCES: usize = 4;
+/// The configured bound is [`LookupLegCeiling`](crate::plan::LookupLegCeiling), three by default;
+/// this is the one a plan type and the combiner's table names are sized to. Eight is a round number
+/// stated as one, not a measured one: no plan over more than three lookup legs has been measured,
+/// and the working-set ceiling, not this, bounds their bytes. Changing it amends `docs/adr/0007`.
+pub const MAX_LOOKUP_LEGS: usize = 8;
 /// The most metrics one question may name together.
 ///
 /// A bound for the same reason the time range and the dimension count are bounded: each
@@ -172,7 +167,8 @@ pub enum RefusalReason {
     /// A question needs more legs than one answer may run, counting every leg of every metric.
     ///
     /// Each leg is held whole before the answers are merged, so the leg count bounds held memory
-    /// the way [`TooManyMetrics`](RefusalReason::TooManyMetrics) bounds the statement.
+    /// the way [`TooManyMetrics`](RefusalReason::TooManyMetrics) bounds the statement. The "too
+    /// many" is a named count against the deployment's [`LegCeiling`](crate::plan::LegCeiling).
     QuestionNeedsTooManyLegs { legs: usize, limit: usize },
     /// The same metric named twice in one question. Refused rather than de-duplicated, the same way
     /// a duplicated dimension is: a caller who sent it twice believes something about the result
@@ -243,8 +239,8 @@ pub enum RefusalReason {
     /// count is of distinct sources, the set the broker mints credentials for once per answer, so it
     /// bounds one metric and several metrics alike. A lookup leg that reads a source another leg
     /// already reads does not add to it. Narrowable: ask for fewer dimensions that live in other
-    /// data systems, or for fewer metrics at a time. The "too many" is a named count against
-    /// [`MAX_SOURCES`].
+    /// data systems, or for fewer metrics at a time. The "too many" is a named count against the
+    /// deployment's [`SourceCeiling`](crate::plan::SourceCeiling).
     PlanSpansTooManySources { sources: usize, limit: usize },
     /// The plan would need more lookup legs than one answer may carry.
     ///
@@ -252,7 +248,8 @@ pub enum RefusalReason {
     /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
     /// prevent. A lookup leg is one crossing relationship, so two dimensions that reach one remote
     /// model through two relationships count twice, and a chain that crosses twice spends two. The
-    /// "too many" is a named count against [`MAX_LOOKUP_LEGS`]. Narrowable: ask for fewer remote
+    /// "too many" is a named count against the deployment's
+    /// [`LookupLegCeiling`](crate::plan::LookupLegCeiling). Narrowable: ask for fewer remote
     /// dimensions.
     PlanNeedsTooManyLookupLegs { legs: usize, limit: usize },
     /// The question asked is served by two sources, but this build has no adapter that can execute

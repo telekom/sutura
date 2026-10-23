@@ -24,7 +24,7 @@ use sutura_domain::model::{
 };
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-use sutura_domain::plan::RowCeiling;
+use sutura_domain::plan::Ceilings;
 use sutura_domain::query::Query;
 
 use crate::{BundleInconsistent, CompileFailure, compile};
@@ -163,7 +163,7 @@ fn a_metric_naming_an_absent_model_is_a_broken_bundle_not_a_refusal() {
     let broken = pin_broken(Definitions::from_parts(models, BTreeMap::new(), metrics));
     let view = ScopedView::everything(&broken);
 
-    let Err(failure) = compile(&asking_revenue(Vec::new()), &view, RowCeiling::DEFAULT) else {
+    let Err(failure) = compile(&asking_revenue(Vec::new()), &view, Ceilings::DEFAULT) else {
         panic!("a metric naming an absent model must be a broken bundle, not a plan");
     };
     assert!(
@@ -194,7 +194,7 @@ fn a_dimension_chain_naming_an_absent_relationship_is_a_broken_bundle() {
     let broken = pin_broken(Definitions::from_parts(models, BTreeMap::new(), metrics));
     let view = ScopedView::everything(&broken);
 
-    let Err(failure) = compile(&asking_revenue(vec![dimension_name("region")]), &view, RowCeiling::DEFAULT) else {
+    let Err(failure) = compile(&asking_revenue(vec![dimension_name("region")]), &view, Ceilings::DEFAULT) else {
         panic!("a dimension chain naming an absent relationship must be a broken bundle");
     };
     assert!(
@@ -230,7 +230,7 @@ fn a_relationship_naming_an_absent_target_model_is_a_broken_bundle() {
     let broken = pin_broken(Definitions::from_parts(models, rels, metrics));
     let view = ScopedView::everything(&broken);
 
-    let Err(failure) = compile(&asking_revenue(vec![dimension_name("region")]), &view, RowCeiling::DEFAULT) else {
+    let Err(failure) = compile(&asking_revenue(vec![dimension_name("region")]), &view, Ceilings::DEFAULT) else {
         panic!("a relationship naming an absent target model must be a broken bundle");
     };
     assert!(
@@ -282,7 +282,7 @@ fn a_shared_calendar_no_fact_joins_is_a_broken_bundle() {
     let failure = compile(
         &asking_revenue(Vec::new()),
         &ScopedView::everything(&broken),
-        RowCeiling::DEFAULT,
+        Ceilings::DEFAULT,
     )
     .err();
     assert!(

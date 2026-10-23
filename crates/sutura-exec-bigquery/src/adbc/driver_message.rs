@@ -7,7 +7,7 @@ use adbc_core::error::{Error as CoreError, Status};
 /// and the status the driver gave it.
 ///
 /// The pinned driver appends `(Query: <link>)` to the message of any error after the job was
-/// created (`go/record_reader.go`'s `runQuery`), and the link names the project, location and job.
+/// created (`go/job_query.go`'s `readJob`), and the link names the project, location and job.
 ///
 /// **The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
 /// gate - private fields in a child module, so a `DriverMessage { .. }` in `super` is `E0451`.
@@ -29,7 +29,7 @@ impl DriverMessage {
     ///
     /// `Unauthorized` is what the pinned driver's `errToAdbcErr` (`go/util.go`) gives a job's
     /// `accessDenied`, a gRPC `PermissionDenied` from the Storage Read API and a `401` from the
-    /// token exchange, and what `nix/bigquery-adbc-forbidden.patch` adds for a REST `403` whose
+    /// token exchange, and a REST `403` whose
     /// reason is `accessDenied`, `billingNotEnabled` or `blocked` - each refused again on every
     /// retry until a grant or the pool changes. Every other status, a `403` for a rate or a quota
     /// among them, is a failure a retry may answer.

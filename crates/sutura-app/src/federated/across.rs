@@ -13,7 +13,7 @@
 
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{Arm, DrillAcrossCombiner, DrillAcrossPlan, RowCeilings};
+use sutura_domain::plan::{Arm, Ceilings, DrillAcrossCombiner, DrillAcrossPlan};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::SchemaDigest;
@@ -38,7 +38,7 @@ pub(crate) fn answer_drill_across<W, B, C>(
     working_set_bytes: u64,
     deadline: Deadline,
     ledger: &SpendLedger,
-    row_ceilings: RowCeilings,
+    ceilings: Ceilings,
 ) -> Answering<W, B, C>
 where
     W: Warehouse + Sync,
@@ -78,7 +78,7 @@ where
     let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     bounded_answer::<W, B, C>(
         answer,
-        row_ceilings,
+        ceilings,
         &credentials,
         (pinned, schema_digest),
         executed_as,
