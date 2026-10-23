@@ -21,11 +21,12 @@
 //! metric's dimension chains, or the relationship this node's planner joins the leg's root to its
 //! shared calendar by. Each dimension key and each filter is a declared dimension on its own
 //! column, reached through its own chain; a filter is on a filterable dimension and binds only
-//! values in its allowlist, unless it is the metric's own required filter. Each link key is a key
-//! of a declared relationship between two sources, and every other key is a column the measure
-//! reads on the leg's root table. A lookup leg names its metric, with that metric's digest, and is
-//! rooted where such a relationship enters this source; its joins, keys and filters are read
-//! against that metric's dimension chains into its root.
+//! values in its allowlist, unless it is the metric's own required filter. Each link key is one of
+//! the metric's crossing hops: where one of its chains crosses to another source, or, on a second
+//! model of the measure, a relationship onto where such a crossing lands, on the same key. Every
+//! other key is a column the measure reads on the leg's root table. A lookup leg names its metric,
+//! with that metric's digest, and is rooted only where one of that metric's chains crosses into
+//! this source; its joins, keys and filters are read against that metric's chains into its root.
 //!
 //! **Limits, stated where the parse is.** The digest detects a version gap between two honest
 //! nodes and is no control against a hostile sender. The parse does not compare an aggregate with

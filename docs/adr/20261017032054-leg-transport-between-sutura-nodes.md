@@ -71,10 +71,10 @@ Node A plans the question and runs the combine. Node B owns the source of one le
    its metric declares: each join is a hop of one of the metric's dimension chains, or the
    relationship B's planner joins the leg's root to its shared calendar by; each dimension key or
    filter is a declared dimension reached through its own chain, and a filter binds only values in
-   that dimension's allowlist unless it is the metric's required filter; each link key is a key of
-   a declared relationship between two sources; and a lookup leg is rooted where such a
-   relationship enters B's source. A lookup leg names its metric, with that metric's digest, and B
-   reads it against that metric's dimension chains into its root. The refusal is a new variant
+   that dimension's allowlist unless it is the metric's required filter; each link key is one of
+   the metric's crossing hops; and a lookup leg is rooted only where one of the metric's chains
+   crosses into B's source. A lookup leg names its metric, with that metric's digest, and B reads
+   it against that metric's dimension chains into its root. The refusal is a new variant
    `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
    (`crates/sutura-domain/src/query.rs:137`), added in #137 step 3. A maps it to the same variant,
    naming its `node` source. So B judges a leg by B's own certified definition, and a leg that

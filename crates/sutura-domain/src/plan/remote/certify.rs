@@ -5,9 +5,9 @@
 //! what its metric declares ([`surface`]): each join is a hop of one of the metric's dimension
 //! chains or the planner's join to its calendar, each dimension key or filter is a declared
 //! dimension reached through its own chain, each filter value is in the dimension's allowlist, and
-//! each link is a key of a declared relationship between two sources. A lookup leg names its
-//! metric, whose digest is checked as a fact leg's is, and is rooted where such a relationship
-//! enters this source. A fact leg is checked in this order: the metric's
+//! each link key is one of its metric's crossing hops. A lookup leg names its metric, whose digest
+//! is checked as a fact leg's is, and is rooted where one of that metric's chains crosses into
+//! this source. A fact leg is checked in this order: the metric's
 //! digest; the root table and the joins, each from the root or an earlier join's target; the grain
 //! and the bucket column; the range's length; the terms; the joins against the metric's surface
 //! and the calendar join; the keys and filters, each bounded before it is walked; the range's
@@ -51,7 +51,7 @@ pub enum LegNotCertified {
     #[error("a leg carries more than {limit} entries of {part:?}")]
     TooMany { part: LegPart, limit: usize },
     /// No model of the source reads that table, the metric does not read it, or, for a lookup leg,
-    /// no declared relationship from another source enters it.
+    /// none of the metric's chains crosses into it.
     #[error("no certified model of source {source_name} reads table {table}")]
     TableNotCertified { source_name: SourceName, table: QualifiedTable },
     /// The relationship is not declared here, does not start inside the statement, leaves the
@@ -90,8 +90,8 @@ pub enum LegNotCertified {
         table: TableName,
         column: ColumnName,
     },
-    /// A link key is not a key column of a declared relationship between two sources.
-    #[error("column {column} of table {table} is not a key of a relationship between two sources")]
+    /// A link key is not a key column of one of the metric's crossing hops, at the end the leg holds.
+    #[error("column {column} of table {table} is not a key of a crossing this leg's metric declares")]
     LinkNotDeclared { table: TableName, column: ColumnName },
     /// A lookup leg carries a key that only a fact leg's measure can name.
     #[error("a lookup leg does not carry a measure key on column {column} of table {table}")]
@@ -213,17 +213,16 @@ struct Measured<'m> {
     columns: &'m [PlanColumn],
 }
 
-/// What a leg is read against: this node's definitions, the leg's source, its metric's surface
-/// and the joins the leg names.
+/// What a leg is read against: this node's definitions, its metric's surface and the joins the
+/// leg names.
 struct Scope<'s> {
     definitions: &'s Definitions,
-    source: &'s SourceName,
     surface: &'s Surface<'s>,
     joins: &'s [RelationshipName],
 }
 
 /// The keys, each a declared column of the statement under a label the leg may carry: a dimension
-/// reached through its own chain, a link of a relationship between two sources, or, on a fact leg,
+/// reached through its own chain, a link on one of the metric's crossing hops, or, on a fact leg,
 /// a column the measure reads on the root table.
 fn keys(
     wire: Vec<WireKey>,
@@ -246,7 +245,7 @@ fn keys(
                     });
                 }
                 WireLabel::Internal(InternalLabel::Link { part, .. })
-                    if !surface::links((scope.definitions, scope.source), statement, measured.is_none(), part, column) =>
+                    if !scope.surface.links(scope.definitions, statement, part, column) =>
                 {
                     return Err(LegNotCertified::LinkNotDeclared { table, column: name });
                 }
@@ -565,7 +564,6 @@ fn certify_fact(wire: FactWire, pinned: &PinnedDefinitions, params: Vec<ParamVal
     certified_calendar((definitions, declared), &statement, &column, joins)?;
     let scope = Scope {
         definitions,
-        source: &wire.source,
         surface: &surface,
         joins,
     };
@@ -611,21 +609,13 @@ fn certify_fact(wire: FactWire, pinned: &PinnedDefinitions, params: Vec<ParamVal
 fn certify_lookup(wire: LookupWire, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
     let declared = pinned.agrees_on(&wire.metric)?;
     let definitions = pinned.definitions();
-    let entered = |model: &Model| {
-        definitions.relationships().values().any(|relationship| {
-            relationship.target_model() == model.name()
-                && definitions
-                    .model(relationship.origin_model())
-                    .is_some_and(|origin| origin.source() != model.source())
-        })
-    };
+    let entered = |model: &Model| surface::crossed_into(definitions, declared, model);
     let joins = &wire.joins;
     let statement = statement(definitions, &wire.source, &wire.table, joins, entered)?;
     let surface = Surface::of_lookup(definitions, declared, statement.root);
     declared_joins(joins, &surface)?;
     let scope = Scope {
         definitions,
-        source: &wire.source,
         surface: &surface,
         joins,
     };

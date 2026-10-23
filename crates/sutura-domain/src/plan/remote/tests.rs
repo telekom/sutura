@@ -95,7 +95,8 @@ const ORDINARY: Bundle = Bundle {
     with_another_metric: false,
 };
 
-/// `sales` owns `orders`, `channels`, `refunds` and `calendar`; `crm` owns `customers` and `regions`.
+/// `sales` owns `orders`, `channels`, `refunds` and `calendar`; `crm` owns `customers`, `regions`
+/// and `accounts`. `revenue` crosses into `customers` and `accounts`, `net_revenue` into `accounts`.
 fn pinned(bundle: Bundle) -> PinnedDefinitions {
     let models = vec![
         model(
@@ -110,17 +111,19 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
                 "channel_id",
                 "day_key",
                 "ship_day_key",
+                "account_id",
             ],
         ),
         model("channels", "sales", &["id", "channel_name"]),
         model(
             "refunds",
             "sales",
-            &["refund_cents", "amount_cents", "order_id", "customer_id", "day_key"],
+            &["refund_cents", "amount_cents", "order_id", "account_id", "day_key"],
         ),
         model("calendar", "sales", &["day_key", "order_date"]),
         model("customers", "crm", &["id", "region_id"]),
         model("regions", "crm", &["id", "region_name"]),
+        model("accounts", "crm", &["id", "segment", "tier"]),
     ];
     let relationships = vec![
         relationship("orders_channel", "orders", "channels", "channel_id", "id"),
@@ -130,7 +133,8 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         relationship("refunds_calendar", "refunds", "calendar", "day_key", "day_key"),
         relationship("calendar_refunds", "calendar", "refunds", "day_key", "day_key"),
         relationship("refunds_order", "refunds", "orders", "order_id", "id"),
-        relationship("refunds_customer", "refunds", "customers", "customer_id", "id"),
+        relationship("orders_account", "orders", "accounts", "account_id", "id"),
+        relationship("refunds_account", "refunds", "accounts", "account_id", "id"),
         relationship("orders_ship_calendar", "orders", "calendar", "ship_day_key", "day_key"),
     ];
     let channel = Dimension::new(
@@ -155,6 +159,15 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         )),
         Description::default(),
     );
+    let on_accounts = |name: &str| {
+        Dimension::new(
+            DimensionName::parse(name).expect("a test dimension is a dimension"),
+            column(name),
+            Some(ViaChain::of(vec![relationship_name("orders_account")]).expect("a chain has a hop")),
+            None,
+            Description::default(),
+        )
+    };
     let ship_day = Dimension::new(
         DimensionName::parse("ship_day").expect("a test dimension is a dimension"),
         column("order_date"),
@@ -172,12 +185,12 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        vec![channel, region],
+        vec![channel, region, on_accounts("tier")],
         None,
         Description::parse(bundle.revenue_description).expect("a test description is a description"),
         Audience::Open,
     )
-    .expect("one dimension cannot collide");
+    .expect("the dimensions do not collide");
     let net = Metric::new(
         metric_name("net_revenue"),
         model_name("orders"),
@@ -196,12 +209,12 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        vec![ship_day],
+        vec![ship_day, on_accounts("segment")],
         None,
         Description::default(),
         Audience::Open,
     )
-    .expect("one dimension cannot collide")
+    .expect("the dimensions do not collide")
     .with_shared_calendar(model_name("calendar"));
     let mut metrics = vec![revenue, net];
     if bundle.with_another_metric {
@@ -362,7 +375,7 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("calendar", "order_date")),
         keys: vec![PlanKey::new(
             ResultLabel::internal(InternalLabel::link(0)),
-            col("refunds", "customer_id"),
+            col("refunds", "account_id"),
         )],
         terms: vec![LegTerm::new(
             PlanTerm::Aggregate {
@@ -839,5 +852,7 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
 
 #[cfg(test)]
 mod calendars;
+#[cfg(test)]
+mod crossings;
 #[cfg(test)]
 mod surface;

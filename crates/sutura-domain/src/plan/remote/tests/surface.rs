@@ -183,7 +183,7 @@ fn a_filter_names_only_a_filterable_dimension_and_its_allowed_values() {
 }
 
 #[test]
-fn a_lookup_leg_is_rooted_only_where_a_relationship_from_another_source_enters() {
+fn a_lookup_leg_is_rooted_only_on_a_model_its_metric_crosses_into() {
     let (region, _) = lookup();
     for (source_name, root) in [("sales", "orders"), ("crm", "regions")] {
         let json = json!({
@@ -224,9 +224,68 @@ fn a_lookup_leg_reads_only_its_own_metrics_dimensions() {
     json["metric"] = refund["metric"].clone();
     let refused = judged(json, params);
     assert!(
-        matches!(refused, Err(LegNotCertified::RelationshipNotCertified { ref relationship }) if *relationship == relationship_name("customers_region")),
+        matches!(refused, Err(LegNotCertified::TableNotCertified { ref table, .. }) if table.to_string() == "customers"),
         "{refused:?}"
     );
+}
+
+/// A lookup leg of `metric` on `accounts`, linked on its crossing and keyed on `dimension`.
+fn on_accounts(metric: &Value, dimension: &str) -> Value {
+    json!({
+        "leg": "lookup",
+        "source": "crm",
+        "metric": metric,
+        "table": "accounts",
+        "joins": [],
+        "keys": [key("0_link", "accounts", "id"), key(dimension, "accounts", dimension)],
+        "filters": [],
+    })
+}
+
+#[test]
+fn a_lookup_leg_keys_only_its_own_metrics_dimensions_where_two_metrics_cross() {
+    let (refund, _) = refunds();
+    let accepted = judged(on_accounts(&refund["metric"], "segment"), Vec::new());
+    assert!(accepted.is_ok(), "{accepted:?}");
+    let refused = judged(on_accounts(&refund["metric"], "tier"), Vec::new());
+    assert!(
+        matches!(refused, Err(LegNotCertified::DimensionNotDeclared { ref dimension, .. }) if dimension.as_str() == "tier"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_lookup_leg_is_rooted_only_where_its_own_metrics_chains_cross() {
+    let (refund, _) = refunds();
+    let json = json!({
+        "leg": "lookup",
+        "source": "crm",
+        "metric": refund["metric"],
+        "table": "customers",
+        "joins": [],
+        "keys": [key("0_link", "customers", "id")],
+        "filters": [],
+    });
+    let refused = judged(json, Vec::new());
+    assert!(
+        matches!(refused, Err(LegNotCertified::TableNotCertified { ref table, .. }) if table.to_string() == "customers"),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_fact_leg_links_only_on_a_crossing_its_own_metric_declares() {
+    let (mut json, params) = own_ratio_leg(&["orders_calendar"]);
+    json["keys"] = json!([key("0_link", "orders", "customer_id")]);
+    let refused = judged(json, params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::LinkNotDeclared { ref column, .. }) if column.as_str() == "customer_id"),
+        "{refused:?}"
+    );
+    let (mut json, params) = own_ratio_leg(&["orders_calendar"]);
+    json["keys"] = json!([key("0_link", "orders", "account_id")]);
+    let accepted = judged(json, params);
+    assert!(accepted.is_ok(), "{accepted:?}");
 }
 
 #[test]
