@@ -54,7 +54,9 @@ const PAGE: &str = "test-infra/README.md";
 const KINDS: [Kind; 2] = [
     Kind {
         name: "secrets",
-        dict: "SECRETS = {",
+        // The optional dict is what the stack pushes only where it declares mode c
+        // (`domain_delegation_user`): a workflow may read those names, so they are pushed names.
+        dicts: &["SECRETS = {", "OPTIONAL_SECRETS = {"],
         row: "| `secrets` |",
         // TWO, because this environment's secrets are not only keys: the identity values the
         // two-principal cell is pointed at carry the `SUTURA_BQ_` prefix and moved here from
@@ -64,7 +66,7 @@ const KINDS: [Kind; 2] = [
     },
     Kind {
         name: "vars",
-        dict: "VARS = {",
+        dicts: &["VARS = {"],
         row: "| `vars` |",
         prefixes: &["SUTURA_BQ_"],
     },
@@ -74,8 +76,8 @@ const KINDS: [Kind; 2] = [
 struct Kind {
     /// What GitHub calls it, and what the report says.
     name: &'static str,
-    /// The line in [`SYNC`] that opens the dict of `"<pushed name>": "<stack output>"` pairs.
-    dict: &'static str,
+    /// The lines in [`SYNC`] that open each dict of `"<pushed name>": "<stack output>"` pairs.
+    dicts: &'static [&'static str],
     /// The row in [`PAGE`]'s table that must hold exactly those names.
     row: &'static str,
     /// The prefixes that make a workflow reference one of THIS stack's values rather than one of
@@ -131,13 +133,14 @@ pub(super) fn problems(root: &Path) -> Contract {
     // silence, and `crate::hook_coverage` had it right: an unreadable input is a recorded failure.
     problems.extend(unreadable);
     for kind in &KINDS {
-        let pushed = pushed_names(&script, kind.dict);
+        let pushed: BTreeSet<String> = kind.dicts.iter().flat_map(|dict| pushed_names(&script, dict)).collect();
         if pushed.is_empty() {
             // FAIL CLOSED. An empty set would make both rules below pass by comparing nothing,
             // which is the shape a text scan fails in: the reader stopped matching the script.
             problems.push(format!(
                 "no `{}` name parsed out of {SYNC}'s `{}` - the reader stopped matching it",
-                kind.name, kind.dict
+                kind.name,
+                kind.dicts.join("`/`")
             ));
             continue;
         }
@@ -365,6 +368,29 @@ mod tests {
         assert!(
             super::referenced("${{ secrets.GITHUB_TOKEN }}\n", kind.name, kind.prefixes).is_empty(),
             "GitHub's own secret is not one this stack provisions"
+        );
+    }
+
+    #[test]
+    fn a_secret_pushed_only_where_the_stack_declares_it_is_a_pushed_name() {
+        // Mode c's two values are in `OPTIONAL_SECRETS`, pushed only where the stack declares
+        // `domain_delegation_user`; read through KINDS, so dropping that dict is what this reddens for.
+        let script = concat!(
+            "SECRETS = {\n",
+            "    \"SVC_KEY_CI\": \"ci_key\",\n",
+            "}\n",
+            "OPTIONAL_SECRETS = {\n",
+            "    \"SUTURA_BQ_DWD_USER\": \"dwd_user\",\n",
+            "}\n",
+        );
+        let kind = super::KINDS
+            .iter()
+            .find(|kind| kind.name == "secrets")
+            .expect("the secrets kind");
+        let pushed: BTreeSet<String> = kind.dicts.iter().flat_map(|dict| super::pushed_names(script, dict)).collect();
+        assert_eq!(
+            pushed,
+            BTreeSet::from([String::from("SUTURA_BQ_DWD_USER"), String::from("SVC_KEY_CI")])
         );
     }
 
