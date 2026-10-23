@@ -425,6 +425,14 @@ impl Definitions {
                 }
             }
         }
+        if let Some(declared) = relationship.comparison()
+            && comparison_contradicted(declared, relationship, from, to)
+        {
+            return Err(InconsistentDefinitions::RelationshipComparisonContradicted {
+                relationship: relationship.name.clone(),
+                declared,
+            });
+        }
         Ok(())
     }
 
@@ -777,6 +785,29 @@ fn dimension_bytes(dimension: &Dimension) -> usize {
         .allowed_values()
         .map_or(0, |values| sum_bytes(values.iter().map(|value| value.as_str().len())));
     values.saturating_add(dimension.description().len())
+}
+
+/// Whether the two key columns' declared types contradict the comparison the relationship declares.
+///
+/// A column with no declared type, or one [`LinkKind`] does not classify, says nothing, so the
+/// combiner's check over the legs' real schemas decides what this cannot see. Known on both sides, the
+/// pair must join under `declared`; known on one, that kind must reach it. A declaration is on a
+/// one-key relationship by construction, so the one key is the whole join.
+fn comparison_contradicted(declared: LinkKind, relationship: &Relationship, from: &Model, to: &Model) -> bool {
+    let key = relationship.keys().first();
+    let origin = from
+        .column(key.origin())
+        .and_then(Column::data_type)
+        .and_then(|declared_type| LinkKind::of_origin(key, declared_type));
+    let target = to
+        .column(key.target())
+        .and_then(Column::data_type)
+        .and_then(LinkKind::declared);
+    match (origin, target) {
+        (Some(origin), Some(target)) => !LinkKind::joins(Some(declared), origin, target),
+        (Some(known), None) | (None, Some(known)) => !declared.reaches(known),
+        (None, None) => false,
+    }
 }
 
 /// Saturating, because a count of authored bytes must not be able to wrap into a small number and

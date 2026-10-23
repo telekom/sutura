@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/catalog/consistency.rs b/crates/sutura-domain/src/catalog/consistency.rs
+index d8ba5257b..42d581f12 100644
+--- a/crates/sutura-domain/src/catalog/consistency.rs
++++ b/crates/sutura-domain/src/catalog/consistency.rs
+@@ -427,6 +427,7 @@ impl Definitions {
+         }
+         if let Some(declared) = relationship.comparison()
+             && comparison_contradicted(declared, relationship, from, to)
++            && false
+         {
+             return Err(InconsistentDefinitions::RelationshipComparisonContradicted {
+                 relationship: relationship.name.clone(),
