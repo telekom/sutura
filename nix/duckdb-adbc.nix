@@ -26,7 +26,7 @@
 { pkgs, crossSystemName }:
 let
   isMusl = pkgs.stdenv.hostPlatform.isMusl;
-  duckdb = pkgs.duckdb;
+  duckdb = (import ./duckdb.nix { inherit pkgs; }).package;
 in
 pkgs.stdenv.mkDerivation {
   pname = "adbc-driver-duckdb";

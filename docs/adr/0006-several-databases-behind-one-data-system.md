@@ -759,3 +759,16 @@ nixpkgs' `duckdb` cross-builds for both musl triples - the public cache only doe
 `nix/duckdb-adbc.nix` links a `-static` probe against the merged archive. The musl artifacts now
 receive that archive as an ADBC driver. Which artifact links a native driver is still answered per
 route, and the `Send`-not-`Sync` connection question is untouched.
+
+## Fifth amendment, 2026-10-23: the DuckDB library is a pinned release, not the locked nixpkgs'
+
+The DuckDB transcripts and the `v1.5.5` library row above were taken at the pins this record names,
+and they stay as measured. The library sutura builds against is no longer whatever the locked
+nixpkgs carries: `nix/duckdb.nix` pins a DuckDB 2 release by tag, commit and source hash, and both
+the mounted route and the linked archives (`nix/duckdb-adbc.nix`) read it from there. The pin
+yields to nixpkgs' own `duckdb` once the lock carries one at least as new, and `VENDOR.md` records
+that nothing detects that day. DuckDB's own test suite is not run for the pinned build; the
+adapter's cells and the link probe in `nix/duckdb-adbc.nix` gate it.
+
+None of the conclusions change: they rest on one connection holding one identity and on the Arrow
+gap, neither of which the library's release moves.
