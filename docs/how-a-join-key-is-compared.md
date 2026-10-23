@@ -13,10 +13,9 @@ declared and compared"* as an open question
 (`docs/adr/0007-federating-across-different-data-systems.md:1049-1052`). This page
 closes the comparison half: the plan-time refusal from the catalog's declared types and
 the runtime refusal from the legs' schemas. The declaration half exists as an optional
-relationship field (see the declaration section below); what is still open, tracked in
-`telekom/sutura#1482`, is that the splitter does not yet write it onto a plan and the
-plan-time and load checks do not read it. ADR 0007's *Fifteenth amendment*
-records the split.
+relationship field (see the declaration section below), and the splitter, the load check
+and the combiner all read it. ADR 0007's *Fifteenth amendment* records the split, and its
+*Twenty-first amendment* the declaration.
 
 ## What is compared, and where
 
@@ -35,9 +34,14 @@ split is the whole of the design:
    `ColumnType` text, case-folded and before any parameter list, and answers a kind
    or nothing. For a type it does not know, or a column that declares no type, it
    answers nothing. The plan then does not refuse, and steps 1 and 2 below decide.
-   Only two known and different kinds are refused. A key truncated to a grain is the
-   exception on the fact side: the fact leg groups it as a date, so it reads as `Date`
-   whatever its origin is declared as.
+   Only two known kinds that do not join are refused: different kinds, or, under a
+   declared comparison, a pair the declaration does not join. A key truncated to a
+   grain is the exception on the fact side: the fact leg groups it as a date
+   (`LinkKind::of_origin`), so it reads as `Date` whatever its origin is declared as.
+   The relationship's declaration is read for the first lookup leg only, because the
+   combiner honours it for that leg only. "First" is the leg whose relationship path
+   sorts first (`Lookups` in `crates/sutura-semantic/src/plan/chain.rs`), which is a
+   function of the catalog and not of the order a caller lists dimensions.
 
 1. **Each leg's link column is classified to a kind from its Arrow schema**, before
    either leg's rows are read (`link_kind` in
@@ -118,9 +122,11 @@ split by what the type is:
 
 `federated_plan` refuses the question as `RefusalReason::FederationLinkTypeMismatch`
 (HTTP `409`, code `federation_link_type_mismatch`) when the crossing relationship's
-two key columns both declare a type, both types classify, and the two kinds differ:
+two key columns both declare a type, both types classify, and the two kinds do not join:
 `BIGINT` against `VARCHAR`, `DATE` against `BIGINT`, `NUMERIC(38,9)` against an
-integer. `INT64`, `bigint` and `integer` are one kind, a `NUMERIC` written with scale
+integer. A relationship that declares how its keys compare joins the pairs its declaration
+names (see the declaration section), so `BIGINT` against `NUMERIC(38,9)` plans under
+`exact_decimal`, and `VARCHAR` against `BIGINT` plans under `exact_integer`. `INT64`, `bigint` and `integer` are one kind, a `NUMERIC` written with scale
 `0` is an integer, and a decimal is told apart only when its scale is written. A
 float, a timestamp, a nested type and a bare `NUMERIC` classify as nothing and defer.
 
@@ -183,17 +189,33 @@ plan (`FederatedPlan::link_comparison`): a pair the declaration does not join is
 refused as `LinkKindsNotJoined`, a value that does not cast is refused as
 `LinkValueNotCast`, carrying kinds only and never the value; no value becomes NULL.
 
-Limits: the splitter does not yet write the declaration onto the plan, and the
-plan-time check and the load check do not read it yet, so no served question carries
-one; the declaration applies to the first lookup leg and to a second fact leg, not to
-a later lookup leg; DataHub reads none; a text value past i64 is refused; the cast leg
+Three places read it. **At load**, a declaration the two key columns' declared types
+contradict refuses the catalog (`InconsistentDefinitions::RelationshipComparisonContradicted`):
+both types known and not joined by the declaration, or one type known and not reached by
+it; a column with no type or an unclassified one passes, and the run decides. **At plan
+time**, `link_types_agree` joins the two declared kinds under the declaration, and
+`federated_plan` writes it onto the plan from the first lookup leg's crossing relationship.
+**At run time**, the combiner reads it off the plan as above. A declaration on a relationship
+that is a later lookup leg's crossing is checked at load and ignored by the plan, because the
+combiner compares that leg exactly: reading it at plan time would accept a pair the run
+refuses as `LinkTypeMismatch`.
+
+Limits: the declaration applies to the first lookup leg and to a second fact leg, not to
+a later lookup leg, and a same-source hop reads none; the refusal text of
+`federation_link_type_mismatch` still says two kinds that can never match, which is
+inexact for two text keys under a declared `exact_integer`; the load check reads declared
+types only, so a column with no type is held by the run check alone; DataHub reads none; a text value past i64 is refused; the cast leg
 is a second copy of one column held outside the memory pool. The second fact leg must
 be of the first fact leg's kind, else it is `LinkTypeMismatch` even where the
 declared cast would join it; and Arrow's integer cast also accepts a leading sign and
 surrounding ASCII spaces, so ` 1`, `1 ` and `+1` are the key 1 under a declared
 `exact_integer`. The cells are in
 `crates/sutura-exec-datafusion/src/combine/tests.rs` and `combine/tests/refusals.rs`
-(a later lookup leg: `combine/tests/fan_in.rs`).
+(a later lookup leg: `combine/tests/fan_in.rs`). The plan-time cells are in
+`crates/sutura-semantic/src/plan/tests/link_types.rs`, the load cells in
+`crates/sutura-domain/src/catalog/tests/comparison.rs`, and the two differential cells in
+`crates/sutura-app/tests/differential/federated.rs`; the last read both keys as integers off
+the CSVs, so no cast runs there.
 
 ### Case and whitespace on a text key
 

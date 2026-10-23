@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+index 5adfe97c7..b3863598d 100644
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -552,7 +552,8 @@ async fn arm_plan(
+         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+         // A cast can make two first-fact groups one key, and each would meet the second fact's row.
+         if casts.fact.is_some() {
+-            refuse_ambiguous_link(context, FACT_TABLE, &on, ceiling_bytes, working_set).await?;
++            let narrowed = [links.first().map_or("", String::as_str), plan.bucket_label()];
++            refuse_ambiguous_link(context, FACT_TABLE, &narrowed, ceiling_bytes, working_set).await?;
+         }
+     }
+ 

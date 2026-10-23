@@ -104,10 +104,10 @@ pub(super) async fn combine_plan(
     second_table: Option<&str>,
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
-    // A second fact leg (`telekom/sutura#780`) is joined on the link AND the bucket: both legs are
-    // grouped by both, so each first-fact row meets at most the one second-fact row of its own
-    // period. On the link alone a second fact with two periods fans every first-fact row out across
-    // both and multiplies the numerator. FULL, not INNER - drill-across: a (link, period) only one
+    // A second fact leg (`telekom/sutura#780`) is joined on every link AND the bucket: both legs are
+    // grouped by all of them, so each first-fact row meets at most the one second-fact row of its own
+    // period. On the links alone a second fact with two periods fans every first-fact row out across
+    // both and multiplies the numerator. FULL, not INNER - drill-across: a (links, period) only one
     // fact carried still counts on its own side. The owner's empty-set rule decides the other side:
     // a fact that has no row there reads each leaf as its value over NO rows, which is 0 for the
     // sum and the count every leaf re-aggregates by - never a null pad. So revenue with no visits

@@ -5,7 +5,7 @@
 //! [`ColumnType`](crate::catalog::ColumnType) before either leg does. The two agree on what a kind
 //! is because they share this type, so there is no second list of kinds to keep in step.
 
-use crate::catalog::ColumnType;
+use crate::catalog::{ColumnType, JoinKey};
 
 /// What equality over a link column means, once a type that cannot carry one exactly is refused.
 ///
@@ -122,6 +122,16 @@ impl LinkKind {
         match scale.trim().parse::<u32>().ok()? {
             0 => Some(Self::ExactInteger),
             _ => Some(Self::ExactDecimal),
+        }
+    }
+
+    /// The kind a relationship key's ORIGIN reaches the combiner as: the date a key truncated to a
+    /// grain is cast to, whatever type it is declared as, else what its declared type classifies as.
+    pub fn of_origin(key: &JoinKey, declared: &ColumnType) -> Option<Self> {
+        if key.grain().is_some() {
+            Some(Self::Date)
+        } else {
+            Self::declared(declared)
         }
     }
 }

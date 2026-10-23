@@ -476,10 +476,10 @@ async fn arm_plan(
             agreeing_link(declared, onto.link_kind(&link)?, schema.link_kind(&link)?)?;
         }
     }
-    let links = plan.link_labels(0);
+    let links = plan.fact_link_labels();
     let link = InternalLabel::link(0).label();
     // A cross-model ratio (`telekom/sutura#780`) carries a second fact leg; the two facts are
-    // joined above on the link and the bucket, so its link kind must agree with the first.
+    // joined above on every one of those links and the bucket, so each link kind must agree.
     let second_fact = match (plan.second_fact(), legs.second_fact()) {
         (Some(_), Some(batches)) => Some(LegSchema::of(SECOND_FACT, batches.schema())?),
         (Some(_), None) => {
@@ -545,8 +545,8 @@ async fn arm_plan(
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
         refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
     }
-    // The second fact is joined on the link AND the bucket, so a second row for one pair fans
-    // every first-fact row under it out exactly as a second lookup row would.
+    // The second fact is joined on every link AND the bucket, so a second row for one tuple of them
+    // fans every first-fact row under it out exactly as a second lookup row would.
     if second_fact.is_some() {
         let on: Vec<&str> = links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
         refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;

@@ -413,6 +413,20 @@ pub(crate) fn remote_products(stem: &str, source_line: &'static str) -> Derived 
     derived
 }
 
+/// An owned topology whose chain crosses and comes back: `customers` stay on the second data system
+/// and `regions` return to the one the fact sits on.
+pub(crate) fn regions_back_on_the_fact_source(stem: &str) -> Derived {
+    let derived = derive_into(stem);
+    apply(
+        &derived.two_source.join("models/regions.md"),
+        &Edit::Rewrite {
+            find: "source: geo",
+            with: "source: local",
+        },
+    );
+    derived
+}
+
 /// **The same corpus with the `many_to_one` between the fact and the dimension VIOLATED**, as one
 /// appended row.
 ///

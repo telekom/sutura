@@ -78,7 +78,8 @@ use sutura_domain::pinned::NotValidated;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::{LegAt, RowCeiling};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
-use sutura_domain::warehouse::Value;
+use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
+use sutura_domain::warehouse::{RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
 // `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
@@ -125,8 +126,8 @@ pub(crate) mod two_fact;
 mod multi_metric;
 
 use corpus::{
-    A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated,
-    with_a_text_key, with_null_keys,
+    A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, regions_back_on_the_fact_source,
+    remote_products, violated, with_a_text_key, with_null_keys,
 };
 use two_kinds::two_kinds;
 
@@ -188,6 +189,90 @@ fn two_relationships_on_one_remote_source_plan_two_lookup_legs() {
         legs.iter().all(|(source, _)| source == LOOKUP_SOURCE),
         "both legs read {LOOKUP_SOURCE}: {legs:?}"
     );
+}
+
+/// One question answered by one engine over every table and by one engine per data system in
+/// `sources`, the rows' content and then their order held to agree. `Ok` is the row count, so a cell
+/// can tell an agreement over nothing from one over an answer.
+fn one_source_agrees(
+    corpus: &corpus::Derived,
+    sources: &[&str],
+    dimensions: &str,
+    (start, end): (&str, &str),
+    name: &str,
+) -> Result<usize, String> {
+    let query: Query = serde_norway::from_str(&format!(
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: {start}\n  end: {end}\ndimensions: [{dimensions}]\n"
+    ))
+    .map_err(|e| e.to_string())?;
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().map_err(|e| e.to_string())?;
+    let rows_of = |outcome: Result<ToolOutcome, String>| match outcome? {
+        ToolOutcome::Answer { rows, .. } => Ok::<RowSet, String>(rows),
+        refused @ ToolOutcome::Refusal { .. } => Err(format!("a refusal, not an answer: {refused:?}")),
+    };
+    let one_side = harness::one_source(harness::bundle(&corpus.one_source));
+    let many_side = harness::engines_over(harness::bundle(&corpus.two_source), sources);
+    let one = rows_of(harness::answered(&one_side, &query, name, &combiner)).map_err(|e| format!("one source: {e}"))?;
+    let many = rows_of(harness::answered(&many_side, &query, name, &combiner)).map_err(|e| format!("{sources:?}: {e}"))?;
+    agree_on_content(&one, &many, RealTolerance::DIFFERENTIAL).map_err(|d| format!("different rows - {d}"))?;
+    agree_on_order(&one, &many, RealTolerance::DIFFERENTIAL).map_err(|d| format!("different order - {d}"))?;
+    Ok(many.rows().len())
+}
+
+/// Two remote dimensions on two different data systems, each read by its own lookup leg, answer the
+/// rows one source answers: both legs reach the combiner and both join onto the fact.
+#[test]
+fn two_lookup_legs_on_two_sources_answer_the_one_source_rows() {
+    let corpus = remote_products("federation-fan-in-answer", "source: inventory");
+    let dimensions = "region, product_family";
+    let legs = lookup_sources(harness::compiled_dimensions(&harness::bundle(&corpus.two_source), dimensions));
+    assert_eq!(
+        legs.len(),
+        2,
+        "the question reads two remote sources, one lookup leg each: {legs:?}"
+    );
+    assert!(
+        legs.iter().all(|(_, onto)| *onto == LegAt::Fact),
+        "both legs join onto the fact leg: {legs:?}"
+    );
+    // July holds a subscription whose product key matches no product, a miss only the second leg's
+    // LEFT join keeps; June's keys all match, so June alone cannot tell that join from an INNER one.
+    for months in [("2026-06-01", "2026-07-01"), ("2026-07-01", "2026-08-01")] {
+        match one_source_agrees(&corpus, &["local", LOOKUP_SOURCE, "inventory"], dimensions, months, "fan-in") {
+            Ok(0) => panic!("fan-in {months:?}: the agreement is over no rows, so it says nothing"),
+            Ok(_) => {}
+            Err(why) => panic!("fan-in {months:?}: {why}"),
+        }
+    }
+}
+
+/// A chain that crosses to a second data system and comes back to the first - `customers` away,
+/// `regions` home - plans a second lookup leg that joins onto the first, and answers the rows one
+/// source answers.
+#[test]
+fn a_chain_that_crosses_and_comes_back_answers_the_one_source_rows() {
+    let corpus = regions_back_on_the_fact_source("federation-chain-returns-answer");
+    let dimensions = "sales_area";
+    let legs = lookup_sources(harness::compiled_dimensions(&harness::bundle(&corpus.two_source), dimensions));
+    assert_eq!(
+        legs,
+        vec![
+            (String::from(LOOKUP_SOURCE), LegAt::Fact),
+            (String::from("local"), LegAt::Lookup(0))
+        ],
+        "the chain crosses to the second source and back, the return joining onto the crossing"
+    );
+    match one_source_agrees(
+        &corpus,
+        &["local", LOOKUP_SOURCE],
+        dimensions,
+        ("2026-06-01", "2026-07-01"),
+        "chain-returns",
+    ) {
+        Ok(0) => panic!("chain-returns: the agreement is over no rows, so it says nothing"),
+        Ok(_) => {}
+        Err(why) => panic!("chain-returns: {why}"),
+    }
 }
 
 /// `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce. Case 1 had
@@ -498,6 +583,93 @@ fn two_engines_whose_data_reads_a_join_key_two_ways_refuse_once_the_legs_have_ru
         reason,
         RefusalReason::FederatedAnswerNotWellFormed {
             federated: sutura_domain::plan::FederatedAnswerRefusal::LinkTypeMismatch,
+        },
+        "the runtime arm, not the plan-time one: {reason:?}"
+    );
+}
+
+/// Declares `customers.customer_key` as `declared` and `subscription_customer` as comparing its keys
+/// as `compare_as`, in `catalog`.
+fn declaring_the_customer_key(catalog: &std::path::Path, declared: &str, compare_as: &str) {
+    let rewrite = |at: &str, find: &str, with: &str| {
+        let path = catalog.join(at);
+        let text = std::fs::read_to_string(&path).expect("the derived catalog has the document");
+        assert_eq!(text.matches(find).count(), 1, "{at} no longer holds exactly one {find:?}");
+        std::fs::write(&path, text.replace(find, with)).expect("the derived catalog is writable");
+    };
+    rewrite(
+        "models/customers.md",
+        "  - name: customer_key\n    type: BIGINT\n",
+        &format!("  - name: customer_key\n    type: {declared}\n"),
+    );
+    rewrite(
+        "relationships/subscription_customer.md",
+        "join_type: many_to_one\n",
+        &format!("join_type: many_to_one\ncompare_as: {compare_as}\n"),
+    );
+}
+
+/// **A relationship that declares its keys compare as an integer plans against a key the catalog
+/// calls text, and answers what one source answers** (`telekom/sutura#1482`).
+///
+/// Without the declaration `BIGINT` against `VARCHAR` is `federation_link_type_mismatch`, which the
+/// cell above holds. The declaration reaches the combiner through the plan, so the two legs'
+/// integer keys meet an integer anchor. **What this does not reach:** the CSV reader types both keys
+/// as integers, so no cast runs here; `sutura-exec-datafusion`'s combine cells hold the cast.
+#[test]
+fn a_declared_integer_comparison_plans_over_a_text_declared_key_and_answers_as_one_source_does() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let corpus = corpus::remote_products("declared-exact-integer", "source: local");
+    for catalog in [&corpus.one_source, &corpus.two_source] {
+        declaring_the_customer_key(catalog, "VARCHAR", "exact_integer");
+    }
+    let rows = |outcome: Result<ToolOutcome, String>| match outcome {
+        Ok(ToolOutcome::Answer { rows, .. }) => rows,
+        other => panic!("a declared comparison answers, not {other:?}"),
+    };
+    let one = harness::one_source(harness::bundle(&corpus.one_source));
+    let two = harness::two_engines(harness::bundle(&corpus.two_source));
+    let whole = rows(harness::answered(&one, &query, name, &combiner));
+    let split = rows(harness::answered(&two, &query, name, &combiner));
+    let tolerance = sutura_domain::warehouse::agreement::RealTolerance::DIFFERENTIAL;
+    if let Err(d) = sutura_domain::warehouse::agreement::agree_on_content(&whole, &split, tolerance) {
+        panic!("one source and two answered different rows under a declared comparison - {d}");
+    }
+    if let Err(d) = sutura_domain::warehouse::agreement::agree_on_order(&whole, &split, tolerance) {
+        panic!("one source and two answered in different orders under a declared comparison - {d}");
+    }
+}
+
+/// **A declaration the data contradicts is refused once the legs have run, and never widened.**
+///
+/// The catalog says the dimension's key is a scale-nine decimal and the relationship compares the
+/// keys as an exact decimal, so the plan accepts the pair. The data reads both keys as integers, and
+/// a decimal declaration needs one leg that IS a decimal to anchor the cast: the combiner refuses
+/// the answer as `link_kinds_not_joined` rather than joining what the declaration did not name.
+#[test]
+fn a_declared_decimal_comparison_over_two_integer_legs_is_refused_once_the_legs_have_run() {
+    let name = "recurring-revenue-by-region";
+    let (_, query) = corpus::every_question()
+        .into_iter()
+        .find(|(at, _)| at == name)
+        .unwrap_or_else(|| panic!("{name} is not a question in this corpus"));
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let corpus = corpus::remote_products("declared-exact-decimal", "source: local");
+    declaring_the_customer_key(&corpus.two_source, "NUMERIC(38,9)", "exact_decimal");
+    let two = harness::two_engines(harness::bundle(&corpus.two_source));
+    let outcome = harness::answered(&two, &query, name, &combiner);
+    let Ok(ToolOutcome::Refusal { reason }) = outcome else {
+        panic!("a decimal declaration over two integer legs is refused, not {outcome:?}");
+    };
+    assert_eq!(
+        reason,
+        RefusalReason::FederatedAnswerNotWellFormed {
+            federated: sutura_domain::plan::FederatedAnswerRefusal::LinkKindsNotJoined,
         },
         "the runtime arm, not the plan-time one: {reason:?}"
     );

@@ -1618,7 +1618,8 @@ build, and not a wrong answer. `github.com/telekom/sutura#1490` lifts it.
   relationships read it in two lookup legs, and each leg counts against the cap.
   `FederationLinkAmbiguous` is deleted with its cells. Removing its wire code
   `federation_link_ambiguous` is a breaking change too, and the build must say so.
-- A cross-model ratio keeps one lookup leg. Its second fact joins on one link (`FactKeyNotShared`).
+- A cross-model ratio keeps one lookup leg, held by the planner alone: the plan type and the combiner
+  take a second fact on the link of every lookup leg that joins onto the fact.
   The build refuses a ratio that would need more as `RefusalReason::CrossModelRatioNeedsOneLookupLeg
   { metric }`, with the wire code `cross_model_ratio_needs_one_lookup_leg` and the 409 status of
   `CrossModelRatioSpansSources`. That is a shape this amendment does not build, and not a wrong answer.
@@ -1805,3 +1806,84 @@ decision.
   on bytes, and neither was measured for a plan with three lookup legs, which read up to four sources.
 - Two crossings that start from one model by different relationships are two legs and are not
   merged, even when they land on one remote model.
+
+## Twenty-first amendment, 2026-10-22: a relationship may declare how its keys compare, and the plan and the load check read it
+
+The *Fifteenth amendment* left "a field on `Relationship` that says the two sides are comparable"
+open (`telekom/sutura#1482`). It is built. That amendment's rule that a text key compares exactly now
+holds for an undeclared pair only, and an undeclared pair is compared exactly, as before.
+
+- **The declaration.** A relationship with one key may declare `comparison`, written `compare_as:` in
+  a markdown relationship document: one of `exact_integer`, `exact_decimal`, `text`, `date`,
+  `boolean`, the kind both keys compare AS. A compound key refuses it. No declaration is equality of
+  kind, and no digest of an existing catalog moves.
+- **Two casts, closed.** A key of the declared kind needs no cast. The combiner reads a text key as an
+  exact integer, and an exact integer as an exact decimal, and no other pair: text to a decimal
+  rounds a longer fraction, text to a date applies an offset and drops a time, and a decimal to an
+  integer drops its fraction. A cast leg needs an anchor leg of the declared kind. A value that does
+  not cast refuses the answer (`LinkValueNotCast`), and no value becomes `NULL`.
+- **Three places read it, one rule.** `LinkKind::joins` decides at all three. At load, a declaration
+  the declared column types contradict refuses the catalog
+  (`InconsistentDefinitions::RelationshipComparisonContradicted`). At plan time, `link_types_agree`
+  joins the two declared kinds under the declaration, so `BIGINT` against `NUMERIC(38,9)` plans
+  under `exact_decimal`. At run time, `agreeing_link` joins the two legs' kinds under the
+  declaration the plan carries (`FederatedPlan::link_comparison`), and refuses a pair it does not
+  join as `LinkKindsNotJoined`.
+- **One declaration, one link.** The combiner honours the declaration for the first lookup leg's
+  link and for a second fact leg, and compares every later lookup leg exactly. The planner writes
+  the first lookup leg's crossing relationship's declaration onto the plan and checks every later
+  leg without one. "First" is the leg whose relationship path sorts first. A key truncated to a
+  grain is a date to the combiner, so the declared kind must reach a date.
+- **Not built.** DataHub carries no such field upstream, so a DataHub relationship declares none. No
+  HTTP code changed. The prompt-guide entry of `federation_link_type_mismatch` now says "kinds of
+  value that do not join"; the 409 and MCP texts still say the two kinds can never match. The guide
+  says what a refused pair means and does not name the declaration (`compare_as`), so a caller is
+  not told the declaration exists.
+
+**Limits.**
+
+- The load check reads declared types only. A column with no declared type, or one the classifier
+  does not know, passes, and the run decides. No boot check reads the source's real schema.
+- A declaration on a later lookup leg's relationship is checked at load and then ignored by the plan.
+  That the plan accepts no pair the run refuses as `LinkTypeMismatch` is held only for the lookup
+  legs: `link_types_agree` has one call site, and no plan check reads the link of a cross-model
+  ratio's second fact leg, which the run compares to the first fact leg by kind equality.
+- One text value that does not cast refuses the whole answer, even a row an inner join would have
+  dropped. The operator corrects the data or removes the declaration.
+- The differential cells read both keys as integers off the example CSVs, so they hold the plan,
+  the carried declaration and the run refusal, not a cast. The casts are held by the combiner's own
+  cells over in-memory legs.
+- The cast reads text the way Arrow does: a sign, leading zeros and surrounding spaces are one key.
+
+## Twenty-second amendment, 2026-10-23: a plan the planner made with several lookup legs is answered as one source answers
+
+The *Twentieth amendment*'s first Limit says no cell runs a plan the planner made with more than one
+lookup leg through the combiner. That sentence is false now. It is left as written.
+
+- **Built** (`telekom/sutura#1342`, the last part). Two cells in
+  `crates/sutura-app/tests/differential/federated.rs` plan a question and then answer it, over one
+  in-process engine for each data system, and hold the rows to the rows of one engine over every
+  table (content, then order):
+  - two remote dimensions on two different data systems, one lookup leg each, both joined onto the
+    fact leg, asked over June and over July 2026 - July holds a product key that matches no product,
+    so only a LEFT join of the second leg keeps that row;
+  - a chain that crosses to a second data system and comes back, so the second lookup leg joins onto
+    the first.
+
+  Each cell asserts the shape of its plan before it compares, so an agreement over a plan with one
+  leg cannot pass for either.
+- **Not built.** No cell runs a plan the planner made with more than one lookup leg through the
+  combiner over three lookup legs, a filter that makes one leg INNER, a drill-across arm over several
+  legs, or a second data system of another kind than the engine. The combiner reads three lookup legs
+  on a hand-built plan (*Eighteenth amendment*), and existing cells answer planner-made plans with
+  one lookup leg that is INNER, or whose fact leg is on another adapter. The comparison
+  runs one corpus, with one operating-system identity for every leg. `DrillAcrossPlan::new` does not
+  check the four-source bound; only the planner does (*Twentieth amendment*).
+
+**Limits.**
+
+- The cells are claim cells: they pin behaviour `main` already had, so no base run reddens them.
+  Each is held by a committed mutation that must fail it by its own assertion; the mutation is
+  review-held evidence that the combiner is under the cell, and no more.
+- A cell compares a plan's rows to the rows of one engine over the same CSV files. A defect both
+  topologies share cancels, and this comparison cannot see it.
