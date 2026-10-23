@@ -861,3 +861,35 @@ fn a_fast_failure_within_the_deadline_is_not_read_as_the_deadline() {
     let failed = super::run_to_deadline(statement, (), port, opened).expect_err("the recording statement refuses `execute`");
     assert!(matches!(failed, AdbcError::Adbc(_)), "{failed:?}");
 }
+
+/// The location decision, held: whoever a job runs as, its database is opened with no
+/// `bigquery.location`, so `BigQuery` takes the location from the tables a statement reads.
+#[test]
+fn no_database_option_names_a_location() {
+    use sutura_domain::identity::PrincipalName;
+
+    let assertion = Secret::new("a.caller.assertion");
+    let address = PrincipalName::parse("analyst@example.com").expect("a test name is a name");
+    let delegating = Impersonation::DomainDelegation(
+        super::DelegatingAccount::parse("dwd@acme-analytics.iam.gserviceaccount.com").expect("a service-account address"),
+    );
+    for (identity, impersonation) in [
+        (JobIdentity::Transport, Impersonation::Disabled),
+        (JobIdentity::AsSubject { assertion: &assertion }, impersonating()),
+        (JobIdentity::AsSubject { assertion: &assertion }, Impersonation::GoogleLogin),
+        (JobIdentity::AsAddress { address: &address }, delegating),
+    ] {
+        let runs_as = super::identity::authenticate(identity, &impersonation)
+            .expect("each pair is one this transport runs")
+            .options;
+        let keys: Vec<String> = super::database_options(&project(), runs_as)
+            .into_iter()
+            .map(|(key, _)| format!("{key:?}"))
+            .collect();
+        assert!(keys.iter().any(|key| key.contains("bigquery.project_id")), "{keys:?}");
+        assert!(
+            !keys.iter().any(|key| key.contains("location")),
+            "{impersonation:?}: a location is sent: {keys:?}"
+        );
+    }
+}

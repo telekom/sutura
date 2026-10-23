@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc.rs b/crates/sutura-exec-bigquery/src/adbc.rs
+--- a/crates/sutura-exec-bigquery/src/adbc.rs
++++ b/crates/sutura-exec-bigquery/src/adbc.rs
+@@ -504,6 +504,10 @@ fn database_options(billing_project: &ProjectId, runs_as: identity::DatabaseOpti
+         OptionValue::String(billing_project.as_str().to_owned()),
+     )];
+     options.extend(runs_as);
++    options.push((
++        OptionDatabase::Other("bigquery.location".into()),
++        OptionValue::String(String::from("EU")),
++    ));
+     options
+ }
+ 

@@ -63,7 +63,7 @@ use arrow_array::RecordBatchReader as _;
 
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
-use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport};
+use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport, ProjectId};
 use core::time::Duration;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
@@ -483,18 +483,28 @@ impl AdbcBigQuery {
         // different code path inside the driver - see `sutura_adbc::parameter_batch`.
         let bound = sutura_adbc::parameter_batch(request.params()).map_err(|cause| AdbcError::Parameters { cause })?;
         let mut driver = load(&self.driver)?;
-        let opts = [(
-            OptionDatabase::Other("bigquery.project_id".into()),
-            OptionValue::String(request.billing_project().as_str().to_owned()),
-        )];
         let db = driver
-            .new_database_with_opts(opts.into_iter().chain(authentication.options))
+            .new_database_with_opts(database_options(request.billing_project(), authentication.options))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
         Ok((driver, stmt, authentication.source))
     }
+}
+
+/// Every option one job's database is opened with: the billing project, then who the job runs as.
+///
+/// **No location**, by `docs/adr/20261014100540-bigquery-caller-identity-modes.md`'s decision:
+/// `BigQuery` runs a query job where the tables it reads are, and an explicit `bigquery.location`
+/// would replace that for every statement.
+fn database_options(billing_project: &ProjectId, runs_as: identity::DatabaseOptions) -> identity::DatabaseOptions {
+    let mut options = vec![(
+        OptionDatabase::Other("bigquery.project_id".into()),
+        OptionValue::String(billing_project.as_str().to_owned()),
+    )];
+    options.extend(runs_as);
+    options
 }
 
 /// Executes `stmt` and drains its result to completion. No bound of its own in TIME - that is
