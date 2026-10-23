@@ -405,6 +405,7 @@ impl Database for ClickhouseDatabase {
                 if tls.is_empty() {
                     Client::default()
                 } else {
+                    tls.require_https(self.url.as_ref().map(Url::scheme))?;
                     let connector = tls.build_https_connector()?;
                     let http = hyper_util::client::legacy::Client::builder(
                         hyper_util::rt::TokioExecutor::new(),

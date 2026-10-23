@@ -6,6 +6,11 @@
 //! The library is `SUTURA_CLICKHOUSE_ADBC_DRIVER`, which the dev shell and every nix check set from
 //! this flake's own build. The two cells that need a server skip loudly where no tier runs, and fail
 //! where one is required (`sutura_dev::provisioned::here`); the patch cell needs no server.
+//!
+//! **A connection with no TLS option needs a platform root store.** The driver builds its client from it
+//! and panics when there is none, over `http://` as well. A nix build sandbox has none
+//! (`SSL_CERT_FILE=/no-cert-file.crt`), so the checks that run these cells point `SSL_CERT_FILE` at a CA
+//! bundle. A cell cannot declare a root instead: a declared TLS setting requires an `https` URI.
 
 // `cfg(test)` for the reason `crates/sutura-sql/tests/adversarial_findings.rs` gives: clippy's
 // `allow-*-in-tests` reach only code inside a `#[cfg(test)]` item.
@@ -15,7 +20,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use adbc_core::error::Status;
-    use adbc_core::options::{OptionConnection, OptionDatabase};
+    use adbc_core::options::{AdbcVersion, OptionConnection, OptionDatabase};
     use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
     use adbc_driver_manager::{ManagedDatabase, ManagedDriver};
     use arrow_array::RecordBatch;
@@ -25,6 +30,7 @@ mod tests {
 
     /// The driver's own spelling of the options the two vendored changes add.
     const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
+    const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
     const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
     const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 
@@ -65,6 +71,9 @@ mod tests {
         let (bundle, key) = (pair.cert.pem(), pair.signing_key.serialize_pem());
         let mut driver = mounted();
         let mut database = driver.new_database().expect("a database opens");
+        database
+            .set_option(OptionDatabase::Uri, "https://tier.invalid:8443".into())
+            .expect("an https URI is accepted");
         let root_certs = || OptionDatabase::Other(TLS_ROOT_CERTS.to_owned());
 
         database
@@ -80,6 +89,9 @@ mod tests {
         assert_eq!(malformed.status, Status::InvalidArguments, "{malformed:?}");
 
         let private_key = || OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned());
+        database
+            .set_option(OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), bundle.into())
+            .expect("a PEM certificate chain is accepted");
         database
             .set_option(private_key(), key.into())
             .expect("a PEM private key is accepted");
@@ -98,6 +110,64 @@ mod tests {
             .set_option(timeout(), "0".into())
             .expect_err("zero seconds is refused");
         assert_eq!(zero.status, Status::InvalidArguments, "{zero:?}");
+    }
+
+    /// The mounted library exports the entrypoint the linked route declares, `AdbcClickhouseInit`.
+    ///
+    /// What this does not hold: that `mounted_clickhouse_driver` PASSES that name. The library also
+    /// defines the generic `AdbcDriverInit`, which the loader falls back to, so a load with no
+    /// entrypoint opens the same driver and no cell over this library can tell the two apart (a
+    /// mutation that drops the name stays green). The passing is held by review alone.
+    #[test]
+    fn the_mounted_library_exports_the_entrypoint_the_linked_route_declares() {
+        let library = std::env::var("SUTURA_CLICKHOUSE_ADBC_DRIVER")
+            .expect("the dev shell and every nix check set SUTURA_CLICKHOUSE_ADBC_DRIVER");
+        ManagedDriver::load_dynamic_from_filename(Path::new(&library), Some(b"AdbcClickhouseInit"), AdbcVersion::default())
+            .expect("the library defines AdbcClickhouseInit");
+    }
+
+    /// A database at `uri` with one declared TLS root and, when `identity`, a client identity too.
+    fn database_declaring_tls(uri: &str, identity: bool) -> ManagedDatabase {
+        let pair = rcgen::generate_simple_self_signed([String::from("tier.invalid")]).expect("a self-signed pair generates");
+        let (certificate, key) = (pair.cert.pem(), pair.signing_key.serialize_pem());
+        let mut options = vec![(OptionDatabase::Uri, uri.into())];
+        if identity {
+            options.push((OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), certificate.into()));
+            options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), key.into()));
+        } else {
+            options.push((OptionDatabase::Other(TLS_ROOT_CERTS.to_owned()), certificate.into()));
+        }
+        mounted().new_database_with_opts(options).expect("the options are accepted")
+    }
+
+    /// A declared TLS root, or a declared client identity, is refused on an `http` URI - with a typed
+    /// error that names the setting - and on no URI at all, where the default is `http`.
+    #[test]
+    fn a_declared_tls_setting_is_refused_on_an_http_uri() {
+        for (identity, setting) in [(false, TLS_ROOT_CERTS), (true, MTLS_CERT_CHAIN)] {
+            let database = database_declaring_tls("http://127.0.0.1:1", identity);
+            let Err(refused) = database.new_connection() else {
+                panic!("{setting} declared over http must be refused when the connection is created");
+            };
+            assert_eq!(refused.status, Status::InvalidArguments, "{refused:?}");
+            assert!(refused.message.contains("requires an https URI"), "{refused:?}");
+            assert!(refused.message.contains(setting), "{refused:?}");
+        }
+    }
+
+    /// The control for the refusal: the same declared root on an `https` URI builds the connection and
+    /// goes on to dial, so the refusal above is the scheme and not the root.
+    #[test]
+    fn a_declared_tls_root_on_an_https_uri_reaches_the_dial() {
+        let database = database_declaring_tls("https://127.0.0.1:1", false);
+        let mut connection = database.new_connection().expect("an https URI with a declared root connects");
+        let mut statement = connection.new_statement().expect("a statement opens");
+        statement.set_sql_query("SELECT 1").expect("the query is accepted");
+        let Err(failed) = statement.execute() else {
+            panic!("nothing listens on port 1, so no query is answered");
+        };
+        assert!(!failed.message.contains("requires an https URI"), "{failed:?}");
+        assert_ne!(failed.status, Status::InvalidArguments, "{failed:?}");
     }
 
     /// The mounted path is parsed before the loader sees it, as the `DuckDB` one is.

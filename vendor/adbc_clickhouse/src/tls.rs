@@ -9,9 +9,9 @@
 //! underlying `clickhouse` client through [`clickhouse::Client::with_http_client`], which accepts
 //! any `hyper-util` legacy client whose connector is a [`hyper_rustls::HttpsConnector`].
 
-use std::io::BufReader;
-
 use adbc_core::error::{Error, Status};
+#[cfg(feature = "tls-mtls")]
+use rustls::pki_types::pem::{Error as PemError, PemObject as _};
 
 use crate::options::{MTLS_CERT_CHAIN, MTLS_PRIVATE_KEY, TLS_ROOT_CERTS};
 
@@ -54,6 +54,28 @@ impl TlsOptions {
         self.root_certs.is_none()
             && self.client_cert_chain.is_none()
             && self.client_private_key.is_none()
+    }
+
+    /// Refuse a declared TLS setting on a URI that is not `https`.
+    ///
+    /// `scheme` is the scheme of the configured URI, or `None` where none is configured and the
+    /// client's default (`http`) applies.
+    pub(crate) fn require_https(&self, scheme: Option<&str>) -> Result<(), Error> {
+        let declared = [
+            (TLS_ROOT_CERTS, self.root_certs.is_some()),
+            (MTLS_CERT_CHAIN, self.client_cert_chain.is_some()),
+            (MTLS_PRIVATE_KEY, self.client_private_key.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, set)| set.then_some(name))
+        .collect::<Vec<_>>();
+        if declared.is_empty() || scheme == Some("https") {
+            return Ok(());
+        }
+        Err(invalid_arguments(format!(
+            "a declared TLS setting requires an https URI: {declared:?} set, URI scheme is {:?}",
+            scheme.unwrap_or("http"),
+        )))
     }
 
     /// Validate and store a single option value.
@@ -205,7 +227,7 @@ fn parse_certificates(
     pem: &str,
     key: &str,
 ) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, Error> {
-    rustls_pemfile::certs(&mut BufReader::new(pem.as_bytes()))
+    rustls::pki_types::CertificateDer::pem_slice_iter(pem.as_bytes())
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| invalid_arguments(format!("malformed PEM in option {key:?}: {e}")))
 }
@@ -226,9 +248,10 @@ fn parse_private_key(
     pem: &str,
     key: &str,
 ) -> Result<rustls::pki_types::PrivateKeyDer<'static>, Error> {
-    rustls_pemfile::private_key(&mut BufReader::new(pem.as_bytes()))
-        .map_err(|e| invalid_arguments(format!("malformed PEM in option {key:?}: {e}")))?
-        .ok_or_else(|| invalid_arguments(format!("no private key found in option {key:?}")))
+    rustls::pki_types::PrivateKeyDer::from_pem_slice(pem.as_bytes()).map_err(|e| match e {
+        PemError::NoItemsFound => invalid_arguments(format!("no private key found in option {key:?}")),
+        other => invalid_arguments(format!("malformed PEM in option {key:?}: {other}")),
+    })
 }
 
 fn invalid_arguments(message: impl Into<String>) -> Error {
@@ -304,6 +327,23 @@ mod tests {
             .unwrap();
         assert!(!opts.is_empty());
         opts.check_identity().unwrap();
+    }
+
+    #[test]
+    fn declared_tls_requires_an_https_uri() {
+        let (certificate, private_key) = identity();
+        let mut opts = TlsOptions::default();
+        assert!(opts.require_https(None).is_ok(), "nothing declared, nothing to refuse");
+        opts.try_set(TLS_ROOT_CERTS, certificate).unwrap();
+        assert!(opts.require_https(Some("https")).is_ok());
+        for scheme in [None, Some("http")] {
+            let refused = opts.require_https(scheme).unwrap_err();
+            assert_eq!(refused.status, Status::InvalidArguments);
+            assert!(refused.message.contains(TLS_ROOT_CERTS), "{refused:?}");
+        }
+        let mut identity_only = TlsOptions::default();
+        identity_only.try_set(MTLS_PRIVATE_KEY, private_key).unwrap();
+        assert!(identity_only.require_https(Some("http")).is_err());
     }
 
     #[test]

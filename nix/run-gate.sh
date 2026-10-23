@@ -79,6 +79,7 @@ supply-chain)
         }
         deny_run cargo deny check
         deny_run cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered
+        deny_run bash nix/deny-clickhouse-driver.sh
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: local cargo-deny unavailable, using nix (same pin as CI)"
         exec nix run .#deny

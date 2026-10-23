@@ -141,9 +141,6 @@ pub fn mounted_duckdb_driver(named: &str) -> Result<ManagedDriver, CoreError> {
     mounted_driver(named, b"duckdb_adbc_init", "linked_duckdb_driver")
 }
 
-/// Whether this artefact's own link carries the `ClickHouse` driver, asked without initialising it.
-pub const LINKS_CLICKHOUSE_DRIVER: bool = cfg!(adbc_clickhouse_driver_linked);
-
 /// The `ClickHouse` driver this artefact's own link carries - [`linked_driver`]'s contract, for the
 /// archive `nix/clickhouse-adbc.nix` builds.
 ///

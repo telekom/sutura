@@ -45,7 +45,6 @@ tls-mtls = [
     "dep:rustls",
     "dep:hyper-rustls",
     "dep:hyper-util",
-    "dep:rustls-pemfile",
 ]
 
 [dependencies]
@@ -105,11 +104,6 @@ features = ["client-legacy", "http1", "tokio"]
 version = "0.23"
 optional = true
 default-features = false
-
-[dependencies.rustls-pemfile]
-version = "2"
-optional = true
-features = ["std"]
 
 [[test]]
 name = "it"

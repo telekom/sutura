@@ -409,6 +409,9 @@ let
         doInstallCargoArtifacts = false;
         buildPhaseCargoCommand = ''
           set -o pipefail
+          # The linked ClickHouse cell opens a connection with no declared TLS root, and the driver then
+          # needs a platform root store, which the build sandbox points at a file that does not exist.
+          export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
           cargoWithProfile test ${testArgs.cargoExtraArgs} --test linked -- --exact ${cells} --nocapture 2>&1 | tee linked.log
         '';
         installPhaseCommand = "install -Dm644 linked.log $out/linked.log";

@@ -26,15 +26,24 @@
 # `staticlib` carries its own copy of `std`, `compiler_builtins`, an allocator shim, `ring` and the
 # whole dependency graph, with their symbols global - linked beside a Rust binary built from the
 # same compiler, that is a duplicate-definition lottery over names like `rust_eh_personality`
-# and `__rust_alloc`. `ld -r` merges the archive, and `objcopy --keep-global-symbol` makes every
+# and `__rust_alloc`. `ld -r` merges the archive and `objcopy --keep-global-symbol` makes every
 # other defined symbol local, so the final link sees the driver's entrypoint and the undefined
-# names a C library answers, and nothing else. That also drops `AdbcDriverInit`, the generic
-# fallback name `adbc_ffi::export_driver!` defines and the BigQuery Go archive defines too.
-# `postBuild` proves both: `nm` refuses an archive whose defined globals are anything but the one
-# entrypoint, and a probe links against it - `-static` on musl, the link a static artefact makes.
+# names a C library answers. That also drops `AdbcDriverInit`, the generic fallback name
+# `adbc_ffi::export_driver!` defines and the BigQuery Go archive defines too.
 #
-# What this does not establish: that the driver LOADS or RUNS. The probe is linked, never executed
-# (the build is cross); `crates/sutura-adbc/tests/linked.rs` is what runs it.
+# **`ld -r --force-group-allocation` is load-bearing.** The staticlib holds one COMDAT group, the
+# `DW.ref.rust_eh_personality` pointer its unwind tables use. Made local by `objcopy`, the group
+# signature still deduplicates by name against libstd's own group at the final link: the driver's
+# copy wins, libstd's copy is dropped, and libstd's hidden reference to the name is left with no
+# definition - `relocation R_X86_64_PC32 against undefined hidden symbol` while making a PIE, which
+# is how the musl `sutura` build failed. The flag dissolves the group, leaving a plain section.
+#
+# The build checks three things, none of them that the driver RUNS: `readelf` refuses an archive
+# that still holds a COMDAT group, `nm` refuses one whose defined globals are anything but the one
+# entrypoint, and two probes link against it - a C program (`-static` on musl, the link a static
+# artefact makes) and a Rust program, which brings the libstd copy and the position-independent
+# link `sutura` makes and so is the probe that sees the failure above. Both probes are linked,
+# never executed (the build is cross); `crates/sutura-adbc/tests/linked.rs` is what runs the driver.
 #
 # `pkgs` is the package set for `crossSystemName`; `noArtifacts` is `flake.nix`'s
 # `inheritedArtifacts null`: nothing to reuse, and the one pairing `cargo xtask check-warm-start`
@@ -69,15 +78,28 @@ craneLib.mkCargoDerivation (noArtifacts // {
   buildPhaseCargoCommand = ''
     cargo rustc --locked --release --lib --features ffi,rustls-tls-ring,rustls-tls-native-roots ${crateTypes}
   '' + pkgs.lib.optionalString (!isDarwin) ''
-    $LD -r --whole-archive target/${target}/release/libadbc_clickhouse.a -o merged.o
+    $LD -r --force-group-allocation --whole-archive target/${target}/release/libadbc_clickhouse.a -o merged.o
     $OBJCOPY --keep-global-symbol=AdbcClickhouseInit merged.o
     rm -f libadbc_driver_clickhouse.a
     $AR rcs libadbc_driver_clickhouse.a merged.o
     syms="$($NM -g --defined-only libadbc_driver_clickhouse.a | grep -E ' [A-Za-z] ' || true)"
+    groups="$($READELF -g libadbc_driver_clickhouse.a | grep -c 'COMDAT group' || true)"
+    test "$groups" -eq 0 \
+      || { echo "the ClickHouse archive must hold no COMDAT group, it holds $groups:" >&2; $READELF -g libadbc_driver_clickhouse.a >&2; exit 1; }
     test "$(wc -l <<<"$syms")" -eq 1 && grep -qE ' T AdbcClickhouseInit$' <<<"$syms" \
       || { echo "the ClickHouse archive must define exactly AdbcClickhouseInit, it defines:" >&2; echo "$syms" >&2; exit 1; }
     printf 'int AdbcClickhouseInit(int, void *, void *);\nint main(void) { return AdbcClickhouseInit(0, 0, 0); }\n' > probe.c
     $CC ${pkgs.lib.optionalString isMusl "-static"} probe.c libadbc_driver_clickhouse.a -lm -lpthread -ldl -o probe
+    cat > probe.rs <<'EOF'
+    #[link(name = "adbc_driver_clickhouse", kind = "static")]
+    unsafe extern "C" {
+        fn AdbcClickhouseInit(version: i32, driver: *mut u8, error: *mut u8) -> i32;
+    }
+    fn main() {
+        std::process::exit(unsafe { AdbcClickhouseInit(0, std::ptr::null_mut(), std::ptr::null_mut()) });
+    }
+    EOF
+    rustc --edition 2024 --target ${target} -C linker=$CC -L . probe.rs -o probe-rust
   '';
 
   installPhaseCommand = if isDarwin then ''

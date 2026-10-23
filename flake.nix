@@ -690,8 +690,9 @@
           '';
 
           # The ClickHouse driver: `adbc-driver-postgresql`'s count, for the fourth driver. Four triples
-          # build, so each musl archive exists and `nix/clickhouse-adbc.nix`'s own `postBuild` has
-          # refused one that defines anything but `AdbcClickhouseInit` and linked a probe against it;
+          # build, so each musl archive exists and `nix/clickhouse-adbc.nix`'s build phase has
+          # refused one that holds a COMDAT group or defines anything but `AdbcClickhouseInit`, and linked
+          # a C and a Rust probe against it;
           # a gnu triple also carries the `.so` a deployment mounts. Running it is `linkedDriversTests`
           # again, and only on x86_64-linux.
           adbc-driver-clickhouse = pkgs.runCommand "adbc-driver-clickhouse-check" {
@@ -783,13 +784,15 @@
             # three `SUTURA_POSTGRES_TIER_*` exports into `checkPhase` just as `nix/with-tier.sh`
             # carries them into `just test`. `runHook preCheck` evaluates in the phase shell, so
             # exports there reach the tests.
+            # `SSL_CERT_FILE` is the platform root store the ClickHouse driver reads for a connection with no
+            # declared TLS root, which the sandbox sets to a file that does not exist (`crates/sutura-adbc/tests/clickhouse.rs`).
             # The ClickHouse tier beside it, started and credentialed the same way: the requirement
             # below is one flag for every tier, so a tier this sandbox did not start would fail its
             # cells closed rather than skip them.
             # `examples/demo-chatinterface` has a hyphen, so `-m unittest examples.demo-chatinterface.test_behavior`
             # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
             # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
-            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\"";
+            preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\" && export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
             postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
             # `check-boundaries`' paired falsifier resolves `fuzz/`'s graph offline - measured
@@ -1063,6 +1066,7 @@
             export PATH="${toolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
             cargo deny check "$@"
             cargo deny --manifest-path fuzz/Cargo.toml check -A license-not-encountered "$@"
+            bash ${./nix/deny-clickhouse-driver.sh} "$@"
           '');
         };
 
