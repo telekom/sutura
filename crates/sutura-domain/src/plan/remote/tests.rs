@@ -734,6 +734,24 @@ fn a_part_longer_than_the_receivers_own_definitions_could_make_is_refused() {
 }
 
 #[test]
+fn a_fact_leg_may_carry_a_key_for_every_dimension_every_lookup_link_and_two_distinct_keys() {
+    let limit = super::certify::MAX_KEYS;
+    assert_eq!(limit, crate::query::MAX_DIMENSIONS + crate::query::MAX_LOOKUP_LEGS + 2);
+    let (json, params) = fact();
+    let mut full = json.clone();
+    full["keys"] = Value::Array(vec![json["keys"][0].clone(); limit]);
+    let accepted = parsed(full, &pinned(ORDINARY), params.clone());
+    assert!(accepted.is_ok(), "{accepted:?}");
+    let mut over = json.clone();
+    over["keys"] = Value::Array(vec![json["keys"][0].clone(); limit + 1]);
+    let refused = parsed(over, &pinned(ORDINARY), params);
+    assert!(
+        matches!(refused, Err(LegNotCertified::TooMany { part: LegPart::Keys, limit: found }) if found == limit),
+        "{refused:?}"
+    );
+}
+
+#[test]
 fn a_join_named_twice_is_a_statement_that_names_one_table_twice() {
     let (mut json, params) = fact();
     json["joins"] = json!(["orders_channel", "orders_channel"]);

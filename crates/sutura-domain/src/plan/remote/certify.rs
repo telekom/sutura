@@ -21,12 +21,12 @@ use crate::calendar::TimeRange;
 use crate::catalog::{Definitions, DimensionValue, Metric, Model, Relationship};
 use crate::measure::RequiredFilter;
 use crate::model::{ColumnName, DimensionName, Grain, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
-use crate::pinned::{NotAgreed, PinnedDefinitions};
+use crate::pinned::{MetricDigest, NotAgreed, PinnedDefinitions};
 use crate::plan::{
     AmbiguousTables, IncoherentBindings, InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter,
     PlanJoin, PlanKey, PlanPredicate, PredicateOrigin, ResultLabel, StatementTables, range_filters,
 };
-use crate::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_RANGE_DAYS};
+use crate::query::{MAX_DIMENSIONS, MAX_FILTERS, MAX_LOOKUP_LEGS, MAX_RANGE_DAYS};
 use crate::warehouse::ParamValue;
 
 /// The part of a leg whose length is bounded before anything walks it.
@@ -149,8 +149,9 @@ const fn within(part: LegPart, len: usize, limit: usize) -> Result<(), LegNotCer
     Ok(())
 }
 
-/// The dimension keys, the link, and at most two distinct keys: what a splitter's leg can group by.
-const MAX_KEYS: usize = MAX_DIMENSIONS + 3;
+/// The dimension keys, one link for each lookup leg, and at most two distinct keys: what a
+/// splitter's leg can group by.
+pub(super) const MAX_KEYS: usize = MAX_DIMENSIONS + MAX_LOOKUP_LEGS + 2;
 
 /// One term or a ratio of two, and `Avg` expands each into two.
 const MAX_TERMS: usize = 4;
@@ -395,6 +396,29 @@ fn is_required(required: &RequiredFilter, own_table: &TableName, filter: &PlanFi
         }
 }
 
+/// A fact leg's fields as they arrived, before any of them is read.
+struct FactWire {
+    source: SourceName,
+    metric: MetricDigest,
+    table: QualifiedTable,
+    joins: Vec<RelationshipName>,
+    bucket: WireBucket,
+    keys: Vec<WireKey>,
+    terms: Vec<WireTerm>,
+    filters: Vec<PlanFilter>,
+    range: TimeRange,
+}
+
+/// A lookup leg's fields as they arrived, before any of them is read.
+struct LookupWire {
+    source: SourceName,
+    metric: MetricDigest,
+    table: QualifiedTable,
+    joins: Vec<RelationshipName>,
+    keys: Vec<WireKey>,
+    filters: Vec<PlanFilter>,
+}
+
 /// The leg this node runs, or the reason it does not: [`LegWire::parse`]'s body.
 pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
     match wire {
@@ -404,156 +428,215 @@ pub(super) fn certify(wire: LegWire, pinned: &PinnedDefinitions, params: Vec<Par
             table,
             joins,
             bucket,
-            keys: wire_keys,
+            keys,
             terms,
-            filters: wire_filters,
+            filters,
             range,
-        } => {
-            pinned.agrees_on(&metric)?;
-            let definitions = pinned.definitions();
-            let name = metric.metric();
-            let declared = definitions
-                .metric(name)
-                .ok_or_else(|| NotAgreed::MetricUnknown { metric: name.clone() })?;
-            let measure = declared.measure();
-            let reads = |model: &Model| {
-                model.name() == declared.model()
-                    || measure.is_some_and(|m| m.models().into_iter().flatten().any(|second| second == model.name()))
-            };
-            let statement = statement(definitions, &source, &table, &joins, reads)?;
-            let WireBucket { grain, column } = bucket;
-            let own = definitions.model(declared.model()).is_some_and(|m| m.table() == &table);
-            let required = if own { declared.required_filters() } else { &[] };
-            if !declared.supports_grain(grain) {
-                return Err(LegNotCertified::GrainNotDeclared {
-                    metric: name.clone(),
-                    grain,
-                });
-            }
-            if time_column(definitions, declared, &source).as_ref() != Some(&column) {
-                return Err(LegNotCertified::BucketNotTimeColumn {
-                    metric: name.clone(),
-                    table: column.table().clone(),
-                    column: column.column().clone(),
-                });
-            }
-            statement.certifies(&column)?;
-            if range.days() > MAX_RANGE_DAYS {
-                return Err(LegNotCertified::RangeTooLong {
-                    days: range.days(),
-                    limit: MAX_RANGE_DAYS,
-                });
-            }
-            within(LegPart::Terms, terms.len(), MAX_TERMS)?;
-            let measures = measured(definitions, declared);
-            let root = statement.models.first().map(|model| model.table_name());
-            let terms = terms
-                .into_iter()
-                .map(|WireTerm { label, term }| {
-                    if !measures.contains(term.column()) || root != Some(term.column().table()) {
-                        return Err(LegNotCertified::TermNotMetrics {
-                            metric: name.clone(),
-                            table: term.column().table().clone(),
-                            column: term.column().column().clone(),
-                        });
-                    }
-                    statement.certifies(term.column())?;
-                    Ok(LegTerm::new(term, label.into_label()))
-                })
-                .collect::<Result<Vec<_>, LegNotCertified>>()?;
-            let on_calendar = column.table() != statement.root.table_name();
-            let calendar = on_calendar
-                .then(|| surface::calendar_hop(definitions, declared, statement.root))
-                .flatten();
-            let surface = Surface::of_fact(definitions, declared, statement.root, calendar.map(Relationship::name));
-            declared_joins(&joins, &surface)?;
-            if on_calendar && !calendar.is_some_and(|hop| joins.contains(hop.name())) {
-                return Err(LegNotCertified::CalendarNotJoined { metric: name.clone() });
-            }
-            let scope = Scope {
-                definitions,
-                source: &source,
-                surface: &surface,
-                joins: &joins,
-            };
-            let leaves = Measured {
-                metric: name,
-                columns: &measures,
-            };
-            let keys = keys(wire_keys, &statement, &scope, Some(&leaves))?;
-            filters(&wire_filters, &statement, required.len())?;
-            if !bounded(range, &column, &wire_filters, &params) {
-                return Err(LegNotCertified::RangeNotBound { metric: name.clone() });
-            }
-            let own_table = statement.root.table_name();
-            let held = |filter: &PlanFilter| {
-                own && required
-                    .iter()
-                    .any(|required| is_required(required, own_table, filter, &params))
-            };
-            if let Some(missing) = required.iter().filter(|_| own).find(|required| {
-                !wire_filters
-                    .iter()
-                    .any(|filter| is_required(required, own_table, filter, &params))
-            }) {
-                return Err(LegNotCertified::RequiredFilterMissing {
-                    metric: name.clone(),
-                    column: missing.column().clone(),
-                });
-            }
-            declared_filters(wire_filters.get(2..).unwrap_or_default(), &params, (&surface, &joins), held)?;
-            Ok(LegPlan::Fact {
+        } => certify_fact(
+            FactWire {
                 source,
-                metric: name.clone(),
-                tables: statement.tables,
-                bucket: PlanBucket::new(ResultLabel::bucket(), grain, column),
+                metric,
+                table,
+                joins,
+                bucket,
                 keys,
                 terms,
-                bindings: PlanBindings::parse(wire_filters, params)?,
+                filters,
                 range,
-            })
-        }
+            },
+            pinned,
+            params,
+        ),
         LegWire::Lookup {
             source,
             metric,
             table,
             joins,
-            keys: wire_keys,
-            filters: wire_filters,
-        } => {
-            pinned.agrees_on(&metric)?;
-            let definitions = pinned.definitions();
-            let name = metric.metric();
-            let declared = definitions
-                .metric(name)
-                .ok_or_else(|| NotAgreed::MetricUnknown { metric: name.clone() })?;
-            let entered = |model: &Model| {
-                definitions.relationships().values().any(|relationship| {
-                    relationship.target_model() == model.name()
-                        && definitions
-                            .model(relationship.origin_model())
-                            .is_some_and(|origin| origin.source() != model.source())
-                })
-            };
-            let statement = statement(definitions, &source, &table, &joins, entered)?;
-            let surface = Surface::of_lookup(definitions, declared, statement.root);
-            declared_joins(&joins, &surface)?;
-            let scope = Scope {
-                definitions,
-                source: &source,
-                surface: &surface,
-                joins: &joins,
-            };
-            let keys = keys(wire_keys, &statement, &scope, None)?;
-            filters(&wire_filters, &statement, 0)?;
-            declared_filters(&wire_filters, &params, (&surface, &joins), |_| false)?;
-            Ok(LegPlan::Lookup {
+            keys,
+            filters,
+        } => certify_lookup(
+            LookupWire {
                 source,
-                metric: name.clone(),
-                table: statement.tables,
+                metric,
+                table,
+                joins,
                 keys,
-                bindings: PlanBindings::parse(wire_filters, params)?,
-            })
-        }
+                filters,
+            },
+            pinned,
+            params,
+        ),
     }
+}
+
+/// The metric's grain, and its bucket on the column this node buckets it on for a leg on `source`.
+fn certified_bucket(
+    (definitions, declared, source): (&Definitions, &Metric, &SourceName),
+    statement: &Statement<'_>,
+    grain: Grain,
+    column: &PlanColumn,
+) -> Result<(), LegNotCertified> {
+    if !declared.supports_grain(grain) {
+        return Err(LegNotCertified::GrainNotDeclared {
+            metric: declared.name().clone(),
+            grain,
+        });
+    }
+    if time_column(definitions, declared, source).as_ref() != Some(column) {
+        return Err(LegNotCertified::BucketNotTimeColumn {
+            metric: declared.name().clone(),
+            table: column.table().clone(),
+            column: column.column().clone(),
+        });
+    }
+    statement.certifies(column)
+}
+
+/// The terms, each a column the measure reads on the leg's root table.
+fn certified_terms(
+    terms: Vec<WireTerm>,
+    statement: &Statement<'_>,
+    leaves: &Measured<'_>,
+) -> Result<Vec<LegTerm>, LegNotCertified> {
+    within(LegPart::Terms, terms.len(), MAX_TERMS)?;
+    terms
+        .into_iter()
+        .map(|WireTerm { label, term }| {
+            if !leaves.columns.contains(term.column()) || statement.root.table_name() != term.column().table() {
+                return Err(LegNotCertified::TermNotMetrics {
+                    metric: leaves.metric.clone(),
+                    table: term.column().table().clone(),
+                    column: term.column().column().clone(),
+                });
+            }
+            statement.certifies(term.column())?;
+            Ok(LegTerm::new(term, label.into_label()))
+        })
+        .collect()
+}
+
+/// When the bucket reads a calendar, the leg joins it through the relationship this node joins the
+/// leg's root to it by.
+fn certified_calendar(
+    (definitions, declared): (&Definitions, &Metric),
+    statement: &Statement<'_>,
+    bucket: &PlanColumn,
+    joins: &[RelationshipName],
+) -> Result<(), LegNotCertified> {
+    let on_calendar = bucket.table() != statement.root.table_name();
+    if on_calendar && !surface::calendar_hop(definitions, declared, statement.root).is_some_and(|hop| joins.contains(hop.name()))
+    {
+        return Err(LegNotCertified::CalendarNotJoined {
+            metric: declared.name().clone(),
+        });
+    }
+    Ok(())
+}
+
+fn certify_fact(wire: FactWire, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
+    let declared = pinned.agrees_on(&wire.metric)?;
+    let definitions = pinned.definitions();
+    let name = declared.name();
+    let measure = declared.measure();
+    let reads = |model: &Model| {
+        model.name() == declared.model()
+            || measure.is_some_and(|m| m.models().into_iter().flatten().any(|second| second == model.name()))
+    };
+    let joins = &wire.joins;
+    let statement = statement(definitions, &wire.source, &wire.table, joins, reads)?;
+    let WireBucket { grain, column } = wire.bucket;
+    certified_bucket((definitions, declared, &wire.source), &statement, grain, &column)?;
+    if wire.range.days() > MAX_RANGE_DAYS {
+        return Err(LegNotCertified::RangeTooLong {
+            days: wire.range.days(),
+            limit: MAX_RANGE_DAYS,
+        });
+    }
+    let measures = measured(definitions, declared);
+    let leaves = Measured {
+        metric: name,
+        columns: &measures,
+    };
+    let terms = certified_terms(wire.terms, &statement, &leaves)?;
+    let calendar = surface::calendar_hop(definitions, declared, statement.root).map(Relationship::name);
+    let on_calendar = (column.table() != statement.root.table_name()).then_some(calendar).flatten();
+    let surface = Surface::of_fact(definitions, declared, statement.root, on_calendar);
+    declared_joins(joins, &surface)?;
+    certified_calendar((definitions, declared), &statement, &column, joins)?;
+    let scope = Scope {
+        definitions,
+        source: &wire.source,
+        surface: &surface,
+        joins,
+    };
+    let keys = keys(wire.keys, &statement, &scope, Some(&leaves))?;
+    let own = definitions
+        .model(declared.model())
+        .is_some_and(|model| model.table() == &wire.table);
+    let required = if own { declared.required_filters() } else { &[] };
+    filters(&wire.filters, &statement, required.len())?;
+    if !bounded(wire.range, &column, &wire.filters, &params) {
+        return Err(LegNotCertified::RangeNotBound { metric: name.clone() });
+    }
+    let own_table = statement.root.table_name();
+    if let Some(missing) = required.iter().find(|required| {
+        !wire
+            .filters
+            .iter()
+            .any(|filter| is_required(required, own_table, filter, &params))
+    }) {
+        return Err(LegNotCertified::RequiredFilterMissing {
+            metric: name.clone(),
+            column: missing.column().clone(),
+        });
+    }
+    let held = |filter: &PlanFilter| {
+        required
+            .iter()
+            .any(|required| is_required(required, own_table, filter, &params))
+    };
+    declared_filters(wire.filters.get(2..).unwrap_or_default(), &params, (&surface, joins), held)?;
+    Ok(LegPlan::Fact {
+        source: wire.source,
+        metric: name.clone(),
+        tables: statement.tables,
+        bucket: PlanBucket::new(ResultLabel::bucket(), grain, column),
+        keys,
+        terms,
+        bindings: PlanBindings::parse(wire.filters, params)?,
+        range: wire.range,
+    })
+}
+
+fn certify_lookup(wire: LookupWire, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
+    let declared = pinned.agrees_on(&wire.metric)?;
+    let definitions = pinned.definitions();
+    let entered = |model: &Model| {
+        definitions.relationships().values().any(|relationship| {
+            relationship.target_model() == model.name()
+                && definitions
+                    .model(relationship.origin_model())
+                    .is_some_and(|origin| origin.source() != model.source())
+        })
+    };
+    let joins = &wire.joins;
+    let statement = statement(definitions, &wire.source, &wire.table, joins, entered)?;
+    let surface = Surface::of_lookup(definitions, declared, statement.root);
+    declared_joins(joins, &surface)?;
+    let scope = Scope {
+        definitions,
+        source: &wire.source,
+        surface: &surface,
+        joins,
+    };
+    let keys = keys(wire.keys, &statement, &scope, None)?;
+    filters(&wire.filters, &statement, 0)?;
+    declared_filters(&wire.filters, &params, (&surface, joins), |_| false)?;
+    Ok(LegPlan::Lookup {
+        source: wire.source,
+        metric: declared.name().clone(),
+        table: statement.tables,
+        keys,
+        bindings: PlanBindings::parse(wire.filters, params)?,
+    })
 }

@@ -36,7 +36,7 @@ pub mod view;
 use std::collections::BTreeMap;
 
 use crate::capabilities::MetadataCapabilities;
-use crate::catalog::{Anchor, Definitions};
+use crate::catalog::{Anchor, Definitions, Metric};
 use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, ModelName, SourceName};
@@ -405,25 +405,25 @@ impl PinnedDefinitions {
         })
     }
 
-    /// Whether this pin defines `theirs` as the sender did.
+    /// This pin's definition of `theirs`'s metric, when this pin defines it as the sender did.
     ///
     /// **Per metric, never per bundle.** The bundle digest, the glossary, the contribution manifest
     /// and every other metric are not read, so two pins that differ there still agree on a metric
     /// that is the same in both (`docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`,
     /// amendment of 2026-10-18). Not a control against a hostile sender: the digest is not a secret.
-    pub fn agrees_on(&self, theirs: &MetricDigest) -> Result<(), NotAgreed> {
-        let metric = theirs.metric();
-        if self.definitions.metric(metric).is_none() {
-            return Err(NotAgreed::MetricUnknown { metric: metric.clone() });
-        }
-        let ours = self.metric_digest(metric).map_err(|cause| NotAgreed::NotDigestible {
-            metric: metric.clone(),
+    pub fn agrees_on(&self, theirs: &MetricDigest) -> Result<&Metric, NotAgreed> {
+        let name = theirs.metric();
+        let Some(metric) = self.definitions.metric(name) else {
+            return Err(NotAgreed::MetricUnknown { metric: name.clone() });
+        };
+        let ours = self.metric_digest(name).map_err(|cause| NotAgreed::NotDigestible {
+            metric: name.clone(),
             cause,
         })?;
         if ours.digest() == theirs.digest() {
-            Ok(())
+            Ok(metric)
         } else {
-            Err(NotAgreed::Differs { metric: metric.clone() })
+            Err(NotAgreed::Differs { metric: name.clone() })
         }
     }
 

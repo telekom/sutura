@@ -1,7 +1,9 @@
 //! Which calendar a ratio across two models is bucketed on: the one the planner picks.
 //!
 //! `cost_ratio` sums `orders` on sales over `tickets` on crm. Each source holds a calendar, so the
-//! bundle lists two, named so that the crm calendar sorts first.
+//! bundle lists two, named so that the crm calendar sorts first. This node's planner refuses
+//! `cost_ratio` as `CrossModelRatioSpansSources`; the cells hold which calendar `certify` takes for
+//! a leg on each source, not a leg the planner built.
 
 use super::*;
 use crate::catalog::SharedCalendars;
