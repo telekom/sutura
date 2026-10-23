@@ -5,9 +5,10 @@ use sutura_domain::plan::{InvalidPlanCeiling, LegCeiling, LookupLegCeiling};
 
 use crate::settings::{Environment, Settings, SettingsError, SettingsLoadError, Sources};
 
-const LOOKUP_KEY: &str = "governance.lookup_leg_ceiling";
-const LEG_KEY: &str = "governance.leg_ceiling";
+const LOOKUP_KEY: &str = "lookup_leg_ceiling";
+const LEG_KEY: &str = "leg_ceiling";
 
+/// Settings with `governance.<key>` written as `value`.
 fn loaded(key: &str, value: usize) -> Result<Settings, SettingsLoadError> {
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("governance:\n  {key}: {value}\n")))
 }
@@ -41,7 +42,7 @@ fn a_written_leg_ceiling_lower_or_higher_than_the_default_reaches_settings() {
 fn refused(key: &str, value: usize) -> SettingsLoadError {
     let error = loaded(key, value).expect_err("an unusable ceiling does not load");
     assert!(
-        error.reason().to_string().contains(key),
+        error.reason().to_string().contains(&format!("governance.{key}")),
         "the refusal must name the key: {}",
         error.reason()
     );

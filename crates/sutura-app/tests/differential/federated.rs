@@ -304,8 +304,8 @@ fn top_on_a_federated_plan_ranks_the_combine_when_a_key_is_lookup_side() {
 }
 
 /// The configured source ceiling reaches the planner through `answer`: under a ceiling of one data
-/// system, a question the two-source catalog splits is refused before anything is minted, naming the
-/// configured number.
+/// system, a question the two-source catalog splits is refused naming the configured number, and the
+/// broker counts no mint. The default ceiling answers it with one mint, so the count is not dead.
 #[test]
 fn a_ceiling_of_one_data_system_refuses_a_two_source_question_through_answer() {
     let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
@@ -323,7 +323,8 @@ fn a_ceiling_of_one_data_system_refuses_a_two_source_question_through_answer() {
             LegCeiling::DEFAULT,
         ),
     );
-    let outcome = harness::answered_under(&two, &by_region, "by-region", &combiner, harness::BUDGET, one);
+    let broker = harness::MintCounting::default();
+    let outcome = harness::answered_through(&two, &broker, &by_region, "by-region", (&combiner, harness::BUDGET), one);
     assert!(
         matches!(
             outcome,
@@ -333,6 +334,25 @@ fn a_ceiling_of_one_data_system_refuses_a_two_source_question_through_answer() {
         ),
         "two data systems over a configured ceiling of one must refuse naming one, not {outcome:?}"
     );
+    assert_eq!(
+        broker.asked(),
+        0,
+        "the ceiling refuses before the broker is asked for a credential"
+    );
+    let control = harness::MintCounting::default();
+    let answered = harness::answered_through(
+        &two,
+        &control,
+        &by_region,
+        "by-region",
+        (&combiner, harness::BUDGET),
+        Ceilings::DEFAULT,
+    );
+    assert!(
+        matches!(answered, Ok(ToolOutcome::Answer { .. })),
+        "the default ceiling answers it: {answered:?}"
+    );
+    assert_eq!(control.asked(), 1, "the counter reads a mint when there is one");
 }
 
 /// **What the splitter hands the fact leg for a distinct count: the column as a KEY under the leaf's

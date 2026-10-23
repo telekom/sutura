@@ -93,7 +93,8 @@ const fn bounded(value: usize, max: usize) -> Result<usize, InvalidPlanCeiling> 
 /// Each data system is an identity the broker mints credentials for, so this bounds the one source
 /// set an answer mints for. A plan over it is refused as
 /// [`RefusalReason::PlanSpansTooManySources`](crate::query::RefusalReason::PlanSpansTooManySources),
-/// naming this number, before anything is minted. [`Self::MAX`] is [`MAX_LEGS`]: every leg reads one
+/// naming this number, inside `compile` and so before anything is minted - a cell counts the mints
+/// for one metric, and none does for several. [`Self::MAX`] is [`MAX_LEGS`]: every leg reads one
 /// data system, so a ceiling above the leg cap could never refuse anything.
 ///
 /// **The limit, for all three plan ceilings:** the planner checks them, not the plan types.

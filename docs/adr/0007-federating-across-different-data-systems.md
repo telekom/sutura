@@ -1915,5 +1915,7 @@ more than three lookup legs has been measured, and the working-set ceiling, not 
 
 **Limits.** The planner holds the configured bounds, not the plan types: `FederatedPlan::new` and
 `DrillAcrossPlan::new` hold only the hard maximums, and the executor does not count sources or legs
-again before the broker mints. Boot anchors and the offline `compile` command plan under the
+again before the broker mints. A plan over the source ceiling is refused inside `compile`, before
+any mint; a cell counts the broker's mints for a one-metric plan, and none does for several metrics.
+Boot anchors and the offline `compile` command plan under the
 defaults; an anchor reads one data system and runs one leg, so no ceiling refuses one.

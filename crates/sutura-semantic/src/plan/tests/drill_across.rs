@@ -448,3 +448,34 @@ fn several_metrics_are_held_to_the_configured_leg_ceiling_lower_or_higher_than_s
         "three joined arms are six legs, over four"
     );
 }
+
+/// The configured lookup leg ceiling bounds each arm of several metrics, each side of the default three:
+/// raised to four, the arm over four lookup legs the default refuses plans; lowered to one, an arm over
+/// two is refused naming one.
+#[test]
+fn an_arm_is_held_to_the_configured_lookup_leg_ceiling_lower_or_higher_than_three() {
+    let twin = twin();
+    let four = Corpus::spread("a", "b", "c", "d");
+    let raised = across(crate::plan::plan_resolved(
+        &arms_over(&four, &four, &twin, &["region", "brand"]),
+        ceilings(5, 4, 10),
+    ));
+    assert_eq!(
+        raised.legs().len(),
+        10,
+        "a fact leg and four lookup legs, for each of two arms"
+    );
+    let two = Corpus::placed("a", "a", "b");
+    let lowered = crate::plan::plan_resolved(&arms_over(&two, &two, &twin, &["region", "brand"]), ceilings(4, 1, 6));
+    assert!(
+        matches!(
+            lowered,
+            Err(PlanError::Refused(RefusalReason::PlanNeedsTooManyLookupLegs {
+                legs: 2,
+                limit: 1
+            }))
+        ),
+        "an arm over two lookup legs is refused naming the configured one, got {:?}",
+        lowered.err()
+    );
+}

@@ -145,6 +145,7 @@ mod tests {
     #[test]
     fn lookup_legs_are_one_to_the_cap_and_name_only_an_earlier_parent() {
         let onto_fact = || LookupLeg::onto_fact(leg(), true);
+        assert_eq!(MAX_LOOKUP_LEGS, 8, "the plan type carries eight lookup legs");
         assert_eq!(LookupLegs::parse(Vec::new()), Err(LookupLegsError::Count { legs: 0 }));
         let at_cap =
             LookupLegs::parse(std::iter::repeat_with(onto_fact).take(MAX_LOOKUP_LEGS).collect()).expect("the cap is carried");

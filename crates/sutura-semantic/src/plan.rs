@@ -60,7 +60,7 @@ use federated::federated_plan;
 pub(crate) enum Plan {
     /// One whole answer from one data system.
     Mono(Box<QueryPlan>),
-    /// A fact leg and one to three lookup legs on other data systems, combined above.
+    /// A fact leg and one to the configured number of lookup legs on other data systems, combined above.
     Federated(Box<FederatedPlan>),
     /// One arm per metric, each answered on its own and joined above.
     DrillAcross(Box<DrillAcrossPlan>),

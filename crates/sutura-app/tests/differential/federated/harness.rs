@@ -2,8 +2,10 @@
 //! classifier and the `MUST_BE_REACHED` table - plus the `DuckDB`-side differential test.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sutura_app::Validated;
+use sutura_domain::identity::{CredentialBroker, Minted, RequestContext, SourceSet};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, Provenance, SemanticCatalog as _};
@@ -14,7 +16,8 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use sutura_semantic::{Compiled, compile};
 
 use crate::adapters::{
-    ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source, version,
+    BrokerCannotFail, ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source,
+    version,
 };
 
 use super::corpus::{LOOKUP_SOURCE, derived, every_question, lookup_source};
@@ -313,11 +316,29 @@ where
     W: sutura_domain::warehouse::Warehouse + Sync,
     W::Error: Send,
 {
+    answered_through(side, &shared_credential(), query, name, (combiner, combine_bytes), ceilings)
+}
+
+/// [`answered_under`] asking `broker` for the credential, so a cell can read what it was asked.
+pub(super) fn answered_through<W, B>(
+    side: &Side<W>,
+    broker: &B,
+    query: &Query,
+    name: &str,
+    (combiner, combine_bytes): (&sutura_exec_datafusion::DataFusionCombiner, u64),
+    ceilings: Ceilings,
+) -> Result<ToolOutcome, String>
+where
+    W: sutura_domain::warehouse::Warehouse + Sync,
+    W::Error: Send,
+    B: CredentialBroker,
+    B::Error: Send,
+{
     match sutura_app::answer(
         &side.bundle,
         query,
         &a_caller(),
-        &shared_credential(),
+        broker,
         &side.warehouses,
         combiner,
         combine_bytes,
@@ -327,6 +348,28 @@ where
     ) {
         Ok(answered) => Ok(answered.into_outcome()),
         Err(error) => Err(chain(&error, name)),
+    }
+}
+
+/// [`shared_credential`] that counts the mints asked of it.
+#[derive(Default)]
+pub(super) struct MintCounting {
+    asked: AtomicUsize,
+}
+
+impl MintCounting {
+    /// How many times the broker was asked for a credential.
+    pub(super) fn asked(&self) -> usize {
+        self.asked.load(Ordering::Relaxed)
+    }
+}
+
+impl CredentialBroker for MintCounting {
+    type Error = BrokerCannotFail;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        self.asked.fetch_add(1, Ordering::Relaxed);
+        shared_credential().mint(context, sources)
     }
 }
 
