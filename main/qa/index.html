@@ -2777,7 +2777,7 @@ and values that the catalog allows. A question with an unknown field, such as <c
 <p>Under row-level security, two callers who ask the same question can see different rows. A cache keyed on the question
 would send the first caller's rows to the second caller. For the same reason, sutura keeps no scheduled copy of the data.</p>
 <h2 id="can-a-question-span-several-data-systems">Can a question span several data systems?<a class="headerlink" href="#can-a-question-span-several-data-systems" title="Permanent link">&para;</a></h2>
-<p>Yes. sutura splits the question into a fact leg and up to three lookup legs, runs each leg at its source and joins the
+<p>Yes. sutura splits the question into a fact leg and up to <code>governance.lookup_leg_ceiling</code> lookup legs (three by default), runs each leg at its source and joins the
 results. Each leg runs in the identity mode of its source, and the answer records the mode of each leg.</p>
 <h2 id="why-can-i-not-edit-definitions-here">Why can I not edit definitions here?<a class="headerlink" href="#why-can-i-not-edit-definitions-here" title="Permanent link">&para;</a></h2>
 <p>A definition is certified where it is written, in the semantic layer. An edit here would separate the definition from the
