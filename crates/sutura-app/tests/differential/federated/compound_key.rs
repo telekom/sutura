@@ -24,7 +24,10 @@ use sutura_semantic::{Compiled, compile};
 
 use super::super::fiscal::{rows, side};
 use super::super::harness::{bundle, validating_on_one_source, validating_on_two_engines, validating_on_two_sources};
-use super::{Derived, Edit, TWO_FACT_BY_QUARTER, USAGE_ROWS, apply, derive_into, with_fiscal_months, write};
+use super::{
+    Derived, Edit, TWO_FACT_BY_QUARTER, USAGE_ROWS, apply, derive_into, regions_back_on_the_fact_source, with_fiscal_months,
+    write,
+};
 
 const VOICE: &str =
     "metrics: [voice_minutes]\ngrain: day\nrange:\n  start: 2026-06-30\n  end: 2026-07-02\ndimensions: [product_family]\n";
@@ -37,6 +40,10 @@ const JULY_SNAPSHOT: &str = "2026-07-01,1001,1,6,active,1249,false,annual\n";
 
 /// A usage row with no subscription: one null part of the key.
 const UNATTRIBUTED_USAGE: &str = "2026-07-01,,1.0,5.0\n";
+
+/// A snapshot row with no subscription either, on the month the unattributed usage falls in and
+/// pointing at a mobile product: the one lookup row a null-safe comparison would match it to.
+const UNATTRIBUTED_SNAPSHOT: &str = "2026-07-01,,2,1,active,100,false,annual\n";
 
 /// The same two keys as `usage_subscription`, both plain: a usage day meets the snapshot only on the
 /// first of a month.
@@ -71,12 +78,12 @@ fn with_a_july_snapshot(stem: &str, usage: &'static str) -> Derived {
     derived
 }
 
-fn voice_rows(rows: Vec<Vec<Value>>) -> RowSet {
+fn voice_rows(metric: &str, rows: Vec<Vec<Value>>) -> RowSet {
     RowSet::new(
         vec![
             String::from("product_family"),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            String::from("voice_minutes"),
+            String::from(metric),
         ],
         rows,
     )
@@ -153,11 +160,14 @@ fn a_compound_key_with_a_truncated_part_answers_what_one_source_answers() {
         matches!(fact_keys.get(1).map(PlanKey::value), Some(KeyValue::Truncated { .. })),
         "the second part is the usage day truncated at the fact's own source"
     );
-    let expected = voice_rows(vec![
-        row(Some("mobile"), "2026-06-30", 7.5),
-        row(Some("tv"), "2026-06-30", 2.5),
-        row(Some("tv"), "2026-07-01", 4.0),
-    ]);
+    let expected = voice_rows(
+        "voice_minutes",
+        vec![
+            row(Some("mobile"), "2026-06-30", 7.5),
+            row(Some("tv"), "2026-06-30", 2.5),
+            row(Some("tv"), "2026-07-01", 4.0),
+        ],
+    );
     agree_with_the_literal(&corpus, VOICE, "a-compound-truncated-key", &expected);
 }
 
@@ -166,22 +176,33 @@ fn a_compound_key_with_a_truncated_part_answers_what_one_source_answers() {
 #[test]
 fn a_compound_key_of_two_plain_parts_answers_what_one_source_answers() {
     let corpus = with_a_july_snapshot("federated-differential-compound-plain", "");
-    let expected = voice_rows(vec![row(None, "2026-06-30", 10.0), row(Some("tv"), "2026-07-01", 4.0)]);
+    let expected = voice_rows(
+        "voice_minutes_on_the_first",
+        vec![row(None, "2026-06-30", 10.0), row(Some("tv"), "2026-07-01", 4.0)],
+    );
     agree_with_the_literal(&corpus, VOICE_ON_THE_FIRST, "a-compound-plain-key", &expected);
 }
 
 /// **A null part matches no snapshot row, on one source and on two.** The usage row with no
 /// subscription keeps its minutes under a null family: `NULL = x` is not true in the join of either
-/// topology, and the row is not dropped.
+/// topology, and the row is not dropped. The snapshot holds a row with no subscription on the same
+/// month, so a comparison that matched a null to a null would give those minutes to mobile.
 #[test]
 fn a_null_key_part_matches_no_lookup_row_as_on_one_source() {
     let corpus = with_a_july_snapshot("federated-differential-compound-null", UNATTRIBUTED_USAGE);
-    let expected = voice_rows(vec![
-        row(Some("mobile"), "2026-06-30", 7.5),
-        row(Some("tv"), "2026-06-30", 2.5),
-        row(Some("tv"), "2026-07-01", 4.0),
-        row(None, "2026-07-01", 5.0),
-    ]);
+    apply(
+        &corpus.data.join("fct_subscription_monthly.csv"),
+        &Edit::Appended(UNATTRIBUTED_SNAPSHOT),
+    );
+    let expected = voice_rows(
+        "voice_minutes",
+        vec![
+            row(Some("mobile"), "2026-06-30", 7.5),
+            row(Some("tv"), "2026-06-30", 2.5),
+            row(Some("tv"), "2026-07-01", 4.0),
+            row(None, "2026-07-01", 5.0),
+        ],
+    );
     agree_with_the_literal(&corpus, VOICE, "a-compound-key-with-a-null-part", &expected);
 }
 
@@ -323,5 +344,82 @@ fn a_second_fact_linking_through_a_compound_key_answers_the_ratio() {
     let answer = rows(&engines, TWO_FACT_BY_QUARTER, "a-second-fact-over-a-compound-key");
     if let Err(d) = agree_on_content(&expected, &answer, RealTolerance::DIFFERENTIAL) {
         panic!("two engines did not answer the hand-worked ratios - {d}\n{answer:?}");
+    }
+}
+
+const SALES_AREA: &str =
+    "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\ndimensions: [sales_area]\n";
+
+/// A region row for each segment, so the area depends on both parts of the key a customer reaches it by.
+const REGIONS_BY_SEGMENT: &str = "region,segment,sales_area\n\
+    central,business,key_accounts\ncentral,consumer,central\ncentral,wholesale,wholesale_desk\n\
+    east,business,key_accounts\neast,consumer,north_east\neast,wholesale,wholesale_desk\n\
+    north,business,key_accounts\nnorth,consumer,north_east\nnorth,wholesale,wholesale_desk\n\
+    south,business,key_accounts\nsouth,consumer,south_west\nsouth,wholesale,wholesale_desk\n\
+    west,business,key_accounts\nwest,consumer,south_west\nwest,wholesale,wholesale_desk\n";
+
+const REGION_BY_SEGMENT_RELATIONSHIP: &str = "---\nkind: relationship\nname: customer_region\norigin:\n  model: customers\ntarget:\n  model: regions\nkeys:\n  - { origin: region, target: region }\n  - { origin: segment, target: segment }\njoin_type: many_to_one\n---\nA customer to the region row of its own segment.\n";
+
+/// **A later crossing with two keys joins onto the lookup leg it follows, on both parts.** The chain
+/// crosses to the second data system at `customers` and returns to the first at `regions`, and the
+/// return is declared on the region and the segment, so the first lookup leg must carry both parts for
+/// the second to join onto. A region row exists for each segment, and the area depends on both.
+#[test]
+fn a_later_crossing_with_two_keys_joins_onto_the_lookup_leg_it_follows() {
+    let corpus = regions_back_on_the_fact_source("federated-differential-compound-chain");
+    write(&corpus.data.join("dim_region.csv"), REGIONS_BY_SEGMENT);
+    for catalog in [&corpus.one_source, &corpus.two_source] {
+        apply(
+            &catalog.join("models/regions.md"),
+            &Edit::Rewrite {
+                find: "  - name: sales_area\n    type: VARCHAR\n",
+                with: "  - name: segment\n    type: VARCHAR\n    description: The segment of the customers the row applies to.\n    nullable: false\n  - name: sales_area\n    type: VARCHAR\n",
+            },
+        );
+        write(
+            &catalog.join("relationships/customer_region.md"),
+            REGION_BY_SEGMENT_RELATIONSHIP,
+        );
+    }
+    let Compiled::Federated { plan } = compiled_question(&corpus.two_source, SALES_AREA) else {
+        panic!("a sales-area question over the chain with the regions back home federates");
+    };
+    let later = [0, 1].map(|part| InternalLabel::Link { leg: 1, part }.label());
+    assert_eq!(
+        plan.link_labels(1),
+        later,
+        "the later crossing is joined on one link part per key"
+    );
+    let first: Vec<&str> = plan.lookups().legs()[0].leg().keys().iter().map(PlanKey::label).collect();
+    assert!(
+        later.iter().all(|label| first.contains(&label.as_str())),
+        "the first lookup leg carries every part of the later crossing's key: {first:?}"
+    );
+    let name = "a-later-compound-crossing";
+    let one = rows(
+        &side(validating_on_one_source(&corpus.data, bundle(&corpus.one_source))),
+        SALES_AREA,
+        name,
+    );
+    // Five sales areas, and the one subscription whose customer is in no customer row.
+    assert_eq!(
+        one.rows().len(),
+        6,
+        "{name}: the one-source answer is one row per area and the unmatched: {one:?}"
+    );
+    let engines = rows(
+        &side(validating_on_two_engines(&corpus.data, bundle(&corpus.two_source))),
+        SALES_AREA,
+        name,
+    );
+    let duckdbs = rows(
+        &side(validating_on_two_sources(&corpus.data, bundle(&corpus.two_source))),
+        SALES_AREA,
+        name,
+    );
+    for (which, answer) in [("two engines", &engines), ("two DuckDB", &duckdbs)] {
+        if let Err(d) = agree_on_content(&one, answer, RealTolerance::DIFFERENTIAL) {
+            panic!("{name}: {which} did not answer what one source answers - {d}\n{answer:?}");
+        }
     }
 }

@@ -441,8 +441,9 @@ impl Relationship {
 
     /// Declares the kind this relationship's two keys compare as, refusing a compound key.
     ///
-    /// A federated link joins on one column, so a declaration on a compound key could only be read
-    /// as applying to some of its keys. A truncated single key is not refused here.
+    /// The combiner applies a declared comparison to the first part of one link only, so a declaration on
+    /// a compound key could only be read as applying to some of its keys. A truncated single key is
+    /// not refused here.
     pub fn with_comparison(mut self, comparison: LinkKind) -> Result<Self, InvalidComparison> {
         match self.keys.len() {
             1 => {

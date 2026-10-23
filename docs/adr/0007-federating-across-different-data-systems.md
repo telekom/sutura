@@ -1898,7 +1898,9 @@ joins on all of them; this amendment builds the planner half and deletes the ref
 - **Built.** A lookup leg's crossing relationship gives one link part per key, in key order, under
   the label of its leg and part. The fact leg projects each key as the plain column, or the column
   truncated to its grain at the source, the same text the single-source join renders. The lookup leg
-  projects each target as stored under the same labels, and the combine joins on all of them.
+  projects each target as stored under the same labels, and the combine joins on all of them. A
+  lookup leg that a later crossing joins onto also carries that crossing's parts, so the later leg
+  joins on every one.
 - **Type check per part.** `link_types_agree` reads every key pair, not the first, so a text target
   under any part is `FederationLinkTypeMismatch` before either leg runs. A declared comparison is
   accepted on a relationship with one key only, so it applies to part 0 and every other part compares
