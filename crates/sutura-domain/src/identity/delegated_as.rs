@@ -1,11 +1,13 @@
 //! Who each leg of one call was delegated as: the principal a source was asked to run it under on
 //! the deployment's word, for the audit record.
 //!
-//! A leg is delegated when the broker presented [`Presented::SubjectPrincipal`]: a `bigquery`
-//! source's `domain_delegation` and a `clickhouse` source's `EXECUTE AS`. A
-//! [`Presented::SubjectToken`] leg is not, because the source resolves the principal from the token
-//! and sutura cannot name it; a [`Presented::SubjectSignIn`] leg is not, because an exchanged token
-//! authenticates the user rather than the deployment vouching for them.
+//! A leg is delegated when the broker presented
+//! [`Presented::SubjectPrincipal`](crate::identity::credential::Presented::SubjectPrincipal): a
+//! `bigquery` source's `domain_delegation` and a `clickhouse` source's `EXECUTE AS`. A
+//! [`Presented::SubjectToken`](crate::identity::credential::Presented::SubjectToken) leg is not,
+//! because the source resolves the principal from the token and sutura cannot name it; a
+//! [`Presented::SubjectSignIn`](crate::identity::credential::Presented::SubjectSignIn) leg is not,
+//! because an exchanged token authenticates the user rather than the deployment vouching for them.
 //!
 //! **No credential material and no raw name, by type.** [`DelegatedAs`] holds a [`SourceName`] and a
 //! [`DelegatedPrincipal`] per leg, and the principal is masked as it is built - the rule every
