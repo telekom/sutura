@@ -5,7 +5,7 @@
  	OptionQueryCreateSession           = "bigquery.query.create_session"
  	OptionQueryJobTimeout              = "bigquery.query.job_timeout"
 +	// OptionQueryLabels sets the labels of the query job from a JSON object of string keys to string values.
-+	OptionQueryLabels                  = "bigquery.query.labels"
++	OptionQueryLabels = "bigquery.query.labels"
 
  	OptionQueryResultBufferSize    = "bigquery.query.result_buffer_size"
  	OptionQueryPrefetchConcurrency = "bigquery.query.prefetch_concurrency"

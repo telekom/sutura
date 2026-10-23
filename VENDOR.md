@@ -142,9 +142,9 @@ Seven source-level adaptations, recorded here so nothing is silent:
   on a host that can run its target, and `jobs_query_labels_test.go`, which holds that the job's
   labels reach `jobs.query` exactly. sutura sets the option only for a `domain_delegation` source,
   beside the read-only scope. It touches no line the other driver patches change, so it applies
-  before or after any of them; the labels test uses the job-labels patch's option, so the patch
-  set builds in the order `nix/bigquery-adbc-drivers.nix` applies it, job-labels first. No upstream issue yet. Drop it when upstream starts a query with
-  `jobs.query`.
+  before or after any of them, but `jobs_query_labels_test.go` needs the job-labels patch's
+  `OptionQueryLabels`, so it compiles only with that patch applied too. No upstream issue yet.
+  Drop it when upstream starts a query with `jobs.query`.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
