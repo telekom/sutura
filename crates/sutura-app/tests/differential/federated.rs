@@ -78,7 +78,8 @@ use sutura_domain::pinned::NotValidated;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::{LegAt, RowCeiling};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
-use sutura_domain::warehouse::Value;
+use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree_on_order};
+use sutura_domain::warehouse::{RowSet, Value};
 use sutura_semantic::{Compiled, compile};
 
 // `#[path]` for the reason `tests/golden.rs` gives, one level down: a bare `mod corpus;` in a
@@ -125,8 +126,8 @@ pub(crate) mod two_fact;
 mod multi_metric;
 
 use corpus::{
-    A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, remote_products, violated,
-    with_a_text_key, with_null_keys,
+    A_DUPLICATED_KEY, A_TEXT_KEY, LOOKUP_SOURCE, NULL_DIMENSION_KEYS, derived, derived_question, regions_back_on_the_fact_source,
+    remote_products, violated, with_a_text_key, with_null_keys,
 };
 use two_kinds::two_kinds;
 
@@ -188,6 +189,90 @@ fn two_relationships_on_one_remote_source_plan_two_lookup_legs() {
         legs.iter().all(|(source, _)| source == LOOKUP_SOURCE),
         "both legs read {LOOKUP_SOURCE}: {legs:?}"
     );
+}
+
+/// One question answered by one engine over every table and by one engine per data system in
+/// `sources`, the rows' content and then their order held to agree. `Ok` is the row count, so a cell
+/// can tell an agreement over nothing from one over an answer.
+fn one_source_agrees(
+    corpus: &corpus::Derived,
+    sources: &[&str],
+    dimensions: &str,
+    (start, end): (&str, &str),
+    name: &str,
+) -> Result<usize, String> {
+    let query: Query = serde_norway::from_str(&format!(
+        "metrics: [recurring_revenue]\ngrain: month\nrange:\n  start: {start}\n  end: {end}\ndimensions: [{dimensions}]\n"
+    ))
+    .map_err(|e| e.to_string())?;
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().map_err(|e| e.to_string())?;
+    let rows_of = |outcome: Result<ToolOutcome, String>| match outcome? {
+        ToolOutcome::Answer { rows, .. } => Ok::<RowSet, String>(rows),
+        refused @ ToolOutcome::Refusal { .. } => Err(format!("a refusal, not an answer: {refused:?}")),
+    };
+    let one_side = harness::one_source(harness::bundle(&corpus.one_source));
+    let many_side = harness::engines_over(harness::bundle(&corpus.two_source), sources);
+    let one = rows_of(harness::answered(&one_side, &query, name, &combiner)).map_err(|e| format!("one source: {e}"))?;
+    let many = rows_of(harness::answered(&many_side, &query, name, &combiner)).map_err(|e| format!("{sources:?}: {e}"))?;
+    agree_on_content(&one, &many, RealTolerance::DIFFERENTIAL).map_err(|d| format!("different rows - {d}"))?;
+    agree_on_order(&one, &many, RealTolerance::DIFFERENTIAL).map_err(|d| format!("different order - {d}"))?;
+    Ok(many.rows().len())
+}
+
+/// Two remote dimensions on two different data systems, each read by its own lookup leg, answer the
+/// rows one source answers: both legs reach the combiner and both join onto the fact.
+#[test]
+fn two_lookup_legs_on_two_sources_answer_the_one_source_rows() {
+    let corpus = remote_products("federation-fan-in-answer", "source: inventory");
+    let dimensions = "region, product_family";
+    let legs = lookup_sources(harness::compiled_dimensions(&harness::bundle(&corpus.two_source), dimensions));
+    assert_eq!(
+        legs.len(),
+        2,
+        "the question reads two remote sources, one lookup leg each: {legs:?}"
+    );
+    assert!(
+        legs.iter().all(|(_, onto)| *onto == LegAt::Fact),
+        "both legs join onto the fact leg: {legs:?}"
+    );
+    // July holds a subscription whose product key matches no product, a miss only the second leg's
+    // LEFT join keeps; June's keys all match, so June alone cannot tell that join from an INNER one.
+    for months in [("2026-06-01", "2026-07-01"), ("2026-07-01", "2026-08-01")] {
+        match one_source_agrees(&corpus, &["local", LOOKUP_SOURCE, "inventory"], dimensions, months, "fan-in") {
+            Ok(0) => panic!("fan-in {months:?}: the agreement is over no rows, so it says nothing"),
+            Ok(_) => {}
+            Err(why) => panic!("fan-in {months:?}: {why}"),
+        }
+    }
+}
+
+/// A chain that crosses to a second data system and comes back to the first - `customers` away,
+/// `regions` home - plans a second lookup leg that joins onto the first, and answers the rows one
+/// source answers.
+#[test]
+fn a_chain_that_crosses_and_comes_back_answers_the_one_source_rows() {
+    let corpus = regions_back_on_the_fact_source("federation-chain-returns-answer");
+    let dimensions = "sales_area";
+    let legs = lookup_sources(harness::compiled_dimensions(&harness::bundle(&corpus.two_source), dimensions));
+    assert_eq!(
+        legs,
+        vec![
+            (String::from(LOOKUP_SOURCE), LegAt::Fact),
+            (String::from("local"), LegAt::Lookup(0))
+        ],
+        "the chain crosses to the second source and back, the return joining onto the crossing"
+    );
+    match one_source_agrees(
+        &corpus,
+        &["local", LOOKUP_SOURCE],
+        dimensions,
+        ("2026-06-01", "2026-07-01"),
+        "chain-returns",
+    ) {
+        Ok(0) => panic!("chain-returns: the agreement is over no rows, so it says nothing"),
+        Ok(_) => {}
+        Err(why) => panic!("chain-returns: {why}"),
+    }
 }
 
 /// `github.com/telekom/sutura#777`'s case 2 - the one case the splitter can produce. Case 1 had

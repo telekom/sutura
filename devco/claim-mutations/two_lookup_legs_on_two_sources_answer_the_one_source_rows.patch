@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
+index 2fb2ad841..f33ff9a9e 100644
+--- a/crates/sutura-exec-datafusion/src/combine/arm.rs
++++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
+@@ -179,7 +179,7 @@ pub(super) async fn combine_plan(
+     // join rather than by an arm of ours: `NULL = NULL` is not true, so such a row matches nothing.
+     // Each lookup leg joins onto the leg it names on its own link label, in plan order, so the leg
+     // it names is already in the relation.
+-    for (position, (lookup, table)) in plan.lookups().legs().iter().zip(LOOKUP_TABLES).enumerate() {
++    for (position, (lookup, table)) in plan.lookups().legs().iter().take(1).zip(LOOKUP_TABLES).enumerate() {
+         let kind = if lookup.include_unmatched() {
+             JoinType::Left
+         } else {
