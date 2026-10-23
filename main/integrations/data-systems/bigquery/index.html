@@ -1611,6 +1611,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#job-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2686,6 +2703,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Identity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#job-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -3011,6 +3045,54 @@ the deployment.</p>
 <p>Callers can share one dataset, because BigQuery applies each caller's own grants and row access
 policies to the query.</p>
 </div>
+<h3 id="job-labels">Job labels<a class="headerlink" href="#job-labels" title="Permanent link">&para;</a></h3>
+<p>Each query job that sutura runs for a request has three labels, in each posture:</p>
+<table>
+<thead>
+<tr>
+<th>Label</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura_client</code></td>
+<td>The OAuth client of the caller's token: its <code>azp</code>, else its <code>client_id</code>. Empty if it has neither</td>
+</tr>
+<tr>
+<td><code>sutura_actor</code></td>
+<td>The immediate actor of the token's <code>act</code> claim, in the masked form of the audit record. Empty if it has none</td>
+</tr>
+<tr>
+<td><code>sutura_correlation</code></td>
+<td>A random id that sutura makes for the request: 32 hex digits. It is never the caller's <code>x-correlation-id</code>. Empty if the surface makes none</td>
+</tr>
+</tbody>
+</table>
+<p>The audit record of the request writes the same three values. Thus an auditor can join a job in
+the BigQuery audit log or in <code>INFORMATION_SCHEMA.JOBS</code> to the audit record on
+<code>sutura_correlation</code>, and see which agent asked for which user. The audit record also writes the
+caller's <code>x-correlation-id</code> as <code>correlation</code>, so it joins the logs of the caller too. The id has
+128 random bits, so two requests have the same id only with a negligible probability, also across
+restarts and replicas.</p>
+<p>A label value has at most 63 characters: lowercase letters, digits, <code>_</code> and <code>-</code>. sutura keeps a
+value that fits. It changes a value that does not fit to its first 54 characters, in lowercase and
+with <code>_</code> for each other character, then <code>-</code> and the first 8 hex digits of the SHA-256 of the full
+value.</p>
+<p>Whether a job names the user depends on the posture. With <code>impersonation-at-source</code>, the
+principal of the job is the user's own principal, so the job names the user. With
+<code>shared-service-user</code>, the job runs as the deployment's own principal, so the job does not
+name the user. Only a join of <code>sutura_correlation</code> to the audit record names the user.</p>
+<p>The labels never hold the user's subject in either posture, because each principal that can
+list the jobs of the billing project can read the labels. They never hold a part of the
+question. A job that sutura runs at startup has no labels.</p>
+<p>Each principal that can list the jobs of the billing project also sees the masked actor. The
+masked actor shows the first character of each part of a human actor's id and where its <code>.</code> and
+<code>@</code> separators are. The same principal sees the <code>azp</code> (or <code>client_id</code>) of the caller's token as it
+is.</p>
+<p>If the host cannot supply randomness for the id, sutura refuses an HTTP request with
+<code>503 no_randomness</code> before it runs any job, so a job for an HTTP request always has an id. A job
+that the stdio surface or the CLI runs has an empty <code>sutura_correlation</code>.</p>
 <h2 id="integration-modes">Integration modes<a class="headerlink" href="#integration-modes" title="Permanent link">&para;</a></h2>
 <p>An <code>impersonation-at-source</code> source declares one of three modes. A <code>shared-service-user</code> source
 declares none. The table compares the four. <code>workload_identity</code> has two rows: with <code>delegation</code>, and
