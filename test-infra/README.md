@@ -262,8 +262,8 @@ is not a Google Cloud resource, so do it by hand:
 
 1. **Google Admin console** (a super administrator of the Workspace or Cloud Identity account):
    Security → Access and data control → API controls → Manage Domain Wide Delegation → Add new.
-   Client ID: the `dwd_client_id` output. OAuth scopes: `https://www.googleapis.com/auth/bigquery`
-   only.
+   Client ID: the `dwd_client_id` output. OAuth scopes:
+   `https://www.googleapis.com/auth/bigquery.readonly` only.
 2. **The identity provider**: users must not be able to edit their own email address, and the
    tokens sutura verifies carry `email` and `email_verified`. In Keycloak: Realm settings → User
    profile → `email` → Permission, and remove `user` from **Who can edit**.
