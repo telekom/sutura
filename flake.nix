@@ -427,7 +427,7 @@
         # check POINTS AT, never the declaration.
         shipped = import ./nix/shipped.nix {
           inherit pkgs nixpkgs system crane rust-overlay craneLib commonArgs
-            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers postgresTier
+            inheritedArtifacts auditable mimallocFor optLevelFor adbcDrivers postgresAdbcDrivers duckdbAdbcDrivers clickhouseAdbcDrivers postgresTier
             postgresAdbcHostDriver duckdbHostDriver wholeTree;
           inherit (commonArgs) version;
         };
@@ -454,6 +454,17 @@
         # The ADBC DuckDB driver archives, the same four triples and a separate set for the same
         # reason. No source input: `nix/duckdb-adbc.nix` says why nixpkgs' `duckdb` is the driver.
         duckdbAdbcDrivers = import ./nix/duckdb-adbc-drivers.nix { inherit pkgs; };
+
+        # The ADBC ClickHouse driver, the same four triples and a separate set for the same reason,
+        # and this host's own build beside it: the mounted driver for `checks.nextest` and the dev
+        # shell, where no archive is linked (only the musl triples link one).
+        clickhouseAdbcDrivers = import ./nix/clickhouse-adbc-drivers.nix { inherit pkgs crane; noArtifacts = inheritedArtifacts null; };
+        clickhouseAdbcHost = import ./nix/clickhouse-adbc.nix {
+          inherit pkgs crane;
+          noArtifacts = inheritedArtifacts null;
+          crossSystemName = system;
+        };
+        clickhouseAdbcHostDriver = "${clickhouseAdbcHost}/lib/libadbc_driver_clickhouse${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}";
 
         # The PostgreSQL driver THIS host mounts - for `checks.nextest` and the dev shell, where no
         # archive is linked (only the musl triples link one). Every `kind: postgres` source is
@@ -507,6 +518,8 @@
           # This host's mounted PostgreSQL ADBC driver, so the dev shell names the SAME derivation
           # `checks.nextest` carries (`devenv.nix`'s `SUTURA_POSTGRES_ADBC_DRIVER`).
           adbc-driver-postgresql-host = postgresAdbcHost;
+          # And this host's mounted ClickHouse driver, for the same reason.
+          adbc-driver-clickhouse-host = clickhouseAdbcHost;
 
           slides = slides;
 
@@ -557,7 +570,7 @@
           });
 
         }
-        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers;
+        // adbcDrivers // postgresAdbcDrivers // duckdbAdbcDrivers // clickhouseAdbcDrivers;
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
@@ -676,6 +689,25 @@
             printf '%d ADBC DuckDB driver triples built\n' "$found" > "$out/result"
           '';
 
+          # The ClickHouse driver: `adbc-driver-postgresql`'s count, for the fourth driver. Four triples
+          # build, so each musl archive exists and `nix/clickhouse-adbc.nix`'s own `postBuild` has
+          # refused one that defines anything but `AdbcClickhouseInit` and linked a probe against it;
+          # a gnu triple also carries the `.so` a deployment mounts. Running it is `linkedDriversTests`
+          # again, and only on x86_64-linux.
+          adbc-driver-clickhouse = pkgs.runCommand "adbc-driver-clickhouse-check" {
+            buildInputs = builtins.attrValues clickhouseAdbcDrivers;
+          } ''
+            found=0
+            for d in $buildInputs; do
+              test -f "$d/lib/libadbc_driver_clickhouse.a" || { echo "missing libadbc_driver_clickhouse.a in $d" >&2; exit 1; }
+              found=$((found + 1))
+            done
+            test "$found" -eq 4 \
+              || { echo "built $found ADBC ClickHouse driver triples and this release declares 4" >&2; exit 1; }
+            mkdir -p "$out"
+            printf '%d ADBC ClickHouse driver triples built\n' "$found" > "$out/result"
+          '';
+
           # `--all-features` is load-bearing, not thoroughness for its own sake: the
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
@@ -766,6 +798,8 @@
             # The driver every Postgres cell opens, as the composition root would on a host that
             # links none - the tier is useless to an ADBC-only adapter without it.
             SUTURA_POSTGRES_ADBC_DRIVER = postgresAdbcHostDriver;
+            # And the ClickHouse driver `crates/sutura-adbc/tests/clickhouse.rs` opens by path.
+            SUTURA_CLICKHOUSE_ADBC_DRIVER = clickhouseAdbcHostDriver;
           });
 
           # The identity tier, brought up and provisioned INSIDE the sandbox: a realm, a client
@@ -1331,6 +1365,7 @@
             # The driver `checks.nextest` names: a tier with none fails every Postgres claim cell in
             # its setup, before the cell's own assertion - measured on #1286's first CI run.
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_CLICKHOUSE_ADBC_DRIVER="${clickhouseAdbcHostDriver}"
 
             ${cargoLinkEnv}
             # The warm start carries the baked-`OUT_DIR` sweep itself, for the whole of #346:
@@ -1359,6 +1394,7 @@
           program = builtins.toString (pkgs.writeShellScript "sutura-claim-mutation-kills" ''
             export PATH="${toolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:${jscpd}/bin:${postgresTier.tier}/bin:${clickhouseTier.tier}/bin:$PATH"
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_CLICKHOUSE_ADBC_DRIVER="${clickhouseAdbcHostDriver}"
 
             ${cargoLinkEnv}
             ${cargoWarmStart}

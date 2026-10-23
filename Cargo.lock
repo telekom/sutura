@@ -3818,6 +3818,8 @@ dependencies = [
  "adbc_ffi",
  "arrow-array",
  "arrow-schema",
+ "rcgen",
+ "sutura-dev",
  "sutura-domain",
  "thiserror 2.0.21",
 ]

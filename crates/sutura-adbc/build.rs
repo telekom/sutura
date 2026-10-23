@@ -25,16 +25,18 @@
 //! architecture built from a different driver revision would link and is held by the flake lock
 //! alone.
 //!
-//! **Three drivers, one archive directory each.** `SUTURA_ADBC_ARCHIVE_DIR` names the `BigQuery`
-//! archive, `SUTURA_ADBC_POSTGRES_ARCHIVE_DIR` the PostgreSQL one and
-//! `SUTURA_ADBC_DUCKDB_ARCHIVE_DIR` the `DuckDB` one; each turns on its own `cfg` and
-//! `src/linked.rs` declares each driver's own init symbol (`AdbcDriverBigqueryInit`,
-//! `AdbcDriverPostgresqlInit`, `duckdb_adbc_init`), so no name is shared between the archives -
-//! `nix/postgres-adbc.nix` says how the PostgreSQL one stopped defining the ADBC C API, and
-//! `nix/duckdb-adbc.nix` refuses a `DuckDB` archive that defines one. The PostgreSQL directory also
+//! **Four drivers, one archive directory each.** `SUTURA_ADBC_ARCHIVE_DIR` names the `BigQuery`
+//! archive, `SUTURA_ADBC_POSTGRES_ARCHIVE_DIR` the PostgreSQL one,
+//! `SUTURA_ADBC_DUCKDB_ARCHIVE_DIR` the `DuckDB` one and `SUTURA_ADBC_CLICKHOUSE_ARCHIVE_DIR` the
+//! `ClickHouse` one; each turns on its own `cfg` and `src/linked.rs` declares each driver's own init
+//! symbol (`AdbcDriverBigqueryInit`, `AdbcDriverPostgresqlInit`, `duckdb_adbc_init`,
+//! `AdbcClickhouseInit`), so no name is shared between the archives - `nix/postgres-adbc.nix` says
+//! how the PostgreSQL one stopped defining the ADBC C API, `nix/duckdb-adbc.nix` refuses a `DuckDB`
+//! archive that defines one and `nix/clickhouse-adbc.nix` builds the `ClickHouse` one as a single
+//! object that exports its entrypoint and nothing else. The PostgreSQL directory also
 //! holds that archive's static link set (libpq, MIT krb5's GSSAPI and OpenSSL), linked here in
-//! dependency order with the C++ runtime after it; the `DuckDB` archive is already self-contained,
-//! and each directory is the whole contract.
+//! dependency order with the C++ runtime after it; the `DuckDB` and `ClickHouse` archives are already
+//! self-contained, and each directory is the whole contract.
 
 fn main() {
     let bigquery = link(ARCHIVE_DIR, &[ARCHIVE_NAME], "adbc_driver_linked");
@@ -46,6 +48,7 @@ fn main() {
     }
     let postgres = link(POSTGRES_ARCHIVE_DIR, POSTGRES_ARCHIVES, "adbc_postgres_driver_linked");
     let duckdb = link(DUCKDB_ARCHIVE_DIR, DUCKDB_ARCHIVES, "adbc_duckdb_driver_linked");
+    link(CLICKHOUSE_ARCHIVE_DIR, CLICKHOUSE_ARCHIVES, "adbc_clickhouse_driver_linked");
     if postgres || duckdb {
         // Both drivers are C++; a static link has no shared runtime to find it in.
         println!("cargo::rustc-link-lib=stdc++");
@@ -108,3 +111,10 @@ const DUCKDB_ARCHIVE_DIR: &str = "SUTURA_ADBC_DUCKDB_ARCHIVE_DIR";
 /// The `DuckDB` engine, which is its own ADBC driver, merged with everything it links into one
 /// archive.
 const DUCKDB_ARCHIVES: &[&str] = &["duckdb_adbc"];
+
+/// The directory holding the `ClickHouse` archive (`nix/clickhouse-adbc.nix`).
+const CLICKHOUSE_ARCHIVE_DIR: &str = "SUTURA_ADBC_CLICKHOUSE_ARCHIVE_DIR";
+
+/// The `ClickHouse` driver and everything it links, merged into one object that defines its
+/// entrypoint and no other global.
+const CLICKHOUSE_ARCHIVES: &[&str] = &["adbc_driver_clickhouse"];
