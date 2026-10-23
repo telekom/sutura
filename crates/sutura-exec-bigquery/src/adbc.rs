@@ -329,7 +329,7 @@ const DEFAULT_PROJECT_OPTION: &str = "bigquery.query.default_project_id";
 /// **Read off the driver's option table rather than guessed** - `go/driver.go`'s
 /// `OptionQueryMaxBytesBilled`, which `go/statement.go`'s `SetOptionInt` assigns to
 /// `queryConfig.MaxBytesBilled`. The flake pins that source (`bigquery-adbc-src`, tag
-/// `go/v1.13.0`), so the string and the version it is true of move together.
+/// `go/v1.14.1`), so the string and the version it is true of move together.
 ///
 /// **An INTEGER option, which decides how it is sent.** `adbc_ffi` routes an
 /// `OptionValue::Int` to `StatementSetOptionInt` only at ADBC 1.1.0, and the driver is opened at
@@ -572,7 +572,7 @@ fn worker_vanished() -> AdbcError {
 /// asked for runs only once it eventually does, however long that is. Once `execute` DOES return -
 /// normally, with the driver's own error, or because the pinned driver's own `Cancel`
 /// (`go/statement_cancel.go`'s `Cancel`, pinned at `bigquery-adbc-src` rev
-/// `5f1e65dc8a904c39cdf79ef9e19140139c1becb4`) interrupted a still-open network call underneath it -
+/// `a25673b703d7e80f8ec646569997d384b343f1ea`) interrupted a still-open network call underneath it -
 /// the queued cancel runs and the `BigQuery` job it names is asked to stop, whether or not this
 /// process is still waiting for an answer.
 ///

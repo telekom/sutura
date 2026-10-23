@@ -123,8 +123,12 @@ Five source-level adaptations, recorded here so nothing is silent:
   client library's retry. The patch adds `jobs_query_test.go`, which the build's check phase runs
   on a host that can run its target. sutura sets the option only for a `domain_delegation` source,
   beside the read-only scope. Its tests also need the caller-credentials patch's access-token
-  option. No upstream issue yet. Drop it when upstream starts a query with
-  `jobs.query`.
+  option. No upstream issue yet. `go/v1.14.1` starts a query with `jobs.query` itself under
+  `bigquery.query.job_creation_mode=optional`, through the client library's `Query.TryRead`. That
+  does not replace this patch: the pinned client library's fast-path probe declines any
+  configuration with a job timeout, which sutura sets whenever a request carries a port deadline,
+  and a dry run never takes that path. Drop it when upstream's `jobs.query` path carries a job
+  timeout and a dry run and refuses a configuration it cannot carry.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
