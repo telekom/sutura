@@ -17,16 +17,26 @@
 //! no digest does not deserialize, and the receiver compares only that digest
 //! ([`PinnedDefinitions::agrees_on`]): a bundle digest that differs is not read.
 //!
+//! **A remote leg may only name what its metric declares.** Each join is a hop of one of the
+//! metric's dimension chains, or the relationship this node's planner joins the leg's root to its
+//! shared calendar by. Each dimension key and each filter is a declared dimension on its own
+//! column, reached through its own chain; a filter is on a filterable dimension and binds only
+//! values in its allowlist, unless it is the metric's own required filter. Each link key is a key
+//! of a declared relationship between two sources, and every other key is a column the measure
+//! reads on the leg's root table. A lookup leg is rooted where such a relationship enters this
+//! source, and names no metric, so it is read against every metric's dimension chains into that
+//! root.
+//!
 //! **Limits, stated where the parse is.** The digest detects a version gap between two honest
-//! nodes and is no control against a hostile sender. The parse does not compare a result label with
-//! the dimension it names, an aggregate with the metric's own, or a column's type with the
-//! sender's. It certifies that every name is one this node declares and that the metric is defined
-//! as the sender defined it. For a fact leg it also certifies that the bucket is the metric's time
-//! column on the table this node buckets it on, that every term reads a column the measure reads on
-//! the leg's own root table, that a leg rooted on the metric's own table carries this node's
-//! required filters, and that the leg is bounded by its own range on that bucket column, at most
-//! [`MAX_RANGE_DAYS`](crate::query::MAX_RANGE_DAYS) days long: this node holds the time bound
-//! itself, as its own planner does. A lookup leg names no metric and carries no range.
+//! nodes and is no control against a hostile sender. The parse does not compare an aggregate with
+//! the metric's own or a column's type with the sender's. It certifies that every name is one this
+//! node declares and that the metric is defined as the sender defined it. For a fact leg it also
+//! certifies that the bucket is the metric's time column on the table this node buckets it on, that
+//! every term reads a column the measure reads on the leg's own root table, that a leg rooted on
+//! the metric's own table carries this node's required filters, and that the leg is bounded by its
+//! own range on that bucket column, at most [`MAX_RANGE_DAYS`](crate::query::MAX_RANGE_DAYS) days
+//! long: this node holds the time bound itself, as its own planner does. A lookup leg carries no
+//! range.
 
 use crate::calendar::TimeRange;
 use crate::definitions::NotDigestible;

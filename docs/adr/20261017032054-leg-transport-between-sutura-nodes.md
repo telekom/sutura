@@ -67,7 +67,14 @@ Node A plans the question and runs the combine. Node B owns the source of one le
    metric's own table and omits a required filter of B's own definition of the metric
    (`crates/sutura-domain/src/measure.rs:383-389`), or that is not bounded by its own range on B's
    bucket column for the metric, at most `query::MAX_RANGE_DAYS` long: B holds the time bound
-   itself, as its own planner does. A lookup leg carries no range. The refusal is a new variant
+   itself, as its own planner does. A lookup leg carries no range. A remote leg may only name what
+   its metric declares: each join is a hop of one of the metric's dimension chains, or the
+   relationship B's planner joins the leg's root to its shared calendar by; each dimension key or
+   filter is a declared dimension reached through its own chain, and a filter binds only values in
+   that dimension's allowlist unless it is the metric's required filter; each link key is a key of
+   a declared relationship between two sources; and a lookup leg is rooted where such a
+   relationship enters B's source. A lookup leg names no metric, so B reads it against every
+   metric's dimension chains into its root. The refusal is a new variant
    `RemoteLegNotCertified { source }` of `sutura-domain`'s `RefusalReason`
    (`crates/sutura-domain/src/query.rs:137`), added in #137 step 3. A maps it to the same variant,
    naming its `node` source. So B judges a leg by B's own certified definition, and a leg that

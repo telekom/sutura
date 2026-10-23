@@ -109,10 +109,15 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
                 "customer_id",
                 "channel_id",
                 "day_key",
+                "ship_day_key",
             ],
         ),
         model("channels", "sales", &["id", "channel_name"]),
-        model("refunds", "sales", &["refund_cents", "amount_cents", "order_id", "day_key"]),
+        model(
+            "refunds",
+            "sales",
+            &["refund_cents", "amount_cents", "order_id", "customer_id", "day_key"],
+        ),
         model("calendar", "sales", &["day_key", "order_date"]),
         model("customers", "crm", &["id", "region_id"]),
         model("regions", "crm", &["id", "region_name"]),
@@ -125,11 +130,35 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         relationship("refunds_calendar", "refunds", "calendar", "day_key", "day_key"),
         relationship("calendar_refunds", "calendar", "refunds", "day_key", "day_key"),
         relationship("refunds_order", "refunds", "orders", "order_id", "id"),
+        relationship("refunds_customer", "refunds", "customers", "customer_id", "id"),
+        relationship("orders_ship_calendar", "orders", "calendar", "ship_day_key", "day_key"),
     ];
     let channel = Dimension::new(
         DimensionName::parse("channel_name").expect("a test dimension is a dimension"),
         column("channel_name"),
         Some(ViaChain::of(vec![relationship_name("orders_channel")]).expect("a chain has a hop")),
+        None,
+        Description::default(),
+    );
+    let region = Dimension::new(
+        DimensionName::parse("region_name").expect("a test dimension is a dimension"),
+        column("region_name"),
+        Some(
+            ViaChain::of(vec![
+                relationship_name("orders_customer"),
+                relationship_name("customers_region"),
+            ])
+            .expect("a chain has a hop"),
+        ),
+        Some(BTreeSet::from(
+            ["EMEA", "APAC"].map(|value| DimensionValue::parse(value).expect("a test value is a value")),
+        )),
+        Description::default(),
+    );
+    let ship_day = Dimension::new(
+        DimensionName::parse("ship_day").expect("a test dimension is a dimension"),
+        column("order_date"),
+        Some(ViaChain::of(vec![relationship_name("orders_ship_calendar")]).expect("a chain has a hop")),
         None,
         Description::default(),
     );
@@ -143,7 +172,7 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        vec![channel],
+        vec![channel, region],
         None,
         Description::parse(bundle.revenue_description).expect("a test description is a description"),
         Audience::Open,
@@ -167,12 +196,12 @@ fn pinned(bundle: Bundle) -> PinnedDefinitions {
         }],
         column("order_date"),
         BTreeSet::from([Grain::Month]),
-        Vec::new(),
+        vec![ship_day],
         None,
         Description::default(),
         Audience::Open,
     )
-    .expect("no dimensions to collide")
+    .expect("one dimension cannot collide")
     .with_shared_calendar(model_name("calendar"));
     let mut metrics = vec![revenue, net];
     if bundle.with_another_metric {
@@ -332,7 +361,7 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("calendar", "order_date")),
         keys: vec![PlanKey::new(
             ResultLabel::internal(InternalLabel::link(0)),
-            col("refunds", "order_id"),
+            col("refunds", "customer_id"),
         )],
         terms: vec![LegTerm::new(
             PlanTerm::Aggregate {
@@ -789,3 +818,5 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
 
 #[cfg(test)]
 mod calendars;
+#[cfg(test)]
+mod surface;
