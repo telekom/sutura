@@ -51,9 +51,19 @@ pub(crate) fn is_tls_option(key: &str) -> bool {
 
 impl TlsOptions {
     pub(crate) fn is_empty(&self) -> bool {
-        self.root_certs.is_none()
-            && self.client_cert_chain.is_none()
-            && self.client_private_key.is_none()
+        self.declared().is_empty()
+    }
+
+    /// The names of the options that are set.
+    fn declared(&self) -> Vec<&'static str> {
+        [
+            (TLS_ROOT_CERTS, self.root_certs.is_some()),
+            (MTLS_CERT_CHAIN, self.client_cert_chain.is_some()),
+            (MTLS_PRIVATE_KEY, self.client_private_key.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, set)| set.then_some(name))
+        .collect()
     }
 
     /// Refuse a declared TLS setting on a URI that is not `https`.
@@ -61,14 +71,7 @@ impl TlsOptions {
     /// `scheme` is the scheme of the configured URI, or `None` where none is configured and the
     /// client's default (`http`) applies.
     pub(crate) fn require_https(&self, scheme: Option<&str>) -> Result<(), Error> {
-        let declared = [
-            (TLS_ROOT_CERTS, self.root_certs.is_some()),
-            (MTLS_CERT_CHAIN, self.client_cert_chain.is_some()),
-            (MTLS_PRIVATE_KEY, self.client_private_key.is_some()),
-        ]
-        .into_iter()
-        .filter_map(|(name, set)| set.then_some(name))
-        .collect::<Vec<_>>();
+        let declared = self.declared();
         if declared.is_empty() || scheme == Some("https") {
             return Ok(());
         }

@@ -20,7 +20,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use adbc_core::error::Status;
-    use adbc_core::options::{AdbcVersion, OptionConnection, OptionDatabase};
+    use adbc_core::options::{AdbcVersion, OptionConnection, OptionDatabase, OptionValue};
     use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
     use adbc_driver_manager::{ManagedDatabase, ManagedDriver};
     use arrow_array::RecordBatch;
@@ -126,11 +126,13 @@ mod tests {
             .expect("the library defines AdbcClickhouseInit");
     }
 
-    /// A database at `uri` with one declared TLS root and, when `identity`, a client identity too.
-    fn database_declaring_tls(uri: &str, identity: bool) -> ManagedDatabase {
+    /// A database at `uri` (none, where `uri` is `None`) with one declared TLS root or, when
+    /// `identity`, a client identity instead.
+    fn database_declaring_tls(uri: Option<&str>, identity: bool) -> ManagedDatabase {
         let pair = rcgen::generate_simple_self_signed([String::from("tier.invalid")]).expect("a self-signed pair generates");
         let (certificate, key) = (pair.cert.pem(), pair.signing_key.serialize_pem());
-        let mut options = vec![(OptionDatabase::Uri, uri.into())];
+        let mut options: Vec<(OptionDatabase, OptionValue)> =
+            uri.map(|uri| (OptionDatabase::Uri, uri.into())).into_iter().collect();
         if identity {
             options.push((OptionDatabase::Other(MTLS_CERT_CHAIN.to_owned()), certificate.into()));
             options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), key.into()));
@@ -145,7 +147,7 @@ mod tests {
     #[test]
     fn a_declared_tls_setting_is_refused_on_an_http_uri() {
         for (identity, setting) in [(false, TLS_ROOT_CERTS), (true, MTLS_CERT_CHAIN)] {
-            let database = database_declaring_tls("http://127.0.0.1:1", identity);
+            let database = database_declaring_tls(Some("http://127.0.0.1:1"), identity);
             let Err(refused) = database.new_connection() else {
                 panic!("{setting} declared over http must be refused when the connection is created");
             };
@@ -155,11 +157,23 @@ mod tests {
         }
     }
 
+    /// The refusal holds with no URI at all, where the client's default is `http`.
+    #[test]
+    fn a_declared_tls_setting_is_refused_with_no_uri() {
+        let database = database_declaring_tls(None, false);
+        let Err(refused) = database.new_connection() else {
+            panic!("{TLS_ROOT_CERTS} declared with no URI must be refused when the connection is created");
+        };
+        assert_eq!(refused.status, Status::InvalidArguments, "{refused:?}");
+        assert!(refused.message.contains("requires an https URI"), "{refused:?}");
+        assert!(refused.message.contains(TLS_ROOT_CERTS), "{refused:?}");
+    }
+
     /// The control for the refusal: the same declared root on an `https` URI builds the connection and
     /// goes on to dial, so the refusal above is the scheme and not the root.
     #[test]
     fn a_declared_tls_root_on_an_https_uri_reaches_the_dial() {
-        let database = database_declaring_tls("https://127.0.0.1:1", false);
+        let database = database_declaring_tls(Some("https://127.0.0.1:1"), false);
         let mut connection = database.new_connection().expect("an https URI with a declared root connects");
         let mut statement = connection.new_statement().expect("a statement opens");
         statement.set_sql_query("SELECT 1").expect("the query is accepted");

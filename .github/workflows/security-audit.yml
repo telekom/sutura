@@ -18,6 +18,10 @@ on:
     paths:
       - "Cargo.lock"
       - "Cargo.toml"
+      - "fuzz/Cargo.lock"
+      - "fuzz/Cargo.toml"
+      - "nix/clickhouse-adbc.Cargo.lock"
+      - "vendor/adbc_clickhouse/Cargo.toml"
       - "deny.toml"
       - "pixi.lock"
       - "pixi.toml"
@@ -27,6 +31,10 @@ on:
     paths:
       - "Cargo.lock"
       - "Cargo.toml"
+      - "fuzz/Cargo.lock"
+      - "fuzz/Cargo.toml"
+      - "nix/clickhouse-adbc.Cargo.lock"
+      - "vendor/adbc_clickhouse/Cargo.toml"
       - "deny.toml"
       - "pixi.lock"
       - "pixi.toml"

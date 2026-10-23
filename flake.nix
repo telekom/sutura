@@ -1045,20 +1045,23 @@
         # that happens to ship Rust it would have silently audited using *that* cargo - a
         # second, unpinned toolchain, which is the drift this flake exists to remove.
         #
-        # TWO INVOCATIONS, ONE `deny.toml`. `fuzz/` is its own cargo workspace (its own
-        # manifest, its own lock - see `fuzz/Cargo.toml`'s header), so the first `cargo deny
+        # ONE `deny.toml` for every invocation. `fuzz/` is its own cargo workspace (its own
+        # manifest, its own lock - see `fuzz/Cargo.toml`'s header), so the root `cargo deny
         # check` above only ever reads the ROOT graph and `fuzz/Cargo.lock` was never
-        # advisory-checked at all. The second run points `--manifest-path` at it. Same config
-        # both times: `deny.toml`'s `[[licenses.exceptions]]`-equivalent `exceptions` entry
-        # scopes `libfuzzer-sys`'s NCSA half to that one crate, so it does not need to be in
-        # the global `allow` list - which matters because `unused-allowed-license = "deny"`
-        # would then fail the ROOT run over an entry the root graph never reaches. What the
-        # root config's `allow` list DOES carry that `fuzz/`'s graph does not reach -
+        # advisory-checked at all. The fuzz invocation points `--manifest-path` at it. Same
+        # config each time: `deny.toml`'s `[[licenses.exceptions]]`-equivalent `exceptions`
+        # entry scopes `libfuzzer-sys`'s NCSA half to that one crate, so it does not need to
+        # be in the global `allow` list - which matters because `unused-allowed-license =
+        # "deny"` would then fail the ROOT run over an entry the root graph never reaches.
+        # What the root config's `allow` list DOES carry that `fuzz/`'s graph does not reach -
         # `CDLA-Permissive-2.0` (the DuckDB/BigQuery TLS cert data set) and the `bzip2-1.0.6`
         # compression codec, neither of which `fuzz/`'s dependency set pulls in - is exactly
         # what `unused-allowed-license` is FOR on the root run and would be a false refusal on
         # the fuzz-only one, so `-A license-not-encountered` disables only that one lint for
-        # the second invocation. `bans`/`advisories`/`sources` stay fully denied on both.
+        # the fuzz invocation. The driver invocation runs `nix/deny-clickhouse-driver.sh`
+        # against the vendored driver's own lock (`nix/clickhouse-adbc.Cargo.lock`), which
+        # the root run and the fuzz run never read. `bans`/`advisories`/`sources` stay fully
+        # denied in every invocation.
         apps.deny = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''

@@ -31,12 +31,14 @@
 # names a C library answers. That also drops `AdbcDriverInit`, the generic fallback name
 # `adbc_ffi::export_driver!` defines and the BigQuery Go archive defines too.
 #
-# **`ld -r --force-group-allocation` is load-bearing.** The staticlib holds one COMDAT group, the
-# `DW.ref.rust_eh_personality` pointer its unwind tables use. Made local by `objcopy`, the group
+# **`ld -r --force-group-allocation` is load-bearing.** The staticlib holds 137 COMDAT groups:
+# 136 `wm4.*` groups of debug-macro sections, and `DW.ref.rust_eh_personality`, the pointer
+# its unwind tables use - the one that breaks the link. Made local by `objcopy`, the group
 # signature still deduplicates by name against libstd's own group at the final link: the driver's
 # copy wins, libstd's copy is dropped, and libstd's hidden reference to the name is left with no
-# definition - `relocation R_X86_64_PC32 against undefined hidden symbol` while making a PIE, which
-# is how the musl `sutura` build failed. The flag dissolves the group, leaving a plain section.
+# definition - `relocation R_X86_64_PC32 against undefined hidden symbol` while making a PIE,
+# which is how the musl `sutura` build failed. The flag dissolves every group, leaving plain
+# sections, and the build guard refuses any of them.
 #
 # The build checks three things, none of them that the driver RUNS: `readelf` refuses an archive
 # that still holds a COMDAT group, `nm` refuses one whose defined globals are anything but the one
