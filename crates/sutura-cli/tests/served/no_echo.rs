@@ -13,14 +13,18 @@
 //! **The limit:** the scan reads what the process wrote until it stopped; a line written after
 //! `SIGTERM` was delivered and before exit is read, one the process never flushed is not.
 
+#[cfg(any(feature = "cube", feature = "datahub", feature = "openmetadata"))]
 use sutura_config::Environment;
 use sutura_dev::issuer::{PublishedKeySet, Token};
+#[cfg(any(feature = "cube", feature = "datahub", feature = "openmetadata"))]
 use sutura_http_client::test_support::{FakeServer, Scripted};
 
 use crate::harness::{
-    Reply, TOKEN, accepted_by, an_issuer, example_root, recurring_revenue_june, refused_to_start, settings_crediting,
-    settings_declaring_inbound, start_configured_with_environment, v1, written,
+    Reply, accepted_by, an_issuer, example_root, recurring_revenue_june, settings_crediting, settings_declaring_inbound,
+    start_configured_with_environment, v1,
 };
+#[cfg(any(feature = "cube", feature = "datahub", feature = "openmetadata"))]
+use crate::harness::{TOKEN, refused_to_start, written};
 
 #[cfg(feature = "cube")]
 #[path = "cube_token.rs"]
@@ -68,6 +72,7 @@ pub(crate) fn echoed(secrets: &[(&'static str, &str)], replies: &[&Reply], lines
 ///
 /// `settings` declares the deployment over the fake it is given, reading `token` from its token
 /// file. Each fake must have been sent `token` as a bearer, or the absence below proves nothing.
+#[cfg(any(feature = "cube", feature = "datahub", feature = "openmetadata"))]
 pub(crate) fn bearer_echoed(
     case: &str,
     token: &str,
