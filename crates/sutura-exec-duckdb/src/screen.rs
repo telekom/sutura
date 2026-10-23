@@ -31,12 +31,10 @@ pub const RAW_TABLE_FUNCTIONS: [&str; 10] = [
 
 /// The query nodes a raw text may hold, by the `type` the parser serialises them as.
 ///
-/// **Default-closed, on the node.** The parser answers that a statement is a `SELECT` yet accepts
-/// a `WITH` whose body writes: its tree then holds an insert, update, delete or copy node under the
-/// `SELECT`'s CTE map, which the statement-level answer does not name. Any node whose `type` ends in
-/// `_NODE` and is not listed here refuses the text. Limit: a write the parser serialises under a
-/// `type` that does not end in `_NODE` is not caught here, and what holds then is the database's
-/// own read-only open.
+/// **Default-closed, on the node.** The statement-level answer does not name every query node a
+/// `SELECT` holds, so the tree is read for them. Any node whose `type` ends in `_NODE` and is not
+/// listed here refuses the text. Limit: a node the parser serialises under a `type` that does not
+/// end in `_NODE` is not caught here, and what holds then is the database's own read-only open.
 pub const READ_NODES: [&str; 4] = ["SELECT_NODE", "SET_OPERATION_NODE", "RECURSIVE_CTE_NODE", "CTE_NODE"];
 
 /// The deepest the queries of a raw text may nest, a reference to a CTE counted as the query it

@@ -471,10 +471,9 @@ mod raw {
         assert_eq!(logging(&warehouse), before);
     }
 
-    /// The screen's node class: a `WITH` whose body writes is a `SELECT` to the statement-level
-    /// answer, and its tree holds the writing node. Refused by that node before anything runs, so
-    /// the table keeps its rows and no file appears - the barrier would refuse each at the engine,
-    /// but not by name.
+    /// The screen's node class: a query node that is not a read, held under a `SELECT`, is refused
+    /// by that node before anything runs, so the table keeps its rows and no file appears. The
+    /// barrier would refuse each at the engine, but not by name.
     #[test]
     fn a_data_changing_query_inside_a_select_is_refused_by_its_node_before_any_of_it_runs() {
         let scratch = Scratch::new("screen-node");
