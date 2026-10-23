@@ -72,9 +72,9 @@ pub(crate) fn open_bigquery(
 
 /// Builds one `BigQuery` adapter, after checking this build can deliver the source's posture.
 ///
-/// **Every value it needs is declared on the source entry.** The billing project, the dataset and -
-/// where the source impersonates - the audience of the pool the caller's assertion is exchanged
-/// against. The request timeout no longer reaches this function: the `wire` half's `QueryDeadline`
+/// **Every value it needs is declared on the source entry.** Who its jobs are billed to, the
+/// bytes-billed ceiling and - where the source impersonates - the audience of the pool the caller's
+/// assertion is exchanged against. The request timeout no longer reaches this function: the `wire` half's `QueryDeadline`
 /// and bytes-billed ceiling went away with the transport, and the ADBC driver bounds a job under
 /// its own settings.
 ///

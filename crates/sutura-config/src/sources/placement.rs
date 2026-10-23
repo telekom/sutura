@@ -1,11 +1,12 @@
 //! Where a declared source's data actually is, in the terms its own kind uses.
 //!
 //! **One enum rather than a struct of optional fields, and the difference is unrepresentable versus
-//! checked.** A files source has a directory and no billing project; a `BigQuery` source has a
-//! billing project and a dataset and no directory. Carried as `Option` fields on one struct, the
-//! wrong combination would be representable - a `BigQuery` source with a data directory and no
-//! project - and every reader would have to decide for itself what an absence meant. As two variants
-//! there is nothing to decide: a reader matches, and the compiler asks about a third kind.
+//! checked.** A files source has a directory and no billing policy; a `BigQuery` source has a
+//! billing policy and a bytes-billed ceiling and no directory. Carried as `Option` fields on one
+//! struct, the wrong combination would be representable - a `BigQuery` source with a data directory
+//! and no billing policy - and every reader would have to decide for itself what an absence meant.
+//! As two variants there is nothing to decide: a reader matches, and the compiler asks about a third
+//! kind.
 //!
 //! This module is also where the two `BigQuery` newtypes live, and their `parse` functions carry an
 //! argument that is **ours rather than the provider's format rules restated** - see
@@ -51,22 +52,19 @@ use super::transport::{SourceTransport, TrustAnchors};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BillingProject(String);
 
-/// The dataset unqualified table names in a generated statement resolve within.
+/// A `BigQuery` dataset id: the middle part of the `project.dataset.table` path a model names.
 ///
-/// **Why this is configuration and not catalog:** a model in the catalog names a bare `table:`, and
-/// which dataset that table lives in is a property of the deployment's connection rather than of the
-/// metric's definition. The same catalog served against a staging dataset and a production one is one
-/// catalog and two deployments, which is exactly the split this type keeps.
-///
-/// The generated statement therefore stays a bare, quoted table name in every dialect - the request
-/// carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
-/// `sutura-sql` has to know this exists.
+/// **No `sources:` key reads it.** A source declares no default dataset - a `dataset` key is refused
+/// at load - and every model names its table in full, so the dataset travels inside the table path
+/// that `sutura-domain` parses and not beside the SQL. Nothing but this module's tests constructs a
+/// `DatasetId` today; the type the adapter writes into a request is
+/// `sutura_exec_bigquery::transport::DatasetId`.
 ///
 /// `parse` accepts `[A-Za-z0-9_]`, 1 to 1024 characters. Unlike [`BillingProject`] this one does not
 /// reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
-/// not an identifier is a misconfiguration worth refusing when the file is read rather than on the
-/// first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
-/// would turn a working declaration into a dataset that does not exist.
+/// not an identifier is worth refusing when it is parsed rather than on the first question. Case is
+/// PRESERVED, because a dataset id is case-sensitive and folding it here would turn a name that
+/// works into a dataset that does not exist.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DatasetId(String);
 

@@ -1,9 +1,9 @@
 //! Where a table lives, when that is more than its own name.
 //!
-//! A multi-project estate names tables outside the one dataset a connection defaults to, and the
-//! failure mode of not being able to is not a clean refusal: a table of the same name present in the
-//! default dataset is read instead, and a plausible number comes back under a certified metric with
-//! its definition digest unmoved. `docs/adr/0019` is the decision; issue #83 is the report.
+//! A multi-project estate names tables outside the one dataset a connection once defaulted to, and
+//! the failure mode of not being able to was not a clean refusal: a table of the same name present
+//! in the default dataset was read instead, and a plausible number came back under a certified
+//! metric with its definition digest unmoved. `docs/adr/0019` is the decision; issue #83 is the report.
 //!
 //! # This is a COMPOSITION of parsed names, and never a string containing dots
 //!

@@ -60,7 +60,7 @@ pub(crate) type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<sutura_
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// posture this adapter cannot deliver; the `impersonation-at-source` posture, which this binary
 /// attaches no broker for; a build carrying no driver with no usable mounted one named either; and
-/// a project or dataset id the transport will not accept.
+/// a billing project or a bytes-billed ceiling the transport will not accept.
 #[cfg(feature = "bigquery")]
 pub(super) fn open(
     source: &SourceName,
