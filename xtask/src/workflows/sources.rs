@@ -48,7 +48,7 @@ pub(crate) struct Source {
 /// is the scan being broken.
 ///
 /// `Ok(None)` is a file that is not there. `Err` names the file and the OS error.
-fn in_scope_text(path: &Path) -> Result<Option<String>, String> {
+pub(crate) fn in_scope_text(path: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(why) if why.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -63,7 +63,7 @@ fn in_scope_text(path: &Path) -> Result<Option<String>, String> {
 /// in silence. `read_dir(..).into_iter().flatten().flatten()` used to make a directory that
 /// EXISTS and cannot be read indistinguishable from one that is not there, and the module
 /// header's own argument says the second is legitimate - not the first.
-fn in_scope_dir(path: &Path) -> Result<Vec<std::path::PathBuf>, String> {
+pub(crate) fn in_scope_dir(path: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     match std::fs::read_dir(path) {
         Ok(entries) => entries
             .map(|entry| {

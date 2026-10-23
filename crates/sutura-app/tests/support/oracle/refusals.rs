@@ -37,10 +37,10 @@ use super::{column, dimension, source, version};
 ///
 /// **It exists to provoke one plan SHAPE, and it used to be a refusal.** A question whose join
 /// reaches a second data system was declined before anything ran, because a second data system is a
-/// second identity to satisfy; `docs/adr/0007`'s splitter serves exactly two by splitting the
-/// question into a fact leg and a lookup leg, so what this fake now provokes is
+/// second identity to satisfy; `docs/adr/0007`'s splitter serves up to three lookup legs by
+/// splitting the question into a fact leg and its lookup legs, so what this fake now provokes is
 /// `sutura_semantic::Compiled::Federated`. The refusal it was built for is
-/// `PlanSpansTooManySources`, which needs a THIRD source and no fake here has one.
+/// `PlanNeedsTooManyLookupLegs`, which needs four lookup legs and no fake here has them.
 ///
 /// **Two models and one metric rather than the whole catalog, and the reduction is deliberate.**
 /// Nothing here ever executes and nothing compares it against a document, so carrying eleven

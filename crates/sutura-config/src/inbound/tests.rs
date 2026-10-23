@@ -31,6 +31,7 @@ fn direct() -> InboundIdentity {
         key_set: key_set(),
         algorithms: rs256(),
         token_type: RequiredTokenType::access_token(),
+        address_claim: crate::inbound::AddressClaim::VerifiedEmail,
     }
 }
 

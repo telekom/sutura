@@ -88,6 +88,7 @@ pub(crate) const QUESTION_CODES: &[Label] = &[
 /// lists in it. A code the table does not list is not checked against this list, and a refusal
 /// under an unregistered code counts nowhere (the registry ignores an unregistered key).
 const REFUSAL_REASONS: &[Label] = &[
+    label("address_outside_domains"),
     label("bill_to_not_allowed"),
     label("budget_exhausted"),
     label("credential_unavailable"),
@@ -103,14 +104,11 @@ const REFUSAL_REASONS: &[Label] = &[
     label("duplicate_dimension"),
     label("duplicate_metric_name"),
     label("federated_answer_not_well_formed"),
-    label("federation_link_ambiguous"),
     label("federation_link_compound"),
     label("federation_link_type_mismatch"),
     label("federation_not_executable"),
     label("grain_not_supported"),
     label("metric_unknown"),
-    label("metrics_span_different_models"),
-    label("multi_metric_federation_not_executable"),
     label("multi_metric_top_not_executable"),
     label("no_billing_project"),
     label("plan_needs_too_many_lookup_legs"),

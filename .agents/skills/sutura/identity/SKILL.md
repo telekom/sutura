@@ -276,8 +276,8 @@ standing cells. Its supplementary Google API probe observed disjoint row filters
 for an ungranted pool principal; that probe is not automated coverage.
 
 **The principal switch ships only as `domain_delegation`, opt-in per source.** There the
-transport sets `bigquery.impersonate.target_principal`, the `bigquery` scope and `subject` = the
-verified address per job, with the caller's credential nowhere in the chain: the deployment vouches
+transport sets `bigquery.impersonate.target_principal`, the `bigquery.readonly` scope, `subject` =
+the verified address and `bigquery.query.through_jobs_query`, per job, with the caller's credential nowhere in the chain: the deployment vouches
 (`JobIdentity::AsAddress`). Every other source refuses a principal switch (`NoPrincipalSwitch`).
 
 **There is no subject allow-list on a federating source.** Every verified caller is presented their

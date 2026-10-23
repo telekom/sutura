@@ -723,7 +723,7 @@ mod tests {
         // check covers instead. And it resolves only that a cited name IS a recipe; that the recipe
         // provisions the service it was cited for is the test below.
         let root = worktree_root(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("this crate is inside a checkout");
-        let justfile = std::fs::read_to_string(root.join("justfile")).expect("the justfile is readable");
+        let justfile = crate::justfile::text(&root).expect("the justfile set is readable");
         let tasks = recipes(&justfile);
         for expected in [
             "keycloak-tier",

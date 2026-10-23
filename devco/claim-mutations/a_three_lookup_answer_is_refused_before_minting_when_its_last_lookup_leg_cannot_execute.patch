@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/federated.rs b/crates/sutura-app/src/federated.rs
+--- a/crates/sutura-app/src/federated.rs
++++ b/crates/sutura-app/src/federated.rs
+@@ -286,7 +286,7 @@
+                 .ok_or_else(|| unavailable(leg))
+         })
+         .collect::<Result<Vec<_>, _>>()?;
+-    if !fact_warehouse.executes_legs() || others.iter().any(|&(_, warehouse)| !warehouse.executes_legs()) {
++    if !fact_warehouse.executes_legs() || others.iter().take(2).any(|&(_, warehouse)| !warehouse.executes_legs()) {
+         return Err(Box::new(Answered::declined_before_minting(ToolOutcome::Refusal {
+             reason: RefusalReason::FederationNotExecutable,
+         })));

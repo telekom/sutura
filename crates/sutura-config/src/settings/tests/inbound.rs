@@ -475,6 +475,40 @@ fn direct_token_type_any_starts_with_its_opt_in() {
 }
 
 #[test]
+fn a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode() {
+    for inbound in [DIRECT_INBOUND, GATEWAY_INBOUND] {
+        let error = Settings::load(
+            &Sources::defaults(Environment::Development)
+                .with_overlay(format!("security:\n{inbound}    address_claim: \"upn\"\n")),
+        )
+        .expect_err("a declared claim needs its acceptance");
+        assert!(
+            matches!(
+                *error.reason(),
+                SettingsError::InboundAddressClaimNotAccepted { ref claim } if claim.as_str() == "upn"
+            ),
+            "{error:?}"
+        );
+        assert!(
+            error
+                .reason()
+                .to_string()
+                .contains("`security.inbound.accept_address_claim: true`"),
+            "{error}"
+        );
+        let accepted = loads(format!(
+            "security:\n{inbound}    address_claim: \"upn\"\n    accept_address_claim: true\n"
+        ));
+        let declared = accepted.security().inbound().expect("the declaration is there").requirement();
+        assert_eq!(declared.address_claim().declared().map(crate::ClaimName::as_str), Some("upn"));
+    }
+    // `email` is the default and reads `email_verified`, so it needs no acceptance.
+    let default = loads(format!("security:\n{DIRECT_INBOUND}    address_claim: \"email\"\n"));
+    let requirement = default.security().inbound().expect("the declaration is there").requirement();
+    assert_eq!(*requirement.address_claim(), crate::AddressClaim::VerifiedEmail);
+}
+
+#[test]
 fn a_transit_lifetime_at_the_ceiling_does_not_start_without_its_opt_in() {
     let rendered = refusal(format!(
         "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n",

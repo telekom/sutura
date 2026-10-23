@@ -47,10 +47,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::MetricUnknown {
             metric: metric("revenue"),
         },
-        RefusalReason::MetricsSpanDifferentModels {
-            first: metric("revenue"),
-            other: metric("margin"),
-        },
         RefusalReason::TooManyMetrics {
             requested: 9,
             limit: MAX_METRICS,
@@ -63,9 +59,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::QuestionNeedsTooManyLegs { legs: 8, limit: 6 },
         RefusalReason::DuplicateMetricName {
             metric: metric("revenue"),
-        },
-        RefusalReason::MultiMetricFederationNotExecutable {
-            metrics: vec![metric("revenue"), metric("margin")],
         },
         RefusalReason::MultiMetricTopNotExecutable {
             metrics: vec![metric("revenue"), metric("margin")],
@@ -109,10 +102,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::ResourcesExhausted {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
-        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+        RefusalReason::PlanSpansTooManySources { sources: 5, limit: 4 },
         RefusalReason::PlanNeedsTooManyLookupLegs { legs: 4, limit: 3 },
         RefusalReason::FederationNotExecutable,
-        RefusalReason::FederationLinkAmbiguous { source: source("geo") },
         RefusalReason::FederationLinkCompound {
             source: source("geo"),
             relationship: RelationshipName::parse("usage_subscription").expect("a fixture relationship is a relationship"),
@@ -143,6 +135,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::CredentialUnavailable {
             source: source("warehouse"),
         },
+        RefusalReason::AddressOutsideDomains {
+            source: source("warehouse"),
+        },
         RefusalReason::DeadlineExceeded { budget_seconds: 29 },
         RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
         RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
@@ -166,12 +161,10 @@ pub fn every_refusal() -> Vec<RefusalReason> {
         // No wildcard: a variant added to the enum does not compile until it is named here.
         match reason {
             RefusalReason::MetricUnknown { .. }
-            | RefusalReason::MetricsSpanDifferentModels { .. }
             | RefusalReason::TooManyMetrics { .. }
             | RefusalReason::DimensionNotConformed { .. }
             | RefusalReason::QuestionNeedsTooManyLegs { .. }
             | RefusalReason::DuplicateMetricName { .. }
-            | RefusalReason::MultiMetricFederationNotExecutable { .. }
             | RefusalReason::MultiMetricTopNotExecutable { .. }
             | RefusalReason::GrainNotSupported { .. }
             | RefusalReason::DimensionNotPermitted { .. }
@@ -182,10 +175,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::TooManyFilters { .. }
             | RefusalReason::ResultTooLarge { .. }
             | RefusalReason::TimeRangeTooLong { .. }
-            | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::PlanNeedsTooManyLookupLegs { .. }
+            | RefusalReason::PlanSpansTooManySources { .. }
             | RefusalReason::FederationNotExecutable
-            | RefusalReason::FederationLinkAmbiguous { .. }
             | RefusalReason::FederationLinkCompound { .. }
             | RefusalReason::FederationLinkTypeMismatch { .. }
             | RefusalReason::FederatedAnswerNotWellFormed { .. }
@@ -196,6 +188,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::NoBillingProject { .. }
             | RefusalReason::ResourcesExhausted { .. }
             | RefusalReason::CredentialUnavailable { .. }
+            | RefusalReason::AddressOutsideDomains { .. }
             | RefusalReason::DeadlineExceeded { .. }
             | RefusalReason::BudgetExhausted { .. }
             | RefusalReason::TopOverUncertifiedRows { .. }

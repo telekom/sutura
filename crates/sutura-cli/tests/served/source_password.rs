@@ -230,35 +230,27 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line() {
     assert!(leaked.is_empty(), "a source password was logged: {leaked:?}");
 }
 
-/// The example catalog, copied beside `case`'s configuration directory without any `anchor:` block.
-///
-/// **Known not to boot yet:** a bundle with no anchor is refused as unfaithful, and the tier holds
-/// none of the tables the boot checks read.
+/// One anchored metric without relationships, over the table this cell provisions.
 #[cfg(feature = "oracle")]
-fn unanchored_catalog(case: &str) -> std::path::PathBuf {
+fn oracle_password_catalog(case: &str) -> std::path::PathBuf {
     let root = crate::harness::derived_beside(&crate::harness::config_path(case));
-    drop(std::fs::remove_dir_all(&root));
-    std::fs::create_dir_all(&root).expect("the derived directory is creatable");
     let catalog = root.join("catalog");
-    let copied = std::process::Command::new("cp")
-        .arg("-R")
-        .arg(example_root().join("catalog"))
-        .arg(&catalog)
-        .status()
-        .expect("cp runs");
-    assert!(copied.success(), "the example catalog did not copy");
-    for entry in std::fs::read_dir(catalog.join("metrics")).expect("the copied metrics directory reads") {
-        let metric = entry.expect("a metrics directory entry reads").path();
-        let text = std::fs::read_to_string(&metric).expect("a copied metric reads");
-        let mut inside = false;
-        let kept: Vec<&str> = text
-            .lines()
-            .filter(|line| {
-                inside = *line == "anchor:" || (inside && line.starts_with(' '));
-                !inside
-            })
-            .collect();
-        std::fs::write(&metric, kept.join("\n")).expect("a derived metric writes");
+    std::fs::create_dir_all(&catalog).expect("the fixture catalog directory is creatable");
+    for (name, document) in [
+        (
+            "declaration.md",
+            "---\nkind: declaration\ndefinitions: [structure, metrics, grains, anchors, descriptions, column_types]\nknowledge: []\n---\n",
+        ),
+        (
+            "model.md",
+            "---\nkind: model\nname: password_events\nsource: local\ntable: served_password_events\ncolumns:\n  - {name: month, type: DATE, nullable: false}\n  - {name: amount, type: NUMERIC, nullable: false}\n---\nThe served password fixture.\n",
+        ),
+        (
+            "metric.md",
+            "---\nkind: metric\nname: recurring_revenue\nmodel: password_events\nmeasure:\n  simple: {aggregate: sum, column: amount}\ntime_column: month\ngrains: [month]\nanchor:\n  range: {start: 2026-06-01, end: 2026-07-01}\n  value: 202121\naudience: open\n---\nThe fixture's certified total.\n",
+        ),
+    ] {
+        std::fs::write(catalog.join(name), document).expect("a fixture catalog document writes");
     }
     catalog
 }
@@ -286,6 +278,44 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
         password.len() >= RUN,
         "the tier's password is shorter than {RUN} characters, so it cannot be searched for; the acceptance task generates one"
     );
+    let address = format!("tcps://{}:{}/FREEPDB1", endpoint.host(), endpoint.port());
+    let authority = std::fs::read_to_string(&anchors).expect("the tier's certificate authority reads");
+    let config = oracledb::Config::default()
+        .set_connect_string(&address)
+        .expect("the discovered endpoint is an Oracle connect string")
+        .set_trust_anchors_pem(&authority)
+        .expect("the tier's certificate authority is an anchor")
+        .set_credentials(&user, &password);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test provisions its own table through the driver; no fixture code ships"
+    )]
+    let setup = oracledb::connect(config).expect("the tier accepts the fixture credential");
+    setup
+        .set_call_timeout(Some(std::time::Duration::from_secs(30)))
+        .expect("the fixture call timeout sets");
+    if let Err(cause) = setup.execute("DROP TABLE \"served_password_events\" PURGE", &[]) {
+        assert!(
+            cause.to_string().contains("ORA-00942"),
+            "the old fixture did not drop: {cause}"
+        );
+    }
+    setup
+        .execute(
+            "CREATE TABLE \"served_password_events\" (\"month\" DATE NOT NULL, \"amount\" NUMBER(38) NOT NULL)",
+            &[],
+        )
+        .expect("the served fixture table creates");
+    setup
+        .execute(
+            "INSERT INTO \"served_password_events\" VALUES (DATE '2026-06-01', 202000)",
+            &[],
+        )
+        .expect("the first fixture row inserts");
+    setup
+        .execute("INSERT INTO \"served_password_events\" VALUES (DATE '2026-06-02', 121)", &[])
+        .expect("the second fixture row inserts");
+    setup.commit().expect("the served connection can read the fixture rows");
     let case = "source-password-oracle-tier";
     let canary = format!("{case}-canary");
     let settings = |case: &str, file: &PasswordFile| {
@@ -298,7 +328,7 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
             file.0.display()
         );
         settings_over(
-            &unanchored_catalog(case),
+            &oracle_password_catalog(case),
             &example_root().join("data"),
             crate::harness::AGENT_LOOPBACK,
             SINGLE_USER,
@@ -317,10 +347,21 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
     ));
     let [v1, _, mcp] = &replies;
     assert!(
-        v1.status >= 400 && mcp.status == 200 && mcp.json()["result"]["isError"].as_bool() == Some(true),
-        "the question must be refused over both surfaces, or what each said below is not an error path:\n{}\n{}",
-        v1.body,
-        mcp.body
+        v1.status == 200 && mcp.status == 200,
+        "the right password must answer over both surfaces: {} / {}",
+        v1.status,
+        mcp.status
+    );
+    let expected = serde_json::json!([["2026-06-01", "202121"]]);
+    assert_eq!(
+        v1.json()["rows"],
+        expected,
+        "the HTTP question must read the provisioned rows"
+    );
+    assert_eq!(
+        mcp.json()["result"]["structuredContent"]["rows"],
+        expected,
+        "the MCP question must read the same rows"
     );
     let refused = crate::harness::refused_to_start(
         sutura_config::Environment::Development,
@@ -344,6 +385,9 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
         &lines,
     );
     assert!(leaked.is_empty(), "a source password was sent back or logged: {leaked:?}");
+    setup
+        .execute("DROP TABLE \"served_password_events\" PURGE", &[])
+        .expect("the served fixture table drops");
 }
 
 #[cfg(feature = "clickhouse")]

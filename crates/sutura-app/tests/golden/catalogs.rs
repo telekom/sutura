@@ -191,8 +191,8 @@ where
             Compiled::Planned { ref plan } => {
                 insta::assert_yaml_snapshot!(format!("{name}__plan"), plan);
             }
-            // The golden corpus is one source, so no question in it federates.
-            Compiled::Federated { .. } => {
+            // The golden corpus is one source and one metric at a time, so no question in it federates.
+            Compiled::Federated { .. } | Compiled::DrillAcross { .. } => {
                 panic!("the question corpus spans one data system; no question federates")
             }
         });

@@ -155,7 +155,7 @@ fn the_commit_hook_the_task_and_ci_all_build_the_one_chart_check() {
     // 5. THE CITABLE TASK IS THE SAME INVOCATION. `AGENTS.md` requires a `just` task rather than a
     //    command line, and `check-guidance` fails a citation of a task that does not exist - so
     //    every page that will cite this cites one recipe, and that recipe is not a third spelling.
-    let justfile = read("justfile");
+    let justfile = sutura_dev::justfile::text(&root()).expect("the justfile set is readable");
     assert!(
         recipe(&justfile, GATE).lines().any(|line| line.trim() == ENTRY),
         "`just {GATE}` does not run `{ENTRY}`"

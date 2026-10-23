@@ -51,6 +51,7 @@ fn direct_from_url() -> InboundIdentity {
         key_set: KeySetLocation::Url(KeySetUrl::parse("https://issuer.example.com/jwks").expect("a test URL is a URL")),
         algorithms: PinnedAlgorithms::of(SigningAlgorithm::Es256),
         token_type: RequiredTokenType::access_token(),
+        address_claim: sutura_config::AddressClaim::VerifiedEmail,
     }
 }
 

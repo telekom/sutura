@@ -352,3 +352,27 @@ fn a_signing_in_source_refuses_a_caller_with_no_assertion_and_asks_no_idp() {
     );
     assert_eq!(asked.try_iter().count(), 0, "a refused caller reaches no identity provider");
 }
+
+/// An address outside the addressing source's domains is refused by its own name, and the delegated
+/// source asked beside it - sorted first - sends nothing to the identity provider.
+#[test]
+fn an_address_outside_the_domains_is_refused_before_any_exchange() {
+    let (idp, asked) = fake(false);
+    let domains = crate::sources::address_domains::AddressDomains::parse(&[String::from("example.com")])
+        .expect("a test domain is a domain");
+    let broker = delegated_warehouse(&idp).addressing(source("yard"), Some(domains));
+    let plan = SourceSet::of(source("warehouse")).and(source("yard"));
+    let address = |raw| sutura_domain::identity::VerifiedAddress::parse(raw).expect("a test address is an address");
+    let outside = broker
+        .mint(&asking("analyst-a").addressed(Some(address("a@evil-example.com"))), &plan)
+        .expect("a refusal, not an error");
+    assert!(
+        matches!(outside, Minted::AddressOutsideDomains { ref source } if source.as_str() == "yard"),
+        "{outside:?}"
+    );
+    assert_eq!(asked.try_iter().count(), 0, "a refused request reached the identity provider");
+    let inside = broker
+        .mint(&asking("analyst-a").addressed(Some(address("a@Example.com"))), &plan)
+        .expect("an answer");
+    assert!(matches!(inside, Minted::Granted { .. }), "{inside:?}");
+}

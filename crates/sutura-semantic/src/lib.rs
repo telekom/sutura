@@ -40,8 +40,8 @@ use crate::resolve::ResolveError;
 use sutura_domain::model::MetricName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::QueryPlan as DomainPlan;
-pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
-use sutura_domain::plan::{FederatedPlanError, IncoherentBindings};
+pub use sutura_domain::plan::{DrillAcrossPlan, FederatedPlan, QueryPlan};
+use sutura_domain::plan::{DrillAcrossPlanError, FederatedPlanError, IncoherentBindings};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
@@ -55,12 +55,16 @@ pub enum Compiled {
     /// The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
     /// set by its rarest variant makes every refusal carry the cost of an answer.
     Planned { plan: Box<DomainPlan> },
-    /// The question resolved to two data systems, split into a fact leg and a lookup leg.
+    /// The question reached other data systems, split into a fact leg and up to three lookup legs.
     ///
-    /// The two legs execute against their own sources and the combiner behind
+    /// The legs execute against their own sources and the combiner behind
     /// [`FederationCombiner`](sutura_domain::plan::FederationCombiner) turns the batches
     /// back into one answer above them.
     Federated { plan: Box<FederatedPlan> },
+    /// The question named several metrics, and each is answered by its own arm: one fact leg, or a
+    /// fact leg beside a lookup leg. The combiner behind
+    /// [`DrillAcrossCombiner`](sutura_domain::plan::DrillAcrossCombiner) joins the arms above them.
+    DrillAcross { plan: Box<DrillAcrossPlan> },
     /// The question was refused, and this is why.
     Refused { reason: RefusalReason },
 }
@@ -70,7 +74,7 @@ impl Compiled {
     pub const fn refusal(&self) -> Option<&RefusalReason> {
         match *self {
             Self::Refused { ref reason } => Some(reason),
-            Self::Planned { .. } | Self::Federated { .. } => None,
+            Self::Planned { .. } | Self::Federated { .. } | Self::DrillAcross { .. } => None,
         }
     }
     /// The plan, if the question resolved to one data system.
@@ -78,7 +82,7 @@ impl Compiled {
     pub const fn plan(&self) -> Option<&DomainPlan> {
         match *self {
             Self::Planned { ref plan } => Some(plan),
-            Self::Federated { .. } | Self::Refused { .. } => None,
+            Self::Federated { .. } | Self::DrillAcross { .. } | Self::Refused { .. } => None,
         }
     }
 }
@@ -119,32 +123,19 @@ pub enum CompileFailure {
     /// A two-source plan this workspace compiled and could not then assemble.
     #[error("this deployment compiled a two-source question it could not assemble")]
     NotAssembled(#[from] FederatedPlanError),
+    /// A drill-across plan this workspace compiled from arms it could not then assemble.
+    #[error("this deployment compiled a question over several metrics it could not assemble")]
+    NotAssembledAcross(#[from] DrillAcrossPlanError),
     /// A plan this workspace compiled whose predicates and parameters did not resolve each other.
     #[error("this deployment compiled a question whose parameters did not bind")]
     NotBound(#[from] IncoherentBindings),
     /// A2: the splitter ran with no remote dimension to join the fact leg through.
     ///
-    /// Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when exactly one
-    /// remote source exists and a remote dimension has a join by construction, so nothing provokes
-    /// this either. It replaces a fabricated `RefusalReason::PlanSpansTooManySources { sources: 1,
-    /// limit: 2 }` a caller could not have narrowed their way out of.
+    /// Same limit as `NotAssembled` and `NotBound`: `plan` calls the splitter only when a lookup leg
+    /// exists and a remote dimension has a join by construction, so nothing provokes this either. A
+    /// caller cannot narrow their way out of it, which is why it is no `RefusalReason`.
     #[error("the federated splitter found no remote dimension to join the fact leg through")]
     NoRemoteJoin,
-    /// A chain that crossed onto another data system and then left it reached the plan stage.
-    ///
-    /// The bundle should not have assembled: `sutura_domain::catalog` refuses such a chain at load,
-    /// naming the dimension and the hop. So nothing provokes this from a catalog either, and what it
-    /// buys is the thing the load check alone did not have - a second reader of the same rule, on
-    /// the path where getting it wrong renders another data system's table into one statement under
-    /// a certified metric name. `crate::plan::PlanError::ChainLeavesItsSource` carries the report.
-    #[error(
-        "metric {metric} reaches dimension {dimension} through a chain that leaves the data system it crossed to at hop {hop}"
-    )]
-    ChainLeavesItsSource {
-        metric: MetricName,
-        dimension: sutura_domain::model::DimensionName,
-        hop: usize,
-    },
     /// The splitter carried a cross-model ratio's second-fact leaves with no second fact model or
     /// calendar model resolved for them. Same limit as `NoRemoteJoin`: `plan` dispatches such a
     /// ratio only once `resolve` has already looked up both, so nothing provokes this either -
@@ -199,22 +190,21 @@ pub fn compile(
     view: &ScopedView<'_>,
     row_ceiling: sutura_domain::plan::RowCeiling,
 ) -> Result<Compiled, CompileFailure> {
-    let resolution = match resolve::resolve(query, view, row_ceiling) {
-        Ok(resolution) => resolution,
+    let resolved = match resolve::resolve(query, view, row_ceiling) {
+        Ok(resolved) => resolved,
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),
     };
-    match plan::plan(&resolution) {
+    match plan::plan_resolved(&resolved) {
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
+        Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
         Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
         Err(PlanError::NotBound(cause)) => Err(cause.into()),
+        Err(PlanError::NotAssembledAcross(cause)) => Err(cause.into()),
         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
-        Err(PlanError::ChainLeavesItsSource { metric, dimension, hop }) => {
-            Err(CompileFailure::ChainLeavesItsSource { metric, dimension, hop })
-        }
         Err(PlanError::NoSecondFactModel) => Err(CompileFailure::NoSecondFactModel),
     }
 }

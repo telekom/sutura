@@ -6,8 +6,9 @@
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
 use crate::inbound::{
-    ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetMaxStale, KeySetUrl,
-    PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType, TransitProof,
+    AddressClaim, ExtraScopeClaims, GrantedScopes, InboundIdentity, IssuerUrl, KeySetFile, KeySetLocation, KeySetMaxStale,
+    KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType,
+    TransitProof,
 };
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
@@ -40,6 +41,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
     // whoever authenticated the caller.
     let key_set = key_set(written, mode)?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
+    let address_claim = address_claim(written)?;
     match mode {
         "behind-gateway" => {
             read_only_in(written.audience.is_some(), TokenAudience::KEY, "direct")?;
@@ -78,7 +80,8 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
             )
-            .admitting_once(written.transit_single_use);
+            .admitting_once(written.transit_single_use)
+            .reading_address_from(address_claim);
             Ok(InboundIdentity::BehindGateway {
                 transit: match written.granted_scopes.as_deref() {
                     None => transit,
@@ -111,6 +114,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     parsed => parsed,
                 },
             },
+            address_claim,
         }),
     }
 }
@@ -130,6 +134,16 @@ fn direct_resource(written: &RawInbound, mode: &str) -> Result<ResourceIdentifie
         resource = resource.reading_scopes_from(ExtraScopeClaims::parse(claims).map_err(value)?);
     }
     Ok(resource)
+}
+
+/// The written address claim: a claim other than `email` starts only with the operator's acceptance
+/// by name, as `token_type: any` does.
+fn address_claim(written: &RawInbound) -> Result<AddressClaim, SettingsError> {
+    let claim = AddressClaim::parse(written.address_claim.as_deref()).map_err(|cause| SettingsError::InboundValue { cause })?;
+    match claim.declared() {
+        Some(name) if !written.accept_address_claim => Err(SettingsError::InboundAddressClaimNotAccepted { claim: name.clone() }),
+        _ => Ok(claim),
+    }
 }
 
 /// A written grant, refused where it names raw SQL.

@@ -34,7 +34,7 @@ fn two_fact_plan_of(
     let column = |n: &str| ColumnName::parse(n).expect("a test column");
     let link = |table: &TableName| {
         PlanKey::new(
-            ResultLabel::internal(InternalLabel::Link(0)),
+            ResultLabel::internal(InternalLabel::link(0)),
             PlanColumn::new(table.clone(), column("customer_key")),
         )
     };
@@ -125,7 +125,7 @@ fn fact_rows(leaf: usize, rows: &[Dated<'_>]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
         vec![
-            InternalLabel::Link(0).label(),
+            InternalLabel::link(0).label(),
             String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
             InternalLabel::Leaf(leaf).label(),
         ],
@@ -140,7 +140,7 @@ fn fact_rows(leaf: usize, rows: &[Dated<'_>]) -> RowSet {
 fn region_rows(rows: &[(&str, &str)]) -> RowSet {
     use sutura_domain::plan::InternalLabel;
     RowSet::new(
-        vec![InternalLabel::Link(0).label(), String::from("region")],
+        vec![InternalLabel::link(0).label(), String::from("region")],
         rows.iter()
             .map(|&(link, region)| vec![Value::Text(link.into()), Value::Text(region.into())])
             .collect(),

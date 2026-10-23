@@ -83,7 +83,7 @@ four release triples. It is pinned at the release tag `go/v1.13.0`
 (repo rev `5f1e65dc`) as flake input `bigquery-adbc-src`; `just update` does not chase
 `main` past that pin.
 
-Five source-level adaptations, recorded here so nothing is silent:
+Six source-level adaptations, recorded here so nothing is silent:
 
 - **go.mod floor relax.** The driver's `go.mod` declares a go floor (`1.27.1`) above what
   this nixpkgs pins (`go_1_27 = 1.27.0`). `nix/bigquery-adbc-drivers.nix` relaxes the floor
@@ -115,6 +115,26 @@ Five source-level adaptations, recorded here so nothing is silent:
   Upstream issue:
   [`adbc-drivers/bigquery#333`](https://github.com/adbc-drivers/bigquery/issues/333). Drop it when
   upstream ships both options.
+- **A query can start with `jobs.query`.** `nix/bigquery-adbc-jobs-query.patch` adds the database
+  option `bigquery.query.through_jobs_query`. Set to `true`, a statement run by `ExecuteQuery` or
+  `ExecuteUpdate` starts with `jobs.query` instead of `jobs.insert` (`ExecuteSchema`'s dry run and
+  the session and transaction statements still use `jobs.insert`; sutura calls neither); the
+  driver then follows the job it names with `jobs.get` and reads the
+  rows through the Storage Read API as before. A `bigquery.readonly` token can make those calls and
+  not `jobs.insert` or `jobs.cancel` - measured on 2026-10-22 with a service account's own token,
+  not a domain-wide-delegation token, so the delegated principal type is not measured. The request
+  is rendered by the client library's own `jobs.insert` encoder, on a client with no credential
+  whose transport sends nothing, so parameters, `maximumBytesBilled` and `jobTimeoutMs` encode as
+  they did; a rendered field outside the set `jobs.query` takes under the same name is refused
+  with `NotImplemented`, never dropped. A dry run is a `jobs.query` dry run. Unpatched, a
+  `bigquery.readonly` token can run no query at all. Limits: `jobs.query` takes no client-chosen
+  job id, so a job cut off before `jobs.query` answers cannot be cancelled, and with the read-only
+  scope no job can be (the driver logs the failed cancel); `jobs.query` is sent once, without the
+  client library's retry. The patch adds `jobs_query_test.go`, which the build's check phase runs
+  on a host that can run its target. sutura sets the option only for a `domain_delegation` source,
+  beside the read-only scope. It touches no line the other driver patches change, so it applies
+  before or after any of them. No upstream issue yet. Drop it when upstream starts a query with
+  `jobs.query`.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation

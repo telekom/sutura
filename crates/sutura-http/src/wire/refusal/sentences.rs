@@ -7,14 +7,6 @@ fn joined_metric_names(metrics: &[MetricName]) -> String {
     metrics.iter().map(MetricName::as_str).collect::<Vec<_>>().join(", ")
 }
 
-pub(super) fn multi_metric_federation_not_executable(metrics: &[MetricName]) -> String {
-    format!(
-        "{} were asked together, and the question also reaches a dimension on another data system; \
-         this build does not federate several metrics",
-        joined_metric_names(metrics)
-    )
-}
-
 pub(super) fn multi_metric_top_not_executable(metrics: &[MetricName]) -> String {
     format!(
         "{} were asked together with `top`, which names no metric to rank by",
@@ -46,6 +38,15 @@ pub(super) fn resources_exhausted(ceiling_bytes: u64) -> String {
          {ceiling_bytes} bytes, and it was refused rather than allowed to exhaust the \
          process; narrow the period, group by fewer dimensions or add a filter and ask \
          again. Retrying it unchanged returns this same refusal"
+    )
+}
+
+pub(super) fn address_outside_domains(source: &SourceName) -> String {
+    format!(
+        "the address your identity provider gives you is outside the domains the data system \
+         `{source}` is delegated for, so this deployment will not run your question there as that \
+         address - and it will not read it as itself instead. Asking the same question again returns \
+         this same refusal"
     )
 }
 

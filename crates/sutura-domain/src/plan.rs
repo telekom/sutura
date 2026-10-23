@@ -183,7 +183,7 @@ impl PlanJoin {
     /// what a multi-project estate looks like, and it is one statement, one job and one credential -
     /// a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
     /// so where a source count decides between one statement, a split and
-    /// `PlanSpansTooManySources`.
+    /// `PlanNeedsTooManyLookupLegs`.
     ///
     /// **A join with no keys cannot be built**, and that is what makes `keys` a `NonEmpty` rather
     /// than a `Vec` the renderers have to fail closed on: every key contributes one `=` term, so an
@@ -386,7 +386,8 @@ pub enum PlanMeasure {
 
 /// One metric's share of a query's select list, and its own definitional guard.
 ///
-/// A multi-metric question answers one grouped statement with one certified column per metric.
+/// A multi-metric question that shares one statement answers one grouped statement with one certified
+/// column per metric; one that cannot is an arm per metric (see [`DrillAcrossPlan`]).
 /// Each column is that metric's measure, computed only over the rows its OWN required filters
 /// admit - and that restriction is folded into the measure's conditional aggregation rather than
 /// into the shared `WHERE`, because a `WHERE` applies to every column at once and would let one

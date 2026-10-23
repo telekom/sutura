@@ -1,0 +1,13 @@
+diff --git a/xtask/src/tasks.rs b/xtask/src/tasks.rs
+index 95a41f592..39f858996 100644
+--- a/xtask/src/tasks.rs
++++ b/xtask/src/tasks.rs
+@@ -592,7 +592,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
+         return Verdict::Fail;
+     };
+     let set = match justfiles::read(&root) {
+-        Ok(set) => set,
++        Ok(set) => set.into_iter().take(1).collect::<Vec<_>>(),
+         Err(refused) => {
+             eprintln!("xtask check-scope: {refused}");
+             eprintln!("  A gate that cannot read the files it judges has judged nothing.");
