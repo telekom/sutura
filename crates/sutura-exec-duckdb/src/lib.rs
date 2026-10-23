@@ -31,10 +31,11 @@
 //!
 //! - **The deadline is a watchdog per call** (`docs/adr/0029`, sixth amendment): on
 //!   [`DuckDbWarehouse::execute`] and on the raw path, a thread calls the driver's `ConnectionCancel`
-//!   when the budget is spent, the engine answers `Interrupt`, and that is read as the deadline. It
-//!   starts before the driver prepares, so a raw string's statements before its last are under it
-//!   too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
-//!   cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
+//!   when the budget is spent, the engine answers `Interrupt` - from `execute`, or while the result
+//!   is read - and that is read as the deadline. It starts before the driver prepares, so a raw
+//!   string's statements before its last are under it too. The stop lands at the engine's next
+//!   interrupt check rather than the instant, and a failed cancel leaves the statement to finish;
+//!   `dry_run` only prepares and carries the deadline.
 //!   Binding a statement is not interrupted, and the optimizer checks for an interrupt only at the
 //!   start of each of its passes (read in the pinned `DuckDB` source, not measured); on the raw
 //!   path the nesting bound is what keeps their cost small on the shapes measured.
@@ -596,6 +597,9 @@ impl DuckDbWarehouse {
                 {
                     DuckDbError::DeadlineExceeded
                 }
+                DuckDbError::Batch {
+                    cause: arrow_schema::ArrowError::CDataInterface(ref message),
+                } if fired.load(Ordering::Acquire) && message.starts_with(INTERRUPT_MESSAGE) => DuckDbError::DeadlineExceeded,
                 other => other,
             })
         })
@@ -767,10 +771,15 @@ impl Warehouse for DuckDbWarehouse {
     }
 }
 
-/// Whether the engine stopped a statement because it was interrupted: by the error detail `execute`
-/// sets, else by the message, because `set_sql_query` reports a statement it ran with no detail.
+/// How the engine's message opens when it stops a statement for an interrupt.
+const INTERRUPT_MESSAGE: &str = "INTERRUPT Error";
+
+/// Whether the engine stopped a statement because it was interrupted, as `prepare` or `execute`
+/// report it: by the message, because `set_sql_query` reports a statement it ran with no detail,
+/// else by the error detail `execute` sets. An interrupt that lands while the result is read
+/// reaches the caller as a batch error instead, matched on [`INTERRUPT_MESSAGE`] where it is read.
 fn interrupted(cause: &CoreError) -> bool {
-    cause.message.starts_with("INTERRUPT Error")
+    cause.message.starts_with(INTERRUPT_MESSAGE)
         || cause
             .details
             .iter()
