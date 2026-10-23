@@ -134,11 +134,12 @@ REASONS
             exit 1
         fi
     done <<'LOGS'
-ok|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
-no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
-no|running 2 tests\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\n\ntest result: ok. 2 passed; 0 failed
+ok|running 3 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\nlinked-clickhouse-driver-dialled-a-refused-port\ntest tests::ch ... ok\n\ntest result: ok. 3 passed; 0 failed
+no|running 3 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\ntest tests::duck ... ok\nlinked-clickhouse-driver-dialled-a-refused-port\ntest tests::ch ... ok\n\ntest result: ok. 3 passed; 0 failed
+no|running 3 tests\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\nlinked-clickhouse-driver-dialled-a-refused-port\ntest tests::ch ... ok\n\ntest result: ok. 3 passed; 0 failed
+no|running 3 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\ntest tests::ch ... ok\n\ntest result: ok. 3 passed; 0 failed
 no|running 0 tests\n\ntest result: ok. 0 passed; 0 failed
-no|running 2 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... FAILED\n\ntest result: FAILED. 1 passed; 1 failed
+no|running 3 tests\nlinked-postgres-driver-ran-libpq\ntest tests::pg ... ok\nlinked-duckdb-driver-ran-select-1\ntest tests::duck ... ok\nlinked-clickhouse-driver-dialled-a-refused-port\ntest tests::ch ... FAILED\n\ntest result: FAILED. 2 passed; 1 failed
 LOGS
     echo "bigquery-driver-check: linked-driver matcher ok - only a log whose cell passed by its linked"
     echo "  arm passes."
@@ -164,14 +165,15 @@ LOGS
     echo "  log without it or with a failed cell is refused."
 }
 
-# Did the linked-drivers test log come from both cells' LINKED arms, passing? Prints `ok` or `no`.
+# Did the linked-drivers test log come from the three cells' LINKED arms, passing? Prints `ok` or `no`.
 # Each marker is printed by its cell's linked arm only (`crates/sutura-adbc/tests/linked.rs`), and
-# the result line says the two selected cells passed - neither implies the other.
+# the result line says the three selected cells passed - no one implies another.
 linked_verdict() {
     local log="$1"
     if printf '%s\n' "$log" | grep -qx 'linked-postgres-driver-ran-libpq' \
         && printf '%s\n' "$log" | grep -qx 'linked-duckdb-driver-ran-select-1' \
-        && printf '%s\n' "$log" | grep -q '^test result: ok\. 2 passed'; then
+        && printf '%s\n' "$log" | grep -qx 'linked-clickhouse-driver-dialled-a-refused-port' \
+        && printf '%s\n' "$log" | grep -q '^test result: ok\. 3 passed'; then
         printf 'ok'
     else
         printf 'no'

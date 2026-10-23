@@ -91,6 +91,10 @@ tower_governor = { workspace = true }
 # from a task instead of from `accept`, and the workspace manifest for the feature choices.
 tokio-rustls = { workspace = true, optional = true }
 tracing = { workspace = true }
+# 128 random bits per request for the id a data-system job is labelled with
+# (`correlation::from_the_os`), so the label joins one audit record across restarts and replicas. No
+# new package in `Cargo.lock`: `sutura-exec-bigquery` already resolves this version.
+getrandom = { version = "0.4" }
 ureq = { workspace = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }

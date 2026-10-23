@@ -38,6 +38,10 @@ mod catalog_prose;
 #[cfg(test)]
 mod catalog_refresh;
 
+/// A host that will not supply randomness: the question is refused before any job runs.
+#[cfg(test)]
+mod entropy;
+
 // -------------------------------------------------------------------- health ----
 
 #[tokio::test]

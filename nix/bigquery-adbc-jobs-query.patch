@@ -520,3 +520,55 @@
 +	err := openWith(t, map[string]string{OptionQueryThroughJobsQuery: "yes"})
 +	wantInvalidArgument(t, err, OptionQueryThroughJobsQuery)
 +}
+--- /dev/null
++++ b/jobs_query_labels_test.go
+@@ -0,0 +1,49 @@
++package bigquery
++
++import (
++	"context"
++	"encoding/json"
++	"io"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/apache/arrow-adbc/go/adbc"
++)
++
++// The labels option reaches jobs.query as the job's labels, exactly, on the path a
++// domain-delegation source takes. Built on jobs_query_test.go's fake, and on the option
++// bigquery-adbc-job-labels.patch adds, so it builds once both patches apply.
++func TestQueryLabelsThroughJobsQuery(t *testing.T) {
++	ref := `"jobReference":{"projectId":"test-project","jobId":"j1","location":"EU"}`
++	answer := func(w http.ResponseWriter, r *http.Request) {
++		switch {
++		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/queries"):
++			_, _ = io.WriteString(w, `{`+ref+`}`)
++		case strings.HasSuffix(r.URL.Path, "/jobs/j1"):
++			// INSERT: a SELECT on this fake has no destination table, and the run would fail
++			// before the assertion.
++			_, _ = io.WriteString(w, `{`+ref+`,"configuration":{"query":{"query":"SELECT ?"}},"status":{"state":"DONE"},"statistics":{"query":{"statementType":"INSERT"}}}`)
++		case strings.HasSuffix(r.URL.Path, "/queries/j1"):
++			_, _ = io.WriteString(w, `{`+ref+`,"jobComplete":true,"schema":{"fields":[]},"totalRows":"0"}`)
++		default:
++			notFound(w, r)
++		}
++	}
++	got, _, _, err := queryThrough(t, "true", answer, func(stmt adbc.StatementWithContext) {
++		boundInt(t, stmt, 7)
++		if err := stmt.SetOption(context.Background(), OptionQueryLabels, `{"sutura_client":"agent","sutura_actor":"","sutura_correlation":"c-1"}`); err != nil {
++			t.Fatalf("labels: %v", err)
++		}
++	})
++	if err != nil {
++		t.Fatalf("execute: %v", err)
++	}
++	if len(got) == 0 || got[0].path != "/queries" {
++		t.Fatalf("requests %+v, want jobs.query first", got)
++	}
++	labels, _ := json.Marshal(got[0].body["labels"])
++	if want := `{"sutura_actor":"","sutura_client":"agent","sutura_correlation":"c-1"}`; string(labels) != want {
++		t.Fatalf("jobs.query labels %s, want %s", labels, want)
++	}
++}

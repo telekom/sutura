@@ -125,6 +125,57 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     );
 }
 
+/// One question with the caller's header, and the `answered` audit line it wrote.
+fn answered_with_a_caller_header(app: &axum::Router) -> serde_json::Value {
+    let mut request = request("POST", "/v1/query", None, Body::from(crate::testing::A_QUESTION));
+    request
+        .headers_mut()
+        .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
+    let (status, body, rendered) = super::fixtures::captured_across_threads(app, request);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    json_lines(&rendered)
+        .into_iter()
+        .find(|line| line["msg"].as_str().is_some_and(|msg| msg.ends_with("answered")))
+        .unwrap_or_else(|| panic!("no audit line was written: {rendered}"))
+}
+
+/// How many ids [`known_bits`] has drawn in this process; each test runs in a process of its own.
+static DRAWS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0xa0);
+
+/// A draw whose bits are known: `a0` sixteen times for the first request, then `a1`, and so on.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the signature is `correlation::Draw`'s, which a real source can fail"
+)]
+fn known_bits(bits: &mut [u8; 16]) -> Result<(), getrandom::Error> {
+    bits.fill(DRAWS.fetch_add(1, core::sync::atomic::Ordering::SeqCst));
+    Ok(())
+}
+
+#[test]
+fn a_caller_s_correlation_header_stays_in_the_span_and_never_reaches_a_job_label() {
+    // The span keeps the caller's id, so an ingress log still joins. The job is labelled with the
+    // bits drawn for the request and nothing else - asserted EXACTLY, so a label carrying any byte
+    // of the caller's header fails here - and the audit line writes that same id, so the job joins
+    // its record. Every principal listing the project's jobs can read a label.
+    let (app, held) = super::fixtures::held_drawing_from(known_bits);
+    let first = answered_with_a_caller_header(&app);
+    let second = answered_with_a_caller_header(&app);
+    for (answered, drawn) in [(&first, "a0"), (&second, "a1")] {
+        assert_eq!(answered["correlation"], "Ingress-42_abc", "{answered}");
+        assert_eq!(
+            answered["sutura_correlation"],
+            drawn.repeat(16),
+            "the label is not exactly the drawn bits: {answered}"
+        );
+    }
+    assert_eq!(
+        held.labelled(),
+        first["sutura_correlation"].as_str(),
+        "the job and its audit record do not name one id"
+    );
+}
+
 #[test]
 fn a_filter_value_never_reaches_the_log() {
     const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";

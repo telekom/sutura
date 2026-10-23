@@ -267,6 +267,11 @@ pub enum Failure {
     ///
     /// Carries how long to wait, already known: the admission window just spent waiting it out.
     AtCapacity { retry_after_seconds: u64 },
+    /// This host would not supply the randomness a request's job-label id is drawn from.
+    ///
+    /// **A refusal and not an unlabelled answer**: under `shared-service-user` a job runs as the
+    /// deployment, and the label is the only thing that joins it to the audit record of who asked.
+    NoRandomness,
 }
 
 impl Failure {
@@ -282,7 +287,9 @@ impl Failure {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unavailable | Self::IdentityUnavailable | Self::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::IdentityUnavailable | Self::AtCapacity { .. } | Self::NoRandomness => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
         }
     }
 
@@ -312,7 +319,8 @@ impl Failure {
             | Self::Internal
             | Self::Unavailable
             | Self::IdentityUnavailable
-            | Self::IdentityNotLinked => None,
+            | Self::IdentityNotLinked
+            | Self::NoRandomness => None,
         }
     }
 
@@ -333,6 +341,7 @@ impl Failure {
             Self::IdentityUnavailable => "identity_unavailable",
             Self::IdentityNotLinked => "identity_not_linked",
             Self::AtCapacity { .. } => "at_capacity",
+            Self::NoRandomness => "no_randomness",
         }
     }
 
@@ -371,6 +380,7 @@ impl Failure {
             // caller who is being shed has no use for it - what they need is whether to retry,
             // which the status and `Retry-After` say.
             Self::AtCapacity { .. } => String::from("this service is at capacity; no question could be started in time. Retry"),
+            Self::NoRandomness => String::from("this service could not draw an id for the request, so it ran nothing; retry"),
         }
     }
 
@@ -473,6 +483,7 @@ mod tests {
             Failure::Unavailable,
             Failure::IdentityUnavailable,
             Failure::AtCapacity { retry_after_seconds: 5 },
+            Failure::NoRandomness,
         ];
         let mut codes: Vec<&str> = failures.iter().map(Failure::code).collect();
         let count = codes.len();

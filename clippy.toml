@@ -168,10 +168,11 @@ disallowed-methods = [
   # which draws from `getrandom`.
   #
   # **The four `getrandom` rows are the ones with a live call behind them**, so the entropy half is
-  # not held only against a hypothetical: `sutura_exec_bigquery::adbc::subject::unguessable` reads
-  # the OS source on purpose, and it now carries the one `#[expect]` for that. All four of that
-  # crate's entry points are listed rather than the one in use, because banning `fill` alone would
-  # leave `u32`, `u64` and `fill_uninit` as three unremarked syscalls.
+  # not held only against a hypothetical: `sutura_exec_bigquery::adbc::subject::unguessable` and
+  # `sutura_http::correlation::from_the_os` read the OS source on purpose, and each carries an
+  # `#[expect]` for that. All four of that crate's entry points are listed rather than the one in
+  # use, because banning `fill` alone would leave `u32`, `u64` and `fill_uninit` as three
+  # unremarked syscalls.
   #
   # VERIFIED TO RESOLVE the way this file's header requires, and both directions were measured on
   # #929 rather than assumed. Each of the three `chrono`/`ahash` paths was written as a call in
@@ -196,7 +197,7 @@ disallowed-methods = [
   { path = "chrono::Local::now", reason = "reads the host time zone off the filesystem from inside the hexagon's interior; a plan must take its calendar from `sutura_domain::calendar`" },
   { path = "chrono::Utc::now", reason = "a wall clock in a query planner answers a different thing at midnight; take the instant from a caller's own deadline or from `sutura_domain::calendar`" },
   { path = "ahash::RandomState::new", reason = "`ahash`'s runtime-rng draws an entropy syscall; a hasher this workspace seeds belongs behind a named adapter, not in the interior" },
-  { path = "getrandom::fill", reason = "an entropy syscall; the one legitimate read is `sutura_exec_bigquery::adbc::subject::unguessable`, which holds the #[expect] naming what it is for" },
+  { path = "getrandom::fill", reason = "an entropy syscall; the two legitimate reads are `sutura_exec_bigquery::adbc::subject::unguessable` and `sutura_http::correlation::from_the_os`, each holding the #[expect] naming what it is for" },
   { path = "getrandom::fill_uninit", reason = "the same syscall, filling uninitialised memory; see getrandom::fill" },
   { path = "getrandom::u32", reason = "the same syscall, one word at a time; see getrandom::fill" },
   { path = "getrandom::u64", reason = "the same syscall, one word at a time; see getrandom::fill" },

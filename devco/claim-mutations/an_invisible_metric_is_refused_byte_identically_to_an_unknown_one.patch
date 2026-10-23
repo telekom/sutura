@@ -1,11 +1,10 @@
 diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
-index dc63fbac9..a799a990d 100644
 --- a/crates/sutura-app/src/lib.rs
 +++ b/crates/sutura-app/src/lib.rs
-@@ -453,7 +453,7 @@ where
+@@ -475,7 +475,7 @@
      C::Error: Send,
  {
-     let pinned = definitions.get();
+     let (pinned, labels) = (definitions.get(), JobLabels::of(context));
 -    let view = scoped_for(pinned, context);
 +    let view = ScopedView::everything(pinned);
      let compiled = compile(query, &view, ceilings).map_err(|cause| ServiceError::Compile { cause })?;

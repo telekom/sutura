@@ -135,6 +135,9 @@ pub struct ServiceState {
     /// refuses to assemble when this is `Some` and no `security.inbound` gateway was attached.
     #[cfg(feature = "agent")]
     agent: Option<AgentMount>,
+    /// Where each request's job-label id is drawn from: the OS source, except in a test of a host
+    /// that will not supply one.
+    entropy: crate::correlation::Draw,
 }
 
 /// The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
@@ -417,7 +420,21 @@ impl ServiceState {
             inbound: None,
             #[cfg(feature = "agent")]
             agent: None,
+            entropy: crate::correlation::from_the_os,
         }
+    }
+
+    /// The same state, drawing each request's job-label id from `draw`.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn drawing_from(mut self, draw: crate::correlation::Draw) -> Self {
+        self.entropy = draw;
+        self
+    }
+
+    /// Where each request's job-label id is drawn from; read by `crate::router` alone.
+    pub(crate) const fn entropy(&self) -> crate::correlation::Draw {
+        self.entropy
     }
 
     /// The same state, with leg 1 attached.

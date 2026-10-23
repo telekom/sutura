@@ -146,9 +146,12 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             "cross_model_ratio_without_shared_dimension",
         ),
         (
-            RefusalReason::CrossModelRatioNeedsOneLookupLeg { metric: metric() },
+            RefusalReason::CrossModelRatioLinkAmbiguous {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
+            },
             StatusCode::CONFLICT,
-            "cross_model_ratio_needs_one_lookup_leg",
+            "cross_model_ratio_link_ambiguous",
         ),
     ]
 }

@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 use sutura_domain::identity::{PrincipalName, Secret};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{ParamValue, ResultBatches};
 
 /// How a request writes its bind parameters.
@@ -125,6 +126,7 @@ pub struct JobRequest<'job> {
     billing_project: &'job ProjectId,
     identity: JobIdentity<'job>,
     deadline: JobDeadline,
+    labels: Option<&'job JobLabels>,
 }
 
 impl<'job> JobRequest<'job> {
@@ -154,7 +156,23 @@ impl<'job> JobRequest<'job> {
             billing_project,
             identity,
             deadline,
+            labels: None,
         }
+    }
+
+    /// The same request, carrying the asking request's [`JobLabels`]. `None` is the boot path and a
+    /// plain port call with no request behind it, and such a job carries no labels.
+    #[must_use]
+    pub(crate) const fn labelled(mut self, labels: Option<&'job JobLabels>) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    /// The labels this job is to carry, where a request asked for it.
+    #[inline]
+    #[must_use]
+    pub const fn labels(&self) -> Option<&JobLabels> {
+        self.labels
     }
 
     /// The statement, with its values still absent from it.

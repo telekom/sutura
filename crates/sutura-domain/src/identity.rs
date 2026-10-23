@@ -39,6 +39,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 mod address;
 mod billing;
 mod compute_context;
+pub mod correlation;
 mod credential;
 mod delegation;
 mod principal;
@@ -46,6 +47,7 @@ mod principal;
 pub use crate::identity::address::{InvalidAddress, VerifiedAddress};
 pub use crate::identity::billing::{BillTo, BillingAccount, CallerGroups, UnusableBillingAccount};
 pub use crate::identity::compute_context::ComputeContext;
+pub use crate::identity::correlation::{CorrelationId, NotACorrelationId};
 pub use crate::identity::credential::{
     Agreed, AssertionDigest, BoundToTheRequest, CredentialBroker, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest,
     Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,

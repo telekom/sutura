@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
-//! The linked PostgreSQL and `DuckDB` drivers: refused by name in a source build, and RUNNING
-//! beside the `BigQuery` one where a build links all three archives.
+//! The linked PostgreSQL, `DuckDB` and `ClickHouse` drivers: refused by name in a source build, and
+//! RUNNING beside the `BigQuery` one where a build links all four archives.
 //!
 //! One cell per driver, two arms each, and the `cfg` decides which arm is CORRECT: a build that
 //! linked the archive and got an `Err`, or linked none and got a driver, fails either way. Every
@@ -69,6 +69,38 @@ mod tests {
             (true, Ok(mut duckdb)) => {
                 answers_select_one(&mut duckdb);
                 println!("linked-duckdb-driver-ran-select-1");
+            }
+            (linked, other) => panic!("archive linked: {linked}, yet the driver is {other:?}"),
+        }
+    }
+
+    /// The `ClickHouse` driver is there exactly where its archive is linked, and linked it builds its
+    /// own HTTP client and dials: a server on a refused port is answered by that driver's refusal
+    /// of the query, which only a driver that initialised and ran can give.
+    ///
+    /// What that does not reach: a server, TLS, or the shape of the refusal - only that the call
+    /// fails and is not the unlinked arm's `NotFound`.
+    #[test]
+    fn the_clickhouse_driver_is_there_exactly_where_its_archive_is_linked() {
+        match (cfg!(adbc_clickhouse_driver_linked), sutura_adbc::linked_clickhouse_driver()) {
+            (false, Err(refused)) => {
+                assert_eq!(refused.status, Status::NotFound, "{refused:?}");
+                assert_eq!(refused.message, "this build linked no ClickHouse ADBC driver", "{refused:?}");
+            }
+            (true, Ok(mut clickhouse)) => {
+                let uri = OptionValue::String(String::from("http://127.0.0.1:1"));
+                let database = clickhouse
+                    .new_database_with_opts([(OptionDatabase::Uri, uri)])
+                    .expect("a database opens: the HTTP client dials only when a query runs");
+                let mut connection = database.new_connection().expect("a connection opens");
+                let mut statement = connection.new_statement().expect("a statement opens");
+                statement.set_sql_query("SELECT 1").expect("the query is accepted");
+                let Err(refused) = statement.execute() else {
+                    panic!("nothing listens on port 1, so no query is answered");
+                };
+                assert_ne!(refused.status, Status::NotFound, "{refused:?}");
+                assert!(!refused.message.is_empty(), "{refused:?}");
+                println!("linked-clickhouse-driver-dialled-a-refused-port");
             }
             (linked, other) => panic!("archive linked: {linked}, yet the driver is {other:?}"),
         }

@@ -1,5 +1,8 @@
 //! One identifier per request, so a request's lines can be found together.
 //!
+//! The type is `sutura_domain::identity::CorrelationId`, because a data system's job is labelled
+//! with it; the counter and the header live here.
+//!
 //! # What this is, and the limits of it
 //!
 //! A counter seeded at process start, rendered as hex. That is enough for the one job it has:
@@ -27,7 +30,7 @@
 //! this is the same treatment - bound the length, then accept a strict character set and nothing
 //! else.
 //!
-//! **A malformed header does not fail the request.** [`CorrelationId::from_headers`] mints a fresh
+//! **A malformed header does not fail the request.** [`from_headers`] mints a fresh
 //! value instead, because refusing would let a caller turn a header they control into a `4xx` on a
 //! question that was otherwise fine - and the thing being protected is the *log*, which a fresh id
 //! protects just as well. The refusal is reported at `debug`, by reason and never by value.
@@ -35,17 +38,15 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 
+use axum::extract::{Request, State};
 use axum::http::HeaderMap;
+use axum::middleware::Next;
+use axum::response::Response;
+
+pub use sutura_domain::identity::correlation::{CorrelationId, MAX_LENGTH, NotACorrelationId};
 
 /// The header a caller may set to name the request in its own logs too.
 pub const HEADER: &str = "x-correlation-id";
-
-/// The longest value accepted from a caller.
-///
-/// Generous rather than tight, and sized off what a caller plausibly already has: a UUID is 36
-/// characters and a W3C `traceparent` is 55. Anything longer is not an identifier somebody is
-/// correlating with, and an unbounded one is a log line of a size a caller chooses.
-pub const MAX_LENGTH: usize = 64;
 
 /// The counter, seeded once when it is first read.
 ///
@@ -68,128 +69,90 @@ fn seed() -> u64 {
         .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(0))
 }
 
-/// An identifier for one request, within one process's log.
+/// A value nothing else in this process will produce.
 ///
-/// If a value of this type exists it is at most [`MAX_LENGTH`] characters of ASCII letters, digits,
-/// `-` and `_`, and is not empty - so it can be written into a log line without escaping and cannot
-/// forge one.
-/// `Ord` is deliberately not derived. Generated values sort by mint order because they are
-/// fixed-width hex; a caller-supplied one does not, so an ordering over the type as a whole would
-/// mean something on half the values and nothing on the other half.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CorrelationId(String);
-
-/// Why a string is not a correlation identifier.
-///
-/// **No variant carries the offending text**, and that is the point of the type rather than an
-/// omission: the value came from a caller, the error's `Display` reaches a log, and echoing it
-/// there is the injection this is guarding against. A position is enough to debug a client with,
-/// and a position cannot forge a line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum NotACorrelationId {
-    /// Empty, or only whitespace.
-    #[error("a correlation id is empty")]
-    Empty,
-    /// Longer than [`MAX_LENGTH`].
-    #[error("a correlation id is {length} characters, over the {MAX_LENGTH} allowed")]
-    TooLong { length: usize },
-    /// A character outside the accepted set - in practice a newline, a space or a quote.
-    #[error("a correlation id has an unacceptable character at position {position}")]
-    UnacceptableCharacter { position: usize },
+/// Infallible, and it has to be: it is the fallback for every way of getting one, including a
+/// caller's header being refused.
+#[must_use]
+pub fn fresh() -> CorrelationId {
+    CorrelationId::minted(COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
-impl CorrelationId {
-    /// A value nothing else in this process will produce.
-    ///
-    /// Infallible, and it has to be: it is the fallback for every way of getting one, including a
-    /// caller's header being refused.
-    ///
-    /// Sixteen hex digits, which is inside what [`Self::parse`] accepts - asserted by a test rather
-    /// than argued, because the two drifting apart would mean this process mints ids it would
-    /// itself decline to read back.
-    #[must_use]
-    pub fn fresh() -> Self {
-        Self(format!("{:016x}", COUNTER.fetch_add(1, Ordering::Relaxed)))
-    }
-
-    /// Reads a caller-supplied identifier.
-    ///
-    /// Sanitize then validate, in that order and both inside the constructor: the value is trimmed
-    /// first so a derived `PartialEq` and `Hash` agree about which id this is without any call site
-    /// having to normalise. The length is checked against the *trimmed* value for the same reason.
-    ///
-    /// **Length before character set, deliberately, and this is the ordering the classic advice
-    /// asks for**: the expensive check is per-character and the cheap one bounds how many
-    /// characters there are.
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, NotACorrelationId> {
-        let raw = raw.as_ref().trim();
-        if raw.is_empty() {
-            return Err(NotACorrelationId::Empty);
-        }
-        let length = raw.chars().count();
-        if length > MAX_LENGTH {
-            return Err(NotACorrelationId::TooLong { length });
-        }
-        if let Some((position, _)) = raw
-            .char_indices()
-            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-        {
-            return Err(NotACorrelationId::UnacceptableCharacter { position });
-        }
-        Ok(Self(String::from(raw)))
-    }
-
-    /// The caller's identifier if it sent a usable one, and a fresh one otherwise.
-    ///
-    /// Never fails. See the module documentation: a header a caller controls must not be able to
-    /// turn an otherwise answerable question into a refusal, and a fresh id protects the log
-    /// exactly as well as a rejection would.
-    #[must_use]
-    pub fn from_headers(headers: &HeaderMap) -> Self {
-        let Some(raw) = headers.get(HEADER) else {
-            return Self::fresh();
-        };
-        // `to_str` fails on bytes that are not visible ASCII, which `parse` would refuse anyway;
-        // the two are separate so the reason in the log says which happened.
-        let Ok(raw) = raw.to_str() else {
+/// The caller's identifier if it sent a usable one, and a fresh one otherwise.
+///
+/// Never fails. See the module documentation: a header a caller controls must not be able to turn
+/// an otherwise answerable question into a refusal, and a fresh id protects the log exactly as well
+/// as a rejection would.
+#[must_use]
+pub fn from_headers(headers: &HeaderMap) -> CorrelationId {
+    let Some(raw) = headers.get(HEADER) else {
+        return fresh();
+    };
+    // `to_str` fails on bytes that are not visible ASCII, which `parse` would refuse anyway;
+    // the two are separate so the reason in the log says which happened.
+    let Ok(raw) = raw.to_str() else {
+        tracing::debug!(
+            header = HEADER,
+            "an inbound correlation header was not text; using a fresh id"
+        );
+        return fresh();
+    };
+    match CorrelationId::parse(raw) {
+        Ok(id) => id,
+        Err(refused) => {
+            // By REASON and never by value. `NotACorrelationId` carries no caller text, which
+            // is what makes this line safe to write.
             tracing::debug!(
                 header = HEADER,
-                "an inbound correlation header was not text; using a fresh id"
+                refused = %refused,
+                "an inbound correlation header was not usable; using a fresh id"
             );
-            return Self::fresh();
-        };
-        match Self::parse(raw) {
-            Ok(id) => id,
-            Err(refused) => {
-                // By REASON and never by value. `NotACorrelationId` carries no caller text, which
-                // is what makes this line safe to write.
-                tracing::debug!(
-                    header = HEADER,
-                    refused = %refused,
-                    "an inbound correlation header was not usable; using a fresh id"
-                );
-                Self::fresh()
-            }
+            fresh()
         }
     }
-
-    #[inline]
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
-impl AsRef<str> for CorrelationId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
+/// 128 random bits drawn for one request's job labels, beside the id its span carries.
+#[derive(Clone)]
+pub(crate) struct Drawn(pub(crate) [u8; 16]);
+
+/// Where a request's [`Drawn`] bits come from: [`from_the_os`], or a test's stand-in for a host
+/// that will not supply randomness.
+pub(crate) type Draw = fn(&mut [u8; 16]) -> Result<(), getrandom::Error>;
+
+/// The operating system's random source.
+pub(crate) fn from_the_os(bits: &mut [u8; 16]) -> Result<(), getrandom::Error> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the per-request id a data-system job is labelled with; random so it joins one \
+                  audit record across restarts and replicas"
+    )]
+    getrandom::fill(bits)
 }
 
-impl core::fmt::Display for CorrelationId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
+/// Resolves the request's two ids ONCE, as request extensions, ahead of the span.
+///
+/// The span's id is [`from_headers`]', so an ingress log and this one name the same request. The
+/// request context gets a [`Drawn`] one instead, and through it every job label and the audit
+/// record: a caller's header is caller-chosen text, and a label is readable by every principal
+/// that can list the billing project's jobs. Random rather than this counter, so the id does not
+/// repeat across restarts and replicas - with overwhelming probability, not by construction. The
+/// audit line carries both ids, which is what joins them.
+///
+/// **A host that will not supply randomness gets no [`Drawn`]**, and
+/// `crate::capability::establish_asked` refuses the request `503 no_randomness` before any job:
+/// under `shared-service-user` the label is the only thing that ties a job to its caller.
+pub(crate) async fn resolve(State(draw): State<Draw>, mut request: Request, next: Next) -> Response {
+    let id = from_headers(request.headers());
+    drop(request.extensions_mut().insert(id));
+    let mut bits = [0_u8; 16];
+    match draw(&mut bits) {
+        Ok(()) => {
+            let _replaced = request.extensions_mut().insert(Drawn(bits));
+        }
+        Err(cause) => tracing::error!(%cause, "no randomness for the request's job-label id; refusing it"),
     }
+    next.run(request).await
 }
 
 #[cfg(test)]
@@ -219,7 +182,7 @@ mod tests {
         // The invariant that keeps `fresh` and `parse` from drifting: `fresh` does not go through
         // `parse` - it cannot, because it must not fail - so the accepted set has to be checked
         // against it here or not at all.
-        let minted = CorrelationId::fresh();
+        let minted = super::fresh();
         assert_eq!(
             CorrelationId::parse(minted.as_str()),
             Ok(minted.clone()),
@@ -229,10 +192,21 @@ mod tests {
     }
 
     #[test]
+    fn two_draws_from_the_os_differ_and_neither_is_all_zero() {
+        // The production draw, and the only cell over it: a draw that wrote nothing would label
+        // every request's jobs with one id of zeros. Two equal draws happen with probability 2^-128.
+        let (mut first, mut second) = ([0_u8; 16], [0_u8; 16]);
+        super::from_the_os(&mut first).expect("this host supplies randomness");
+        super::from_the_os(&mut second).expect("this host supplies randomness");
+        assert_ne!(first, [0_u8; 16], "a draw left the id all zero");
+        assert_ne!(first, second, "two draws gave one id");
+    }
+
+    #[test]
     fn two_ids_from_one_process_differ() {
         // The only property the counter has to have. Asserted over a handful rather than one pair,
         // so a `fetch_add` replaced by a load would not pass on the first two happening to differ.
-        let minted: Vec<String> = core::iter::repeat_with(|| CorrelationId::fresh().as_str().to_owned())
+        let minted: Vec<String> = core::iter::repeat_with(|| super::fresh().as_str().to_owned())
             .take(8)
             .collect();
         let mut unique = minted.clone();
@@ -256,24 +230,21 @@ mod tests {
         );
         // A header that cannot even be constructed leaves the map empty, which is the
         // "no header" path - and that must still produce a usable id rather than nothing.
-        is_readable_back(&CorrelationId::from_headers(&headers("abc\ndef")));
+        is_readable_back(&super::from_headers(&headers("abc\ndef")));
     }
 
     #[test]
     fn a_caller_s_usable_header_is_kept_and_an_unusable_one_is_replaced() {
         // The whole point of reading the header: an ingress log line and a line here name the same
         // request. So a usable value survives verbatim.
-        assert_eq!(
-            CorrelationId::from_headers(&headers("Ingress-7f3a_b2")).as_str(),
-            "Ingress-7f3a_b2"
-        );
+        assert_eq!(super::from_headers(&headers("Ingress-7f3a_b2")).as_str(), "Ingress-7f3a_b2");
         // And an unusable one is replaced rather than refused, so a header a caller controls cannot
         // fail a question. `!` is outside the accepted set.
-        let replaced = CorrelationId::from_headers(&headers("no!"));
+        let replaced = super::from_headers(&headers("no!"));
         assert_ne!(replaced.as_str(), "no!");
         is_readable_back(&replaced);
         // No header at all is the same fallback.
-        is_readable_back(&CorrelationId::from_headers(&HeaderMap::new()));
+        is_readable_back(&super::from_headers(&HeaderMap::new()));
     }
 
     #[test]

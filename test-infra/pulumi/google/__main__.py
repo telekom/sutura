@@ -338,7 +338,8 @@ key_b = gcp.serviceaccount.Key(
 # legs run as. Owned by this stack rather than a hand-managed external SA, so the CI
 # credential is provisioned and rotated here. Granted what those legs need: project
 # bigquery.jobUser (run jobs), bigquery.readSessionUser (read Arrow results), and
-# dataset-level bigquery.dataEditor (the corpus CREATES its fixture tables). Its key
+# bigquery.resourceViewer (read back job labels), and dataset-level bigquery.dataEditor
+# (the corpus CREATES its fixture tables). Its key
 # is exported for the GitHub environment's secret; the fixture dataset is exported too.
 # --------------------------------------------------------------------------- #
 ci_sa = gcp.serviceaccount.Account(
@@ -351,6 +352,13 @@ gcp.projects.IAMMember(
     "ci-bigquery-jobuser",
     project=project,
     role="roles/bigquery.jobUser",
+    member=ci_sa.member,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+)
+gcp.projects.IAMMember(
+    "ci-bigquery-resourceviewer",
+    project=project,
+    role="roles/bigquery.resourceViewer",
     member=ci_sa.member,
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
@@ -654,5 +662,6 @@ pulumi.export("workload_audience", audience)
 pulumi.export("ci_email", ci_sa.email)
 pulumi.export("ci_key", ci_key.private_key)
 pulumi.export("ci_dataset", ci_dataset)
+pulumi.export("ci_dataset_location", ci_dataset_location)
 pulumi.export("ci_table", ci_table)
 pulumi.export("cross_dataset", cross_dataset_res.dataset_id)

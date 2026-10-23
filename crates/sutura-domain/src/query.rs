@@ -548,12 +548,16 @@ pub enum RefusalReason {
     /// first fact links through, truncated to the same grain or not at all. Narrowable: group by a
     /// dimension both facts link to.
     CrossModelRatioWithoutSharedDimension { metric: MetricName, model: ModelName },
-    /// A cross-model ratio asked by dimensions that need more than one lookup leg.
+    /// A cross-model ratio whose second fact `model` does not name which of its relationships serves
+    /// a lookup leg (`github.com/telekom/sutura#1493`).
     ///
-    /// The second fact joins the lookup on one link, so a ratio is served over one lookup leg. That
-    /// is a shape this build does not carry, and not a wrong answer; `github.com/telekom/sutura#1493`
-    /// lifts it. Narrowable: group by the dimensions of one remote model.
-    CrossModelRatioNeedsOneLookupLeg { metric: MetricName },
+    /// Each lookup leg a ratio groups by is joined to both facts on its own link, so the second fact
+    /// needs exactly one relationship into that leg's model on the column the leg links through. Two
+    /// relationships that qualify (a bill-to and a ship-to), or one relationship that would serve two
+    /// legs, leave the choice to a guess, and a wrong guess is a wrong ratio. Which relationship
+    /// serves which leg is the catalog's to say; a caller can only leave dimensions out, one of two
+    /// that reach the same model or all that do.
+    CrossModelRatioLinkAmbiguous { metric: MetricName, model: ModelName },
 }
 
 /// What a tool call produced.
@@ -785,8 +789,9 @@ mod tests {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
             },
-            RefusalReason::CrossModelRatioNeedsOneLookupLeg {
+            RefusalReason::CrossModelRatioLinkAmbiguous {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
+                model: ModelName::parse("customers").expect("a test model"),
             },
         ]
     }

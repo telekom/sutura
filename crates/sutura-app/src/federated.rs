@@ -191,7 +191,8 @@ where
         Ok(every_leg) => every_leg,
         Err(leg) => return Ok(Answered::under(&credentials, source_unavailable(leg.source()))),
     };
-    let charged = match preflight_and_charge::<_, B, C>(every_leg, &credentials, deadline, ledger, context) {
+    let labels = sutura_domain::warehouse::labels::JobLabels::of(context);
+    let charged = match preflight_and_charge::<_, B, C>(every_leg, (&credentials, &labels), deadline, ledger, context) {
         Ok(charged) => charged,
         Err(error) => return error.answered_under(&credentials),
     };
@@ -204,7 +205,7 @@ where
     //
     // **The combine.** The row cap applies to the ANSWER and not to a leg - a leg carries none - and
     // a leg's refusal wins over a combine failure; see [`settled`].
-    let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, &credentials, deadline);
+    let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
     let assembled = match settled::<W, B, C>(combiner, &credentials, combiner.execute(cut, &runner, working_set_bytes)) {
         Ok(batches) => batches,
         Err(done) => return *done,

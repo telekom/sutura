@@ -456,6 +456,11 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
                         .latency_unit(tower_http::LatencyUnit::Millis),
                 ),
         )
+        // Outside the span, so the span's id and the request context's drawn one are resolved once.
+        .layer(axum::middleware::from_fn_with_state(
+            state.entropy(),
+            crate::correlation::resolve,
+        ))
         // The final outer boundary sees every terminal response, including one produced by a layer
         // above the handler. Route plus method identifies the governed question capability; typed
         // response extensions carry the outcome without parsing a body.
@@ -514,7 +519,11 @@ fn request_span(request: &axum::extract::Request) -> tracing::Span {
         "request",
         method = %request.method(),
         route,
-        correlation = %crate::correlation::CorrelationId::from_headers(request.headers()),
+        correlation = %request
+            .extensions()
+            .get::<crate::correlation::CorrelationId>()
+            .cloned()
+            .unwrap_or_else(|| crate::correlation::from_headers(request.headers())),
         metric = tracing::field::Empty,
         grain = tracing::field::Empty,
         // `verified` or `deployment`, filled in by the query handler once the request context exists.

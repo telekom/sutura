@@ -31,7 +31,12 @@
 //!   drain stay in each adapter. This crate names no data system.
 
 mod bind;
-#[cfg(any(adbc_driver_linked, adbc_postgres_driver_linked, adbc_duckdb_driver_linked))]
+#[cfg(any(
+    adbc_driver_linked,
+    adbc_postgres_driver_linked,
+    adbc_duckdb_driver_linked,
+    adbc_clickhouse_driver_linked
+))]
 mod linked;
 mod location;
 
@@ -133,13 +138,51 @@ pub fn linked_duckdb_driver() -> Result<ManagedDriver, CoreError> {
 /// [`CoreError`] where the named path is unusable (empty or relative), where the library does not
 /// load, or where its initialisation refused.
 pub fn mounted_duckdb_driver(named: &str) -> Result<ManagedDriver, CoreError> {
+    mounted_driver(named, b"duckdb_adbc_init", "linked_duckdb_driver")
+}
+
+/// The `ClickHouse` driver this artefact's own link carries - [`linked_driver`]'s contract, for the
+/// archive `nix/clickhouse-adbc.nix` builds.
+///
+/// # Errors
+///
+/// As [`linked_driver`].
+pub fn linked_clickhouse_driver() -> Result<ManagedDriver, CoreError> {
+    #[cfg(adbc_clickhouse_driver_linked)]
+    {
+        linked::clickhouse_driver()
+    }
+    #[cfg(not(adbc_clickhouse_driver_linked))]
+    {
+        Err(CoreError::with_message_and_status(
+            "this build linked no ClickHouse ADBC driver",
+            adbc_core::error::Status::NotFound,
+        ))
+    }
+}
+
+/// The `ClickHouse` driver a deployment mounted at `named`; [`mounted_duckdb_driver`]'s contract.
+///
+/// The entrypoint is passed, never derived: `AdbcClickhouseInit`, the name the linked route
+/// declares too.
+///
+/// # Errors
+///
+/// As [`mounted_duckdb_driver`].
+pub fn mounted_clickhouse_driver(named: &str) -> Result<ManagedDriver, CoreError> {
+    mounted_driver(named, b"AdbcClickhouseInit", "linked_clickhouse_driver")
+}
+
+/// A mounted library opened by `entrypoint`, after its path is parsed. `linked_route` names the
+/// function a linked path belongs to, for the refusal of a path that parses as one.
+fn mounted_driver(named: &str, entrypoint: &[u8], linked_route: &str) -> Result<ManagedDriver, CoreError> {
     let at = DriverLocation::parse(named)
         .map_err(|cause| CoreError::with_message_and_status(cause.to_string(), adbc_core::error::Status::InvalidArguments))?;
     let Some(path) = at.mounted() else {
         return Err(CoreError::with_message_and_status(
-            "a parsed driver path is mounted or linked; the linked route is linked_duckdb_driver",
+            format!("a parsed driver path is mounted or linked; the linked route is {linked_route}"),
             adbc_core::error::Status::Internal,
         ));
     };
-    ManagedDriver::load_dynamic_from_filename(path, Some(b"duckdb_adbc_init"), AdbcVersion::default())
+    ManagedDriver::load_dynamic_from_filename(path, Some(entrypoint), AdbcVersion::default())
 }

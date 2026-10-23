@@ -615,6 +615,7 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     gaps.extend(version_gaps(&root_manifest, &lock_text));
     gaps.extend(lock_drift::gaps_in(&root, &lock_text));
     gaps.extend(deny_wiring::gaps(&root));
+    gaps.extend(deny_wiring::driver_gaps(&root));
     match matrix_targets(&workflow) {
         Ok(matrix) => report(
             &sources,

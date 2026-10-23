@@ -311,10 +311,10 @@ const CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION: Guide = Guide {
     remedy: "Group only by a dimension both fact models link to; if the metric has none, report it.",
 };
 
-const CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG: Guide = Guide {
-    reason: "cross_model_ratio_needs_one_lookup_leg",
-    meaning: "a two-fact ratio grouped by dimensions that need more than one lookup leg",
-    remedy: "Group only by dimensions of one remote model; if you need both, report it.",
+const CROSS_MODEL_RATIO_LINK_AMBIGUOUS: Guide = Guide {
+    reason: "cross_model_ratio_link_ambiguous",
+    meaning: "a two-fact ratio whose second model does not name one relationship for each lookup leg",
+    remedy: "Ask for fewer dimensions from one remote model: leaving out one of two that reach it, or all of them, can plan it. If the question needs them, report it: the catalog has to say which relationship serves which dimension.",
 };
 
 /// Every refusal a caller can be given, in the order the prompt lists them.
@@ -374,7 +374,7 @@ pub(super) const GUIDES: &[&Guide] = &[
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
     &CROSS_MODEL_RATIO_SPANS_SOURCES,
     &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
-    &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
+    &CROSS_MODEL_RATIO_LINK_AMBIGUOUS,
     &SOURCE_UNAVAILABLE,
     &SOURCE_REFUSED,
     &BILL_TO_NOT_ALLOWED,
@@ -430,7 +430,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
         RefusalReason::CrossModelRatioSpansSources { .. } => &CROSS_MODEL_RATIO_SPANS_SOURCES,
         RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
-        RefusalReason::CrossModelRatioNeedsOneLookupLeg { .. } => &CROSS_MODEL_RATIO_NEEDS_ONE_LOOKUP_LEG,
+        RefusalReason::CrossModelRatioLinkAmbiguous { .. } => &CROSS_MODEL_RATIO_LINK_AMBIGUOUS,
     }
 }
 

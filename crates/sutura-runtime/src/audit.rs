@@ -97,6 +97,11 @@ impl AuditSink for TracingAuditSink {
         let claimed = |claim: Option<&sutura_domain::identity::ClientClaim>| claim.map_or_else(String::new, ToString::to_string);
         let azp = claimed(record.client().and_then(sutura_domain::identity::ClientClaims::azp));
         let client_id = claimed(record.client().and_then(sutura_domain::identity::ClientClaims::client_id));
+        // The job labels, byte for byte, so a data-system job joins this line on them; empty where
+        // the call site named none.
+        let [(_, sutura_client), (_, sutura_actor), (_, sutura_correlation)] = record
+            .labels()
+            .map_or([("", ""); 3], sutura_domain::warehouse::labels::JobLabels::pairs);
         match *record.outcome() {
             // `executed_as` is the field that answers the incident question this line exists for, and
             // it was missing until a review asked it: a verified subject's question can be ANSWERED
@@ -114,6 +119,9 @@ impl AuditSink for TracingAuditSink {
                 task = who.task,
                 azp,
                 client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
                 rows,
                 definition_version = %provenance.version(),
                 executed_as = executed_as(record),
@@ -130,6 +138,9 @@ impl AuditSink for TracingAuditSink {
                 task = who.task,
                 azp,
                 client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
                 reason = ?reason,
                 "refused"
             ),
@@ -146,6 +157,9 @@ impl AuditSink for TracingAuditSink {
                 task = who.task,
                 azp,
                 client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
                 rows,
                 statement = statement.as_str(),
                 credential_until = executed_until(record),
@@ -159,6 +173,9 @@ impl AuditSink for TracingAuditSink {
                 task = who.task,
                 azp,
                 client_id,
+                sutura_client,
+                sutura_actor,
+                sutura_correlation,
                 reason = reason.code(),
                 statement = statement.as_str(),
                 "raw_refused"
@@ -386,6 +403,30 @@ mod tests {
             acted_for.contains("\"acting\":2") && acted_for.contains("o*** > q***"),
             "the actors are not on the line, in order: {acted_for}"
         );
+    }
+
+    #[test]
+    fn a_record_carries_the_labels_its_jobs_were_given() {
+        use sutura_domain::identity::{ClientClaim, ClientClaims, RequestContext};
+        use sutura_domain::warehouse::labels::JobLabels;
+
+        let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
+            .naming_client(ClientClaims::of(Some(ClientClaim::read(Some("claude-code"))), None))
+            .correlated([0x2a; 16]);
+        let labels = JobLabels::of(&context);
+        let outcome = an_answer_on_a_shared_source();
+        let rendered = crate::testing::capture(|| {
+            TracingAuditSink::new().record(&CallRecord::of(context.chain(), &outcome, None).labelled(&labels));
+        });
+        for field in [
+            String::from("\"sutura_client\":\"claude-code\""),
+            String::from("\"sutura_actor\":\"\""),
+            String::from("\"sutura_correlation\":\"2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\""),
+        ] {
+            assert!(rendered.contains(&field), "{field} is not on the line: {rendered}");
+        }
+        let unlabelled = written(context.chain());
+        assert!(unlabelled.contains("\"sutura_correlation\":\"\""), "{unlabelled}");
     }
 
     #[test]

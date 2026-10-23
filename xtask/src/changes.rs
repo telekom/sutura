@@ -104,8 +104,19 @@ const AREAS: &[Area] = &[
         // `pr-cache` (`ci.yml`) reading this one for that question: a `crates/*/Cargo.toml`
         // feature edit, `rust-toolchain.toml`, `.cargo/config.toml` and `flake.{nix,lock}` all
         // move `.#deps` while classify wrote `deps=false` for every one of them.
+        //
+        // The two locks `cargo deny` reads beside the root one: `fuzz/`'s own and the vendored
+        // ClickHouse driver's (`nix/deny-clickhouse-driver.sh`), each with the manifest it
+        // resolves. `.github/workflows/security-audit.yml` lists the same paths.
         name: "deps",
-        patterns: &["deny.toml", "Cargo.lock"],
+        patterns: &[
+            "deny.toml",
+            "Cargo.lock",
+            "fuzz/Cargo.toml",
+            "fuzz/Cargo.lock",
+            "nix/clickhouse-adbc.Cargo.lock",
+            "vendor/adbc_clickhouse/Cargo.toml",
+        ],
         consumers: &[],
     },
     Area {
@@ -707,6 +718,19 @@ mod tests {
         let r = classify(&paths(&["Cargo.lock"]));
         assert!(r.needs("rust"));
         assert!(r.needs("deps"));
+    }
+
+    #[test]
+    fn a_lock_that_only_the_satellite_deny_runs_read_still_selects_the_supply_chain_axis() {
+        for path in [
+            "fuzz/Cargo.lock",
+            "fuzz/Cargo.toml",
+            "nix/clickhouse-adbc.Cargo.lock",
+            "vendor/adbc_clickhouse/Cargo.toml",
+        ] {
+            let r = classify(&paths(&[path]));
+            assert!(r.needs("deps"), "{path} must select deps: {:?}", r.reasons);
+        }
     }
 
     #[test]

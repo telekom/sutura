@@ -538,6 +538,22 @@ impl Warehouse for FakeWarehouse {
         Ok(canned(&self.result))
     }
 
+    /// Records the job's correlation label, then the port's own default.
+    fn execute_billed(
+        &self,
+        executable: Executable<'_>,
+        presented: &Presented,
+        bill_to: &sutura_domain::identity::BillTo,
+        labels: &sutura_domain::warehouse::labels::JobLabels,
+        deadline: Deadline,
+    ) -> sutura_domain::warehouse::billed::BilledResult<ResultBatches, Self::Error> {
+        let [.., (_, correlation)] = labels.pairs();
+        self.held.label(correlation);
+        sutura_domain::warehouse::billed::unstated(bill_to, &self.source)?;
+        self.execute(executable, presented, deadline)
+            .map_err(sutura_domain::warehouse::billed::Billed::Source)
+    }
+
     // `#666`'s review, finding 2: a router-level test needs this fake to accept a raw statement to
     // reach `RunSqlOutcome`'s status arms at all - no certified fixture here overrides it otherwise.
     const ACCEPTS_RAW_STATEMENTS: bool = true;

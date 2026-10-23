@@ -31,5 +31,11 @@ arrow-schema = "59"
 sutura-domain = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+# `tests/clickhouse.rs` finds the ClickHouse tier the way the adapters' tier cells do, and mints the
+# PEM material the driver's TLS options are given. Both already resolve in the dev graph.
+sutura-dev = { workspace = true }
+rcgen = { workspace = true }
+
 [lints]
 workspace = true

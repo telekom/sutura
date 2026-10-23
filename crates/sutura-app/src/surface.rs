@@ -89,6 +89,7 @@ use sutura_domain::plan::{Ceilings, DrillAcrossCombiner};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 
 use crate::proof::{pin_schemas, validate_with};
 use crate::spend::SpendLedger;
@@ -711,8 +712,11 @@ where
         // exactly this line - `docs/adr/0008` fixes it as part of the record's content, and
         // `sutura_app::Answered` is what carries it here without putting it on the caller-facing
         // provenance. `None` is a question declined before the broker was asked.
+        let labels = JobLabels::of(context);
         self.sink.record(
-            &CallRecord::of(context.chain(), answered.outcome(), answered.executed_until()).naming_client(context.client()),
+            &CallRecord::of(context.chain(), answered.outcome(), answered.executed_until())
+                .naming_client(context.client())
+                .labelled(&labels),
         );
         Ok(answered.into_outcome())
     }
@@ -739,9 +743,11 @@ where
             })?;
         // Same ordering as `answer`: written before the `Ok`, both outcomes reaching it, so a raw
         // call is recorded exactly as reliably as a certified one.
+        let labels = JobLabels::of(context);
         self.sink.record(
             &CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until())
-                .naming_client(context.client()),
+                .naming_client(context.client())
+                .labelled(&labels),
         );
         Ok(answered.into_outcome())
     }

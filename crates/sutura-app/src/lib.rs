@@ -40,6 +40,7 @@ use sutura_domain::plan::{Ceilings, DrillAcrossCombiner, Executable, FederationC
 use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::billed::Billed;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{PreFlight, UnreadableCell, Warehouse};
 use sutura_semantic::{CompileFailure, Compiled, compile};
 
@@ -482,7 +483,7 @@ where
     C: DrillAcrossCombiner,
     C::Error: Send,
 {
-    let pinned = definitions.get();
+    let (pinned, labels) = (definitions.get(), JobLabels::of(context));
     let view = scoped_for(pinned, context);
     let compiled = compile(query, &view, ceilings).map_err(|cause| ServiceError::Compile { cause })?;
     // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
@@ -604,7 +605,7 @@ where
     }
     let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
     let preflight = match warehouse
-        .dry_run_billed(asked_plan, presented, bill_to, deadline)
+        .dry_run_billed(asked_plan, presented, bill_to, &labels, deadline)
         .map_err(Billed::into_source)
     {
         Ok(preflight) => preflight,
@@ -678,7 +679,7 @@ where
     // whether a single error could genuinely satisfy both; until one does, the order is pinned here by
     // a both-predicate fake and the comment at `sutura_app::tests`.
     let rows = match warehouse
-        .execute_billed(asked_plan, presented, bill_to, deadline)
+        .execute_billed(asked_plan, presented, bill_to, &labels, deadline)
         .map_err(Billed::into_source)
     {
         Ok(rows) => rows,

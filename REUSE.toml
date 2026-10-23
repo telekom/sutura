@@ -161,3 +161,9 @@ path = "overrides/.icons/brand/frictionless.svg"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2020 Open Knowledge Foundation"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "vendor/adbc_clickhouse/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 ClickHouse, LLC."
+SPDX-License-Identifier = "MIT OR Apache-2.0"

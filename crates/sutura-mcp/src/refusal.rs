@@ -241,7 +241,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
         RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => spans_sources(metric, model),
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
-        RefusalReason::CrossModelRatioNeedsOneLookupLeg { ref metric } => needs_one_lookup_leg(metric),
+        RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => link_ambiguous(metric, model),
     };
     (code, detail)
 }
@@ -285,11 +285,13 @@ fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domai
     )
 }
 
-/// Written for an agent: this one IS narrowable, so the sentence says how.
-fn needs_one_lookup_leg(metric: &sutura_domain::model::MetricName) -> String {
+/// Written for an agent: the question cannot pick which of a model's relationships serves a lookup leg, and can only leave dimensions out.
+fn link_ambiguous(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
     format!(
-        "`{metric}` measures a ratio over two fact models, and this question would read more than one \
-         lookup leg. Group by dimensions of one remote model."
+        "`{metric}` measures a ratio over two fact models, and `{model}` does not declare exactly one \
+         relationship for each lookup leg this question reads. Asking for fewer dimensions from one \
+         remote model can help: leave out one of two that reach it, or all of them. If the question \
+         needs them, report it to the person you are acting for."
     )
 }
 
@@ -423,7 +425,10 @@ mod tests {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
             },
-            RefusalReason::CrossModelRatioNeedsOneLookupLeg { metric: metric() },
+            RefusalReason::CrossModelRatioLinkAmbiguous {
+                metric: metric(),
+                model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
+            },
         ]
     }
 

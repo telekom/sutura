@@ -236,7 +236,8 @@ pub enum AdbcError {
 /// anchor, an identity read and a fixture load all arrive here and none of them can opt out. Sent
 /// rather than checked: see [`MAX_BYTES_BILLED_OPTION`] for the key and [`BytesBilledCeiling`] for
 /// what the service does with it, and what it does not bound. It also clears the driver's default
-/// project, for the reason [`DEFAULT_PROJECT_OPTION`] gives.
+/// project, for the reason [`DEFAULT_PROJECT_OPTION`] gives, and labels a request-time job with
+/// [`LABELS_OPTION`].
 ///
 /// **And the TIME bound: a request-time call's own [`Deadline`] becomes the job's `jobTimeoutMs`.**
 /// `now` is an argument for the reason [`Deadline::remaining_at`] takes one. A deadline already
@@ -258,6 +259,17 @@ where
         OptionValue::String(String::new()),
     )
     .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    if let Some(labels) = request.labels() {
+        let pairs = labels
+            .pairs()
+            .into_iter()
+            .map(|(key, value)| (String::from(key), serde_json::Value::from(value)));
+        stmt.set_option(
+            OptionStatement::Other(LABELS_OPTION.to_owned()),
+            OptionValue::String(serde_json::Value::Object(pairs.collect()).to_string()),
+        )
+        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    }
     stmt.set_option(
         OptionStatement::Other(MAX_BYTES_BILLED_OPTION.to_owned()),
         OptionValue::Int(max_bytes_billed.as_int()),
@@ -323,6 +335,11 @@ const PROBE_PROJECT: &str = "sutura-driver-probe.invalid";
 /// `dataset_id`. Empty, no default is sent at all, which is what a source with no default dataset
 /// means: every table this adapter renders is named `project.dataset.table`.
 const DEFAULT_PROJECT_OPTION: &str = "bigquery.query.default_project_id";
+
+/// The statement option `nix/bigquery-adbc-job-labels.patch` adds for the query job's labels: a JSON
+/// object the driver copies into `QueryConfig.Labels`. Sent only for a request that carries
+/// [`sutura_domain::warehouse::labels::JobLabels`], so a boot-path job is unlabelled.
+const LABELS_OPTION: &str = "bigquery.query.labels";
 
 /// The pinned driver's own name for `BigQuery`'s `maximumBytesBilled` job configuration.
 ///

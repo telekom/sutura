@@ -1,15 +1,15 @@
 diff --git a/crates/sutura-runtime/src/audit.rs b/crates/sutura-runtime/src/audit.rs
 --- a/crates/sutura-runtime/src/audit.rs
 +++ b/crates/sutura-runtime/src/audit.rs
-@@ -131,6 +131,7 @@
-                 azp,
-                 client_id,
+@@ -142,6 +142,7 @@
+                 sutura_actor,
+                 sutura_correlation,
                  reason = ?reason,
 +                executed_as = "",
                  "refused"
              ),
              // The raw path's two arms. **`statement` is logged deliberately** - `docs/adr/0013`'s
-@@ -190,7 +191,7 @@
+@@ -207,7 +208,7 @@
  fn executed_until(record: &CallRecord<'_>) -> String {
      match record.executed_until() {
          None => String::from("none"),
@@ -18,7 +18,7 @@ diff --git a/crates/sutura-runtime/src/audit.rs b/crates/sutura-runtime/src/audi
          Some(Expiry::At { unix_seconds }) => unix_seconds.to_string(),
      }
  }
-@@ -198,7 +199,7 @@
+@@ -215,7 +216,7 @@
  fn executed_as(record: &CallRecord<'_>) -> String {
      record.executed_as().map_or_else(String::new, |ran| {
          ran.legs()

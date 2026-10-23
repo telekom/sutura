@@ -213,6 +213,46 @@ the deployment.
     Callers can share one dataset, because BigQuery applies each caller's own grants and row access
     policies to the query.
 
+### Job labels
+
+Each query job that sutura runs for a request has three labels, in each posture:
+
+| Label                | Value                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sutura_client`      | The OAuth client of the caller's token: its `azp`, else its `client_id`. Empty if it has neither                                           |
+| `sutura_actor`       | The immediate actor of the token's `act` claim, in the masked form of the audit record. Empty if it has none                               |
+| `sutura_correlation` | A random id that sutura makes for the request: 32 hex digits. It is never the caller's `x-correlation-id`. Empty if the surface makes none |
+
+The audit record of the request writes the same three values. Thus an auditor can join a job in
+the BigQuery audit log or in `INFORMATION_SCHEMA.JOBS` to the audit record on
+`sutura_correlation`, and see which agent asked for which user. The audit record also writes the
+caller's `x-correlation-id` as `correlation`, so it joins the logs of the caller too. The id has
+128 random bits, so two requests have the same id only with a negligible probability, also across
+restarts and replicas.
+
+A label value has at most 63 characters: lowercase letters, digits, `_` and `-`. sutura keeps a
+value that fits. It changes a value that does not fit to its first 54 characters, in lowercase and
+with `_` for each other character, then `-` and the first 8 hex digits of the SHA-256 of the full
+value.
+
+Whether a job names the user depends on the posture. With `impersonation-at-source`, the
+principal of the job is the user's own principal, so the job names the user. With
+`shared-service-user`, the job runs as the deployment's own principal, so the job does not
+name the user. Only a join of `sutura_correlation` to the audit record names the user.
+
+The labels never hold the user's subject in either posture, because each principal that can
+list the jobs of the billing project can read the labels. They never hold a part of the
+question. A job that sutura runs at startup has no labels.
+
+Each principal that can list the jobs of the billing project also sees the masked actor. The
+masked actor shows the first character of each part of a human actor's id and where its `.` and
+`@` separators are. The same principal sees the `azp` (or `client_id`) of the caller's token as it
+is.
+
+If the host cannot supply randomness for the id, sutura refuses an HTTP request with
+`503 no_randomness` before it runs any job, so a job for an HTTP request always has an id. A job
+that the stdio surface or the CLI runs has an empty `sutura_correlation`.
+
 ## Integration modes
 
 An `impersonation-at-source` source declares one of three modes. A `shared-service-user` source

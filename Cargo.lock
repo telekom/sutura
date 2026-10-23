@@ -3818,6 +3818,8 @@ dependencies = [
  "adbc_ffi",
  "arrow-array",
  "arrow-schema",
+ "rcgen",
+ "sutura-dev",
  "sutura-domain",
  "thiserror 2.0.21",
 ]
@@ -4220,6 +4222,7 @@ version = "0.10.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
+ "getrandom 0.4.3",
  "governor",
  "jsonwebtoken",
  "parking_lot",

@@ -65,6 +65,8 @@ pub(super) struct Asked {
     /// cross into `JobRequest` unmangled, and a fake that recorded nothing here could not catch a
     /// call site that silently swapped one arm for the other.
     pub(super) deadline: JobDeadline,
+    /// The `sutura_correlation` label the job carried; `None` for a job with no labels at all.
+    pub(super) correlation: Option<String>,
 }
 
 /// A transport that records what it was asked and answers with what a test handed it.
@@ -169,6 +171,10 @@ impl Recording {
                 JobIdentity::Transport => None,
             },
             deadline: request.deadline(),
+            correlation: request.labels().map(|labels| {
+                let [.., (_, correlation)] = labels.pairs();
+                String::from(correlation)
+            }),
         });
     }
 }
