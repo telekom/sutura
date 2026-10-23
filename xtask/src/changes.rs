@@ -51,6 +51,17 @@ pub(crate) const DEPS_CLOSURE_INPUTS: [&str; 7] = [
     "**/Cargo.toml",
 ];
 
+/// The supply-chain axis: the policy and every lock or manifest a `cargo deny` run reads. Literal paths,
+/// because `xtask/src/workflows/audit_paths.rs` holds `security-audit.yml`'s `paths:` lists to this one.
+pub(crate) const DEPS_PATTERNS: [&str; 6] = [
+    "deny.toml",
+    "Cargo.lock",
+    "fuzz/Cargo.toml",
+    "fuzz/Cargo.lock",
+    "nix/clickhouse-adbc.Cargo.lock",
+    "vendor/adbc_clickhouse/Cargo.toml",
+];
+
 /// One area of the repo, and what depends on it.
 struct Area {
     /// Output name. CI gates steps on these.
@@ -107,16 +118,10 @@ const AREAS: &[Area] = &[
         //
         // The two locks `cargo deny` reads beside the root one: `fuzz/`'s own and the vendored
         // ClickHouse driver's (`nix/deny-clickhouse-driver.sh`), each with the manifest it
-        // resolves. `.github/workflows/security-audit.yml` lists the same paths.
+        // resolves. `check-workflows` holds `.github/workflows/security-audit.yml`'s path lists to
+        // `DEPS_PATTERNS`, so a path dropped from either is refused.
         name: "deps",
-        patterns: &[
-            "deny.toml",
-            "Cargo.lock",
-            "fuzz/Cargo.toml",
-            "fuzz/Cargo.lock",
-            "nix/clickhouse-adbc.Cargo.lock",
-            "vendor/adbc_clickhouse/Cargo.toml",
-        ],
+        patterns: &DEPS_PATTERNS,
         consumers: &[],
     },
     Area {

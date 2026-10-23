@@ -300,7 +300,7 @@ jobs:
       catalog_wren: ${{ steps.classify.outputs.catalog_wren }}
       # AREA axis, not category - published only because `pr-cache` (below) needs to know whether
       # a dependency input moved, to skip its own realise when nothing did (#980). NOT `deps` -
-      # that area is the supply-chain axis (`deny.toml`, `Cargo.lock`) the `Supply chain` step
+      # that area is the supply-chain axis (`deny.toml` and every lock a `cargo deny` run reads) the `Supply chain` step
       # below reads, which is a different question from "did `.#deps` move" and was measured
       # answering it wrong: a crate `Cargo.toml` feature edit, `rust-toolchain.toml`,
       # `.cargo/config.toml` and `flake.{nix,lock}` all move the dependency derivation while
@@ -1297,7 +1297,7 @@ jobs:
     # now publishes the dependency closure ONLY, and only a commit moving one of
     # `crate::changes::DEPS_CLOSURE_INPUTS` - the exact set `nix-store-cache`'s own `primary-key`
     # hashes - can move it. That is NOT the `deps` (supply-chain) axis: the first version of this
-    # line read `needs.ci.outputs.deps`, which is `deny.toml`/`Cargo.lock` only, so a
+    # line read `needs.ci.outputs.deps`, which is the supply-chain files only, so a
     # `rust-toolchain.toml`, `.cargo/config.toml`, `flake.{nix,lock}` or crate-`Cargo.toml` change
     # moved `.#deps` while classify wrote `deps=false` and this job skipped anyway - #980's own
     # defect surviving for that whole class. A commit that moves none of those inputs has nothing

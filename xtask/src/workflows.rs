@@ -134,6 +134,8 @@ mod obligations;
 // for `obligations`'s reason: a different block, a different question (source job, not
 // reachability), and the 1000-line cap this file already sits against.
 mod aggregate_inputs;
+// `security-audit.yml`'s `paths:` lists held to the classifier's supply-chain patterns.
+mod audit_paths;
 
 // READING A NAMED BLOCK OUT OF `flake.nix`, in its own file because this one reached the
 // 1000-line cap the moment two changes registered a rule module in the same window. The seam is
@@ -478,6 +480,13 @@ fn check_gates(
         &cross_link::problems(root),
         "cross-matrix rule(s) broken",
         "each venue builds one fixed set of triples - see xtask/src/workflows/cross_link.rs for which and why",
+    ) {
+        return Some(failed);
+    }
+    if let Some(failed) = refuse(
+        &audit_paths::problems(root),
+        "audit path list(s) behind the classifier",
+        "see xtask/src/workflows/audit_paths.rs for what each list is held to",
     ) {
         return Some(failed);
     }
