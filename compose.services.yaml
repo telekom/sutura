@@ -646,7 +646,7 @@ services:
     #   unlike `postgresql_18` - so there is no `nix/oracle-tier.nix` this could take the shape of. A
     #   `checks.*` derivation has no docker socket and no network, so there is nothing there for it to bring up.
     # Converges: the `oracle-tier` CI job (`ci.yml`), via `nix run .#oracle-acceptance`: the `#[ignore]`d
-    #   acceptance cell and `sutura-catalog-rdbms`'s live dictionary cells. A green `just validate` says nothing
+    #   acceptance cell, `sutura-catalog-rdbms`'s live dictionary cells and `sutura-cli`'s served source-password cell. A green `just validate` says nothing
     #   about a live Oracle (its nix sandbox has no docker socket), nor does any golden-matrix cell:
     #   `DataSystemUnderTest for OracleWarehouse` answers `available()` FALSE under a named exemption, reasons
     #   beside the `impl` in `crates/sutura-app/tests/adapters/adapters.rs` (`SUTURA_DEV_REQUIRE_TIER` is per PROCESS,
