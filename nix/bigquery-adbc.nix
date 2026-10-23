@@ -94,7 +94,7 @@ buildGoModule {
   # The tests `bigquery-adbc-forbidden.patch` adds for its 403 reason table,
   # `bigquery-adbc-caller-credentials.patch` adds for its two options,
   # `bigquery-adbc-job-labels.patch` adds for its labels option and
-  # `bigquery-adbc-jobs-query.patch` adds for its jobs.query option. A build whose host
+  # `bigquery-adbc-jobs-query.patch` adds for its jobs.query option and for the labels it carries. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
   # module cache: the modules only `_test.go` files import stay out of the licence record below.
   # The whole phase is replaced because the default one loops over `getGoDirs`, which only the
@@ -103,7 +103,7 @@ buildGoModule {
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused'
+    tests='TestForbidden|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused|TestQueryLabelsThroughJobsQuery'
     GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
     cat "$TMPDIR/go-test.log"
     # `-run` passes when a name stops matching, so every listed name has to pass.
