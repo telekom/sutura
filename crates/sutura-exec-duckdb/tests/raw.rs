@@ -471,6 +471,53 @@ mod raw {
         assert_eq!(logging(&warehouse), before);
     }
 
+    /// The screen's node class: a `WITH` whose body writes is a `SELECT` to the statement-level
+    /// answer, and its tree holds the writing node. Refused by that node before anything runs, so
+    /// the table keeps its rows and no file appears - the barrier would refuse each at the engine,
+    /// but not by name.
+    #[test]
+    fn a_data_changing_query_inside_a_select_is_refused_by_its_node_before_any_of_it_runs() {
+        let scratch = Scratch::new("screen-node");
+        let warehouse = scratch.open();
+        let out = scratch.at("out.csv");
+        let before = table(&warehouse);
+        let copy = format!("WITH x AS (COPY (SELECT 1) TO '{}') SELECT 1", out.display());
+        for (sql, node) in [
+            (
+                "WITH x AS (INSERT INTO t VALUES (3, 30) RETURNING *) SELECT * FROM x",
+                "INSERT_QUERY_NODE",
+            ),
+            (
+                "WITH x AS (UPDATE t SET amount = 0 RETURNING *) SELECT * FROM x",
+                "UPDATE_QUERY_NODE",
+            ),
+            ("WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x", "DELETE_QUERY_NODE"),
+            ("WITH x AS (TRUNCATE t) SELECT 1", "DELETE_QUERY_NODE"),
+            (copy.as_str(), "COPY_QUERY_NODE"),
+            (
+                "SELECT 1; WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x",
+                "DELETE_QUERY_NODE",
+            ),
+        ] {
+            let refused = screened_out(&warehouse, sql);
+            assert!(
+                matches!(refused, NotARead::Node(ref name) if name == node),
+                "`{sql}`: {refused:?}"
+            );
+        }
+        assert_eq!(table(&warehouse), before);
+        assert!(!out.exists(), "a refused COPY wrote {}", out.display());
+        assert_eq!(
+            answer(
+                &warehouse,
+                "WITH x AS (SELECT id FROM t) SELECT id FROM x UNION ALL SELECT 1 ORDER BY id"
+            )
+            .rows()
+            .len(),
+            before.len() + 1
+        );
+    }
+
     /// The screen's second class: a table function [`sutura_exec_duckdb::RAW_TABLE_FUNCTIONS`] does
     /// not list is refused wherever the text calls it - a subquery, a CTE, a set operation, a join
     /// and a `DESCRIBE` of a query included - and so is one that runs SQL from a string.
