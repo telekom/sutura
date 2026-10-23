@@ -160,7 +160,8 @@ fn a_type_neither_adapter_maps_names_itself_rather_than_being_rendered() {
         "TIMESTAMP '2026-06-01 00:00:00'",
         "[1]",
         "NULL::TIMESTAMP",
-        // Untyped, it keeps the engine's own `NULL` type, which the driver hands over as Arrow `Null`.
+        // Untyped, it keeps the engine's own `NULL` type. The driver hands it over as Arrow `Null`,
+        // which the domain maps nowhere: refused by type, not answered as a null cell.
         "NULL",
     ] {
         let refusal = refused(unmapped);
