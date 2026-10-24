@@ -94,7 +94,6 @@ const REFUSAL_REASONS: &[Label] = &[
     label("budget_exhausted"),
     label("credential_unavailable"),
     label("cross_model_ratio_link_ambiguous"),
-    label("cross_model_ratio_spans_sources"),
     label("cross_model_ratio_without_shared_calendar"),
     label("cross_model_ratio_without_shared_dimension"),
     label("deadline_exceeded"),

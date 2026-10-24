@@ -377,6 +377,13 @@ impl PlanBucket {
         self.label.as_str()
     }
 
+    /// Whether `other` buckets the same axis: one label, one grain and one time column name. The table
+    /// each reads the column from may differ, which is a calendar listed on another data system.
+    #[inline]
+    pub fn on_the_axis_of(&self, other: &Self) -> bool {
+        self.label == other.label && self.grain == other.grain && self.column.column() == other.column.column()
+    }
+
     #[inline]
     pub const fn grain(&self) -> Grain {
         self.grain

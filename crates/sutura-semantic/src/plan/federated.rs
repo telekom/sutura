@@ -405,6 +405,16 @@ fn second_fact_leg(
         return Err(PlanError::NoSecondFactModel);
     };
     let second = cross.second;
+    // Bucketed and bounded on the calendar listed on the second fact's own source, which a statement
+    // there can read: the first fact's calendar is another system's table.
+    let own_bucket = PlanBucket::new(
+        ResultLabel::bucket(),
+        bucket.grain(),
+        PlanColumn::new(
+            cross.second_calendar.table_name().clone(),
+            resolution.metric.time_column().clone(),
+        ),
+    );
     let (metric, model) = (resolution.metric.name(), second.name());
     let same = |own: &JoinKey, other: &JoinKey| own.target() == other.target() && own.grain() == other.grain();
     let mut keys: Vec<PlanKey> = Vec::new();
@@ -447,7 +457,11 @@ fn second_fact_leg(
     }
     let tables = StatementTables::parse(
         second.table().clone(),
-        vec![PlanJoin::hop(cross.second_to_calendar, second.table_name(), cross.calendar)],
+        vec![PlanJoin::hop(
+            cross.second_to_calendar,
+            second.table_name(),
+            cross.second_calendar,
+        )],
     )
     .map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
         table: ambiguous.alias().clone(),
@@ -456,10 +470,10 @@ fn second_fact_leg(
         source: second.source().clone(),
         metric: resolution.metric.name().clone(),
         tables,
-        bucket: bucket.clone(),
+        bucket: own_bucket.clone(),
         keys,
         terms: second_terms,
-        bindings: super::range_only(resolution.range, bucket.column())?,
+        bindings: super::range_only(resolution.range, own_bucket.column())?,
         range: resolution.range,
     }))
 }

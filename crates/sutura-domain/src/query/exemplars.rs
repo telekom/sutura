@@ -141,10 +141,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             metric: metric("revenue_per_customer"),
             model: model("customers"),
         },
-        RefusalReason::CrossModelRatioSpansSources {
-            metric: metric("revenue_per_customer"),
-            model: model("customers"),
-        },
         RefusalReason::CrossModelRatioWithoutSharedDimension {
             metric: metric("revenue_per_customer"),
             model: model("customers"),
@@ -189,7 +185,6 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::BudgetExhausted { .. }
             | RefusalReason::TopOverUncertifiedRows { .. }
             | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
-            | RefusalReason::CrossModelRatioSpansSources { .. }
             | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
             | RefusalReason::CrossModelRatioLinkAmbiguous { .. } => {}
         }

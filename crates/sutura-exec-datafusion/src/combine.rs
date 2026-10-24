@@ -95,7 +95,7 @@ pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
 use cast::{Cast, LinkCasts};
-use schema::{FACT, LegSchema, agreeing_link};
+use schema::{FACT, LegSchema, agreeing_bucket, agreeing_link};
 
 /// The name the fact leg is registered under, so a column reference is QUALIFIED.
 ///
@@ -239,9 +239,9 @@ pub enum CombineError {
     /// The two legs' link columns carry kinds that can never match.
     #[error("the fact leg's link column is {fact} and the lookup leg's is {lookup}, so no row can match")]
     LinkTypeMismatch { fact: &'static str, lookup: &'static str },
-    /// Two arms bucket by columns of different Arrow types, so no period of one could equal a period of
-    /// the other.
-    #[error("the first arm's bucket column is {first} and another arm's is {other}, so no period can match")]
+    /// Two arms, or the two fact legs of a ratio, bucket by columns of different Arrow types, so no
+    /// period of one could equal a period of the other.
+    #[error("the first leg's bucket column is {first} and another's is {other}, so no period can match")]
     BucketKindMismatch { first: String, other: String },
     /// Two arms group by columns of different Arrow types for one answer key, which no equality
     /// compares without a cast.
@@ -504,7 +504,7 @@ async fn arm_plan(
     let leaves = leaf_labels(plan.federation(), &fact, second_fact.as_ref())?;
     fact.projects(plan.bucket_label())?;
     if let Some(second) = &second_fact {
-        second.projects(plan.bucket_label())?;
+        agreeing_bucket(&fact, second, plan.bucket_label())?;
     }
     for key in plan.keys() {
         match key.side() {

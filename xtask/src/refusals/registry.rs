@@ -71,8 +71,10 @@ const QUERY: Subject = Subject {
     // `FederationLinkCompound` (`telekom/sutura#1490`): a compound crossing key links on every part.
     // `telekom/sutura#1493` then DELETED `CrossModelRatioNeedsOneLookupLeg` and ADDED
     // `CrossModelRatioLinkAmbiguous`: a ratio is served over several lookup legs, and a second fact
-    // whose relationships do not name one per leg is refused.
-    variants: variants(35),
+    // whose relationships do not name one per leg is refused. 34 since `telekom/sutura#1471` DELETED
+    // `CrossModelRatioSpansSources`: a second fact on another data system joins the calendar listed
+    // there, and every leg's source counts against the source ceiling.
+    variants: variants(34),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

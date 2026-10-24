@@ -239,7 +239,6 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
              calendar, so both facts cannot be bucketed through the same time dimension. Nothing \
              you can change in the question helps; report it to the person you are acting for."
         ),
-        RefusalReason::CrossModelRatioSpansSources { ref metric, ref model } => spans_sources(metric, model),
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
         RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => link_ambiguous(metric, model),
     };
@@ -273,15 +272,6 @@ fn question_needs_too_many_legs(legs: usize, limit: usize) -> String {
     format!(
         "answering this would run {legs} queries against the data systems and one question runs \
          {limit} at most; ask for fewer metrics at a time"
-    )
-}
-
-/// Written for an agent: nothing in the question fixes where a cross-model ratio's models live.
-fn spans_sources(metric: &sutura_domain::model::MetricName, model: &sutura_domain::model::ModelName) -> String {
-    format!(
-        "`{metric}` measures a ratio over two fact models, and `{model}` lives on another data system \
-         than the metric's own, so both facts cannot join its shared calendar. Nothing you can change \
-         in the question helps; report it to the person you are acting for."
     )
 }
 
@@ -416,10 +406,6 @@ mod tests {
             RefusalReason::CrossModelRatioWithoutSharedCalendar {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("customers").expect("a test model is a model"),
-            },
-            RefusalReason::CrossModelRatioSpansSources {
-                metric: metric(),
-                model: sutura_domain::model::ModelName::parse("calendar").expect("a test model is a model"),
             },
             RefusalReason::CrossModelRatioWithoutSharedDimension {
                 metric: metric(),

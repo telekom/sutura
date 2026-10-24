@@ -392,9 +392,11 @@ impl FederatedPlan {
                     source_name: second.source().clone(),
                 });
             };
-            // Both facts bucket through ONE column, so the combiner's join on the bucket label
-            // compares like with like.
-            if second_bucket != &bucket {
+            // Both facts bucket under one label, at one grain, through the metric's one time column,
+            // so the combiner's join on the bucket label compares like with like. The calendar table
+            // is each leg's own: a second fact on another data system buckets through the calendar
+            // listed on that system.
+            if !second_bucket.on_the_axis_of(&bucket) {
                 return Err(FederatedPlanError::BucketMismatch);
             }
             let second_matches = second_terms.len() == second_expected.len()
@@ -569,10 +571,13 @@ pub enum FederatedPlanError {
     /// An answer key names a column the leg it belongs to does not project.
     #[error("the {side:?} leg projects no key `{label}`")]
     KeyNotOnLeg { side: LegAt, label: String },
-    /// The bucket handed to this constructor is not the fact leg's own.
+    /// A fact leg's bucket is not the plan's.
     ///
-    /// Unreachable through the one production splitter, which builds both from one local value -
-    /// see [`FederatedPlan::new`]'s own comment for why this is checked anyway.
+    /// The first fact leg's must equal the plan's; a second fact leg's must carry the plan's label,
+    /// grain and time column, and may read it from its own source's calendar table. Unreachable
+    /// through the one production splitter, which builds the first from one local value and the
+    /// second from the calendar listed on its source - see [`FederatedPlan::new`]'s own comment for
+    /// why this is checked anyway.
     #[error("the plan's bucket does not match the fact leg's own bucket")]
     BucketMismatch,
     /// The fact leg's terms do not name the labels its federation expects, in order.

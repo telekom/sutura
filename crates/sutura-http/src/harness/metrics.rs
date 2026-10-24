@@ -108,7 +108,6 @@ sutura_refusals_total{reason="bill_to_not_allowed"} 0
 sutura_refusals_total{reason="budget_exhausted"} 0
 sutura_refusals_total{reason="credential_unavailable"} 0
 sutura_refusals_total{reason="cross_model_ratio_link_ambiguous"} 0
-sutura_refusals_total{reason="cross_model_ratio_spans_sources"} 0
 sutura_refusals_total{reason="cross_model_ratio_without_shared_calendar"} 0
 sutura_refusals_total{reason="cross_model_ratio_without_shared_dimension"} 0
 sutura_refusals_total{reason="deadline_exceeded"} 0

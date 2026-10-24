@@ -6,7 +6,7 @@ use sutura_domain::catalog::{Definitions, SharedCalendars};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
-use sutura_domain::plan::Ceilings;
+use sutura_domain::plan::{Ceilings, FederatedRowCeiling, PlanCeilings, RowCeiling};
 use sutura_domain::query::Query;
 
 use super::*;
@@ -221,6 +221,12 @@ pub(super) fn two_facts(placed: &Placed) -> PinnedDefinitions {
 /// `revenue_per_visit` by month over June, grouped by `by`, through `compile` as a served question is.
 pub(super) fn ask(pinned: &PinnedDefinitions, by: &[&str]) -> Result<Compiled, CompileFailure> {
     compile(&by_month_over_june(by), &ScopedView::everything(pinned), Ceilings::DEFAULT)
+}
+
+/// [`ask`] under the plan ceilings of a deployment that configured its own.
+pub(super) fn ask_within(pinned: &PinnedDefinitions, by: &[&str], plan: PlanCeilings) -> Result<Compiled, CompileFailure> {
+    let ceilings = Ceilings::new(RowCeiling::DEFAULT, FederatedRowCeiling::DEFAULT, plan);
+    compile(&by_month_over_june(by), &ScopedView::everything(pinned), ceilings)
 }
 
 fn by_month_over_june(by: &[&str]) -> Query {

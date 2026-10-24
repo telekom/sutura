@@ -152,7 +152,6 @@ impl RefusalReason {
             Self::BudgetExhausted { .. } => "budget_exhausted",
             Self::TopOverUncertifiedRows { .. } => "top_over_uncertified_rows",
             Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
-            Self::CrossModelRatioSpansSources { .. } => "cross_model_ratio_spans_sources",
             Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
             Self::CrossModelRatioLinkAmbiguous { .. } => "cross_model_ratio_link_ambiguous",
         }

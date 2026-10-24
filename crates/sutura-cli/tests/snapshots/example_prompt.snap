@@ -154,8 +154,6 @@ Every reason you can be given, and what to do about each:
   it, report it to a person: it is a fact about where the tables live, not about how you asked.
 - **cross_model_ratio_without_shared_calendar** - a two-fact ratio declaring no shared calendar.
   Nothing you can change in the question. Report it: the metric needs a shared calendar declared.
-- **cross_model_ratio_spans_sources** - a two-fact ratio whose models span data systems.
-  Nothing you can change in the question. Report it: it is a fact about where the models live.
 - **cross_model_ratio_without_shared_dimension** - not grouped by only a shared dimension.
   Group only by a dimension both fact models link to; if the metric has none, report it.
 - **cross_model_ratio_link_ambiguous** - a two-fact ratio whose second model does not name one

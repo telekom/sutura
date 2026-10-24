@@ -284,16 +284,6 @@ fn prechecked<'r, 'a>(resolution: &'r Resolution<'a>) -> Prechecked<'r, 'a> {
         let Some(cross) = resolution.cross.as_ref() else {
             return Err(PlanError::NoSecondFactModel);
         };
-        // Each fact leg joins the calendar inside its own statement, and a statement reads one
-        // source - so the second fact sits on the metric's. The calendar is the one listed on the
-        // metric's own source, so it does by construction.
-        let own = resolution.model.source();
-        if cross.second.source() != own {
-            return Err(PlanError::Refused(RefusalReason::CrossModelRatioSpansSources {
-                metric: cross_metric.name().clone(),
-                model: cross.second.name().clone(),
-            }));
-        }
         // The two facts are combined above on the link into a remote dimension, so the question
         // groups and filters by that dimension's model and nothing else: a same-source dimension
         // would group the first fact alone, and with no remote dimension there is no link.

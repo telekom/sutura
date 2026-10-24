@@ -531,15 +531,6 @@ pub enum RefusalReason {
     /// catalog adapter reads the field yet. Not narrowable by the caller: the `shared_calendar` is
     /// part of the metric's definition, not of the question.
     CrossModelRatioWithoutSharedCalendar { metric: MetricName, model: ModelName },
-    /// A cross-model ratio whose second fact model sits on another data system than the metric's
-    /// own (`telekom/sutura#780`); `model` names it.
-    ///
-    /// Each fact leg joins the calendar inside its OWN statement, and a statement reads one source,
-    /// so both facts share the metric's. Each source lists its own calendar (`docs/adr/0002`'s sixth
-    /// amendment), so the calendar never decides this. Not narrowable by the caller: where a model
-    /// lives is the catalog's, not the question's. A second fact leg joining the calendar of its
-    /// own source is the shape that would lift this, and it is not built.
-    CrossModelRatioSpansSources { metric: MetricName, model: ModelName },
     /// A cross-model ratio asked by no dimension both fact models link to (`telekom/sutura#780`).
     ///
     /// The two facts are aggregated in two statements and joined above on ONE link into a remote
@@ -778,10 +769,6 @@ mod tests {
             RefusalReason::BudgetExhausted { reset_after_seconds: 41 },
             RefusalReason::TopOverUncertifiedRows { ceiling: 10_000 },
             RefusalReason::CrossModelRatioWithoutSharedCalendar {
-                metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
-                model: ModelName::parse("customers").expect("a test model"),
-            },
-            RefusalReason::CrossModelRatioSpansSources {
                 metric: MetricName::parse("revenue_per_customer").expect("a test metric"),
                 model: ModelName::parse("customers").expect("a test model"),
             },

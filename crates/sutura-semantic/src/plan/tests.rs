@@ -27,12 +27,14 @@ use crate::{CompileFailure, Compiled};
 mod compound_link;
 mod corpus;
 mod drill_across;
+mod drill_across_second_fact;
 mod federation;
+mod federation_second_source;
 mod link_types;
 mod ratio_links;
 mod two_sources;
 use corpus::{Corpus, federated_by, join_tables, lookup_at, lookup_shape, pair, read_from};
-use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, federated, refusal, revenue_beside_a_ratio, two_facts};
+use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, ask_within, federated, refusal, revenue_beside_a_ratio, two_facts};
 
 fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")

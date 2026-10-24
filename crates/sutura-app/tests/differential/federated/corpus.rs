@@ -37,6 +37,12 @@ use crate::adapters::{CatalogUnderTest, DIM_CALENDAR, FCT_TICKET_MONTHLY, questi
 #[path = "compound_key.rs"]
 mod compound_key;
 
+// The second fact on the second data system, answered through that system's own calendar
+// (`telekom/sutura#1471`). A child of this module for the same reason, and `#[cfg(test)]` likewise.
+#[cfg(test)]
+#[path = "second_source.rs"]
+mod second_source;
+
 /// The data system the derived two-source catalog puts the dimension model on.
 ///
 /// A second alias and nothing else: the same `DuckDB`, opened as its own in-memory database with
@@ -222,8 +228,8 @@ pub(crate) const CATALOG_CASES: &[(&str, Edit)] = &[
         ),
     ),
     // **The two-fact ratio (`telekom/sutura#780`)**: a second fact model and a shared calendar,
-    // both on the metric's own data system - which is where `CrossModelRatioSpansSources` keeps
-    // them - and a ratio whose numerator reads the second fact. Six documents and two tables,
+    // both on the metric's own data system (`second_source.rs` moves the facts off it), and a ratio
+    // whose numerator reads the second fact. Six documents and two tables,
     // derived rather than committed for this file's header reason: the shape needs its dimension on
     // a second data system, which the quickstart cannot state. `two_fact.rs` asks the question.
     (

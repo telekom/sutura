@@ -107,6 +107,9 @@ pub(crate) struct CrossModel<'a> {
     pub(crate) calendar: &'a Model,
     /// The metric's own model's hop to the calendar.
     pub(crate) own_to_calendar: &'a Relationship,
+    /// The calendar listed on the second fact's own source: the first's when both facts share a
+    /// source, another model when the second fact reads another data system.
+    pub(crate) second_calendar: &'a Model,
     /// The second fact's hop to the calendar listed on its own source.
     pub(crate) second_to_calendar: &'a Relationship,
     /// Every relationship out of the second fact - the splitter reads its OWN link into the
@@ -480,11 +483,13 @@ fn cross_model<'a>(metric: &'a Metric, definitions: &'a Definitions) -> Result<O
             })
     };
     let calendar = calendar_of(metric.model())?;
+    let second_calendar = calendar_of(named)?;
     Ok(Some(CrossModel {
         second: model(named)?,
         calendar,
         own_to_calendar: to_calendar(metric.model(), calendar)?,
-        second_to_calendar: to_calendar(named, calendar_of(named)?)?,
+        second_calendar,
+        second_to_calendar: to_calendar(named, second_calendar)?,
         second_relationships: out_of(named).collect(),
     }))
 }

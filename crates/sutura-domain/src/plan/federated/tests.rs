@@ -293,20 +293,39 @@ fn a_second_fact_on_the_first_fact_s_source_constructs() {
     assert!(plan.is_ok(), "two statements on one source are a two-fact plan, got {plan:?}");
 }
 
-/// D9 holds BOTH buckets: a second fact grouped by any column but the plan's is refused, so the
-/// combiner's join on the bucket label can only ever compare one calendar column with itself.
+/// A second fact on another data system buckets through the calendar listed on that system, so its
+/// bucket column is its own table's. D9 holds the bucket's label, grain and time column, though: a second fact
+/// grouped at another grain is refused, so the combiner's join on the bucket label can only ever
+/// compare periods of one length - and of one time column.
 #[test]
-fn a_second_fact_bucketed_on_another_column_does_not_construct() {
-    let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
-    let elsewhere = PlanBucket::new(
+fn a_second_fact_bucketed_through_its_own_calendar_constructs_at_the_plan_s_grain_only() {
+    let federation = || Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
+    let on = |grain| {
+        PlanBucket::new(
+            ResultLabel::bucket(),
+            grain,
+            PlanColumn::new(table("dim_orders"), column("month")),
+        )
+    };
+    let own_calendar = two_fact_plan(federation(), second_fact_on(SECOND_FACT_SOURCE, on(Grain::Month)));
+    assert!(
+        own_calendar.is_ok(),
+        "a second calendar on the second source is a plan, got {own_calendar:?}"
+    );
+    let coarser = two_fact_plan(federation(), second_fact_on(SECOND_FACT_SOURCE, on(Grain::Week)));
+    assert!(
+        matches!(coarser, Err(FederatedPlanError::BucketMismatch)),
+        "a second fact bucketed at another grain is not a plan, got {coarser:?}"
+    );
+    let other_column = PlanBucket::new(
         ResultLabel::bucket(),
         Grain::Month,
-        PlanColumn::new(table("dim_orders"), column("month")),
+        PlanColumn::new(table("dim_orders"), column("day")),
     );
-    let plan = two_fact_plan(federation, second_fact_on(SECOND_FACT_SOURCE, elsewhere));
+    let elsewhere = two_fact_plan(federation(), second_fact_on(SECOND_FACT_SOURCE, other_column));
     assert!(
-        matches!(plan, Err(FederatedPlanError::BucketMismatch)),
-        "a second fact bucketed elsewhere is not a plan, got {plan:?}"
+        matches!(elsewhere, Err(FederatedPlanError::BucketMismatch)),
+        "a second fact bucketed on another time column is not a plan, got {elsewhere:?}"
     );
 }
 

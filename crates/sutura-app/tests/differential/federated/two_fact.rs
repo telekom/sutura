@@ -13,8 +13,8 @@
 //! `leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused`.
 //!
 //! **What this does NOT establish.** Every leg runs under one operating-system identity, as in the
-//! rest of `federated.rs`. Both facts sit on one source, because the plan stage still refuses a second
-//! fact on another source (`CrossModelRatioSpansSources`). And a registered data system whose tier is not up here is skipped under its named
+//! rest of `federated.rs`. Both facts sit on one source here; `second_source.rs` moves the second off it,
+//! on two in-process engines only. And a registered data system whose tier is not up here is skipped under its named
 //! exemption, not compared: the registry cell asks `adapters::runs_here` first, and refuses a
 //! [`TwoFact::NotAsked`] from a system that call said runs here.
 

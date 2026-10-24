@@ -206,7 +206,8 @@ the metric's own and refused every such ratio under one name
 *which column buckets the second fact?* Four shapes were on the table; the owner's call is **(B)
 a shared calendar** - a conformed time dimension both fact models reach through a declared `via`,
 so both facts bucket through the SAME calendar column rather than each keeping its own notion of
-"the" time column. Refusing forever was explicitly not the accepted outcome of that question -
+"the" time column (**superseded by the seventh amendment**: the same time column, read from the
+calendar table listed on each fact's own source). Refusing forever was explicitly not the accepted outcome of that question -
 this amendment builds toward the chosen shape rather than leaving it undocumented.
 
 The amendment is one more field, again on the metric rather than on the term: `shared_calendar:
@@ -297,7 +298,7 @@ shape and no differential executed it. Both now exist, and each carries its own 
 
 **What is still not claimed.** Every leg runs under one operating-system identity. Both facts sit
 on one source, because the plan stage still refuses a second fact on another source
-(`CrossModelRatioSpansSources`). The one-source catalog refuses the
+(`CrossModelRatioSpansSources`; lifted by the seventh amendment). The one-source catalog refuses the
 question (`CrossModelRatioWithoutSharedDimension`), so there is no whole-answer side to compare a
 two-fact answer against, and the cell measures that refusal rather than stating it.
 
@@ -370,6 +371,48 @@ timestamp calendar loads, and one spelling that two systems mean differently pas
 on a source no fact of the metric lives on is not refused: it decides no answer. Only the local catalog
 reads `shared_calendar:`; every other catalog keeps the no-calendar refusal. Nothing here executes a
 two-source ratio: no cell in this change runs one, and the plan stage still refuses it.
+
+## Seventh amendment, 2026-10-23: a second fact on another data system is served
+
+`telekom/sutura#1471`. The sixth amendment declared one calendar per source and left the plan stage
+refusing a second fact off the metric's own source. That refusal, `CrossModelRatioSpansSources`, is
+deleted, and the wire code `cross_model_ratio_spans_sources` no longer exists, which is a breaking
+change. The decision stays: each fact leg is one statement and a statement reads one source.
+
+- **What the plan does.** The second fact leg is its own statement on its own source. It joins the
+  calendar the metric lists on that source (`CrossModel::second_calendar`), and buckets and bounds
+  the range on that table. The plan's bucket is the first fact's. `FederatedPlan::new` holds the
+  second fact's bucket to the plan's **label, grain and time column name**, and no longer to its
+  calendar table: each calendar is its own table. A bucket at another grain, or on another time
+  column, is still `BucketMismatch`.
+- **The sources.** Every leg's source counts against the deployment's source ceiling, so a second
+  fact on a third data system is a third source (`PlanSpansTooManySources` above the ceiling). The
+  answer path already reads `FederatedPlan::legs`, so one lookup, one credential mint over every
+  distinct source, one pre-flight and one charge cover the second fact.
+- **The cells.** `a_second_fact_on_another_source_joins_the_calendar_listed_there` and
+  `a_second_fact_on_a_third_source_counts_against_the_source_ceiling` hold the plan;
+  `a_second_fact_on_another_system_answers_through_the_calendar_listed_there` answers the shape on
+  two in-process engines, held to the rows the same engines give with the tickets on the first
+  system, which `two_fact.rs` holds to hand-worked figures.
+- **What a client sees.** The question is served. With no dimension on a remote model it is refused
+  as `cross_model_ratio_without_shared_dimension` (422), as before for a second fact on the first
+  source. Above the source ceiling it is refused as `plan_spans_too_many_sources` (409). Nothing
+  answers `cross_model_ratio_spans_sources` any more.
+
+- **The buckets' kinds.** The two-fact join compares the Arrow kinds of the two buckets, as the
+  multi-metric merge does, and refuses a difference (a date calendar beside a timestamp one, which
+  loads under the sixth amendment) as `BucketKindMismatch`, answered as
+  `federated_answer_not_well_formed`, before any join is built. Its cell is
+  `a_second_fact_bucketed_as_another_kind_is_refused`.
+
+**The limits next to the claims.** The two calendars are trusted to hold the same rows; sutura cannot
+check it, and two that differ bucket the legs differently with no refusal. The kind check reads the
+types the legs return and no value, and its cell hands the combiner an integer bucket beside a text
+one: no run answers it end to end with a timestamp calendar. The differential asks two in-process
+engines only: no tiered data system runs a second fact off the metric's source, so the shape is
+unmeasured on a real warehouse. A metric's required filters still bind the first fact alone.
+**Superseded:** the second, third and sixth amendments' statements that a second fact on another
+source is refused at plan time.
 
 ## What does not change
 

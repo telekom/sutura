@@ -501,30 +501,15 @@ fn a_cross_model_ratio_no_two_statements_can_answer_is_refused_by_name() {
             "{why}: expected CrossModelRatioWithoutSharedDimension naming {model}, got {reason:?}"
         );
     }
-    for (placed, by, model) in [
-        (
-            Placed {
-                visits_on: "remote",
-                ..ONE_SOURCE
-            },
-            &[][..],
-            "visits",
-        ),
-        (
-            Placed {
-                visits_on: "remote",
-                ..ONE_SOURCE
-            },
-            &["region"][..],
-            "visits",
-        ),
-    ] {
-        let reason = refusal(ask(&two_facts(&placed), by));
-        assert!(
-            matches!(reason, RefusalReason::CrossModelRatioSpansSources { model: ref named, .. } if named.as_str() == model),
-            "expected CrossModelRatioSpansSources naming {model}, got {reason:?}"
-        );
-    }
+    let visits_remote = Placed {
+        visits_on: "remote",
+        ..ONE_SOURCE
+    };
+    let reason = refusal(ask(&two_facts(&visits_remote), &[]));
+    assert!(
+        matches!(reason, RefusalReason::CrossModelRatioWithoutSharedDimension { ref model, .. } if model.as_str() == "visits"),
+        "a second fact on another source still needs a dimension to link through, got {reason:?}"
+    );
 }
 
 /// A calendar model over the second fact's own table would put both facts' tables in the first

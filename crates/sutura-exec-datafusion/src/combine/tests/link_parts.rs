@@ -1,8 +1,11 @@
 //! A relationship with more than one key: the combine joins on every link part, not on the first.
 
+use datafusion::arrow::datatypes::DataType;
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::plan::{FederatedAnswerRefusal, FederationCombiner as _, InternalLabel, LinkKind};
 use sutura_domain::warehouse::{Real, ResultBatches, Value};
+
+use crate::combine::CombineError;
 
 use super::fixtures::{UNBOUNDED, batches_of, combiner, compound_plan, compound_two_fact_plan, leaf, try_combine_every};
 
@@ -184,5 +187,28 @@ fn a_second_fact_joins_on_every_link_part_and_the_bucket() {
             vec![text("north"), text("2026-06"), real(150.0)],
             vec![text("south"), text("2026-06"), real(50.0)],
         ]
+    );
+}
+
+/// The two facts' buckets are one kind of period. A second fact whose calendar came back as another
+/// Arrow type than the first's (a timestamp beside a date, here an integer beside text) is refused
+/// before any join is built, and not left to the join's own typing.
+#[test]
+fn a_second_fact_bucketed_as_another_kind_is_refused() {
+    let second = batches_of(
+        vec![part(0), part(1), period(), leaf(1)],
+        vec![vec![text("c1"), text("m1"), Value::Integer(202_606), Value::Integer(1)]],
+    );
+    let legs = [fact(&[("c1", "m1", 150)]), second, regions(&[("c1", "m1", "north")])];
+    let refused = try_combine_every(&compound_two_fact_plan(), &legs, UNBOUNDED).expect_err("two kinds of period refuse");
+    assert!(
+        matches!(&refused, CombineError::BucketKindMismatch { first, other }
+            if *first == format!("{:?}", DataType::Utf8) && *other == format!("{:?}", DataType::Int64)),
+        "{refused:?}"
+    );
+    assert_eq!(
+        combiner().answer_not_well_formed(&refused),
+        Some(FederatedAnswerRefusal::BucketKindMismatch),
+        "the refusal is about the data the legs returned, and a caller can read it"
     );
 }

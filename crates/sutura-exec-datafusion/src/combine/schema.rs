@@ -121,6 +121,22 @@ pub(crate) fn agreeing_link(declared: Option<LinkKind>, fact: LinkKind, lookup: 
     ))
 }
 
+/// Refuses two fact legs whose time buckets are not of one kind, so the join on the bucket compares
+/// like with like: a date calendar beside a timestamp calendar is two kinds of period.
+///
+/// A type is read, never a value, as every check here. The refusal is the one the merge of several
+/// metrics gives for the same disagreement between arms.
+pub(crate) fn agreeing_bucket(first: &LegSchema, other: &LegSchema, label: &str) -> Result<(), CombineError> {
+    let (first, other) = (first.kind_of(label)?, other.kind_of(label)?);
+    if same_kind(first, other) {
+        return Ok(());
+    }
+    Err(CombineError::BucketKindMismatch {
+        first: format!("{first:?}"),
+        other: format!("{other:?}"),
+    })
+}
+
 /// Whether two columns hold one kind of value, so an equality between them compares like with like.
 ///
 /// Two types a join key can be agree by kind, which makes `Utf8` and `LargeUtf8` one; any other pair
