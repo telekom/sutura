@@ -456,7 +456,7 @@ fn a_uint128_above_i128_max_decodes_as_its_exact_digits() {
 
 #[test]
 fn a_clickhouse_sum_keeps_wide_integers_decimal_scale_and_float_type() {
-    let tuple = crate::sum::TUPLE;
+    let tuple = "Tuple(String, Nullable(Decimal(76, 0)), Nullable(Decimal(76, 38)), Nullable(Float64))";
     let zeros = "0".repeat(37);
     let body = format!(
         "[\"total\"]\n[\"{tuple}\"]\n[[\"Int128\",\"9223372036854775808\",null,null]]\n[[\"Int128\",\"18446744073709551616\",null,null]]\n[[\"Decimal(38, 2)\",null,\"11.5{zeros}\",null]]\n[[\"Nullable(Decimal(38, 2))\",null,\"19.5{zeros}\",null]]\n[[\"Float64\",null,null,3]]\n[[\"Nullable(Float64)\",null,null,4]]\n[[\"Int128\",null,null,null]]\n"
