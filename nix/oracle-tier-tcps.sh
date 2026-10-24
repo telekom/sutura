@@ -1,7 +1,8 @@
 #!/bin/bash
 # A start-up script of the compose `oracle` service: adds a TCPS listener on 2484 over the wallet
-# `nix/oracle-tier-tls.sh` wrote and the service mounts at /opt/oracle/tls. The image's healthcheck
-# holds until this returns, and a failure here stops the container, so a healthy tier serves TCPS.
+# `nix/oracle-tier-tls.sh` wrote and the service mounts at /opt/oracle/tls, then asks whether the
+# image accepts an OAuth 2.0 issuer. The image's healthcheck holds until this returns, and a failure
+# here stops the container, so a healthy tier serves TCPS and trusts no issuer.
 set -euo pipefail
 
 if [ ! -s /opt/oracle/tls/cwallet.sso ]; then
@@ -27,3 +28,24 @@ grep -q '^WALLET_LOCATION' "$admin/sqlnet.ora" || printf '%s\n' "$wallet" >> "$a
 lsnrctl stop
 lsnrctl start
 echo 'ALTER SYSTEM REGISTER;' | sqlplus -s / as sysdba
+
+# `identity_provider_type = OAUTH2` is the configurable provider a database needs before it accepts
+# an end-user security context token from an issuer such as the Keycloak tier. The pinned image
+# answers `ORA-00096`. Any other answer fails this script, so the `oracle-tier` job goes red in the
+# change that brings in an image that answers otherwise: that change is where the end-user
+# context's live success cell gets built. The grant is the privilege the end-user context's
+# acceptance cell runs its fixture user under.
+answer=$(echo 'ALTER SYSTEM SET identity_provider_type = OAUTH2 SCOPE = MEMORY;' | sqlplus -s / as sysdba)
+case "$answer" in
+  *ORA-00096*)
+    echo "oracle-tier-tcps: identity_provider_type refuses OAUTH2 (ORA-00096), so this image trusts no OAuth 2.0 issuer"
+    ;;
+  *)
+    echo 'ALTER SYSTEM SET identity_provider_type = NONE SCOPE = MEMORY;' | sqlplus -s / as sysdba > /dev/null
+    echo "oracle-tier-tcps: identity_provider_type answered OAUTH2 with: $answer" >&2
+    echo "oracle-tier-tcps: this image may accept an OAuth 2.0 issuer - build the end-user context's live success cell for it" >&2
+    exit 1
+    ;;
+esac
+printf '%s\n' 'WHENEVER SQLERROR EXIT FAILURE' 'ALTER SESSION SET CONTAINER = FREEPDB1;' \
+  "GRANT CREATE END USER SECURITY CONTEXT TO ${APP_USER};" | sqlplus -s / as sysdba

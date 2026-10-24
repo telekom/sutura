@@ -152,6 +152,10 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
                 .acknowledge_inbound_token_at_pool(written, value)
                 .map_err(|cause| SettingsError::Sources { cause })?;
         }
+        if let Some(value) = source.caller_session.as_deref() {
+            crate::sources::caller_session::declare(&mut registry, written, value)
+                .map_err(|cause| SettingsError::Sources { cause })?;
+        }
     }
     Ok(registry)
 }

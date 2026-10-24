@@ -60,6 +60,8 @@ pub mod address_domains;
 pub mod billing;
 /// Which one of the three caller-identity blocks an `impersonation-at-source` source declares.
 pub mod caller_identity;
+/// `sources.<alias>.caller_session`, an `oracle` source's way of opening each question's session.
+pub mod caller_session;
 /// The `clickhouse` entry's own keys, read and refused.
 ///
 /// **Its own file because `cargo xtask max-lines` fails at 1000 lines rather than warning**, and
@@ -218,9 +220,20 @@ pub struct ConfiguredSource {
     identity: Option<SourceIdentity>,
     caller_identity: Option<CallerIdentity>,
     inbound_token_at_pool: Option<InboundTokenAtPool>,
+    caller_session: caller_session::CallerSession,
 }
 
 impl ConfiguredSource {
+    /// How this source opens each question's own session.
+    ///
+    /// [`caller_session::CallerSession::OwnLogin`] unless an impersonating `oracle` source wrote
+    /// another.
+    #[inline]
+    #[must_use]
+    pub const fn caller_session(&self) -> caller_session::CallerSession {
+        self.caller_session
+    }
+
     /// Whether this source acknowledged presenting its caller's inbound token to the pool with no
     /// delegation hop - see [`InboundTokenAtPool`].
     #[inline]
@@ -572,6 +585,13 @@ pub enum InvalidSourceRegistry {
          runs as its caller - remove the block, or write the posture you meant"
     )]
     IdentityModeNotImpersonating { alias: SourceName, block: &'static str },
+    /// A written `caller_session` is not one this source can be opened with.
+    #[error("`sources.{alias}.caller_session` is not usable: {cause}")]
+    CallerSession {
+        alias: SourceName,
+        #[source]
+        cause: caller_session::InvalidCallerSession,
+    },
     /// A written `inbound_token_at_pool` is not the one acknowledgement it accepts.
     #[error("`sources.{alias}.inbound_token_at_pool` is not usable: {cause}")]
     InboundTokenAtPool {
@@ -897,6 +917,7 @@ fn parse_entry(
         identity,
         caller_identity,
         inbound_token_at_pool: None,
+        caller_session: caller_session::CallerSession::OwnLogin,
     })
 }
 

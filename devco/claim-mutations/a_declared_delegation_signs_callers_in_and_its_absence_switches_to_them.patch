@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-cli/src/serve/broker.rs b/crates/sutura-cli/src/serve/broker.rs
+--- a/crates/sutura-cli/src/serve/broker.rs
++++ b/crates/sutura-cli/src/serve/broker.rs
+@@ -58,11 +58,7 @@ pub(crate) fn build_broker(
+         #[cfg(feature = "clickhouse")]
+         if let Some(deployment) = crate::clickhouse::deployment_user(alias, source)? {
+             broker = match crate::clickhouse::declared_delegation(source) {
+-                [first, then @ ..] => broker.signing_in(
+-                    alias.clone(),
+-                    deployment,
+-                    delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
+-                ),
++                [_first, _then @ ..] => broker.switching(alias.clone(), deployment),
+                 [] => broker.switching(alias.clone(), deployment),
+             };
+         }

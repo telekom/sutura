@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-cli/src/oracle.rs b/crates/sutura-cli/src/oracle.rs
 --- a/crates/sutura-cli/src/oracle.rs
 +++ b/crates/sutura-cli/src/oracle.rs
-@@ -86,8 +86,12 @@
+@@ -88,8 +88,12 @@ pub(crate) fn build(
          channel.server_name().as_str(),
          port,
          service_name.as_str(),
@@ -15,4 +15,4 @@ diff --git a/crates/sutura-cli/src/oracle.rs b/crates/sutura-cli/src/oracle.rs
 +            Channel::Plaintext
          },
      );
-     OracleWarehouse::connect(
+     let opened = match configured.caller_session() {

@@ -838,11 +838,7 @@ fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_r
         };
         refusals.iter().map(ToString::to_string).collect::<Vec<_>>()
     };
-    let own = vec![String::from(
-        "`sources.local.workload_identity.delegation`'s last hop asks for this deployment's own \
-         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
-         receive a token minted for this deployment. Ask the last hop for the pool's own audience",
-    )];
+    let own = vec![own_audience_refusal("local")];
     assert_eq!(
         refused(DIRECT_INBOUND, &hop_to("https://sutura.example.com")),
         own,
@@ -868,4 +864,106 @@ fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_r
     )))
     .expect("a chain whose last hop asks for the pool's audience boots");
     assert!(earlier.refusals().is_empty(), "{:?}", earlier.refusals());
+}
+
+/// The refusal a last delegation hop earns for asking for this deployment's own audience.
+fn own_audience_refusal(alias: &str) -> String {
+    format!(
+        "`sources.{alias}`'s last delegation hop asks for this deployment's own audience \
+         (`security.inbound.resource` or `security.inbound.audience`), so the data system would \
+         receive a token minted for this deployment. Ask the last hop for the data system's own audience"
+    )
+}
+
+/// What a single-user `direct` deployment over `source` refuses at boot, rendered; empty when it boots.
+fn direct_boot_refusals(source: &str) -> Vec<String> {
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{source}"
+    ));
+    match Settings::load(&sources) {
+        Ok(_) => Vec::new(),
+        Err(error) => {
+            let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+                panic!("expected a boot refusal, got {error:?}");
+            };
+            refusals.iter().map(ToString::to_string).collect()
+        }
+    }
+}
+
+#[test]
+fn an_oracle_last_hop_for_the_deployments_own_audience_is_refused() {
+    let oracle = |audience: &str| {
+        format!(
+            "sources:\n  warehouse:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+             service_name: \"orcl.example.com\"\n    user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    \
+             posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+             client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"{audience}\"\n"
+        )
+    };
+    assert_eq!(
+        direct_boot_refusals(&oracle("https://sutura.example.com")),
+        vec![own_audience_refusal("warehouse")]
+    );
+    assert_eq!(direct_boot_refusals(&oracle("database-client-id")), Vec::<String>::new());
+}
+
+#[test]
+fn a_cube_last_hop_for_the_deployments_own_audience_is_refused() {
+    let cube = |audience: &str| {
+        format!(
+            "sources:\n  metrics:\n    kind: \"cube\"\n    endpoint: \"https://cube.example.com\"\n    \
+             token_file: \"/etc/sutura/cube-token\"\n    posture: \"impersonation-at-source\"\n    delegation:\n      - \
+             token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+             client_secret_file: \"/etc/sutura/client-secret\"\n        audience: \"{audience}\"\n"
+        )
+    };
+    assert_eq!(
+        direct_boot_refusals(&cube("https://sutura.example.com")),
+        vec![own_audience_refusal("metrics")]
+    );
+    assert_eq!(direct_boot_refusals(&cube("https://cube.example.com")), Vec::<String>::new());
+}
+
+/// A loopback `clickhouse` source whose callers sign in with the token their own is exchanged for at
+/// `audience`.
+fn clickhouse_signing_in(audience: &str) -> String {
+    format!(
+        "sources:\n  warehouse:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+         client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"{audience}\"\n"
+    )
+}
+
+#[test]
+fn a_clickhouse_last_hop_for_the_deployments_own_audience_is_refused() {
+    assert_eq!(
+        direct_boot_refusals(&clickhouse_signing_in("https://sutura.example.com")),
+        vec![own_audience_refusal("warehouse")]
+    );
+    assert_eq!(
+        direct_boot_refusals(&clickhouse_signing_in("clickhouse")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_clickhouse_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        clickhouse_signing_in("clickhouse")
+    ));
+    let error = Settings::load(&sources).expect_err("a ClickHouse delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "delegation",
+        }]
+    );
 }

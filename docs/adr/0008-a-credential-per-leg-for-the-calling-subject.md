@@ -2371,3 +2371,38 @@ Oracle that accepts a token (`docs/where-identity-is-proven.md`, the row for the
 source), and no cell presents a token or an end-user security context to a database. The `oracle-tier` job
 reaches a live Oracle with a password login only. So whether a database accepts the shipped token
 path, and whether a 26ai context would apply any grant, are both unmeasured.
+
+## Eighth amendment, 2026-10-23: an Oracle source may run each question under the caller's end-user security context
+
+Three statements of the seventh amendment are false on this tree: the end-user security context
+"is **not built**", "no file under `crates/` names `EndUserSecurityContext`", and "no decision to
+build it is made here". The seventh stays as written.
+
+**The decision.** An `impersonation-at-source` `oracle` source writes
+`caller_session: end-user-context` to run each question under the caller's end-user security
+context instead of a login with the caller's token (`caller_session: own-login`, the default).
+`crates/sutura-config/src/sources/caller_session.rs` refuses the key at load on a source that is not
+`impersonation-at-source` and on every other kind; the kind's own parse refuses every channel but
+`verified`. `crates/sutura-cli/src/oracle.rs` opens such a source with `OracleWarehouse::attaching`.
+
+**The shape.** The broker is unchanged and presents `Presented::SubjectToken`, the token the
+declared `delegation` returns. Each question opens a session of its own, logged in as the declared
+`user`, attaches that token as both the end-user token and the database access token, runs, and
+closes the session (`crates/sutura-exec-oracle/src/end_user.rs`). No session carries two callers,
+so a context that is not cleared cannot reach a second caller; the boot connection carries none.
+`attaching` refuses a plaintext dial before it dials, and a database that does not offer end-user
+security contexts at boot. The cost is one login per question, the token login's cost.
+
+**The roles question this record left open.** sutura sends no data roles and no attributes. The
+reading recorded here, and not asserted: Oracle's guide for the feature says an application can
+enable only data roles granted to its own application identity, beside those the identity provider
+maps. What a server resolves is unmeasured, so neither the path (c) text nor the driver's is
+settled by this amendment.
+
+**The limit.** A fake listener shows what the driver sends (`crates/sutura-exec-oracle/tests/dial.rs`),
+and the `oracle-tier` job shows one database refusing an attached question when it trusts no
+issuer. No released self-hosted image accepts an OAuth 2.0 issuer yet: the pinned image refuses the
+`OAUTH2` identity provider type with `ORA-00096`, and `nix/oracle-tier-tcps.sh` fails
+the tier the day an image answers otherwise. So whether a database accepts one token in both
+fields and applies a data grant to the context is unmeasured, and the `AGENTS.md` leg-2 sentence is
+unchanged.

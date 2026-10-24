@@ -4,10 +4,14 @@
 //!
 //! **Two postures.** A `shared-service-user` source answers every question on one connection under
 //! the deployment's declared user. An `impersonation-at-source` source opens a session of its own
-//! for each question, with the asker's own verified token ([`TokenSessions`]), so the database
-//! authenticates the asker and runs the statement as the user it maps that token to. The boot
-//! connection under the declared user stays, for the boot path's own probes only
-//! ([`Warehouse::verify_anchor`], [`Warehouse::declared_key`]); a question never runs on it.
+//! for each question with the asker's own verified token ([`TokenSessions`]) and closes it when the
+//! question ends. The token is the session's login ([`OracleWarehouse::connect`]), so the database
+//! authenticates the asker and runs the statement as the user it maps that token to; or it is the
+//! end-user security context of a session logged in as the declared user
+//! ([`OracleWarehouse::attaching`]), so the database's data grants decide what the asker reads. The
+//! boot connection under the declared user stays, for the boot path's own probes only
+//! ([`Warehouse::verify_anchor`], [`Warehouse::declared_key`]); a question never runs on it, and it
+//! carries no asker's context.
 //!
 //! **Synchronous.** `oracledb::Connection`'s own
 //! methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a
@@ -50,11 +54,11 @@
 //! - **The session lifecycle, and the bound on sessions.** A question at an impersonating source
 //!   opens its session under that lock, runs on it, and closes it before the lock is released, so a
 //!   source holds at most one asker's session at a time beside its boot connection, and no session
-//!   outlives the question or serves a second asker. The dial bound covers each session's TCP
-//!   connect; the handshake and the close after it are not bounded, so a database that stops
-//!   answering there holds the source.
-//! - **The token is copied once, into the driver's configuration**, as an ordinary `String` the
-//!   driver keeps masked; nothing here zeroes that copy.
+//!   outlives the question or serves a second asker. So every question pays a login. The dial bound
+//!   covers each session's TCP connect; the handshake and the close after it are not bounded, so a
+//!   database that stops answering there holds the source.
+//! - **The token is copied into plain `String`s**: once into the driver's configuration for a login,
+//!   twice into an end-user context (the `end_user` module's limits). Nothing here zeroes a copy.
 
 use parking_lot::Mutex;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
@@ -72,6 +76,7 @@ use crate::datetime::oracle_date;
 
 mod batches;
 mod datetime;
+mod end_user;
 
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
@@ -182,6 +187,22 @@ pub enum OracleError {
          wiring defect between the credential broker and the source declaration"
     )]
     Undeliverable { at: String, presented: &'static str },
+    /// A source that runs each question under an end-user security context was declared over a
+    /// channel that is not TLS. Refused before the dial, so the declared user's password is not sent.
+    #[error("an end-user security context is sent only over TLS, and this source's channel is plaintext")]
+    EndUserContextNeedsTls,
+    /// The database does not offer end-user security contexts - asked at boot, before any question.
+    #[error("the database does not offer end-user security contexts")]
+    EndUserContextUnsupported {
+        #[source]
+        cause: DriverError,
+    },
+    /// The driver did not build or attach the asker's end-user security context.
+    #[error("the asker's token could not be attached as an end-user security context")]
+    EndUserContext {
+        #[source]
+        cause: DriverError,
+    },
     #[error("the credential broker presented a leg that disagrees with how this source is declared")]
     PresentedDisagreesWithPosture {
         #[source]
@@ -249,13 +270,25 @@ impl core::fmt::Debug for OracleWarehouse {
 use sutura_oracle_connect::ezconnect;
 pub use sutura_oracle_connect::{Channel, DIAL_DEADLINE, Dial, oracle_trace};
 
-/// The declared dial with no user or password: where each question's own session is opened, with
-/// the asker's own token, at an `impersonation-at-source` source.
+/// Where each question's own session is opened with the asker's token, at an impersonating source.
+///
+/// The declared dial with no user or password, the token as the session's login; or, for
+/// [`OracleWarehouse::attaching`], the declared dial and user, the token as the session's end-user
+/// security context.
 ///
 /// The driver refuses a token over anything but TLS, so a [`Channel::Plaintext`] dial opens no
 /// session; the settings parse refuses that declaration before a dial exists.
 #[derive(Clone)]
-pub struct TokenSessions(oracledb::Config);
+pub struct TokenSessions(Carried);
+
+/// How a [`TokenSessions`] session carries the asker's token.
+#[derive(Clone)]
+enum Carried {
+    /// As its login.
+    Login(oracledb::Config),
+    /// As its end-user security context.
+    EndUserContext(end_user::ContextSessions),
+}
 
 impl core::fmt::Debug for TokenSessions {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -272,20 +305,21 @@ impl TokenSessions {
     /// [`OracleError::TrustAnchors`] for anchors that are not usable certificates, and
     /// [`OracleError::Connect`] for an address the driver cannot parse.
     pub fn new(dial: Dial<'_>) -> Result<Self, OracleError> {
-        dial.config().map(Self).map_err(|refused| match refused {
-            DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
-            DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
-            DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
-        })
+        dialled(dial).map(|config| Self(Carried::Login(config)))
     }
 
-    /// Opens one session that authenticates with `token`. Dropping it closes the session.
+    /// Opens one session that carries `token`. Dropping it closes the session.
     ///
     /// # Errors
     ///
-    /// [`OracleError::RedirectRefused`] for a listener that redirects, and [`OracleError::Connect`]
-    /// for every other refused dial or login. Neither carries the token.
+    /// [`OracleError::RedirectRefused`] for a listener that redirects, [`OracleError::Connect`] for
+    /// every other refused dial or login, and [`OracleError::EndUserContext`] for a context the driver
+    /// did not attach. None carries the token.
     pub fn open(&self, token: &Secret) -> Result<oracledb::Connection, OracleError> {
+        let config = match self.0 {
+            Carried::Login(ref config) => config,
+            Carried::EndUserContext(ref sessions) => return sessions.open(token),
+        };
         #[expect(
             clippy::disallowed_methods,
             reason = "the asker's token is what this session authenticates with, so it is handed to the \
@@ -293,9 +327,19 @@ impl TokenSessions {
         )]
         let token = String::from(token.expose_secret());
         #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
-        let session = oracledb::connect(self.0.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
+        let session = oracledb::connect(config.clone().set_external_auth(oracledb::ExternalAuth::AccessToken(token)));
         session.map_err(connect_err)
     }
+}
+
+/// The driver's configuration for `dial`: its address, its channel and anchors, the dial bound, and
+/// a refused redirect - the errors [`TokenSessions::new`] states.
+fn dialled(dial: Dial<'_>) -> Result<oracledb::Config, OracleError> {
+    dial.config().map_err(|refused| match refused {
+        DialError::PacketTraceOn(on) => OracleError::PacketTraceOn(on),
+        DialError::Prepare(PrepareError::TrustAnchors(cause)) => OracleError::TrustAnchors { cause: cause.into() },
+        DialError::Prepare(PrepareError::Address(cause)) => connect_err(cause),
+    })
 }
 
 /// Which session a question runs on.
@@ -349,15 +393,56 @@ impl OracleWarehouse {
         password: &str,
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
-        let dialled = TokenSessions::new(dial)?;
-        #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
-        let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
-        let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
+        let dialled = dialled(dial)?;
+        #[expect(clippy::disallowed_methods, reason = "`dialled` asked the packet-trace refusal")]
+        let connection = oracledb::connect(dialled.clone().set_credentials(user, password)).map_err(connect_err)?;
+        let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource)
+            .then_some(TokenSessions(Carried::Login(dialled)));
         Ok(Self {
             routing: Routing {
                 source,
                 posture,
                 per_caller,
+            },
+            result_budget,
+            connection,
+            execution_lock: Mutex::new(()),
+        })
+    }
+
+    /// Opens the boot connection under the declared user, for a source that runs each question under
+    /// the asker's end-user security context.
+    ///
+    /// Each question opens a session of its own as the same user, carrying the asker's token as its
+    /// end-user security context.
+    ///
+    /// A plaintext `dial` is refused before it is dialled, and a database that does not offer
+    /// end-user security contexts is refused here, before any question.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::EndUserContextNeedsTls`], [`OracleError::EndUserContextUnsupported`], and every
+    /// error [`Self::connect`] answers.
+    pub fn attaching(
+        source: sutura_domain::model::SourceName,
+        dial: Dial<'_>,
+        user: &str,
+        password: &str,
+        result_budget: sutura_domain::warehouse::ResultBudget,
+    ) -> Result<Self, OracleError> {
+        if matches!(dial.channel(), Channel::Plaintext) {
+            return Err(OracleError::EndUserContextNeedsTls);
+        }
+        let declared = dialled(dial)?.set_credentials(user, password);
+        #[expect(clippy::disallowed_methods, reason = "`dialled` asked the packet-trace refusal")]
+        let connection = oracledb::connect(declared.clone()).map_err(connect_err)?;
+        end_user::offered(&connection)?;
+        let sessions = TokenSessions(Carried::EndUserContext(end_user::ContextSessions::new(declared)));
+        Ok(Self {
+            routing: Routing {
+                source,
+                posture: sutura_domain::source::SourcePosture::ImpersonationAtSource,
+                per_caller: Some(sessions),
             },
             result_budget,
             connection,
@@ -586,7 +671,8 @@ impl Warehouse for OracleWarehouse {
     type Error = OracleError;
 
     /// **A subject's own token arrives here**, at an `impersonation-at-source` source: each
-    /// question opens its own session with it (`#923`).
+    /// question opens its own session with it, as its login or as its end-user security context
+    /// (`#923`).
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::PerSubjectCredential;
 
@@ -685,6 +771,7 @@ mod tests {
 
     use super::{Channel, Dial, OracleError, OracleWarehouse, Session, TokenSessions, ezconnect, refuse_if_spent, session_for};
 
+    mod end_user;
     mod routing;
 
     /// **An IPv6 loopback literal is dialled, not looked up.** `sutura-config` accepts `::1` as a

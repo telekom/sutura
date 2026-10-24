@@ -15,11 +15,13 @@
 //! **An `impersonation-at-source` source opens each question's session with the token its
 //! caller's own token is exchanged for**, through the `delegation` hops it declares:
 //! `declared_delegation` hands them to `serve::broker`, and `build` connects the boot session under
-//! the declared user as for any other posture.
+//! the declared user as for any other posture. Its `caller_session` decides whether that token is
+//! each session's login or its end-user security context.
 //!
 //! The WHOLE module is behind `#[cfg(feature = "oracle")]` at its declaration in `main.rs`, so
 //! everything here may name an adapter type unconditionally.
 
+use sutura_config::sources::caller_session::CallerSession;
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
 use sutura_exec_oracle::{Channel, Dial, OracleWarehouse};
@@ -90,15 +92,20 @@ pub(crate) fn build(
             anchors_pem: &anchors_pem,
         },
     );
-    OracleWarehouse::connect(
-        source.clone(),
-        identity.posture().clone(),
-        dial,
-        user,
-        exposed,
-        working_set.result_budget(),
-    )
-    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
+    let opened = match configured.caller_session() {
+        CallerSession::OwnLogin => OracleWarehouse::connect(
+            source.clone(),
+            identity.posture().clone(),
+            dial,
+            user,
+            exposed,
+            working_set.result_budget(),
+        ),
+        CallerSession::EndUserContext => {
+            OracleWarehouse::attaching(source.clone(), dial, user, exposed, working_set.result_budget())
+        }
+    };
+    opened.map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
 }
 
 /// The PEM bundle at `anchors`, which `key` declared; the refusal names both.
@@ -116,3 +123,6 @@ pub(crate) fn declared_delegation(
     };
     delegation
 }
+
+#[cfg(test)]
+mod tests;

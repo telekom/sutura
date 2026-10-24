@@ -893,7 +893,7 @@ oracle-acceptance:
     export SUTURA_DEV_REQUIRE_TIER=1
     export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
     set +e
-    cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
+    cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/) | test(/^tests::end_user::live::/)'
     status=$?
     cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
     exit "$status"

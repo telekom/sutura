@@ -102,6 +102,12 @@ impl<'dial> Dial<'dial> {
         }
     }
 
+    /// How the connection to the listener is secured.
+    #[must_use]
+    pub const fn channel(&self) -> Channel<'dial> {
+        self.channel
+    }
+
     /// The bound on the TCP connect.
     #[must_use]
     pub const fn deadline(&self) -> std::time::Duration {
