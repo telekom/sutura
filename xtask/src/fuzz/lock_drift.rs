@@ -19,13 +19,11 @@
 //! groups without `group-by` (`patch-level`, `arrow`, `utoipa`) also span both directories in one
 //! PR - read from dependabot-core's source, the limit being that no grouped PR covering two
 //! directories is observed yet.
-//!
-//! **Not a hole: an absent root lock.** It reads as empty here, shares nothing and passes, but
-//! `check-boundaries`' `cargo metadata --locked` refuses it in the same hygiene sweep.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{LOCK, pins};
+use crate::workflows::sources::in_scope_text;
 
 /// The root workspace's lock, the one the shipped graph resolves against.
 const ROOT_LOCK: &str = "Cargo.lock";
@@ -53,6 +51,27 @@ pub(super) fn gaps(root_lock: &str, fuzz_lock: &str) -> Vec<String> {
 }
 
 /// Reads [`ROOT_LOCK`] under `root` and compares it to `fuzz_lock`.
-pub(super) fn gaps_in(root: &std::path::Path, fuzz_lock: &str) -> Vec<String> {
-    gaps(&std::fs::read_to_string(root.join(ROOT_LOCK)).unwrap_or_default(), fuzz_lock)
+///
+/// An absent or unreadable root lock is an `Err`: it would read as no pins, share nothing and pass.
+pub(super) fn gaps_in(root: &std::path::Path, fuzz_lock: &str) -> Result<Vec<String>, String> {
+    let path = root.join(ROOT_LOCK);
+    let text = in_scope_text(&path)?.ok_or_else(|| format!("{}: not found", path.display()))?;
+    Ok(gaps(&text, fuzz_lock))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gaps_in;
+    use crate::scratch_tree::Tree;
+
+    #[test]
+    fn a_root_lock_that_cannot_be_read_refuses_the_drift_check() {
+        let unreadable = Tree::of("drift-unreadable", &[("Cargo.lock/keep", b"")]);
+        let why = gaps_in(unreadable.root(), "").expect_err("a directory is not a lock");
+        assert!(why.contains("Cargo.lock"), "the refusal has to name the file: {why}");
+
+        let absent = Tree::of("drift-absent", &[]);
+        let why = gaps_in(absent.root(), "").expect_err("a tree without its root lock is not this repository");
+        assert!(why.contains("Cargo.lock"), "the refusal has to name the file: {why}");
+    }
 }

@@ -1,0 +1,13 @@
+diff --git a/xtask/src/inconclusive.rs b/xtask/src/inconclusive.rs
+index 182418f62..57f345ed8 100644
+--- a/xtask/src/inconclusive.rs
++++ b/xtask/src/inconclusive.rs
+@@ -240,7 +240,7 @@ fn nix_sources(root: &Path) -> Result<Vec<Source>, String> {
+         if path.extension().and_then(|e| e.to_str()) != Some("nix") {
+             continue;
+         }
+-        let Some(text) = in_scope_text(&path)? else {
++        let Some(text) = in_scope_text(&path).unwrap_or(None) else {
+             continue;
+         };
+         let named = path

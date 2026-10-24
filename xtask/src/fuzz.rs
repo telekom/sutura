@@ -47,6 +47,7 @@ mod lock_drift;
 
 use crate::Verdict;
 use crate::repo;
+use crate::workflows::sources::in_scope_text;
 
 /// The fuzz crate's manifest, relative to the repository root.
 const MANIFEST: &str = "fuzz/Cargo.toml";
@@ -611,9 +612,21 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     };
     // Merged into `gaps` rather than given `report` an 11th parameter: `clippy.toml` caps
     // `too-many-arguments-threshold` at 10, already the shape's own limit.
-    let lock_text = std::fs::read_to_string(root.join(LOCK)).unwrap_or_default();
+    let lock_text = match in_scope_text(&root.join(LOCK)) {
+        Ok(text) => text.unwrap_or_default(),
+        Err(message) => {
+            eprintln!("xtask check-fuzz: {message}");
+            return Verdict::Fail;
+        }
+    };
     gaps.extend(version_gaps(&root_manifest, &lock_text));
-    gaps.extend(lock_drift::gaps_in(&root, &lock_text));
+    match lock_drift::gaps_in(&root, &lock_text) {
+        Ok(drift) => gaps.extend(drift),
+        Err(message) => {
+            eprintln!("xtask check-fuzz: {message}");
+            return Verdict::Fail;
+        }
+    }
     gaps.extend(deny_wiring::gaps(&root));
     gaps.extend(deny_wiring::driver_gaps(&root));
     match matrix_targets(&workflow) {

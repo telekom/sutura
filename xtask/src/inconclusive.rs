@@ -52,7 +52,7 @@ use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
-use crate::workflows::sources::{Source, ci_sources};
+use crate::workflows::sources::{Source, ci_sources, in_scope_dir, in_scope_text};
 
 /// How a venue spells an invocation of a gate that can answer INCONCLUSIVE.
 ///
@@ -234,12 +234,26 @@ fn sources(root: &Path) -> Option<Vec<Source>> {
         }
     }
 
-    for entry in std::fs::read_dir(root.join("nix")).into_iter().flatten().flatten() {
-        let path = entry.path();
+    match nix_sources(root) {
+        Ok(found) => out.extend(found),
+        Err(why) => {
+            eprintln!("xtask check-inconclusive: {why}");
+            return None;
+        }
+    }
+
+    Some(out)
+}
+
+/// Every `nix/*.nix`. An absent `nix/` has none; a directory or file that cannot be read is the scan
+/// breaking, as it is for the files `sources` names one by one.
+fn nix_sources(root: &Path) -> Result<Vec<Source>, String> {
+    let mut out = Vec::new();
+    for path in in_scope_dir(&root.join("nix"))? {
         if path.extension().and_then(|e| e.to_str()) != Some("nix") {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else {
+        let Some(text) = in_scope_text(&path)? else {
             continue;
         };
         let named = path
@@ -250,8 +264,7 @@ fn sources(root: &Path) -> Option<Vec<Source>> {
             text,
         });
     }
-
-    Some(out)
+    Ok(out)
 }
 
 /// Every invocation line, with the comments dropped.
@@ -386,7 +399,7 @@ fn captured_status(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Found, Handling, SITES, Site, captured_status, invocations, judge};
+    use super::{Found, Handling, SITES, Site, captured_status, invocations, judge, sources};
     use crate::workflows::sources::Source;
 
     /// One source, as the walk would produce it.
@@ -395,6 +408,42 @@ mod tests {
             label: String::from(label),
             text: String::from(text),
         }
+    }
+
+    /// A tree `sources` can walk: one workflow and the three local files, plus the file `extra`.
+    fn tree(tag: &str, extra: Option<&str>) -> crate::scratch_tree::Tree {
+        let mut files = vec![
+            (".github/workflows/ci.yml", &b"on: push\n"[..]),
+            ("justfile", b""),
+            ("devenv.nix", b""),
+            ("flake.nix", b""),
+        ];
+        files.extend(extra.map(|path| (path, &b""[..])));
+        crate::scratch_tree::Tree::of(tag, &files)
+    }
+
+    #[test]
+    fn an_unreadable_nix_file_refuses_the_scan() {
+        let tree = tree("inconclusive-unreadable", Some("nix/x.nix/keep"));
+        assert!(
+            sources(tree.root()).is_none(),
+            "an unreadable nix file was dropped in silence"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_nix_listing_refuses_the_scan() {
+        let tree = tree("inconclusive-listing", Some("nix"));
+        assert!(
+            sources(tree.root()).is_none(),
+            "an unlistable nix directory was dropped in silence"
+        );
+    }
+
+    #[test]
+    fn a_tree_without_a_nix_directory_is_still_scanned() {
+        let tree = tree("inconclusive-no-nix", None);
+        assert!(sources(tree.root()).is_some(), "an absent nix directory is not a broken scan");
     }
 
     /// The declared site with this label.

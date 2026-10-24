@@ -1,0 +1,17 @@
+diff --git a/xtask/src/workflows/publication.rs b/xtask/src/workflows/publication.rs
+index 0bbac00c8..e49d37ad5 100644
+--- a/xtask/src/workflows/publication.rs
++++ b/xtask/src/workflows/publication.rs
+@@ -116,11 +116,7 @@ type Step = (String, Option<String>);
+ pub(super) fn problems(root: &Path) -> Vec<String> {
+     let workflow = match in_scope_text(&root.join(scorecard::WORKFLOW)) {
+         Ok(text) => text.unwrap_or_default(),
+-        Err(why) => {
+-            return vec![format!(
+-                "the workflow could not be read, so none of the API's rules were checked: {why}"
+-            )];
+-        }
++        Err(_) => String::new(),
+     };
+ 
+     // NOTHING TO HOLD WHERE NOTHING IS SENT, which is the same conditional `scorecard::problems`

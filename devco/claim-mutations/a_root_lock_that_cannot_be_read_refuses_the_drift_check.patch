@@ -1,0 +1,17 @@
+diff --git a/xtask/src/fuzz/lock_drift.rs b/xtask/src/fuzz/lock_drift.rs
+index bdddfee2e..b8efa511d 100644
+--- a/xtask/src/fuzz/lock_drift.rs
++++ b/xtask/src/fuzz/lock_drift.rs
+@@ -55,7 +55,11 @@ pub(super) fn gaps(root_lock: &str, fuzz_lock: &str) -> Vec<String> {
+ /// An absent or unreadable root lock is an `Err`: it would read as no pins, share nothing and pass.
+ pub(super) fn gaps_in(root: &std::path::Path, fuzz_lock: &str) -> Result<Vec<String>, String> {
+     let path = root.join(ROOT_LOCK);
+-    let text = in_scope_text(&path)?.ok_or_else(|| format!("{}: not found", path.display()))?;
++    let text = match in_scope_text(&path) {
++        Ok(Some(text)) => text,
++        Ok(None) => return Err(format!("{}: not found", path.display())),
++        Err(_) => String::new(),
++    };
+     Ok(gaps(&text, fuzz_lock))
+ }
+ 
