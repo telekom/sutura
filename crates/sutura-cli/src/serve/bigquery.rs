@@ -537,5 +537,39 @@ mod tests {
             assert!(!seen.is_empty(), "a listed domain reaches the source ({status}: {body})");
             assert!(seen.iter().all(|job| job.as_deref() == Some(ADDRESS)), "{seen:?}");
         }
+
+        /// The composition root's own audit line: the recording transport fails every job, so the
+        /// call is recorded `failed` - and names, masked, the address the job was delegated as.
+        #[tokio::test]
+        async fn a_delegated_call_the_source_failed_is_audited_as_the_masked_address() {
+            const AUDITED: &str = "Delegated.Auditor@Example.com";
+            let log = crate::serve::tests::delegation_served::logged();
+            let Served { app, issuer, jobs, .. } = served("domain-delegation-audited");
+            let scopes = sutura_app::Capability::every()
+                .map(sutura_app::Capability::scope)
+                .collect::<Vec<_>>()
+                .join(" ");
+            let token = Token::for_subject("delegated-auditor")
+                .granting(&scopes)
+                .claiming("email", serde_json::json!(AUDITED))
+                .claiming("email_verified", serde_json::json!(true));
+            let (status, body) = query(app, &issuer.mint(&token).expect("a signed token")).await;
+            assert!(
+                jobs.try_iter().count() > 0,
+                "the question must reach the source ({status}: {body})"
+            );
+            let captured = log.contents();
+            let audited: Vec<serde_json::Value> = captured
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter(|record| record["delegated_as"] == "ledger=D***.A***@E***.c***")
+                .collect();
+            assert_eq!(audited.len(), 1, "one record for the one call: {audited:?}");
+            // Inside the request span, so bunyan prefixes the span kind.
+            assert_eq!(audited[0]["msg"], "[REQUEST - EVENT] failed", "{audited:?}");
+            assert_eq!(audited[0]["failure"], "warehouse", "{audited:?}");
+            assert_eq!(audited[0]["subject_established"], "verified", "{audited:?}");
+            assert!(!captured.contains(AUDITED), "the raw address reached a log line");
+        }
     }
 }

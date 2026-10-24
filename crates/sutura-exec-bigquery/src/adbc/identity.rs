@@ -95,7 +95,7 @@ const QUERY_THROUGH_JOBS_QUERY: &str = "bigquery.query.through_jobs_query";
 ///
 /// Named because `Result<Vec<(OptionDatabase, OptionValue)>, AdbcError>` is over this workspace's
 /// `type_complexity` threshold - the same reason `crate::Mapped` exists.
-type DatabaseOptions = Vec<(OptionDatabase, OptionValue)>;
+pub(super) type DatabaseOptions = Vec<(OptionDatabase, OptionValue)>;
 
 /// Whether this source impersonates at all, and how when it does.
 ///

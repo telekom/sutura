@@ -336,6 +336,8 @@ telemetry:
 ```
 
 Audit records (`answered` and `refused`, and `raw_answered` and `raw_refused` for raw SQL) use the same stream and format.
+A question or a raw SQL call that fails, for example because the data system does not answer, writes `failed` or
+`raw_failed`, with the kind of failure in `failure`. The cause stays on the error line of the request.
 The start-up line shows `log_format` and whether the configuration set it.
 
 ## Stop

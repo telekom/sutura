@@ -230,6 +230,21 @@ principal_newtype! {
     TaskId
 }
 
+principal_newtype! {
+    /// The principal a source was asked to run one leg as on the deployment's word: the masked
+    /// rendering of a [`crate::identity::Presented::SubjectPrincipal`] name, for the audit record.
+    DelegatedPrincipal
+}
+
+/// Masks without re-parsing: a [`crate::identity::PrincipalName`] already passed the same parser.
+impl From<&crate::identity::PrincipalName> for DelegatedPrincipal {
+    fn from(name: &crate::identity::PrincipalName) -> Self {
+        let mut masked = String::with_capacity(name.as_str().len());
+        mask_principal_into(name.as_str(), &mut masked);
+        Self(masked)
+    }
+}
+
 /// The verified identity a caller may be exchanged FOR, retained in full for the one place a
 /// lossy projection is an authorization decision.
 ///

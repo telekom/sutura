@@ -637,7 +637,7 @@ if domain_delegation_user:
     # What the Admin console asks for, and what a `domain_delegation` source names.
     pulumi.export("dwd_email", dwd_sa.email)
     pulumi.export("dwd_client_id", dwd_sa.unique_id)
-    pulumi.export("dwd_scope", "https://www.googleapis.com/auth/bigquery")
+    pulumi.export("dwd_scope", "https://www.googleapis.com/auth/bigquery.readonly")
     pulumi.export("dwd_user", domain_delegation_user)
 
 # --------------------------------------------------------------------------- #

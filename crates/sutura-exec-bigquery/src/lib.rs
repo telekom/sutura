@@ -565,6 +565,19 @@ where
     pub fn job_labels(&self, region: &JobsRegion, correlation: &str) -> Mapped<RowSet, T::Error> {
         jobs::labels(self, region, correlation)
     }
+
+    /// The principal `BigQuery` recorded each of those jobs under: one row of one nullable
+    /// `user_email` text cell per job. The same reader identity and the same limits as
+    /// [`Self::job_labels`].
+    ///
+    /// # Errors
+    ///
+    /// [`BigQueryError::NoPayer`], [`BigQueryError::Endpoint`] or [`BigQueryError::Unreadable`].
+    #[cfg(feature = "fixtures")]
+    pub fn job_principals(&self, region: &JobsRegion, correlation: &str) -> Mapped<RowSet, T::Error> {
+        jobs::principals(self, region, correlation)
+    }
+
     /// A job's result, as a domain result set.
     ///
     /// **One line, and `docs/adr/0039` is why it is one line.** This used to call a `rowset` module

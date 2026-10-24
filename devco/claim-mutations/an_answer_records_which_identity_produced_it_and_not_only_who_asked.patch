@@ -1,15 +1,15 @@
 diff --git a/crates/sutura-runtime/src/audit.rs b/crates/sutura-runtime/src/audit.rs
 --- a/crates/sutura-runtime/src/audit.rs
 +++ b/crates/sutura-runtime/src/audit.rs
-@@ -142,6 +142,7 @@
-                 sutura_actor,
+@@ -145,6 +145,7 @@ impl AuditSink for TracingAuditSink {
                  sutura_correlation,
+                 delegated_as,
                  reason = ?reason,
 +                executed_as = "",
                  "refused"
              ),
              // The raw path's two arms. **`statement` is logged deliberately** - `docs/adr/0013`'s
-@@ -207,7 +208,7 @@
+@@ -246,7 +247,7 @@ impl AuditSink for TracingAuditSink {
  fn executed_until(record: &CallRecord<'_>) -> String {
      match record.executed_until() {
          None => String::from("none"),
@@ -18,7 +18,7 @@ diff --git a/crates/sutura-runtime/src/audit.rs b/crates/sutura-runtime/src/audi
          Some(Expiry::At { unix_seconds }) => unix_seconds.to_string(),
      }
  }
-@@ -215,7 +216,7 @@
+@@ -269,7 +270,7 @@ fn delegated_as(record: &CallRecord<'_>) -> String {
  fn executed_as(record: &CallRecord<'_>) -> String {
      record.executed_as().map_or_else(String::new, |ran| {
          ran.legs()

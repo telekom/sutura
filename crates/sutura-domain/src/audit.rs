@@ -13,7 +13,8 @@
 //!
 //! Two claims, and they answer different questions.
 //!
-//! **Written.** One record per call, refusals included, before the outcome goes back to the caller.
+//! **Written.** One record per call, refusals and failures included, before the outcome goes back
+//! to the caller.
 //! Before rather than after, because a record written after the response is the record a crash
 //! loses, and the call worth having a record of is the one that went wrong. It is a different
 //! channel from [`crate::pinned::Provenance`]: provenance rides on the result and a client is free
@@ -67,7 +68,7 @@
 //! [`crate::query::RefusalReason::PlanSpansTooManySources`]), so the source set is a name a reader
 //! already has from the bundle.
 
-use crate::identity::{ClientClaims, Expiry, PrincipalChain};
+use crate::identity::{ClientClaims, DelegatedAs, Expiry, PrincipalChain};
 use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
 use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
@@ -124,6 +125,7 @@ pub struct CallRecord<'a> {
     executed_until: Option<Expiry>,
     client: Option<&'a ClientClaims>,
     labels: Option<&'a JobLabels>,
+    delegated: Option<&'a DelegatedAs>,
 }
 
 /// How the call ended, as the two outcomes a question has.
@@ -149,6 +151,15 @@ pub enum RecordedOutcome<'a> {
     /// section wants recorded, and the SQL that would have answered it is the point.
     RawRefused {
         reason: &'a RawRefusalReason,
+        statement: &'a RawStatement,
+    },
+    /// The call failed rather than ended: the data system did not answer, the broker could not be
+    /// reached, or this deployment's own wiring was wrong. `failure` names which, as the surface
+    /// spells it; the cause chain is the transport's log line, never this record's.
+    Failed { failure: &'static str },
+    /// A raw statement failed rather than ended, with the statement for [`Self::RawRefused`]'s reason.
+    RawFailed {
+        failure: &'static str,
         statement: &'a RawStatement,
     },
 }
@@ -183,6 +194,7 @@ impl<'a> CallRecord<'a> {
             executed_until,
             client: None,
             labels: None,
+            delegated: None,
         }
     }
 
@@ -214,6 +226,34 @@ impl<'a> CallRecord<'a> {
             executed_until,
             client: None,
             labels: None,
+            delegated: None,
+        }
+    }
+
+    /// A call that failed rather than ended. Nothing executed that an outcome could describe, so
+    /// there is no deadline to record either.
+    #[must_use]
+    pub const fn failed(chain: &'a PrincipalChain, failure: &'static str) -> Self {
+        Self {
+            chain,
+            outcome: RecordedOutcome::Failed { failure },
+            executed_until: None,
+            client: None,
+            labels: None,
+            delegated: None,
+        }
+    }
+
+    /// A raw statement that failed rather than ended.
+    #[must_use]
+    pub const fn failed_raw(chain: &'a PrincipalChain, statement: &'a RawStatement, failure: &'static str) -> Self {
+        Self {
+            chain,
+            outcome: RecordedOutcome::RawFailed { failure, statement },
+            executed_until: None,
+            client: None,
+            labels: None,
+            delegated: None,
         }
     }
 
@@ -226,8 +266,10 @@ impl<'a> CallRecord<'a> {
     #[must_use]
     pub const fn statement(&self) -> Option<&RawStatement> {
         match self.outcome {
-            RecordedOutcome::RawAnswered { statement, .. } | RecordedOutcome::RawRefused { statement, .. } => Some(statement),
-            RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => None,
+            RecordedOutcome::RawAnswered { statement, .. }
+            | RecordedOutcome::RawRefused { statement, .. }
+            | RecordedOutcome::RawFailed { statement, .. } => Some(statement),
+            RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } | RecordedOutcome::Failed { .. } => None,
         }
     }
 
@@ -271,7 +313,11 @@ impl<'a> CallRecord<'a> {
             // Neither raw arm carries a `Provenance` - that is `docs/adr/0013`'s whole load-bearing
             // property read from the other side: there is no identity label to report here because
             // there is no field to have carried one.
-            RecordedOutcome::Refused { .. } | RecordedOutcome::RawAnswered { .. } | RecordedOutcome::RawRefused { .. } => None,
+            RecordedOutcome::Refused { .. }
+            | RecordedOutcome::RawAnswered { .. }
+            | RecordedOutcome::RawRefused { .. }
+            | RecordedOutcome::Failed { .. }
+            | RecordedOutcome::RawFailed { .. } => None,
         }
     }
 
@@ -302,6 +348,20 @@ impl<'a> CallRecord<'a> {
     #[inline]
     pub const fn labels(&self) -> Option<&JobLabels> {
         self.labels
+    }
+
+    /// The same record, naming the principal each delegated leg was minted as.
+    #[inline]
+    #[must_use]
+    pub const fn delegating(mut self, delegated: &'a DelegatedAs) -> Self {
+        self.delegated = Some(delegated);
+        self
+    }
+
+    /// The delegated legs, where the call site named them. Recorded, never authorized on.
+    #[inline]
+    pub const fn delegated_as(&self) -> Option<&DelegatedAs> {
+        self.delegated
     }
 
     /// Who the call is attributable to.
@@ -366,6 +426,8 @@ mod tests {
                 RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
                 RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows}"),
                 RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
+                RecordedOutcome::Failed { failure } => format!("failed failure={failure}"),
+                RecordedOutcome::RawFailed { failure, .. } => format!("raw_failed failure={failure}"),
             };
             self.lines.borrow_mut().push(format!("{who} {how}"));
         }

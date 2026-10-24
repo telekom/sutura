@@ -426,7 +426,7 @@ mod agent_identity;
 
 // The delegation exchange behind the served HTTP surface and the real leg-1 gate (#1230).
 #[cfg(feature = "bigquery")]
-mod delegation_served;
+pub(in crate::serve) mod delegation_served;
 
 #[test]
 #[cfg(feature = "bigquery")]

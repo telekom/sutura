@@ -185,7 +185,7 @@ run is still a thing somebody has to know.
 
 | Kind | Names |
 | --- | --- |
-| `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
+| `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL`; mode c only, where the stack declares `domain_delegation_user`: `SUTURA_BQ_DWD_ACCOUNT`, `SUTURA_BQ_DWD_USER` |
 | `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_REGION`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_RLS_DATASET`, `SUTURA_BQ_CROSS_DATASET` |
 
 The three `SUTURA_BQ_` **secrets** are the two-principal cell's identity values, and they are
@@ -262,8 +262,8 @@ is not a Google Cloud resource, so do it by hand:
 
 1. **Google Admin console** (a super administrator of the Workspace or Cloud Identity account):
    Security → Access and data control → API controls → Manage Domain Wide Delegation → Add new.
-   Client ID: the `dwd_client_id` output. OAuth scopes: `https://www.googleapis.com/auth/bigquery`
-   only.
+   Client ID: the `dwd_client_id` output. OAuth scopes:
+   `https://www.googleapis.com/auth/bigquery.readonly` only.
 2. **The identity provider**: users must not be able to edit their own email address, and the
    tokens sutura verifies carry `email` and `email_verified`. In Keycloak: Realm settings → User
    profile → `email` → Permission, and remove `user` from **Who can edit**.
