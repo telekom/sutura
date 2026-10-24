@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-domain/src/warehouse/arrow.rs b/crates/sutura-domain/src/warehouse/arrow.rs
+index 3ecbf6dbd..aa590efb1 100644
+--- a/crates/sutura-domain/src/warehouse/arrow.rs
++++ b/crates/sutura-domain/src/warehouse/arrow.rs
+@@ -426,7 +426,8 @@ fn mapped(label: &str, kind: &DataType) -> Result<(), UnreadableCell> {
+         | DataType::Date32
+         | DataType::Boolean
+         | DataType::Decimal128(..)
+-        | DataType::Decimal256(..) => Ok(()),
++        | DataType::Decimal256(..)
++        | DataType::Null => Ok(()),
+         ref other => Err(UnreadableCell::UnsupportedType {
+             column: String::from(label),
+             arrow_type: format!("{other:?}"),
+@@ -538,6 +539,7 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, UnreadableC
+                 .as_primitive::<arrow_array::types::Decimal256Type>()
+                 .value_as_string(row),
+         )),
++        DataType::Null => Ok(Value::Null),
+         ref other => Err(UnreadableCell::UnsupportedType {
+             column: String::from(label),
+             arrow_type: format!("{other:?}"),

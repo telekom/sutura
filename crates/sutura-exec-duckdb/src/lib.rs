@@ -31,10 +31,11 @@
 //!
 //! - **The deadline is a watchdog per call** (`docs/adr/0029`, sixth amendment): on
 //!   [`DuckDbWarehouse::execute`] and on the raw path, a thread calls the driver's `ConnectionCancel`
-//!   when the budget is spent, the engine answers `Interrupt`, and that is read as the deadline. It
-//!   starts before the driver prepares, so a raw string's statements before its last are under it
-//!   too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
-//!   cancel leaves the statement to finish; `dry_run` only prepares and carries the deadline.
+//!   when the budget is spent, the engine answers `Interrupt` - from `execute`, or while the result
+//!   is read - and that is read as the deadline. It starts before the driver prepares, so a raw
+//!   string's statements before its last are under it too. The stop lands at the engine's next
+//!   interrupt check rather than the instant, and a failed cancel leaves the statement to finish;
+//!   `dry_run` only prepares and carries the deadline.
 //!   Binding a statement is not interrupted, and the optimizer checks for an interrupt only at the
 //!   start of each of its passes (read in the pinned `DuckDB` source, not measured); on the raw
 //!   path the nesting bound is what keeps their cost small on the shapes measured.
@@ -43,8 +44,8 @@
 //!   every one before any runs, and [`READ_ONLY`] and [`THEN_LOCKED`] are what each of them runs
 //!   under.
 //! - **What a raw text may be**: reads only - every statement a `SELECT` by `DuckDB`'s own parser,
-//!   calling only [`RAW_TABLE_FUNCTIONS`], its queries nested no deeper than [`MAX_NESTING`] and
-//!   no more than [`MAX_QUERIES`] of them. A macro or view the database file declares is expanded
+//!   holding only [`READ_NODES`] query nodes, calling only [`RAW_TABLE_FUNCTIONS`], its queries
+//!   nested no deeper than [`MAX_NESTING`] and no more than [`MAX_QUERIES`] of them. A macro or view the database file declares is expanded
 //!   after the screen and not walked or counted, and scalar functions are not screened.
 //!   `DuckDB`'s own `memory_limit` is its default, not `runtime.working_set_max_bytes`, and spilling
 //!   is unmeasured: no local file opens after the database does, so a statement too large for
@@ -78,7 +79,7 @@ use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 mod screen;
-pub use screen::{MAX_NESTING, MAX_QUERIES, NotARead, RAW_TABLE_FUNCTIONS};
+pub use screen::{MAX_NESTING, MAX_QUERIES, NotARead, RAW_TABLE_FUNCTIONS, READ_NODES};
 
 /// The variable a host that links no driver names a mounted `libduckdb` with.
 ///
@@ -596,6 +597,9 @@ impl DuckDbWarehouse {
                 {
                     DuckDbError::DeadlineExceeded
                 }
+                DuckDbError::Batch {
+                    cause: arrow_schema::ArrowError::CDataInterface(ref message),
+                } if fired.load(Ordering::Acquire) && message.starts_with(INTERRUPT_MESSAGE) => DuckDbError::DeadlineExceeded,
                 other => other,
             })
         })
@@ -767,10 +771,15 @@ impl Warehouse for DuckDbWarehouse {
     }
 }
 
-/// Whether the engine stopped a statement because it was interrupted: by the error detail `execute`
-/// sets, else by the message, because `set_sql_query` reports a statement it ran with no detail.
+/// How the engine's message opens when it stops a statement for an interrupt.
+const INTERRUPT_MESSAGE: &str = "INTERRUPT Error";
+
+/// Whether the engine stopped a statement because it was interrupted, as `prepare` or `execute`
+/// report it: by the message, because `set_sql_query` reports a statement it ran with no detail,
+/// else by the error detail `execute` sets. An interrupt that lands while the result is read
+/// reaches the caller as a batch error instead, matched on [`INTERRUPT_MESSAGE`] where it is read.
 fn interrupted(cause: &CoreError) -> bool {
-    cause.message.starts_with("INTERRUPT Error")
+    cause.message.starts_with(INTERRUPT_MESSAGE)
         || cause
             .details
             .iter()

@@ -1,6 +1,7 @@
 //! What a raw text must be before any of it runs: every statement a `SELECT`, by `DuckDB`'s own
-//! parser, every table function it calls one of [`RAW_TABLE_FUNCTIONS`], and its queries nested no
-//! deeper than [`MAX_NESTING`] and no more than [`MAX_QUERIES`] of them.
+//! parser, every query node in it a read ([`READ_NODES`]), every table function it calls one of
+//! [`RAW_TABLE_FUNCTIONS`], and its queries nested no deeper than [`MAX_NESTING`] and no more than
+//! [`MAX_QUERIES`] of them.
 //!
 //! The parser is asked through [`SERIALIZED`], so the tree read here is `DuckDB`'s own serialised
 //! parse of the same text the driver then runs. Whether the driver's split of that text into
@@ -27,6 +28,14 @@ pub const RAW_TABLE_FUNCTIONS: [&str; 10] = [
     "duckdb_constraints",
     "duckdb_indexes",
 ];
+
+/// The query nodes a raw text may hold, by the `type` the parser serialises them as.
+///
+/// **Default-closed, on the node.** The statement-level answer does not name every query node a
+/// `SELECT` holds, so the tree is read for them. Any node whose `type` ends in `_NODE` and is not
+/// listed here refuses the text. Limit: a node the parser serialises under a `type` that does not
+/// end in `_NODE` is not caught here, and what holds then is the database's own read-only open.
+pub const READ_NODES: [&str; 4] = ["SELECT_NODE", "SET_OPERATION_NODE", "RECURSIVE_CTE_NODE", "CTE_NODE"];
 
 /// The deepest the queries of a raw text may nest, a reference to a CTE counted as the query it
 /// names, at the depth it is referenced from.
@@ -55,6 +64,10 @@ pub enum NotARead {
     /// parse - its own message.
     #[error("{0}")]
     Statement(String),
+    /// A query node [`READ_NODES`] does not list: a statement that writes, nested under a `SELECT` -
+    /// named as the tree spells it.
+    #[error("`{0}` is not a query a raw statement may hold")]
+    Node(String),
     /// A table function [`RAW_TABLE_FUNCTIONS`] does not list, or a qualified one - named as the
     /// tree spells it.
     #[error("`{0}` is not a table function a raw statement may call")]
@@ -74,8 +87,9 @@ pub enum NotARead {
     },
 }
 
-/// Refuses `serialized` - [`SERIALIZED`]'s answer - unless every statement parsed, every table
-/// function in every statement, at any depth, is listed, and the queries stay within
+/// Refuses `serialized` - [`SERIALIZED`]'s answer - unless every statement parsed, every query node
+/// in every statement is a [`READ_NODES`] one, every table function in every statement, at any
+/// depth, is listed, and the queries stay within
 /// [`MAX_NESTING`] and [`MAX_QUERIES`].
 pub(crate) fn screen(serialized: &str) -> Result<(), NotARead> {
     let tree: Value = serde_json::from_str(serialized).map_err(|cause| NotARead::Unreadable { cause: Some(cause) })?;
@@ -151,7 +165,11 @@ fn walked<'tree>(node: &'tree Value, ctes: &mut Vec<(&'tree str, Load)>) -> Resu
             load = load.beside(walked(value, ctes)?);
         }
     }
-    match fields.get("type").and_then(Value::as_str) {
+    let kind = fields.get("type").and_then(Value::as_str);
+    if let Some(node) = kind.filter(|kind| kind.ends_with("_NODE") && !READ_NODES.contains(kind)) {
+        return Err(NotARead::Node(node.to_owned()));
+    }
+    match kind {
         Some("TABLE_FUNCTION") => called(fields.get("function"))?,
         Some("BASE_TABLE") => {
             let table = fields.get("table_name").and_then(Value::as_str).unwrap_or_default();

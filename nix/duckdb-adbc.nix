@@ -8,13 +8,14 @@
 # no `AdbcDriverInit`, and no `AdbcDriverDuckdbInit` for a driver manager to derive from a file
 # name, which is why the mounted route passes the entrypoint explicitly (`src/lib.rs`).
 #
-# **The installed `libduckdb_static.a` is NOT self-contained.** nixpkgs' `lib` output carries it
-# beside the vendored third-party archives (`libduckdb_re2.a`, `libduckdb_zstd.a`, ...), the
-# in-tree extensions it is configured with and the generated loader that references them. So the
-# archive here is all of those merged into one - except `libdummy_static_extension_loader.a`, the
-# loader for a build with no linked extensions, which defines the generated loader's names again.
+# **The merge is kept though the pinned library no longer needs it on darwin.** There its
+# `libduckdb_static.a` alone links a probe, and its `lib` output has neither the generated extension
+# loader nor `libdummy_static_extension_loader.a`. The Linux layout is not the darwin one (a CI build
+# also produces `libduckdb_jemalloc.a`), so every archive in `lib` is still merged into one, and the
+# probe below is what proves the result links. The `libdummy_static_extension_loader.a` exclusion
+# stays for a library that carries it: that loader defines the generated loader's names again.
 #
-# **`postBuild` proves it, on every triple:** a probe calling `duckdb_adbc_init` links against the
+# **`postBuild` proves the merge, on every triple:** a probe calling `duckdb_adbc_init` links against the
 # merged archive alone - and on a musl triple with `-static`, the link a static musl binary has to
 # make. Then `nm` refuses an archive that defines any `Adbc*` C name: the BigQuery archive defines
 # the generic ADBC C API, and a second copy would make the linker pick one.
@@ -26,7 +27,7 @@
 { pkgs, crossSystemName }:
 let
   isMusl = pkgs.stdenv.hostPlatform.isMusl;
-  duckdb = pkgs.duckdb;
+  duckdb = (import ./duckdb.nix { inherit pkgs; }).package;
 in
 pkgs.stdenv.mkDerivation {
   pname = "adbc-driver-duckdb";

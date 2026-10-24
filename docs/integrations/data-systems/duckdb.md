@@ -35,6 +35,12 @@ Related settings:
 The musl release binaries link the DuckDB driver. Other builds load the library that
 `SUTURA_DUCKDB_ADBC_DRIVER` names.
 
+The library reads a file an earlier DuckDB release wrote, back to the floor DuckDB's own storage
+documentation promises, and no further. It refuses a file written in a newer storage format than its
+own, so a producer that runs ahead of sutura has to write a format the library reads. A bare
+`SELECT NULL` has the engine's `NULL` type, which sutura does not map, so it is refused rather than
+answered; cast it, as in `SELECT NULL::INTEGER`.
+
 ## Example
 
 ```yaml
