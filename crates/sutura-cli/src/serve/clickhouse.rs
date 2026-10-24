@@ -78,7 +78,7 @@ mod tests {
     use crate::serve::open_engine;
     #[cfg(feature = "clickhouse")]
     use crate::serve::tests::entry;
-    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
+    use crate::serve::tests::{bundle_over, default_timeout, direct_registry, one_worker, refusal, registry};
 
     /// One `clickhouse` entry whose password file is not there, so a refusal naming that key is proof
     /// the composition reached the credential step.
@@ -237,7 +237,7 @@ mod tests {
             Subject::verified("analyst-a@example.com").expect("a test subject"),
         ));
         let minted = |entry: &str| {
-            crate::serve::broker::build_broker(&registry(entry), None)
+            crate::serve::broker::build_broker(&direct_registry(entry), None)
                 .expect("the source builds a broker")
                 .mint(&without_assertion, &SourceSet::of(at.clone()))
                 .expect("a mint answers")
