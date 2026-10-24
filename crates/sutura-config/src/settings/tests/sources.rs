@@ -925,3 +925,45 @@ fn a_cube_last_hop_for_the_deployments_own_audience_is_refused() {
     );
     assert_eq!(direct_boot_refusals(&cube("https://cube.example.com")), Vec::<String>::new());
 }
+
+/// A loopback `clickhouse` source whose callers sign in with the token their own is exchanged for at
+/// `audience`.
+fn clickhouse_signing_in(audience: &str) -> String {
+    format!(
+        "sources:\n  warehouse:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+         client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"{audience}\"\n"
+    )
+}
+
+#[test]
+fn a_clickhouse_last_hop_for_the_deployments_own_audience_is_refused() {
+    assert_eq!(
+        direct_boot_refusals(&clickhouse_signing_in("https://sutura.example.com")),
+        vec![own_audience_refusal("warehouse")]
+    );
+    assert_eq!(
+        direct_boot_refusals(&clickhouse_signing_in("clickhouse")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_clickhouse_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_to_serve() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{}",
+        clickhouse_signing_in("clickhouse")
+    ));
+    let error = Settings::load(&sources).expect_err("a ClickHouse delegation on a non-direct deployment is not fit to serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a delegation refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::DelegationWithoutDirectInbound {
+            alias: SourceName::parse("warehouse").expect("a legal identifier"),
+            key: "delegation",
+        }]
+    );
+}

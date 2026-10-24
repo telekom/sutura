@@ -1,6 +1,6 @@
 //! The combination checks on what a source hands its data system's token service in place of the
 //! caller: a source that sends the caller's own inbound token to an identity provider - a
-//! `workload_identity.delegation`, a `google_login`, or an Oracle or Cube `delegation` - on a
+//! `workload_identity.delegation`, a `google_login`, or an Oracle, Cube or `ClickHouse` `delegation` - on a
 //! deployment that verifies no `direct` caller, and the acknowledgement that a `direct` deployment
 //! declares no hop.
 
@@ -29,7 +29,8 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
         } else if matches!(
             *source.placement(),
             crate::SourcePlacement::Oracle { ref delegation, .. }
-                | crate::SourcePlacement::Cube { ref delegation, .. } if !delegation.is_empty()
+                | crate::SourcePlacement::Cube { ref delegation, .. }
+                | crate::SourcePlacement::ClickHouse { ref delegation, .. } if !delegation.is_empty()
         ) {
             Some("delegation")
         } else {
@@ -51,9 +52,9 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
         }
         let hops = source.workload_identity().map_or_else(
             || match *source.placement() {
-                crate::SourcePlacement::Oracle { ref delegation, .. } | crate::SourcePlacement::Cube { ref delegation, .. } => {
-                    delegation.as_slice()
-                }
+                crate::SourcePlacement::Oracle { ref delegation, .. }
+                | crate::SourcePlacement::Cube { ref delegation, .. }
+                | crate::SourcePlacement::ClickHouse { ref delegation, .. } => delegation.as_slice(),
                 _ => &[],
             },
             |wif| wif.delegation(),

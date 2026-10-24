@@ -237,8 +237,8 @@ pub enum NotFitToServe {
          source, or security.inbound.mode is not `direct`. Remove the key"
     )]
     InboundTokenAtPoolWithoutEffect { alias: SourceName },
-    /// A `direct` deployment's last delegation hop - `workload_identity.delegation`, or an Oracle or
-    /// Cube `delegation` - asks for this deployment's own audience, so the data system would receive
+    /// A `direct` deployment's last delegation hop - `workload_identity.delegation`, or an Oracle,
+    /// Cube or `ClickHouse` `delegation` - asks for this deployment's own audience, so the data system would receive
     /// a token minted for this deployment: what `inbound_token_at_pool: accepted` acknowledges for a
     /// pool, here unacknowledged. The comparison is of the configured strings only; an identity
     /// provider that maps audiences is not seen.
