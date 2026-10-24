@@ -76,11 +76,11 @@ mod tests {
     #[cfg(feature = "clickhouse")]
     use crate::serve::ENGINE_SOURCE;
     use crate::serve::open_engine;
+    #[cfg(any(feature = "clickhouse", feature = "oracle", feature = "cube"))]
+    use crate::serve::tests::direct_registry;
     #[cfg(feature = "clickhouse")]
     use crate::serve::tests::entry;
     use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
-    #[cfg(any(feature = "clickhouse", feature = "oracle", feature = "cube"))]
-    use crate::serve::tests::direct_registry;
 
     /// One `clickhouse` entry whose password file is not there, so a refusal naming that key is proof
     /// the composition reached the credential step.
