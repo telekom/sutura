@@ -30,6 +30,11 @@ key_file="$1"
 audience="$2"
 out_file="$3"
 
+# The output is a bearer token. Set the restrictive mode before any redirection below can create
+# it; changing the mode after a pipeline has started leaves a window where another process can read
+# the token.
+umask 077
+
 for tool in openssl curl python3; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "bigquery-mint-assertion: $tool is not on PATH, and this mint needs it" >&2
@@ -91,6 +96,16 @@ PY
 
 # The exchange. The assertion goes over stdin rather than in `argv`, and the answer is parsed for
 # `id_token` rather than echoed - a failure prints Google's own `error_description` and nothing else.
+# Bash's noclobber uses an exclusive open, which refuses an existing path (including a symlink).
+# Keep that descriptor open for the whole pipeline so replacing the pathname cannot redirect the
+# token after the check.
+set -C
+if ! exec 3>"$out_file"; then
+    set +C
+    echo "bigquery-mint-assertion: output path already exists or cannot be created: $out_file" >&2
+    exit 1
+fi
+set +C
 printf 'grant_type=%s&assertion=%s' "urn:ietf:params:oauth:grant-type:jwt-bearer" "$signed" |
     curl --silent --show-error --fail-with-body --data-binary @- \
         --header 'content-type: application/x-www-form-urlencoded' \
@@ -102,8 +117,5 @@ token = answered.get("id_token")
 if not token:
     sys.exit("bigquery-mint-assertion: the token endpoint returned no id_token: " + answered.get("error_description", "no reason given"))
 sys.stdout.write(token)
-' >"$out_file"
-
-umask 077
-chmod 600 "$out_file"
+' >&3
 echo "bigquery-mint-assertion: minted an assertion for $client_email, $(wc -c <"$out_file") bytes"
