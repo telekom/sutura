@@ -3,6 +3,7 @@
 # line naming a test that is no longer #[ignore]d. It reads the literal attribute only:
 # see the gate's header for what it does not see.
 crates/sutura-app/tests/golden/data_systems.rs::the_bigquery_dataset_holds_the_example_corpus
+crates/sutura-app/tests/golden/job_labels.rs::a_delegated_bigquery_job_is_recorded_under_the_delegated_address
 crates/sutura-catalog-cube/tests/provisioned.rs::a_token_the_tier_did_not_sign_is_refused
 crates/sutura-catalog-cube/tests/provisioned.rs::the_live_cube_serves_the_recorded_definitions
 crates/sutura-catalog-datahub/tests/provisioned.rs::a_bearerless_read_is_401_under_the_enforced_tier

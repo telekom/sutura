@@ -91,6 +91,15 @@ proof of impersonation.
   back), under the one CI identity in `shared-service-user`, so it shows BigQuery kept the labels
   for that run and nothing about a served human caller, and it fails while `SUTURA_BQ_REGION` is
   unset.
+- **`delegated_as` names a `domain_delegation` (or `EXECUTE AS`) leg's principal, masked; it is a
+  record, not a control.** `DelegatedAs::minted` reads what the broker MINTED, through
+  `NotingBroker` in `LocalService`, so a call that then fails is recorded `failed` with it - a
+  `SurfaceFailure` used to write no record at all. Masked by `DelegatedPrincipal`'s construction, so
+  no raw address or credential material can reach the field; the full address is the job's
+  `user_email`, joined on `sutura_correlation`. Limits: it is not what the source ran as, and
+  `a_delegated_bigquery_job_is_recorded_under_the_delegated_address` fails by name until bq-test
+  declares domain-wide delegation; masks collide; a holder of the deployment credential acts as any
+  domain user without sutura writing anything.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.

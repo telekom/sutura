@@ -1,5 +1,5 @@
-//! Read the labels of this project's jobs back from `INFORMATION_SCHEMA.JOBS`: the live check of
-//! what a request-time job carried. Behind `fixtures`, so no shipped build holds it.
+//! Read the labels and the principal of this project's jobs back from `INFORMATION_SCHEMA.JOBS`: the
+//! live check of what a request-time job carried and whom it ran as. Behind `fixtures`, so no shipped build holds it.
 
 use std::collections::BTreeSet;
 
@@ -53,16 +53,41 @@ pub(super) fn labels<T>(warehouse: &BigQueryWarehouse<T>, region: &JobsRegion, c
 where
     T: JobTransport,
 {
+    let columns = format!(
+        "(SELECT value FROM UNNEST(labels) WHERE key = '{CLIENT}') AS client, \
+         (SELECT value FROM UNNEST(labels) WHERE key = '{ACTOR}') AS actor"
+    );
+    by_correlation(warehouse, region, correlation, &columns)
+}
+
+/// The principal `BigQuery` recorded each job under: one nullable `user_email` cell per job.
+pub(super) fn principals<T>(warehouse: &BigQueryWarehouse<T>, region: &JobsRegion, correlation: &str) -> Mapped<RowSet, T::Error>
+where
+    T: JobTransport,
+{
+    by_correlation(warehouse, region, correlation, "user_email")
+}
+
+/// `columns` of each job in the last day whose correlation label is `correlation`.
+fn by_correlation<T>(
+    warehouse: &BigQueryWarehouse<T>,
+    region: &JobsRegion,
+    correlation: &str,
+    columns: &str,
+) -> Mapped<RowSet, T::Error>
+where
+    T: JobTransport,
+{
     let payer = crate::billing::payer(&warehouse.billing, &BillTo::Unstated, &BTreeSet::new()).map_err(|_no_payer| {
         BigQueryError::NoPayer {
             at: String::from(warehouse.source.as_str()),
             projects: Vec::new(),
         }
     })?;
-    // The project and the region are parsed values; the correlation id is bound, never written.
+    // The project and the region are parsed values, the columns this module's own constants; the
+    // correlation id is bound, never written.
     let statement = format!(
-        "SELECT (SELECT value FROM UNNEST(labels) WHERE key = '{CLIENT}') AS client, \
-         (SELECT value FROM UNNEST(labels) WHERE key = '{ACTOR}') AS actor \
+        "SELECT {columns} \
          FROM `{project}`.`region-{region}`.INFORMATION_SCHEMA.JOBS \
          WHERE creation_time > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 DAY) \
          AND EXISTS (SELECT 1 FROM UNNEST(labels) WHERE key = '{CORRELATION}' AND value = ?)",
