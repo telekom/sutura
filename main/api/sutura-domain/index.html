@@ -3674,9 +3674,9 @@ asked - by the time a <code>Metric</code> reaches it the map has collapsed an ex
 DECLARED order is here and nowhere later, so the refusal names the two spellings in the
 order the file wrote them. Same shape, and the same argument, as
 <code>StatementTables::parse</code>.</p>
-<p><strong>What a folded pair costs was measured rather than argued.</strong> The pinned <code>DuckDB</code>
-(<code>v1.5.5 Variegata d8cdaa33fd</code>), whose <code>sutura_sql::Dialect::identifier_case</code> declares
-<code>IdentifierCase::InsensitiveAscii</code>:
+<p><strong>What a folded pair costs was measured rather than argued.</strong> The pinned <code>DuckDB</code>, measured
+at both 1.5.5 and 2.0.0 with the same result, whose <code>sutura_sql::Dialect::identifier_case</code>
+declares <code>IdentifierCase::InsensitiveAscii</code>:
 <code>SELECT "Region" FROM (SELECT 1 AS region, 2 AS "Region")</code> returns <strong>1</strong> - the <code>region</code>
 column's value - in a result column named <code>region</code>, and raises no ambiguity error.
 <code>SELECT *</code> over the same subquery projects <code>region, Region_1</code>, so the second label a caller

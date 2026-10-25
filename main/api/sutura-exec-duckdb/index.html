@@ -2614,10 +2614,11 @@ place the habit started.</p>
 <ul>
 <li><strong>The deadline is a watchdog per call</strong> (the architecture decision, sixth amendment): on
   <code>DuckDbWarehouse::execute</code> and on the raw path, a thread calls the driver's <code>ConnectionCancel</code>
-  when the budget is spent, the engine answers <code>Interrupt</code>, and that is read as the deadline. It
-  starts before the driver prepares, so a raw string's statements before its last are under it
-  too. The stop lands at the engine's next interrupt check rather than the instant, and a failed
-  cancel leaves the statement to finish; <code>dry_run</code> only prepares and carries the deadline.
+  when the budget is spent, the engine answers <code>Interrupt</code> - from <code>execute</code>, or while the result
+  is read - and that is read as the deadline. It starts before the driver prepares, so a raw
+  string's statements before its last are under it too. The stop lands at the engine's next
+  interrupt check rather than the instant, and a failed cancel leaves the statement to finish;
+  <code>dry_run</code> only prepares and carries the deadline.
   Binding a statement is not interrupted, and the optimizer checks for an interrupt only at the
   start of each of its passes (read in the pinned <code>DuckDB</code> source, not measured); on the raw
   path the nesting bound is what keeps their cost small on the shapes measured.</li>
@@ -2626,8 +2627,8 @@ place the habit started.</p>
   every one before any runs, and <code>READ_ONLY</code> and <code>THEN_LOCKED</code> are what each of them runs
   under.</li>
 <li><strong>What a raw text may be</strong>: reads only - every statement a <code>SELECT</code> by <code>DuckDB</code>'s own parser,
-  calling only <code>RAW_TABLE_FUNCTIONS</code>, its queries nested no deeper than <code>MAX_NESTING</code> and
-  no more than <code>MAX_QUERIES</code> of them. A macro or view the database file declares is expanded
+  holding only <code>READ_NODES</code> query nodes, calling only <code>RAW_TABLE_FUNCTIONS</code>, its queries
+  nested no deeper than <code>MAX_NESTING</code> and no more than <code>MAX_QUERIES</code> of them. A macro or view the database file declares is expanded
   after the screen and not walked or counted, and scalar functions are not screened.
   <code>DuckDB</code>'s own <code>memory_limit</code> is its default, not <code>runtime.working_set_max_bytes</code>, and spilling
   is unmeasured: no local file opens after the database does, so a statement too large for
@@ -2759,6 +2760,12 @@ once where it is defined and once more for every reference to it.</p>
 <h2 id="use-notaread"><code>use NotARead</code><a class="headerlink" href="#use-notaread" title="Permanent link">&para;</a></h2>
 <p>Why a raw text was refused before any of it ran.</p>
 <h2 id="use-raw_table_functions"><code>use RAW_TABLE_FUNCTIONS</code><a class="headerlink" href="#use-raw_table_functions" title="Permanent link">&para;</a></h2>
+<h2 id="use-read_nodes"><code>use READ_NODES</code><a class="headerlink" href="#use-read_nodes" title="Permanent link">&para;</a></h2>
+<p>The query nodes a raw text may hold, by the <code>type</code> the parser serialises them as.</p>
+<p><strong>Default-closed, on the node.</strong> The statement-level answer does not name every query node a
+<code>SELECT</code> holds, so the tree is read for them. Any node whose <code>type</code> ends in <code>_NODE</code> and is not
+listed here refuses the text. Limit: a node the parser serialises under a <code>type</code> that does not
+end in <code>_NODE</code> is not caught here, and what holds then is the database's own read-only open.</p>
 <h2 id="constant-mounted_driver"><code>constant MOUNTED_DRIVER</code><a class="headerlink" href="#constant-mounted_driver" title="Permanent link">&para;</a></h2>
 <p>The variable a host that links no driver names a mounted <code>libduckdb</code> with.</p>
 <p><strong>Not a settings key</strong>, for <code>sutura-adbc-postgres</code>'s <code>MOUNTED_DRIVER</code> reason: which driver file a

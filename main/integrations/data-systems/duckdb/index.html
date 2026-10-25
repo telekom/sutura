@@ -2724,6 +2724,11 @@ and this key:</p>
 </table>
 <p>The musl release binaries link the DuckDB driver. Other builds load the library that
 <code>SUTURA_DUCKDB_ADBC_DRIVER</code> names.</p>
+<p>The library reads a file an earlier DuckDB release wrote, back to the floor DuckDB's own storage
+documentation promises, and no further. It refuses a file written in a newer storage format than its
+own, so a producer that runs ahead of sutura has to write a format the library reads. A bare
+<code>SELECT NULL</code> has the engine's <code>NULL</code> type, which sutura does not map, so it is refused rather than
+answered; cast it, as in <code>SELECT NULL::INTEGER</code>.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"single-user"</span>
