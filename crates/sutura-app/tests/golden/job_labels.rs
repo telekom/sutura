@@ -2,13 +2,12 @@
 //! read back from `INFORMATION_SCHEMA.JOBS`: the live half of what the adapter's offline cells hold
 //! against a fake statement.
 //!
-//! They run only in the `bigquery-conformance` CI job. The reader is the job's one CI identity, which
-//! needs `bigquery.jobs.listAll` on the billing project to see every principal's jobs, and the job's
-//! environment names the view's region in `SUTURA_BQ_REGION`. The first two cells ask under the
-//! `shared-service-user` posture, where the label is the only link from a job to its caller. The
-//! third asks through `domain_delegation` and needs the environment's `SUTURA_BQ_DWD_ACCOUNT` and
-//! `SUTURA_BQ_DWD_USER`. That hosted cell stays ignored until the owner supplies the delegation
-//! environment; the adapter's option construction and principal switch remain covered offline.
+//! The label and shared-principal cells run in the `bigquery-conformance` CI job. The reader is the
+//! job's one CI identity, which needs `bigquery.jobs.listAll` on the billing project to see every
+//! principal's jobs, and the job's environment names the view's region in `SUTURA_BQ_REGION`. The
+//! `domain_delegation` principal cell is deliberately ignored until owner-provided delegation
+//! infrastructure exists; its adapter option construction and principal switch remain covered
+//! offline.
 
 use std::time::{Duration, SystemTime};
 

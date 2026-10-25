@@ -97,9 +97,10 @@ proof of impersonation.
   `SurfaceFailure` used to write no record at all. Masked by `DelegatedPrincipal`'s construction, so
   no raw address or credential material can reach the field; the full address is the job's
   `user_email`, joined on `sutura_correlation`. Limits: it is not what the source ran as, and
-  `a_delegated_bigquery_job_is_recorded_under_the_delegated_address` fails by name until bq-test
-  declares domain-wide delegation; masks collide; a holder of the deployment credential acts as any
-  domain user without sutura writing anything.
+  `a_delegated_bigquery_job_is_recorded_under_the_delegated_address` is deliberately ignored until
+  owner-provided domain-wide delegation infrastructure exists, so BigQuery's recorded principal
+  remains unmeasured; masks collide; a holder of the deployment credential acts as any domain user
+  without sutura writing anything.
 - **`SourcePosture` must never reach a `RefusalReason`.** It and `AcknowledgementReason` both derive
   `Serialize`, so a posture value in a refusal publishes the operator's own acknowledgement prose to
   every caller, log and agent context. The refusal carries the LABELS off `SourcePosture::NAMES`.
