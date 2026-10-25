@@ -3556,6 +3556,8 @@ goes to standard output.</p>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bunyan</span>
 </span></code></pre></div>
 <p>Audit records (<code>answered</code> and <code>refused</code>, and <code>raw_answered</code> and <code>raw_refused</code> for raw SQL) use the same stream and format.
+A question or a raw SQL call that fails, for example because the data system does not answer, writes <code>failed</code> or
+<code>raw_failed</code>, with the kind of failure in <code>failure</code>. The cause stays on the error line of the request.
 The start-up line shows <code>log_format</code> and whether the configuration set it.</p>
 <h2 id="stop">Stop<a class="headerlink" href="#stop" title="Permanent link">&para;</a></h2>
 <p><code>SIGTERM</code> or an interrupt drains the open connections and the running questions, and logs why the process stopped.
