@@ -194,7 +194,7 @@ rustix = { version = "1.1", features = ["fs"] }
 # The exchanged-credential cache's own lock, `docs/adr/0031` - `clippy.toml` denies both
 # `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
 # does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
-# across an `.await`, but the type is banned regardless of caller). Already resolved in
+# across an `.await`, but the type is banned regardless of caller).
 # The lockfile intentionally contains both versions: transitive users remain on 0.12 while this
 # crate uses 0.13 directly for its own lock.
 parking_lot = "0.13"
