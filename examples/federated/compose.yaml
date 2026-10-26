@@ -1,8 +1,8 @@
 # The services of the federated example: Postgres with TLS (the fact table), ClickHouse (the
-# customer dimension) and a live DataHub, the last from the metrics-layer example. Run
+# customer tables) and a live DataHub, the last from the metrics-layer example. Run
 # ./setup.sh first. Every port binds 127.0.0.1 only: the passwords below are for a
 # local demo and must never be reachable from another host. Both tables load the CSV files of
-# ../single-player/data.
+# ../single-player/data where needed; the monthly customer metric is seeded inline.
 include:
   - path: ../metrics-layer/compose.yaml
     project_directory: ../metrics-layer

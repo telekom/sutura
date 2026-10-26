@@ -1,8 +1,7 @@
 """One-shot loader for the federated example. Python standard library only.
 
-Writes the `fct_subscription_monthly` dataset on Postgres, the `dim_customer` dataset on
-ClickHouse, their relationship and the certified metric `recurring_revenue` into DataHub, and a
-DataHub token for sutura to /out/datahub-token. The DataHub helpers are those of the metrics-layer
+Writes the Postgres and ClickHouse datasets, their relationship and both certified metrics into
+DataHub, and a DataHub token for sutura to /out/datahub-token. The DataHub helpers are those of the metrics-layer
 example's loader, mounted at /metrics-layer.
 """
 
@@ -13,8 +12,13 @@ spec = importlib.util.spec_from_file_location("metrics_layer", "/metrics-layer/l
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
-FACT, DIMENSION = "fct_subscription_monthly", "dim_customer"
+FACT, DIMENSION, CLICKHOUSE_FACT = (
+    "fct_subscription_monthly",
+    "dim_customer",
+    "fct_customer_monthly",
+)
 FACT_MODEL = "postgres__fct_subscription_monthly"
+CLICKHOUSE_FACT_MODEL = "clickhouse__fct_customer_monthly"
 RELATIONSHIP = "subscription_customer"
 STRING, NUMBER, DATE, BOOLEAN = (
     ("VARCHAR", "StringType"),
@@ -48,7 +52,34 @@ TABLES = {
             "region": STRING,
         },
     ),
+    CLICKHOUSE_FACT: (
+        "clickhouse",
+        "Monthly active customers by segment.",
+        {
+            "month": DATE,
+            "customer_key": NUMBER,
+            "segment": STRING,
+        },
+    ),
 }
+ACTIVE_CUSTOMERS = {
+    "model": CLICKHOUSE_FACT_MODEL,
+    "measure": {"simple": {"aggregate": "count_distinct", "column": "customer_key"}},
+    "time_column": "month",
+    "grains": ["month"],
+    "dimensions": [
+        {
+            "name": "segment",
+            "column": "segment",
+            "allowed_values": ["business", "consumer", "wholesale"],
+        }
+    ],
+    "anchor": {
+        "range": {"start": "2026-06-01", "end": "2026-07-01"},
+        "value": "4",
+    },
+}
+
 RECURRING_REVENUE = {
     "model": FACT_MODEL,
     "measure": {"simple": {"aggregate": "sum", "column": "mrr_cents"}},
@@ -131,35 +162,53 @@ def relationships():
 
 
 def metrics():
-    platform = platform_urn("postgres")
-    return [
-        {
-            "urn": f"urn:li:metric:({platform},{FACT},recurring_revenue)",
-            "metricKey": {
-                "value": {"platform": platform, "path": FACT, "id": "recurring_revenue"}
-            },
-            "metricInfo": {
-                "value": {
-                    "name": "recurring_revenue",
-                    "expression": {
-                        "dialects": [
-                            {"dialect": "ANSI_SQL", "expression": "SUM(mrr_cents)"}
+    postgres_platform = platform_urn("postgres")
+    metrics = []
+    for metric_platform, table, name, expression, document in [
+        (
+            postgres_platform,
+            FACT,
+            "recurring_revenue",
+            "SUM(mrr_cents)",
+            RECURRING_REVENUE,
+        ),
+        (
+            platform_urn("clickhouse"),
+            CLICKHOUSE_FACT,
+            "active_customers",
+            "COUNT(DISTINCT customer_key)",
+            ACTIVE_CUSTOMERS,
+        ),
+    ]:
+        metrics.append(
+            {
+                "urn": f"urn:li:metric:({metric_platform},{table},{name})",
+                "metricKey": {
+                    "value": {"platform": metric_platform, "path": table, "id": name}
+                },
+                "metricInfo": {
+                    "value": {
+                        "name": name,
+                        "expression": {
+                            "dialects": [
+                                {"dialect": "ANSI_SQL", "expression": expression}
+                            ]
+                        },
+                    }
+                },
+                "structuredProperties": {
+                    "value": {
+                        "properties": [
+                            {
+                                "propertyUrn": base.PROPERTY_URN,
+                                "values": [{"string": json.dumps(document)}],
+                            }
                         ]
-                    },
-                }
-            },
-            "structuredProperties": {
-                "value": {
-                    "properties": [
-                        {
-                            "propertyUrn": base.PROPERTY_URN,
-                            "values": [{"string": json.dumps(RECURRING_REVENUE)}],
-                        }
-                    ]
-                }
-            },
-        }
-    ]
+                    }
+                },
+            }
+        )
+    return metrics
 
 
 def load():
