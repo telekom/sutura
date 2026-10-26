@@ -1,6 +1,6 @@
 # #149 branch 5: a `kind` cluster, this chart installed, one wait on the Deployment's own
-# readiness, then teardown - the smallest honest version of "does the published chart actually
-# deploy", named `apps.kind-smoke` in flake.nix.
+# readiness, then exact query round-trips through its Service selection and each of two replicas.
+# Named `apps.kind-smoke` in flake.nix.
 #
 # NOT A NIX CHECK. `kind` needs a container runtime for its own node backend and a real network
 # namespace to bind the cluster's API server on, and a build sandbox has neither - the same
@@ -16,17 +16,19 @@
 # demo workflows already follow: it is the runner's own daemon, not a build input.
 #
 # WHAT THIS PROVES, AND WHAT IT DOES NOT. It proves the chart this repository ships becomes a
-# Ready Deployment on a real Kubernetes control plane, once, serving `examples/single-player`'s
+# Ready two-replica Deployment on a real Kubernetes control plane, serving `examples/single-player`'s
 # catalog and data over one `files` source - so boot got past `Settings::refusals`, loaded a
 # catalog and passed the `/health` startup probe. The binary refuses to boot with no catalog
 # documents, an access token under 32 characters, or no metrics token off-host, so a smoke
-# without all three measures a crash loop, not the chart. It does NOT ask a question through
-# the Service: the served answers are `crates/sutura-cli/tests/served.rs`'s venue, not this one.
+# without all three measures a crash loop, not the chart. An exact answer is checked through a
+# Service port-forward and each pod separately. A Service port-forward selects a pod; it does not
+# measure the cluster Service dataplane. These replicas compute independently over fixture files:
+# this proves neither a distributed combine nor inter-node identity, network policy or mTLS.
 { pkgs, chartHelm, ociImage }:
 
 pkgs.writeShellApplication {
   name = "sutura-kind-smoke";
-  runtimeInputs = [ pkgs.kind pkgs.kubectl chartHelm pkgs.coreutils pkgs.findutils ];
+  runtimeInputs = [ pkgs.kind pkgs.kubectl chartHelm pkgs.coreutils pkgs.findutils pkgs.curl pkgs.jq pkgs.gnused ];
   text = ''
     if ! command -v docker >/dev/null 2>&1; then
       echo "sutura-kind-smoke: no docker on PATH - kind's own node backend needs a container runtime, the same one demo-container.yml assumes. Run this where docker is available." >&2
@@ -50,7 +52,8 @@ pkgs.writeShellApplication {
     # Own kubeconfig, never the caller's `~/.kube/config`: a smoke test that quietly rewrote a
     # developer's default context would be a surprising thing for this app to do.
     export KUBECONFIG="$work/kubeconfig"
-    trap 'kind delete cluster --name "$cluster" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+    forward_pid=
+    trap '[ -z "$forward_pid" ] || kill "$forward_pid" 2>/dev/null || true; kind delete cluster --name "$cluster" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
     echo "sutura-kind-smoke: loading the native image into docker"
     "${ociImage}" > "$work/oci.tar"
@@ -63,7 +66,8 @@ pkgs.writeShellApplication {
     # Two distinct random tokens: the binary refuses one under 32 characters, and refuses a
     # metrics token equal to the access token.
     token() { od -An -tx1 -N32 /dev/urandom | tr -d ' \n'; }
-    kubectl create secret generic sutura-access-token --from-literal=token="$(token)"
+    access_token="$(token)"
+    kubectl create secret generic sutura-access-token --from-literal=token="$access_token"
     kubectl create secret generic sutura-metrics-token --from-literal=token="$(token)"
 
     # A ConfigMap is flat, so each file's relative path becomes its key with `/` spelled `__`,
@@ -109,8 +113,10 @@ pkgs.writeShellApplication {
     done
 
     echo "sutura-kind-smoke: installing the chart"
+    started_at=$(date +%s)
     helm install sutura "$root/charts/sutura" \
       -f "$values" \
+      --set replicaCount=2 \
       --set environment=development \
       --set image.repository=sutura \
       --set image.tag=latest \
@@ -129,6 +135,51 @@ pkgs.writeShellApplication {
       exit 1
     fi
 
-    echo "sutura-kind-smoke: sutura became ready on kind - tearing down"
+    # Exact fixture output, shared by the Service-selected pod and both directly selected pods.
+    # The forwarded socket is loopback-only; the access token is passed in a header, never a URL.
+    question='{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}'
+    expected='{"outcome":"answer","columns":["period","recurring_revenue"],"rows":[["2026-06-01","202121"]]}'
+    ask() {
+      local resource=$1 port="" actual=""
+      : > "$work/forward.log"
+      kubectl port-forward --address=127.0.0.1 "$resource" :8080 >> "$work/forward.log" 2>&1 &
+      forward_pid=$!
+      for _ in $(seq 1 100); do
+        port=$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) ->.*/\1/p' "$work/forward.log")
+        [ -z "$port" ] || break
+        kill -0 "$forward_pid" 2>/dev/null || break
+        sleep 0.1
+      done
+      if [ -z "$port" ]; then
+        cat "$work/forward.log" >&2
+        echo "sutura-kind-smoke: $resource did not open its forwarded port" >&2
+        exit 1
+      fi
+      actual=$(curl --silent --show-error --fail --max-time 30 \
+        --header "authorization: Bearer $access_token" \
+        --header 'content-type: application/json' \
+        --data "$question" "http://127.0.0.1:$port/v1/query" | \
+        jq --compact-output '{outcome, columns, rows}')
+      if [ "$actual" != "$expected" ]; then
+        printf 'sutura-kind-smoke: %s expected %s, got %s\n' "$resource" "$expected" "$actual" >&2
+        exit 1
+      fi
+      kill "$forward_pid"
+      wait "$forward_pid" 2>/dev/null || true
+      forward_pid=
+      echo "sutura-kind-smoke: $resource answered with the expected rows"
+    }
+
+    ask service/sutura
+    echo "sutura-kind-smoke: chart install to first answer: $(( $(date +%s) - started_at )) seconds"
+    mapfile -t pods < <(kubectl get pods -l app.kubernetes.io/instance=sutura -o name)
+    if [ "''${#pods[@]}" -ne 2 ]; then
+      echo "sutura-kind-smoke: expected two replicas, found ''${#pods[@]}" >&2
+      exit 1
+    fi
+    for pod in "''${pods[@]}"; do
+      ask "$pod"
+    done
+    echo "sutura-kind-smoke: both replicas answered exactly - tearing down"
   '';
 }

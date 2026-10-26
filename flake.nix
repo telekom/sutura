@@ -1617,7 +1617,7 @@
         };
 
         # #149 branch 5: `nix run .#kind-smoke` - a real `kind` cluster, this chart installed,
-        # one wait on the Deployment's own readiness, then teardown. `nix/kind-smoke.nix`
+        # two ready replicas and exact answers through each, then teardown. `nix/kind-smoke.nix`
         # carries what it proves and what it does not.
         apps.kind-smoke = {
           type = "app";
