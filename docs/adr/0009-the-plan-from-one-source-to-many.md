@@ -1131,3 +1131,60 @@ copies the root's discovery file into that worktree, so that both runs reach the
   not red on base. An added test that passed on base still fails the run.
 - **The limit.** HEAD runs first and base runs second against one tier. A cell that is not
   idempotent against tier state can be green on HEAD and red on base for a state reason.
+
+## Eleventh amendment, 2026-10-26: a synthetic refusal baseline and the first kind answer
+
+This is an M0 measurement for [#828](https://github.com/telekom/sutura/issues/828), not a choice of
+elastic engine, capacity or thresholds. The named corpus is **federated-differential at
+`daecb5c45e5d9aec937b98c9ba21086a7dfbbcee`**: the registered single-player example questions plus
+`DERIVED_QUESTIONS` in `crates/sutura-app/tests/differential/federated/corpus.rs`. Both topologies use
+the same fixture data and questions; the two-source catalog moves the customer and region models
+onto a second source. These are synthetic conformance questions, including deliberate refusal and
+non-finite-result cases, not a representative caller workload.
+
+### Refusal census
+
+`just measure-bounds` ran on Linux x86_64 with 64 available logical CPUs, alongside other work.
+Each question ran in a fresh process with in-process DataFusion over local CSV files, default plan
+ceilings and a 1 GiB per-source operator pool. The harness checks that every question has exactly
+one outcome per topology, that only the declared non-finite failures occur, and that reservations
+return to zero. Its collector refuses incomplete, duplicate or malformed measurements.
+
+| Topology     | Questions | Answered | Refused | Expected failures | Refusal fraction |
+| ------------ | --------- | -------- | ------- | ----------------- | ---------------- |
+| `one_source` | 55        | 40       | 13      | 2                 | 23.64%           |
+| `two_source` | 55        | 40       | 14      | 1                 | 25.45%           |
+| Combined     | 110       | 80       | 27      | 3                 | 24.55%           |
+
+The aggregate reported 110 of 110 expected records, zero duplicates and `failures: 0`.
+The largest per-source operator reservation was 14,704,640 bytes (1.37% of the 1 GiB pool);
+the largest process RSS high-water mark was 98,619,392 bytes. Pool peak excludes driver buffers,
+collected batches, domain-row allocations and the separate combiner engine's reservations; RSS
+includes fixture setup and is not bounded by the pool. These memory readings describe this corpus and host, not a deployment envelope.
+
+The refusal fraction is refused / all questions, including expected failures in the denominator.
+The measurement emits outcome classes, not refusal reasons: these numbers do not establish how
+many questions hit a resource bound, or how many elastic execution could recover. Per-reason
+runtime counters exist separately; this harness does not collect them. The small local fixture
+cannot establish realistic refusal frequency, remote-adapter latency or a useful scaling heuristic.
+
+### Install to first answer
+
+The [kind-smoke job for #1596](https://github.com/telekom/sutura/actions/runs/40318423235/job/121562590953)
+ran at `a65687e4ed56f2f1b373ed03d9f44fdeaa6dc9a8` and printed
+`sutura-kind-smoke: chart install to first answer: 7 seconds`. Both replicas subsequently returned
+the exact expected fixture rows. This is one whole-second observation, not a latency distribution.
+The timer starts immediately before Helm installation and includes deployment readiness and the
+first query through a Service-selected pod's forwarded port. Cluster creation, image build/load,
+fixture ConfigMaps and credentials are already complete. It is not pod-start-to-answer timing, a
+Service dataplane measurement or an on-demand worker cold start.
+
+### What remains before M3/M4
+
+No defaults change. M0 still needs a representative, explicitly selected workload with per-reason
+refusals at the intended bounds. M3 cannot infer recoverable resource refusals from the aggregate
+above. M4 still needs the remote transport tracked in #137, identity-preserving worker execution,
+inter-node mTLS by default, lifecycle/warm-capacity policy and the multi-machine network/identity
+proof. The decisive elastic test remains an exact differential: a question refused by one bounded
+replica equals the answer from a sufficiently large single replica. Neither measurement here
+exercises distributed execution.
