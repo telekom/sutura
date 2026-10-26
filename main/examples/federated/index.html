@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Ask one metric on Postgres, grouped by a dimension on ClickHouse, with DataHub as the catalog.">
+        <meta name="description" content="Ask one metric on Postgres and one on ClickHouse, with DataHub as the catalog.">
       
       
       
@@ -2649,9 +2649,8 @@
 
 
 <h1 id="federated">Federated<a class="headerlink" href="#federated" title="Permanent link">&para;</a></h1>
-<p>This example runs sutura for one user over two data systems. The metric <code>recurring_revenue</code> is in
-Postgres, and its dimension <code>segment</code> is in ClickHouse. DataHub is the catalog. One question reads
-both.</p>
+<p>This example runs sutura for one user over two data systems. The metric <code>recurring_revenue</code> is in Postgres, and the metric <code>active_customers</code> is in ClickHouse.
+DataHub is the catalog. One question reads both metrics and groups them by <code>segment</code>.</p>
 <p>The example is in
 <a href="https://github.com/telekom/sutura/tree/main/examples/federated"><code>examples/federated</code></a>:</p>
 <table>
@@ -2676,7 +2675,7 @@ both.</p>
 </tr>
 <tr>
 <td><code>clickhouse/init.sql</code></td>
-<td>The dimension table <code>dim_customer</code></td>
+<td>The dimension table <code>dim_customer</code> and metric table <code>fct_customer_monthly</code></td>
 </tr>
 <tr>
 <td><code>loader/load.py</code></td>
@@ -2688,7 +2687,8 @@ both.</p>
 </tr>
 </tbody>
 </table>
-<p>The rows are the CSV files of the <a href="../single-player/">single player</a> example. All data is synthetic.</p>
+<p>The subscription rows are the CSV files of the <a href="../single-player/">single player</a> example. The ClickHouse
+customer metric uses a four-row synthetic monthly fact table. All data is synthetic.</p>
 <h2 id="the-settings">The settings<a class="headerlink" href="#the-settings" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># sutura's settings for this example. One metric from Postgres, grouped by one dimension from</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="c1"># ClickHouse. Both sources run as the deployment's own user, and DataHub says which platform is</span>
@@ -2741,15 +2741,15 @@ dataset <code>dim_customer</code> is on <code>clickhouse</code>, so sutura reads
 deployment's own user, and <code>single_user_because</code> records why.</p>
 <h2 id="the-question">The question<a class="headerlink" href="#the-question" title="Permanent link">&para;</a></h2>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"metrics"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"metrics"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"recurring_revenue"</span><span class="p">,</span><span class="w"> </span><span class="s2">"active_customers"</span><span class="p">],</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"grain"</span><span class="p">:</span><span class="w"> </span><span class="s2">"month"</span><span class="p">,</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">"range"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"start"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="nt">"end"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-07-01"</span><span class="w"> </span><span class="p">},</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">"dimensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"segment"</span><span class="p">]</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>The metric is on the model <code>postgres__fct_subscription_monthly</code>. The dimension <code>segment</code> is on
-the model <code>clickhouse__dim_customer</code>, reached through the relationship <code>subscription_customer</code>.
-sutura reads the fact rows from Postgres and the dimension rows from ClickHouse, and joins them.</p>
+<p>The metric <code>recurring_revenue</code> is on <code>postgres__fct_subscription_monthly</code>, while <code>active_customers</code>
+is on <code>clickhouse__fct_customer_monthly</code>. Both models expose <code>segment</code>; the first reaches it through
+<code>subscription_customer</code>. sutura reads one metric from each source and joins the two arms.</p>
 <h2 id="run-it">Run it<a class="headerlink" href="#run-it" title="Permanent link">&para;</a></h2>
 <p>From <code>examples/federated</code>:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>./setup.sh
@@ -2771,7 +2771,7 @@ uses the host network, as in the <a href="../single-player/">single player</a> e
 <p>Post the question:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://127.0.0.1:8080/v1/query<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">'content-type: application/json'</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"metrics":["recurring_revenue","active_customers"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'</span>
 </span></code></pre></div>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">&para;</a></h2>
 <ul>
