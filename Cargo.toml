@@ -197,7 +197,7 @@ rustix = { version = "1.1", features = ["fs"] }
 # across an `.await`, but the type is banned regardless of caller). Already resolved in
 # `Cargo.lock` transitively, so this adds no new package - it names an existing one as a direct
 # dependency of the one crate that now takes a lock of its own.
-parking_lot = "0.12"
+parking_lot = "0.13"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
 url = { version = "2.5", default-features = false }
