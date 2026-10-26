@@ -21,6 +21,14 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
+# DataFusion 55 currently requires zstd 0.13, whose zstd-safe 7.x dependency cannot resolve
+# the fixed zstd-safe 8.2 release. Keep the IDs explicit so a future compatible upstream release
+# makes the exception visible and removable rather than hiding a broader advisory class.
+ignore = [
+  "RUSTSEC-2026-0391",
+  "RUSTSEC-2026-0398",
+  "RUSTSEC-2026-0403",
+]
 
 [licenses]
 version = 2
