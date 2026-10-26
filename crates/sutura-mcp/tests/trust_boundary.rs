@@ -334,7 +334,7 @@ mod tests {
             server_side,
         );
         let client = serve_client((), client_side);
-        let (server, client) = tokio::join!(server, client);
+        let (server, client) = tokio::join!(Box::pin(server), Box::pin(client));
         let running = server.expect("the throwaway handshake's server initializes");
         drop(tokio::spawn(async move {
             drop(running.waiting().await);

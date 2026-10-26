@@ -128,7 +128,7 @@ where
     let client = serve_client((), client_side);
     // Both halves of the handshake have to run at once: the server is waiting for `initialize`
     // and the client is waiting for its result, so awaiting either one first deadlocks.
-    let (server, client) = tokio::join!(server, client);
+    let (server, client) = tokio::join!(Box::pin(server), Box::pin(client));
     let running: RunningService<RoleServer, _> = server.expect("the server initializes");
     // Detached rather than held: the server's loop has to keep running for the duration of the
     // test, and nothing in a test asserts on the server handle itself.
