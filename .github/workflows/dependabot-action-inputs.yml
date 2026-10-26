@@ -1,0 +1,125 @@
+# Refresh the custom action-input record that Dependabot cannot generate itself.
+# Provision a dedicated App with repository contents:write in the dependabot-maintenance
+# environment as DEPENDABOT_APP_CLIENT_ID and DEPENDABOT_APP_PRIVATE_KEY. Its push starts the
+# ordinary pull_request checks; GITHUB_TOKEN would leave those runs awaiting manual approval.
+name: dependabot-action-inputs
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] only base code runs; PR YAML is data
+    types: [opened, reopened, synchronize]
+    paths: [".github/workflows/**", ".github/actions/**"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dependabot-action-inputs-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'dependabot/github_actions/') &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dependabot-maintenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Build the trusted base tool before reading PR data
+        run: nix build .#xtask --out-link "$RUNNER_TEMP/trusted-xtask"
+
+      - name: Refresh from PR manifests without executing them
+        id: record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [ "$head" != "$EXPECTED_HEAD" ]; then
+            echo 'PR moved; the newer event will refresh it'
+            exit 0
+          fi
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags origin "$head"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[] | [.status, .filename] | @tsv' > "$RUNNER_TEMP/pr-files"
+          while IFS=$'\t' read -r status path; do
+            # The record itself may be our previous output. Regenerate it from trusted base.
+            if [ "$path" = devco/action-inputs ] && [ "$status" = modified ]; then continue; fi
+            if [ "$status" != modified ] || \
+               ! [[ "$path" =~ ^\.github/(workflows/[^/]+\.ya?ml|actions/[^/]+/action\.ya?ml)$ ]]; then
+              echo '::error::action refresh refuses changes outside existing action manifests'
+              exit 1
+            fi
+            test -f "$path" && test ! -L "$path"
+            git show "$head:$path" > "$path"
+          done < "$RUNNER_TEMP/pr-files"
+          "$RUNNER_TEMP/trusted-xtask/bin/xtask" refresh-moved-action-pins
+          # Compare to the PR's record, not base, so our synchronize event is a no-op.
+          git show "$head:devco/action-inputs" > "$RUNNER_TEMP/pr-record"
+          if ! cmp -s devco/action-inputs "$RUNNER_TEMP/pr-record"; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require a dedicated maintenance credential
+        if: steps.record.outputs.changed == 'true'
+        env:
+          APP_ID: ${{ secrets.DEPENDABOT_APP_CLIENT_ID }}
+          APP_KEY: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+        run: |
+          set -eu
+          if [ -z "$APP_ID" ] || [ -z "$APP_KEY" ]; then
+            echo '::error::configure the dedicated Dependabot App in dependabot-maintenance'
+            exit 1
+          fi
+
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app
+        if: steps.record.outputs.changed == 'true'
+        with:
+          client-id: ${{ secrets.DEPENDABOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPENDABOT_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Commit only the generated record on the exact PR head
+        if: steps.record.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          # Git Data API preserves every other PR file and fast-forwards only. A moved head
+          # fails the ref update rather than overwriting a newer Dependabot update.
+          blob="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/blobs" \
+            -f encoding=utf-8 -F content=@devco/action-inputs --jq .sha)"
+          base_tree="$(git rev-parse "$EXPECTED_HEAD^{tree}")"
+          jq -n --arg base "$base_tree" --arg blob "$blob" \
+            '{base_tree:$base,tree:[{path:"devco/action-inputs",mode:"100644",type:"blob",sha:$blob}]}' \
+            > "$RUNNER_TEMP/tree.json"
+          tree="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/trees" \
+            --input "$RUNNER_TEMP/tree.json" --jq .sha)"
+          jq -n --arg tree "$tree" --arg parent "$EXPECTED_HEAD" \
+            '{message:"ci(deps): refresh pinned action inputs",tree:$tree,parents:[$parent]}' \
+            > "$RUNNER_TEMP/commit.json"
+          commit="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/commits" \
+            --input "$RUNNER_TEMP/commit.json" --jq .sha)"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" \
+            -f sha="$commit" -F force=false
