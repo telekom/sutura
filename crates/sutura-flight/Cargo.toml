@@ -1,0 +1,23 @@
+[package]
+name = "sutura-flight"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Arrow Flight framing for typed sutura remote legs."
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-flight = { workspace = true }
+futures-util = { workspace = true }
+serde_json = { workspace = true }
+sutura-domain = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros"] }

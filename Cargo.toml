@@ -96,6 +96,9 @@ members = [
   "crates/sutura-config",
   "crates/sutura-runtime",
   "crates/sutura-http",
+  # The Arrow Flight `DoExchange` framing for a typed remote leg. It is a transport adapter over
+  # the domain wire shape; the listener and Warehouse client are composed in later slices.
+  "crates/sutura-flight",
   # The agent-facing surface, and a SECOND transport rather than a layer on the first: it depends on
   # `sutura-app`'s driving port and on nothing in `sutura-http`, because an adapter that reached into
   # another adapter is the one direction this layout forbids. The cost of that rule is a second wire
@@ -217,6 +220,7 @@ bzip2 = "0.6"
 # lock.
 arrow-array = "59"
 arrow-schema = "59"
+arrow-flight = { version = "59", default-features = false }
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own

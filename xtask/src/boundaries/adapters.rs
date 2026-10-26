@@ -83,7 +83,7 @@ const CLASSES: &[AdapterClass] = &[
     },
     AdapterClass {
         name: "transports",
-        members: Membership::Named(&["sutura-http", "sutura-mcp"]),
+        members: Membership::Named(&["sutura-flight", "sutura-http", "sutura-mcp"]),
         why: "the workspace manifest already states this one as the reason `sutura-mcp` exists as \
               a second transport rather than a layer on the first: it depends on `sutura-app`'s \
               driving port and on nothing in `sutura-http`, because an adapter reaching into \
