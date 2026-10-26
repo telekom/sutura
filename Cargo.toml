@@ -195,8 +195,8 @@ rustix = { version = "1.1", features = ["fs"] }
 # `std::sync::Mutex` and `std::sync::RwLock` outright (the async-executor deadlock the ban is for
 # does not apply to a synchronous broker's `mint`, called from inside one `block_on` and never held
 # across an `.await`, but the type is banned regardless of caller). Already resolved in
-# `Cargo.lock` transitively, so this adds no new package - it names an existing one as a direct
-# dependency of the one crate that now takes a lock of its own.
+# The lockfile intentionally contains both versions: transitive users remain on 0.12 while this
+# crate uses 0.13 directly for its own lock.
 parking_lot = "0.13"
 # Parsed only to validate configured resource and issuer URLs. The original spelling remains the
 # stored value because OAuth resource indicators are compared byte for byte.
