@@ -3086,8 +3086,13 @@ name the user. Only a join of <code>sutura_correlation</code> to the audit recor
 <p>With <code>domain_delegation</code>, the audit record also writes <code>delegated_as</code>: the source and the address
 that the job runs as, in the masked form of the audit record, for example
 <code>warehouse=a***.o***@e***.c***</code>. The record has this field also when the call fails, for example
-when BigQuery does not answer. The full address is the <code>user_email</code> of the job in
-<code>INFORMATION_SCHEMA.JOBS</code>, which an auditor finds on <code>sutura_correlation</code>.</p>
+when BigQuery does not answer. An auditor can find the job in <code>INFORMATION_SCHEMA.JOBS</code> on
+<code>sutura_correlation</code> and inspect its <code>user_email</code>.</p>
+<p>The provider-side principal of a <code>domain_delegation</code> job has not been measured. The live cell that
+would compare <code>user_email</code> with the delegated address is deliberately ignored until the test
+environment has domain-wide delegation. The local <code>delegated_as</code> record names the address the
+broker selected for the call, not which principal BigQuery recorded. Cloud Audit Logs' <code>principalEmail</code>,
+<code>serviceAccountDelegationInfo</code> and <code>oauthInfo</code> remain unmeasured too.</p>
 <p>The labels never hold the user's subject in either posture, because each principal that can
 list the jobs of the billing project can read the labels. They never hold a part of the
 question. A job that sutura runs at startup has no labels.</p>
