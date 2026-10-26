@@ -170,6 +170,3 @@ a_decimal_total_gets_its_scale_back_and_keeps_every_digit # in crates/sutura-exe
 a_float_total_is_a_real_and_a_non_finite_one_is_refused # in crates/sutura-exec-clickhouse/src/sum/tests.rs, declared by the new sum module that the base run removes; the base cannot compile this module
 the_total_is_read_from_the_slot_the_type_name_points_at # in crates/sutura-exec-clickhouse/src/sum/tests.rs, declared by the new sum module that the base run removes; the base cannot compile this module
 a_total_that_is_not_in_its_slot_is_null_when_the_slot_is_and_refused_when_it_is_not_a_total # in crates/sutura-exec-clickhouse/src/sum/tests.rs, declared by the new sum module that the base run removes; the base cannot compile this module
-# #137's transport foundation is a new workspace member, so these cells have no base test result.
-a_descriptor_is_a_command_and_the_first_message_carries_it # new in sutura-flight, a workspace member absent from base; the base run has no package or test result
-a_parameter_batches_are_arrow_decodable_after_the_descriptor # new in sutura-flight, a workspace member absent from base; the base run has no package or test result
