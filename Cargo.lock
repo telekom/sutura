@@ -3993,6 +3993,9 @@ dependencies = [
 name = "sutura-cli"
 version = "0.10.0"
 dependencies = [
+ "arrow-array",
+ "arrow-ipc",
+ "arrow-schema",
  "axum",
  "base64 0.23.1",
  "insta",
@@ -4113,12 +4116,17 @@ dependencies = [
 name = "sutura-exec-clickhouse"
 version = "0.10.0"
 dependencies = [
+ "adbc_core",
+ "adbc_driver_manager",
+ "arrow-array",
+ "arrow-schema",
  "base64 0.23.1",
  "parking_lot",
  "rcgen",
  "rustls-native-certs",
  "rustls-pki-types",
  "serde_json",
+ "sutura-adbc",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",

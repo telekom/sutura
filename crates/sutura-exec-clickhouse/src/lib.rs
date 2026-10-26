@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
-//! A [`Warehouse`] adapter over `ClickHouse`, over its HTTP interface.
+//! A [`Warehouse`] adapter over `ClickHouse`.
+//!
+//! Production composition uses the ADBC path in [`adbc`]. The HTTP transport remains behind the
+//! `fixtures` feature for table loading and conformance setup; it is not the production query path.
 //!
 //! A `shared-service-user` source runs every statement as the deployment's declared user. An
 //! `impersonation-at-source` source runs each one as the `ClickHouse` user named by the asking
@@ -8,15 +11,11 @@
 //! Basic with the token the caller's verified assertion was exchanged for
 //! ([`transport::SignIn`]). `ClickHouse` hands that token to the operator's checker.
 //!
-//! # Why `ureq` and not an async driver
+//! # Why the fixture loader uses `ureq`
 //!
-//! **The port carries no `async fn`, and `ureq` is natively blocking - so this adapter needs no
-//! `tokio` runtime and no `block_on` at all.** `Warehouse::execute` reaches this adapter through
-//! `sutura_runtime::spawn_carrying_span` on a blocking-pool thread. An async driver would need a
-//! runtime there, while `ureq` can execute the request directly. `ClickHouse`'s
-//! own HTTP interface asks for nothing more than one request/response per statement, which is
-//! `ureq`'s whole job. **A pure-Rust driver either way**: `ureq` with the `rustls` feature links
-//! no C TLS library, and this crate's own `tls` module (over `sutura-tls`) builds the verifier.
+//! The fixture loader is synchronous and runs before the served process starts. `ureq` performs
+//! those setup requests directly without adding a runtime; production queries use the vendored
+//! ADBC driver instead.
 //!
 //! # Why a driver-shaped seam, and not just a hand-rolled client
 //!
@@ -71,11 +70,13 @@
 //!
 //! **No raw-SQL tool support** (`Warehouse::ACCEPTS_RAW_STATEMENTS` stays at its `false` default).
 //!
-//! **No `dry_run` override.** `ClickHouse`'s HTTP interface has no cheap "prepare, do not run"
-//! step this adapter could ask for without paying most of the cost of running the statement, so
-//! this stays at the port's own default (`Ok(PreFlight::NotAsked)`) - the same honest absence
+//! **No `dry_run` override.** The ADBC driver has no cheap "prepare, do not run" step this adapter
+//! could ask for without paying most of the cost of running the statement, so this stays at the
+//! port's own default (`Ok(PreFlight::NotAsked)`) - the same honest absence
 //! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
 
+#[cfg(feature = "adbc")]
+pub mod adbc;
 mod deadline;
 pub mod execute_as;
 #[cfg(feature = "fixtures")]
@@ -83,6 +84,9 @@ pub mod fixture;
 mod sum;
 pub mod tls;
 pub mod transport;
+
+/// Environment variable naming a mounted `ClickHouse` ADBC driver.
+pub const MOUNTED_DRIVER: &str = "SUTURA_CLICKHOUSE_ADBC_DRIVER";
 
 use std::borrow::Cow;
 

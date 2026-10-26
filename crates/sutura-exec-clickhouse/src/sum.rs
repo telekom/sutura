@@ -59,7 +59,7 @@ impl SumType {
     }
 
     /// Where the total sits in the tuple, after the type name.
-    const fn slot(self) -> usize {
+    pub(crate) const fn slot(self) -> usize {
         match self {
             Self::Integer => 1,
             Self::Decimal { .. } => 2,

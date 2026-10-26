@@ -47,8 +47,22 @@ base64 = { workspace = true }
 url = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+adbc_core = { version = "0.24", optional = true }
+adbc_driver_manager = { version = "0.24", optional = true }
+arrow-array = { version = "59", optional = true }
+arrow-schema = { version = "59", optional = true }
+sutura-adbc = { workspace = true, optional = true }
 
 [features]
+# The ADBC transport (`src/adbc.rs`): the vendored ClickHouse driver and its Arrow stream.
+# Default-off at this crate boundary; the CLI's `clickhouse` feature opts in for a served source.
+adbc = [
+  "dep:adbc_core",
+  "dep:adbc_driver_manager",
+  "dep:arrow-array",
+  "dep:arrow-schema",
+  "dep:sutura-adbc",
+]
 # The fixture tier - its credential, a private database per open and a CSV importer - for the golden
 # matrix in `sutura-app`'s tests. `sutura-domain/fixtures` is the shared CSV classification it types
 # columns with. Default-off, like `sutura-exec-postgres`'s feature of the same name.

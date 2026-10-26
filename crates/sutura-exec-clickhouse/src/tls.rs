@@ -56,6 +56,8 @@ pub enum TlsError {
     },
     #[error("the host trust store held no certificates - a store of nothing verifies nothing")]
     SystemStoreEmpty,
+    #[error("the declared TLS PEM at {path} is not UTF-8")]
+    PemNotUtf8 { path: String },
 }
 
 /// The trust anchors a TLS source channel verifies against, resolved from the declaration.
@@ -74,6 +76,9 @@ pub struct TlsIdentity {
     certificate: PathBuf,
     key: PathBuf,
 }
+
+/// PEM options handed to the ADBC driver: roots, client certificate chain and private key.
+pub type AdbcTlsOptions = (Option<String>, Option<String>, Option<String>);
 
 impl TlsIdentity {
     /// A client identity from its declared paths.
@@ -111,6 +116,52 @@ pub fn config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<ur
                 .build())
         }
     }
+}
+
+/// Loads the same declared channel for the ADBC driver's PEM options.
+///
+/// A system trust store is represented by `None`: the vendored driver is built with its native
+/// roots feature. A declared bundle or mutual identity is validated through `sutura-tls` first,
+/// then passed on as the original PEM bytes so the driver performs the actual TLS configuration.
+pub fn adbc_options(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<AdbcTlsOptions, TlsError> {
+    let root = match anchors {
+        TlsAnchors::System => {
+            drop(sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(from_load_error)?);
+            None
+        }
+        TlsAnchors::Bundle(path) => {
+            drop(sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(from_load_error)?);
+            Some(read_anchor_pem(path)?)
+        }
+    };
+    let (chain, key) = match identity {
+        None => (None, None),
+        Some(identity) => {
+            drop(sutura_tls::load_identity(&resolved_identity(identity)).map_err(from_load_error)?);
+            (Some(read_pem(&identity.certificate)?), Some(read_pem(&identity.key)?))
+        }
+    };
+    Ok((root, chain, key))
+}
+
+fn read_pem(path: &std::path::Path) -> Result<String, TlsError> {
+    let bytes = std::fs::read(path).map_err(|cause| TlsError::IdentityRead {
+        path: path.display().to_string(),
+        cause,
+    })?;
+    String::from_utf8(bytes).map_err(|_cause| TlsError::PemNotUtf8 {
+        path: path.display().to_string(),
+    })
+}
+
+fn read_anchor_pem(path: &std::path::Path) -> Result<String, TlsError> {
+    let bytes = std::fs::read(path).map_err(|cause| TlsError::AnchorsRead {
+        path: path.display().to_string(),
+        cause,
+    })?;
+    String::from_utf8(bytes).map_err(|_cause| TlsError::PemNotUtf8 {
+        path: path.display().to_string(),
+    })
 }
 
 /// `sutura_tls::LoadedAnchors`'s `CertificateDer` bytes, each turned into an owned

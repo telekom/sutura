@@ -14,10 +14,9 @@
 //!
 //! # The generic is the seam, and it is kept
 //!
-//! `ClickHouseSource` pins `T = transport::Http` **here, at the composition root** - the adapter
-//! itself stays generic over `sutura_exec_clickhouse::transport::ClickHouseTransport`, the same
-//! way `crate::serve::BigQuerySource` pins a wire while `BigQueryWarehouse` stays generic: the
-//! adapter's own cells bind it to a canned transport.
+//! `ClickHouseSource` pins the ADBC warehouse **here, at the composition root**. The fixture and
+//! conformance targets retain the HTTP-backed generic warehouse while their table loader is being
+//! migrated; a served source always uses the ADBC path.
 //!
 //! # Per-subject execution
 //!
@@ -31,16 +30,17 @@
 
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::Warehouse as _;
-use sutura_exec_clickhouse::ClickHouseWarehouse;
-use sutura_exec_clickhouse::transport::{BasicAuth, Endpoint, Http};
+use sutura_exec_clickhouse::adbc::{AdbcClickHouseWarehouse, TlsOptions};
 
 use crate::commands::render;
 
-/// A `ClickHouse` source as this binary composes it: the adapter, over its HTTP transport.
+/// A `ClickHouse` source as this binary composes it: the adapter, over its ADBC driver.
 ///
 /// Named once for the reason `crate::serve::BigQuerySource` is: it appears in a registry type, a
 /// `Warehouse` bound and a constructor's return, and the two layers ARE the composition.
-pub(crate) type ClickHouseSource = ClickHouseWarehouse<Http>;
+pub(crate) type ClickHouseSource = AdbcClickHouseWarehouse;
+
+type OpenChannel = (String, Option<TlsOptions>);
 
 /// Builds one `ClickHouse` adapter from a declared entry, after checking this build can deliver the
 /// source's posture.
@@ -93,12 +93,16 @@ pub(crate) fn build(
         .deliverable_by(ClickHouseSource::IMPERSONATION, source)
         .map_err(|cause| render(&cause))?;
     let password = crate::password_file::read(source, password_file)?;
-    let auth = Some(BasicAuth::new(user.clone(), password));
-    let transport = open_transport(source, host, port, auth, transport, working_set.bytes() as u64)?;
-    Ok(ClickHouseWarehouse::of(
+    let driver = sutura_exec_clickhouse::adbc::driver_location().map_err(|cause| cause.to_string())?;
+    let (endpoint, tls) = open_channel(source, host, port, transport)?;
+    Ok(AdbcClickHouseWarehouse::new(
         source.clone(),
         identity.posture().clone(),
-        transport,
+        driver,
+        endpoint,
+        user.clone(),
+        password,
+        tls,
         working_set.result_budget(),
     ))
 }
@@ -140,24 +144,18 @@ pub(crate) fn deployment_user(
 /// `transport_mode: plaintext` and `Endpoint::tls` for the two TLS modes, so a source declared
 /// `verified` cannot end up dialled over `http://` - which is the failure a single endpoint
 /// constructor plus an optional TLS config would admit.
-fn open_transport(
+fn open_channel(
     source: &SourceName,
     host: &sutura_config::sources::placement::HostName,
     port: u16,
-    auth: Option<BasicAuth>,
     declared: &sutura_config::sources::transport::SourceTransport,
-    max_response_bytes: u64,
-) -> Result<Http, String> {
+) -> Result<OpenChannel, String> {
     use sutura_config::sources::transport::{SourceTransport, TrustAnchors};
     use sutura_exec_clickhouse::tls::{TlsAnchors, TlsIdentity};
 
     let (anchors, client) = match *declared {
         SourceTransport::Plaintext => {
-            return Ok(Http::connect(
-                Endpoint::plaintext(host.as_str(), port),
-                auth,
-                max_response_bytes,
-            ));
+            return Ok((format!("http://{}:{port}", host.as_str()), None));
         }
         SourceTransport::Verified { ref anchors } => (anchors, None),
         SourceTransport::Mutual {
@@ -172,17 +170,15 @@ fn open_transport(
         TrustAnchors::System => TlsAnchors::System,
         TrustAnchors::File(ref path) => TlsAnchors::Bundle(path.clone()),
     };
-    let tls = sutura_exec_clickhouse::tls::config(&anchors, client.as_ref()).map_err(|cause| {
+    let (root, chain, key) = sutura_exec_clickhouse::tls::adbc_options(&anchors, client.as_ref()).map_err(|cause| {
         format!(
             "`sources.{source}` is declared TLS and its material is not usable: {}",
             render(&cause)
         )
     })?;
-    Ok(Http::connect_secured(
-        Endpoint::tls(host.as_str(), port),
-        auth,
-        tls,
-        max_response_bytes,
+    Ok((
+        format!("https://{}:{port}", host.as_str()),
+        Some(TlsOptions::new(root, chain, key)),
     ))
 }
 
@@ -209,18 +205,16 @@ mod tests {
         let verified = SourceTransport::Verified {
             anchors: TrustAnchors::File(bundle),
         };
-        let secured =
-            super::open_transport(&source, &host, 8443, None, &verified, 1 << 20).expect("the declared bundle is usable");
-        let plain = super::open_transport(&source, &host, 8123, None, &SourceTransport::Plaintext, 1 << 20)
+        let secured = super::open_channel(&source, &host, 8443, &verified).expect("the declared bundle is usable");
+        let plain = super::open_channel(&source, &host, 8123, &SourceTransport::Plaintext)
             .expect("a plaintext transport needs no material");
         let _ignored = std::fs::remove_dir_all(&directory);
 
-        let secured = format!("{secured:?}");
         assert!(
-            secured.contains("scheme: \"https\""),
-            "a verified source must dial https: {secured}"
+            secured.0.starts_with("https://"),
+            "a verified source must dial https: {:?}",
+            secured.0
         );
-        let plain = format!("{plain:?}");
-        assert!(plain.contains("scheme: \"http\""), "a plaintext source dials http: {plain}");
+        assert!(plain.0.starts_with("http://"), "a plaintext source dials http: {:?}", plain.0);
     }
 }

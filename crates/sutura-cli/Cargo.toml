@@ -53,7 +53,7 @@ bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/adbc", "dep:sutura
 # The adapter owns every driver type `sutura serve` composes with.
 postgres = ["dep:sutura-exec-postgres"]
 
-# The ClickHouse adapter, over its HTTP interface.
+# The ClickHouse adapter, over its ADBC driver.
 # Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like the other shipped adapters.
 # `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
 # keeps the adapter and its transport out of a build that did not ask for it. It was held out of
@@ -61,7 +61,7 @@ postgres = ["dep:sutura-exec-postgres"]
 # `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
 # `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
 # `every_request_asks_the_server_for_standard_outer_join_nulls`.
-clickhouse = ["dep:sutura-exec-clickhouse", "dep:sutura-http-client"]
+clickhouse = ["dep:sutura-exec-clickhouse", "sutura-exec-clickhouse/adbc", "dep:sutura-http-client"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver, and with `rdbms` the Oracle dictionary
 # reader (`sutura-catalog-rdbms/live-oracle`): a build without this feature refuses an Oracle
@@ -269,6 +269,10 @@ tracing = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+# The served ClickHouse stand-in emits the ArrowStream response the production ADBC path reads.
+arrow-array = { workspace = true }
+arrow-ipc = "59"
+arrow-schema = { workspace = true }
 # The served Oracle cell provisions its own table through the same driver as the adapter.
 oracledb = { workspace = true }
 # `#[cfg(test)]` modules in `src/` and the integration tests under `tests/` parse JSON

@@ -382,9 +382,13 @@ pub(crate) fn command(config_dir: &Path, environment: Environment) -> Command {
             command.env_remove(key);
         }
     }
-    // Restored: which PostgreSQL or DuckDB driver file this host carries is a property of the host,
-    // not a setting any case is about, and every such source needs one where none is linked.
-    for mounted in [sutura_exec_postgres::adbc::MOUNTED_DRIVER, sutura_exec_duckdb::MOUNTED_DRIVER] {
+    // Restored: which data-system driver file this host carries is a property of the host, not a
+    // setting any case is about, and every such source needs one where none is linked.
+    for mounted in [
+        sutura_exec_postgres::adbc::MOUNTED_DRIVER,
+        sutura_exec_duckdb::MOUNTED_DRIVER,
+        sutura_exec_clickhouse::MOUNTED_DRIVER,
+    ] {
         if let Some(driver) = std::env::var_os(mounted) {
             command.env(mounted, driver);
         }

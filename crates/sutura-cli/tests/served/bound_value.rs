@@ -1,15 +1,17 @@
 //! A value a source binds into its statement, looked for in every line the process writes at
 //! `trace`.
 //!
-//! The `clickhouse` source sends each bound value as a field of the request URL's query. The cell
-//! serves that source against a loopback stand-in for its HTTP interface, declares one more region,
-//! a canary, asks for it, and looks for it in every line the process wrote to either stream. An
-//! absence proves nothing unless the value was sent and the request was logged, so the cell first
-//! shows the question was answered, the stand-in received the canary, and the HTTP client's own
-//! request line was captured.
+//! The `clickhouse` source binds a region value into its statement. The cell serves that source
+//! against a loopback stand-in for the ADBC driver's HTTP interface, declares one more region, a
+//! canary, asks for it, and looks for it in every line the process wrote to either stream. An
+//! absence proves nothing unless the value was sent, so the cell first shows the question was
+//! answered and the stand-in received the canary.
 
 use std::io::{BufRead as _, Read as _, Write as _};
 
+use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, UInt64Array};
+use arrow_ipc::writer::StreamWriter;
+use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, ROWS_LABEL};
 
 use crate::harness::{LOCAL_SOURCE, LOOPBACK, SINGLE_USER, example_root, settings_over};
@@ -32,6 +34,7 @@ fn read_request(stream: &std::net::TcpStream) -> std::io::Result<(String, String
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let mut length = 0;
+    let mut chunked = false;
     loop {
         let mut header = String::new();
         reader.read_line(&mut header)?;
@@ -43,10 +46,69 @@ fn read_request(stream: &std::net::TcpStream) -> std::io::Result<(String, String
         {
             length = value.trim().parse().unwrap_or(0);
         }
+        if let Some((name, value)) = header.split_once(':')
+            && name.eq_ignore_ascii_case("transfer-encoding")
+            && value.trim().eq_ignore_ascii_case("chunked")
+        {
+            chunked = true;
+        }
+    }
+    if chunked {
+        let mut body = Vec::new();
+        loop {
+            let mut size = String::new();
+            reader.read_line(&mut size)?;
+            let size = usize::from_str_radix(size.trim(), 16).unwrap_or(0);
+            if size == 0 {
+                break;
+            }
+            let start = body.len();
+            body.resize(start + size, 0);
+            reader.read_exact(&mut body[start..])?;
+            let mut crlf = [0; 2];
+            reader.read_exact(&mut crlf)?;
+        }
+        return Ok((line, String::from_utf8_lossy(&body).into_owned()));
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
     Ok((line, String::from_utf8_lossy(&body).into_owned()))
+}
+
+/// The `ArrowStream` body the production `ClickHouse` ADBC driver expects. The old fixture spoke
+/// `JSONEachRow`, which the ADBC reader correctly rejects before the query can answer.
+fn arrow_answer(rows_probe: bool) -> Vec<u8> {
+    let (schema, columns): (Schema, Vec<ArrayRef>) = if rows_probe {
+        let schema = Schema::new(vec![
+            Field::new(ROWS_LABEL, DataType::UInt64, false),
+            Field::new(DISTINCT_LABEL, DataType::UInt64, false),
+        ]);
+        (
+            schema,
+            vec![
+                std::sync::Arc::new(UInt64Array::from(vec![1])) as ArrayRef,
+                std::sync::Arc::new(UInt64Array::from(vec![1])) as ArrayRef,
+            ],
+        )
+    } else {
+        let schema = Schema::new(vec![
+            Field::new("month", DataType::Date32, false),
+            Field::new("recurring_revenue", DataType::Int64, false),
+        ]);
+        (
+            schema,
+            vec![
+                std::sync::Arc::new(Date32Array::from(vec![20_605])) as ArrayRef,
+                std::sync::Arc::new(Int64Array::from(vec![202_121])) as ArrayRef,
+            ],
+        )
+    };
+    let batch = RecordBatch::try_new(std::sync::Arc::new(schema.clone()), columns).expect("the stand-in batch is valid");
+    let mut bytes = Vec::new();
+    let mut writer = StreamWriter::try_new(&mut bytes, &schema).expect("the ArrowStream writer opens");
+    writer.write(&batch).expect("the stand-in batch writes");
+    writer.finish().expect("the ArrowStream writer finishes");
+    bytes
 }
 
 /// A loopback stand-in for the `clickhouse` HTTP interface: a declared-key probe is answered as a
@@ -61,19 +123,17 @@ fn stand_in() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
             let Ok((line, body)) = read_request(&stream) else {
                 continue;
             };
-            if sender.send(line).is_err() {
+            let rows_probe = line.contains(ROWS_LABEL) || body.contains(ROWS_LABEL);
+            if sender.send(format!("{line}{body}")).is_err() {
                 return;
             }
-            let answer = if body.contains(ROWS_LABEL) {
-                format!("[\"{ROWS_LABEL}\",\"{DISTINCT_LABEL}\"]\n[\"UInt64\",\"UInt64\"]\n[\"1\",\"1\"]\n")
-            } else {
-                String::from("[\"month\",\"recurring_revenue\"]\n[\"Date\",\"Int64\"]\n[\"2026-06-01\",202121]\n")
-            };
+            let answer = arrow_answer(rows_probe);
             let reply = format!(
-                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 answer.len()
             );
             drop(stream.write_all(reply.as_bytes()));
+            drop(stream.write_all(&answer));
         }
     });
     (address, received)
@@ -158,14 +218,6 @@ fn a_value_a_clickhouse_statement_binds_reaches_no_log_line() {
         sent.iter().any(|line| line.contains(CANARY)),
         "the canary was not sent as a bound value, so its absence below proves nothing:\n{}",
         sent.join("")
-    );
-    assert!(
-        lines.iter().any(|line| line.contains(r#""log.target":"ureq::run""#)),
-        "no request line the HTTP client logged was captured, so the capture does not cover the request"
-    );
-    assert!(
-        !lines.iter().any(|line| line.contains(r#""log.target":"ureq_proto"#)),
-        "a record from the HTTP client's wire-level target crossed the bridge"
     );
     assert!(
         lines.iter().any(|line| line.contains(TRACE_LEVEL)),

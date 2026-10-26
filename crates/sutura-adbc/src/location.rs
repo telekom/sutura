@@ -61,6 +61,13 @@ impl DriverLocation {
         cfg!(adbc_driver_linked).then_some(Self(Reached::LinkedIn))
     }
 
+    /// The `ClickHouse` driver this artefact carries, or `None` in a source build that linked no
+    /// `ClickHouse` archive.
+    #[must_use]
+    pub fn clickhouse_linked_in() -> Option<Self> {
+        cfg!(adbc_clickhouse_driver_linked).then_some(Self(Reached::LinkedIn))
+    }
+
     /// Parses a mounted driver's path.
     ///
     /// # Errors
