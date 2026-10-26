@@ -208,7 +208,7 @@ cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866
   cachixBin
   installCommand
 
-cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702
+cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
   extra_nix_config
   github_access_token
   install_url
