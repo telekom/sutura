@@ -74,6 +74,7 @@ impl<D: Connector> Connector for Routed<D> {
                 timeout: details.timeout,
                 current_time: Arc::clone(&details.current_time),
                 run_connector: Arc::clone(&details.run_connector),
+                register_shutdown: Arc::clone(&details.register_shutdown),
             };
             let dialled = self.direct.connect(&pinned, chained)?;
             return Ok(dialled.map(|transport| -> Box<dyn Transport> { Box::new(transport) }));
