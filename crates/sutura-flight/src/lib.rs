@@ -3,9 +3,13 @@
 //!
 //! The remote-leg ADR chooses one `DoExchange` call per leg. This crate owns only that protocol
 //! boundary: the descriptor carries the domain's [`LegWire`] document and the first stream carries
-//! the parameter batches. It does not open a listener, verify identity, or execute a leg; those
+//! the parameter batch. It does not open a listener, verify identity, or execute a leg; those
 //! responsibilities stay with the composition and application layers that will consume this
 //! foundation in later slices.
+
+mod receive;
+
+pub use receive::{ReceiveError, receive_request};
 
 use arrow_array::RecordBatch;
 use arrow_flight::{
