@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 600" width="520" height="600" role="img" color="#E20074" fill="currentColor">
+  <title>sutura</title>
+  <!--
+    Two plates, keyed together, never touching. A regular hexagon - the ports-and-adapters
+    shape - is cut by one straight full-bleed seam, and each half is built up as a machined
+    plate: a face, a bevelled rim that gives it thickness, two graded highlight bands where
+    the light catches the edge at the join, and one keyway notched into that edge. The two
+    keyways face each other across a gap that never closes, which is the join and is what
+    *sutura* means.
+
+    Silhouette first, tone second. Everything above the face is TONE painted over the full
+    half-hexagon, never a hole and never an object in the channel. Two consequences, and both
+    were settled by looking at renders rather than by argument:
+      * Flatten to one colour and the mark collapses to exactly the hexagon and the straight
+        seam, with no hairlines, because every layer overlaps the face rather than abutting it.
+        That is what a badge, a print run and a 1-bit threshold get.
+      * `filter: brightness(0) invert(1)`, which the site header applies because Material's
+        header is brand magenta in both colour schemes, flattens the tints to one white. The
+        header therefore shows the collapsed silhouette, which is a correct mark rather than a
+        broken one, so no second file and no CSS change are needed.
+      * An earlier version put three discs in the channel. At the header's 24px they rasterise
+        into a lumpy dashed line and the seam stops reading. Anything that breaks the
+        silhouette becomes noise when small; internal tone merely merges. Hence the keyway.
+
+    Geometry:
+      * Regular hexagon, height 600, width 520 (300 * sqrt(3) = 519.6), vertices at
+        (260,0) (520,150) (520,450) (260,600) (0,450) (0,150).
+      * The channel is y 275 to 325, straight and full bleed. The header renders this file
+        24px tall, where 600 units map to 24 pixels at 25 units per pixel, so 275 and 325 land
+        on exact pixel boundaries and the seam stays a crisp two-pixel channel.
+      * The rim is a 36-unit inset, so the inner hexagon has apothem 224 and circumradius
+        258.66.
+      * Symmetric about both axes, so the mark is achiral: mirrored it is identical, and
+        rotated it is a hexagon crossed by one straight band. A straight channel has no
+        reversal, no step and no arm, and nothing radiates from the centre because the centre
+        is the empty channel. There is nothing for a 30, 45, 60 or 90 degree view to resolve
+        into.
+
+    Colour is one hue. `#E20074` is the face, and the accents are tints and a shade of it,
+    which keeps this a project inside the Telekom family rather than a second brand: a triad
+    was tried and rejected, partly because it read as unrelated stripes and partly because
+    azure and magenta are luminance twins (0.180 against 0.174) and collapse to one grey.
+    The face is `currentColor` against `color` on the root, so it renders magenta even as an
+    <img> where no stylesheet can reach.
+  -->
+  <path d="M260,0 L520,150 L520,275 L0,275 L0,150 Z"/>
+  <path fill="#99004F" fill-rule="evenodd" d="M260,0 L520,150 L520,275 L0,275 L0,150 Z M260,41.35 L484,170.67 L484,275 L36,275 L36,170.67 Z"/>
+  <path fill="#FF3DA1" d="M36,223 L484,223 L484,249 L36,249 Z"/>
+  <path fill="#FF8FC8" d="M36,249 L484,249 L484,275 L36,275 Z"/>
+  <path fill="#99004F" d="M215,223 L305,223 L305,275 L215,275 Z"/>
+  <path d="M0,450 L0,325 L520,325 L520,450 L260,600 Z"/>
+  <path fill="#99004F" fill-rule="evenodd" d="M0,450 L0,325 L520,325 L520,450 L260,600 Z M36,429.33 L36,325 L484,325 L484,429.33 L260,558.65 Z"/>
+  <path fill="#FF3DA1" d="M36,351 L484,351 L484,377 L36,377 Z"/>
+  <path fill="#FF8FC8" d="M36,325 L484,325 L484,351 L36,351 Z"/>
+  <path fill="#99004F" d="M215,325 L305,325 L305,377 L215,377 Z"/>
+</svg>
