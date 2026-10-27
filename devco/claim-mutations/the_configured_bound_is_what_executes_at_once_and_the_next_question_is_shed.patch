@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-runtime/src/admission.rs b/crates/sutura-runtime/src/admission.rs
+--- a/crates/sutura-runtime/src/admission.rs
++++ b/crates/sutura-runtime/src/admission.rs
+@@ -138,7 +138,7 @@ impl Admission {
+     /// which is the shape the module documentation calls not-a-bound.
+     #[must_use]
+     pub fn from_settings(runtime: RuntimeSettings) -> Self {
+-        Self::new(runtime.max_concurrent_queries(), runtime.admission_timeout())
++        Self::new(QueryConcurrency::parse(1).expect("one is a valid bound"), runtime.admission_timeout())
+     }
+ 
+     /// Waits for a slot, for at most the admission timeout.

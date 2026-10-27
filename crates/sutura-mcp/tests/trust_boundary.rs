@@ -334,7 +334,7 @@ mod tests {
             server_side,
         );
         let client = serve_client((), client_side);
-        let (server, client) = tokio::join!(server, client);
+        let (server, client) = tokio::join!(Box::pin(server), Box::pin(client));
         let running = server.expect("the throwaway handshake's server initializes");
         drop(tokio::spawn(async move {
             drop(running.waiting().await);
@@ -416,6 +416,7 @@ mod tests {
     #[tokio::test]
     async fn too_many_metrics_is_refused_before_allocation() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let mut metrics = Vec::new();
         for n in 0..=sutura_domain::query::MAX_METRICS {
             metrics.push(format!("m{n}"));
@@ -438,6 +439,7 @@ mod tests {
     #[tokio::test]
     async fn too_many_dimensions_is_refused_before_allocation() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let mut dimensions = Vec::new();
         for n in 0..=sutura_domain::query::MAX_DIMENSIONS {
             dimensions.push(format!("d{n}"));
@@ -462,6 +464,7 @@ mod tests {
     #[tokio::test]
     async fn too_many_filters_is_refused_before_allocation() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let mut filters = Vec::new();
         for _ in 0..=sutura_domain::query::MAX_FILTERS {
             filters.push(serde_json::json!({"op":"eq","dimension":"region","value":"north"}));
@@ -490,6 +493,7 @@ mod tests {
     #[tokio::test]
     async fn an_oversized_statement_is_a_named_parse_error() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let too_long = "a".repeat(sutura_domain::raw::MAX_RAW_STATEMENT_BYTES + 1);
         let error = client
             .call_tool(raw(&serde_json::json!({ "statement": too_long })))
@@ -506,6 +510,7 @@ mod tests {
     #[tokio::test]
     async fn an_empty_statement_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(raw(&serde_json::json!({ "statement": "   " })))
             .await
@@ -518,6 +523,7 @@ mod tests {
     #[tokio::test]
     async fn a_statement_with_an_embedded_nul_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(raw(&serde_json::json!({ "statement": "select 1\0" })))
             .await
@@ -534,6 +540,7 @@ mod tests {
     #[tokio::test]
     async fn too_many_filter_values_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let mut values = Vec::new();
         for n in 0..=sutura_domain::catalog::MAX_VALUES_PER_DIMENSION {
             values.push(format!("v{n}"));
@@ -555,6 +562,7 @@ mod tests {
     #[tokio::test]
     async fn a_zero_top_n_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(ask(&serde_json::json!({
                 "metrics": ["revenue"],
@@ -572,6 +580,7 @@ mod tests {
     #[tokio::test]
     async fn an_invalid_top_by_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(ask(&serde_json::json!({
                 "metrics": ["revenue"],
@@ -589,6 +598,7 @@ mod tests {
     #[tokio::test]
     async fn an_invalid_top_direction_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(ask(&serde_json::json!({
                 "metrics": ["revenue"],
@@ -606,6 +616,7 @@ mod tests {
     #[tokio::test]
     async fn a_zero_last_count_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(ask(&serde_json::json!({
                 "metrics": ["revenue"],
@@ -622,6 +633,7 @@ mod tests {
     #[tokio::test]
     async fn an_invalid_last_unit_is_a_named_parse_error_over_the_wire() {
         let client = connected(certified_service().0).await;
+        assert!(!client.is_closed());
         let error = client
             .call_tool(ask(&serde_json::json!({
                 "metrics": ["revenue"],
