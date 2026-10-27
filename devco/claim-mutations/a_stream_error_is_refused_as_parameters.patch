@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..b5f7f582 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -60,7 +60,7 @@ where
+         .next()
+         .await
+         .ok_or(ReceiveError::Empty)?
+-        .map_err(|_| ReceiveError::Parameters)?;
++        .map_err(|_| ReceiveError::Empty)?;
+     let descriptor = first.flight_descriptor.take().ok_or(ReceiveError::Descriptor)?;
+     if descriptor.r#type != COMMAND_DESCRIPTOR || !descriptor.path.is_empty() {
+         return Err(ReceiveError::Descriptor);

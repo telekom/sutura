@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..5f0ed106 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -93,7 +93,7 @@ where
+     if decoded.try_next().await.map_err(|_| ReceiveError::Parameters)?.is_some() {
+         return Err(ReceiveError::BatchCount);
+     }
+-    Ok((leg, batch))
++    Ok((leg, batch.slice(0, 0)))
+ }
+ 
+ fn charge(frame: &FlightData, remaining: &mut usize) -> Result<(), ReceiveError> {

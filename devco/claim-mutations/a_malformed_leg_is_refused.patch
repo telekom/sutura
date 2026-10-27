@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..08c094b3 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -72,7 +72,7 @@ where
+         .get()
+         .checked_sub(descriptor.cmd.len())
+         .ok_or(ReceiveError::FrameLimit)?;
+-    let leg = serde_json::from_slice(&descriptor.cmd).map_err(|_| ReceiveError::Leg)?;
++    let leg = serde_json::from_slice(&descriptor.cmd).map_err(|_| ReceiveError::Parameters)?;
+     let mut frames = Vec::new();
+     charge(&first, &mut remaining)?;
+     frames.push(first);

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..02ff9e59 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -100,7 +100,6 @@ fn charge(frame: &FlightData, remaining: &mut usize) -> Result<(), ReceiveError>
+     for bytes in [
+         std::mem::size_of::<FlightData>(),
+         frame.data_header.len(),
+-        frame.data_body.len(),
+         frame.app_metadata.len(),
+     ] {
+         *remaining = remaining.checked_sub(bytes).ok_or(ReceiveError::FrameLimit)?;

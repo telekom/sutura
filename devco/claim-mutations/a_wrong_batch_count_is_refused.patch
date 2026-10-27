@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..7a8018db 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -89,7 +89,7 @@ where
+         .try_next()
+         .await
+         .map_err(|_| ReceiveError::Parameters)?
+-        .ok_or(ReceiveError::BatchCount)?;
++        .ok_or(ReceiveError::Parameters)?;
+     if decoded.try_next().await.map_err(|_| ReceiveError::Parameters)?.is_some() {
+         return Err(ReceiveError::BatchCount);
+     }
