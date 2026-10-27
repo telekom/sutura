@@ -67,3 +67,17 @@ This record is now the `workload_identity` mode of
 `domain_delegation`. "No step uses a service account" holds for a `workload_identity` source only:
 a `domain_delegation` source runs its caller through one delegating service account, and the
 deployment vouches for the caller there.
+
+## Second amendment, 2026-10-27: the current pool is a workload pool
+
+The `workload_identity` mode in this record names a workload identity pool. It is not a workforce
+identity pool. A workload pool is a project-owned resource for external workloads and uses the
+external-account credential document and workload-pool principal form shown above. A workforce
+pool is an organization-level resource for human workforce identities; its credential documents
+and principal form carry workforce-pool resource semantics and may require a user project for
+quota and billing. Those differences change setup and audit expectations, so the modes must not be
+conflated.
+
+The current adapter and test evidence exercises a workload pool only. It does not prove workforce
+federation, browser sign-in or a served human caller. A workforce venue needs its own provider,
+credential and audit measurement before this decision can cite it.
