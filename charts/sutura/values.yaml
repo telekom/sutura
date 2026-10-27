@@ -17,6 +17,13 @@ image:
 # Secrets that hold image pull credentials.
 imagePullSecrets: []
 
+# Service account used by the pod. The chart creates a dedicated account by default and does not
+# mount Kubernetes' API token; an explicit projected token can still be added with extraVolumes.
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+
 # Deployment environment: development, test or production.
 environment: ""
 

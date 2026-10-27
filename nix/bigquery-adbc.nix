@@ -104,7 +104,7 @@ buildGoModule {
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    tests='TestErrToAdbcErrMapsRestForbidden|TestSafeWaitForJobBacksOffBetweenPolls|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused|TestQueryLabelsThroughJobsQuery'
+    tests='TestErrToAdbcErrMapsRestForbidden|TestSafeWaitForJobBacksOffBetweenPolls|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestExternalAccountFileReachesDomainDelegationSignJwt|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused|TestQueryLabelsThroughJobsQuery'
     GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
     cat "$TMPDIR/go-test.log"
     # `-run` passes when a name stops matching, so every listed name has to pass.

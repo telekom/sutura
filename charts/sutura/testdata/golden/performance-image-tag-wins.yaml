@@ -1,4 +1,18 @@
 ---
+# Source: sutura/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "pinned-tag"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+
+---
 # Source: sutura/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -72,6 +86,7 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      serviceAccountName: test-release
       containers:
         - name: sutura
           image: "ghcr.io/telekom/sutura:pinned-tag"

@@ -120,6 +120,65 @@ ASCII (`xn--`) form. An empty list is refused at start.
   user in the domain, so protect the deployment's credential as you protect the domain's
   administrator.
 
+### Run without a key outside Google Cloud
+
+The deployment can use a projected Kubernetes service-account token as its application default
+credential. This keeps a service-account key out of the cluster, but it does not remove the
+deployment credential: the federated workload principal still needs permission to call
+`iam.serviceAccounts.signJwt` on the delegating account.
+
+Give a dedicated Kubernetes `ServiceAccount` access to a projected token. Set its audience to the
+workload identity pool provider and its lifetime to at most 3600 seconds (Google's maximum for a
+projected service-account token). Mount the token read-only, for example:
+
+```yaml
+volumes:
+  - name: google-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: //iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+            expirationSeconds: 3600
+            path: token
+volumeMounts:
+  - name: google-token
+    mountPath: /var/run/sutura/google
+    readOnly: true
+```
+
+Point `GOOGLE_APPLICATION_CREDENTIALS` at an `external_account` document carried in a ConfigMap.
+The document contains no private key; its `credential_source.file` points at the projected token:
+
+```json
+{
+  "type": "external_account",
+  "audience": "//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>",
+  "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+  "token_url": "https://sts.googleapis.com/v1/token",
+  "credential_source": {
+    "file": "/var/run/sutura/google/token",
+    "format": { "type": "text" }
+  }
+}
+```
+
+The workload identity pool provider must trust the cluster's service-account issuer. If Google
+cannot fetch that issuer's keys, upload its JWKS to the provider, and constrain the provider's
+attribute condition to the intended namespace and service account. Grant the resulting workload
+principal `roles/iam.serviceAccountTokenCreator` on the delegating account only. That role carries
+`iam.serviceAccounts.signJwt`, which is the path `domain_delegation` uses; no service-account key
+and no `service_account_impersonation_url` is required for this direct grant shape.
+
+The token lifetime bounds a stolen projected token, not the authority of a running pod. Anyone who
+can obtain a token for that Kubernetes service account can use the delegation grant until the
+token expires. The chart creates a dedicated service account with Kubernetes API-token
+automounting disabled by default; the projected token above is an explicit volume and remains
+available.
+
+This is a credential-document and in-process path proof. It does not prove a real Kubernetes
+issuer, a Google workload-pool exchange or a served human caller; those require a provisioned
+cloud venue and are recorded separately in `docs/where-identity-is-proven.md`.
+
 The read-only scope limits what that credential can do as a user. Google refuses it `jobs.insert`,
 so it cannot start a load, copy or extract job. Google also refuses a `CREATE TABLE`, `INSERT`,
 `UPDATE` or `DROP TABLE` statement that it sends through `jobs.query`. sutura starts each query

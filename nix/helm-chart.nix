@@ -70,12 +70,16 @@ let
       "$out/v1.29.0-standalone-strict/deployment-apps-v1.json"
     cp ${schemaFile "v1.29.0-standalone-strict" "service-v1.json" "sha256-N4ivpQcOIs/rPkjQJWLju3HM17Yy2EuUpQWgW6sav0w="} \
       "$out/v1.29.0-standalone-strict/service-v1.json"
+    cp ${schemaFile "v1.29.0-standalone-strict" "serviceaccount-v1.json" "sha256-3/UsAk68YgLXYgNfYuFLrKQuq/8eKXfP/jF5qXvKj3A="} \
+      "$out/v1.29.0-standalone-strict/serviceaccount-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "configmap-v1.json" "sha256-4Ord69Z3wIqgkrLaImTYasT8NO7RErn6wpRbPwDB6bE="} \
       "$out/v1.31.0-standalone-strict/configmap-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "deployment-apps-v1.json" "sha256-PjAI9mpfaM7jmESFrBiS2+3H8HKzqHBkEWurKUh06Z4="} \
       "$out/v1.31.0-standalone-strict/deployment-apps-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "service-v1.json" "sha256-9InWECZ1I4uROJjK9v729HJAOVD8nliV73GPPE8cQ1E="} \
       "$out/v1.31.0-standalone-strict/service-v1.json"
+    cp ${schemaFile "v1.31.0-standalone-strict" "serviceaccount-v1.json" "sha256-jkc9QZTnaX67k8CzF7US2qt68vRxwaGYIXJ2M3wSyuY="} \
+      "$out/v1.31.0-standalone-strict/serviceaccount-v1.json"
   '';
 in
 {

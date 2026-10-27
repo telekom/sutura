@@ -7,7 +7,16 @@ A query can combine data from several sources.
 
 This chart deploys sutura.
 It runs `sutura serve` over HTTP as one `Deployment`.
-The chart also creates a `Service` and a settings `ConfigMap`.
+The chart also creates a dedicated `ServiceAccount`, a `Service`, and a settings `ConfigMap`.
+
+## Service account
+
+The chart creates a service account named after the release and sets
+`automountServiceAccountToken: false`. This prevents the pod from receiving the namespace default
+Kubernetes API token. To use a projected token for an external Google credential, add an explicit
+`serviceAccountToken` volume and mount it with `extraVolumes` and `extraVolumeMounts`; the chart's
+default is intentionally still no token. Set `serviceAccount.name` when using an existing account,
+and set `serviceAccount.create: false` to keep the chart from creating one.
 
 ## Install
 

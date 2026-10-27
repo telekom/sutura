@@ -27,6 +27,14 @@ app.kubernetes.io/name: {{ include "sutura.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{- define "sutura.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "sutura.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- required "serviceAccount.name is required when serviceAccount.create is false" .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 The container's own env entries. `sutura.requireOffHostPosture` reads their names, so an `extraEnv`
 entry the binary would read as one of them is refused against the list the Deployment renders.

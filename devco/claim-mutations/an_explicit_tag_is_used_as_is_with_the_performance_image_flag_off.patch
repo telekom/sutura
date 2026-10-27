@@ -13,8 +13,8 @@ diff --git a/charts/sutura/templates/_helpers.tpl b/charts/sutura/templates/_hel
 diff --git a/charts/sutura/testdata/golden/explicit-tag.yaml b/charts/sutura/testdata/golden/explicit-tag.yaml
 --- a/charts/sutura/testdata/golden/explicit-tag.yaml
 +++ b/charts/sutura/testdata/golden/explicit-tag.yaml
-@@ -71,7 +71,7 @@
-           type: RuntimeDefault
+@@ -89,7 +89,7 @@
+       serviceAccountName: test-release
        containers:
          - name: sutura
 -          image: "ghcr.io/telekom/sutura:pinned-tag"

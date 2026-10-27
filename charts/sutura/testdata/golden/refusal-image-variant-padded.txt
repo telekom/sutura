@@ -1,3 +1,3 @@
-Error: execution error at (sutura/templates/deployment.yaml:33:52): image.variant is " musl": it must be exactly musl or glibc
+Error: execution error at (sutura/templates/deployment.yaml:34:52): image.variant is " musl": it must be exactly musl or glibc
 
 Use --debug flag to render out invalid YAML

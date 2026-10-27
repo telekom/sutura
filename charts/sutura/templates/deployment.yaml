@@ -28,6 +28,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "sutura.serviceAccountName" . }}
       containers:
         - name: sutura
           image: "{{ .Values.image.repository }}:{{ include "sutura.imageTag" . }}"
