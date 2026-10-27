@@ -1578,6 +1578,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run-without-a-key-outside-google-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run without a key outside Google Cloud
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2670,6 +2687,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run-without-a-key-outside-google-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run without a key outside Google Cloud
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2971,6 +3005,54 @@ ASCII (<code>xn--</code>) form. An empty list is refused at start.</p>
   user in the domain, so protect the deployment's credential as you protect the domain's
   administrator.</li>
 </ul>
+<h3 id="run-without-a-key-outside-google-cloud">Run without a key outside Google Cloud<a class="headerlink" href="#run-without-a-key-outside-google-cloud" title="Permanent link">&para;</a></h3>
+<p>The deployment can use a projected Kubernetes service-account token as its application default
+credential. This keeps a service-account key out of the cluster, but it does not remove the
+deployment credential: the federated workload principal still needs permission to call
+<code>iam.serviceAccounts.signJwt</code> on the delegating account.</p>
+<p>Give a dedicated Kubernetes <code>ServiceAccount</code> access to a projected token. Set its audience to the
+workload identity pool provider and its lifetime to at most 3600 seconds (Google's maximum for a
+projected service-account token). Mount the token read-only, for example:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">volumes</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google-token</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">projected</span><span class="p">:</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">serviceAccountToken</span><span class="p">:</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">            </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">//iam.googleapis.com/projects/&lt;number&gt;/locations/global/workloadIdentityPools/&lt;pool&gt;/providers/&lt;provider&gt;</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">            </span><span class="nt">expirationSeconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">            </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">token</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nt">volumeMounts</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">google-token</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">mountPath</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/var/run/sutura/google</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">readOnly</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<p>Point <code>GOOGLE_APPLICATION_CREDENTIALS</code> at an <code>external_account</code> document carried in a ConfigMap.
+The document contains no private key; its <code>credential_source.file</code> points at the projected token:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"external_account"</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"audience"</span><span class="p">:</span><span class="w"> </span><span class="s2">"//iam.googleapis.com/projects/&lt;number&gt;/locations/global/workloadIdentityPools/&lt;pool&gt;/providers/&lt;provider&gt;"</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">"subject_token_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"urn:ietf:params:oauth:token-type:jwt"</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">"token_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://sts.googleapis.com/v1/token"</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">"credential_source"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">"file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/var/run/sutura/google/token"</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">"format"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>The workload identity pool provider must trust the cluster's service-account issuer. If Google
+cannot fetch that issuer's keys, upload its JWKS to the provider, and constrain the provider's
+attribute condition to the intended namespace and service account. Grant the resulting workload
+principal <code>roles/iam.serviceAccountTokenCreator</code> on the delegating account only. That role carries
+<code>iam.serviceAccounts.signJwt</code>, which is the path <code>domain_delegation</code> uses; no service-account key
+and no <code>service_account_impersonation_url</code> is required for this direct grant shape.</p>
+<p>The token lifetime bounds a stolen projected token, not the authority of a running pod. Anyone who
+can obtain a token for that Kubernetes service account can use the delegation grant until the
+token expires. The chart creates a dedicated service account with Kubernetes API-token
+automounting disabled by default; the projected token above is an explicit volume and remains
+available.</p>
+<p>This is a credential-document and in-process path proof. It does not prove a real Kubernetes
+issuer, a Google workload-pool exchange or a served human caller; those require a provisioned
+cloud venue and are recorded separately in <code>docs/where-identity-is-proven.md</code>.</p>
 <p>The read-only scope limits what that credential can do as a user. Google refuses it <code>jobs.insert</code>,
 so it cannot start a load, copy or extract job. Google also refuses a <code>CREATE TABLE</code>, <code>INSERT</code>,
 <code>UPDATE</code> or <code>DROP TABLE</code> statement that it sends through <code>jobs.query</code>. sutura starts each query
@@ -2981,7 +3063,7 @@ stops it at the job timeout sutura sent. <code>max_bytes_billed</code> still cap
 caps its slot time.</p>
 <p>The musl and glibc release binaries link the BigQuery driver. In the development shell, a <code>cargo</code>
 build can select the feature:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--features<span class="w"> </span>bigquery
 </span></code></pre></div>
 <p>That build links no driver. It loads the driver from the absolute path in
 <code>SUTURA_BIGQUERY_ADBC_DRIVER</code>.</p>
@@ -2999,18 +3081,18 @@ determines where to run it. Location inference therefore provides no explicit re
 from sutura.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p>The <a href="../../../examples/multi-player/">multi player</a> example writes this source with Pulumi:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">sources</span><span class="p">:</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"bigquery"</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">workload_identity</span><span class="p">:</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">delegation</span><span class="p">:</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">          </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">          </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/exchange-secret"</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">          </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura-gcp-pool"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"bigquery"</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1073741824</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">workload_identity</span><span class="p">:</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"//iam.googleapis.com/projects/123456789/locations/global/workloadIdentityPools/sutura/providers/keycloak"</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">      </span><span class="nt">delegation</span><span class="p">:</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"http://127.0.0.1:8180/realms/sutura-example/protocol/openid-connect/token"</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">          </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">          </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/sutura/exchange-secret"</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">          </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura-gcp-pool"</span>
 </span></code></pre></div>
 <p>For one shared account, use <code>posture: shared-service-user</code>, leave out <code>workload_identity</code> and set
 <code>billing.service_account_project</code>. The
