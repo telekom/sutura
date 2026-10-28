@@ -24,10 +24,11 @@
 //! adapter crate, and walking that call graph to decide what is truly reachable is a second gate's
 //! worth of work this one does not attempt. What is built instead, and all that is claimed: **no
 //! named-field `struct` field and no `static` item (a `thread_local!` entry included) in
-//! `crates/sutura-app/src` or `crates/sutura-domain/src` declares a `HashMap` or `BTreeMap` whose
-//! value type names one of [`ANSWER_PATH_TYPES`]** - the hexagon's own interior, never an adapter. A map living inside an adapter crate is out of scope by
-//! construction, not by an exclusion this gate carries and could be argued open - the two
-//! directories named above are the whole of its walk.
+//! `crates/sutura-app/src`, `crates/sutura-domain/src` or `crates/sutura-flight/src` declares a
+//! `HashMap` or `BTreeMap` whose value type names one of [`ANSWER_PATH_TYPES`]** - the hexagon's
+//! own interior plus the `DoExchange` transport, never an adapter. A map living inside an adapter
+//! crate is out of scope by construction, not by an exclusion this gate carries and could be
+//! argued open - the three directories named above are the whole of its walk.
 //!
 //! **Three further limits, stated where the claim is:**
 //!
@@ -112,9 +113,15 @@ const ANSWER_PATH_TYPES: &[AnswerPathType] = &[
 /// a match's end is exactly where the generic argument list begins.
 const MAP_TYPES: &[&str] = &["HashMap<", "BTreeMap<"];
 
-/// The two directories this gate walks - the hexagon's own interior, never an adapter. Trailing
-/// `/` so a sibling crate whose name merely starts with the same prefix cannot match.
-const SCOPE: &[&str] = &["crates/sutura-app/src/", "crates/sutura-domain/src/"];
+/// The directories this gate walks - the hexagon's own interior plus `sutura-flight`, the
+/// `DoExchange` transport a leg's parameters and result batches cross on their way in and out -
+/// never an adapter otherwise. Trailing `/` so a sibling crate whose name
+/// merely starts with the same prefix cannot match.
+const SCOPE: &[&str] = &[
+    "crates/sutura-app/src/",
+    "crates/sutura-domain/src/",
+    "crates/sutura-flight/src/",
+];
 
 /// Is `rel` inside [`SCOPE`]?
 fn in_scope(rel: &str) -> bool {
@@ -645,6 +652,30 @@ mod tests {
             "{:?}",
             found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
         );
+    }
+
+    /// `sutura-flight` (the `DoExchange` transport) sits on the answer path's
+    /// receiving end just as `sutura-app` does - a leg's parameters and its result batches both
+    /// cross it - so a cache there is exactly the shape this gate exists to refuse. Scoped in
+    /// alongside the hexagon's interior rather than left for a transport-specific gate of its own.
+    #[test]
+    fn a_map_in_the_flight_transport_is_scanned() {
+        let tree = crate::scratch_tree::Tree::of(
+            "answer-path-cache-flight-scope",
+            &[(
+                "crates/sutura-flight/src/leaky.rs",
+                b"struct LegCache {\n    seen: std::collections::HashMap<u8, RowSet>,\n}\n",
+            )],
+        );
+        let found = scan_over(&tree, &[]).expect("a readable tree scans");
+        assert_eq!(
+            found.violations.len(),
+            1,
+            "{:?}",
+            found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
+        );
+        assert_eq!(found.violations[0].holds, "RowSet");
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
     }
 
     /// A file outside [`super::SCOPE`] holding the exact same leak is invisible to this gate by
