@@ -508,3 +508,20 @@ fn two_tables_of_a_lookup_leg_under_one_name_are_refused() {
         "expected the shared-identifier refusal, got {refused:?}"
     );
 }
+
+/// What a node sending a leg writes on the wire is the digest of the definition the planner
+/// resolved, stamped on every leg here - never one read later off whatever is pinned then.
+#[test]
+fn every_leg_carries_the_digest_of_the_definition_it_was_planned_from() {
+    let corpus = Corpus::placed("elsewhere", "local", "local");
+    let resolution = corpus.asking(vec![corpus.key("region")]);
+    let expected = resolution.metric.digest().expect("a resolved metric digests");
+    let Plan::Federated(planned) = plan(&resolution).expect("this resolution plans") else {
+        panic!("a dimension on another data system is a federated plan");
+    };
+    let legs = planned.legs();
+    assert_eq!(legs.len(), 2, "a fact leg and a lookup leg");
+    for leg in legs {
+        assert_eq!(leg.metric(), &expected, "{} carries another digest", leg.source());
+    }
+}

@@ -4,7 +4,9 @@ expression: leg
 ---
 lookup:
   source: crm
-  metric: revenue
+  metric:
+    metric: revenue
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   table: dim_customer
   joins: []
   keys:

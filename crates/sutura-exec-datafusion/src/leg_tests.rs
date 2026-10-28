@@ -49,7 +49,10 @@ fn bindings() -> PlanBindings {
 fn leg() -> LegPlan {
     LegPlan::Fact {
         source: SourceName::parse("local").expect("a test source is a source"),
-        metric: MetricName::parse("minutes").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            MetricName::parse("minutes").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(TableName::parse("usage").expect("a test table is a table")),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, on("usage_date")),
         keys: vec![PlanKey::truncated(

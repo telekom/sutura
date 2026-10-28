@@ -211,7 +211,10 @@ fn term(aggregate: Aggregate, column_name: &str, position: usize) -> LegTerm {
 fn fact_sum_over_a_local_join() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("recurring_revenue"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("recurring_revenue"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         // Through the guard rather than around it: a fact leg's tables arrive as a checked set, so
         // this fixture cannot state a pair one statement could not tell apart. `plan::tables` is
         // where that is argued, and `golden/service.rs` is where the refusal is provoked through a
@@ -252,7 +255,10 @@ fn fact_sum_over_a_local_join() -> LegPlan {
 fn fact_compound_join() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("voice_minutes"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("voice_minutes"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::parse(
             table(FACT_TABLE),
             vec![PlanJoin::new(
@@ -291,7 +297,10 @@ fn fact_compound_join() -> LegPlan {
 fn fact_decomposed_average() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("mean_subscription_mrr"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("mean_subscription_mrr"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
         keys: vec![link_key(FACT_TABLE)],
@@ -311,7 +320,10 @@ fn fact_decomposed_average() -> LegPlan {
 fn fact_distinct_keys() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("active_subscriptions"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("active_subscriptions"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
         keys: vec![link_key(FACT_TABLE), key("subscription_key", FACT_TABLE, "subscription_key")],
@@ -375,7 +387,10 @@ fn calendar_bucket() -> PlanBucket {
 fn two_fact_first() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("tickets_per_subscription"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("tickets_per_subscription"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::parse(table(FACT_TABLE), vec![calendar_join("subscription_calendar", FACT_TABLE)])
             .expect("two differently named fixture tables are distinguishable"),
         bucket: calendar_bucket(),
@@ -395,7 +410,10 @@ fn two_fact_first() -> LegPlan {
 fn two_fact_second() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
-        metric: metric("tickets_per_subscription"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("tickets_per_subscription"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::parse(table(TICKET_TABLE), vec![calendar_join("ticket_calendar", TICKET_TABLE)])
             .expect("two differently named fixture tables are distinguishable"),
         bucket: calendar_bucket(),
@@ -420,7 +438,10 @@ fn two_fact_second() -> LegPlan {
 fn lookup_unfiltered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         bindings: PlanBindings::none(),
@@ -436,7 +457,10 @@ fn lookup_unfiltered() -> LegPlan {
 fn lookup_joined() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: StatementTables::parse(
             table(REMOTE_TABLE),
             vec![PlanJoin::new(
@@ -464,7 +488,10 @@ fn lookup_joined() -> LegPlan {
 fn lookup_filtered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: table(REMOTE_TABLE).into(),
         keys: vec![link_key(REMOTE_TABLE), key("region", REMOTE_TABLE, "region")],
         bindings: PlanBindings::parse(
@@ -825,7 +852,10 @@ mod truncated_link {
     fn fact_leg(key: PlanKey) -> LegPlan {
         LegPlan::Fact {
             source: source("local"),
-            metric: metric("voice_minutes"),
+            metric: sutura_domain::pinned::MetricDigest::new(
+                metric("voice_minutes"),
+                sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+            ),
             tables: StatementTables::only(table(FACT_TABLE)),
             bucket: month_bucket(),
             keys: vec![key],

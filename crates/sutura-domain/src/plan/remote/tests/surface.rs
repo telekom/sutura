@@ -10,12 +10,12 @@ fn judged(json: Value, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertifi
 
 fn lookup() -> (Value, Vec<ParamValue>) {
     let (leg, params) = region_leg(&pinned(ORDINARY));
-    (sent(&leg, &pinned(ORDINARY)), params)
+    (sent(&leg), params)
 }
 
 fn refunds() -> (Value, Vec<ParamValue>) {
     let (leg, params) = refund_leg(&pinned(ORDINARY));
-    (sent(&leg, &pinned(ORDINARY)), params)
+    (sent(&leg), params)
 }
 
 fn key(label: &str, of_table: &str, of_column: &str) -> Value {
@@ -31,7 +31,7 @@ fn own_ratio_leg(joins: &[&str]) -> (Value, Vec<ParamValue>) {
     let (mut json, params) = fact();
     let sender = pinned(ORDINARY);
     let (refund, _) = refund_leg(&sender);
-    let refund = sent(&refund, &sender);
+    let refund = sent(&refund);
     json["metric"] = refund["metric"].clone();
     json["joins"] = json!(joins);
     json["bucket"] = refund["bucket"].clone();

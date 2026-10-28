@@ -915,7 +915,10 @@ mod tests {
             );
             LegPlan::Lookup {
                 source: ledger(),
-                metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                metric: sutura_domain::pinned::MetricDigest::new(
+                    sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                    sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+                ),
                 table: StatementTables::parse(
                     QualifiedTable::parse("acme-sales.sales.orders").expect("a test table path parses"),
                     vec![join],

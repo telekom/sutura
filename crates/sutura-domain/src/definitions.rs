@@ -21,7 +21,7 @@
 
 use sha2::{Digest as _, Sha256};
 
-use crate::catalog::Definitions;
+use crate::catalog::{Definitions, Metric};
 use crate::knowledge::Knowledge;
 use crate::model::MetricName;
 use crate::pinned::ContributionManifest;
@@ -131,6 +131,11 @@ impl DefinitionDigest {
         let metric = definitions
             .metric(name)
             .ok_or_else(|| NotDigestible::MetricMissing { metric: name.clone() })?;
+        Self::of_one(metric)
+    }
+
+    /// The same digest, of a metric already in hand - the one hash [`Self::of_metric`] takes too.
+    pub(crate) fn of_one(metric: &Metric) -> Result<Self, NotDigestible> {
         let canonical = serde_json::to_vec(metric).map_err(|cause| NotDigestible::Canonicalize { cause })?;
         let hash = Sha256::digest(&canonical);
         let hex: String = hash

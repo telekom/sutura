@@ -453,7 +453,10 @@ pub fn leg_case_at(at: Option<&TableQualifier>) -> LegCase {
         name: "total-by-region-and-day-as-a-leg",
         leg: LegPlan::Fact {
             source: source(),
-            metric: metric("amount_total"),
+            metric: sutura_domain::pinned::MetricDigest::new(
+                metric("amount_total"),
+                sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+            ),
             tables: StatementTables::only(located(at)),
             bucket: bucket(),
             keys: vec![region_key()],
@@ -488,7 +491,10 @@ pub fn truncated_link_leg_case() -> LegCase {
 pub fn truncated_link_leg_case_at(at: Option<&TableQualifier>) -> LegCase {
     let leg = LegPlan::Fact {
         source: source(),
-        metric: metric("amount_total"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("amount_total"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(located(at)),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("day")),
         keys: vec![PlanKey::truncated(

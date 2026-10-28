@@ -517,7 +517,10 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
     let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a test column is a column"));
     sutura_domain::plan::LegPlan::Fact {
         source: source(),
-        metric: MetricName::parse("mrr").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            MetricName::parse("mrr").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: sutura_domain::plan::StatementTables::only(
             sutura_domain::model::QualifiedTable::parse("acme-analytics.sales.fct_subscription_monthly")
                 .expect("a test table path parses"),

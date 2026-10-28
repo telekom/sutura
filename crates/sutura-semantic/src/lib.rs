@@ -142,6 +142,10 @@ pub enum CompileFailure {
     /// see `crate::plan::PlanError::NoSecondFactModel`'s own doc for the construction that holds it.
     #[error("the federated splitter carried a second fact's leaves with no second fact model or calendar model")]
     NoSecondFactModel,
+    /// A resolved metric with no canonical form for the digest its legs carry. Same limit as
+    /// `NotBound`: a metric that pinned has a canonical form, so nothing provokes this.
+    #[error("this deployment planned a leg over a metric it could not digest")]
+    NotDigestible(#[from] sutura_domain::definitions::NotDigestible),
 }
 
 /// Resolves and plans. It does not render.
@@ -206,5 +210,6 @@ pub fn compile(
         Err(PlanError::NotAssembledAcross(cause)) => Err(cause.into()),
         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
         Err(PlanError::NoSecondFactModel) => Err(CompileFailure::NoSecondFactModel),
+        Err(PlanError::NotDigestible(cause)) => Err(cause.into()),
     }
 }

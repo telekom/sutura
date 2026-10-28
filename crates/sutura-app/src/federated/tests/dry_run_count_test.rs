@@ -171,7 +171,7 @@ fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
         .collect();
     let fact = LegPlan::Fact {
         source: SourceName::parse("facts").expect("a test source"),
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         tables: StatementTables::only(table.clone()),
         bucket: bucket(),
         keys: vec![link(0), link(1), link(2)],
@@ -183,7 +183,10 @@ fn three_lookup_plan() -> sutura_domain::plan::FederatedPlan {
         LookupLeg::onto_fact(
             LegPlan::Lookup {
                 source: SourceName::parse(on).expect("a test source"),
-                metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                metric: sutura_domain::pinned::MetricDigest::new(
+                    sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                    sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+                ),
                 table: table.clone().into(),
                 keys: vec![link(leg)],
                 bindings: PlanBindings::none(),

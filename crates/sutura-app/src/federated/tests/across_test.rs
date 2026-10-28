@@ -96,7 +96,10 @@ fn usage_arm() -> Arm {
         .collect();
     let fact = LegPlan::Fact {
         source: source("orders"),
-        metric: MetricName::parse("usage").expect("a test metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            MetricName::parse("usage").expect("a test metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table.clone()),
         bucket: PlanBucket::new(
             ResultLabel::bucket(),

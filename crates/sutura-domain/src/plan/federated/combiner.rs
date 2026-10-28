@@ -464,7 +464,7 @@ mod tests {
     fn lookup_plan() -> LegPlan {
         LegPlan::Lookup {
             source: source("geo"),
-            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
             table: table("dim_region").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),
@@ -476,7 +476,7 @@ mod tests {
     fn fact_plan() -> LegPlan {
         LegPlan::Fact {
             source: source("facts"),
-            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
             tables: crate::plan::StatementTables::only(TableName::parse("fct").expect("a test table is a table")),
             bucket: crate::plan::PlanBucket::new(
                 ResultLabel::bucket(),

@@ -64,7 +64,7 @@ fn key(label: &str, table_name: &str, column_name: &str) -> PlanKey {
 fn fact(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(),
-        metric: MetricName::parse("recurring_revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(MetricName::parse("recurring_revenue").expect("a test metric is a metric")),
         tables: StatementTables::only(table("fct_subscription_monthly")),
         bucket: bucket(),
         keys: vec![key("customer_key", "fct_subscription_monthly", "customer_key")],
@@ -87,7 +87,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
 fn lookup() -> LegPlan {
     LegPlan::Lookup {
         source: other_source(),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
         table: table("dim_customer").into(),
         keys: vec![
             key("customer_key", "dim_customer", "customer_key"),
