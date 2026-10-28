@@ -240,6 +240,11 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
         RefusalReason::CrossModelRatioWithoutSharedDimension { ref metric, ref model } => without_shared_dimension(metric, model),
         RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => link_ambiguous(metric, model),
+        // Never reached: no tool this surface advertises names a remote leg. Kept exhaustive anyway.
+        RefusalReason::RemoteLegNotCertified { ref source } => format!(
+            "this node does not certify or does not run a remote leg through `{source}`. Nothing you \
+             can change in the question helps; report it to the person you are acting for."
+        ),
     };
     (code, detail)
 }
@@ -398,6 +403,9 @@ mod tests {
             RefusalReason::CrossModelRatioLinkAmbiguous {
                 metric: metric(),
                 model: sutura_domain::model::ModelName::parse("visits").expect("a test model is a model"),
+            },
+            RefusalReason::RemoteLegNotCertified {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
         ]
     }

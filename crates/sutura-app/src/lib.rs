@@ -816,6 +816,13 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
 mod raw;
 pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
 
+// `telekom/sutura#137` step 3's node-to-node leg - carved out for the same reason `raw` is.
+//
+// **Private, not `pub`**, for `run_sql`'s own reason above: the re-export below is `run_remote_leg`'s
+// one spelling, and a `pub mod remote_leg` would give it a second, ungated one.
+mod remote_leg;
+pub use remote_leg::{RanRemoteLeg, RunningRemoteLeg, run_remote_leg};
+
 /// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own
 /// `RefusalReason`.
 ///

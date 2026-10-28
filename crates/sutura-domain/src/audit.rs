@@ -70,6 +70,7 @@
 
 use crate::identity::{ClientClaims, DelegatedAs, Expiry, PrincipalChain};
 use crate::pinned::Provenance;
+use crate::plan::remote::RemoteLegOutcome;
 use crate::query::{RefusalReason, ToolOutcome};
 use crate::raw::{RawOutcome, RawRefusalReason, RawStatement};
 use crate::source::ExecutedAs;
@@ -153,6 +154,15 @@ pub enum RecordedOutcome<'a> {
         reason: &'a RawRefusalReason,
         statement: &'a RawStatement,
     },
+    /// A remote leg ran at this node under a caller established at the node that served it -
+    /// `telekom/sutura#137` step 3's own outcome, recorded the same way a raw answer is: no
+    /// provenance, because [`RemoteLegOutcome`] carries none.
+    RemoteLegAnswered { rows: usize },
+    /// A remote leg was refused: `telekom/sutura#137` step 3's own reuse of
+    /// [`Self::Refused`]'s shape, over the same [`RefusalReason`] - a remote leg refuses into the
+    /// same closed vocabulary a compiled question does, so the two share one variant rather than
+    /// two identical ones.
+    RemoteLegRefused { reason: &'a RefusalReason },
     /// The call failed rather than ended: the data system did not answer, the broker could not be
     /// reached, or this deployment's own wiring was wrong. `failure` names which, as the surface
     /// spells it; the cause chain is the transport's log line, never this record's.
@@ -230,6 +240,24 @@ impl<'a> CallRecord<'a> {
         }
     }
 
+    /// The remote-leg path's constructor, matching [`Self::of`] and [`Self::of_raw`]'s shape: the
+    /// outcome half is derived from the outcome, once, here - `telekom/sutura#137` step 3.
+    #[must_use]
+    pub const fn of_remote_leg(chain: &'a PrincipalChain, outcome: &'a RemoteLegOutcome, executed_until: Option<Expiry>) -> Self {
+        let recorded = match *outcome {
+            RemoteLegOutcome::Answer { ref batches } => RecordedOutcome::RemoteLegAnswered { rows: batches.rows() },
+            RemoteLegOutcome::Refusal { ref reason } => RecordedOutcome::RemoteLegRefused { reason },
+        };
+        Self {
+            chain,
+            outcome: recorded,
+            executed_until,
+            client: None,
+            labels: None,
+            delegated: None,
+        }
+    }
+
     /// A call that failed rather than ended. Nothing executed that an outcome could describe, so
     /// there is no deadline to record either.
     #[must_use]
@@ -269,7 +297,11 @@ impl<'a> CallRecord<'a> {
             RecordedOutcome::RawAnswered { statement, .. }
             | RecordedOutcome::RawRefused { statement, .. }
             | RecordedOutcome::RawFailed { statement, .. } => Some(statement),
-            RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } | RecordedOutcome::Failed { .. } => None,
+            RecordedOutcome::Answered { .. }
+            | RecordedOutcome::Refused { .. }
+            | RecordedOutcome::RemoteLegAnswered { .. }
+            | RecordedOutcome::RemoteLegRefused { .. }
+            | RecordedOutcome::Failed { .. } => None,
         }
     }
 
@@ -313,9 +345,13 @@ impl<'a> CallRecord<'a> {
             // Neither raw arm carries a `Provenance` - that is `docs/adr/0013`'s whole load-bearing
             // property read from the other side: there is no identity label to report here because
             // there is no field to have carried one.
+            // Nor does `RemoteLegOutcome` - it is this module's third no-`Provenance` type, for
+            // `RemoteLegOutcome`'s own reason: the serving node's pin is not this record's own.
             RecordedOutcome::Refused { .. }
             | RecordedOutcome::RawAnswered { .. }
             | RecordedOutcome::RawRefused { .. }
+            | RecordedOutcome::RemoteLegAnswered { .. }
+            | RecordedOutcome::RemoteLegRefused { .. }
             | RecordedOutcome::Failed { .. }
             | RecordedOutcome::RawFailed { .. } => None,
         }
@@ -426,6 +462,8 @@ mod tests {
                 RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
                 RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows}"),
                 RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
+                RecordedOutcome::RemoteLegAnswered { rows } => format!("remote_leg_answered rows={rows}"),
+                RecordedOutcome::RemoteLegRefused { reason } => format!("remote_leg_refused reason={reason:?}"),
                 RecordedOutcome::Failed { failure } => format!("failed failure={failure}"),
                 RecordedOutcome::RawFailed { failure, .. } => format!("raw_failed failure={failure}"),
             };

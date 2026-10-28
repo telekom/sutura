@@ -134,6 +134,9 @@ fn run_sql_writes_one_record_per_outcome_carrying_the_statement_text() {
                     format!("raw_refused reason={reason:?} statement={statement:?}")
                 }
                 RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => String::from("certified"),
+                RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {
+                    String::from("remote_leg")
+                }
                 RecordedOutcome::Failed { .. } | RecordedOutcome::RawFailed { .. } => String::from("failed"),
             };
             drop(self.sender.send(line));

@@ -184,6 +184,10 @@ Every reason you can be given, and what to do about each:
   for is outside the domains that data system is delegated for.
   Nothing you can change in the question, and retrying returns it again. Say so: which address the
   identity provider sends is a setting a person changes, not you.
+- **remote_leg_not_certified** - a remote leg named a source this node does not certify or does not
+  run a leg through.
+  Nothing you can change: this is a node-to-node refusal, not a question this prompt asks. Report it
+  to the person you are acting for.
 
 ## Terms this deployment records as NOT defined
 

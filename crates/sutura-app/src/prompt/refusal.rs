@@ -305,6 +305,15 @@ const CROSS_MODEL_RATIO_LINK_AMBIGUOUS: Guide = Guide {
     remedy: "Ask for fewer dimensions from one remote model: leaving out one of two that reach it, or all of them, can plan it. If the question needs them, report it: the catalog has to say which relationship serves which dimension.",
 };
 
+// Never reached by an agent this prompt is written for: running a remote leg is not a tool either
+// transport offers. Kept here anyway so this match stays exhaustive against `RefusalReason`.
+const REMOTE_LEG_NOT_CERTIFIED: Guide = Guide {
+    reason: "remote_leg_not_certified",
+    meaning: "a remote leg named a source this node does not certify or does not run a leg through",
+    remedy: "Nothing you can change: this is a node-to-node refusal, not a question this prompt asks. \
+             Report it to the person you are acting for.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -367,6 +376,8 @@ pub(super) const GUIDES: &[&Guide] = &[
     &NO_BILLING_PROJECT,
     &CREDENTIAL_UNAVAILABLE,
     &ADDRESS_OUTSIDE_DOMAINS,
+    // Never reached by an agent this prompt serves: no tool this surface offers names a remote leg.
+    &REMOTE_LEG_NOT_CERTIFIED,
 ];
 
 /// The guide for one refusal.
@@ -415,6 +426,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioWithoutSharedCalendar { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_CALENDAR,
         RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
         RefusalReason::CrossModelRatioLinkAmbiguous { .. } => &CROSS_MODEL_RATIO_LINK_AMBIGUOUS,
+        RefusalReason::RemoteLegNotCertified { .. } => &REMOTE_LEG_NOT_CERTIFIED,
     }
 }
 

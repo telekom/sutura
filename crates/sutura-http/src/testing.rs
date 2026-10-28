@@ -249,6 +249,8 @@ impl sutura_domain::audit::AuditSink for RecordingSink {
             RecordedOutcome::RawRefused { reason, .. } => format!("raw_refused reason={reason:?}"),
             RecordedOutcome::Failed { failure } => format!("failed failure={failure}"),
             RecordedOutcome::RawFailed { failure, .. } => format!("raw_failed failure={failure}"),
+            RecordedOutcome::RemoteLegAnswered { rows } => format!("remote_leg_answered rows={rows}"),
+            RecordedOutcome::RemoteLegRefused { reason } => format!("remote_leg_refused reason={reason:?}"),
         };
         if let Ok(mut lines) = self.lines.lock() {
             lines.push(format!("{who}{named} {how}"));

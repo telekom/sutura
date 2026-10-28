@@ -73,13 +73,15 @@ fn a_tool_this_surface_does_not_have_is_a_protocol_error() {
 
     // And the process is still serving: a rejected call is not a terminated session.
     //
-    // One fewer than `Capability::every().count()`: this fixture's default settings never turn
-    // `tools.run_sql.enabled` on, and `#129`'s own test for that absence is
-    // `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`, below.
+    // TWO fewer than `Capability::every().count()`: this fixture's default settings never turn
+    // `tools.run_sql.enabled` on (`#129`'s own test for that absence is
+    // `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`, below), and `RunRemoteLeg`
+    // (`telekom/sutura#137` step 3) is never advertised on this surface at all - it is the
+    // node-to-node channel, not a tool any setting turns on.
     let listed = agent.request("tools/list", &serde_json::json!({}));
     assert_eq!(
         listed["tools"].as_array().map(Vec::len),
-        Some(Capability::every().count() - 1),
+        Some(Capability::every().count() - 2),
         "{listed}"
     );
 

@@ -483,7 +483,11 @@ mod tests {
             // Both tools, in the declared order, over the wire.
             let tools = client.list_all_tools().await.expect("tools/list answers");
             let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
-            let expected: Vec<&str> = sutura_app::Capability::every().map(sutura_app::Capability::id).collect();
+            // `RunRemoteLeg` excluded: the node-to-node channel, never a tool any surface advertises.
+            let expected: Vec<&str> = sutura_app::Capability::every()
+                .filter(|capability| *capability != sutura_app::Capability::RunRemoteLeg)
+                .map(sutura_app::Capability::id)
+                .collect();
             assert_eq!(advertised, expected, "{advertised:?}");
 
             // One of them answers a question the example certifies, so "something answers" is not
@@ -786,7 +790,11 @@ mod tests {
             .await;
             let tools = client.list_all_tools().await.expect("tools/list answers");
             let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
-            let expected: Vec<&str> = sutura_app::Capability::every().map(sutura_app::Capability::id).collect();
+            // `RunRemoteLeg` excluded: the node-to-node channel, never a tool any surface advertises.
+            let expected: Vec<&str> = sutura_app::Capability::every()
+                .filter(|capability| *capability != sutura_app::Capability::RunRemoteLeg)
+                .map(sutura_app::Capability::id)
+                .collect();
             assert_eq!(advertised, expected, "{advertised:?}");
 
             let result = client

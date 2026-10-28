@@ -381,6 +381,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // 409: which relationship serves a lookup leg is the catalog's to say, and a caller can
         // only leave dimensions out.
         RefusalReason::CrossModelRatioLinkAmbiguous { ref metric, ref model } => (StatusCode::CONFLICT, ambiguous(metric, model)),
+        // 403: a remote leg this node will not certify or will not run at all is the same shape as
+        // `SourceRefused` - this node answered, and answered no - never reached over this surface,
+        // because `Capability::RunRemoteLeg` is removed from this surface's served tool set. Kept
+        // exhaustive anyway, so a cross-crate `RefusalReason` match cannot drift silently.
+        RefusalReason::RemoteLegNotCertified { ref source } => (
+            StatusCode::FORBIDDEN,
+            format!(
+                "this node does not certify or does not run a remote leg through `{source}`; this is \
+                 not an outage and asking the same leg again returns this same refusal"
+            ),
+        ),
     };
     (
         status,
@@ -496,7 +507,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::TopOverUncertifiedRows { .. }
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
         | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
-        | RefusalReason::CrossModelRatioLinkAmbiguous { .. } => None,
+        | RefusalReason::CrossModelRatioLinkAmbiguous { .. }
+        | RefusalReason::RemoteLegNotCertified { .. } => None,
     }
 }
 

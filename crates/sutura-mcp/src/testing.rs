@@ -561,6 +561,41 @@ impl FailingSurface {
     }
 }
 
+/// `Surface::run_remote_leg`, repeated identically by every fixture in this file, so stated once.
+macro_rules! run_remote_leg_refuses_the_connection {
+    () => {
+        fn run_remote_leg(
+            &self,
+            _context: &sutura_domain::identity::RequestContext,
+            _leg: sutura_domain::plan::remote::LegWire,
+            _params: Vec<sutura_domain::warehouse::ParamValue>,
+            _deadline: Deadline,
+        ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure> {
+            Err(SurfaceFailure::Warehouse {
+                cause: Box::new(ConnectionRefused),
+            })
+        }
+    };
+}
+
+/// `Surface::run_sql`, repeated identically by [`FailingSurface`], [`RestrictedSurface`] and
+/// [`RestrictedKnowledgeSurface`] - none of the three records anything about a call, so one body
+/// for all three.
+macro_rules! run_sql_refuses_the_connection {
+    () => {
+        fn run_sql(
+            &self,
+            _context: &sutura_domain::identity::RequestContext,
+            _statement: &sutura_domain::raw::RawStatement,
+            _deadline: Deadline,
+        ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+            Err(SurfaceFailure::Warehouse {
+                cause: Box::new(ConnectionRefused),
+            })
+        }
+    };
+}
+
 impl Surface for FailingSurface {
     fn definitions(&self) -> Arc<PinnedDefinitions> {
         Arc::clone(&self.definitions)
@@ -581,16 +616,9 @@ impl Surface for FailingSurface {
         })
     }
 
-    fn run_sql(
-        &self,
-        _context: &sutura_domain::identity::RequestContext,
-        _statement: &sutura_domain::raw::RawStatement,
-        _deadline: Deadline,
-    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        Err(SurfaceFailure::Warehouse {
-            cause: Box::new(ConnectionRefused),
-        })
-    }
+    run_sql_refuses_the_connection!();
+
+    run_remote_leg_refuses_the_connection!();
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` at all.
@@ -642,16 +670,9 @@ impl Surface for RestrictedSurface {
         })
     }
 
-    fn run_sql(
-        &self,
-        _context: &sutura_domain::identity::RequestContext,
-        _statement: &sutura_domain::raw::RawStatement,
-        _deadline: Deadline,
-    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        Err(SurfaceFailure::Warehouse {
-            cause: Box::new(ConnectionRefused),
-        })
-    }
+    run_sql_refuses_the_connection!();
+
+    run_remote_leg_refuses_the_connection!();
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture proves a caller's catalog scoping, not spend - it carries no `SpendLedger`.
@@ -701,16 +722,9 @@ impl Surface for RestrictedKnowledgeSurface {
         })
     }
 
-    fn run_sql(
-        &self,
-        _context: &sutura_domain::identity::RequestContext,
-        _statement: &sutura_domain::raw::RawStatement,
-        _deadline: Deadline,
-    ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
-        Err(SurfaceFailure::Warehouse {
-            cause: Box::new(ConnectionRefused),
-        })
-    }
+    run_sql_refuses_the_connection!();
+
+    run_remote_leg_refuses_the_connection!();
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         None
@@ -795,6 +809,8 @@ impl Surface for RecordingSurface {
             cause: Box::new(ConnectionRefused),
         })
     }
+
+    run_remote_leg_refuses_the_connection!();
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // This fixture carries no `SpendLedger` either - it exists to record subjects, not spend.
@@ -919,6 +935,8 @@ impl Surface for HoldingSurface {
             reason: sutura_domain::raw::RawRefusalReason::StatementFailed,
         })
     }
+
+    run_remote_leg_refuses_the_connection!();
 
     fn spend_headroom_bytes(&self) -> Option<u64> {
         // The admission bound is this fixture's own concern; it carries no `SpendLedger`.

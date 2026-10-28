@@ -369,20 +369,25 @@ impl<S> AgentSurface<S> {
     /// `http::tests` exercises this arm through it; the in-process cells here still build one by hand,
     /// the same shape the transport hands over.
     ///
-    /// Returns the refusal rather than a fallback when `PerRequest` finds nothing: an absent
-    /// `sutura_app::Asked` must never read as `Asking::TheProcessOwner` would, which is why `Asking`
-    /// is an enum with no `Option` anywhere in it rather than one with a convenient default.
+    /// Returns the refusal rather than a fallback when `PerRequest` finds nothing: an absent `Asked`
+    /// must never read as `Asking::TheProcessOwner` would, so `Asking` has no `Option` anywhere.
     fn asked<'a>(&self, context: &'a RequestContext<RoleServer>) -> Result<Cow<'a, Asked>, ErrorData> {
+        let stripped = |established: sutura_domain::identity::RequestContext, permitted: sutura_app::Permitted| {
+            Cow::Owned(Asked::established(established, permitted.without(Capability::RunRemoteLeg)))
+        };
         match &self.asking {
-            Asking::TheProcessOwner { permitted } => Ok(Cow::Owned(Asked::established(
-                crate::principal::established(),
-                permitted.clone(),
-            ))),
+            Asking::TheProcessOwner { permitted } => Ok(stripped(crate::principal::established(), permitted.clone())),
             Asking::PerRequest => context
                 .extensions
                 .get::<http::request::Parts>()
                 .and_then(|parts| parts.extensions.get::<Asked>())
-                .map(Cow::Borrowed)
+                .map(|asked| {
+                    if asked.permitted().includes(Capability::RunRemoteLeg) {
+                        stripped(asked.context().clone(), asked.permitted().clone())
+                    } else {
+                        Cow::Borrowed(asked)
+                    }
+                })
                 .ok_or_else(no_established_caller),
         }
     }
@@ -545,6 +550,8 @@ where
                     }
                 }
             }
+            // Unreachable: `asked` already strips this; kept only for match exhaustiveness.
+            Capability::RunRemoteLeg => return Err(ErrorData::method_not_found::<CallToolRequestMethod>()),
         };
         Ok(CallToolResponse::Complete(result))
     }

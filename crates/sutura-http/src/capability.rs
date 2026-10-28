@@ -179,7 +179,12 @@ pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
 }
 
 /// [`permitted_for`]'s narrowing, over a [`Permitted`] that is not inside an `Asked` yet.
+///
+/// `RunRemoteLeg` is removed unconditionally, for every caller including one presenting every
+/// scope this surface knows: a remote leg arrives over the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`
+/// describes, never over this surface, so there is no setting that turns it on here.
 fn switched(permitted: Permitted, run_sql_enabled: bool) -> Permitted {
+    let permitted = permitted.without(Capability::RunRemoteLeg);
     if run_sql_enabled {
         permitted
     } else {
@@ -344,21 +349,36 @@ mod tests {
     /// **This crate's half of `both_transports_describe_the_same_tools`.**
     ///
     /// The two transports cannot compare notes - an adapter never calls another adapter - so what is
-    /// asserted is that this transport governs **exactly** `sutura_app::Capability::every()`, once
-    /// each. `sutura_mcp::tool`'s test of the same name asserts the same thing of its advertised tool
-    /// list, against the same source. Two tests over one source is the only shape in which the two
+    /// asserted is that this transport governs **exactly** `sutura_app::Capability::every()` minus
+    /// `RunRemoteLeg`, once each. `RunRemoteLeg` is never a route: a remote leg arrives over the
+    /// node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` describes, not a served HTTP route, and
+    /// [`super::switched`] removes it unconditionally regardless of a caller's own scopes.
+    /// `sutura_mcp::tool`'s test of the same name asserts the same thing of its advertised tool list,
+    /// against the same source. Two tests over one source is the only shape in which the two
     /// descriptions cannot disagree.
     #[test]
     fn both_transports_describe_the_same_tools() {
         let mut covered: Vec<&str> = governed().iter().map(|governed| governed.capability().id()).collect();
         covered.sort_unstable();
-        let mut expected: Vec<&str> = Capability::every().map(Capability::id).collect();
+        let mut expected: Vec<&str> = Capability::every()
+            .filter(|capability| *capability != Capability::RunRemoteLeg)
+            .map(Capability::id)
+            .collect();
         expected.sort_unstable();
         assert_eq!(covered, expected, "{covered:?}");
         // Once each: two rows for one capability would mean two routes doing the same job, and one
         // of them would drift.
         covered.dedup();
         assert_eq!(covered.len(), governed().len());
+    }
+
+    /// `RunRemoteLeg` is removed from this surface for every caller, including one holding every
+    /// scope this surface knows.
+    #[test]
+    fn run_remote_leg_is_never_permitted_on_this_surface() {
+        let every_scope = Permitted::granted_by(Capability::every().map(Capability::scope));
+        assert!(!super::switched(every_scope, true).includes(Capability::RunRemoteLeg));
+        assert!(!super::switched(Permitted::every_capability(), true).includes(Capability::RunRemoteLeg));
     }
 
     #[test]

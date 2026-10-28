@@ -113,6 +113,7 @@ const REFUSAL_REASONS: &[Label] = &[
     label("plan_spans_too_many_sources"),
     label("plan_tables_share_an_identifier"),
     label("question_needs_too_many_legs"),
+    label("remote_leg_not_certified"),
     label("resources_exhausted"),
     label("result_too_large"),
     label("source_refused"),

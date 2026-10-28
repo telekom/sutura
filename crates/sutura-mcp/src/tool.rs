@@ -83,6 +83,14 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              and the rows themselves. There is no way to send SQL, a table name or a filter expression, and \
              an argument that names one is rejected."
         }
+        // Never advertised here: `crate::server::AgentSurface::asked` removes it unconditionally. The
+        // text exists only so this exhaustive match compiles; no peer of this surface ever reads it.
+        Capability::RunRemoteLeg => {
+            "Run one remote leg at this node, under a caller another node already established. Not a \
+             tool this surface serves: a remote leg arrives over the node-to-node channel, never a \
+             tool call, and this deployment removes it from every agent's tool list regardless of \
+             scope."
+        }
         Capability::RunSql => {
             "Run one literal SQL statement against this deployment's own configured data system, \
              unparsed, exactly as sent. Off by default, and refused unless a deployment turned it \
@@ -105,8 +113,11 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
 /// arguments type does not compile.
 pub fn input_schema(capability: Capability) -> JsonObject {
     let schema = match capability {
-        Capability::DescribeCatalog => schemars::schema_for!(DescribeCatalogArgs),
         Capability::AskMetric => schemars::schema_for!(AskArgs),
+        // `RunRemoteLeg` is never advertised: see `description`'s own note. No wire type exists for a
+        // tool this surface never serves, so its schema is nominal - the same empty shape
+        // `DescribeCatalogArgs` has, reused rather than inventing a type with no caller.
+        Capability::DescribeCatalog | Capability::RunRemoteLeg => schemars::schema_for!(DescribeCatalogArgs),
         Capability::RunSql => schemars::schema_for!(RunSqlArgs),
     };
     // `schemars::Schema` is a JSON value that is an object by construction for a derived struct
@@ -170,7 +181,10 @@ mod tests {
     /// committed bytes are a property of the schema and of nothing else.
     #[test]
     fn the_advertised_tool_schemas_are_the_committed_ones() {
-        for capability in Capability::every() {
+        // Only what this transport ever advertises - `RunRemoteLeg` is never a tool call here (the
+        // same filter `both_transports_describe_the_same_tools` uses below), so there is no nominal
+        // schema to snapshot for it.
+        for capability in Capability::every().filter(|capability| *capability != Capability::RunRemoteLeg) {
             insta::assert_snapshot!(
                 format!("{}_input_schema", capability.id()),
                 canonical(&serde_json::Value::Object(input_schema(capability)), 0)
@@ -312,9 +326,14 @@ mod tests {
     /// shape in which the two descriptions cannot disagree.
     #[test]
     fn both_transports_describe_the_same_tools() {
-        let tools = every(&Permitted::every_capability());
+        let tools = every(&Permitted::every_capability().without(Capability::RunRemoteLeg));
         let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
-        let expected: Vec<&str> = Capability::every().map(Capability::id).collect();
+        // `RunRemoteLeg` is never advertised here, for the reason `description` states: it is not a
+        // tool call, it is the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` describes.
+        let expected: Vec<&str> = Capability::every()
+            .filter(|capability| *capability != Capability::RunRemoteLeg)
+            .map(Capability::id)
+            .collect();
         assert_eq!(advertised, expected, "{advertised:?}");
     }
 
@@ -324,6 +343,9 @@ mod tests {
     fn the_advertised_tools_differ_by_scope() {
         let all = every(&Permitted::every_capability());
         assert_eq!(all.len(), Capability::every().count());
+        // `every_capability()` is unfiltered: `RunRemoteLeg` not being advertised is
+        // `AgentSurface::asked` narrowing what it hands to `every`, not something `every` does on
+        // its own, which this and `both_transports_describe_the_same_tools` keep separate.
 
         let catalog_only = every(&Permitted::granted_by([Capability::DescribeCatalog.scope()]));
         assert_eq!(catalog_only.len(), 1, "{catalog_only:?}");

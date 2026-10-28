@@ -146,6 +146,9 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             metric: metric("revenue_per_customer"),
             model: model("customers"),
         },
+        RefusalReason::RemoteLegNotCertified {
+            source: source("warehouse"),
+        },
     ];
     for reason in &all {
         // No wildcard: a variant added to the enum does not compile until it is named here.
@@ -182,7 +185,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::TopOverUncertifiedRows { .. }
             | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
             | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
-            | RefusalReason::CrossModelRatioLinkAmbiguous { .. } => {}
+            | RefusalReason::CrossModelRatioLinkAmbiguous { .. }
+            | RefusalReason::RemoteLegNotCertified { .. } => {}
         }
     }
     all

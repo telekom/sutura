@@ -192,7 +192,15 @@ async fn two_callers_over_one_connection_are_two_different_askers() {
         .await
         .expect("tools/list answers")
         .tools;
-    assert_eq!(shown_to_bob.len(), Capability::every().count(), "{shown_to_bob:?}");
+    // `RunRemoteLeg` is removed from every peer's tool list unconditionally, including bob's: it is
+    // not a tool call, it is the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` describes.
+    assert_eq!(shown_to_bob.len(), Capability::every().count() - 1, "{shown_to_bob:?}");
+    assert!(
+        !shown_to_bob
+            .iter()
+            .any(|tool| tool.name.as_ref() == Capability::RunRemoteLeg.id()),
+        "{shown_to_bob:?}"
+    );
 
     // The control: alice is refused the tool her scope does not name, on this same connection's peer.
     let refused = surface
