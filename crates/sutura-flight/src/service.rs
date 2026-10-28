@@ -24,11 +24,12 @@
 //!    attached to a synchronous call this async handler must not block on directly.
 //! 6. An [`RemoteLegOutcome::Answer`] is encoded as the reply stream. A
 //!    [`RemoteLegOutcome::Refusal`] crosses as ONE closed [`Status::failed_precondition`] whose
-//!    message is exactly `reason.code()` - [`RefusalReason::code`] is already the exhaustive,
+//!    message is exactly `reason.code()` -
+//!    [`RefusalReason::code`](sutura_domain::query::RefusalReason::code) is already the exhaustive,
 //!    no-wildcard, no-field-interpolated rendering this boundary needs, so this service adds no
-//!    second one. A [`SurfaceFailure`] - this node's own compile, warehouse, broker or wiring
-//!    defect, never the caller's fault - crosses as [`Status::internal`] with a fixed sentence,
-//!    never this error's own `Display` or source chain.
+//!    second one. A [`SurfaceFailure`](sutura_app::surface::SurfaceFailure) - this node's own
+//!    compile, warehouse, broker or wiring defect, never the caller's fault - crosses as
+//!    [`Status::internal`] with a fixed sentence, never this error's own `Display` or source chain.
 //!
 //! **Why `FailedPrecondition` for a refusal.** gRPC's own status-code guidance reserves
 //! `InvalidArgument` for a malformed REQUEST - true of a framing or parameter-decode failure, which
