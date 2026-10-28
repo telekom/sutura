@@ -42,19 +42,25 @@
 #   * `key_set_document`   - `sutura_http::inbound::keys::KeySet::parse`, the JWK-set document an
 #     operator's key-set file or authorization server supplies. Runs `serde_json`, then
 #     `jsonwebtoken`'s JWK decode, base64 and `KeyId::parse`; asserts a parsed set is never empty.
+#   * `leg_wire`           - `sutura_domain::plan::LegWire`, the typed leg a remote node's Flight
+#     transport carries in its descriptor. Runs `serde_json` with `deny_unknown_fields` and then
+#     `LegWire::parse` against a fixed two-source pinned catalog with one crossing relationship,
+#     so certification is reachable past the first metric lookup for both leg kinds - *A new
+#     parser at a trust boundary*, `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`'s
+#     own reason to fuzz it. The bound parameters are fixed per leg kind, so nothing fuzzes them.
 #
-#   A sixth target, over the wire transport's `jobs.query` reply decode, was removed with the
+#   A former target, over the wire transport's `jobs.query` reply decode, was removed with the
 #   wire transport (`AdbcBigQuery` replaced it; ADBC has its own decode path).
 #
 # NOT A COMPILE GATE ON `pull_request`, and that is a limit stated rather than a gap closed by
 # this file. `cargo xtask check-fuzz` (the hygiene-sweep gate, on every pull request) verifies this
 # manifest's WIRING - a `[[bin]]` entry, a seed directory, a matrix line - and compiles nothing; the
-# only things that ever compile these five targets are a release-tag or manual-dispatch run of
+# only things that ever compile these six targets are a release-tag or manual-dispatch run of
 # `.github/workflows/fuzz.yml` and a developer's `just ship-check` over a diff in the fuzzed tree. No
 # commit hook replays them. So a change to first-party API surface these targets bind to -
-# `LocalCatalog::new`/`root`/`load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`, and
-# the sibling targets' own signatures - that breaks a target merges green on `ci` and is found at
-# the next tag or manual dispatch, unless its author ran `ship-check`.
+# `LocalCatalog::new`/`root`/`load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`,
+# `LegWire::parse`, and the sibling targets' own signatures - that breaks a target merges green on
+# `ci` and is found at the next tag or manual dispatch, unless its author ran `ship-check`.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo
 # refuses outright: "current package believes it's in a workspace when it's not".
@@ -146,6 +152,13 @@ bench = false
 [[bin]]
 name = "key_set_document"
 path = "fuzz_targets/key_set_document.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "leg_wire"
+path = "fuzz_targets/leg_wire.rs"
 test = false
 doc = false
 bench = false

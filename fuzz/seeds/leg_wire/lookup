@@ -1,0 +1,1 @@
+{"filters":[],"joins":[],"keys":[],"leg":"lookup","metric":{"digest":"b9539e83742c776605d34bc518ad5876271556c3658cdd92698a8d9b65dda6a2","metric":"revenue"},"source":"secondary","table":"dim_region"}

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
+index f50e006e..7a688e73 100644
+--- a/crates/sutura-flight/src/receive.rs
++++ b/crates/sutura-flight/src/receive.rs
+@@ -66,7 +66,7 @@ where
+         return Err(ReceiveError::Descriptor);
+     }
+     if descriptor.cmd.len() > descriptor_limit.get() {
+-        return Err(ReceiveError::DescriptorLimit);
++        return Err(ReceiveError::FrameLimit);
+     }
+     let mut remaining = frame_budget
+         .get()
