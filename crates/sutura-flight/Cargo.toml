@@ -11,13 +11,19 @@ description = "Arrow Flight framing for typed sutura remote legs."
 [dependencies]
 arrow-array = { workspace = true }
 arrow-flight = { workspace = true }
+arrow-schema = { workspace = true }
 futures-util = { workspace = true }
 serde_json = { workspace = true }
+sutura-app = { workspace = true }
 sutura-domain = { workspace = true }
+sutura-runtime = { workspace = true }
 thiserror = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }

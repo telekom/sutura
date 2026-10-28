@@ -4375,11 +4375,17 @@ version = "0.11.0"
 dependencies = [
  "arrow-array",
  "arrow-flight",
+ "arrow-schema",
  "futures-util",
+ "parking_lot 0.13.0",
  "serde_json",
+ "sutura-app",
  "sutura-domain",
+ "sutura-runtime",
  "thiserror 2.0.21",
  "tokio",
+ "tonic",
+ "tracing",
 ]
 
 [[package]]

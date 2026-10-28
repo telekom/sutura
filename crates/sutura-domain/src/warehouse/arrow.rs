@@ -330,6 +330,13 @@ impl ResultBatches {
         &self.batches
     }
 
+    /// The batches, owned - for a transport that streams them on.
+    #[inline]
+    #[must_use]
+    pub fn into_batches(self) -> Vec<RecordBatch> {
+        self.batches
+    }
+
     /// How many rows the stream delivered.
     #[inline]
     #[must_use]

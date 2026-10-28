@@ -3,13 +3,19 @@
 //!
 //! The remote-leg ADR chooses one `DoExchange` call per leg. This crate owns only that protocol
 //! boundary: the descriptor carries the domain's [`LegWire`] document and the first stream carries
-//! the parameter batch. It does not open a listener, verify identity, or execute a leg; those
-//! responsibilities stay with the composition and application layers that will consume this
-//! foundation in later slices.
+//! the parameter batch. [`RemoteLegService`] serves that call and hands the leg to the driving
+//! port, which executes it. It does not open a listener or verify identity: whatever mounts it
+//! establishes the caller first.
 
+mod grpc_timeout;
+mod params;
 mod receive;
+mod service;
 
+pub use grpc_timeout::{MalformedTimeout, parse as parse_grpc_timeout};
+pub use params::{ParamsError, decode as decode_params};
 pub use receive::{ReceiveError, receive_request};
+pub use service::RemoteLegService;
 
 use arrow_array::RecordBatch;
 use arrow_flight::{
