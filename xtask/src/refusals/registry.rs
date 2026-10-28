@@ -76,7 +76,11 @@ const QUERY: Subject = Subject {
     // there, and every leg's source counts against the source ceiling.
     // 33 remains after the multi-metric planner DELETED `MultiMetricTopNotExecutable`: a whole-question
     // top is now carried through the drill-across plan and applied after the join.
-    variants: variants(33),
+    // 34 since `telekom/sutura#137` ADDED `RemoteLegNotCertified`: a remote leg received at the serving
+    // node, uncertified against this node's own pinned bundle for any reason - a digest mismatch, an
+    // undeclared table, relationship, column or grain, or a source this node will not run a remote leg
+    // through at all - collapses to this one closed code, naming the source and nothing else.
+    variants: variants(34),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

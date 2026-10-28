@@ -542,6 +542,16 @@ pub enum RefusalReason {
     /// serves which leg is the catalog's to say; a caller can only leave dimensions out, one of two
     /// that reach the same model or all that do.
     CrossModelRatioLinkAmbiguous { metric: MetricName, model: ModelName },
+    /// A remote leg this node received names a metric, table, relationship, column or grain this
+    /// node does not certify the way the sending node described it - `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`'s closed code
+    /// for every way a leg a sender built can fail to be the leg this node would have built.
+    ///
+    /// A digest mismatch, an uncertified table or relationship, a column this node's catalog does
+    /// not carry, an undeclared grain, and a `source` this node will not run a remote leg through
+    /// at all - shared rather than impersonated, or declared not to execute legs - all collapse
+    /// here. Distinguishing them would hand a hostile sender a map of this node's own definitions
+    /// or its identity posture; naming the `source` is the whole of what crosses back.
+    RemoteLegNotCertified { source: SourceName },
 }
 
 /// What a tool call produced.

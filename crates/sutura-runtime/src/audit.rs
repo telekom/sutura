@@ -219,7 +219,71 @@ impl AuditSink for TracingAuditSink {
                 statement = statement.as_str(),
                 "raw_failed"
             ),
+            // A remote leg's own two arms (`telekom/sutura#137` step 3), split into their own
+            // function: these two arms are what pushed `record` past `cognitive_complexity`'s cap,
+            // and splitting them out is what the lint itself suggests rather than an `#[allow]`.
+            RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {
+                record_remote_leg(
+                    &who,
+                    &azp,
+                    &client_id,
+                    sutura_client,
+                    sutura_actor,
+                    sutura_correlation,
+                    &delegated_as,
+                    record,
+                );
+            }
         }
+    }
+}
+
+/// `RecordedOutcome::RemoteLegAnswered`/`RemoteLegRefused`, split out of [`TracingAuditSink::record`]
+/// for the reason stated there. No `provenance` field: `RemoteLegOutcome` carries none, for the
+/// reason `sutura_app::remote_leg`'s module documentation gives.
+fn record_remote_leg(
+    who: &Attributed,
+    azp: &str,
+    client_id: &str,
+    sutura_client: &str,
+    sutura_actor: &str,
+    sutura_correlation: &str,
+    delegated_as: &str,
+    record: &CallRecord<'_>,
+) {
+    match *record.outcome() {
+        RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(
+            subject_established = who.established,
+            subject = who.subject,
+            actors = who.actors,
+            acting = who.acting,
+            task = who.task,
+            azp,
+            client_id,
+            sutura_client,
+            sutura_actor,
+            sutura_correlation,
+            delegated_as,
+            rows,
+            credential_until = executed_until(record),
+            "remote_leg_answered"
+        ),
+        RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(
+            subject_established = who.established,
+            subject = who.subject,
+            actors = who.actors,
+            acting = who.acting,
+            task = who.task,
+            azp,
+            client_id,
+            sutura_client,
+            sutura_actor,
+            sutura_correlation,
+            delegated_as,
+            reason = ?reason,
+            "remote_leg_refused"
+        ),
+        _ => {}
     }
 }
 

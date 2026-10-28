@@ -153,6 +153,7 @@ impl RefusalReason {
             Self::CrossModelRatioWithoutSharedCalendar { .. } => "cross_model_ratio_without_shared_calendar",
             Self::CrossModelRatioWithoutSharedDimension { .. } => "cross_model_ratio_without_shared_dimension",
             Self::CrossModelRatioLinkAmbiguous { .. } => "cross_model_ratio_link_ambiguous",
+            Self::RemoteLegNotCertified { .. } => "remote_leg_not_certified",
         }
     }
 }

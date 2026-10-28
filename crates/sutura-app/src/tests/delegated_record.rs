@@ -105,6 +105,8 @@ impl AuditSink for Recording {
             RecordedOutcome::Refused { .. } => "refused",
             RecordedOutcome::RawAnswered { .. } => "raw_answered",
             RecordedOutcome::RawRefused { .. } => "raw_refused",
+            RecordedOutcome::RemoteLegAnswered { .. } => "remote_leg_answered",
+            RecordedOutcome::RemoteLegRefused { .. } => "remote_leg_refused",
             RecordedOutcome::Failed { failure } | RecordedOutcome::RawFailed { failure, .. } => failure,
         };
         let delegated = record.delegated_as().map_or_else(String::new, |delegated| {

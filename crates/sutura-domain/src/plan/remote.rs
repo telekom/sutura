@@ -45,12 +45,52 @@ use crate::definitions::NotDigestible;
 use crate::model::{DimensionName, Grain, QualifiedTable, RelationshipName, SourceName};
 use crate::pinned::{MetricDigest, PinnedDefinitions};
 use crate::plan::{InternalLabel, KeyValue, LegPlan, PlanColumn, PlanFilter, PlanKey, PlanTerm, ResultLabel};
-use crate::warehouse::ParamValue;
+use crate::query::RefusalReason;
+use crate::warehouse::{ParamValue, ResultBatches};
 
 mod certify;
 
 use certify::certify;
 pub use certify::{LegNotCertified, LegPart};
+
+/// What running one remote leg at the serving node produced, or why it did not run -
+/// `telekom/sutura#137` step 3's own outcome type.
+///
+/// **A separate type from [`crate::query::ToolOutcome`], for [`crate::raw::RawOutcome`]'s own
+/// reason.** Neither variant here carries a [`crate::pinned::Provenance`]: the serving node's own
+/// pin is not the asking node's catalog, and a remote-leg answer wearing the certified answer's
+/// type would make "this crossed a node, not a single pinned bundle" a fact a reader has to
+/// remember rather than one the type already states.
+#[derive(Debug)]
+pub enum RemoteLegOutcome {
+    /// The leg ran and produced this result.
+    Answer { batches: ResultBatches },
+    /// The leg was refused, before or after a credential was minted for it.
+    Refusal { reason: RefusalReason },
+}
+
+impl RemoteLegOutcome {
+    /// The refusal reason, if this is one. Convenience for an audit sink, matching
+    /// [`crate::raw::RawOutcome::refusal`]'s own shape.
+    #[inline]
+    #[must_use]
+    pub const fn refusal(&self) -> Option<&RefusalReason> {
+        match self {
+            Self::Refusal { reason } => Some(reason),
+            Self::Answer { .. } => None,
+        }
+    }
+
+    /// How many rows this outcome carries, for an audit record. `0` for a refusal.
+    #[inline]
+    #[must_use]
+    pub const fn row_count(&self) -> usize {
+        match self {
+            Self::Answer { batches } => batches.rows(),
+            Self::Refusal { .. } => 0,
+        }
+    }
+}
 
 /// What a result column is called, as it travels: an internal label or a dimension's name.
 ///
@@ -245,6 +285,16 @@ pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, Not
 }
 
 impl LegWire {
+    /// The source this leg names, before it is certified against this node's own pin - the field
+    /// both variants carry, read without matching on which one this is.
+    #[inline]
+    #[must_use]
+    pub const fn source(&self) -> &SourceName {
+        match self {
+            Self::Fact { source, .. } | Self::Lookup { source, .. } => source,
+        }
+    }
+
     /// The leg this node runs, or the reason it does not.
     ///
     /// `params` are the values the leg's predicates bind, in placeholder order: the transport reads
