@@ -55,6 +55,7 @@ mod nix_platform;
 mod one_bound;
 mod orphan_modules;
 mod pins;
+mod pr_body;
 mod pr_title;
 mod refusals;
 mod registry;
