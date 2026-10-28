@@ -5,7 +5,7 @@
 //! where*, reading `.github/**`, `flake.nix` and `devenv.nix` instead of the crates.
 
 use crate::registry::{Edit, Falsifier, Kind, Paired, Reads, Task};
-use crate::{action_shell, changes, devenv_linter, devenv_shell, hook_coverage, hooks, pr_title, venues, workflows};
+use crate::{action_shell, changes, devenv_linter, devenv_shell, hook_coverage, hooks, pr_body, pr_title, venues, workflows};
 
 /// `page_problems`' own rule: a verdict cell `verdict` cannot read.
 const CHECK_VENUES_PAIRED: Paired = Paired {
@@ -213,6 +213,17 @@ pub(crate) const TASKS: &[Task] = &[
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: pr_title::run,
+    },
+    Task {
+        // GitHub's closing-keyword parser ignores a preceding negation (measured: #1609, #1596,
+        // #1484 each closed the issue their body said they did NOT close). `Standalone` for
+        // `check-pr-title`'s own reason: the body is an argument from the triggering event, which
+        // the argument-free `hygiene` sweep has no pull request to ask for.
+        name: "check-pr-body",
+        description: "a negation before a closing keyword still closes the issue on GitHub; <body>",
+        kind: Kind::Standalone,
+        falsifier: Falsifier::declared_in_programme(),
+        run: pr_body::run,
     },
     Task {
         name: "classify",

@@ -1,16 +1,20 @@
 # The subject the queue squashes onto `main` is the pull-request TITLE, which no local hook sees
 # (#935). A workflow of its own so a RENAME alone starts a fresh verdict: `ci`'s `pull_request`
-# trigger takes the default activity types, and `edited` is not among them (#1249).
+# trigger takes the default activity types, and `edited` is not among them (#1249) - the same
+# reason the body check below lives here rather than in `ci.yml`: an edit to the body after the
+# last push must be judged too, not just the body `ci.yml`'s frozen event payload saw.
 #
 # `pr-title` is a REQUIRED context, so it answers `merge_group` too - a required check that never
-# reports leaves a queue entry pending until the queue's timeout drops it. On a queue entry it
-# judges the queued pull request's title, read from the entry's `pr-<N>-<sha>` ref.
+# reports leaves a queue entry pending until the queue's timeout drops it. On a queue entry both
+# steps judge the queued pull request's title and body, read from the entry's `pr-<N>-<sha>` ref.
 #
-# The title is fetched at run time, never read from the event payload, which is frozen at run
-# start: a re-run after a rename judges the new string. No checkout and no PR-built code - the
-# title is data handed to one `grep -E`. That regex is `xtask/src/commit_msg.rs`'s `check_shape`
-# written as an ERE, and `pr_title::tests` runs this step's own body under a fake `gh` against
-# that rule, title by title. `cargo xtask check-workflows` holds the triggers.
+# Both are fetched at run time, never read from the event payload, which is frozen at run start: a
+# re-run after an edit judges the new string. No checkout and no PR-built code - each is data
+# handed to one `grep -E`. The title regex is `xtask/src/commit_msg.rs`'s `check_shape` written as
+# an ERE; the body regex is `xtask/src/pr_body.rs`'s negated-closing-keyword rule written as an
+# ERE (`check-pr-body` itself is a local oracle only - no step calls it). `pr_title::tests` and
+# `pr_body::tests` each run their own step's body under a fake `gh` against their rule, title by
+# title and body by body. `cargo xtask check-workflows` holds the triggers.
 name: pr-title
 on:
   pull_request:
@@ -51,3 +55,34 @@ jobs:
             echo "The length is not judged: GitHub appends ' (#N)' to the landed subject." >&2
             exit 1
           fi
+
+      - name: PR body
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) number="${GITHUB_REF#refs/pull/}"; number="${number%/merge}" ;;
+            merge_group) number="${GITHUB_REF##*/pr-}"; number="${number%%-*}" ;;
+            *) echo "pr-body: a $GITHUB_EVENT_NAME event carries no pull request" >&2; exit 1 ;;
+          esac
+          case "$number" in
+            '' | *[!0-9]*) echo "pr-body: no pull request number in $GITHUB_REF" >&2; exit 1 ;;
+          esac
+          body="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq .body)"
+          # A hard wrap joins as a space, so a negation on one line still reaches a keyword on the
+          # next - the same whole-body-as-one-word-stream shape `xtask/src/pr_body.rs` judges. The
+          # optional `[^[:space:]]*`/`[^[:alnum:][:space:]]*` runs keep this agreeing with the Rust
+          # rule when punctuation sits right against a word ("not, close #5", "not (closes #5)").
+          flat="$(printf '%s' "$body" | tr '\n' ' ')"
+          pattern='(\bnot\b|\bnever\b|\bnor\b|\bwithout\b|n'"'"'t\b)[^[:space:]]*([[:space:]]+[^[:space:]]+){0,3}[[:space:]]+[^[:alnum:][:space:]]*(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved):?[[:space:]]+(https://github\.com/[^/[:space:]]+/[^/[:space:]]+/(issues|pull)/[0-9]+|[^/[:space:]]+/[^/[:space:]]+#[0-9]+|#[0-9]+)'
+          if printf '%s' "$flat" | grep -Eiq "$pattern"; then
+            # The matched span only, one per log line, behind a fixed prefix - never the raw body:
+            # it is attacker-controlled text, and a line in it starting `::stop-commands::` or
+            # `::add-mask::` would otherwise be read back as a workflow command once logged as-is
+            # (the title step is safe only because a title carries no newline).
+            printf '%s' "$flat" | grep -Eio "$pattern" | sed 's/^/pr-body: refused: /' >&2
+            echo "GitHub still links and closes the referenced issue. Write 'Part of #N' or 'Refs #N' instead." >&2
+            exit 1
+          fi
+          echo "pr-body: ok"
