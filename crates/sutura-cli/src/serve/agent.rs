@@ -62,6 +62,18 @@ impl Surface for Serving {
         self.push_headroom();
         answered
     }
+    fn run_remote_leg(
+        &self,
+        context: &RequestContext,
+        leg: sutura_domain::plan::remote::LegWire,
+        params: Vec<sutura_domain::warehouse::ParamValue>,
+        deadline: Deadline,
+    ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure> {
+        let ran = self.surface.run_remote_leg(context, leg, params, deadline);
+        self.push_headroom();
+        ran
+    }
+
     fn spend_headroom_bytes(&self) -> Option<u64> {
         self.surface.spend_headroom_bytes()
     }

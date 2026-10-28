@@ -76,6 +76,13 @@ pub enum Capability {
     ///
     /// [`crate::surface::Surface::answer`].
     AskMetric,
+    /// Run one remote leg this node certifies, under the caller already established at this node.
+    ///
+    /// [`crate::surface::Surface::run_remote_leg`]. Neither transport offers it: a leg arrives over
+    /// the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` describes, not over a served tool surface, so both
+    /// `sutura-http` and `sutura-mcp` remove it with [`Permitted::without`] regardless of a caller's
+    /// own scopes.
+    RunRemoteLeg,
     /// Run one literal SQL statement against the configured source, off by default. A `multi-user`
     /// deployment starts with it on only while some source is an acknowledged `shared-service-user`.
     ///
@@ -102,7 +109,8 @@ impl Capability {
     const fn next(self) -> Option<Self> {
         match self {
             Self::DescribeCatalog => Some(Self::AskMetric),
-            Self::AskMetric => Some(Self::RunSql),
+            Self::AskMetric => Some(Self::RunRemoteLeg),
+            Self::RunRemoteLeg => Some(Self::RunSql),
             Self::RunSql => None,
         }
     }
@@ -126,6 +134,7 @@ impl Capability {
         match self {
             Self::DescribeCatalog => "describe_catalog",
             Self::AskMetric => "ask_metric",
+            Self::RunRemoteLeg => "run_remote_leg",
             Self::RunSql => "run_sql",
         }
     }
@@ -145,6 +154,7 @@ impl Capability {
         match self {
             Self::DescribeCatalog => "sutura:catalog.read",
             Self::AskMetric => "sutura:metrics.ask",
+            Self::RunRemoteLeg => "sutura:legs.run",
             Self::RunSql => "sutura:sql.run",
         }
     }
@@ -278,7 +288,7 @@ mod tests {
     /// `Capability::next`, so comparing its length to its own length would prove nothing. A variant
     /// added to the enum fails this test, which is the reminder that a new capability is a change to
     /// the deployed contract - a scope an authorization server has to be configured with.
-    const HOW_MANY: usize = 3;
+    const HOW_MANY: usize = 4;
 
     #[test]
     fn the_walk_reaches_every_capability() {
@@ -299,6 +309,8 @@ mod tests {
         assert_eq!(Capability::DescribeCatalog.scope(), "sutura:catalog.read");
         assert_eq!(Capability::AskMetric.id(), "ask_metric");
         assert_eq!(Capability::AskMetric.scope(), "sutura:metrics.ask");
+        assert_eq!(Capability::RunRemoteLeg.id(), "run_remote_leg");
+        assert_eq!(Capability::RunRemoteLeg.scope(), "sutura:legs.run");
         assert_eq!(Capability::RunSql.id(), "run_sql");
         assert_eq!(Capability::RunSql.scope(), "sutura:sql.run");
     }
@@ -377,6 +389,20 @@ mod tests {
         let every_scope = Permitted::granted_by(Capability::every().map(Capability::scope)).without(Capability::RunSql);
         assert!(!every_scope.includes(Capability::RunSql));
         assert!(every_scope.includes(Capability::AskMetric));
+    }
+
+    /// `telekom/sutura#137` step 3: a token minted for a different capability does not carry
+    /// `sutura:legs.run` along for free, so a caller that may only ask a metric may not run a
+    /// remote leg at this surface.
+    #[test]
+    fn running_a_remote_leg_needs_its_own_scope_not_ask_metrics() {
+        let metrics_only = Permitted::granted_by([Capability::AskMetric.scope()]);
+        assert!(!metrics_only.includes(Capability::RunRemoteLeg));
+        assert!(!metrics_only.advertised().any(|shown| shown == Capability::RunRemoteLeg));
+
+        let legs_only = Permitted::granted_by([Capability::RunRemoteLeg.scope()]);
+        assert!(legs_only.includes(Capability::RunRemoteLeg));
+        assert!(!legs_only.includes(Capability::AskMetric));
     }
 
     /// Advertisement and permission read the same set, so they cannot disagree.

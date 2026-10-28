@@ -99,7 +99,9 @@ fn both_transports_describe_the_same_tools() {
         }
     }
     documented.sort();
+    // `RunRemoteLeg` excluded: the node-to-node channel, never a route this document describes.
     let mut expected: Vec<String> = sutura_app::Capability::every()
+        .filter(|capability| *capability != sutura_app::Capability::RunRemoteLeg)
         .map(|capability| String::from(capability.id()))
         .collect();
     expected.sort();

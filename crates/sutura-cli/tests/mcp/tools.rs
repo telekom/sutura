@@ -60,12 +60,17 @@ fn the_schemas_the_binary_advertises_are_the_committed_ones() {
     let listed = result["tools"].as_array().cloned().unwrap_or_default();
 
     // Derived from `sutura_app::Capability` rather than from a list written here, so a third
-    // capability is covered by this test the day it is added.
+    // capability is covered by this test the day it is added. `RunRemoteLeg` is excluded the same
+    // way `sutura_mcp::tool` excludes it from every list it serves: it is the node-to-node
+    // channel, never a tool this or any other surface advertises.
     let advertised: Vec<&str> = listed.iter().filter_map(|tool| tool["name"].as_str()).collect();
-    let expected: Vec<&str> = Capability::every().map(Capability::id).collect();
+    let expected: Vec<&str> = Capability::every()
+        .filter(|capability| *capability != Capability::RunRemoteLeg)
+        .map(Capability::id)
+        .collect();
     assert_eq!(advertised, expected, "{listed:?}");
 
-    for capability in Capability::every() {
+    for capability in Capability::every().filter(|capability| *capability != Capability::RunRemoteLeg) {
         let tool = listed
             .iter()
             .find(|tool| tool["name"] == capability.id())

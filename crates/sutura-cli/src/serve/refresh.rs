@@ -464,6 +464,18 @@ pub(crate) mod tests {
             })
         }
 
+        fn run_remote_leg(
+            &self,
+            _: &RequestContext,
+            _: sutura_domain::plan::remote::LegWire,
+            _: Vec<sutura_domain::warehouse::ParamValue>,
+            _: Deadline,
+        ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure> {
+            Err(SurfaceFailure::Compile {
+                cause: Box::new(FakeRefused),
+            })
+        }
+
         fn spend_headroom_bytes(&self) -> Option<u64> {
             None
         }

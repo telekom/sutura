@@ -127,6 +127,7 @@ sutura_refusals_total{reason="plan_needs_too_many_lookup_legs"} 0
 sutura_refusals_total{reason="plan_spans_too_many_sources"} 0
 sutura_refusals_total{reason="plan_tables_share_an_identifier"} 0
 sutura_refusals_total{reason="question_needs_too_many_legs"} 0
+sutura_refusals_total{reason="remote_leg_not_certified"} 0
 sutura_refusals_total{reason="resources_exhausted"} 0
 sutura_refusals_total{reason="result_too_large"} 0
 sutura_refusals_total{reason="source_refused"} 0

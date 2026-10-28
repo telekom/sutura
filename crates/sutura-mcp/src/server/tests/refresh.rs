@@ -62,6 +62,18 @@ impl Surface for RotatingSurface {
         })
     }
 
+    fn run_remote_leg(
+        &self,
+        _: &RequestContext,
+        _: sutura_domain::plan::remote::LegWire,
+        _: Vec<sutura_domain::warehouse::ParamValue>,
+        _: Deadline,
+    ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure> {
+        Err(SurfaceFailure::Warehouse {
+            cause: Box::new(ConnectionRefused),
+        })
+    }
+
     fn spend_headroom_bytes(&self) -> Option<u64> {
         None
     }

@@ -138,5 +138,12 @@ pub(super) fn every_reason_the_second_half() -> Vec<Expected> {
             StatusCode::CONFLICT,
             "cross_model_ratio_link_ambiguous",
         ),
+        (
+            RefusalReason::RemoteLegNotCertified {
+                source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            StatusCode::FORBIDDEN,
+            "remote_leg_not_certified",
+        ),
     ]
 }

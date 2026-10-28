@@ -183,6 +183,27 @@ pub trait Surface: Send + Sync + 'static {
         deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure>;
 
+    /// Runs one remote leg this node certifies, under the caller already established at this node,
+    /// or says why it will not - the serving side of `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`'s node-to-node channel,
+    /// `telekom/sutura#137` step 3.
+    ///
+    /// Same shape as [`Self::answer`] and [`Self::run_sql`] in every way that matters: a refusal
+    /// comes back inside the `Ok` as [`sutura_domain::plan::remote::RemoteLegOutcome::Refusal`],
+    /// never as an `Err`, and the implementation writes one record per outcome before this returns.
+    /// `leg` arrives already typed rather than compiled from a [`Query`] - see
+    /// [`crate::remote_leg`]'s own module documentation for why, and for what this slice does not
+    /// yet certify (`kind: node`, `telekom/sutura#137` step 3's slice 4).
+    ///
+    /// `deadline` is opened by the transport the same instant [`Self::answer`]'s is, before
+    /// admission (`docs/adr/0029`).
+    fn run_remote_leg(
+        &self,
+        context: &RequestContext,
+        leg: sutura_domain::plan::remote::LegWire,
+        params: Vec<sutura_domain::warehouse::ParamValue>,
+        deadline: Deadline,
+    ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure>;
+
     /// This replica's current spend headroom, or `None` where no per-replica ceiling is
     /// configured.
     ///
@@ -772,6 +793,57 @@ where
                 .delegating(&delegated),
         );
         answered.map(crate::AnsweredRaw::into_outcome)
+    }
+
+    fn run_remote_leg(
+        &self,
+        context: &RequestContext,
+        leg: sutura_domain::plan::remote::LegWire,
+        params: Vec<sutura_domain::warehouse::ParamValue>,
+        deadline: Deadline,
+    ) -> Result<sutura_domain::plan::remote::RemoteLegOutcome, SurfaceFailure> {
+        // ONE snapshot for the whole call, `answer`'s own reason: a refresh landing mid-call must
+        // not hand this leg a second pin to certify against.
+        let snapshot = self.snapshot();
+        let noting = NotingBroker::over(&self.broker);
+        let ran = crate::run_remote_leg::<W, _, C>(
+            snapshot.get(),
+            leg,
+            params,
+            context,
+            &noting,
+            &self.warehouses,
+            deadline,
+            &self.spend_ledger,
+        )
+        .map_err(|error| match error {
+            // Identical to `answer`'s own match, variant for variant: the error type is the same
+            // `ServiceError<W::Error, B::Error, C::Error>`, and a transport tells the two call kinds
+            // apart by which method it called, not by a different failure vocabulary.
+            ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
+            ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            ServiceError::Broker { cause } => broker_failure(Box::new(cause)),
+            ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            ServiceError::Combine { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            ServiceError::Miswired { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            ServiceError::Unreadable { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            ServiceError::AnswersDoNotCertify { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+        });
+        // Same ordering as `answer` and `run_sql`: every outcome and failure reaches this line
+        // before the result returns.
+        let (labels, delegated) = (JobLabels::of(context), noting.delegated());
+        let record = match ran {
+            Ok(ref ran) => CallRecord::of_remote_leg(context.chain(), ran.outcome(), ran.executed_until()),
+            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),
+        };
+        self.sink.record(
+            &record
+                .naming_client(context.client())
+                .labelled(&labels)
+                .delegating(&delegated),
+        );
+        ran.map(crate::RanRemoteLeg::into_outcome)
     }
 
     fn spend_headroom_bytes(&self) -> Option<u64> {

@@ -259,19 +259,27 @@ fn a_query() -> sutura_domain::query::Query {
     }
 }
 
-/// Every tool the shared source declares is advertised, with the schema that was generated for it.
+/// Every tool the shared source declares is advertised, with the schema that was generated for it -
+/// except `RunRemoteLeg`, which `Asking::TheProcessOwner` strips the same as every other caller: it
+/// is the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`
+/// describes, never a tool call, so even a process owner permitted everything does not see it.
 ///
 /// **Over the wire and not over the function**, which is the whole reason this test exists beside
 /// `crate::tool`'s own: the list a client receives is framed and parsed by the SDK, so this is the
-/// assertion that the filtering, the naming and the schema survive the transport.
+/// assertion that the filtering, the naming and the schema survive the transport - and, for
+/// `RunRemoteLeg`, that `AgentSurface::asked`'s `TheProcessOwner` arm strips it, not only the
+/// `PerRequest` arm `asking.rs` covers.
 #[tokio::test]
 async fn the_whole_tool_set_is_advertised_with_its_generated_schemas() {
     let client = connected(certified_service()).await;
     let tools = client.list_all_tools().await.expect("tools/list answers");
     let advertised: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
-    let expected: Vec<&str> = Capability::every().map(Capability::id).collect();
+    let expected: Vec<&str> = Capability::every()
+        .filter(|capability| *capability != Capability::RunRemoteLeg)
+        .map(Capability::id)
+        .collect();
     assert_eq!(advertised, expected, "{advertised:?}");
-    for capability in Capability::every() {
+    for capability in Capability::every().filter(|capability| *capability != Capability::RunRemoteLeg) {
         let tool = tools
             .iter()
             .find(|tool| tool.name.as_ref() == capability.id())
@@ -290,9 +298,16 @@ async fn the_whole_tool_set_is_advertised_with_its_generated_schemas() {
 #[tokio::test]
 async fn the_advertised_tools_differ_by_scope() {
     let everything = connected(certified_service()).await;
-    assert_eq!(
-        everything.list_all_tools().await.expect("tools/list answers").len(),
-        Capability::every().count()
+    let advertised = everything.list_all_tools().await.expect("tools/list answers");
+    // `RunRemoteLeg` is stripped from every caller's list unconditionally, including a process
+    // owner permitted everything - it is the node-to-node channel
+    // `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md` describes, never a tool call.
+    assert_eq!(advertised.len(), Capability::every().count() - 1, "{advertised:?}");
+    assert!(
+        !advertised
+            .iter()
+            .any(|tool| tool.name.as_ref() == Capability::RunRemoteLeg.id()),
+        "{advertised:?}"
     );
     drop(everything.cancel().await);
 
