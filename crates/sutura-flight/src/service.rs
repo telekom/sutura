@@ -47,8 +47,8 @@
 //! gate and would conflate two different refusals under one code if reused here.
 //!
 //! **The caller's token never appears** in any descriptor, result, log line or error on this path -
-//! this module reads [`Asked::context`] only to hand it unmodified to [`Surface::run_remote_leg`],
-//! and emits no log line naming it.
+//! this module reads [`Asked::context`] only to check that it carries an assertion and to hand it
+//! unmodified to [`Surface::run_remote_leg`], and emits no log line naming it.
 
 mod limits;
 mod status;
