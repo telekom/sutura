@@ -29,6 +29,7 @@ tonic = { workspace = true }
 tower = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 # The loopback node's certificate.
 rcgen = { workspace = true }
 serde_json = { workspace = true }

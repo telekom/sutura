@@ -180,3 +180,16 @@ one_audit_record_is_written_per_outcome # in crates/sutura-app/src/remote_leg/te
 the_whole_tool_set_is_advertised_with_its_generated_schemas # in crates/sutura-mcp/src/server/tests.rs, a test-only file separate from capability.rs/server.rs; names `Capability::RunRemoteLeg`, new in this change and absent if those files revert to base
 the_advertised_tools_differ_by_scope # scoped test of this name in crates/sutura-mcp/src/server/tests.rs names `Capability::RunRemoteLeg`, new in this change and absent if capability.rs/server.rs revert to base; the key is the bare fn name, so this also covers tool::tests::the_advertised_tools_differ_by_scope, which shares its file with `every()` and would pass unexempted regardless
 two_callers_over_one_connection_are_two_different_askers # in crates/sutura-mcp/src/server/tests/asking.rs, a test-only file separate from capability.rs/server.rs; names `Capability::RunRemoteLeg`, new in this change and absent if those files revert to base
+a_node_endpoint_is_an_https_origin_only # in crates/sutura-exec-node, a crate new in this change, so the base has no such package to run
+each_value_is_one_column_of_one_row_in_placeholder_order # in crates/sutura-exec-node, a crate new in this change
+a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values # in crates/sutura-exec-node, a crate new in this change
+a_node_source_sends_only_a_subject_token # in crates/sutura-exec-node, a crate new in this change
+a_node_refusal_is_read_as_its_closed_code # in crates/sutura-exec-node, a crate new in this change
+an_answer_under_labels_the_leg_does_not_project_is_refused # in crates/sutura-exec-node, a crate new in this change
+a_node_whose_certificate_is_not_trusted_is_never_sent_the_leg # in crates/sutura-exec-node, a crate new in this change
+a_spent_deadline_dials_nothing # in crates/sutura-exec-node, a crate new in this change
+a_leg_over_a_source_that_is_itself_another_node_is_refused # overrides `Warehouse::relays_to_a_node`, new in this change, so its file does not compile at base
+a_leg_another_node_does_not_certify_is_refused_naming_this_nodes_source # overrides `Warehouse::leg_not_certified`, new in this change, so its file does not compile at base
+a_leg_planned_before_a_catalog_refresh_sends_the_digest_it_was_planned_under # calls `to_wire(leg)`, whose pin argument this change removed, so its file does not compile at base
+every_leg_carries_the_digest_of_the_definition_it_was_planned_from # calls `Metric::digest` and `LegPlan::metric`, new in this change, so its file does not compile at base
+a_map_in_the_node_client_is_scanned # names crates/sutura-exec-node/src/, a scope this change adds; at base the scratch tree is out of scope and the scan refuses an empty walk

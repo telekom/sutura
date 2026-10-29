@@ -453,7 +453,10 @@ fn a_leg_another_node_does_not_certify_is_refused_naming_this_nodes_source() {
         SourceName::parse("facts").expect("a test source"),
         shared(),
     ))
-    .and(UncertifyingLegsWarehouse(SourceName::parse("geo").expect("a test source"), shared()))
+    .and(UncertifyingLegsWarehouse(
+        SourceName::parse("geo").expect("a test source"),
+        shared(),
+    ))
     .expect("two sources, one registry");
     let outcome = answer_federated(
         (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),

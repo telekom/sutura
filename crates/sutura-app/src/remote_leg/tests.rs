@@ -410,7 +410,10 @@ impl sutura_domain::warehouse::Warehouse for Relaying {
         self.0.execute(executable, presented, deadline)
     }
 
-    fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<sutura_domain::warehouse::AnchorRows, Self::Error> {
+    fn verify_anchor(
+        &self,
+        plan: sutura_domain::plan::AnchorPlan<'_>,
+    ) -> Result<sutura_domain::warehouse::AnchorRows, Self::Error> {
         #[expect(clippy::disallowed_methods, reason = "a fake delegating the boot path to the fake it wraps")]
         let rows = self.0.verify_anchor(plan);
         rows

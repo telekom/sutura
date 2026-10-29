@@ -4,7 +4,9 @@
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
@@ -87,7 +89,11 @@ impl Node {
             Some((accepted, (listener, acceptor)))
         });
         let service = FlightServiceServer::new(Fake(Arc::clone(&script)));
-        runtime.spawn(tonic::transport::Server::builder().add_service(service).serve_with_incoming(incoming));
+        runtime.spawn(
+            tonic::transport::Server::builder()
+                .add_service(service)
+                .serve_with_incoming(incoming),
+        );
         Self {
             port,
             anchor,
@@ -98,7 +104,7 @@ impl Node {
 
     /// Every call this node has read so far.
     pub(super) fn received(&self) -> Vec<Received> {
-        core::mem::take(&mut self.script.lock().expect("an unpoisoned script").received)
+        core::mem::take(&mut self.script.lock().received)
     }
 }
 
@@ -198,7 +204,7 @@ impl FlightService for Fake {
             .await
             .map_err(|refused| Status::invalid_argument(refused.to_string()))?;
         let reply = {
-            let mut script = self.0.lock().expect("an unpoisoned script");
+            let mut script = self.0.lock();
             script.received.push(Received {
                 bearer,
                 timeout,

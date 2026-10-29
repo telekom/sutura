@@ -4340,6 +4340,7 @@ dependencies = [
  "futures-util",
  "http",
  "hyper-util",
+ "parking_lot 0.13.0",
  "rcgen",
  "serde_json",
  "sutura-domain",

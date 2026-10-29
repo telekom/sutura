@@ -164,8 +164,6 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 # `sutura-app` inherits it as a development dependency, for the golden matrix.
 sutura-exec-cube = { path = "crates/sutura-exec-cube" }
-# The `node` source, behind `sutura-cli`'s default-off `node` feature.
-sutura-exec-node = { path = "crates/sutura-exec-node" }
 # The leg framing `sutura-exec-node` sends through.
 sutura-flight = { path = "crates/sutura-flight" }
 sutura-adbc = { path = "crates/sutura-adbc" }
@@ -468,12 +466,9 @@ axum = { version = "0.8", default-features = false, features = [
 # (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
 # `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
 http = "1.5"
-# The gRPC client `sutura-exec-node` calls a node through. No feature of its own: `arrow-flight`
-# already resolves it with its transport, and no TLS feature is turned on, because the node client
-# brings its own rustls connector.
+# `sutura-exec-node`'s gRPC client, no TLS feature: it brings its own rustls connector.
 tonic = { version = "0.14", default-features = false }
-# `TokioIo`, which hands that connector's TLS stream to the gRPC client. Already in the lock via
-# `tonic`.
+# `TokioIo`, handing that connector's stream to the gRPC client.
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 # The middleware abstraction every layer below is written against.
 tower = "0.5"

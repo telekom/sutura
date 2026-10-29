@@ -171,7 +171,12 @@ impl Warehouse for NodeWarehouse {
     }
 
     fn source_refused(&self, error: &Self::Error) -> bool {
-        matches!(*error, NodeError::Refused { code: RemoteCode::SourceRefused })
+        matches!(
+            *error,
+            NodeError::Refused {
+                code: RemoteCode::SourceRefused
+            }
+        )
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {
@@ -195,7 +200,12 @@ impl Warehouse for NodeWarehouse {
     }
 
     fn leg_not_certified(&self, error: &Self::Error) -> bool {
-        matches!(*error, NodeError::Refused { code: RemoteCode::NotCertified })
+        matches!(
+            *error,
+            NodeError::Refused {
+                code: RemoteCode::NotCertified
+            }
+        )
     }
 
     fn relays_to_a_node(&self) -> bool {

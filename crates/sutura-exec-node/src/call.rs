@@ -96,7 +96,10 @@ impl Call {
                 let mut call = tonic::Request::new(stream::iter(frames));
                 call.metadata_mut().insert("authorization", bearer);
                 call.set_timeout(remaining);
-                let reply = client.do_exchange(call).await.map_err(|status| NodeError::of_status(&status))?;
+                let reply = client
+                    .do_exchange(call)
+                    .await
+                    .map_err(|status| NodeError::of_status(&status))?;
                 read(reply.into_inner(), budget).await
             };
             tokio::time::timeout(remaining, exchanged)
@@ -108,8 +111,9 @@ impl Call {
 
 /// The reply's batches, each checked against the first one's schema and charged as it arrives.
 async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultBudget) -> Result<ResultBatches, NodeError> {
-    let mut decoded =
-        FlightRecordBatchStream::new_from_flight_data(reply.map(|frame| frame.map_err(|status| FlightError::Tonic(Box::new(status)))));
+    let mut decoded = FlightRecordBatchStream::new_from_flight_data(
+        reply.map(|frame| frame.map_err(|status| FlightError::Tonic(Box::new(status)))),
+    );
     let mut accumulating: Option<Accumulating> = None;
     while let Some(batch) = decoded.try_next().await.map_err(|cause| match cause {
         FlightError::Tonic(status) => NodeError::of_status(&status),
@@ -120,13 +124,15 @@ async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultB
             .push(batch)
             .map_err(|cause| NodeError::Result { cause })?;
     }
-    match accumulating {
-        Some(accumulated) => Ok(accumulated.finish()),
-        None => decoded
-            .schema()
-            .map(|schema| ResultBatches::none_under(Arc::clone(schema)))
-            .ok_or(NodeError::Answer),
-    }
+    accumulating.map_or_else(
+        || {
+            decoded
+                .schema()
+                .map(|schema| ResultBatches::none_under(Arc::clone(schema)))
+                .ok_or(NodeError::Answer)
+        },
+        |accumulated| Ok(accumulated.finish()),
+    )
 }
 
 fn client_config(anchors: impl IntoIterator<Item = CertificateDer<'static>>) -> Result<ClientConfig, NotBuilt> {

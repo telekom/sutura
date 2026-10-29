@@ -76,7 +76,10 @@ fn leg() -> LegPlan {
 /// One row under `labels`, every column an integer.
 fn answer(labels: &[String]) -> RecordBatch {
     let fields: Vec<Field> = labels.iter().map(|label| Field::new(label, DataType::Int64, true)).collect();
-    let columns: Vec<ArrayRef> = labels.iter().map(|_| Arc::new(Int64Array::from(vec![7])) as ArrayRef).collect();
+    let columns: Vec<ArrayRef> = labels
+        .iter()
+        .map(|_| Arc::new(Int64Array::from(vec![7])) as ArrayRef)
+        .collect();
     RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).expect("a batch")
 }
 
@@ -124,7 +127,10 @@ fn a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values() {
     let descriptor = serde_json::to_string(&received.leg).expect("a leg serializes");
     assert!(!descriptor.contains(TOKEN), "the token rides in metadata, never in the leg");
     assert!(warehouse.relays_to_a_node(), "a node source is another node, for decision 9");
-    assert_eq!(<NodeWarehouse as sutura_domain::warehouse::Warehouse>::IMPERSONATION, ImpersonationCapability::PerSubjectCredential);
+    assert_eq!(
+        <NodeWarehouse as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
+        ImpersonationCapability::PerSubjectCredential
+    );
 }
 
 #[test]

@@ -48,6 +48,10 @@ mod tests {
         assert_eq!(built.column(0).as_primitive::<Date32Type>().value(0), june.days_since_epoch());
         assert_eq!(built.column(1).as_string::<i32>().value(0), "paid");
         assert!(built.columns().iter().all(|column| column.null_count() == 0));
-        assert_eq!(batch(&[]).expect("an empty batch").num_rows(), 1, "no values still sends one row");
+        assert_eq!(
+            batch(&[]).expect("an empty batch").num_rows(),
+            1,
+            "no values still sends one row"
+        );
     }
 }
