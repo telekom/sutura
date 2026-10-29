@@ -1,20 +1,29 @@
 #![forbid(unsafe_code)]
 //! Arrow Flight framing for a typed remote leg.
 //!
-//! The remote-leg ADR chooses one `DoExchange` call per leg. This crate owns only that protocol
+//! The remote-leg ADR chooses one `DoExchange` call per leg. This crate owns that protocol
 //! boundary: the descriptor carries the domain's [`LegWire`] document and the first stream carries
-//! the parameter batch. [`RemoteLegService`] serves that call and hands the leg to the driving
-//! port, which executes it. It does not open a listener or verify identity: whatever mounts it
+//! the parameter batch. The framing is the default build and links `sutura-domain` and Arrow only,
+//! so the caller of a remote leg reuses it without the application layer.
+//!
+//! The `service` feature adds `RemoteLegService`, node B's server for that call, which hands the
+//! leg to the driving port. It does not open a listener or verify identity: whatever mounts it
 //! establishes the caller first.
 
+#[cfg(feature = "service")]
 mod grpc_timeout;
+#[cfg(feature = "service")]
 mod params;
 mod receive;
+#[cfg(feature = "service")]
 mod service;
 
+#[cfg(feature = "service")]
 pub use grpc_timeout::{MalformedTimeout, parse as parse_grpc_timeout};
+#[cfg(feature = "service")]
 pub use params::{ParamsError, decode as decode_params};
 pub use receive::{ReceiveError, receive_request};
+#[cfg(feature = "service")]
 pub use service::RemoteLegService;
 
 use arrow_array::RecordBatch;
