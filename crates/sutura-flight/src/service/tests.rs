@@ -8,17 +8,18 @@ use arrow_flight::error::FlightError;
 use arrow_flight::flight_service_server::FlightServiceServer;
 use arrow_flight::{FlightClient, FlightData, FlightDescriptor};
 use arrow_schema::{DataType, Field, Schema};
-use futures_util::TryStreamExt as _;
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use parking_lot::Mutex;
 use sutura_app::surface::{ErasedCause, SurfaceFailure};
 use sutura_app::{Asked, Capability, Permitted};
 use sutura_domain::definitions::DefinitionDigest;
-use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
+use sutura_domain::identity::{PrincipalChain, RequestContext, Secret, Subject};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::plan::remote::{LegWire, RemoteLegOutcome};
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::arrow::{Accumulating, ResultBudget};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_runtime::Admission;
 use tonic::metadata::MetadataValue;
 use tonic::service::Interceptor;
 use tonic::service::interceptor::InterceptedService;
@@ -174,6 +175,16 @@ impl Surface for FakeSurface {
     }
 }
 
+/// The admission bound a settings document describes, read the way a deployment writes it.
+fn admission(overlay: &str) -> Admission {
+    let sources = sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay);
+    Admission::from_settings(
+        sutura_config::Settings::load(&sources)
+            .expect("the test settings load")
+            .runtime(),
+    )
+}
+
 /// The service over `surface`, with a thirty-second budget and generous framing limits.
 fn service_over(surface: &Arc<FakeSurface>) -> RemoteLegService<FakeSurface> {
     limited(surface, budget(Duration::from_secs(30)), DESCRIPTOR_LIMIT, FRAME_BUDGET)
@@ -187,6 +198,7 @@ fn limited(
 ) -> RemoteLegService<FakeSurface> {
     RemoteLegService::new(
         Arc::clone(surface),
+        admission(""),
         own,
         DescriptorLimit::parse(descriptor_limit).expect("nonzero"),
         FrameBudget::parse(frame_budget).expect("nonzero"),
@@ -208,7 +220,19 @@ impl Interceptor for Admit {
     }
 }
 
+/// A caller whose assertion the mounting transport verified.
 fn asked(permitted: Permitted) -> Asked {
+    let subject = Subject::verified("someone@example.com").expect("a test subject is a subject");
+    let context = RequestContext::with_assertion(
+        PrincipalChain::of(subject),
+        Secret::new("a-verified-assertion"),
+        4_102_444_800,
+    );
+    Asked::established(context, permitted)
+}
+
+/// The deployment's own identity: established, but with no caller assertion behind it.
+fn the_deployment(permitted: Permitted) -> Asked {
     Asked::established(
         RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)),
         permitted,
@@ -302,7 +326,12 @@ async fn a_refused_caller_never_has_its_request_read() {
     let service = service_over(&surface);
     let malformed = MetadataValue::from_static("not-a-timeout");
     let without = asked(Permitted::every_capability().without(Capability::RunRemoteLeg));
-    for (caller, code) in [(None, Code::Unauthenticated), (Some(without), Code::PermissionDenied)] {
+    let unverified = the_deployment(Permitted::every_capability());
+    for (caller, code) in [
+        (None, Code::Unauthenticated),
+        (Some(unverified), Code::Unauthenticated),
+        (Some(without), Code::PermissionDenied),
+    ] {
         let polled = Arc::new(AtomicBool::new(false));
         let seen = Arc::clone(&polled);
         let peer = futures_util::stream::poll_fn(move |_context| {
@@ -318,6 +347,69 @@ async fn a_refused_caller_never_has_its_request_read() {
             "the request stream of a {code:?} caller was polled"
         );
     }
+    assert_eq!(surface.calls(), 0);
+}
+
+#[tokio::test]
+async fn a_caller_with_no_verified_assertion_is_unauthenticated_and_never_runs_the_leg() {
+    let surface = FakeSurface::answering(|| Ok(an_answer()));
+    let mut client = serve(
+        service_over(&surface),
+        Admit(Some(the_deployment(Permitted::every_capability()))),
+    )
+    .await;
+    let status = refused(&mut client).await;
+    assert_eq!(status.code(), Code::Unauthenticated);
+    assert_eq!(status.message(), "this remote leg needs a verified caller");
+    assert_eq!(surface.calls(), 0);
+}
+
+/// With every slot taken the leg is shed before it runs; once the slot comes back the next one
+/// runs, and hands its own slot back when it returns.
+#[tokio::test]
+async fn a_leg_with_no_free_slot_is_shed_and_never_runs() {
+    let surface = FakeSurface::answering(|| Ok(an_answer()));
+    let bound = admission("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
+    let service = RemoteLegService::new(
+        Arc::clone(&surface),
+        bound.clone(),
+        budget(Duration::from_secs(30)),
+        DescriptorLimit::parse(DESCRIPTOR_LIMIT).expect("nonzero"),
+        FrameBudget::parse(FRAME_BUDGET).expect("nonzero"),
+    );
+    let mut client = serve(service, admitted()).await;
+    let held = bound.admit().await.expect("the only slot is free");
+    let status = refused(&mut client).await;
+    assert_eq!(status.code(), Code::ResourceExhausted);
+    assert_eq!(status.message(), "every execution slot is taken; retry");
+    assert_eq!(surface.calls(), 0);
+
+    drop(held);
+    let _reply: Vec<RecordBatch> = client
+        .do_exchange(a_request())
+        .await
+        .expect("a free slot admits the leg")
+        .try_collect()
+        .await
+        .expect("a well-formed reply");
+    assert_eq!(surface.calls(), 1);
+    assert_eq!(bound.free(), 1);
+}
+
+/// A request stream that sends its leg and parameters and then never ends is cut off when the
+/// call's deadline runs out, and the leg never runs.
+#[tokio::test]
+async fn a_request_stream_that_never_ends_is_deadline_exceeded() {
+    let surface = FakeSurface::answering(|| Ok(an_answer()));
+    let service = limited(&surface, budget(Duration::from_millis(200)), DESCRIPTOR_LIMIT, FRAME_BUDGET);
+    let mut client = serve(service, admitted()).await;
+    let parameters = futures_util::stream::iter(vec![Ok(one_row_batch())]).chain(futures_util::stream::pending());
+    let request = crate::request_stream(&a_lookup_leg(), parameters).expect("an encodable leg");
+    let Err(FlightError::Tonic(status)) = client.do_exchange(request).await else {
+        panic!("a request that never ends was not refused with a status");
+    };
+    assert_eq!(status.code(), Code::DeadlineExceeded);
+    assert_eq!(status.message(), "the remote leg request did not arrive inside its deadline");
     assert_eq!(surface.calls(), 0);
 }
 

@@ -6,24 +6,30 @@
 //!
 //! **Per-call order**, and why it is this order:
 //!
-//! 1. An [`Asked`] must already be in the request's extensions, or the call is
-//!    [`Status::unauthenticated`] - never a fallback to this process's own identity. Whatever
-//!    mounts this service establishes that value; this service refuses outright rather than guess.
+//! 1. An [`Asked`] must already be in the request's extensions, and its context must carry the
+//!    caller's verified assertion, or the call is [`Status::unauthenticated`] - never a fallback to
+//!    this process's own identity. Whatever mounts this service establishes that value; this
+//!    service refuses outright rather than guess, and a remote leg runs only for a verified caller.
 //! 2. The established caller must hold [`Capability::RunRemoteLeg`], or the call is
 //!    [`Status::permission_denied`]. Both checks run before the `grpc-timeout` header is parsed or
 //!    the request stream is polled, so an unauthorized caller's bytes are never framed, decoded or
 //!    executed.
-//! 3. Framing ([`crate::receive_request`]) and parameter decode ([`crate::params::decode`]) each
-//!    close over their own error: the `Display` of a [`crate::ReceiveError`] or
-//!    [`crate::ParamsError`] names no peer-supplied value, so surfacing it verbatim in
-//!    [`Status::invalid_argument`] discloses nothing a closed refusal would not.
-//! 4. The deadline opens at the EARLIER of this service's own [`Budget`] and the caller's
+//! 3. The deadline opens at the EARLIER of this service's own [`Budget`] and the caller's
 //!    `grpc-timeout` header - never later than either, so a caller cannot extend this node's own
 //!    bound by asking for more.
-//! 5. [`Surface::run_remote_leg`] runs on the blocking pool via
+//! 4. The request is received inside what that deadline has left: a stream that has not ended when
+//!    it runs out is [`Status::deadline_exceeded`]. Framing ([`crate::receive_request`]) and
+//!    parameter decode ([`crate::params::decode`]) each close over their own error: the `Display`
+//!    of a [`crate::ReceiveError`] or [`crate::ParamsError`] names no peer-supplied value, so
+//!    surfacing it verbatim in [`Status::invalid_argument`] discloses nothing a closed refusal
+//!    would not.
+//! 5. The leg takes a slot from the deployment's [`Admission`] - the same bound both other
+//!    transports take - or is shed as [`Status::resource_exhausted`]. The slot moves into the
+//!    blocking task, so it is held until the leg returns, not until the handler does.
+//! 6. [`Surface::run_remote_leg`] runs on the blocking pool via
 //!    `sutura_runtime::spawn_carrying_span`, which is what keeps the request's tracing span
 //!    attached to a synchronous call this async handler must not block on directly.
-//! 6. An [`RemoteLegOutcome::Answer`] is encoded as the reply stream. A
+//! 7. An [`RemoteLegOutcome::Answer`] is encoded as the reply stream. A
 //!    [`RemoteLegOutcome::Refusal`] crosses as ONE closed [`Status::failed_precondition`] whose
 //!    message is exactly `reason.code()` -
 //!    [`RefusalReason::code`](sutura_domain::query::RefusalReason::code) is already the exhaustive,
@@ -65,6 +71,7 @@ use sutura_app::surface::Surface;
 use sutura_app::{Asked, Capability};
 use sutura_domain::plan::remote::RemoteLegOutcome;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_runtime::Admission;
 use tonic::metadata::{Ascii, MetadataValue};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -81,17 +88,28 @@ type Reply = BoxStream<'static, Result<FlightData, Status>>;
 /// Node B's `DoExchange` server over one [`Surface`]. See the module docs for the per-call order.
 pub struct RemoteLegService<S: ?Sized> {
     surface: Arc<S>,
+    admission: Admission,
     budget: Budget,
     descriptor_limit: DescriptorLimit,
     frame_budget: FrameBudget,
 }
 
 impl<S: ?Sized> RemoteLegService<S> {
-    /// Build the service over `surface`, bound by `budget` and the two framing limits
-    /// [`crate::receive_request`] takes.
-    pub const fn new(surface: Arc<S>, budget: Budget, descriptor_limit: DescriptorLimit, frame_budget: FrameBudget) -> Self {
+    /// Build the service over `surface`, bound by the deployment's `admission`, by `budget` and by
+    /// the two framing limits [`crate::receive_request`] takes.
+    ///
+    /// `admission` is the composition root's one bound, handed down: an [`Admission`] has no
+    /// constructor but `Admission::from_settings`, so a service cannot be built without one.
+    pub const fn new(
+        surface: Arc<S>,
+        admission: Admission,
+        budget: Budget,
+        descriptor_limit: DescriptorLimit,
+        frame_budget: FrameBudget,
+    ) -> Self {
         Self {
             surface,
+            admission,
             budget,
             descriptor_limit,
             frame_budget,
@@ -112,6 +130,11 @@ fn call_budget(own: Budget, header: Option<Duration>) -> Budget {
         let shorter = own.duration().min(header.max(Duration::from_nanos(1)));
         Budget::parse(shorter).unwrap_or(own)
     })
+}
+
+/// The request did not arrive inside the call's deadline.
+fn past_deadline() -> Status {
+    Status::deadline_exceeded("the remote leg request did not arrive inside its deadline")
 }
 
 /// Parse the `grpc-timeout` header, if the caller sent one.
@@ -140,28 +163,44 @@ impl<S: Surface + ?Sized> RemoteLegService<S> {
         R: Stream<Item = Result<FlightData, FlightError>> + Send + 'static,
     {
         let asked = asked.ok_or_else(|| Status::unauthenticated("no established caller for this remote leg"))?;
+        if asked.context().assertion().is_none() {
+            return Err(Status::unauthenticated("this remote leg needs a verified caller"));
+        }
         if !asked.permitted().includes(Capability::RunRemoteLeg) {
             return Err(Status::permission_denied("this caller may not run a remote leg"));
         }
         let deadline = Deadline::opened_at(Instant::now(), call_budget(self.budget, header_timeout(timeout)?));
 
-        let (leg, batch) = receive_request(peer, self.descriptor_limit.bytes(), self.frame_budget.bytes())
+        let left = deadline.remaining_at(Instant::now()).ok_or_else(past_deadline)?;
+        let received = receive_request(peer, self.descriptor_limit.bytes(), self.frame_budget.bytes());
+        let (leg, batch) = tokio::time::timeout(left, received)
             .await
+            .map_err(|_elapsed| past_deadline())?
             .map_err(|cause| Status::invalid_argument(cause.to_string()))?;
         let params = params::decode(&batch).map_err(|cause| Status::invalid_argument(cause.to_string()))?;
 
+        let slot = self.admission.admit().await.map_err(|shed| {
+            tracing::warn!(
+                max_concurrent_queries = shed.bound(),
+                admission_timeout_seconds = shed.waited().as_secs(),
+                "a remote leg was shed: every execution slot was taken"
+            );
+            Status::resource_exhausted("every execution slot is taken; retry")
+        })?;
         let surface = Arc::clone(&self.surface);
-        let outcome =
-            match sutura_runtime::spawn_carrying_span(move || surface.run_remote_leg(asked.context(), leg, params, deadline))
-                .await
-            {
-                Ok(Ok(outcome)) => outcome,
-                Ok(Err(failure)) => return Err(status::failed(&failure)),
-                Err(error) => {
-                    tracing::error!(error = %error, "the blocking task running a remote leg did not finish");
-                    return Err(Status::internal("the remote leg did not finish"));
-                }
-            };
+        let outcome = match sutura_runtime::spawn_carrying_span(move || {
+            let _slot = slot;
+            surface.run_remote_leg(asked.context(), leg, params, deadline)
+        })
+        .await
+        {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(failure)) => return Err(status::failed(&failure)),
+            Err(error) => {
+                tracing::error!(error = %error, "the blocking task running a remote leg did not finish");
+                return Err(Status::internal("the remote leg did not finish"));
+            }
+        };
 
         match outcome {
             RemoteLegOutcome::Answer { batches } => {

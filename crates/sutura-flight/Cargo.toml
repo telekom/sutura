@@ -13,7 +13,7 @@ description = "Arrow Flight framing for typed sutura remote legs."
 # decode. Default-off so the framing a caller of a remote leg reuses links `sutura-domain` and
 # Arrow only: the application layer, the runtime and the gRPC server arrive with this feature and
 # with nothing else.
-service = ["dep:arrow-schema", "dep:sutura-app", "dep:sutura-runtime", "dep:tonic", "dep:tracing"]
+service = ["dep:arrow-schema", "dep:sutura-app", "dep:sutura-runtime", "dep:tokio", "dep:tonic", "dep:tracing"]
 
 [dependencies]
 arrow-array = { workspace = true }
@@ -25,6 +25,7 @@ sutura-app = { workspace = true, optional = true }
 sutura-domain = { workspace = true }
 sutura-runtime = { workspace = true, optional = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"], optional = true }
 tonic = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 
@@ -33,4 +34,5 @@ workspace = true
 
 [dev-dependencies]
 parking_lot = { workspace = true }
+sutura-config = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }

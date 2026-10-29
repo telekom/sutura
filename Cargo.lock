@@ -4380,6 +4380,7 @@ dependencies = [
  "parking_lot 0.13.0",
  "serde_json",
  "sutura-app",
+ "sutura-config",
  "sutura-domain",
  "sutura-runtime",
  "thiserror 2.0.21",
