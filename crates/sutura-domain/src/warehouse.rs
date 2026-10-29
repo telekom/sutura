@@ -755,6 +755,31 @@ pub trait Warehouse {
         false
     }
 
+    /// Was this [`execute`](Warehouse::execute) failure another sutura node declining a leg it does
+    /// not certify against its own definitions?
+    ///
+    /// The fifth predicate, for the other four's reason. `true` leaves as
+    /// [`RefusalReason::RemoteLegNotCertified`](crate::query::RefusalReason::RemoteLegNotCertified)
+    /// naming this source, so the caller is told the leg was refused rather than offered the retry
+    /// a `503` invites (`docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`, decision
+    /// 3). Defaulted to `false`: only an adapter that sends a leg to a node can be told this.
+    fn leg_not_certified(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Whether this source relays a leg to another sutura node rather than running it at a data
+    /// system - read per instance, for [`Self::executes_legs`]'s reason.
+    ///
+    /// A node refuses to serve a remote leg over such a source, so a leg crosses one hop at most
+    /// (decision 9 of the leg-transport ADR). **Defaulted to `false`, which is the UNSAFE
+    /// direction:** an adapter that relays and forgets this line lets a second hop through. One
+    /// adapter relays, `sutura_exec_node`, and its own cell holds the line; a registry enum that
+    /// wraps it must forward the method, which nothing checks.
+    #[must_use]
+    fn relays_to_a_node(&self) -> bool {
+        false
+    }
+
     /// Does this data system hold the tables the bundle names?
     ///
     /// **Asked once, at boot, before a listener is bound**, and it exists to close an asymmetry

@@ -4331,6 +4331,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-exec-node"
+version = "0.11.0"
+dependencies = [
+ "arrow-array",
+ "arrow-flight",
+ "arrow-schema",
+ "futures-util",
+ "http",
+ "hyper-util",
+ "rcgen",
+ "serde_json",
+ "sutura-domain",
+ "sutura-flight",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tonic",
+ "tower",
+]
+
+[[package]]
 name = "sutura-exec-oracle"
 version = "0.11.0"
 dependencies = [
