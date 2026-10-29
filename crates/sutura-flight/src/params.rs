@@ -37,6 +37,12 @@ pub enum ParamsError {
         /// The column's position, never its field name.
         at: usize,
     },
+    /// A `Date32` day count outside the years this domain's `Date` represents.
+    #[error("the remote leg parameter at column {at} is a date outside the supported range")]
+    DateOutOfRange {
+        /// The column's position, never its field name.
+        at: usize,
+    },
 }
 
 /// Decode a `DoExchange` request's parameter batch into the positional values `LegWire::parse`
@@ -61,7 +67,7 @@ fn decode_one(batch: &RecordBatch, at: usize) -> Result<ParamValue, ParamsError>
         DataType::Utf8 => Ok(ParamValue::Text(String::from(column.as_string::<i32>().value(0)))),
         DataType::Date32 => Date::from_days_since_epoch(column.as_primitive::<Date32Type>().value(0))
             .map(ParamValue::Date)
-            .map_err(|_cause| ParamsError::UnsupportedType { at }),
+            .map_err(|_cause| ParamsError::DateOutOfRange { at }),
         _ => Err(ParamsError::UnsupportedType { at }),
     }
 }
@@ -113,6 +119,15 @@ mod tests {
     }
 
     #[test]
+    fn an_out_of_range_date_is_refused_by_position() {
+        let batch = one_row(vec![
+            ("x", DataType::Utf8, Arc::new(StringArray::from(vec!["ok"]))),
+            ("d", DataType::Date32, Arc::new(Date32Array::from(vec![i32::MAX]))),
+        ]);
+        assert_eq!(decode(&batch), Err(ParamsError::DateOutOfRange { at: 1 }));
+    }
+
+    #[test]
     fn a_null_value_is_refused_by_position() {
         let batch = one_row(vec![("x", DataType::Utf8, Arc::new(StringArray::from(vec![None::<&str>])))]);
         assert_eq!(decode(&batch), Err(ParamsError::Null { at: 0 }));
@@ -144,12 +159,13 @@ mod tests {
     }
 
     /// Column POSITION is the identity: a field named for the wrong column must not relabel it.
+    /// The names sort in the reverse of their positions, so a decoder ordering by name differs.
     #[test]
     fn column_position_not_field_name_is_the_identity() {
         let date = Date::from_days_since_epoch(100).expect("a representable date");
         let batch = one_row(vec![
-            ("looks_like_a_date", DataType::Utf8, Arc::new(StringArray::from(vec!["ok"]))),
-            ("looks_like_text", DataType::Date32, Arc::new(Date32Array::from(vec![100]))),
+            ("z_looks_like_a_date", DataType::Utf8, Arc::new(StringArray::from(vec!["ok"]))),
+            ("a_looks_like_text", DataType::Date32, Arc::new(Date32Array::from(vec![100]))),
         ]);
         assert_eq!(
             decode(&batch),

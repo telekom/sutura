@@ -195,6 +195,7 @@ a_header_timeout_longer_than_the_budget_leaves_the_budget # in crates/sutura-fli
 no_header_timeout_leaves_the_budget # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
 a_zero_header_timeout_is_one_nanosecond # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
 a_malformed_header_timeout_is_invalid_argument # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_non_ascii_header_timeout_is_invalid_argument # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
 every_surface_failure_crosses_as_its_own_status # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
 a_surface_failure_crosses_as_its_variants_status # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
 a_leg_that_did_not_finish_is_internal # in crates/sutura-flight/src/service/tests.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
@@ -203,6 +204,7 @@ a_zero_byte_framing_limit_is_refused # in crates/sutura-flight/src/service/limit
 a_utf8_column_decodes_to_text # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 a_date32_column_decodes_to_date # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 an_unsupported_arrow_type_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+an_out_of_range_date_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
 a_null_value_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 zero_rows_is_refused # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 two_rows_is_refused # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
@@ -214,5 +216,6 @@ an_unrecognised_unit_is_refused # names the grpc-timeout parser (grpc_timeout.rs
 more_than_eight_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 eight_digits_is_the_boundary_and_still_parses # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 non_numeric_digits_are_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+a_signed_amount_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
 no_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 an_empty_value_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there

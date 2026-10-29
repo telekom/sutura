@@ -91,6 +91,12 @@ mod tests {
         assert_eq!(parse("1a2S"), Err(MalformedTimeout));
     }
 
+    /// A sign is not a digit, though `u64`'s own parse accepts a leading `+`.
+    #[test]
+    fn a_signed_amount_is_refused() {
+        assert_eq!(parse("+5S"), Err(MalformedTimeout));
+    }
+
     #[test]
     fn no_digits_is_refused() {
         assert_eq!(parse("S"), Err(MalformedTimeout));

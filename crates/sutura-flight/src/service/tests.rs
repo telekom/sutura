@@ -26,7 +26,7 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Server;
 use tonic::{Code, Status};
 
-use super::{DescriptorLimit, FrameBudget, RemoteLegService, Surface, call_budget, status};
+use super::{DescriptorLimit, FrameBudget, RemoteLegService, Surface, call_budget, header_timeout, status};
 
 const DESCRIPTOR_LIMIT: usize = 1 << 16;
 const FRAME_BUDGET: usize = 1 << 20;
@@ -494,6 +494,17 @@ async fn a_malformed_header_timeout_is_invalid_argument() {
     let status = refused(&mut client).await;
     assert_eq!(status.code(), Code::InvalidArgument);
     assert_eq!(status.message(), "the grpc-timeout header is malformed");
+}
+
+/// A header that is not visible ASCII is refused, never read as absent.
+#[test]
+fn a_non_ascii_header_timeout_is_invalid_argument() {
+    let value = MetadataValue::try_from(&[b'5', 0x80, b'S'][..]).expect("an obs-text header value");
+    let Err(status) = header_timeout(Some(&value)) else {
+        panic!("a non-ASCII grpc-timeout was accepted");
+    };
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert_eq!(status.message(), "the grpc-timeout header is not valid ASCII");
 }
 
 /// Each variant's code and fixed message. The cause is never in the message.
