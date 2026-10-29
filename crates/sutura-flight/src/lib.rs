@@ -24,7 +24,7 @@ pub use grpc_timeout::{MalformedTimeout, parse as parse_grpc_timeout};
 pub use params::{ParamsError, decode as decode_params};
 pub use receive::{ReceiveError, receive_request};
 #[cfg(feature = "service")]
-pub use service::RemoteLegService;
+pub use service::{DescriptorLimit, FrameBudget, NoLimit, RemoteLegService};
 
 use arrow_array::RecordBatch;
 use arrow_flight::{
