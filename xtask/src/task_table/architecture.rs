@@ -114,16 +114,16 @@ pub(crate) const TASKS: &[Task] = &[
         run: newtype_leaks::run,
     },
     Task {
-        // Beside `check-newtype-leaks` for the same reason: it starts GREEN - no map in these two
+        // Beside `check-newtype-leaks` for the same reason: it starts GREEN - no map in these three
         // crates holds an answer-path type, and the one credential cache this workspace ever had
         // lived inside an adapter and is now deleted - and its whole job is to keep it that way. Deferred
         // from `telekom/sutura#381`, owed by that record's own "what this leaves for later", and
         // `telekom/sutura#706` is where the deferral is tracked.
         //
         // The falsifier is a named-field struct whose only field is a `HashMap` holding a `RowSet` -
-        // the shape a subject-keyed answer cache would take if one were added to either crate.
+        // the shape a subject-keyed answer cache would take if one were added to any of them.
         name: "check-answer-path-caches",
-        description: "no map or cache in sutura-app or sutura-domain holds a type read off the answer path",
+        description: "no map or cache in sutura-app, sutura-domain or sutura-flight holds a type read off the answer path",
         kind: Kind::Hygiene(Reads::Code),
         falsifier: Falsifier {
             seeds: &[(

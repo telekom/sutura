@@ -44,14 +44,19 @@
 //! # The declared list, held in both directions
 //!
 //! [`ANSWER_PATH_TYPES`] names what a cache would have to hold to be this gate's business - the
-//! result of running a plan (`RowSet`, `AnchorRows`), the plan itself compiled
+//! result of running a plan (`RowSet`, `AnchorRows`, `ResultBatches`), the plan itself compiled
 //! (`QueryPlan`, `AnchorPlan`, `LegPlan`, `FederatedPlan`), what a warehouse is asked to run
-//! (`Executable`), and the answer a caller receives (`Answered`, `AnsweredRaw`). Adding or
+//! (`Executable`), and the answer a caller receives (`Answered`, `AnsweredRaw`, and a remote leg's
+//! `RemoteLegOutcome` and `RanRemoteLeg`). Adding or
 //! removing an entry is an architecture decision, exactly as `newtype_leaks::LEAKY` and `::SEALED`
 //! are - and, as with those two, an entry naming a type that moved or was renamed would guard
 //! nothing silently, so [`run`] checks the reverse direction: every declared `declared_in` file
 //! must actually declare the name beside it, or the gate fails rather than passing over a name
 //! nothing in the tree answers to.
+//!
+//! **What the list cannot name:** Arrow's own `RecordBatch`. It is declared outside this
+//! repository, so no `declared_in` file can anchor it, and a map holding bare `RecordBatch`
+//! values passes. A map holding the `ResultBatches` that owns them does not.
 
 use crate::Verdict;
 use crate::repo;
@@ -106,6 +111,18 @@ const ANSWER_PATH_TYPES: &[AnswerPathType] = &[
     AnswerPathType {
         name: "AnsweredRaw",
         declared_in: "crates/sutura-app/src/raw.rs",
+    },
+    AnswerPathType {
+        name: "ResultBatches",
+        declared_in: "crates/sutura-domain/src/warehouse/arrow.rs",
+    },
+    AnswerPathType {
+        name: "RemoteLegOutcome",
+        declared_in: "crates/sutura-domain/src/plan/remote.rs",
+    },
+    AnswerPathType {
+        name: "RanRemoteLeg",
+        declared_in: "crates/sutura-app/src/remote_leg.rs",
     },
 ];
 
@@ -256,8 +273,8 @@ fn decide(found: &Scanned) -> Verdict {
     if !found.violations.is_empty() {
         eprintln!();
         eprintln!(
-            "The answer path's interior (`sutura-app`, `sutura-domain`) may not remember an \
-             earlier answer keyed for reuse: a `HashMap`/`BTreeMap` holding a RowSet, a compiled \
+            "The answer path's interior (`sutura-app`, `sutura-domain`) and the `DoExchange` \
+             transport (`sutura-flight`) may not remember an earlier answer keyed for reuse: a `HashMap`/`BTreeMap` holding a RowSet, a compiled \
              plan or an Executable would answer a later question without asking the source again -"
         );
         eprintln!(
@@ -675,6 +692,29 @@ mod tests {
             found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
         );
         assert_eq!(found.violations[0].holds, "RowSet");
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
+    }
+
+    /// What the transport carries is on the list, not only the interior's types: a remote leg's
+    /// outcome, the batches it owns and the application's record of the run are each refused there.
+    #[test]
+    fn a_map_of_a_remote_legs_reply_is_refused() {
+        let tree = crate::scratch_tree::Tree::of(
+            "answer-path-cache-remote-leg",
+            &[(
+                "crates/sutura-flight/src/leaky.rs",
+                b"struct ReplyCache {\n    outcomes: HashMap<String, RemoteLegOutcome>,\n    batches: HashMap<String, ResultBatches>,\n    runs: BTreeMap<String, RanRemoteLeg>,\n}\n",
+            )],
+        );
+        let found = scan_over(&tree, &[]).expect("a readable tree scans");
+        let mut held: Vec<&str> = found.violations.iter().map(|v| v.holds).collect();
+        held.sort_unstable();
+        assert_eq!(
+            held,
+            ["RanRemoteLeg", "RemoteLegOutcome", "ResultBatches"],
+            "{:?}",
+            found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
+        );
         assert_eq!(super::decide(&found), crate::Verdict::Fail);
     }
 
