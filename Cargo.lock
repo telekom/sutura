@@ -4169,6 +4169,7 @@ dependencies = [
  "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
+ "sutura-exec-node",
  "sutura-exec-oracle",
  "sutura-exec-postgres",
  "sutura-http",

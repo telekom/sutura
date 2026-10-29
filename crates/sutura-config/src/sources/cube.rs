@@ -69,7 +69,8 @@ pub(super) fn refuse_elsewhere(
         alias,
         kind,
         [
-            ("endpoint", written(entry.endpoint)),
+            // A `node` entry reads `endpoint` too; `token_file` stays Cube's alone.
+            ("endpoint", kind != SourceKind::Node && written(entry.endpoint)),
             ("token_file", written(entry.token_file)),
         ],
     )

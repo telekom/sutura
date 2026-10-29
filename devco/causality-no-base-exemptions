@@ -193,3 +193,11 @@ a_leg_another_node_does_not_certify_is_refused_naming_this_nodes_source # overri
 a_leg_planned_before_a_catalog_refresh_sends_the_digest_it_was_planned_under # calls `to_wire(leg)`, whose pin argument this change removed, so its file does not compile at base
 every_leg_carries_the_digest_of_the_definition_it_was_planned_from # calls `Metric::digest` and `LegPlan::metric`, new in this change, so its file does not compile at base
 a_map_in_the_node_client_is_scanned # names crates/sutura-exec-node/src/, a scope this change adds; at base the scratch tree is out of scope and the scan refuses an empty walk
+a_node_source_declares_its_endpoint_and_its_delegation # in crates/sutura-config/src/sources/node.rs, a module new in this change
+a_node_source_is_refused_unless_it_sends_each_leg_as_its_caller # in crates/sutura-config/src/sources/node.rs, a module new in this change; names `InvalidDelegation::NodeNotImpersonating`, new here
+a_key_that_means_nothing_to_a_node_source_is_refused_naming_it # in crates/sutura-config/src/sources/node.rs, a module new in this change; names `SourceKind::Node`, new here
+a_node_delegation_needs_a_direct_deployment # in crates/sutura-config/src/settings/delegation.rs beside the widened check, a production file the base run reverts
+a_node_hop_to_the_deployments_own_audience_is_a_typed_refusal # names `NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience`, new in this change, in the production file that adds it
+a_node_source_is_refused_by_a_build_that_did_not_link_the_client # #[cfg(not(feature = "node"))]: not compiled by the --all-features causality run; `just gates`' default-feature lane runs it
+a_node_endpoint_the_client_cannot_dial_is_refused_at_boot # in crates/sutura-cli/src/serve/node.rs, a module new in this change
+a_node_source_opens_in_the_mix_and_declares_that_it_relays # in crates/sutura-cli/src/serve/node.rs, a module new in this change

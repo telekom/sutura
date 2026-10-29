@@ -164,6 +164,7 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 # `sutura-app` inherits it as a development dependency, for the golden matrix.
 sutura-exec-cube = { path = "crates/sutura-exec-cube" }
+sutura-exec-node = { path = "crates/sutura-exec-node" }
 # The leg framing `sutura-exec-node` sends through.
 sutura-flight = { path = "crates/sutura-flight" }
 sutura-adbc = { path = "crates/sutura-adbc" }

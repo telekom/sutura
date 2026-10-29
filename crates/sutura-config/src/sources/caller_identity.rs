@@ -198,7 +198,12 @@ pub(super) fn declared(
         });
     }
     let Some(first) = first else {
-        if impersonating && !matches!(kind, SourceKind::ClickHouse | SourceKind::Oracle | SourceKind::Cube) {
+        if impersonating
+            && !matches!(
+                kind,
+                SourceKind::ClickHouse | SourceKind::Oracle | SourceKind::Cube | SourceKind::Node
+            )
+        {
             return Err(InvalidSourceRegistry::NoCallerIdentityMode { alias: alias.clone() });
         }
         return Ok(None);

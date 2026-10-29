@@ -11,8 +11,9 @@ use crate::sources::caller_identity::CallerIdentity;
 
 /// See [`NotFitToServe::DelegationWithoutDirectInbound`],
 /// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`],
-/// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`] and
-/// [`NotFitToServe::DelegationToTheDeploymentsOwnAudience`].
+/// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`],
+/// [`NotFitToServe::DelegationToTheDeploymentsOwnAudience`] and
+/// [`NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience`].
 pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRegistry) -> Vec<NotFitToServe> {
     let own = inbound.and_then(|declared| match *declared {
         InboundIdentity::Direct { ref resource, .. } => Some(resource),
@@ -29,7 +30,8 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
         } else if matches!(
             *source.placement(),
             crate::SourcePlacement::Oracle { ref delegation, .. }
-                | crate::SourcePlacement::Cube { ref delegation, .. } if !delegation.is_empty()
+                | crate::SourcePlacement::Cube { ref delegation, .. }
+                | crate::SourcePlacement::Node { ref delegation, .. } if !delegation.is_empty()
         ) {
             Some("delegation")
         } else {
@@ -48,6 +50,13 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             (true, None) => refusals.push(NotFitToServe::InboundTokenAtPoolUnacknowledged { alias: alias.clone() }),
             (false, Some(_)) => refusals.push(NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: alias.clone() }),
             (true, Some(_)) | (false, None) => {}
+        }
+        if let Some(resource) = own
+            && let crate::SourcePlacement::Node { ref delegation, .. } = *source.placement()
+            && let Some(last) = delegation.last()
+            && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
+        {
+            refusals.push(NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience { alias: alias.clone() });
         }
         if let Some(resource) = own
             && let Some(last) = source.workload_identity().and_then(|wif| wif.delegation().last())
@@ -122,6 +131,42 @@ mod tests {
             )),
             vec![NotFitToServe::DelegationToTheDeploymentsOwnAudience {
                 alias: SourceName::parse("local").expect("a legal identifier")
+            }]
+        );
+    }
+
+    /// A `node` source over `inbound`, its last hop asking for `audience`.
+    fn node_over(inbound: &str, audience: &str) -> Sources {
+        Sources::defaults(Environment::Development).with_overlay(format!(
+            "security:\n  identity: \"multi-user\"\n{inbound}sources:\n  sales:\n    \
+             kind: \"node\"\n    endpoint: \"https://node-b.example.com\"\n    posture: \"impersonation-at-source\"\n    \
+             delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        \
+             client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"{audience}\"\n"
+        ))
+    }
+
+    const DIRECT: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+                          authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+                          algorithms: [\"RS256\"]\n";
+
+    #[test]
+    fn a_node_delegation_needs_a_direct_deployment() {
+        assert_eq!(
+            boot_refusals_over(&node_over("", "https://node-b.example.com")),
+            vec![NotFitToServe::DelegationWithoutDirectInbound {
+                alias: SourceName::parse("sales").expect("a legal identifier"),
+                key: "delegation",
+            }]
+        );
+        Settings::load(&node_over(DIRECT, "https://node-b.example.com")).expect("a direct deployment serves a node source");
+    }
+
+    #[test]
+    fn a_node_hop_to_the_deployments_own_audience_is_a_typed_refusal() {
+        assert_eq!(
+            boot_refusals_over(&node_over(DIRECT, "https://sutura.example.com")),
+            vec![NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience {
+                alias: SourceName::parse("sales").expect("a legal identifier")
             }]
         );
     }

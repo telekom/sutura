@@ -107,13 +107,11 @@ pub(super) fn registry(entries: &str) -> sutura_config::SourceRegistry {
 
 /// [`registry`] on a deployment that verifies callers `direct`ly, which a declared `delegation`
 /// needs.
-#[cfg(any(feature = "oracle", feature = "cube"))]
 pub(super) fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
     direct_settings(entries).sources().clone()
 }
 
 /// The settings [`direct_registry`] reads its registry from, for a cell that serves them.
-#[cfg(any(feature = "oracle", feature = "cube"))]
 pub(super) fn direct_settings(entries: &str) -> sutura_config::Settings {
     settings_under(
         "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \

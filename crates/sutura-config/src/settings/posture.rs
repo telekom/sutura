@@ -247,6 +247,15 @@ pub enum NotFitToServe {
          receive a token minted for this deployment. Ask the last hop for the pool's own audience"
     )]
     DelegationToTheDeploymentsOwnAudience { alias: SourceName },
+    /// A `direct` deployment's `node` source whose last `delegation` hop asks for this deployment's
+    /// own audience. Such a token is valid here too, so it is the caller's own token reaching the
+    /// other node by another route. The comparison is of the configured strings only, as above.
+    #[error(
+        "`sources.{alias}.delegation`'s last hop asks for this deployment's own audience \
+         (`security.inbound.resource` or `security.inbound.audience`), so the other node would \
+         receive a token that is valid here too. Ask the last hop for the node's own audience"
+    )]
+    NodeDelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
     /// `shared-service-user`.
     ///
