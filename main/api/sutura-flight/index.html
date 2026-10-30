@@ -2544,6 +2544,50 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-malformedtimeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use MalformedTimeout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-parse_grpc_timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use parse_grpc_timeout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-paramserror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use ParamsError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-decode_params" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use decode_params
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-receiveerror" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2559,6 +2603,50 @@
     <span class="md-ellipsis">
       
         use receive_request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-descriptorlimit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use DescriptorLimit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-framebudget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use FrameBudget
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-nolimit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use NoLimit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-remotelegservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use RemoteLegService
       
     </span>
   </a>
@@ -2615,11 +2703,13 @@
 <h1 id="sutura-flight">sutura-flight<a class="headerlink" href="#sutura-flight" title="Permanent link">&para;</a></h1>
 <p>The public API of <code>sutura-flight</code>, rendered from rustdoc JSON.</p>
 <p>Arrow Flight framing for a typed remote leg.</p>
-<p>The remote-leg ADR chooses one <code>DoExchange</code> call per leg. This crate owns only that protocol
+<p>The remote-leg ADR chooses one <code>DoExchange</code> call per leg. This crate owns that protocol
 boundary: the descriptor carries the domain's <code>LegWire</code> document and the first stream carries
-the parameter batch. It does not open a listener, verify identity, or execute a leg; those
-responsibilities stay with the composition and application layers that will consume this
-foundation in later slices.</p>
+the parameter batch. The framing is the default build and links <code>sutura-domain</code> and Arrow only,
+so the caller of a remote leg reuses it without the application layer.</p>
+<p>The <code>service</code> feature adds <code>RemoteLegService</code>, node B's server for that call, which hands the
+leg to the driving port. It does not open a listener or verify identity: whatever mounts it
+establishes the caller first.</p>
 <h2 id="enum-descriptorerror"><code>enum DescriptorError</code><a class="headerlink" href="#enum-descriptorerror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DescriptorError</span>
 </span></code></pre></div>
@@ -2643,6 +2733,22 @@ pinned definitions. No parameter value or credential belongs in the descriptor.<
 <p><code>FlightDataEncoderBuilder</code> writes the descriptor into the first Flight message and encodes
 each parameter <code>RecordBatch</code> as Arrow IPC. The stream is intentionally generic over its
 source so the eventual Warehouse client can attach its own deadline and credential metadata.</p>
+<h2 id="use-malformedtimeout"><code>use MalformedTimeout</code><a class="headerlink" href="#use-malformedtimeout" title="Permanent link">&para;</a></h2>
+<h2 id="use-parse_grpc_timeout"><code>use parse_grpc_timeout</code><a class="headerlink" href="#use-parse_grpc_timeout" title="Permanent link">&para;</a></h2>
+<p>Parse a <code>grpc-timeout</code> header value: up to 8 ASCII digits followed by exactly one unit -
+<code>H</code>/<code>M</code>/<code>S</code>/<code>m</code>/<code>u</code>/<code>n</code> for hours, minutes, seconds, milliseconds, microseconds, nanoseconds -
+per the <a href="https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md">gRPC-over-HTTP2 spec</a>.</p>
+<p>A value with no digits, more than 8 digits, an unrecognised unit, or any other shape is refused
+rather than treated as absent - see the module-level note on why that differs from tonic's own
+internal parse.</p>
+<h2 id="use-paramserror"><code>use ParamsError</code><a class="headerlink" href="#use-paramserror" title="Permanent link">&para;</a></h2>
+<p>Why a parameter batch could not become typed parameter values.</p>
+<h2 id="use-decode_params"><code>use decode_params</code><a class="headerlink" href="#use-decode_params" title="Permanent link">&para;</a></h2>
+<p>Decode a <code>DoExchange</code> request's parameter batch into the positional values <code>LegWire::parse</code>
+needs, refusing anything the two <code>ParamValue</code> shapes cannot carry.</p>
+<p>Exactly one row is required, by position: <code>batch.num_rows() != 1</code> is <code>ParamsError::RowCount</code>
+before any column is read. Zero columns over that one row decodes to an empty <code>Vec</code> - the shape
+a lookup leg with no range parameters sends.</p>
 <h2 id="use-receiveerror"><code>use ReceiveError</code><a class="headerlink" href="#use-receiveerror" title="Permanent link">&para;</a></h2>
 <p>A closed framing refusal. Peer-controlled JSON and Arrow errors are deliberately not rendered.</p>
 <h2 id="use-receive_request"><code>use receive_request</code><a class="headerlink" href="#use-receive_request" title="Permanent link">&para;</a></h2>
@@ -2653,6 +2759,18 @@ retained frame count and encoded length, not allocator overhead or Arrow decoded
 The listener must additionally bound messages, decode resources, and the stream's deadline.
 The returned <code>LegWire</code> is untrusted until certified against this node's pinned definitions
 through <code>LegWire::parse</code>; this function neither authorizes nor executes it.</p>
+<h2 id="use-descriptorlimit"><code>use DescriptorLimit</code><a class="headerlink" href="#use-descriptorlimit" title="Permanent link">&para;</a></h2>
+<p>The most command bytes one request's descriptor may carry, checked before it is decoded.</p>
+<h2 id="use-framebudget"><code>use FrameBudget</code><a class="headerlink" href="#use-framebudget" title="Permanent link">&para;</a></h2>
+<p>The most encoded bytes one request's frames may carry, descriptor included, checked before the
+parameters are decoded.</p>
+<h2 id="use-nolimit"><code>use NoLimit</code><a class="headerlink" href="#use-nolimit" title="Permanent link">&para;</a></h2>
+<p>A framing limit of zero bytes, which would refuse every request.</p>
+<p>Declared after both limits: <code>xtask check-boundaries</code>' pub-field scan reads a unit struct
+followed by an <code>impl</code> block as that struct's fields (the same placement as <code>Budget</code>'s
+<code>NoBudget</code>).</p>
+<h2 id="use-remotelegservice"><code>use RemoteLegService</code><a class="headerlink" href="#use-remotelegservice" title="Permanent link">&para;</a></h2>
+<p>Node B's <code>DoExchange</code> server over one <code>Surface</code>. See the module docs for the per-call order.</p>
 <h2 id="type_alias-responsestream"><code>type_alias ResponseStream</code><a class="headerlink" href="#type_alias-responsestream" title="Permanent link">&para;</a></h2>
 <p>The result stream type returned by the Arrow Flight client after decoding response batches.</p>
 <h2 id="type_alias-requeststream"><code>type_alias RequestStream</code><a class="headerlink" href="#type_alias-requeststream" title="Permanent link">&para;</a></h2>
