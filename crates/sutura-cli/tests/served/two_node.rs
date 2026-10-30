@@ -312,6 +312,13 @@ mod tests {
         let body = reply.json();
         assert_eq!(body["outcome"], "refusal", "{}", reply.body);
         assert_eq!(body["reason"]["code"], "remote_leg_not_certified", "{}", reply.body);
+        assert!(
+            body["reason"]["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains(&format!("`{NODE_SOURCE}`"))),
+            "the refusal must name this node's source, never one the other node wrote: {}",
+            reply.body
+        );
         assert_eq!(
             deployed.node.asked_as(),
             vec![the_caller()],
@@ -350,7 +357,11 @@ mod tests {
             "the refusal must not carry the caller's token: {}",
             reply.body
         );
-        assert_eq!(deployed.node.asked_as(), Vec::<Subject>::new());
+        assert_eq!(
+            deployed.node.asked_as(),
+            Vec::<Subject>::new(),
+            "a token without the leg scope must reach no surface at the other node"
+        );
         deployed.served.terminate();
         let offered = deployed.idp.finish();
         assert_eq!(offered.len(), 1, "the exchange did run: {offered:?}");
@@ -362,7 +373,11 @@ mod tests {
 
         let reply = ask(&deployed, None);
         assert_eq!(reply.status, 401, "{}", reply.body);
-        assert_eq!(deployed.node.asked_as(), Vec::<Subject>::new());
+        assert_eq!(
+            deployed.node.asked_as(),
+            Vec::<Subject>::new(),
+            "an anonymous caller must reach nothing at the other node"
+        );
         deployed.served.terminate();
     }
 }

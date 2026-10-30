@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
+index 403b56538..823874dc1 100644
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -341,6 +341,7 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
+             drop(request.extensions_mut().insert(caller));
+             next.run(request).await
+         }
++        Err(TokenRejected::Absent { .. }) => next.run(request).await,
+         Err(rejected) => refused(&gate, &rejected, request.uri(), &headers),
+     }
+ }
