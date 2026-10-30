@@ -330,4 +330,6 @@ Limits of what is built:
 - B's other refusals, and B's `unauthenticated`, reach A's caller as a `503`, not as their own
   refusal or `identity_unavailable`.
 - A reads its trust anchors once, at boot. Nothing rotates them for the node channel.
-- Nothing here ran two nodes. That is #137's next step.
+- `served::two_node` runs a spawned A against an in-process B whose surface is a recording fake: it
+  shows the leg arriving as the caller's own subject and B's refusal coming back, not a leg
+  certified or executed at B. It runs under `just test`.
