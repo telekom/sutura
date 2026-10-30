@@ -1,0 +1,19 @@
+# Autoscaling with no target would scale on a default nobody chose: refused.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+resources:
+  requests:
+    cpu: 500m
+autoscaling:
+  enabled: true
+  targetCPUUtilizationPercentage: ""
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

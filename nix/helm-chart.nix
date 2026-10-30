@@ -35,18 +35,18 @@
 #      (a value derived from a limit) has no render and must have no golden.
 #
 # NO NETWORK AT CHECK TIME. `kubeconform`'s default schema source is a URL fetch, which a nix
-# sandbox refuses - so `schemas` below vendors the three schema files this chart's own Kinds
-# need (Service, ConfigMap, Deployment) as fixed-output derivations, each pinned by content
-# hash rather than by trusting the tag. `-strict` still passes against them - checked by
-# rendering this chart's own complete-values output through kubeconform locally before this
-# comment was written, not asserted from the tool's docs. `ServiceMonitor` is a Prometheus
+# sandbox refuses - so `schemas` below vendors the schema files this chart's own Kinds need
+# (Service, ConfigMap, Deployment, ServiceAccount, HorizontalPodAutoscaler) as fixed-output
+# derivations, each pinned by content hash rather than by trusting the tag. `-strict` still
+# passes against them - checked by rendering this chart's own complete-values output through
+# kubeconform locally before this comment was written, not asserted from the tool's docs. `ServiceMonitor` is a Prometheus
 # Operator CRD with no schema in this set; `-skip ServiceMonitor` is the documented answer
 # for a CRD with no vendored schema, not a workaround for a hole in this pin.
 #
-# TWO KUBERNETES VERSIONS, not several: neither Kind this chart renders (`apps/v1` since 1.9,
-# `v1` Service/ConfigMap since 1.0) has moved its `apiVersion` across any version this chart
-# could plausibly target, so a wider matrix would multiply the schema pins without multiplying
-# what they can catch. 1.29.0 and 1.31.0 bracket the range - the older widely-run minor and the
+# TWO KUBERNETES VERSIONS, not several: no Kind this chart renders (`apps/v1` since 1.9,
+# `v1` Service/ConfigMap since 1.0, `autoscaling/v2` since 1.23) has moved its `apiVersion`
+# across any version this chart could plausibly target, so a wider matrix would multiply the
+# schema pins without multiplying what they can catch. 1.29.0 and 1.31.0 bracket the range - the older widely-run minor and the
 # one branch 1 already pinned - so a future move inside it is caught rather than assumed away;
 # widen this table, not the reasoning, the day a template starts reading `.Capabilities`.
 { pkgs, src }:
@@ -72,6 +72,8 @@ let
       "$out/v1.29.0-standalone-strict/service-v1.json"
     cp ${schemaFile "v1.29.0-standalone-strict" "serviceaccount-v1.json" "sha256-3/UsAk68YgLXYgNfYuFLrKQuq/8eKXfP/jF5qXvKj3A="} \
       "$out/v1.29.0-standalone-strict/serviceaccount-v1.json"
+    cp ${schemaFile "v1.29.0-standalone-strict" "horizontalpodautoscaler-autoscaling-v2.json" "sha256-KOUv7f3SkHjqzSAwkyEkkkWlMecMKOdjXAgHm0TjLZE="} \
+      "$out/v1.29.0-standalone-strict/horizontalpodautoscaler-autoscaling-v2.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "configmap-v1.json" "sha256-4Ord69Z3wIqgkrLaImTYasT8NO7RErn6wpRbPwDB6bE="} \
       "$out/v1.31.0-standalone-strict/configmap-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "deployment-apps-v1.json" "sha256-PjAI9mpfaM7jmESFrBiS2+3H8HKzqHBkEWurKUh06Z4="} \
@@ -80,6 +82,8 @@ let
       "$out/v1.31.0-standalone-strict/service-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "serviceaccount-v1.json" "sha256-jkc9QZTnaX67k8CzF7US2qt68vRxwaGYIXJ2M3wSyuY="} \
       "$out/v1.31.0-standalone-strict/serviceaccount-v1.json"
+    cp ${schemaFile "v1.31.0-standalone-strict" "horizontalpodautoscaler-autoscaling-v2.json" "sha256-dedLYU2Qnh0BQPaihtbViHbJWRkX69P4RW98dkbLkh8="} \
+      "$out/v1.31.0-standalone-strict/horizontalpodautoscaler-autoscaling-v2.json"
   '';
 in
 {

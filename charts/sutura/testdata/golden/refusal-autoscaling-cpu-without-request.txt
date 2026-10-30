@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/hpa.yaml:7:3): autoscaling.targetCPUUtilizationPercentage needs resources.requests.cpu or resources.limits.cpu: the autoscaler measures CPU as a share of the pod's request, and with none it never scales on CPU
+
+Use --debug flag to render out invalid YAML
