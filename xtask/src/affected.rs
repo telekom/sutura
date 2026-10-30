@@ -51,6 +51,9 @@ mod cube_aggregate;
 #[cfg(test)]
 #[path = "affected/datahub_aggregate.rs"]
 mod datahub_aggregate;
+#[cfg(test)]
+#[path = "affected/k3s_aggregate.rs"]
+mod k3s_aggregate;
 #[path = "affected/lockfile.rs"]
 mod lockfile;
 #[cfg(test)]

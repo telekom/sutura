@@ -315,6 +315,8 @@ jobs:
       rust: ${{ steps.classify.outputs.rust }}
       run_all: ${{ steps.classify.outputs.run_all }}
       nix: ${{ steps.classify.outputs.nix }}
+      # AREA axis, for `k3s-autoscaling` and `ci-aggregate`: the chart, its helm and its image.
+      chart: ${{ steps.classify.outputs.chart }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -2185,6 +2187,42 @@ jobs:
       - name: Multi-node VM test
         run: nix build .#checks.x86_64-linux.multi-node -L
 
+  # THIS CHART IN A k3s CLUSTER INSIDE A NixOS VM (`telekom/sutura#828`), scaled up by its CPU
+  # autoscaler under load and back down. `nix/k3s-autoscaling.nix` says what that observes and what
+  # it does not. Gated on the `chart` area of `xtask/src/changes.rs` - the chart, the pinned helm,
+  # the image and the test - and held run-or-fail by `ci-aggregate`. `/dev/kvm` as in `multi-node`.
+  k3s-autoscaling:
+    needs: [ci]
+    if: needs.ci.outputs.chart == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    concurrency:
+      group: k3s-autoscaling-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - name: Open KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: k3s autoscaling VM test
+        run: nix build .#checks.x86_64-linux.k3s-autoscaling -L
+
   # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
   # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for
   # developing and testing an application and is NOT OSI-approved: this job runs Oracle under it on
@@ -2413,6 +2451,7 @@ jobs:
       causality,
       postgres-linked-driver,
       multi-node,
+      k3s-autoscaling,
       cross,
     ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
@@ -2431,6 +2470,8 @@ jobs:
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
           MN_RESULT: ${{ needs.multi-node.result }}
           MN_SELECTED: ${{ needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true' }}
+          K3S_RESULT: ${{ needs.k3s-autoscaling.result }}
+          K3S_SELECTED: ${{ needs.ci.outputs.chart }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}
           DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
           OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}
@@ -2535,6 +2576,17 @@ jobs:
             case "$MN_RESULT" in
               skipped|success) ;;
               *) fail "multi-node reported '$MN_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The k3s autoscaling VM test reads no secret either: the same rule, over the `chart` area.
+          if [ "$K3S_SELECTED" = "true" ]; then
+            if [ "$K3S_RESULT" != "success" ]; then
+              fail "k3s-autoscaling must run (chart area selected) but reported '$K3S_RESULT'"
+            fi
+          else
+            case "$K3S_RESULT" in
+              skipped|success) ;;
+              *) fail "k3s-autoscaling reported '$K3S_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           # The DataHub docker tier reads no secret, so it carries no event exception: every

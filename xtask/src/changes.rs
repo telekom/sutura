@@ -182,6 +182,21 @@ const AREAS: &[Area] = &[
         ],
         consumers: &[],
     },
+    Area {
+        // The chart and what `checks.k3s-autoscaling` installs it with: the pinned helm, the image
+        // and the example it serves. That VM test is the one job this area starts. `rust` follows
+        // because `crates/sutura-config/tests/chart_renders.rs` and `xtask/tests/chart_gate.rs` read
+        // `charts/`. The `Chart` step and `kind-smoke` run on every event, so neither needs it.
+        name: "chart",
+        patterns: &[
+            "charts/**",
+            "examples/single-player/**",
+            "nix/k3s-autoscaling.nix",
+            "nix/helm-chart.nix",
+            "nix/oci.nix",
+        ],
+        consumers: &["rust"],
+    },
 ];
 
 /// Paths that cannot affect a build. Deliberately short: everything else is either an area
@@ -801,6 +816,25 @@ mod tests {
         let r = classify(&paths(&["examples/single-player/catalog/metrics/churn_rate.md"]));
         assert!(r.needs("rust"), "a catalog document is not prose: {:?}", r.reasons);
         assert!(r.docs_only.is_empty(), "it must not be classified as docs-only");
+    }
+
+    #[test]
+    fn the_chart_and_what_installs_it_select_the_chart_area() {
+        // `ci.yml`'s `k3s-autoscaling` job runs on exactly this flag, so a path that falls open to
+        // `run_all` would start a VM test for every workflow edit.
+        for path in [
+            "charts/sutura/templates/hpa.yaml",
+            "examples/single-player/catalog/metrics/churn_rate.md",
+            "nix/k3s-autoscaling.nix",
+            "nix/oci.nix",
+        ] {
+            let r = classify(&paths(&[path]));
+            assert!(!r.run_all, "{path}: {:?}", r.reasons);
+            assert!(r.needs("chart"), "{path} must select chart: {:?}", r.reasons);
+        }
+        // Two Rust test files read `charts/`.
+        assert!(classify(&paths(&["charts/sutura/values.yaml"])).needs("rust"));
+        assert!(!classify(&paths(&["crates/sutura-domain/src/lib.rs"])).needs("chart"));
     }
 
     #[test]

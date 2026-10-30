@@ -859,6 +859,21 @@
             else
               pkgs.runCommand "multi-node-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
+          # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
+          # what it does not. A stub on any other system, for `multi-node`'s reason.
+          k3s-autoscaling =
+            if system == "x86_64-linux" then
+              import ./nix/k3s-autoscaling.nix {
+                inherit pkgs;
+                chartHelm = chart.helm;
+                ociImage = shipped.localImages.oci;
+                chart = ./charts/sutura;
+                example = ./examples/single-player;
+              }
+            else
+              pkgs.runCommand "k3s-autoscaling-not-on-${system}" { } "echo 'only x86_64-linux runs the k3s autoscaling VM test' > $out";
+
           # The vendored `oracledb`'s own unit tests for the modules this repository patched, which
           # the workspace's `nextest` never compiles. `nix/vendored-oracledb.nix` says what it runs,
           # and it goes away with the vendored copy.
