@@ -6336,7 +6336,11 @@ legitimate one.</p>
 - <code>Cube</code> - A Cube metrics serving layer, queried through its REST API.</p>
 <p>Declarable and openable behind the <code>cube</code> feature. <code>SourcePlacement::Cube</code> carries the
   deployment's endpoint and the file its token is read from. The one token is the whole
-  credential, so there is no place for a subject: <code>impersonation-at-source</code> is refused.</p>
+  credential, so there is no place for a subject: <code>impersonation-at-source</code> is refused.
+- <code>Node</code> - Another sutura node, which runs this source's legs of a federated answer.</p>
+<p>Declarable and openable behind the <code>node</code> feature. <code>SourcePlacement::Node</code> carries the
+  node's endpoint and the <code>delegation</code> each caller's token is exchanged through for that
+  node's audience; the entry is always <code>impersonation-at-source</code>.</p>
 <h4 id="methods_50">Methods<a class="headerlink" href="#methods_50" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-295-1"><a id="__codelineno-295-1" name="__codelineno-295-1" href="#__codelineno-295-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
@@ -6995,7 +6999,8 @@ be skipped" look like the same sentence and are not.</p>
 - <code>Duckdb</code> - A local <code>DuckDB</code> database file. No dial, no credential and no channel: the file is opened in this process, read-only, under the process's own operating-system identity.
 - <code>Cube</code> - A Cube metrics serving layer, reached over its REST API.</p>
 <p>No transport field: the request rides the outbound client, whose trust is
-  <code>security.outbound.transport_anchors</code>, and no per-source channel is declared.</p>
+  <code>security.outbound.transport_anchors</code>, and no per-source channel is declared.
+- <code>Node</code> - Another sutura node, reached over one Arrow Flight call per leg.</p>
 <h5 id="methods_65">Methods<a class="headerlink" href="#methods_65" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-361-1"><a id="__codelineno-361-1" name="__codelineno-361-1" href="#__codelineno-361-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
 </span></code></pre></div>
@@ -7014,6 +7019,7 @@ then on the variant is the answer.</p>
 <li><code>Missing</code> - An impersonating source with no exchange, so no caller's token could open a session.</li>
 <li><code>NotImpersonating</code> - An exchange on a source that is not impersonating, which nothing would run.</li>
 <li><code>PlaintextEndpoint</code> - An impersonating <code>cube</code> source whose endpoint is not <code>https</code>: each request sends its caller's token.</li>
+<li><code>NodeNotImpersonating</code> - A <code>node</code> source that is not <code>impersonation-at-source</code>: a leg reaches the other node only as a caller's exchanged token, never as this deployment.</li>
 </ul>
 <h5 id="implements_108">Implements<a class="headerlink" href="#implements_108" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>

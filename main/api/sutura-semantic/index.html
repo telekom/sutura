@@ -2800,7 +2800,8 @@ as a refusal a caller would retry.</p>
 <p>Same limit as <code>NotAssembled</code> and <code>NotBound</code>: <code>plan</code> calls the splitter only when a lookup leg
   exists and a remote dimension has a join by construction, so nothing provokes this either. A
   caller cannot narrow their way out of it, which is why it is no <code>RefusalReason</code>.
-- <code>NoSecondFactModel</code> - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as <code>NoRemoteJoin</code>: <code>plan</code> dispatches such a ratio only once <code>resolve</code> has already looked up both, so nothing provokes this either - see <code>crate::plan::PlanError::NoSecondFactModel</code>'s own doc for the construction that holds it.</p>
+- <code>NoSecondFactModel</code> - The splitter carried a cross-model ratio's second-fact leaves with no second fact model or calendar model resolved for them. Same limit as <code>NoRemoteJoin</code>: <code>plan</code> dispatches such a ratio only once <code>resolve</code> has already looked up both, so nothing provokes this either - see <code>crate::plan::PlanError::NoSecondFactModel</code>'s own doc for the construction that holds it.
+- <code>NotDigestible</code> - A resolved metric with no canonical form for the digest its legs carry. Same limit as <code>NotBound</code>: a metric that pinned has a canonical form, so nothing provokes this.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h2>
