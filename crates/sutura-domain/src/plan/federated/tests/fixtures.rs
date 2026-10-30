@@ -79,7 +79,7 @@ pub(super) fn bucket() -> PlanBucket {
 pub(super) fn fact_leg(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![key("product_family", FACT), link_key(FACT)],
@@ -131,7 +131,7 @@ pub(super) fn fact_leg_keyed_by(distinct: Vec<PlanKey>, terms: Vec<LegTerm>) -> 
     keys.extend(distinct);
     LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys,
@@ -166,7 +166,7 @@ pub(super) fn try_distinct_plan(fact: LegPlan) -> Result<FederatedPlan, Federate
 pub(super) fn lookup_leg() -> LegPlan {
     LegPlan::Lookup {
         source: source(REMOTE_SOURCE),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
         table: table(FACT).into(),
         keys: vec![link_key(FACT), key("region", FACT)],
         bindings: PlanBindings::none(),
@@ -188,7 +188,7 @@ pub(super) fn second_fact_leg() -> LegPlan {
 pub(super) fn linked_fact_leg(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![link_key(FACT)],
@@ -211,7 +211,7 @@ pub(super) fn second_fact_carrying(terms: Vec<LegTerm>) -> LegPlan {
 fn second_fact(on: &str, bucket: PlanBucket, terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(on),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table("dim_orders")),
         bucket,
         keys: vec![link_key("dim_orders")],
@@ -238,7 +238,7 @@ pub(super) fn two_fact_plan(federation: Federation, second: LegPlan) -> Result<F
 pub(super) fn second_fact_leg_with_no_shared_key() -> LegPlan {
     LegPlan::Fact {
         source: source(SECOND_FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table("dim_orders")),
         bucket: bucket(),
         keys: vec![key("unrelated", "dim_orders")],

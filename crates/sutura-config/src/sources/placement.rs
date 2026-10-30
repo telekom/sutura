@@ -629,6 +629,14 @@ pub enum SourcePlacement {
         /// request's bearer.
         delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
+    /// Another sutura node, reached over one Arrow Flight call per leg.
+    Node {
+        /// The node's `https` origin. Parsed where the node client is built.
+        endpoint: String,
+        /// The hops each caller's token is exchanged through, in order. Never empty: the last
+        /// hop's token, for the node's audience, is the bearer of every leg.
+        delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
+    },
 }
 
 impl SourcePlacement {
@@ -648,6 +656,7 @@ impl SourcePlacement {
             Self::Oracle { .. } => SourceKind::Oracle,
             Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
+            Self::Node { .. } => SourceKind::Node,
         }
     }
 }
@@ -673,6 +682,13 @@ pub enum InvalidDelegation {
          an `https://` endpoint"
     )]
     PlaintextEndpoint,
+    /// A `node` source that is not `impersonation-at-source`: a leg reaches the other node only as
+    /// a caller's exchanged token, never as this deployment.
+    #[error(
+        "a `node` source runs each leg as its caller - declare `impersonation-at-source` and the \
+         `delegation` each caller's token is exchanged through for the node's audience"
+    )]
+    NodeNotImpersonating,
 }
 
 #[cfg(test)]

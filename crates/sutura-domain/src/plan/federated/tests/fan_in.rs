@@ -28,7 +28,7 @@ fn fact_linking(links: &[usize]) -> LegPlan {
     let federation = federation();
     LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: links.iter().map(|&leg| link(leg)).collect(),
@@ -43,7 +43,7 @@ fn fact_linking(links: &[usize]) -> LegPlan {
 fn lookup_on(on: &str, links: &[usize], keys: &[&str]) -> LegPlan {
     LegPlan::Lookup {
         source: source(on),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
         table: table(FACT).into(),
         keys: links
             .iter()
@@ -149,7 +149,7 @@ fn a_lookup_leg_whose_parent_does_not_project_its_link_is_refused() {
 fn second_fact_linking(links: &[usize]) -> LegPlan {
     LegPlan::Fact {
         source: source(SECOND_FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table("dim_orders")),
         bucket: bucket(),
         keys: links.iter().map(|&leg| link(leg)).collect(),

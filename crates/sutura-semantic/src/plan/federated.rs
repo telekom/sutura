@@ -161,7 +161,7 @@ pub(super) fn federated_plan(
 
     let fact = LegPlan::Fact {
         source: model.source().clone(),
-        metric: metric.name().clone(),
+        metric: metric.digest()?,
         tables: fact_tables,
         bucket: bucket.clone(),
         keys: fact_keys,
@@ -311,7 +311,7 @@ fn lookup_legs(
         })?;
         let leg = LegPlan::Lookup {
             source: shape.crossing.model.source().clone(),
-            metric: resolution.metric.name().clone(),
+            metric: resolution.metric.digest()?,
             table: tables,
             keys,
             bindings: super::requested_for(&filters, table)?,
@@ -472,7 +472,7 @@ fn second_fact_leg(
     })?;
     Ok(Some(LegPlan::Fact {
         source: second.source().clone(),
-        metric: resolution.metric.name().clone(),
+        metric: resolution.metric.digest()?,
         tables,
         bucket: own_bucket.clone(),
         keys,

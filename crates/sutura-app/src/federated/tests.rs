@@ -67,7 +67,7 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
         .collect();
     let fact = LegPlan::Fact {
         source: fact_source,
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         tables: StatementTables::only(table.clone()),
         bucket: bucket("month"),
         keys: vec![key("product_family"), link()],
@@ -77,7 +77,7 @@ fn federated_plan() -> sutura_domain::plan::FederatedPlan {
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source,
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         table: table.clone().into(),
         keys: vec![link(), key("region")],
         bindings: PlanBindings::none(),

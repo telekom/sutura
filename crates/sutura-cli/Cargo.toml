@@ -113,6 +113,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`, which also
 # carries a `cube` source's `delegation` exchange.
 cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube", "dep:sutura-http-client"]
+# A `node` source: legs another sutura node runs, over Arrow Flight (#137). Default-off because it
+# links the gRPC client and HTTP/2; `sutura-http-client` carries the source's `delegation` exchange.
+node = ["dep:sutura-exec-node", "dep:sutura-http-client"]
 
 # The live RDBMS metadata adapter (`catalog.kind: rdbms`), issue #972: a reader over a real
 # Postgres documentation schema, and with it the outbound TLS stack that reader needs.
@@ -197,6 +200,8 @@ sutura-exec-clickhouse = { workspace = true, optional = true }
 sutura-exec-oracle = { workspace = true, optional = true }
 # The Cube source adapter, behind the `cube` feature above, optional for `oracle`'s reason.
 sutura-exec-cube = { workspace = true, optional = true }
+# The node client, behind the `node` feature above.
+sutura-exec-node = { workspace = true, optional = true }
 # The DuckDB adapter, behind the `duckdb` feature above - optional for `sutura-exec-bigquery`'s reason.
 sutura-exec-duckdb = { workspace = true, optional = true }
 # The one delegation exchange client, behind `bigquery` and `oracle` - the two sources that

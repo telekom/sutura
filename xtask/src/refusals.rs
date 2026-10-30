@@ -103,10 +103,10 @@ fn over(enrolled: Enrolled<'_>) -> Verdict {
 /// One subject's whole evidence pass, over its own fresh census walk.
 ///
 /// **A census per subject, not one walk shared across all of them.** [`repo::Census::inspect`]
-/// consumes itself, so sharing one walk across [`registry::ENROLLED`]'s five subjects would mean
+/// consumes itself, so sharing one walk across [`registry::ENROLLED`]'s six subjects would mean
 /// going back to a plain `Vec` the loop over subjects could narrow between calls - exactly the
-/// shape `github.com/telekom/sutura#414` is closing. A gate walking the tree five times over one
-/// `just hygiene` run is the cost of five independent witnesses instead of one narrowable list.
+/// shape `github.com/telekom/sutura#414` is closing. A gate walking the tree six times over one
+/// `just hygiene` run is the cost of six independent witnesses instead of one narrowable list.
 fn check(subject: &Subject, root: &Path) -> Verdict {
     let declared = match Declared::read(subject, root) {
         Ok(names) => names,
@@ -681,7 +681,8 @@ mod tests {
                 "NotFitToServe",
                 "NotValidated",
                 "RawRefusalReason",
-                "TlsNotUsable"
+                "TlsNotUsable",
+                "InvalidDelegation"
             ]
         );
     }
@@ -733,7 +734,8 @@ mod tests {
                 "NotFitToServe",
                 "NotValidated",
                 "RawRefusalReason",
-                "TlsNotUsable"
+                "TlsNotUsable",
+                "InvalidDelegation"
             ]
         );
     }

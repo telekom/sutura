@@ -81,7 +81,7 @@ fn leg(pinned: &PinnedDefinitions, source_name: &str, root: &str, joins: &[&str]
         .collect();
     let leg = LegPlan::Fact {
         source: source(source_name),
-        metric: metric_name("cost_ratio"),
+        metric: planned(pinned, "cost_ratio"),
         tables: StatementTables::parse(QualifiedTable::from(table(root)), joins).expect("distinct tables"),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col(bucket, "order_date")),
         keys: Vec::new(),
@@ -95,7 +95,7 @@ fn leg(pinned: &PinnedDefinitions, source_name: &str, root: &str, joins: &[&str]
         bindings: PlanBindings::parse(in_range(col(bucket, "order_date")).into(), dated()).expect("coherent"),
         range: range(),
     };
-    sent(&leg, pinned)
+    sent(&leg)
 }
 
 fn verdict(pinned: &PinnedDefinitions, json: Value) -> Result<LegPlan, LegNotCertified> {

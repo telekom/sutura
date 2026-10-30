@@ -69,6 +69,8 @@ pub mod caller_identity;
 mod clickhouse;
 /// The `cube` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod cube;
+/// The `node` entry's own keys.
+mod node;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
@@ -159,6 +161,12 @@ pub enum SourceKind {
     /// deployment's endpoint and the file its token is read from. The one token is the whole
     /// credential, so there is no place for a subject: `impersonation-at-source` is refused.
     Cube,
+    /// Another sutura node, which runs this source's legs of a federated answer.
+    ///
+    /// Declarable and openable behind the `node` feature. [`SourcePlacement::Node`] carries the
+    /// node's endpoint and the `delegation` each caller's token is exchanged through for that
+    /// node's audience; the entry is always `impersonation-at-source`.
+    Node,
 }
 
 /// The configured word did not name a kind of data system.
@@ -170,7 +178,16 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files", "bigquery", "postgres", "clickhouse", "oracle", "duckdb", "cube"];
+    pub const NAMES: &'static [&'static str] = &[
+        "files",
+        "bigquery",
+        "postgres",
+        "clickhouse",
+        "oracle",
+        "duckdb",
+        "cube",
+        "node",
+    ];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
@@ -182,6 +199,7 @@ impl SourceKind {
             "oracle" => Ok(Self::Oracle),
             "duckdb" => Ok(Self::Duckdb),
             "cube" => Ok(Self::Cube),
+            "node" => Ok(Self::Node),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -200,6 +218,7 @@ impl SourceKind {
             Self::Oracle => "oracle",
             Self::Duckdb => "duckdb",
             Self::Cube => "cube",
+            Self::Node => "node",
         }
     }
 }

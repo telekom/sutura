@@ -288,9 +288,19 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
             Carried::CountIf { .. } => {}
         }
     }
+    // A case states no definition: its legs run at an adapter and never cross to a node, so the
+    // digest is stated rather than computed.
+    let planned = sutura_domain::pinned::MetricDigest::new(
+        metric.clone(),
+        sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).map_err(|cause| CaseError::BadField {
+            file,
+            field: "metric",
+            message: cause.to_string(),
+        })?,
+    );
     let fact = LegPlan::Fact {
         source: source(),
-        metric: metric.clone(),
+        metric: planned.clone(),
         tables: StatementTables::only(table()),
         bucket: bucket(),
         keys: fact_keys,
@@ -327,7 +337,7 @@ fn parse_federated(file: &'static str, content: &str) -> Result<FederatedCase, C
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source(),
-        metric: metric.clone(),
+        metric: planned,
         table: lookup_table.into(),
         keys: lookup_keys,
         bindings,

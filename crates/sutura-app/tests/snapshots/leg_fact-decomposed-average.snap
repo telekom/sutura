@@ -4,7 +4,9 @@ expression: leg
 ---
 fact:
   source: local
-  metric: mean_subscription_mrr
+  metric:
+    metric: mean_subscription_mrr
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   table: fct_subscription_monthly
   joins: []
   bucket:

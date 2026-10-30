@@ -92,6 +92,7 @@ impl LocalArm {
                 source_name: fact.source().clone(),
             });
         };
+        let metric = metric.metric();
         let leaves = federation.carried();
         let leaf_labels = labels(&federation);
         let mismatch = || DrillAcrossPlanError::TermsDoNotMatchFederation { metric: metric.clone() };
@@ -430,7 +431,7 @@ mod tests {
     fn fact_leg(name: &str, grain: Grain, keys: Vec<PlanKey>, terms: Vec<LegTerm>) -> LegPlan {
         LegPlan::Fact {
             source: source("facts"),
-            metric: metric(name),
+            metric: crate::pinned::stated_digest(metric(name)),
             tables: StatementTables::only(table(FACT)),
             bucket: bucket(grain),
             keys,
@@ -465,7 +466,7 @@ mod tests {
         let federation = sum("amount");
         let lookup = LegPlan::Lookup {
             source: source("geo"),
-            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
             table: table("dim_region").into(),
             keys: vec![link(), key(dimension_label("region"), "region")],
             bindings: PlanBindings::none(),
@@ -527,7 +528,7 @@ mod tests {
         let federation = sum("amount");
         let lookup = LegPlan::Lookup {
             source: source("geo"),
-            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
             table: table("dim_region").into(),
             keys: vec![link(), key(dimension_label("region"), "region")],
             bindings: PlanBindings::none(),
@@ -738,7 +739,7 @@ mod tests {
     fn a_local_arm_over_a_lookup_leg_does_not_construct() {
         let lookup = LegPlan::Lookup {
             source: source("geo"),
-            metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
             table: table("dim_region").into(),
             keys: Vec::new(),
             bindings: PlanBindings::none(),

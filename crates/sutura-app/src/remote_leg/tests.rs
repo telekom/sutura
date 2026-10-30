@@ -3,6 +3,7 @@
 
 use sutura_domain::audit::{AuditSink, CallRecord, RecordedOutcome};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, TableName};
+use sutura_domain::pinned::MetricDigest;
 use sutura_domain::plan::remote::{LegWire, RemoteLegOutcome, to_wire};
 use sutura_domain::plan::{
     InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanTerm, ResultLabel, StatementTables, range_filters,
@@ -28,6 +29,11 @@ fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a test column is a column")
 }
 
+/// The digest [`bundle`]'s planner puts on a leg of its metric.
+fn planned() -> MetricDigest {
+    bundle().metric_digest(&metric()).expect("the bundle pins its metric")
+}
+
 fn bucket_column() -> PlanColumn {
     PlanColumn::new(table(), column("order_date"))
 }
@@ -40,7 +46,7 @@ fn certified_leg() -> (LegPlan, Vec<ParamValue>) {
     let [from, until] = range_filters(june(), &bucket_column(), &mut params);
     let leg = LegPlan::Fact {
         source: source(),
-        metric: metric(),
+        metric: planned(),
         tables: StatementTables::only(table()),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, bucket_column()),
         keys: Vec::new(),
@@ -59,7 +65,7 @@ fn certified_leg() -> (LegPlan, Vec<ParamValue>) {
 
 fn certified_wire() -> (LegWire, Vec<ParamValue>) {
     let (leg, params) = certified_leg();
-    let wire = to_wire(&leg, &bundle()).expect("a leg built from this pin's own metric sends");
+    let wire = to_wire(&leg).expect("a leg built from this pin's own metric sends");
     (wire, params)
 }
 
@@ -70,7 +76,7 @@ fn certified_wire() -> (LegWire, Vec<ParamValue>) {
 fn uncertified_wire() -> (LegWire, Vec<ParamValue>) {
     let leg = LegPlan::Fact {
         source: source(),
-        metric: metric(),
+        metric: planned(),
         tables: StatementTables::only(table()),
         bucket: PlanBucket::new(
             ResultLabel::bucket(),
@@ -88,7 +94,7 @@ fn uncertified_wire() -> (LegWire, Vec<ParamValue>) {
         bindings: PlanBindings::none(),
         range: june(),
     };
-    let wire = to_wire(&leg, &bundle()).expect("the sender's own pin still sends it");
+    let wire = to_wire(&leg).expect("the sender's own pin still sends it");
     (wire, Vec::new())
 }
 
@@ -375,4 +381,79 @@ fn one_audit_record_is_written_per_outcome() {
 
     let lines: Vec<&str> = records.try_iter().collect();
     assert_eq!(lines, ["answered", "refused"], "{lines:?}");
+}
+
+/// [`LegPreflightWarehouse`] declaring that it relays to another node - Decision 9's instrument.
+struct Relaying(LegPreflightWarehouse);
+
+impl sutura_domain::warehouse::Warehouse for Relaying {
+    type Error = <LegPreflightWarehouse as sutura_domain::warehouse::Warehouse>::Error;
+
+    const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
+        sutura_domain::source::ImpersonationCapability::PerSubjectCredential;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &sutura_domain::model::SourceName {
+        self.0.source()
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        self.0.posture()
+    }
+
+    fn execute(
+        &self,
+        executable: sutura_domain::plan::Executable<'_>,
+        presented: &sutura_domain::identity::Presented,
+        deadline: Deadline,
+    ) -> Result<sutura_domain::warehouse::ResultBatches, Self::Error> {
+        self.0.execute(executable, presented, deadline)
+    }
+
+    fn verify_anchor(
+        &self,
+        plan: sutura_domain::plan::AnchorPlan<'_>,
+    ) -> Result<sutura_domain::warehouse::AnchorRows, Self::Error> {
+        #[expect(clippy::disallowed_methods, reason = "a fake delegating the boot path to the fake it wraps")]
+        let rows = self.0.verify_anchor(plan);
+        rows
+    }
+
+    fn relays_to_a_node(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_leg_over_a_source_that_is_itself_another_node_is_refused() {
+    // Decision 9: one hop. The source is impersonating, runs legs and the leg is certified, so
+    // only the relay declaration refuses it - under the same closed code, before anything runs.
+    let (wire, params) = certified_wire();
+    let warehouses = Warehouses::of(Relaying(LegPreflightWarehouse::new(
+        source(),
+        SourcePosture::ImpersonationAtSource,
+        certified(),
+        DryRunOutcome::Accepted,
+    )));
+    let broker = AcknowledgingBroker::over(&[(source(), SourcePosture::ImpersonationAtSource)]);
+    let ran = run_remote_leg::<_, _, Combiner>(
+        &bundle(),
+        wire,
+        params,
+        &asked_by_a_person(),
+        &broker,
+        &warehouses,
+        generous_deadline(),
+        &SpendLedger::no_budget(),
+    )
+    .expect("a refusal is an Ok, never an Err");
+    let RemoteLegOutcome::Refusal {
+        reason: RefusalReason::RemoteLegNotCertified { source: named },
+    } = ran.into_outcome()
+    else {
+        panic!("a leg over another node must refuse with the closed code");
+    };
+    assert_eq!(named, source());
+    let touched = warehouses.get(&source()).expect("the registry holds it").0.executions();
+    assert_eq!(touched, 0, "a relaying source is never asked");
 }

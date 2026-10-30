@@ -4,7 +4,9 @@ expression: leg
 ---
 fact:
   source: local
-  metric: tickets_per_subscription
+  metric:
+    metric: tickets_per_subscription
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   table: fct_ticket_monthly
   joins:
     - relationship: ticket_calendar

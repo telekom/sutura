@@ -18,7 +18,7 @@ use crate::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
     TableName,
 };
-use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, NotAgreed, PinnedDefinitions};
+use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, MetricDigest, NotAgreed, PinnedDefinitions};
 use crate::plan::{
     InternalLabel, LegPlan, LegTerm, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate,
     PlanTerm, PredicateOrigin, ResultLabel, StatementTables,
@@ -92,6 +92,13 @@ fn compound(name: &str, origin: &str, target: &str, columns: &[&str]) -> Relatio
 
 fn metric_name(raw: &str) -> MetricName {
     MetricName::parse(raw).expect("a test metric is a metric")
+}
+
+/// The digest the sender's planner would put on a leg of `metric`: its own pin's.
+pub(super) fn planned(sender: &PinnedDefinitions, metric: &str) -> MetricDigest {
+    sender
+        .metric_digest(&metric_name(metric))
+        .expect("the sender pins the metric")
 }
 
 fn sum(of: &str) -> Term {
@@ -338,7 +345,7 @@ fn revenue_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
     params.push(ParamValue::Text(String::from("paid")));
     let leg = LegPlan::Fact {
         source: source("sales"),
-        metric: metric_name("revenue"),
+        metric: planned(sender, "revenue"),
         tables: StatementTables::parse(orders_path(), vec![PlanJoin::hop(relationship, &table("orders"), channels)])
             .expect("two tables"),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("orders", "order_date")),
@@ -372,7 +379,7 @@ fn region_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
     let params = vec![ParamValue::Text(String::from("EMEA"))];
     let leg = LegPlan::Lookup {
         source: source("crm"),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: planned(sender, "revenue"),
         table: StatementTables::parse(
             table("customers"),
             vec![PlanJoin::hop(relationship, &table("customers"), regions)],
@@ -409,7 +416,7 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
     let calendar = sender.definitions().model(&model_name("calendar")).expect("declared");
     let leg = LegPlan::Fact {
         source: source("sales"),
-        metric: metric_name("net_revenue"),
+        metric: planned(sender, "net_revenue"),
         tables: StatementTables::parse(
             table("refunds"),
             vec![PlanJoin::hop(relationship, &table("refunds"), calendar)],
@@ -434,8 +441,8 @@ fn refund_leg(sender: &PinnedDefinitions) -> (LegPlan, Vec<ParamValue>) {
 }
 
 /// Over a real serializer, so a cell reads what a transport would carry.
-fn sent(leg: &LegPlan, sender: &PinnedDefinitions) -> Value {
-    serde_json::to_value(to_wire(leg, sender).expect("the sender's own leg is sendable")).expect("a leg serializes")
+fn sent(leg: &LegPlan) -> Value {
+    serde_json::to_value(to_wire(leg).expect("the sender's own leg is sendable")).expect("a leg serializes")
 }
 
 fn received(json: Value) -> Result<LegWire, serde_json::Error> {
@@ -457,37 +464,28 @@ fn refusal(json: Value, params: Vec<ParamValue>) -> LegNotCertified {
 
 fn fact() -> (Value, Vec<ParamValue>) {
     let (leg, params) = revenue_leg(&pinned(ORDINARY));
-    (sent(&leg, &pinned(ORDINARY)), params)
+    (sent(&leg), params)
 }
 
 #[test]
 fn a_fact_leg_arrives_as_the_leg_the_sender_planned() {
     let sender = pinned(ORDINARY);
     let (leg, params) = revenue_leg(&sender);
-    assert_eq!(
-        parsed(sent(&leg, &sender), &pinned(ORDINARY), params).expect("certified"),
-        leg
-    );
+    assert_eq!(parsed(sent(&leg), &pinned(ORDINARY), params).expect("certified"), leg);
 }
 
 #[test]
 fn a_lookup_leg_arrives_as_the_leg_the_sender_planned() {
     let sender = pinned(ORDINARY);
     let (leg, params) = region_leg(&sender);
-    assert_eq!(
-        parsed(sent(&leg, &sender), &pinned(ORDINARY), params).expect("certified"),
-        leg
-    );
+    assert_eq!(parsed(sent(&leg), &pinned(ORDINARY), params).expect("certified"), leg);
 }
 
 #[test]
 fn the_second_fact_of_a_cross_model_ratio_arrives_without_the_first_models_required_filters() {
     let sender = pinned(ORDINARY);
     let (leg, params) = refund_leg(&sender);
-    assert_eq!(
-        parsed(sent(&leg, &sender), &pinned(ORDINARY), params).expect("certified"),
-        leg
-    );
+    assert_eq!(parsed(sent(&leg), &pinned(ORDINARY), params).expect("certified"), leg);
 }
 
 #[test]
@@ -497,7 +495,7 @@ fn a_leg_whose_metric_digest_differs_is_refused() {
         ..ORDINARY
     });
     let (leg, params) = revenue_leg(&sender);
-    let refused = parsed(sent(&leg, &sender), &pinned(ORDINARY), params).expect_err("revenue means another thing here");
+    let refused = parsed(sent(&leg), &pinned(ORDINARY), params).expect_err("revenue means another thing here");
     assert!(
         matches!(refused, LegNotCertified::Metric(NotAgreed::Differs { ref metric }) if *metric == metric_name("revenue")),
         "{refused:?}"
@@ -554,10 +552,7 @@ fn a_leg_whose_bundle_digest_differs_and_whose_metric_digests_agree_is_accepted(
     });
     assert_ne!(sender.digest(), receiver.digest(), "the two bundles are two versions");
     let (leg, params) = revenue_leg(&sender);
-    assert_eq!(
-        parsed(sent(&leg, &sender), &receiver, params).expect("the metric is the same"),
-        leg
-    );
+    assert_eq!(parsed(sent(&leg), &receiver, params).expect("the metric is the same"), leg);
 }
 
 #[test]
@@ -658,7 +653,7 @@ fn a_bucket_on_a_joined_tables_column_of_the_same_name_is_refused() {
 fn a_term_on_a_column_the_measure_reads_from_another_table_is_refused() {
     let sender = pinned(ORDINARY);
     let (leg, params) = refund_leg(&sender);
-    let mut json = sent(&leg, &sender);
+    let mut json = sent(&leg);
     json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "refunds", "column": "amount_cents"});
     let refused = refusal(json, params);
     assert!(
@@ -671,7 +666,7 @@ fn a_term_on_a_column_the_measure_reads_from_another_table_is_refused() {
 fn a_term_on_a_table_the_leg_is_not_rooted_on_is_refused() {
     let sender = pinned(ORDINARY);
     let (leg, params) = refund_leg(&sender);
-    let mut json = sent(&leg, &sender);
+    let mut json = sent(&leg);
     json["joins"] = json!(["refunds_calendar", "refunds_order"]);
     json["terms"][0]["term"]["aggregate"]["column"] = json!({"table": "orders", "column": "amount_cents"});
     let refused = refusal(json, params);
@@ -685,7 +680,7 @@ fn a_term_on_a_table_the_leg_is_not_rooted_on_is_refused() {
 fn a_term_of_the_other_model_on_the_metrics_own_leg_is_refused() {
     let sender = pinned(ORDINARY);
     let (leg, mut params) = refund_leg(&sender);
-    let mut json = sent(&leg, &sender);
+    let mut json = sent(&leg);
     let (revenue, _) = fact();
     json["table"] = json!("orders");
     json["joins"] = json!(["orders_calendar", "calendar_refunds"]);
@@ -834,33 +829,30 @@ fn a_label_that_names_neither_an_internal_label_nor_a_dimension_does_not_parse()
 }
 
 #[test]
-fn a_leg_over_a_metric_the_senders_own_pin_does_not_define_cannot_be_written() {
-    let sender = pinned(ORDINARY);
-    let (leg, _) = revenue_leg(&sender);
-    let LegPlan::Fact {
-        source,
-        tables,
-        bucket,
-        keys,
-        terms,
-        bindings,
-        range,
-        ..
-    } = leg
-    else {
-        panic!("a fact leg");
-    };
-    let churn = LegPlan::Fact {
-        source,
-        metric: metric_name("churn"),
-        tables,
-        bucket,
-        keys,
-        terms,
-        bindings,
-        range,
-    };
-    assert!(matches!(to_wire(&churn, &sender), Err(NotSendable::Digest(_))));
+fn a_leg_planned_before_a_catalog_refresh_sends_the_digest_it_was_planned_under() {
+    let before = pinned(ORDINARY);
+    let (leg, params) = revenue_leg(&before);
+    // The sender adopts an edited bundle between planning and sending. `to_wire` reads no pin, so
+    // the leg still names the definition it was planned under, and a receiver still on that
+    // definition certifies it while one on the edit refuses it.
+    let after = pinned(Bundle {
+        revenue_description: "Orders, any status",
+        ..ORDINARY
+    });
+    let json = sent(&leg);
+    assert_eq!(
+        json["metric"],
+        serde_json::to_value(planned(&before, "revenue")).expect("a digest serializes")
+    );
+    assert_ne!(
+        json["metric"],
+        serde_json::to_value(planned(&after, "revenue")).expect("a digest serializes")
+    );
+    assert_eq!(parsed(json.clone(), &before, params.clone()).expect("certified"), leg);
+    assert!(matches!(
+        parsed(json, &after, params),
+        Err(LegNotCertified::Metric(NotAgreed::Differs { .. }))
+    ));
 }
 
 #[test]
@@ -889,7 +881,7 @@ fn a_leg_with_a_key_truncated_to_a_grain_cannot_be_written() {
         keys: std::iter::once(month).chain(keys.into_iter().skip(1)).collect(),
         bindings,
     };
-    let refused = to_wire(&lookup, &sender);
+    let refused = to_wire(&lookup);
     assert!(matches!(refused, Err(NotSendable::KeyTruncated { .. })), "{refused:?}");
 }
 

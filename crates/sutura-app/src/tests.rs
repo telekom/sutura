@@ -103,6 +103,14 @@ pub(crate) fn metric() -> MetricName {
     MetricName::parse("revenue").expect("a test metric name is a name")
 }
 
+/// [`metric`] with a stated digest, for a hand-built leg no node certifies.
+pub(crate) fn planned_metric() -> sutura_domain::pinned::MetricDigest {
+    sutura_domain::pinned::MetricDigest::new(
+        metric(),
+        sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+    )
+}
+
 pub(crate) fn source() -> SourceName {
     SourceName::parse("local").expect("a test source is a source")
 }

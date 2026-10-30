@@ -54,7 +54,13 @@ mod boot;
 
 /// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "oracle",
+    feature = "cube",
+    feature = "node"
+))]
 mod broker;
 
 /// One kind's open-and-build pair, so the composition root keeps the dispatch and the refusals.
@@ -71,6 +77,8 @@ mod oracle;
 
 /// The same, for the Cube deployment this root opens.
 mod cube;
+/// The `node` half: another sutura node running a source's legs, inside the mix only.
+mod node;
 
 /// The same, for the `DuckDB` file this root opens read-only.
 mod duckdb;
@@ -342,7 +350,13 @@ pub(crate) fn run() -> Result<(), String> {
             // can deliver one". With no impersonating source declared it holds the same shared map
             // the static broker would, and refuses the same sources.
             let gate = adoption_gate(mixed.attached.clone(), true);
-            #[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube"))]
+            #[cfg(any(
+                feature = "bigquery",
+                feature = "clickhouse",
+                feature = "oracle",
+                feature = "cube",
+                feature = "node"
+            ))]
             let served = started(
                 &catalogs,
                 mixed.engines,
@@ -354,7 +368,13 @@ pub(crate) fn run() -> Result<(), String> {
             // `PerSubjectCredential` and every impersonating entry is already refused at its own
             // posture cross-check. The static broker is then the whole truth: every declared shared
             // source served as itself, and nothing else mintable.
-            #[cfg(not(any(feature = "bigquery", feature = "clickhouse", feature = "oracle", feature = "cube")))]
+            #[cfg(not(any(
+                feature = "bigquery",
+                feature = "clickhouse",
+                feature = "oracle",
+                feature = "cube",
+                feature = "node"
+            )))]
             let served = shared_identity_service(&catalogs, mixed.engines, gate, &settings)?;
             (served, mixed.attached)
         }
@@ -893,22 +913,24 @@ fn open_engine(
         grouped.oracle.is_empty(),
         grouped.duckdb.is_empty(),
         grouped.cube.is_empty(),
+        grouped.node.is_empty(),
     ) {
-        (false, true, true, true, true, true, true) => {
+        (false, true, true, true, true, true, true, true) => {
             files::open_files(pinned, &grouped.files, registry, runtime).map(OpenedSources::Files)
         }
-        (true, false, true, true, true, true, true) => {
+        (true, false, true, true, true, true, true, true) => {
             bigquery::open_bigquery(&grouped.bigquery, registry, request_timeout, outbound)
         }
-        (true, true, false, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
-        (true, true, true, false, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
-        (true, true, true, true, true, false, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
-        (true, true, true, true, true, true, false) => cube::open_cube(&grouped.cube, registry, outbound),
+        (true, true, false, true, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
+        (true, true, true, false, true, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
+        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, true, false, true, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
+        (true, true, true, true, true, true, false, true) => cube::open_cube(&grouped.cube, registry, outbound),
+        // A `node` group always opens in the mix: it runs legs of a federated answer only.
         // Unreachable: `declared` is non-empty (checked above) and every entry falls into exactly
         // one of the groups, so this arm can only be reached if nothing ran - which cannot happen.
         // Written as a fallback rather than an unwrap the workspace denies.
-        (true, true, true, true, true, true, true) => {
+        (true, true, true, true, true, true, true, true) => {
             Err(String::from("this catalog declares no models, so there is nothing to open"))
         }
         _ => kind::open_mixed(&grouped, pinned, registry, runtime, request_timeout, outbound).map(OpenedSources::Mixed),

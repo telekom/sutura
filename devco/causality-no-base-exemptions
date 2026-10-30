@@ -51,7 +51,6 @@ a_fact_leg_with_no_digest_for_its_metric_does_not_parse # inline in plan/remote/
 a_digest_that_is_not_a_hash_does_not_parse # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when `DefinitionDigest` loses `serde(try_from = "String")`
 a_field_the_document_does_not_declare_does_not_parse # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when `LegWire` loses `deny_unknown_fields`
 a_leg_whose_bundle_digest_differs_and_whose_metric_digests_agree_is_accepted # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when `PinnedDefinitions::metric_digest` returns the bundle digest
-a_leg_over_a_metric_the_senders_own_pin_does_not_define_cannot_be_written # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when `metric_digest` falls back to the bundle digest for an undefined metric
 a_table_the_receiver_does_not_certify_for_the_metric_and_source_is_refused # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when the root-table source check in `statement` is `|| true`
 a_join_the_receiver_does_not_declare_from_the_statement_inside_the_source_is_refused # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when the join-target source check in `statement` is `|| true`
 a_column_the_statements_tables_do_not_declare_is_refused # inline in plan/remote/tests.rs, a module new in this change (declared in plan/remote.rs, which the base lacks); killed when `Statement::certifies` skips `has_column` (`|| true`)
@@ -218,3 +217,24 @@ non_numeric_digits_are_refused # names the grpc-timeout parser (grpc_timeout.rs,
 a_signed_amount_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
 no_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 an_empty_value_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+a_node_endpoint_is_an_https_origin_only # in crates/sutura-exec-node, a crate new in this change, so the base has no such package to run
+each_value_is_one_column_of_one_row_in_placeholder_order # in crates/sutura-exec-node, a crate new in this change
+a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values # in crates/sutura-exec-node, a crate new in this change
+a_node_source_sends_only_a_subject_token # in crates/sutura-exec-node, a crate new in this change
+a_node_refusal_is_read_as_its_closed_code # in crates/sutura-exec-node, a crate new in this change
+an_answer_under_labels_the_leg_does_not_project_is_refused # in crates/sutura-exec-node, a crate new in this change
+a_node_whose_certificate_is_not_trusted_is_never_sent_the_leg # in crates/sutura-exec-node, a crate new in this change
+a_spent_deadline_dials_nothing # in crates/sutura-exec-node, a crate new in this change
+a_leg_over_a_source_that_is_itself_another_node_is_refused # overrides `Warehouse::relays_to_a_node`, new in this change, so its file does not compile at base
+a_leg_another_node_does_not_certify_is_refused_naming_this_nodes_source # overrides `Warehouse::leg_not_certified`, new in this change, so its file does not compile at base
+a_leg_planned_before_a_catalog_refresh_sends_the_digest_it_was_planned_under # calls `to_wire(leg)`, whose pin argument this change removed, so its file does not compile at base
+every_leg_carries_the_digest_of_the_definition_it_was_planned_from # calls `Metric::digest` and `LegPlan::metric`, new in this change, so its file does not compile at base
+a_map_in_the_node_client_is_scanned # names crates/sutura-exec-node/src/, a scope this change adds; at base the scratch tree is out of scope and the scan refuses an empty walk
+a_node_source_declares_its_endpoint_and_its_delegation # in crates/sutura-config/src/sources/node.rs, a module new in this change
+a_node_source_is_refused_unless_it_sends_each_leg_as_its_caller # in crates/sutura-config/src/sources/node.rs, a module new in this change; names `InvalidDelegation::NodeNotImpersonating`, new here
+a_key_that_means_nothing_to_a_node_source_is_refused_naming_it # in crates/sutura-config/src/sources/node.rs, a module new in this change; names `SourceKind::Node`, new here
+a_node_delegation_needs_a_direct_deployment # in crates/sutura-config/src/settings/delegation.rs beside the widened check, a production file the base run reverts
+a_node_hop_to_the_deployments_own_audience_is_a_typed_refusal # names `NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience`, new in this change, in the production file that adds it
+a_node_source_is_refused_by_a_build_that_did_not_link_the_client # #[cfg(not(feature = "node"))]: not compiled by the --all-features causality run; `just gates`' default-feature lane runs it
+a_node_endpoint_the_client_cannot_dial_is_refused_at_boot # in crates/sutura-cli/src/serve/node.rs, a module new in this change
+a_node_source_opens_in_the_mix_and_declares_that_it_relays # in crates/sutura-cli/src/serve/node.rs, a module new in this change

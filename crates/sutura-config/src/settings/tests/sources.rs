@@ -155,6 +155,7 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
                     | crate::sources::placement::SourcePlacement::ClickHouse { .. }
                     | crate::sources::placement::SourcePlacement::Oracle { .. }
                     | crate::sources::placement::SourcePlacement::Cube { .. }
+                    | crate::sources::placement::SourcePlacement::Node { .. }
                     | crate::sources::placement::SourcePlacement::Duckdb { .. } => {
                         panic!("the fixture tree declares files sources");
                     }
@@ -868,4 +869,31 @@ fn a_direct_delegation_whose_last_hop_asks_for_the_deployments_own_audience_is_r
     )))
     .expect("a chain whose last hop asks for the pool's audience boots");
     assert!(earlier.refusals().is_empty(), "{:?}", earlier.refusals());
+}
+
+/// A `node` source sends each caller's exchanged token, so an endpoint in the clear is refused.
+#[test]
+fn a_node_source_over_plain_http_is_refused() {
+    let node = "sources:\n  sales:\n    kind: \"node\"\n    endpoint: \"http://node-b.example.com\"\n    \
+                posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+                client_id: \"sutura\"\n        client_secret_file: \"/etc/sutura/client-secret\"\n        \
+                audience: \"https://node-b.example.com\"\n";
+    let error = Settings::load(
+        &Sources::defaults(Environment::Development)
+            .with_overlay(format!("security:\n  identity: \"multi-user\"\n{DIRECT_INBOUND}{node}")),
+    )
+    .expect_err("a node endpoint in the clear is refused");
+    let SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(
+        matches!(
+            *cause,
+            crate::sources::InvalidSourceRegistry::Delegation {
+                cause: crate::sources::placement::InvalidDelegation::PlaintextEndpoint,
+                ..
+            }
+        ),
+        "{cause:?}"
+    );
 }

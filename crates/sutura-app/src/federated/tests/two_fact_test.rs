@@ -75,7 +75,7 @@ fn two_fact_plan_of(
     };
     let fact_leg = |source: &str, table: &TableName, second: bool| LegPlan::Fact {
         source: SourceName::parse(source).expect("a test source"),
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         tables: StatementTables::only(table.clone()),
         bucket: calendar.clone(),
         keys: vec![link(table)],
@@ -87,7 +87,10 @@ fn two_fact_plan_of(
     let second_fact = fact_leg("orders", &orders_table, true);
     let lookup = LegPlan::Lookup {
         source: SourceName::parse("geo").expect("a test source"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: fact_table.clone().into(),
         keys: vec![
             link(&fact_table),

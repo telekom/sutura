@@ -27,7 +27,7 @@ fn federation() -> Federation {
 fn fact_keyed(keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys,
@@ -40,7 +40,7 @@ fn fact_keyed(keys: Vec<PlanKey>) -> LegPlan {
 fn second_fact_keyed(keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Fact {
         source: source(SECOND_FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table("dim_orders")),
         bucket: bucket(),
         keys,
@@ -53,7 +53,7 @@ fn second_fact_keyed(keys: Vec<PlanKey>) -> LegPlan {
 fn lookup_keyed(keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Lookup {
         source: source("geo"),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),
