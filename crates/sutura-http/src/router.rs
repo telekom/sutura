@@ -86,14 +86,19 @@ mod metrics;
 // `assemble` read `mount.router` directly (`#758` round 3). Moving it below the module boundary
 // makes the same read `E0616` from every item in THIS module, `assemble` included; the re-export
 // keeps `crate::router::Ungoverned` the path every other crate module already names.
-#[cfg(feature = "agent")]
+#[cfg(any(feature = "agent", feature = "flight"))]
 mod ungoverned;
-#[cfg(feature = "agent")]
+#[cfg(any(feature = "agent", feature = "flight"))]
 pub(crate) use ungoverned::Ungoverned;
 
-#[cfg(feature = "agent")]
+#[cfg(feature = "flight")]
+mod flight;
+#[cfg(feature = "flight")]
+use flight::flight_subtree;
+
+#[cfg(any(feature = "agent", feature = "flight"))]
 mod allowlist;
-#[cfg(feature = "agent")]
+#[cfg(any(feature = "agent", feature = "flight"))]
 pub(crate) use allowlist::{check_ungoverned, ungoverned_routes};
 
 /// What the span calls the route of a request that matched none.
@@ -197,6 +202,18 @@ pub enum RouterNotBuilt {
          declaration with `SpendHeadroomPush::of(&state)`"
     )]
     AgentSurfaceSpendPushMismatched { mount_pushes: bool, state_registered: bool },
+    /// A Flight surface is mounted on a deployment that may not serve one without `direct` inbound
+    /// identity.
+    ///
+    /// The Flight twin of [`Self::AgentSurfaceNotFitToServe`], over the SAME predicate
+    /// `Settings::refusals` asks when `server.flight_surface.enabled` is set:
+    /// `sutura_config::Settings::flight_surface_refusals`.
+    #[cfg(feature = "flight")]
+    #[error(
+        "a Flight surface is mounted and this deployment may not serve it:\n  - {}",
+        refusals.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n  - ")
+    )]
+    FlightSurfaceNotFitToServe { refusals: Vec<sutura_config::NotFitToServe> },
     /// A recorded route outside the versioned/governed subtree carries no `ungoverned_routes()` row.
     ///
     /// **The mechanism that makes an ungoverned route auditable rather than invisible.**
@@ -211,7 +228,7 @@ pub enum RouterNotBuilt {
     /// `check-boundaries`' `ungoverned` gate, which is what makes "no mount with no row"
     /// structural rather than recorder's recall. It does not insist a table row be merged - `/mcp`
     /// is allowed to be absent - which is stated next to [`check_ungoverned`].
-    #[cfg(feature = "agent")]
+    #[cfg(any(feature = "agent", feature = "flight"))]
     #[error(
         "`{path}` is mounted outside the versioned subtree and `sutura_http::router::ungoverned_routes` \
          carries no row naming why, so nothing says it was considered against the routes `governed()` \
@@ -410,23 +427,32 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // resource-path reason stated at its first merge.
         .without_v07_checks()
         .merge(public);
-    // Only the agent-feature block below mutates the router, so on a no-`agent` build it stays
-    // immutable and the shadow is what keeps `mut` from being dead on either side of the cfg.
-    #[cfg(feature = "agent")]
+    // Only the blocks below mutate the router, so on a build with neither feature it stays immutable
+    // and the shadow is what keeps `mut` from being dead on either side of the cfg.
+    #[cfg(any(feature = "agent", feature = "flight"))]
     let mut router = router;
+    #[cfg(any(feature = "agent", feature = "flight"))]
+    let mut ungoverned: Vec<&'static str> = Vec::new();
     // The agent surface, merged here for the same reason `public` is - outside the version prefix,
     // over the same final unchecked merge, and ONLY through an `Ungoverned`: `agent_subtree` fuses
     // the subtree with the path `check_ungoverned` must record, so a merge and its allowlist row
     // cannot drift - the type is what records it, and an unrecorded merge cannot be expressed.
     #[cfg(feature = "agent")]
+    if let Some(mount) = agent_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
+        // `merge_into`, and never a bare `merge`: it is the one call that both merges this
+        // subtree and records its path, so a merged ungoverned route always reaches
+        // `check_ungoverned` below.
+        mount.merge_into(&mut router, &mut ungoverned);
+    }
+    // The Flight surface, merged the same way and over the same `Ungoverned` mechanism - one route,
+    // dispatching its own methods by the tonic-generated path `governed()`'s per-route table cannot
+    // name a row for.
+    #[cfg(feature = "flight")]
+    if let Some(mount) = flight_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
+        mount.merge_into(&mut router, &mut ungoverned);
+    }
+    #[cfg(any(feature = "agent", feature = "flight"))]
     {
-        let mut ungoverned: Vec<&'static str> = Vec::new();
-        if let Some(mount) = agent_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
-            // `merge_into`, and never a bare `merge`: it is the one call that both merges this
-            // subtree and records its path, so a merged ungoverned route always reaches
-            // `check_ungoverned` below.
-            mount.merge_into(&mut router, &mut ungoverned);
-        }
         for row in ungoverned_routes() {
             tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");
         }

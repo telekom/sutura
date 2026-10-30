@@ -34,6 +34,17 @@ tls = ["dep:tokio-rustls", "sutura-config/tls"]
 # enables this feature; without it none of this compiles and the shipped set is unchanged.
 agent = []
 
+# The Flight transport: `sutura_flight::RemoteLegService` mounted on this crate's own listener
+# behind the same leg-1/`establish_asked`/host/rate-limit stack `agent` mounts `/mcp` behind.
+#
+# Unlike `agent`, this crate IS permitted to name `sutura-flight`'s types directly - a gRPC server
+# is a concrete `tower::Service`, not a second protocol this crate would have to re-abstract, and
+# nesting it needs no opaque boxing the way keeping `sutura-mcp` out of this crate's dependency
+# graph does. `axum/http2` is pulled in here and only here: a plaintext or TLS listener built
+# without this feature never needs HTTP/2 framing, and `tls::Termination` only offers the `h2` ALPN
+# protocol when it is enabled.
+flight = ["dep:sutura-flight", "sutura-flight/service", "dep:arrow-flight", "axum/http2"]
+
 # `ServiceState::new` over bare `Arc<Settings>` that `ServableSettings::check` was never asked of,
 # for another crate's test fixtures - this crate's own tests have it under `cfg(test)`. Turned on
 # only by `sutura-cli`'s `[dev-dependencies]`. `check-default-features` refuses it in a shipped
@@ -90,6 +101,11 @@ tower_governor = { workspace = true }
 # absent from the build rather than merely unused. See `src/tls.rs` for why the acceptor is driven
 # from a task instead of from `accept`, and the workspace manifest for the feature choices.
 tokio-rustls = { workspace = true, optional = true }
+# Node B's `DoExchange` server, and ONLY under the `flight` feature - `optional` is what keeps
+# `tonic`, `h2` and `prost` off a build that does not ask for it.
+sutura-flight = { workspace = true, optional = true }
+# For `FlightServiceServer`, the tonic-generated type `sutura-flight`'s service implements.
+arrow-flight = { workspace = true, optional = true }
 tracing = { workspace = true }
 # 128 random bits per request for the id a data-system job is labelled with
 # (`correlation::from_the_os`), so the label joins one audit record across restarts and replicas. No
@@ -138,6 +154,10 @@ sutura-runtime = { workspace = true, features = ["test-capture"] }
 # `read_to_end` are extension traits from that feature. The server side needs none of it, so the
 # shipped graph does not get it.
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+# The Flight mount cells: a parameter stream for `FlightClient::do_exchange`, and the status code a
+# refusal crosses as. Both already in the lock through `sutura-flight`.
+futures-util = { workspace = true }
+tonic = { workspace = true }
 
 [lints]
 workspace = true

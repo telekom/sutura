@@ -424,16 +424,20 @@ pub(crate) struct RawServer {
     /// operator turning the key on (on a deployment that also declares `security.inbound`) makes a
     /// caller reachable there.
     #[serde(default)]
-    pub(crate) agent_surface: RawAgentSurface,
+    pub(crate) agent_surface: RawSurface,
+    /// Whether the Arrow Flight surface is mounted. Absent (or `false`) means a build that
+    /// compiled the `flight` feature still mounts nothing.
+    #[serde(default)]
+    pub(crate) flight_surface: RawSurface,
     /// External hosts this deployment answers, beyond the loopback names and its own resource host.
     #[serde(default)]
     pub(crate) allowed_hosts: Vec<String>,
 }
 
-/// Whether the agent surface is mounted, with the safe default being off.
+/// Whether a surface is mounted, with the safe default being off.
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RawAgentSurface {
+pub(crate) struct RawSurface {
     #[serde(default)]
     pub(crate) enabled: bool,
 }

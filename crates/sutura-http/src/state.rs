@@ -42,7 +42,7 @@ use std::sync::Arc;
 use sutura_config::Settings;
 use sutura_runtime::{Admission, Counter, Gauge, Registry, RegistryBuilder};
 
-#[cfg(feature = "agent")]
+#[cfg(any(feature = "agent", feature = "flight"))]
 use crate::router::Ungoverned;
 use crate::surface::Surface;
 
@@ -135,6 +135,14 @@ pub struct ServiceState {
     /// refuses to assemble when this is `Some` and no `security.inbound` gateway was attached.
     #[cfg(feature = "agent")]
     agent: Option<AgentMount>,
+    /// The mounted Flight transport, attached by a builder the same way the agent one is.
+    ///
+    /// Unlike the agent surface, this crate IS permitted to name `sutura_flight`'s types directly -
+    /// `FlightMount` wraps a concrete `tower::Service` rather than boxing it, because the mount
+    /// still only runs behind the ordinary `nest_service`-plus-layers shape every other ungoverned
+    /// mount does.
+    #[cfg(feature = "flight")]
+    flight: Option<FlightMount>,
     /// Where each request's job-label id is drawn from: the OS source, except in a test of a host
     /// that will not supply one.
     entropy: crate::correlation::Draw,
@@ -348,6 +356,49 @@ impl AgentMount {
     }
 }
 
+/// The mounted Flight transport.
+///
+/// Unlike [`AgentMount`], carries no spend declaration: the Flight surface charges leg 2's own
+/// ledger at the source, not the ledger `POST /v1/query` and `/mcp` share, so there is no gauge
+/// mismatch for this mount to disagree with the attaching state about.
+#[cfg(feature = "flight")]
+#[derive(Clone)]
+pub struct FlightMount {
+    mount: Ungoverned,
+}
+
+#[cfg(feature = "flight")]
+impl FlightMount {
+    /// Wraps any service `nest_service` can mount, nested at this crate's own `FLIGHT_MOUNT_PATH`.
+    ///
+    /// Unlike [`AgentMount::new`], this crate may name the wrapped type directly -
+    /// `sutura_flight::RemoteLegService` is reached through tonic's own generated
+    /// `FlightServiceServer`, which the composition root builds and wraps with the
+    /// `OriginalUri`-restoring adapter `crate::flight` provides before handing it here.
+    #[must_use]
+    pub fn new<S>(service: S) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
+        Self {
+            mount: Ungoverned::mount(crate::constants::FLIGHT_MOUNT_PATH, service),
+        }
+    }
+
+    /// A clone of the fused mount, for `crate::router::flight_subtree` to layer and merge into the
+    /// assembly. See [`AgentMount::ungoverned`] for why this hands back the whole [`Ungoverned`]
+    /// value rather than a bare router.
+    pub(crate) fn ungoverned(&self) -> Ungoverned {
+        self.mount.clone()
+    }
+}
+
 impl ServiceState {
     /// Builds the state from a started service and the settings it was started under, which outside
     /// a test fixture only [`crate::ServableSettings::check`] hands out.
@@ -420,6 +471,8 @@ impl ServiceState {
             inbound: None,
             #[cfg(feature = "agent")]
             agent: None,
+            #[cfg(feature = "flight")]
+            flight: None,
             entropy: crate::correlation::from_the_os,
         }
     }
@@ -471,6 +524,31 @@ impl ServiceState {
     #[must_use]
     pub const fn agent_surface(&self) -> Option<&AgentMount> {
         self.agent.as_ref()
+    }
+
+    /// The same state, with the Flight surface's transport attached.
+    ///
+    /// Called by the composition root, under the `flight` feature, when the deployment set
+    /// `server.flight_surface.enabled: true`. A state carrying a mount on settings whose
+    /// `Settings::flight_surface_refusals` is not empty is a state `crate::router::assemble` refuses
+    /// (`FlightSurfaceNotFitToServe`), whether or not that switch was set.
+    #[cfg(feature = "flight")]
+    #[must_use]
+    pub fn with_flight_surface(mut self, mount: FlightMount) -> Self {
+        self.flight = Some(mount);
+        self
+    }
+
+    /// The mounted Flight transport, if this build and deployment carry one.
+    ///
+    /// Read by `crate::router` to nest it behind the same `establish_asked`/`inbound_layered`
+    /// layers the versioned surface runs behind, and to refuse assembly when it is present with no
+    /// inbound identity attached.
+    #[cfg(feature = "flight")]
+    #[inline]
+    #[must_use]
+    pub const fn flight_surface(&self) -> Option<&FlightMount> {
+        self.flight.as_ref()
     }
 
     /// Leg 1, if this deployment has it.

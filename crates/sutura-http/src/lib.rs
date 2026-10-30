@@ -96,6 +96,8 @@ pub mod capability;
 pub mod client_address;
 pub mod constants;
 pub mod correlation;
+#[cfg(feature = "flight")]
+pub mod flight;
 pub mod host;
 pub mod inbound;
 pub mod metrics;
@@ -137,6 +139,8 @@ pub use crate::servable::{NotServable, ServableSettings};
 #[cfg(feature = "tls")]
 pub use crate::server::serve_tls;
 pub use crate::server::{ServeFailed, serve};
+#[cfg(feature = "flight")]
+pub use crate::state::FlightMount;
 pub use crate::state::ServiceState;
 #[cfg(feature = "agent")]
 pub use crate::state::{AgentMount, ReplicaSpendGauge, SpendHeadroomPush};

@@ -965,6 +965,11 @@ mod allowed_hosts;
 #[cfg(test)]
 mod agent_surface;
 
+/// `server.flight_surface.enabled` with no `direct` inbound identity: its refusal and serving
+/// twin. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod flight_surface;
+
 /// The same off-host predicate asked by the `/v1` and `/metrics` refusals. Same reason as `governance`.
 #[cfg(test)]
 mod off_host;

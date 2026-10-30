@@ -967,6 +967,10 @@ mod audience;
 /// The OAuth client a token names, on every audit line.
 #[cfg(test)]
 mod client;
+/// The Flight mount through the assembled router: leg 1, then the capability gate, then the service.
+#[cfg(test)]
+#[cfg(feature = "flight")]
+mod flight;
 /// Leg 1 against an issuer that PUBLISHES its key set, so the rotation bound faces a source that changes.
 mod published;
 /// Where a refresh runs, what bounds it, and what the revocation bound does not cover - the cases

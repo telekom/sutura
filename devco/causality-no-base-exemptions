@@ -217,6 +217,12 @@ non_numeric_digits_are_refused # names the grpc-timeout parser (grpc_timeout.rs,
 a_signed_amount_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
 no_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
 an_empty_value_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+a_leg_with_no_bearer_is_refused_by_leg_one_before_the_service_runs # names the Flight mount (inbound/tests/flight.rs, behind the `flight` feature sutura-http gains in this change); the base has no such feature, so the module is not compiled there
+a_verified_caller_without_the_leg_scope_is_permission_denied # names the Flight mount (inbound/tests/flight.rs, behind the `flight` feature sutura-http gains in this change); the base has no such feature, so the module is not compiled there
+a_verified_caller_holding_the_leg_scope_reaches_the_surface # names the Flight mount (inbound/tests/flight.rs, behind the `flight` feature sutura-http gains in this change); the base has no such feature, so the module is not compiled there
+a_flight_surface_with_no_direct_inbound_identity_is_not_fit_to_serve # settings/tests/flight_surface.rs, new in this change, names the `FlightSurfaceWithoutDirectInbound` refusal the base lacks, so it does not compile there
+a_flight_surface_off_by_default_needs_no_inbound_identity # settings/tests/flight_surface.rs, new in this change, names `Settings::flight_surface_refusals` the base lacks, so it does not compile there
+an_enabled_flight_surface_is_refused_by_a_build_without_the_feature # serve/tests/flight.rs, new in this change, names `flight_refused_if_enabled` the base lacks, so it does not compile there
 a_node_endpoint_is_an_https_origin_only # in crates/sutura-exec-node, a crate new in this change, so the base has no such package to run
 each_value_is_one_column_of_one_row_in_placeholder_order # in crates/sutura-exec-node, a crate new in this change
 a_leg_crosses_as_one_exchange_carrying_its_bearer_and_its_values # in crates/sutura-exec-node, a crate new in this change

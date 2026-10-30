@@ -11,6 +11,7 @@
 
 use sutura_domain::model::SourceName;
 
+use crate::inbound::InboundIdentity;
 use crate::security::DeploymentIdentity;
 use crate::server::BindAddress;
 
@@ -295,6 +296,18 @@ pub enum NotFitToServe {
         key = DeploymentIdentity::KEY
     )]
     AgentSurfaceWithoutInboundIdentity,
+    /// The Flight surface is on and `security.inbound.mode` is not `direct`.
+    ///
+    /// Unlike the agent surface, the Flight surface has no single-user fallback: leg 2 is
+    /// federated through the declared pool only in `direct` mode, so a `behind-gateway` or absent
+    /// inbound identity leaves every caller served as the deployment with no verified subject to
+    /// federate. Declare `security.inbound` as `direct`, or turn the Flight surface off.
+    #[error(
+        "server.flight_surface.enabled is true and security.inbound.mode is not `direct`, so the \
+         Flight surface would federate no verified caller. Declare security.inbound as `direct`, or \
+         turn the Flight surface off"
+    )]
+    FlightSurfaceWithoutDirectInbound,
     /// The agent surface is on, no inbound identity is declared, and a source runs each question as
     /// the asking subject.
     ///
@@ -451,4 +464,13 @@ fn hopless_fixes(alias: &SourceName) -> String {
     .map(|(at, fix)| format!("({}) {fix}", at.saturating_add(1)))
     .collect::<Vec<_>>()
     .join("; ")
+}
+
+/// [`NotFitToServe::FlightSurfaceWithoutDirectInbound`], unless `inbound` is `direct`.
+pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<NotFitToServe> {
+    if matches!(inbound, Some(InboundIdentity::Direct { .. })) {
+        Vec::new()
+    } else {
+        vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]
+    }
 }

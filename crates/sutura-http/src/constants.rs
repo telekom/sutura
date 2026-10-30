@@ -38,6 +38,18 @@ pub const SWAGGER_UI_PATH: &str = "/docs";
 #[cfg(feature = "agent")]
 pub const AGENT_MOUNT_PATH: &str = "/mcp";
 
+/// Where the Flight surface is mounted, when it is mounted at all.
+///
+/// **Only compiled when the `flight` feature is on**, and only mounted when the deployment set
+/// `server.flight_surface.enabled: true`. The literal `tonic` generates for
+/// `arrow.flight.protocol.FlightService` - a gRPC service name, not a path this crate chose, so it
+/// cannot be changed without the generated client code disagreeing. `security.inbound.mode` must be
+/// `direct`; anything else is a startup refusal (`FlightSurfaceWithoutDirectInbound`), not a silent
+/// skip. Not versioned under `API_V1_PREFIX`: Flight is a gRPC service, not a path this crate's own
+/// REST versioning scheme reaches.
+#[cfg(feature = "flight")]
+pub const FLIGHT_MOUNT_PATH: &str = "/arrow.flight.protocol.FlightService";
+
 /// The mount point of each group inside a version.
 pub mod base_paths {
     /// What this catalog defines.

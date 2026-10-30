@@ -83,7 +83,7 @@ const CLASSES: &[AdapterClass] = &[
     },
     AdapterClass {
         name: "transports",
-        members: Membership::Named(&["sutura-flight", "sutura-http", "sutura-mcp"]),
+        members: Membership::Named(&["sutura-http", "sutura-mcp"]),
         why: "the workspace manifest already states this one as the reason `sutura-mcp` exists as \
               a second transport rather than a layer on the first: it depends on `sutura-app`'s \
               driving port and on nothing in `sutura-http`, because an adapter reaching into \
@@ -92,6 +92,15 @@ const CLASSES: &[AdapterClass] = &[
                   `crates/sutura-mcp/src/wire.rs` says so at length. What keeps the two \
                   descriptions equal is `sutura_app::Capability`, one declaration both read",
     },
+    // `sutura-flight` is not in this class. `sutura-mcp` is a second transport `sutura-http`
+    // SELECTS between - it runs its own listener's worth of decisions and `sutura-http` only
+    // boxes what it hands over, so naming its type would make one transport the other's library.
+    // `sutura-flight` is never selected between: `docs/adr/20261017032054-leg-transport-between-\
+    // sutura-nodes.md` puts Arrow Flight on `sutura-http`'s own listener, behind the one `nest_service`
+    // every other ungoverned mount already runs behind, and `sutura_flight::RemoteLegService` is a
+    // concrete `tower::Service` the composition root builds and hands over, not a protocol
+    // `sutura-http` would otherwise have to re-abstract. `crates/sutura-http/src/state.rs`'s
+    // `FlightMount` carries the argument in full.
 ];
 
 /// What the check looked at, and what it found.

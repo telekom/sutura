@@ -8,6 +8,7 @@
 //! test somebody has to remember to write.
 
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -91,7 +92,7 @@ pub struct RequestTimeout(Duration, Budget);
 /// is a few hundred bytes. The bound exists because a body limit is the cheapest availability
 /// control there is, and because the default in most stacks is whatever arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BodyLimit(usize);
+pub struct BodyLimit(NonZeroUsize);
 
 /// How long stopping may take, once stopping has been asked for.
 ///
@@ -265,11 +266,11 @@ impl BodyLimit {
 
     /// Reads a body limit in bytes.
     pub const fn parse(bytes: usize) -> Result<Self, InvalidBound> {
-        if bytes == 0 {
+        let Some(limit) = NonZeroUsize::new(bytes) else {
             return Err(InvalidBound::Zero {
                 name: "server.max_body_bytes",
             });
-        }
+        };
         if bytes > Self::MAX_BYTES {
             return Err(InvalidBound::TooLarge {
                 name: "server.max_body_bytes",
@@ -277,11 +278,18 @@ impl BodyLimit {
                 limit: Self::MAX_BYTES as u64,
             });
         }
-        Ok(Self(bytes))
+        Ok(Self(limit))
     }
 
     #[inline]
     pub const fn bytes(self) -> usize {
+        self.0.get()
+    }
+
+    /// The same bound, typed as never zero.
+    #[inline]
+    #[must_use]
+    pub const fn limit(self) -> NonZeroUsize {
         self.0
     }
 }
@@ -449,6 +457,9 @@ pub struct ServerSettings {
     /// `server.agent_surface.enabled: true`. A build with the `agent` feature linked still keeps
     /// this off by default - the explicit-bool shape, not `security.inbound`'s presence-only one.
     agent_surface_enabled: bool,
+    /// Whether the Arrow Flight surface is mounted. Off unless an operator wrote
+    /// `server.flight_surface.enabled: true`, the same explicit-bool shape.
+    flight_surface_enabled: bool,
     /// The external hosts `server.allowed_hosts` declares, beyond the loopback names.
     allowed_hosts: Vec<AllowedHost>,
 }
@@ -467,6 +478,7 @@ impl ServerSettings {
         max_body: BodyLimit,
         tls: Option<TlsMaterial>,
         agent_surface_enabled: bool,
+        flight_surface_enabled: bool,
         allowed_hosts: Vec<AllowedHost>,
     ) -> Self {
         Self {
@@ -475,6 +487,7 @@ impl ServerSettings {
             max_body,
             tls,
             agent_surface_enabled,
+            flight_surface_enabled,
             allowed_hosts,
         }
     }
@@ -511,6 +524,14 @@ impl ServerSettings {
     #[inline]
     pub const fn agent_surface_enabled(&self) -> bool {
         self.agent_surface_enabled
+    }
+
+    /// Whether the remote leg service is mounted for another node. Off unless the deployment wrote
+    /// `server.flight_surface.enabled: true`; `Settings::flight_surface_refusals` is the mechanism,
+    /// as for the agent surface.
+    #[inline]
+    pub const fn flight_surface_enabled(&self) -> bool {
+        self.flight_surface_enabled
     }
 
     /// The external hosts this deployment declared it answers, beyond the loopback names and the

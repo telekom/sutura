@@ -182,7 +182,8 @@ pub fn permitted_for(asked: &Asked, run_sql_enabled: bool) -> Permitted {
 ///
 /// `RunRemoteLeg` is removed unconditionally, for every caller including one presenting every
 /// scope this surface knows: a remote leg arrives over the node-to-node channel `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`
-/// describes, never over this surface, so there is no setting that turns it on here.
+/// describes, never over `/v1` or `/mcp`, so there is no setting that turns it on here. The Flight
+/// mount, which serves nothing else, derives its `Asked` through `establish_leg_asked` instead.
 fn switched(permitted: Permitted, run_sql_enabled: bool) -> Permitted {
     let permitted = permitted.without(Capability::RunRemoteLeg);
     if run_sql_enabled {
@@ -218,11 +219,30 @@ fn switched(permitted: Permitted, run_sql_enabled: bool) -> Permitted {
 ///
 /// **It does refuse a request `crate::correlation::resolve` drew no job-label id for**, as
 /// `503 no_randomness`, so no job runs without the label that ties it to its audit record.
-pub(crate) async fn establish_asked(
+pub(crate) async fn establish_asked(State(state): State<crate::state::ServiceState>, request: Request, next: Next) -> Response {
+    let run_sql_enabled = state.settings().tools().run_sql_enabled();
+    insert_asked(&state, request, next, |permitted| switched(permitted, run_sql_enabled)).await
+}
+
+/// [`establish_asked`] for the Flight mount, leaving the caller's scopes un-narrowed.
+///
+/// [`switched`] withholds `RunRemoteLeg` from every caller, which on a mount serving nothing but a
+/// remote leg would refuse every leg. Here `sutura:legs.run` decides, read by
+/// `sutura_flight::RemoteLegService` itself.
+#[cfg(feature = "flight")]
+pub(crate) async fn establish_leg_asked(
     State(state): State<crate::state::ServiceState>,
-    mut request: Request,
+    request: Request,
     next: Next,
 ) -> Response {
+    insert_asked(&state, request, next, core::convert::identity).await
+}
+
+/// The one body [`establish_asked`] and its Flight twin share, `narrowed` applied to the grant.
+async fn insert_asked<F>(state: &crate::state::ServiceState, mut request: Request, next: Next, narrowed: F) -> Response
+where
+    F: FnOnce(Permitted) -> Permitted,
+{
     let (context, permitted) = request.extensions().get::<VerifiedCaller>().map_or_else(
         || (crate::principal::established(), Permitted::every_capability()),
         |caller| {
@@ -237,7 +257,7 @@ pub(crate) async fn establish_asked(
             )
         },
     );
-    let permitted = switched(permitted, state.settings().tools().run_sql_enabled());
+    let permitted = narrowed(permitted);
     let Some(&crate::correlation::Drawn(drawn)) = request.extensions().get::<crate::correlation::Drawn>() else {
         return Failure::NoRandomness.into_response();
     };

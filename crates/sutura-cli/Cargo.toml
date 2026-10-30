@@ -150,6 +150,13 @@ rdbms = ["dep:sutura-catalog-rdbms", "sutura-catalog-rdbms/live", "dep:sutura-ad
 # `checks.shipped-features` already documents.
 agent = ["sutura-mcp/http", "sutura-http/agent"]
 
+# The Flight surface: `sutura-flight`'s `RemoteLegService`, mounted by the composition root
+# alongside `/mcp` on the same listener. Default-off for the same reason `agent` is: no published
+# binary should serve a second routed surface by accident, and this one too makes sense only behind
+# leg 1. Carries no direct dependency of its own - `sutura-http/flight` is the one that links
+# `sutura-flight` and `arrow-flight`, and this crate reaches them only through that surface's types.
+flight = ["sutura-http/flight"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
