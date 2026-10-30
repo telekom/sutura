@@ -59,6 +59,32 @@
 //! struct, and the gate answered *the base does not compile with nothing held back*. The FIRST
 //! attempt still keeps them at HEAD, because a test file kept there may need a dependency this
 //! branch added; only a first attempt that did not compile reaches the coherent-at-base retry.
+//!
+//! **A SECOND GAP, in the case the bullet above calls "keeps its manifest"** -
+//! `github.com/telekom/sutura#1629`, adding `crates/sutura-exec-node` whose only test lived in
+//! `src/call.rs`, held for carrying it, while `src/lib.rs` declared `mod call;` and nothing else -
+//! so it named no test, reverted like any other impl-only file, and the reconstruction deleted it.
+//! "Keeps its manifest" is correct and not the defect: the manifest DOES stay, because `call.rs` is
+//! held. What the old rule left unstated is that keeping a crate's manifest while deleting its
+//! ENTRY FILE is still unresolvable - `src/lib.rs` is new on this branch, so there is no base
+//! content to put there instead, and cargo refuses before the compiler:
+//!
+//! ```text
+//! error: failed to parse manifest at `crates/sutura-exec-node/Cargo.toml`
+//! no targets specified in the manifest
+//! ```
+//!
+//! the same `DidNotResolve` shape as the first gap, over a crate the first fix already keeps in the
+//! workspace. [`stub_entries`] answers it: an added crate's `src/lib.rs`, kept by some OTHER held
+//! file and not itself held, is written as a synthetic empty file rather than checked out (base has
+//! nothing to check out) or deleted (orphaning `call.rs`'s `mod` line). The manifest resolves, and
+//! the crate is empty at base: the stub declares no `mod`, so `call.rs` is not compiled there and
+//! its test does not exist there - no base result, which `base::report` already refuses unless
+//! `no_base::Exemptions` names it: no new exemption is this module's to grant.
+//!
+//! **THE LIMIT, next to this claim too.** Only `src/lib.rs` is considered - a library's conventional
+//! entry, which is what every crate this gate has measured declares. A crate whose entry is
+//! `src/main.rs` and nothing else, kept this way, is not yet covered.
 
 use std::path::Path;
 
@@ -82,6 +108,19 @@ pub(super) struct Membership {
     deleted: Vec<String>,
 }
 
+/// One attempt's plan: the paths it puts at base, split by what "at base" means for each.
+///
+/// Two lists rather than one, because a withdrawn crate's absence and a stubbed crate's emptiness
+/// are different operations on the SAME reconstruction - `super::worktree::base_state` still
+/// decides restore-or-delete for [`Self::revert`], and [`Self::stub`] names the paths that are
+/// neither: present, but synthesised rather than read from either tree.
+pub(super) struct Reverting {
+    /// Checked out at base, or deleted if base never had the path.
+    pub(super) revert: Vec<String>,
+    /// Written as an empty, valid Rust file - never checked out, never deleted. See [`stub_entries`].
+    pub(super) stub: Vec<String>,
+}
+
 impl Membership {
     /// Which of `inputs` this branch created.
     ///
@@ -103,31 +142,34 @@ impl Membership {
         })
     }
 
-    /// One attempt's file list: what it reverts, plus the membership a withdrawn crate takes.
+    /// One attempt's plan: what it reverts, plus the membership a withdrawn crate takes, plus the
+    /// entry files a crate kept whole must stub instead.
     ///
     /// Concatenated into one list rather than applied separately, because "revert to base" is two
     /// operations - check out the old content, or delete a file the base never had - and
     /// `super::worktree::base_state` is the one place that decides which. A withdrawal spans both:
     /// the new manifest is deleted, the root manifest and the lockfile are checked out.
-    pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Vec<String> {
+    pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Reverting {
         let mut out: Vec<String> = reverting.to_vec();
         for path in self.deleted.iter().cloned().chain(withdrawn(&self.added, inputs, at_head)) {
             if !out.contains(&path) {
                 out.push(path);
             }
         }
-        out
+        let stub = stub_entries(&self.added, at_head);
+        out.retain(|path| !stub.contains(path));
+        Reverting { revert: out, stub }
     }
 
-    /// Both attempts' file lists: the first reverts the implementation, the retry adds what the
-    /// first kept at HEAD - the held files, and every changed manifest and lockfile.
-    pub(super) fn attempts(&self, separable: &Separable) -> [Vec<String>; 2] {
+    /// Both attempts' plans: the first reverts the implementation, the retry adds what the first
+    /// kept at HEAD - the held files, and every changed manifest and lockfile.
+    pub(super) fn attempts(&self, separable: &Separable) -> [Reverting; 2] {
         let inputs = &separable.build_inputs;
         let first = self.reverting(&separable.revert, inputs, &separable.at_head_first_attempt());
         let mut retry = self.reverting(&separable.held(), inputs, &separable.test_files);
         for path in inputs.iter().filter(|path| resolves_membership(path)) {
-            if !retry.contains(path) {
-                retry.push(path.clone());
+            if !retry.revert.contains(path) {
+                retry.revert.push(path.clone());
             }
         }
         [first, retry]
@@ -176,9 +218,38 @@ fn withdrawn(added: &[String], inputs: &[String], at_head: &[String]) -> Vec<Str
     out
 }
 
+/// The entry file an added crate needs at base when the crate is KEPT (some other file of it is
+/// held at HEAD, so [`withdrawn`] takes nothing) but the entry itself is not one of the held files.
+///
+/// `src/lib.rs` is new here - neither tree has content for it to be reverted TO. Deleting it, as an
+/// ordinary new file would be, orphans a held submodule's `mod` declaration and the manifest it
+/// still names fails to parse: `no targets specified in the manifest`
+/// (`github.com/telekom/sutura#1629`, measured adding `crates/sutura-exec-node` with its only test
+/// in a held `src/call.rs`). Checking it out is not an option either - base has nothing to check
+/// out. A synthetic empty file is the third thing: it satisfies cargo's target resolution without
+/// claiming either tree's content. It declares no `mod`, so the module held at HEAD is not compiled
+/// at base and its test has no base run, which `base::report` already refuses unless
+/// `no_base::Exemptions` names it.
+///
+/// Limit: only `src/lib.rs` is considered. A crate whose entry is `src/main.rs` and nothing else,
+/// kept this way, is not yet covered - the module header's scope is the library case this gate
+/// hit, not every manifest shape cargo accepts.
+fn stub_entries(added: &[String], at_head: &[String]) -> Vec<String> {
+    added
+        .iter()
+        .filter(|path| member_manifest(path))
+        .filter_map(|manifest| {
+            let dir = manifest.trim_end_matches("Cargo.toml");
+            let kept = at_head.iter().any(|path| path.starts_with(dir));
+            let entry = format!("{dir}src/lib.rs");
+            (kept && !at_head.contains(&entry)).then_some(entry)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Membership, Separable, withdrawn};
+    use super::{Membership, Separable, stub_entries, withdrawn};
 
     fn paths(of: &[&str]) -> Vec<String> {
         of.iter().map(|p| String::from(*p)).collect()
@@ -279,11 +350,13 @@ mod tests {
         }
         .attempts(&separable);
 
-        assert_eq!(first, separable.revert);
+        assert_eq!(first.revert, separable.revert);
+        assert_eq!(first.stub, Vec::<String>::new());
         assert_eq!(
-            retry,
+            retry.revert,
             paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-sql/Cargo.toml", "fuzz/Cargo.lock"])
         );
+        assert_eq!(retry.stub, Vec::<String>::new());
     }
 
     /// A file the branch deleted is put back by every attempt, once, after the diff's own files.
@@ -294,11 +367,63 @@ mod tests {
             deleted: paths(&["crates/x/src/gone.rs"]),
         };
         let reverting = paths(&["crates/x/src/lib.rs", "crates/x/src/gone.rs"]);
-        assert_eq!(membership.reverting(&reverting, &[], &[]), reverting);
+        assert_eq!(membership.reverting(&reverting, &[], &[]).revert, reverting);
         assert_eq!(
-            membership.reverting(&paths(&["crates/x/src/lib.rs"]), &[], &[]),
+            membership.reverting(&paths(&["crates/x/src/lib.rs"]), &[], &[]).revert,
             paths(&["crates/x/src/lib.rs", "crates/x/src/gone.rs"])
         );
+    }
+
+    /// **THE GAP #936 COULD NOT REACH** - a new crate whose only held file is a SUBMODULE, not its
+    /// own entry: `src/lib.rs` declares `mod call;` and carries no test, so it reverts like any
+    /// other impl-only file, while `src/call.rs` carries the test and is held. The crate is KEPT
+    /// (`withdrawn` sees a held file under its directory), so its manifest stays - but the entry file
+    /// is new and neither tree has it to restore. `stub_entries` names it, and `reverting` takes it
+    /// OUT of the revert list rather than letting it fall to "delete the orphan".
+    #[test]
+    fn a_new_crate_kept_by_a_held_submodule_stubs_its_unheld_entry() {
+        let added = paths(&["crates/sutura-exec-node/Cargo.toml"]);
+        let inputs = paths(&["Cargo.lock", "Cargo.toml", "crates/sutura-exec-node/Cargo.toml"]);
+        let membership = Membership {
+            added,
+            deleted: Vec::new(),
+        };
+        let at_head = paths(&["crates/sutura-exec-node/src/call.rs"]);
+        let revert = paths(&["crates/sutura-exec-node/src/lib.rs"]);
+
+        let plan = membership.reverting(&revert, &inputs, &at_head);
+
+        assert_eq!(plan.stub, paths(&["crates/sutura-exec-node/src/lib.rs"]));
+        assert!(
+            !plan.revert.contains(&String::from("crates/sutura-exec-node/src/lib.rs")),
+            "the entry must not also be reverted - base_state would then delete it, orphaning \
+             the held src/call.rs all over again: {:?}",
+            plan.revert
+        );
+        assert!(
+            plan.revert.is_empty(),
+            "the manifest is kept (a file of the crate is held), so nothing withdraws: {:?}",
+            plan.revert
+        );
+    }
+
+    /// The entry file itself held at HEAD (the crate's test lives in `lib.rs`, the #936 precedent)
+    /// needs no stub - it is already a path either tree can serve.
+    #[test]
+    fn a_new_crate_whose_entry_is_itself_held_is_not_stubbed() {
+        let added = paths(&["crates/sutura-exec-node/Cargo.toml"]);
+        let at_head = paths(&["crates/sutura-exec-node/src/lib.rs"]);
+
+        assert_eq!(stub_entries(&added, &at_head), Vec::<String>::new());
+    }
+
+    /// A withdrawn crate (nothing of it held) needs no stub either: its manifest is gone, so cargo
+    /// never looks for `src/lib.rs` in the first place.
+    #[test]
+    fn a_withdrawn_crate_is_not_stubbed() {
+        let added = paths(&["crates/sutura-exec-node/Cargo.toml"]);
+
+        assert_eq!(stub_entries(&added, &[]), Vec::<String>::new());
     }
 
     /// A branch that adds no crate withdraws nothing, whatever else its diff touched. This is the
@@ -406,6 +531,7 @@ mod tests {
         assert!(
             membership
                 .reverting(&reverting, &inputs, &at_head)
+                .revert
                 .contains(&String::from("Cargo.toml")),
             "the membership must still name the ROOT manifest: it resolves the added crate even \
              though the base has the file, which is the distinction `Membership::of`'s git question \
@@ -413,7 +539,7 @@ mod tests {
              that resolves membership anyway"
         );
         assert_eq!(
-            membership.reverting(&reverting, &inputs, &at_head),
+            membership.reverting(&reverting, &inputs, &at_head).revert,
             expected,
             "the attempt list is the diff's own files first, the membership after, each once"
         );

@@ -209,13 +209,13 @@ fn prove(
     else {
         return Verdict::Fail;
     };
-    let Ok((first, held)) = base_state(root, base, &reverting)
-        .and_then(|first| Ok((first, base_state(root, base, &holding)?)))
+    let Ok((first, held)) = base_state(root, base, &reverting.revert, &reverting.stub)
+        .and_then(|first| Ok((first, base_state(root, base, &holding.revert, &holding.stub)?)))
         .map_err(GitFailed::refuse)
     else {
         return Verdict::Fail;
     };
-    let unreverted = separable.unreverted_from(&reverting);
+    let unreverted = separable.unreverted_from(&reverting.revert);
 
     if first.restore.is_empty() {
         return report_no_base_behaviour(base.short(), &first.remove, coverage, &unreverted);
@@ -230,6 +230,9 @@ fn prove(
     }
     for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
+    }
+    for f in first.stub {
+        println!("  stubbed:   {f}  (new crate - empty at base)");
     }
     declared::report_kept(files, separable);
     report_orphaned_modules(&first.remove, files, read);

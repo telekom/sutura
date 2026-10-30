@@ -1,7 +1,7 @@
 --- a/xtask/src/causality/membership.rs
 +++ b/xtask/src/causality/membership.rs
-@@ -109,9 +109,7 @@ impl Membership {
-     pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Vec<String> {
+@@ -152,9 +152,7 @@ impl Membership {
+     pub(super) fn reverting(&self, reverting: &[String], inputs: &[String], at_head: &[String]) -> Reverting {
          let mut out: Vec<String> = reverting.to_vec();
          for path in self.deleted.iter().cloned().chain(withdrawn(&self.added, inputs, at_head)) {
 -            if !out.contains(&path) {
@@ -9,5 +9,5 @@
 -            }
 +            out.push(path);
          }
-         out
-     }
+         let stub = stub_entries(&self.added, at_head);
+         out.retain(|path| !stub.contains(path));

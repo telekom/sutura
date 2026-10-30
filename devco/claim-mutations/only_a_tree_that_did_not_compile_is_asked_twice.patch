@@ -1,0 +1,11 @@
+--- a/xtask/src/causality/worktree.rs
++++ b/xtask/src/causality/worktree.rs
+@@ -434,7 +434,7 @@ pub(super) struct BaseState<'a> {
+ impl BaseState<'_> {
+     /// Nothing to apply, so there is no second attempt to make.
+     pub(super) const fn is_empty(&self) -> bool {
+-        self.restore.is_empty() && self.remove.is_empty() && self.stub.is_empty()
++        self.restore.is_empty() && self.remove.is_empty()
+     }
+ }
+ 

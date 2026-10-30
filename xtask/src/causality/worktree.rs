@@ -418,27 +418,38 @@ pub(super) fn remove_worktree(root: &Path, dir: &Path) {
     }
 }
 
-/// The base state to put a worktree into: files to check out at `base`, files to delete.
+/// The base state to put a worktree into: files to check out at `base`, files to delete, files to
+/// write as a synthetic empty target.
 ///
 /// Two of these exist per proof. The first is the implementation change; the second is the files
 /// held back for carrying their own tests, applied only if the first tree does not build.
 pub(super) struct BaseState<'a> {
     pub(super) restore: Vec<&'a String>,
     pub(super) remove: Vec<&'a String>,
+    /// `membership::stub_entries` - an added crate's entry file, kept in the workspace by some
+    /// OTHER held file, that neither tree has content for. See [`apply`].
+    pub(super) stub: &'a [String],
 }
 
 impl BaseState<'_> {
     /// Nothing to apply, so there is no second attempt to make.
     pub(super) const fn is_empty(&self) -> bool {
-        self.restore.is_empty() && self.remove.is_empty()
+        self.restore.is_empty() && self.remove.is_empty() && self.stub.is_empty()
     }
 }
 
-/// Split files into "existed at base, so check it out" and "added here, so delete it".
+/// Split files into "existed at base, so check it out" and "added here, so delete it". `stub`
+/// bypasses both - it is a separate list by construction (`membership::Reverting`), not asked of
+/// git here, because it names paths this attempt deliberately does not revert.
 ///
 /// "Revert to base" means two different things depending on the answer, and getting it wrong is
 /// how this gate first broke in CI - see [`base_has`].
-pub(super) fn base_state<'a>(root: &Path, base: &Commit, files: &'a [String]) -> Result<BaseState<'a>, GitFailed> {
+pub(super) fn base_state<'a>(
+    root: &Path,
+    base: &Commit,
+    files: &'a [String],
+    stub: &'a [String],
+) -> Result<BaseState<'a>, GitFailed> {
     let (mut restore, mut remove) = (Vec::new(), Vec::new());
     for file in files {
         if base_has(root, base, file)? {
@@ -448,10 +459,18 @@ pub(super) fn base_state<'a>(root: &Path, base: &Commit, files: &'a [String]) ->
         }
         .push(file);
     }
-    Ok(BaseState { restore, remove })
+    Ok(BaseState { restore, remove, stub })
 }
 
-/// Check out the base version of the files that had one, and delete the ones this branch added.
+/// Check out the base version of the files that had one, delete the ones this branch added, and
+/// write a synthetic empty target for each stub.
+///
+/// A stub is neither restored nor removed: `src/lib.rs` of a crate kept whole by some OTHER held
+/// file is new on this branch, so there is no base content to check out, and deleting it would
+/// orphan the held file's `mod` declaration - exactly the manifest-load refusal this exists to
+/// avoid (`membership::stub_entries`). The content only needs to parse; it compiles into an empty
+/// crate and carries no test, so the crate's own tests (if any are held elsewhere in it) correctly
+/// produce no base result rather than a false pass.
 pub(super) fn apply(wt: &Path, base: &Commit, state: &BaseState<'_>) -> Result<(), String> {
     if !state.restore.is_empty() {
         let mut checkout = git(wt);
@@ -481,6 +500,14 @@ pub(super) fn apply(wt: &Path, base: &Commit, state: &BaseState<'_>) -> Result<(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("could not remove {f}: {e}")),
         }
+    }
+    for f in state.stub {
+        let path = wt.join(f);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, "// stubbed empty at base: membership::stub_entries\n")
+            .map_err(|e| format!("could not stub {f}: {e}"))?;
     }
     Ok(())
 }
@@ -559,7 +586,7 @@ mod tests {
             ("deleted", deleted(&dir, &unknown).is_ok()),
             ("search", search(&dir, &unknown, &needles, &files).is_ok()),
             ("base_has", base_has(&dir, &unknown, "src/a.rs").is_ok()),
-            ("base_state", base_state(&dir, &unknown, &files).is_ok()),
+            ("base_state", base_state(&dir, &unknown, &files, &[]).is_ok()),
             ("head_commit", head_commit(gone).is_ok()),
             ("head_branch", head_branch(gone).is_ok()),
             ("naming", naming(gone, "one").is_ok()),
@@ -624,6 +651,7 @@ mod tests {
         let state = BaseState {
             restore: Vec::new(),
             remove: vec![&absent],
+            stub: &[],
         };
 
         let at = Commit::parse("7a65f1e1a1b2").expect("an object name");
@@ -631,5 +659,31 @@ mod tests {
 
         let _swept = std::fs::remove_dir_all(&wt);
         assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
+    }
+
+    /// A stub is written, not checked out or deleted - the point of the whole mechanism: a path
+    /// neither tree has content for still ends up a valid, empty, parseable Rust file.
+    #[test]
+    fn a_stub_is_written_as_an_empty_file_rather_than_reverted_or_removed() {
+        let wt = std::env::temp_dir().join(format!("sutura-causality-stub-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&wt);
+        std::fs::create_dir_all(&wt).expect("a scratch worktree");
+        let entry = String::from("crates/sutura-exec-node/src/lib.rs");
+        let state = BaseState {
+            restore: Vec::new(),
+            remove: Vec::new(),
+            stub: std::slice::from_ref(&entry),
+        };
+
+        let at = Commit::parse("7a65f1e1a1b2").expect("an object name");
+        let applied = apply(&wt, &at, &state);
+        let written = std::fs::read_to_string(wt.join(&entry));
+
+        let _swept = std::fs::remove_dir_all(&wt);
+        assert!(applied.is_ok(), "{applied:?}");
+        assert!(
+            written.is_ok_and(|text| !text.trim().is_empty()),
+            "a stub must exist, as a Rust file holding only a comment"
+        );
     }
 }
