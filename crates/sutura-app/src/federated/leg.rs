@@ -62,12 +62,6 @@ where
             if warehouse.deadline_exceeded(&cause) {
                 return Err(LegError::Refusal(deadline_exceeded(deadline)));
             }
-            // Another node declined a leg it does not certify: refused, naming this node's source.
-            if warehouse.leg_not_certified(&cause) {
-                return Err(LegError::Refusal(RefusalReason::RemoteLegNotCertified {
-                    source: warehouse.source().clone(),
-                }));
-            }
             if warehouse.source_refused(&cause) {
                 return Err(LegError::Refusal(RefusalReason::SourceRefused {
                     source: warehouse.source().clone(),
@@ -135,6 +129,13 @@ where
             // The deadline, in the mono path's own order: after the two size bounds, before identity.
             if warehouse.deadline_exceeded(&cause) {
                 return Err(LegError::Refusal(deadline_exceeded(deadline)));
+            }
+            // Another node declined a leg it does not certify: refused, naming this node's source.
+            // Asked here, not of the pre-flight: a node client has none, so `execute` first reaches B.
+            if warehouse.leg_not_certified(&cause) {
+                return Err(LegError::Refusal(RefusalReason::RemoteLegNotCertified {
+                    source: warehouse.source().clone(),
+                }));
             }
             // The same guard, for the same reason: the data system refused THIS leg's statement at
             // the identity/authorization level. It used to leave as `LegError::Failure` and reach a

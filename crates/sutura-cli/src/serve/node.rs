@@ -1,9 +1,9 @@
 //! The `node` half of this composition root: another sutura node that runs a source's legs.
 //!
 //! A node source runs only legs of a federated answer, so it opens only inside the mixed registry
-//! ([`super::kind::open_mixed`]); `sutura query` and `sutura mcp` refuse it, having no verified
-//! caller whose token a leg could carry. Nothing is dialled at boot: the first leg is the first
-//! connection.
+//! ([`open_mixed`](crate::serve::kind::open_mixed)); `sutura query` and `sutura mcp` refuse it,
+//! having no verified caller whose token a leg could carry. Nothing is dialled at boot: the first
+//! leg is the first connection.
 
 use sutura_domain::model::SourceName;
 
