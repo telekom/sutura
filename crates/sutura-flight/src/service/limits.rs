@@ -10,6 +10,12 @@ use std::num::NonZeroUsize;
 pub struct DescriptorLimit(NonZeroUsize);
 
 impl DescriptorLimit {
+    /// A limit that is never zero by its type.
+    #[must_use]
+    pub const fn new(bytes: NonZeroUsize) -> Self {
+        Self(bytes)
+    }
+
     /// Parses a limit, refusing zero.
     pub const fn parse(bytes: usize) -> Result<Self, NoLimit> {
         match NonZeroUsize::new(bytes) {
@@ -31,6 +37,12 @@ impl DescriptorLimit {
 pub struct FrameBudget(NonZeroUsize);
 
 impl FrameBudget {
+    /// A budget that is never zero by its type.
+    #[must_use]
+    pub const fn new(bytes: NonZeroUsize) -> Self {
+        Self(bytes)
+    }
+
     /// Parses a budget, refusing zero.
     pub const fn parse(bytes: usize) -> Result<Self, NoLimit> {
         match NonZeroUsize::new(bytes) {

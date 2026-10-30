@@ -95,8 +95,10 @@ const STARTUP: Subject = Subject {
     // `/v1` may not run without leg 1. 23: `InboundTokenAtPoolUnacknowledged` and
     // `InboundTokenAtPoolWithoutEffect`, a `direct` workload-identity source with no delegation hop
     // and its acknowledgement. 24: `DelegationToTheDeploymentsOwnAudience`, a last hop asking for
-    // the deployment's own audience.
-    variants: variants(24),
+    // the deployment's own audience. 25: `FlightSurfaceWithoutDirectInbound`, the Flight transport
+    // declared on a deployment that verifies no `direct` caller - it must verify the exchanged
+    // token as its own caller, the same reason `/mcp` and `/v1` carry this refusal.
+    variants: variants(25),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

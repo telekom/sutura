@@ -116,10 +116,15 @@ const MAX_MATERIAL_BYTES: usize = 64 * 1024;
 
 /// The one protocol this surface speaks, advertised.
 ///
-/// Set explicitly rather than left empty. `axum` is compiled here with `http1` and no `http2`, so a
-/// client that offered `h2` over ALPN and had it accepted would get a connection this process cannot
-/// speak. Naming `http/1.1` is what makes the negotiation say so.
+/// Set explicitly rather than left empty. Without the `flight` feature `axum` is compiled here
+/// with `http1` and no `http2`, so a client that offered `h2` over ALPN and had it accepted would
+/// get a connection this process cannot speak. Naming `http/1.1` is what makes the negotiation say
+/// so.
 const ALPN_HTTP11: &[u8] = b"http/1.1";
+
+/// Offered alongside [`ALPN_HTTP11`] only when the `flight` feature is compiled in - Arrow Flight
+/// is a gRPC service, and gRPC runs over HTTP/2.
+const ALPN_H2: &[u8] = b"h2";
 
 /// Why the configured certificate and key are not usable TLS material.
 ///
@@ -388,9 +393,15 @@ impl Termination {
             .map_err(|cause| TlsNotUsable::NotConfigurable { cause })?
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(Rotating { current: receiver }));
-        // See `ALPN_HTTP11`: this surface is compiled with `http1` alone, so `h2` must not be
-        // negotiable.
-        config.alpn_protocols = vec![ALPN_HTTP11.to_vec()];
+        // See `ALPN_HTTP11`/`ALPN_H2`: without `flight` this surface is compiled with `http1`
+        // alone, so `h2` must not be negotiable; with it, the Flight mount needs HTTP/2 on the
+        // same listener. A runtime `cfg!` rather than two `#[cfg]` bodies, so both arms stay
+        // compiled and neither can rot unnoticed.
+        config.alpn_protocols = if cfg!(feature = "flight") {
+            vec![ALPN_H2.to_vec(), ALPN_HTTP11.to_vec()]
+        } else {
+            vec![ALPN_HTTP11.to_vec()]
+        };
         tracing::info!(
             certificate = %material.certificate().display(),
             key = %material.key().display(),
@@ -697,6 +708,20 @@ mod tests {
         assert!(matches!(error, super::TlsNotUsable::NoCertificate { .. }), "{error:?}");
         let rendered = format!("{error}");
         assert!(rendered.contains("chain.pem"), "{rendered}");
+    }
+
+    #[cfg(feature = "flight")]
+    #[test]
+    fn with_the_flight_surface_compiled_in_h2_is_offered_beside_http11() {
+        // gRPC needs HTTP/2, and the Flight mount shares this listener, so a client offering `h2`
+        // must have it accepted. `http/1.1` stays offered for `/v1` and `/mcp`.
+        let scratch = Scratch::new("alpn");
+        let material = write(scratch.path(), &generate());
+        let termination = Termination::prepare(&material).expect("a generated pair is usable material");
+        assert_eq!(
+            termination.config().alpn_protocols,
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+        );
     }
 
     // `NoKey`, `Malformed` and `NotConfigurable` are excused in

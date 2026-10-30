@@ -94,6 +94,13 @@ mod kind;
 #[cfg(feature = "agent")]
 mod agent;
 
+/// The feature-off refusals for `agent` and `flight`, moved out by the thousand-line limit.
+#[cfg(any(not(feature = "agent"), not(feature = "flight")))]
+mod not_linked;
+// `tests::agent` names it at its old path.
+#[cfg(not(feature = "agent"))]
+use not_linked::agent_refused_if_enabled;
+
 /// `security.outbound`, resolved once at boot - `github.com/telekom/sutura#125`/`#911`. `pub(crate)`
 /// since issue #970: `sutura mcp` reads the same declaration to open its own catalog and source
 /// wire, through `crate::serve::outbound::resolve`.
@@ -171,6 +178,10 @@ pub(crate) fn run() -> Result<(), String> {
     // it.
     #[cfg(not(feature = "agent"))]
     agent_refused_if_enabled(&settings)?;
+
+    // The same, for the Flight transport.
+    #[cfg(not(feature = "flight"))]
+    not_linked::flight_refused_if_enabled(&settings)?;
 
     // 4. The log, then the panic hook.
     telemetry::install(settings.telemetry()).map_err(flatten)?;
@@ -420,6 +431,14 @@ pub(crate) fn run() -> Result<(), String> {
     let coverage = state.catalog_coverage();
     #[cfg(feature = "agent")]
     let agent_mount = agent_mount(&state)?;
+    // Off unless the deployment set `server.flight_surface.enabled`; where the mount may run is
+    // `Settings::flight_surface_refusals`, asked again by `sutura_http::router` for the mount itself.
+    #[cfg(feature = "flight")]
+    let flight_mount = state
+        .settings()
+        .server()
+        .flight_surface_enabled()
+        .then(|| sutura_http::flight::mount(&state));
     // Kept beside the state so the key-set watch, reached over the same `Arc`, can be armed once the runtime exists.
     let mut watching: Option<Arc<sutura_http::InboundGate>> = None;
     if let Some(gate) = inbound {
@@ -430,6 +449,10 @@ pub(crate) fn run() -> Result<(), String> {
     #[cfg(feature = "agent")]
     if let Some(mount) = agent_mount {
         state = state.with_agent_surface(mount);
+    }
+    #[cfg(feature = "flight")]
+    if let Some(mount) = flight_mount {
+        state = state.with_flight_surface(mount);
     }
     let router = sutura_http::router(&state).map_err(flatten)?;
 
@@ -510,25 +533,6 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
         "leg 1 is armed: the key set was read and a caller's token will be verified against it"
     );
     Ok(Some(gate))
-}
-
-/// A build without the `agent` feature: an enabled switch is a startup refusal.
-///
-/// The feature-off twin of [`agent::mount`] and of [`serve_as_configured`]'s no-`tls` body - the
-/// "configured for a build it does not have" refusal. Clearing this function (or its call in `run`)
-/// is exactly the regression `crate::tests::agent::an_enabled_agent_surface_is_refused_by_a_build_without_the_feature`
-/// exists to hold, and the cell that runs it is `check-default-feature-tests` (this body only
-/// compiles without the `agent` feature, so `just test`'s `--all-features` never sees it).
-#[cfg(not(feature = "agent"))]
-fn agent_refused_if_enabled(settings: &Settings) -> Result<(), String> {
-    if settings.server().agent_surface_enabled() {
-        return Err(String::from(
-            "server.agent_surface.enabled is set and this binary was built without the `agent` \
-             feature, so it has no agent surface to mount. Rebuild with `--features agent`, or \
-             remove the key.",
-        ));
-    }
-    Ok(())
 }
 
 /// Gives the blocking pool what is left of the grace period, and then stops waiting.

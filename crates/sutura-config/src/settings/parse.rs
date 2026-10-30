@@ -40,6 +40,7 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
         body,
         tls,
         raw.server.agent_surface.enabled,
+        raw.server.flight_surface.enabled,
         allowed_hosts,
     ))
 }

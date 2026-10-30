@@ -175,6 +175,11 @@ sutura-http = { path = "crates/sutura-http" }
 # earlier absence of this entry deferred, and the absent-crate comment below it records the previous
 # state rather than deleting it. `cargo xtask unused-deps` keeps this line honest in either direction.
 sutura-mcp = { path = "crates/sutura-mcp" }
+# Node B's Flight server, an OPTIONAL edge from `sutura-http` and `sutura-cli` behind each crate's
+# own default-off `flight` feature: unlike `sutura-mcp` above, nothing here links it unconditionally,
+# because this is the edge the feature exists to keep out of the default closure. `cargo xtask
+# unused-deps` keeps the line honest in either direction.
+sutura-flight = { path = "crates/sutura-flight" }
 # Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
 # because a test harness has to be able to learn where a provisioned service is listening and
 # `xtask` has to name the same compose project the harness sees.

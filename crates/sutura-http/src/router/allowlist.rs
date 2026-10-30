@@ -14,20 +14,52 @@ pub(crate) struct UngovernedRoute {
 
 /// Every route this crate mounts outside the versioned subtree, with the reason each one is.
 ///
-/// Only compiled with the `agent` feature, because only then does this crate mount anything outside
-/// the versioned subtree that `every_route_governed` cannot see as a new line: today that is
-/// `/mcp` alone, carried by an [`super::Ungoverned`] value and checked by [`check_ungoverned`]. `/health`,
+/// One of four fixed-size arrays, picked by which of `agent`/`flight` are compiled, rather than a
+/// `Vec` - the same explicit-size style [`super::Ungoverned`] itself favours, so an added route is a
+/// new element in a literal array rather than a push nothing checks the shape of. `/health`,
 /// `/metrics` and the documentation paths are merged by `assemble` without an allowlist row and are
 /// deliberately not listed here - see [`check_ungoverned`] for what that means this table does and
 /// does not guard.
+#[cfg(all(feature = "agent", feature = "flight"))]
+#[must_use]
+pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 2] {
+    [AGENT_ROUTE, FLIGHT_ROUTE]
+}
+
+/// See [`ungoverned_routes`].
+#[cfg(all(feature = "agent", not(feature = "flight")))]
 #[must_use]
 pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
-    [UngovernedRoute {
-        path: crate::constants::AGENT_MOUNT_PATH,
-        reason: "one route offers many tools, scoped per-tool inside `AgentSurface` via `Asked::permitted()` \
-                 rather than per-route the way `governed()` {path, capability} does",
-    }]
+    [AGENT_ROUTE]
 }
+
+/// See [`ungoverned_routes`].
+#[cfg(all(feature = "flight", not(feature = "agent")))]
+#[must_use]
+pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
+    [FLIGHT_ROUTE]
+}
+
+/// See [`ungoverned_routes`].
+#[cfg(not(any(feature = "agent", feature = "flight")))]
+#[must_use]
+pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 0] {
+    []
+}
+
+#[cfg(feature = "agent")]
+const AGENT_ROUTE: UngovernedRoute = UngovernedRoute {
+    path: crate::constants::AGENT_MOUNT_PATH,
+    reason: "one route offers many tools, scoped per-tool inside `AgentSurface` via `Asked::permitted()` \
+             rather than per-route the way `governed()` {path, capability} does",
+};
+
+#[cfg(feature = "flight")]
+const FLIGHT_ROUTE: UngovernedRoute = UngovernedRoute {
+    path: crate::constants::FLIGHT_MOUNT_PATH,
+    reason: "a gRPC service dispatches its own methods by the tonic-generated path, which `governed()` \
+             {path, capability} cannot name one row for",
+};
 
 /// Refuses a RECORDED ungoverned route that [`ungoverned_routes`] does not name.
 ///

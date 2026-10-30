@@ -564,6 +564,9 @@ impl Settings {
         if self.server.agent_surface_enabled() {
             refusals.extend(self.agent_surface_refusals());
         }
+        if self.server.flight_surface_enabled() {
+            refusals.extend(self.flight_surface_refusals());
+        }
         // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
         // aggregate over the same history whether the deployment is labelled `production` or is
         // simply reachable from other hosts. `EphemeralPortInProduction` stays production-only -
@@ -695,6 +698,12 @@ impl Settings {
                 .map(|alias| NotFitToServe::AgentSurfaceOverAnImpersonatingSource { alias: alias.clone() }),
         );
         refusals
+    }
+
+    /// Why the Flight surface may not start - see [`NotFitToServe::FlightSurfaceWithoutDirectInbound`].
+    #[must_use]
+    pub fn flight_surface_refusals(&self) -> Vec<NotFitToServe> {
+        posture::flight_surface_refusals(self.security.inbound())
     }
 
     /// Why `/v1` may not start with no `security.inbound` on this deployment, or an empty list - see

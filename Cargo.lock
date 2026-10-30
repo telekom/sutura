@@ -4393,8 +4393,10 @@ dependencies = [
 name = "sutura-http"
 version = "0.11.0"
 dependencies = [
+ "arrow-flight",
  "axum",
  "base64 0.23.1",
+ "futures-util",
  "getrandom 0.4.3",
  "governor",
  "jsonwebtoken",
@@ -4407,12 +4409,14 @@ dependencies = [
  "sutura-config",
  "sutura-dev",
  "sutura-domain",
+ "sutura-flight",
  "sutura-http-client",
  "sutura-runtime",
  "sutura-tls",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
+ "tonic",
  "tower",
  "tower-http",
  "tower_governor",
