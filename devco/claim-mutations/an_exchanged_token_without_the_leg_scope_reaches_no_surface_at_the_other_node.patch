@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-flight/src/service.rs b/crates/sutura-flight/src/service.rs
+index 9ed194ad6..db73630c4 100644
+--- a/crates/sutura-flight/src/service.rs
++++ b/crates/sutura-flight/src/service.rs
+@@ -164,7 +164,7 @@ impl<S: Surface + ?Sized> RemoteLegService<S> {
+         if asked.context().assertion().is_none() {
+             return Err(Status::unauthenticated("this remote leg needs a verified caller"));
+         }
+-        if !asked.permitted().includes(Capability::RunRemoteLeg) {
++        if !asked.permitted().includes(Capability::AskMetric) {
+             return Err(Status::permission_denied("this caller may not run a remote leg"));
+         }
+         let deadline = Deadline::opened_at(Instant::now(), call_budget(self.budget, header_timeout(timeout)?));

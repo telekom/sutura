@@ -70,17 +70,14 @@ mod harness;
 #[path = "common/mod.rs"]
 mod common;
 
-// Split out of `mod tests` below by `cargo xtask max-lines`'s 1000-line cap - the one `#[ignore]`d
-// cell that needs a real Keycloak tier, a sibling module for the same reason `harness` is one: see
-// its own header for why a `#[path]` module lives here and not nested inside `tests`.
+// The one `#[ignore]`d cell needing a real Keycloak tier, split out of `mod tests` below by the
+// 1000-line cap; a sibling module for the `#[path]` reason `harness` gives.
 #[cfg(unix)]
 #[cfg(test)]
 #[path = "served/keycloak_test.rs"]
 mod keycloak_test;
-// `catalog.kind: datahub`, served: its own file rather than a case here, behind its own feature -
-// see `served/datahub.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests`
-// reason `harness` above carries one; `#[cfg(feature = "datahub")]` is on the DECLARATION so a build
-// without the feature does not even parse a file that names a crate it did not link.
+// `catalog.kind: datahub`, served - see `served/datahub.rs`'s module header. The feature is on the
+// DECLARATION so a build without it does not even parse a file naming a crate it did not link.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "datahub")]
@@ -96,9 +93,7 @@ mod datahub;
 #[path = "served/metrics_layer.rs"]
 mod metrics_layer;
 
-// `catalog.kind: okf`, served: `#970`'s served-binary "boots and lists" cell - see
-// `served/okf.rs`'s module header. `#[cfg(test)]` for the same `allow-expect-in-tests` reason
-// `datahub` above carries one.
+// `catalog.kind: okf`, served: `#970`'s "boots and lists" cell - see `served/okf.rs`'s header.
 #[cfg(unix)]
 #[cfg(test)]
 #[path = "served/okf.rs"]
@@ -135,8 +130,7 @@ mod agent;
 
 // The composed binary's own `bigquery` startup, which only a SPAWNED child can hold: the boot
 // probe reads an environment variable, and `std::env::set_var` is `unsafe` on edition 2024 while
-// `unsafe_code` is `forbid` here - so an in-process cell cannot set one. `#[cfg(unix)]` and
-// `#[cfg(feature = "bigquery")]` for the reasons the modules around this one give.
+// `unsafe_code` is `forbid` here - so an in-process cell cannot set one.
 #[cfg(unix)]
 #[cfg(test)]
 #[cfg(feature = "bigquery")]
@@ -197,6 +191,13 @@ mod corpus;
 #[cfg(feature = "postgres")]
 #[path = "served/two_kind.rs"]
 mod two_kind;
+
+// A leg sent to a second node over TLS and Flight (`telekom/sutura#137`) - see its own header.
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(all(feature = "node", feature = "flight", feature = "tls"))]
+#[path = "served/two_node.rs"]
+mod two_node;
 
 // A source password sent for real and held out of every reply and log line (#1293).
 #[cfg(unix)]

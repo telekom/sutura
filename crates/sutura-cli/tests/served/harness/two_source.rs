@@ -28,10 +28,8 @@ pub(crate) const LOOKUP_SOURCE: &str = "geo";
 /// A `Rewrite` that found nothing PANICS: a derivation that silently stopped applying would leave
 /// this deployment single-source and the test below green over a whole-plan answer.
 pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
-    let example = example_root();
-    let data = example.join("data");
-    let catalog = derived_catalog(case, &example.join("catalog"), "customers.md", LOOKUP_SOURCE);
-    without_the_chained_dimension(&catalog);
+    let data = example_root().join("data");
+    let catalog = catalog_spanning_two_sources(case, LOOKUP_SOURCE);
     let sources = format!("{}{}", files_source(LOCAL_SOURCE, &data), files_source(LOOKUP_SOURCE, &data));
     settings_over(
         &catalog,
@@ -40,6 +38,14 @@ pub(crate) fn settings_spanning_two_sources(case: &str) -> String {
         &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"),
         &sources,
     )
+}
+
+/// The example catalog with `customers` moved onto `moved_to` and the chained dimension dropped,
+/// whatever kind of source `moved_to` is.
+pub(crate) fn catalog_spanning_two_sources(case: &str, moved_to: &str) -> PathBuf {
+    let catalog = derived_catalog(case, &example_root().join("catalog"), "customers.md", moved_to);
+    without_the_chained_dimension(&catalog);
+    catalog
 }
 
 /// Drops the one dimension the example reaches through a CHAIN, which this topology cannot carry.
