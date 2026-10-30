@@ -287,12 +287,16 @@ pub(crate) const TASKS: &[Task] = &[
                     "pub enum TlsNotUsable {\n    T0,\n    T1,\n    T2,\n    T3,\n    T4,\n    T5,\n    T6,\n}\n",
                 ),
                 (
+                    "crates/sutura-config/src/sources/placement.rs",
+                    "pub enum InvalidDelegation {\n    D0,\n    D1,\n    D2,\n    D3,\n}\n",
+                ),
+                (
                     "crates/example/tests/first.snap",
-                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2\n",
+                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2 D0 D1\n",
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 V4 V5 V6 V7 W3 W4 W5 W6 W7 T3 T4 T5 D2 D3\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),
