@@ -66,10 +66,12 @@ impl Deadline {
 /// underneath - the same rule [`Deadline::remaining_at`] applies to what is left mid-flight,
 /// applied here to what a caller may configure to begin with.
 ///
-/// The only production constructor is `sutura_config::RequestTimeout::budget`, which subtracts a
+/// The configured budget comes from `sutura_config::RequestTimeout::budget`, which subtracts a
 /// fixed reply margin from the configured request timeout once. [`Self::parse`] stays `pub`
-/// because a test - and a third transport - needs to build one directly; what holds production is
-/// that one call site and review, and `docs/adr/0029` states the limit next to the claim.
+/// because other production code builds one directly too: `sutura-flight`'s remote-leg service
+/// narrows its budget to a caller's shorter `grpc-timeout`, and two adapters open a fixed boot
+/// deadline. What holds each of those is review, and `docs/adr/0029` states the limit next to the
+/// claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget(Duration);
 

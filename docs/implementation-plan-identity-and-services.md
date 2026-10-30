@@ -1013,7 +1013,7 @@ economise.
    | `check-serde-parse` | the Rust under `crates/` |
    | `check-newtype-leaks` | the Rust under `crates/` |
    | `check-unsafe` | the root manifest's `members` list, then every crate root each member's layout produces under `crates/`, `xtask/` and `dev/` - for `#![forbid(unsafe_code)]` - plus every `.rs` under those members for an `expect`/`allow` of the same lint |
-   | `check-answer-path-caches` | the Rust under `crates/sutura-app/src` and `crates/sutura-domain/src` - for a `HashMap`/`BTreeMap` field whose value type is one read off the answer path |
+   | `check-answer-path-caches` | the Rust under `crates/sutura-app/src`, `crates/sutura-domain/src` and `crates/sutura-flight/src` - for a `HashMap`/`BTreeMap` field whose value type is one read off the answer path |
    | `check-boot-order` | the Rust under `crates/` - the two declared composition roots for the order, every other file for whether it *calls* the pre-flight without being declared |
    | `check-one-bound` | the Rust under `crates/`, for how many execution bounds each crate builds, plus which crates have a `src/main.rs` and are therefore a process |
    | `check-bounded-wait` | the Rust in `xtask/src/compose.rs` and under `xtask/src/compose/`, for how many files can be blocked by a child process |

@@ -24,10 +24,11 @@
 //! adapter crate, and walking that call graph to decide what is truly reachable is a second gate's
 //! worth of work this one does not attempt. What is built instead, and all that is claimed: **no
 //! named-field `struct` field and no `static` item (a `thread_local!` entry included) in
-//! `crates/sutura-app/src` or `crates/sutura-domain/src` declares a `HashMap` or `BTreeMap` whose
-//! value type names one of [`ANSWER_PATH_TYPES`]** - the hexagon's own interior, never an adapter. A map living inside an adapter crate is out of scope by
-//! construction, not by an exclusion this gate carries and could be argued open - the two
-//! directories named above are the whole of its walk.
+//! `crates/sutura-app/src`, `crates/sutura-domain/src` or `crates/sutura-flight/src` declares a
+//! `HashMap` or `BTreeMap` whose value type names one of [`ANSWER_PATH_TYPES`]** - the hexagon's
+//! own interior plus the `DoExchange` transport, never an adapter. A map living inside an adapter
+//! crate is out of scope by construction, not by an exclusion this gate carries and could be
+//! argued open - the three directories named above are the whole of its walk.
 //!
 //! **Three further limits, stated where the claim is:**
 //!
@@ -43,14 +44,19 @@
 //! # The declared list, held in both directions
 //!
 //! [`ANSWER_PATH_TYPES`] names what a cache would have to hold to be this gate's business - the
-//! result of running a plan (`RowSet`, `AnchorRows`), the plan itself compiled
+//! result of running a plan (`RowSet`, `AnchorRows`, `ResultBatches`), the plan itself compiled
 //! (`QueryPlan`, `AnchorPlan`, `LegPlan`, `FederatedPlan`), what a warehouse is asked to run
-//! (`Executable`), and the answer a caller receives (`Answered`, `AnsweredRaw`). Adding or
+//! (`Executable`), and the answer a caller receives (`Answered`, `AnsweredRaw`, and a remote leg's
+//! `RemoteLegOutcome` and `RanRemoteLeg`). Adding or
 //! removing an entry is an architecture decision, exactly as `newtype_leaks::LEAKY` and `::SEALED`
 //! are - and, as with those two, an entry naming a type that moved or was renamed would guard
 //! nothing silently, so [`run`] checks the reverse direction: every declared `declared_in` file
 //! must actually declare the name beside it, or the gate fails rather than passing over a name
 //! nothing in the tree answers to.
+//!
+//! **What the list cannot name:** Arrow's own `RecordBatch`. It is declared outside this
+//! repository, so no `declared_in` file can anchor it, and a map holding bare `RecordBatch`
+//! values passes. A map holding the `ResultBatches` that owns them does not.
 
 use crate::Verdict;
 use crate::repo;
@@ -106,15 +112,33 @@ const ANSWER_PATH_TYPES: &[AnswerPathType] = &[
         name: "AnsweredRaw",
         declared_in: "crates/sutura-app/src/raw.rs",
     },
+    AnswerPathType {
+        name: "ResultBatches",
+        declared_in: "crates/sutura-domain/src/warehouse/arrow.rs",
+    },
+    AnswerPathType {
+        name: "RemoteLegOutcome",
+        declared_in: "crates/sutura-domain/src/plan/remote.rs",
+    },
+    AnswerPathType {
+        name: "RanRemoteLeg",
+        declared_in: "crates/sutura-app/src/remote_leg.rs",
+    },
 ];
 
 /// The map-shaped generics this gate treats as a cache. Each already carries the `<` it opens, so
 /// a match's end is exactly where the generic argument list begins.
 const MAP_TYPES: &[&str] = &["HashMap<", "BTreeMap<"];
 
-/// The two directories this gate walks - the hexagon's own interior, never an adapter. Trailing
-/// `/` so a sibling crate whose name merely starts with the same prefix cannot match.
-const SCOPE: &[&str] = &["crates/sutura-app/src/", "crates/sutura-domain/src/"];
+/// The directories this gate walks - the hexagon's own interior plus `sutura-flight`, the
+/// `DoExchange` transport a leg's parameters and result batches cross on their way in and out -
+/// never an adapter otherwise. Trailing `/` so a sibling crate whose name
+/// merely starts with the same prefix cannot match.
+const SCOPE: &[&str] = &[
+    "crates/sutura-app/src/",
+    "crates/sutura-domain/src/",
+    "crates/sutura-flight/src/",
+];
 
 /// Is `rel` inside [`SCOPE`]?
 fn in_scope(rel: &str) -> bool {
@@ -249,8 +273,8 @@ fn decide(found: &Scanned) -> Verdict {
     if !found.violations.is_empty() {
         eprintln!();
         eprintln!(
-            "The answer path's interior (`sutura-app`, `sutura-domain`) may not remember an \
-             earlier answer keyed for reuse: a `HashMap`/`BTreeMap` holding a RowSet, a compiled \
+            "The answer path's interior (`sutura-app`, `sutura-domain`) and the `DoExchange` \
+             transport (`sutura-flight`) may not remember an earlier answer keyed for reuse: a `HashMap`/`BTreeMap` holding a RowSet, a compiled \
              plan or an Executable would answer a later question without asking the source again -"
         );
         eprintln!(
@@ -645,6 +669,53 @@ mod tests {
             "{:?}",
             found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
         );
+    }
+
+    /// `sutura-flight` (the `DoExchange` transport) sits on the answer path's
+    /// receiving end just as `sutura-app` does - a leg's parameters and its result batches both
+    /// cross it - so a cache there is exactly the shape this gate exists to refuse. Scoped in
+    /// alongside the hexagon's interior rather than left for a transport-specific gate of its own.
+    #[test]
+    fn a_map_in_the_flight_transport_is_scanned() {
+        let tree = crate::scratch_tree::Tree::of(
+            "answer-path-cache-flight-scope",
+            &[(
+                "crates/sutura-flight/src/leaky.rs",
+                b"struct LegCache {\n    seen: std::collections::HashMap<u8, RowSet>,\n}\n",
+            )],
+        );
+        let found = scan_over(&tree, &[]).expect("a readable tree scans");
+        assert_eq!(
+            found.violations.len(),
+            1,
+            "{:?}",
+            found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
+        );
+        assert_eq!(found.violations[0].holds, "RowSet");
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
+    }
+
+    /// What the transport carries is on the list, not only the interior's types: a remote leg's
+    /// outcome, the batches it owns and the application's record of the run are each refused there.
+    #[test]
+    fn a_map_of_a_remote_legs_reply_is_refused() {
+        let tree = crate::scratch_tree::Tree::of(
+            "answer-path-cache-remote-leg",
+            &[(
+                "crates/sutura-flight/src/leaky.rs",
+                b"struct ReplyCache {\n    outcomes: HashMap<String, RemoteLegOutcome>,\n    batches: HashMap<String, ResultBatches>,\n    runs: BTreeMap<String, RanRemoteLeg>,\n}\n",
+            )],
+        );
+        let found = scan_over(&tree, &[]).expect("a readable tree scans");
+        let mut held: Vec<&str> = found.violations.iter().map(|v| v.holds).collect();
+        held.sort_unstable();
+        assert_eq!(
+            held,
+            ["RanRemoteLeg", "RemoteLegOutcome", "ResultBatches"],
+            "{:?}",
+            found.violations.iter().map(|v| &v.field).collect::<Vec<_>>()
+        );
+        assert_eq!(super::decide(&found), crate::Verdict::Fail);
     }
 
     /// A file outside [`super::SCOPE`] holding the exact same leak is invisible to this gate by

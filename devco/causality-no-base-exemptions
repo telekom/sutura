@@ -180,3 +180,42 @@ one_audit_record_is_written_per_outcome # in crates/sutura-app/src/remote_leg/te
 the_whole_tool_set_is_advertised_with_its_generated_schemas # in crates/sutura-mcp/src/server/tests.rs, a test-only file separate from capability.rs/server.rs; names `Capability::RunRemoteLeg`, new in this change and absent if those files revert to base
 the_advertised_tools_differ_by_scope # scoped test of this name in crates/sutura-mcp/src/server/tests.rs names `Capability::RunRemoteLeg`, new in this change and absent if capability.rs/server.rs revert to base; the key is the bare fn name, so this also covers tool::tests::the_advertised_tools_differ_by_scope, which shares its file with `every()` and would pass unexempted regardless
 two_callers_over_one_connection_are_two_different_askers # in crates/sutura-mcp/src/server/tests/asking.rs, a test-only file separate from capability.rs/server.rs; names `Capability::RunRemoteLeg`, new in this change and absent if those files revert to base
+a_certified_leg_returns_its_batches # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_refusal_crosses_as_the_closed_code_only # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+no_asked_is_unauthenticated_and_never_runs_the_leg # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+no_capability_is_permission_denied_and_never_runs_the_leg # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_refused_caller_never_has_its_request_read # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_caller_with_no_verified_assertion_is_unauthenticated_and_never_runs_the_leg # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_leg_with_no_free_slot_is_shed_and_never_runs # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_request_stream_that_never_ends_is_deadline_exceeded # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_parameter_decode_refusal_is_invalid_argument # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_descriptor_over_its_limit_is_invalid_argument # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_header_timeout_shorter_than_the_budget_is_the_deadline # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_header_timeout_longer_than_the_budget_leaves_the_budget # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+no_header_timeout_leaves_the_budget # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_zero_header_timeout_is_one_nanosecond # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_malformed_header_timeout_is_invalid_argument # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_non_ascii_header_timeout_is_invalid_argument # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+every_surface_failure_crosses_as_its_own_status # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_surface_failure_crosses_as_its_variants_status # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_leg_that_did_not_finish_is_internal # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+every_other_flight_method_is_unimplemented # in crates/sutura-flight/src/service.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_zero_byte_framing_limit_is_refused # in crates/sutura-flight/src/service/limits.rs, behind sutura-flight's default-off `service` feature; the base lacks the file, so it is not compiled there
+a_utf8_column_decodes_to_text # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+a_date32_column_decodes_to_date # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+an_unsupported_arrow_type_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+an_out_of_range_date_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
+a_null_value_is_refused_by_position # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+zero_rows_is_refused # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+two_rows_is_refused # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+zero_columns_with_one_row_decodes_to_an_empty_vec # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+column_position_not_field_name_is_the_identity # names the parameter decoder (params.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+hours_minutes_seconds_parse # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+sub_second_units_parse # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+an_unrecognised_unit_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+more_than_eight_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+eight_digits_is_the_boundary_and_still_parses # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+non_numeric_digits_are_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+a_signed_amount_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs behind the default-off `service` feature), new in this change; the base lacks the file so it is not compiled there
+no_digits_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
+an_empty_value_is_refused # names the grpc-timeout parser (grpc_timeout.rs, declared in lib.rs), new in this change; the base lacks the file so it is not compiled there
