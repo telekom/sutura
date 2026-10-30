@@ -1,5 +1,9 @@
 //! The Flight surface subtree, moved out of `router.rs` by the thousand-line limit.
 
+use axum::body::Body;
+use axum::http::StatusCode;
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use axum::response::Response;
 use sutura_config::InboundIdentity;
 
 use super::{RouterNotBuilt, Ungoverned, host_checked, inbound_layered};
@@ -30,15 +34,35 @@ pub(super) fn flight_subtree(
     let mount = mount.ungoverned().layered(|router| {
         router.route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            crate::capability::establish_asked,
+            crate::capability::establish_leg_asked,
         ))
     });
     let mount = mount.try_layered(|router| inbound_layered("flight", router, state, declared))?;
     let mount = mount
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
     let mount = mount.layered(|router| host_checked(router, hosts));
-    Ok(Some(mount.layered(|router| match api {
+    let mount = mount.layered(|router| match api {
         Some(layer) => router.route_layer(layer.clone()),
         None => router.route_layer(middleware::disabled_rate_limit_layer()),
+    });
+    Ok(Some(mount.layered(|router| {
+        router.route_layer(axum::middleware::map_response(bodiless))
     })))
+}
+
+/// A refusal from a layer in front of the service, with its body dropped.
+///
+/// Leg 1, the token gate, the `Host` check and the rate limiter answer a plain HTTP status with a
+/// JSON body, which a gRPC client decodes as message frames and reports as `Internal`. With no body
+/// it maps the status itself, by gRPC's HTTP-to-status table: `401` to `Unauthenticated`, `403` to
+/// `PermissionDenied`, `429` to `Unavailable`. The service's own answers are `200` and pass as they
+/// are.
+async fn bodiless(response: Response) -> Response {
+    if response.status() == StatusCode::OK {
+        return response;
+    }
+    let (mut parts, _body) = response.into_parts();
+    drop(parts.headers.remove(CONTENT_LENGTH));
+    drop(parts.headers.remove(CONTENT_TYPE));
+    Response::from_parts(parts, Body::empty())
 }
