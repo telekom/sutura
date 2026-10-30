@@ -57,6 +57,9 @@ mod lockfile;
 #[path = "affected/moved_jobs_aggregate.rs"]
 mod moved_jobs_aggregate;
 #[cfg(test)]
+#[path = "affected/multi_node_aggregate.rs"]
+mod multi_node_aggregate;
+#[cfg(test)]
 #[path = "affected/mutation_tests.rs"]
 mod mutation_tests;
 #[cfg(test)]
