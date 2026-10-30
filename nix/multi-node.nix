@@ -195,7 +195,7 @@ pkgs.testers.runNixOSTest {
         reply = json.loads(query.succeed(
             f"curl -sS -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' http://127.0.0.1:8080/v1/query"
         ))
-        assert reply["outcome"] == "answer", reply
+        assert reply.get("outcome") == "answer", reply
         region, revenue = reply["columns"].index("region"), reply["columns"].index("recurring_revenue")
         return {row[region]: int(row[revenue]) for row in reply["rows"]}
 

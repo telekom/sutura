@@ -51,6 +51,8 @@ def verified(public, token, audience=None):
         algorithms=["ES256"],
         issuer=ISSUER,
         audience=audience,
+        # Each VM has its own clock; a token minted on one is checked on the other.
+        leeway=30,
         options={"verify_aud": audience is not None, "require": ["exp", "iss", "sub"]},
     )
 
