@@ -226,6 +226,9 @@ bzip2 = "0.6"
 arrow-array = "59"
 arrow-schema = "59"
 arrow-flight = { version = "59", default-features = false }
+# `sutura-flight`'s `FlightService` server. Not a new crate: `arrow-flight` already builds it with
+# these features, so the graph keeps one `tonic`.
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own
