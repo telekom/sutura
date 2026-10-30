@@ -223,6 +223,10 @@ ci.yml:bigquery-conformance
 # does not report is a permanently pending merge. `ci-aggregate` holds run-or-fail for it.
 ci.yml:oracle-tier
 
+# Two NixOS VMs federating a leg, advisory for `oracle-tier`'s reason: category-gated on
+# `data_source_node`, `data_source_clickhouse` or `identity`. `ci-aggregate` holds run-or-fail for it.
+ci.yml:multi-node
+
 # The DataHub docker tier, advisory for `oracle-tier`'s reason above: category-gated on
 # `catalog_datahub` (derived from `crates/sutura-catalog-datahub`; a docker-tier
 # `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on

@@ -67,6 +67,16 @@ regexes = [
   '''^\s*(?:EBEAN_DATASOURCE_PASSWORD|CLICKHOUSE_PASSWORD|KC_BOOTSTRAP_ADMIN_PASSWORD|MYSQL_PASSWORD|MYSQL_ROOT_PASSWORD|ORACLE_PASSWORD|APP_USER_PASSWORD): \*fixture-password\s*$''',
 ]
 
+# The multi-node VM test's ClickHouse service password: a fixture inside two throwaway VMs, which
+# ClickHouse there accepts only on loopback.
+[[allowlists]]
+description = "Multi-node VM test fixture password"
+condition = "AND"
+targetRules = ["generic-password"]
+paths = ['''^nix/multi-node\.nix$''']
+regexTarget = "line"
+regexes = ['''^\s*servicePassword = "multi-node-service-password";\s*$''']
+
 # The vendored Oracle driver names the PEM armour lines it parses a wallet with. The rule's match
 # runs from one constant's header string to the next constant's footer string, so the constant's
 # own name inside the match is what this narrows on: no key body can carry it.
