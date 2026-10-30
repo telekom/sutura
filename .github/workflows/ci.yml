@@ -290,6 +290,7 @@ jobs:
       data_source_clickhouse: ${{ steps.classify.outputs.data_source_clickhouse }}
       data_source_oracle: ${{ steps.classify.outputs.data_source_oracle }}
       data_source_cube: ${{ steps.classify.outputs.data_source_cube }}
+      data_source_node: ${{ steps.classify.outputs.data_source_node }}
       catalog_local: ${{ steps.classify.outputs.catalog_local }}
       catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}
