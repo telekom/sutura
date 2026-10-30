@@ -40,5 +40,11 @@ fn a_flight_surface_with_no_direct_inbound_identity_is_not_fit_to_serve() {
 
 #[test]
 fn a_flight_surface_off_by_default_needs_no_inbound_identity() {
-    assert_eq!(serves("").flight_surface_refusals(), Vec::new());
+    let settings = serves("");
+    assert!(!settings.server().flight_surface_enabled());
+    // `Settings::refusals` gates the predicate on the key; asked directly, it still refuses.
+    assert_eq!(
+        settings.flight_surface_refusals(),
+        vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]
+    );
 }
