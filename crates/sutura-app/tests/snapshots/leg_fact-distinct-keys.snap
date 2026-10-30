@@ -4,7 +4,9 @@ expression: leg
 ---
 fact:
   source: local
-  metric: active_subscriptions
+  metric:
+    metric: active_subscriptions
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   table: fct_subscription_monthly
   joins: []
   bucket:

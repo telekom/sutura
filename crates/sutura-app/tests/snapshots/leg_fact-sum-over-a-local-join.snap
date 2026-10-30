@@ -4,7 +4,9 @@ expression: leg
 ---
 fact:
   source: local
-  metric: recurring_revenue
+  metric:
+    metric: recurring_revenue
+    digest: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   table: fct_subscription_monthly
   joins:
     - relationship: subscription_product

@@ -91,7 +91,7 @@ fn local_arm(resolution: &Resolution<'_>, closed: &Measure) -> Result<LocalArm, 
     let requested: Vec<&ResolvedFilter> = resolution.filters.iter().collect();
     let fact = LegPlan::Fact {
         source: model.source().clone(),
-        metric: resolution.metric.name().clone(),
+        metric: resolution.metric.digest()?,
         tables,
         bucket: PlanBucket::new(ResultLabel::bucket(), resolution.grain, time_column.clone()),
         keys,

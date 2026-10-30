@@ -1,0 +1,38 @@
+[package]
+name = "sutura-exec-node"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "A Warehouse whose legs another sutura node runs, over one Arrow Flight DoExchange per leg."
+
+[dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+arrow-flight = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+# `TokioIo`, which hands the TLS stream below to the gRPC client's HTTP/2 connection.
+hyper-util = { workspace = true }
+sutura-domain = { workspace = true }
+# The outbound framing (`request_stream`) only, the half that reaches no application layer.
+sutura-flight = { workspace = true }
+thiserror = { workspace = true }
+# `Warehouse::execute` is synchronous and the gRPC client is not: this adapter owns one small runtime,
+# `sutura-exec-datafusion`'s shape. `net` for the dial, `time` for the deadline.
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "time"] }
+# The node's TLS: the workspace's own rustls over ring, so the gRPC client turns on no TLS feature.
+tokio-rustls = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
+
+[dev-dependencies]
+parking_lot = { workspace = true }
+# The loopback node's certificate.
+rcgen = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

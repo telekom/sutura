@@ -268,7 +268,9 @@ fn announce_surface(settings: &Settings) {
             // declared" beside `anchors=none` reads to an operator scanning the log as plaintext,
             // which it is not.
             SourcePlacement::Files { .. } | SourcePlacement::Duckdb { .. } => ("none declared", None),
-            SourcePlacement::BigQuery { .. } | SourcePlacement::Cube { .. } => ("wire-owned tls (not declared)", None),
+            SourcePlacement::BigQuery { .. } | SourcePlacement::Cube { .. } | SourcePlacement::Node { .. } => {
+                ("wire-owned tls (not declared)", None)
+            }
             // Declared, as the one mode its driver is given - see `OracleChannel`.
             SourcePlacement::Oracle {
                 channel: Some(channel), ..

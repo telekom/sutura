@@ -387,3 +387,29 @@ fn the_remedy_names_the_overlay_variables_this_process_has() {
         "the overlay is the third thing the remedy names: {refusal}"
     );
 }
+
+/// `sutura query` and `sutura mcp` verify no caller, so a leg to another node would have no token
+/// to carry: the kind is refused here by name, on every build.
+#[test]
+fn a_node_source_is_refused_by_a_command_that_verifies_no_caller() {
+    let error = super::open_engine(
+        &super::bundle_naming("sales"),
+        &super::declaring_direct(
+            "sales",
+            "    kind: node\n    endpoint: \"https://node-b.example.com\"\n    delegation:\n      - token_endpoint: \
+             \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \
+             \"/nonexistent/idp-client\"\n        audience: \"https://node-b.example.com\"\n",
+            "impersonation-at-source",
+        ),
+        super::runtime(),
+        super::timeout(),
+        None,
+        None,
+    )
+    .map(|_| ())
+    .expect_err("a node source is served only by `sutura serve`");
+    assert!(
+        error.contains("`sources.sales` is `kind: node`") && error.contains("sutura serve"),
+        "{error}"
+    );
+}

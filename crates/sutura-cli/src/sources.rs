@@ -482,6 +482,12 @@ fn from_the_registry(
             }
             cube::open(source, configured, registry, outbound)
         }
+        // A leg reaches another node only as a verified caller's exchanged token, and only
+        // `sutura serve` verifies a caller.
+        sutura_config::SourceKind::Node => Err(format!(
+            "`sources.{source}` is `kind: node`, which runs legs of a federated answer for `sutura serve` \
+             only - this command verifies no caller whose token a leg could carry"
+        )),
         sutura_config::SourceKind::Duckdb => {
             if let Some(given) = data {
                 return Err(format!(
@@ -526,7 +532,7 @@ fn declaring(alias: &str, body: &str, posture: &str) -> sutura_config::SourceReg
 
 /// [`declaring`] on a deployment that verifies callers `direct`ly, which a declared `delegation`
 /// needs.
-#[cfg(all(test, feature = "oracle"))]
+#[cfg(test)]
 fn declaring_direct(alias: &str, body: &str, posture: &str) -> sutura_config::SourceRegistry {
     declaring_under(
         "  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \

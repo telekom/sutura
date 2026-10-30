@@ -42,7 +42,13 @@ use sutura_domain::source::SourcePosture;
 pub(crate) fn build_broker(
     registry: &sutura_config::SourceRegistry,
     #[cfg_attr(
-        not(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle")),
+        not(any(
+            feature = "bigquery",
+            feature = "clickhouse",
+            feature = "cube",
+            feature = "node",
+            feature = "oracle"
+        )),
         expect(
             unused_variables,
             reason = "only a `bigquery`, `clickhouse`, `cube` or `oracle` source composes a delegation over it"
@@ -75,6 +81,14 @@ pub(crate) fn build_broker(
         }
         #[cfg(feature = "cube")]
         if let [first, then @ ..] = crate::cube::declared_delegation(source) {
+            broker = broker.authenticating(
+                alias.clone(),
+                delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
+            );
+        }
+        // Each leg's bearer is the caller's token exchanged for the other node's audience.
+        #[cfg(feature = "node")]
+        if let [first, then @ ..] = super::node::declared_delegation(source) {
             broker = broker.authenticating(
                 alias.clone(),
                 delegation(&format!("sources.{alias}.delegation"), first, then, outbound)?,
@@ -162,7 +176,13 @@ fn federating(
 ///
 /// One agent per source rather than one per deployment: nothing here is shared that would need
 /// to be, and a second declared source pays one more TLS agent.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "cube",
+    feature = "node",
+    feature = "oracle"
+))]
 fn delegation(
     key: &str,
     first: &sutura_config::sources::workload_identity::DelegationDeclared,
@@ -224,11 +244,23 @@ fn google_login(
 }
 
 /// The agent and the read bounds one source's identity provider requests go over.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "cube",
+    feature = "node",
+    feature = "oracle"
+))]
 type ExchangeAgent = (sutura_http_client::RotatingAgent, sutura_http_client::ReadBounds);
 
 /// The bounded, rotating outbound agent one source's identity provider requests go over.
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "cube",
+    feature = "node",
+    feature = "oracle"
+))]
 fn exchange_agent(outbound: Option<&sutura_tls::Declared>) -> Result<ExchangeAgent, String> {
     let bounds = sutura_http_client::ReadBounds::parse(EXCHANGE_TIMEOUT_SECONDS, EXCHANGE_MAX_ANSWER_BYTES)
         .map_err(|cause| format!("the delegation exchange's own read bounds are unusable: {cause}"))?;
@@ -238,11 +270,23 @@ fn exchange_agent(outbound: Option<&sutura_tls::Declared>) -> Result<ExchangeAge
     Ok((agent, bounds))
 }
 
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "cube",
+    feature = "node",
+    feature = "oracle"
+))]
 /// How long one exchange may take. Fixed rather than declared: it runs inside a question's own
 /// request timeout, so a key for it would be a second bound on the same wait.
 const EXCHANGE_TIMEOUT_SECONDS: u64 = 10;
 
-#[cfg(any(feature = "bigquery", feature = "clickhouse", feature = "cube", feature = "oracle"))]
+#[cfg(any(
+    feature = "bigquery",
+    feature = "clickhouse",
+    feature = "cube",
+    feature = "node",
+    feature = "oracle"
+))]
 /// A token response is a few kilobytes; this bounds a misbehaving endpoint, not a real answer.
 const EXCHANGE_MAX_ANSWER_BYTES: u64 = 64 * 1024;

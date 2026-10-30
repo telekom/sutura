@@ -92,7 +92,7 @@ fn fact_leg(pinned: &PinnedDefinitions, keys: Vec<PlanKey>) -> (Value, Vec<Param
     params.push(ParamValue::Text(String::from("paid")));
     let leg = LegPlan::Fact {
         source: source("sales"),
-        metric: metric_name("revenue"),
+        metric: planned(pinned, "revenue"),
         tables: StatementTables::parse(orders_path(), Vec::new()).expect("one table"),
         bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, col("orders", "order_date")),
         keys,
@@ -106,19 +106,19 @@ fn fact_leg(pinned: &PinnedDefinitions, keys: Vec<PlanKey>) -> (Value, Vec<Param
         bindings: PlanBindings::parse(vec![from, until, paid], params.clone()).expect("coherent"),
         range: range(),
     };
-    (sent(&leg, pinned), params)
+    (sent(&leg), params)
 }
 
 /// A lookup leg of `revenue` on `source_name`, rooted on `root`, with `keys` and no filter.
 fn lookup_leg(pinned: &PinnedDefinitions, (source_name, root): (&str, &str), keys: Vec<PlanKey>) -> Value {
     let leg = LegPlan::Lookup {
         source: source(source_name),
-        metric: metric_name("revenue"),
+        metric: planned(pinned, "revenue"),
         table: StatementTables::parse(table(root), Vec::new()).expect("one table"),
         keys,
         bindings: PlanBindings::none(),
     };
-    sent(&leg, pinned)
+    sent(&leg)
 }
 
 #[test]

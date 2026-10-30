@@ -85,6 +85,9 @@ pub(crate) enum AnyWarehouse {
     /// A Cube deployment, boxed for [`Self::BigQuery`]'s reason.
     #[cfg(feature = "cube")]
     Cube(Box<super::CubeSource>),
+    /// Another sutura node that runs this source's legs, boxed for [`Self::BigQuery`]'s reason.
+    #[cfg(feature = "node")]
+    Node(Box<sutura_exec_node::NodeWarehouse>),
     /// A fake that records the labels it is handed, so a test sees what this enum forwards.
     #[cfg(all(test, feature = "bigquery"))]
     Recorded(Box<recorded::Recorder>),
@@ -117,6 +120,9 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "cube")]
     #[error(transparent)]
     Cube(<super::CubeSource as Warehouse>::Error),
+    #[cfg(feature = "node")]
+    #[error(transparent)]
+    Node(sutura_exec_node::NodeError),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -137,6 +143,8 @@ macro_rules! any {
             AnyWarehouse::Duckdb(warehouse) => warehouse.$method($($arg),*),
             #[cfg(feature = "cube")]
             AnyWarehouse::Cube(warehouse) => warehouse.$method($($arg),*),
+            #[cfg(feature = "node")]
+            AnyWarehouse::Node(warehouse) => warehouse.$method($($arg),*),
             #[cfg(all(test, feature = "bigquery"))]
             AnyWarehouse::Recorded(warehouse) => warehouse.$method($($arg),*),
         }
@@ -161,6 +169,8 @@ macro_rules! any_wrapped {
             AnyWarehouse::Duckdb(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Duckdb),
             #[cfg(feature = "cube")]
             AnyWarehouse::Cube(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Cube),
+            #[cfg(feature = "node")]
+            AnyWarehouse::Node(warehouse) => $wrap(warehouse.$method($($arg),*), AnyWarehouseError::Node),
             #[cfg(all(test, feature = "bigquery"))]
             AnyWarehouse::Recorded(warehouse) => $wrap(warehouse.$method($($arg),*), |never| match never {}),
         }
@@ -215,6 +225,8 @@ macro_rules! any_predicate {
             (AnyWarehouse::Duckdb(warehouse), AnyWarehouseError::Duckdb(cause)) => warehouse.$method(cause),
             #[cfg(feature = "cube")]
             (AnyWarehouse::Cube(warehouse), AnyWarehouseError::Cube(cause)) => warehouse.$method(cause),
+            #[cfg(feature = "node")]
+            (AnyWarehouse::Node(warehouse), AnyWarehouseError::Node(cause)) => warehouse.$method(cause),
             // Unreachable, and therefore ABSENT, on the DEFAULT feature set: with none of
             // `bigquery`, `postgres`, `clickhouse`, `oracle`, `duckdb` or `cube` linked, `AnyWarehouse` and `AnyWarehouseError`
             // each have the one `Files` variant, so the arm above is exhaustive on its own and
@@ -226,7 +238,8 @@ macro_rules! any_predicate {
                 feature = "clickhouse",
                 feature = "oracle",
                 feature = "duckdb",
-                feature = "cube"
+                feature = "cube",
+                feature = "node"
             ))]
             _ => $default,
         }
@@ -317,6 +330,16 @@ impl Warehouse for AnyWarehouse {
         any_predicate!(self, error, deadline_exceeded, false)
     }
 
+    fn leg_not_certified(&self, error: &Self::Error) -> bool {
+        any_predicate!(self, error, leg_not_certified, false)
+    }
+
+    // Forwarded per instance, or a node source in a mix would read as a data system and B would
+    // serve a remote leg through it - the second hop decision 9 refuses.
+    fn relays_to_a_node(&self) -> bool {
+        any!(self, relays_to_a_node)
+    }
+
     fn preflight(&self, tables: &BTreeSet<QualifiedTable>) -> Result<TablesPresent, Self::Error> {
         // [`Self::verify_anchor`]'s own reason: delegates the pre-flight's one call.
         #[expect(
@@ -375,6 +398,10 @@ impl Warehouse for AnyWarehouse {
             Self::Cube(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
                 .map(|result| result.map_err(AnyWarehouseError::Cube)),
+            #[cfg(feature = "node")]
+            Self::Node(warehouse) => warehouse
+                .execute_raw(statement, presented, deadline)
+                .map(|result| result.map_err(AnyWarehouseError::Node)),
             #[cfg(all(test, feature = "bigquery"))]
             Self::Recorded(warehouse) => warehouse
                 .execute_raw(statement, presented, deadline)
@@ -399,6 +426,7 @@ pub(crate) struct Grouped<'a> {
     pub(crate) oracle: Vec<&'a SourceName>,
     pub(crate) duckdb: Vec<&'a SourceName>,
     pub(crate) cube: Vec<&'a SourceName>,
+    pub(crate) node: Vec<&'a SourceName>,
 }
 
 /// Sorts every declared source into its kind, one [`super::configured_source`] lookup per source -
@@ -417,6 +445,7 @@ pub(crate) fn group_by_kind<'a>(
             sutura_config::SourceKind::Oracle => grouped.oracle.push(source),
             sutura_config::SourceKind::Duckdb => grouped.duckdb.push(source),
             sutura_config::SourceKind::Cube => grouped.cube.push(source),
+            sutura_config::SourceKind::Node => grouped.node.push(source),
         }
     }
     Ok(grouped)
@@ -487,9 +516,16 @@ pub(crate) fn open_mixed(
         engines = Some(accumulate(engines, cube_group(&grouped.cube, registry, outbound)?)?);
         trust_into(&mut attached, pinned, &grouped.cube);
     }
+    if !grouped.node.is_empty() {
+        engines = Some(accumulate(
+            engines,
+            super::node::node_group(&grouped.node, registry, runtime, outbound)?,
+        )?);
+        trust_into(&mut attached, pinned, &grouped.node);
+    }
 
-    // Unreachable: `open_engine` only calls this function when more than one group is non-empty,
-    // so at least one of the branches above ran. Written as a fallback rather than
+    // Unreachable: `open_engine` calls this function only when more than one group, or a `node`
+    // group, is non-empty, so at least one of the branches above ran. Written as a fallback rather than
     // an unwrap the workspace denies.
     let engines = engines.ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))?;
     Ok(Mixed { engines, attached })
@@ -549,176 +585,9 @@ fn accumulate(
     }
 }
 
-/// The `BigQuery` group, opened through [`super::bigquery::open_bigquery`] and erased.
-#[cfg(feature = "bigquery")]
-fn bigquery_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::BigQuery(engines) = super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)?
-    else {
-        return Err(String::from(
-            "`open_bigquery` returned an arm this dispatcher does not expect",
-        ));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::BigQuery(Box::new(engine))))
-}
-
-/// The feature-off twin: `open_bigquery`'s own refusal always fires here, naming the missing
-/// feature - propagated rather than duplicated, so there is one place that names it.
-#[cfg(not(feature = "bigquery"))]
-fn bigquery_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    request_timeout: sutura_config::RequestTimeout,
-    outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::bigquery::open_bigquery(sources, registry, request_timeout, outbound)?;
-    // Unreachable: that call's own feature-off twin only ever returns `Err`, propagated above by
-    // `?`. Written as a fallback rather than an `unreachable!` the workspace denies.
-    Err(String::from(
-        "`open_bigquery` returned an open registry on a build with no BigQuery adapter linked",
-    ))
-}
-
-/// The `Postgres` group, opened through [`super::postgres::open_postgres`] and erased.
-#[cfg(feature = "postgres")]
-fn postgres_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::Postgres(engines) = super::postgres::open_postgres(sources, registry)? else {
-        return Err(String::from(
-            "`open_postgres` returned an arm this dispatcher does not expect",
-        ));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::Postgres(Box::new(engine))))
-}
-
-/// [`bigquery_group`]'s feature-off twin, for the same reason.
-#[cfg(not(feature = "postgres"))]
-fn postgres_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::postgres::open_postgres(sources, registry)?;
-    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
-    Err(String::from(
-        "`open_postgres` returned an open registry on a build with no Postgres adapter linked",
-    ))
-}
-
-/// The `ClickHouse` group, opened through [`super::clickhouse::open_clickhouse`] and erased.
-#[cfg(feature = "clickhouse")]
-fn clickhouse_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::ClickHouse(engines) = super::clickhouse::open_clickhouse(sources, registry, runtime)? else {
-        return Err(String::from(
-            "`open_clickhouse` returned an arm this dispatcher does not expect",
-        ));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::ClickHouse(Box::new(engine))))
-}
-
-/// [`bigquery_group`]'s feature-off twin, for the same reason.
-#[cfg(not(feature = "clickhouse"))]
-fn clickhouse_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::clickhouse::open_clickhouse(sources, registry, runtime)?;
-    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
-    Err(String::from(
-        "`open_clickhouse` returned an open registry on a build with no ClickHouse adapter linked",
-    ))
-}
-
-/// The Oracle group, opened through [`super::oracle::open_oracle`] and erased.
-#[cfg(feature = "oracle")]
-fn oracle_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::Oracle(engines) = super::oracle::open_oracle(sources, registry, runtime)? else {
-        return Err(String::from("`open_oracle` returned an arm this dispatcher does not expect"));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::Oracle(Box::new(engine))))
-}
-
-/// [`bigquery_group`]'s feature-off twin, for the same reason.
-#[cfg(not(feature = "oracle"))]
-fn oracle_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::oracle::open_oracle(sources, registry, runtime)?;
-    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
-    Err(String::from(
-        "`open_oracle` returned an open registry on a build with no Oracle adapter linked",
-    ))
-}
-
-/// The `DuckDB` group, opened through [`super::duckdb::open_duckdb`] and erased.
-#[cfg(feature = "duckdb")]
-fn duckdb_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::Duckdb(engines) = super::duckdb::open_duckdb(sources, registry, runtime)? else {
-        return Err(String::from("`open_duckdb` returned an arm this dispatcher does not expect"));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::Duckdb(Box::new(engine))))
-}
-
-/// [`bigquery_group`]'s feature-off twin, for the same reason.
-#[cfg(not(feature = "duckdb"))]
-fn duckdb_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    runtime: sutura_config::RuntimeSettings,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::duckdb::open_duckdb(sources, registry, runtime)?;
-    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
-    Err(String::from(
-        "`open_duckdb` returned an open registry on a build with no DuckDB adapter linked",
-    ))
-}
-
-/// The Cube group, opened through [`super::cube::open_cube`] and erased.
-#[cfg(feature = "cube")]
-fn cube_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let super::OpenedSources::Cube(engines) = super::cube::open_cube(sources, registry, outbound)? else {
-        return Err(String::from("`open_cube` returned an arm this dispatcher does not expect"));
-    };
-    Ok(engines.into_mapped(|engine| AnyWarehouse::Cube(Box::new(engine))))
-}
-
-/// [`bigquery_group`]'s feature-off twin, for the same reason.
-#[cfg(not(feature = "cube"))]
-fn cube_group(
-    sources: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-    outbound: Option<&sutura_tls::Declared>,
-) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    super::cube::open_cube(sources, registry, outbound)?;
-    // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
-    Err(String::from(
-        "`open_cube` returned an open registry on a build with no Cube adapter linked",
-    ))
-}
+/// Each kind's group opener, split out for the line cap.
+mod groups;
+use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, oracle_group, postgres_group};
 
 /// The labels this enum forwards, observed through a fake variant.
 #[cfg(test)]
@@ -915,7 +784,10 @@ mod tests {
             );
             LegPlan::Lookup {
                 source: ledger(),
-                metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                metric: sutura_domain::pinned::MetricDigest::new(
+                    sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                    sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+                ),
                 table: StatementTables::parse(
                     QualifiedTable::parse("acme-sales.sales.orders").expect("a test table path parses"),
                     vec![join],

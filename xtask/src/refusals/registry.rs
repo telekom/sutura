@@ -97,8 +97,10 @@ const STARTUP: Subject = Subject {
     // and its acknowledgement. 24: `DelegationToTheDeploymentsOwnAudience`, a last hop asking for
     // the deployment's own audience. 25: `FlightSurfaceWithoutDirectInbound`, the Flight transport
     // declared on a deployment that verifies no `direct` caller - it must verify the exchanged
-    // token as its own caller, the same reason `/mcp` and `/v1` carry this refusal.
-    variants: variants(25),
+    // token as its own caller, the same reason `/mcp` and `/v1` carry this refusal. 26:
+    // `NodeDelegationToTheDeploymentsOwnAudience`, the deployment's own audience for a `node`
+    // source's last hop.
+    variants: variants(26),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
@@ -148,9 +150,18 @@ const TLS: Subject = Subject {
     variants: variants(7),
 };
 
+/// One refused `delegation` on a source entry: missing, on a shared entry, over an endpoint in the
+/// clear, or a `node` source that is not impersonating. Enrolled with its fourth variant (#137).
+const DELEGATION: Subject = Subject {
+    name: "InvalidDelegation",
+    declared_in: "crates/sutura-config/src/sources/placement.rs",
+    allow_file: "devco/delegation-refusals-unprovoked-allow",
+    variants: variants(4),
+};
+
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s
 /// module doc for the direction this list does NOT hold.
-pub(super) const ENROLLED: [&Subject; 5] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS];
+pub(super) const ENROLLED: [&Subject; 6] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS, &DELEGATION];
 
 /// Two subjects sharing one allow file would share their exceptions, and
 /// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids

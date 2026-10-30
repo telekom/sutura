@@ -342,11 +342,7 @@ impl Message for ExecuteMessage<'_, '_> {
         resp.read_bit_vector()?;
         let _rowid: Option<Rowid> = {
             let num_bytes = resp.read_ub2()?;
-            if num_bytes == 0 {
-                None
-            } else {
-                Some(Rowid::deserialize(resp)?)
-            }
+            if num_bytes == 0 { None } else { Some(Rowid::deserialize(resp)?) }
         };
         self.statement.set_bind_directions(resp)
     }
@@ -392,12 +388,12 @@ impl Message for ExecuteMessage<'_, '_> {
 
     fn post_deserialize(
         &mut self,
-        _client: &mut Client,
+        client: &mut Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
         self.statement.set_cursor_id(resp.get_cursor_id());
         self.statement.set_binds_not_changed();
-        resp.check_for_end_of_fetch(self.statement)
+        resp.check_for_statement_error(client, self.statement)
     }
 
     fn resend_needed(&self) -> bool {

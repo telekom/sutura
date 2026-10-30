@@ -1,6 +1,6 @@
 # <a name="releasenotes"></a> rust-oracledb Release Notes
 
-## rust-oracledb 26.0.0-beta.5 (TBD)
+## rust-oracledb 26.0.0-beta.5 (October 28, 2026)
 
 1.  Added methods
     [Config::set_trust_anchors_pem()](crate::Config::set_trust_anchors_pem) and
@@ -21,9 +21,7 @@
     integrity, and added the error
     [ErrorKind::UnknownPacketType](crate::ErrorKind::UnknownPacketType).
 1.  The driver returns an error for answers it does not support: batch
-    errors, column annotations, a time zone given as a region name, a
-    timestamp value shorter than a date, and a statement with no SQL and no
-    cursor; and added the error
+    errors and a statement with no SQL and no cursor; and added the error
     [ErrorKind::EmptyStatement](crate::ErrorKind::EmptyStatement).
 1.  The driver returns errors for malformed authentication responses, and
     added the error
@@ -33,9 +31,6 @@
     which returns one Arrow RecordBatch for each round trip, and a `NUMBER`
     with no fixed precision is fetched as its exact decimal text (`Utf8`)
     instead of `Float64`.
-1.  A `TIMESTAMP WITH TIME ZONE` value is fetched in the Arrow format as a
-    `Struct` of the instant in UTC and the offset of the value in minutes,
-    instead of a `Timestamp` without its offset.
 1.  The driver validates server-sent lengths and iteration counts, and added
     the errors [ErrorKind::PacketTooShort](crate::ErrorKind::PacketTooShort)
     and
@@ -46,15 +41,54 @@
     [Config::set_external_auth()](crate::Config::set_external_auth()) and
     [PoolConfig::set_external_auth()](crate::PoolConfig::set_external_auth())
     ([issue 3](https://github.com/oracle/rust-oracledb/issues/3)).
+1.  Added support for fetching BFILE LOBs.
+1.  Added support for fetching database objects and collections.
 1.  Added support for specifying the transport connect timeout and ensure it is
     actually used when establishing a connection to the database
     ([issue 35](https://github.com/oracle/rust-oracledb/issues/35)).
+1.  Added support for getting the domain and any annotations from columns that
+    support them
+    ([issue 48](https://github.com/oracle/rust-oracledb/issues/48)).
+1.  Added support for fetching CLOB, NCLOB, and LONG columns as Arrow
+    `LargeUtf8` instead of `Utf8`, and BLOB and LONG RAW as `LargeBinary`
+    instead of `Binary`.
+1.  Added `oracle.type-name` metadata to generated Arrow fields.
+1.  Added support for fetching Arrow timestamps in seconds, milliseconds,
+    microseconds, and nanoseconds as determined by Oracle column precision.
+1.  Added Arrow batch binding support for `Float16`, `FixedSizeBinary`, and
+    `Null` arrays.
+1.  Added support for [requesting the Arrow schema](#arrowrequestedschema) used
+    for query results with
+    [StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema)
+    ([issue 53](https://github.com/oracle/rust-oracledb/issues/53)).
+1.  Timestamp with time zone columns are now fetched and bound as UTC
+    timestamps
+    ([issue 8](https://github.com/oracle/rust-oracledb/issues/8)).
+1.  Fixed bug with request boundary handling
+    ([issue 32](https://github.com/oracle/rust-oracledb/issues/32)).
 1.  Fixed bug causing bind variables to be detected within DDL statements
     ([issue 33](https://github.com/oracle/rust-oracledb/issues/33)).
 1.  Fixed issue with encoding integers with trailing zeros
     ([issue 37](https://github.com/oracle/rust-oracledb/issues/37)).
+1.  Fixed bug preventing statement from being re-parsed on a second attempt
+    when errors take place on the first attempt
+    ([issue 51](https://github.com/oracle/rust-oracledb/issues/51)).
+1.  Fixed bug connecting to Oracle Database 12c
+    ([issue 55](https://github.com/oracle/rust-oracledb/issues/55)).
+1.  Fixed bug causing the type of SQL statements to be unrecognized if the SQL
+    statement starts with a single-line comment
+    ([issue 57](https://github.com/oracle/rust-oracledb/issues/57)).
+1.  Fixed bug causing piggybacks to be sent on non-data packets
+    ([issue 59](https://github.com/oracle/rust-oracledb/issues/59)).
 1.  Fixed bug that would cause the maximum SDU specified in all descriptions to
     be used instead of the one specified for each individual description.
+1.  Fixed the error `NUMBER has scale 0 but requested scale is -38`
+    when fetching zero into an Arrow Decimal128 array with a negative scale.
+1.  Fixed panics when binding out-of-range Arrow timestamps. Invalid values
+    now return the error `timestamp is outside Oracle range`.
+1.  Fixed connection failures with `unknown TTC message type` errors when the
+    database returns Application Continuity replay context or logical
+    transaction ID (LTXID) data.
 
 
 ## rust-oracledb 26.0.0-beta.4 (September 23, 2026)

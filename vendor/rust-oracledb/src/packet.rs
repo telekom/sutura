@@ -67,32 +67,26 @@ impl Packet {
     /// Returns the size of the header. Data packets are 10 bytes (because they
     /// include the data flags, unlike other packets).
     pub(crate) fn header_size(&self) -> usize {
-        if self.packet_type == constants::PACKET_TYPE_DATA {
-            10
-        } else {
-            8
-        }
+        if self.packet_type == constants::PACKET_TYPE_DATA { 10 } else { 8 }
     }
 
     /// Creates a new packet from the supplied buffer. A buffer shorter than
-    /// the header of its packet type is an error.
+    /// the smallest possible header is an error.
     pub(crate) fn new(data: &[u8]) -> Result<Packet, Error> {
-        let too_short = || Error::packet_too_short(data.len());
-        let header = data.get(..8).ok_or_else(too_short)?;
-        let packet_type = header[4];
-        let packet_flags = header[5];
+        if data.len() < 8 {
+            return Err(Error::packet_too_short(data.len()));
+        }
+        let packet_type = data[4];
+        let packet_flags = data[5];
         let mut data_flags: u16 = 0;
         let mut buf = &data[8..];
         if packet_type == constants::PACKET_TYPE_DATA {
-            let flags = data.get(8..10).ok_or_else(too_short)?;
-            data_flags = u16::from_be_bytes([flags[0], flags[1]]);
+            if data.len() < 10 {
+                return Err(Error::packet_too_short(data.len()));
+            }
+            data_flags = u16::from_be_bytes(data[8..10].try_into().unwrap());
             buf = &data[10..];
         }
-        Ok(Packet {
-            packet_type,
-            packet_flags,
-            data_flags,
-            buf: buf.into(),
-        })
+        Ok(Packet { packet_type, packet_flags, data_flags, buf: buf.into() })
     }
 }

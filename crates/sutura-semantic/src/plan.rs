@@ -112,6 +112,9 @@ pub(crate) enum PlanError {
     NotAssembled(#[from] FederatedPlanError),
     #[error(transparent)]
     NotBound(#[from] IncoherentBindings),
+    /// A resolved metric that could not be put in canonical form for the digest its legs carry.
+    #[error(transparent)]
+    NotDigestible(#[from] sutura_domain::definitions::NotDigestible),
     /// The planner built arms that [`DrillAcrossPlan::new`] then rejected.
     ///
     /// [`NotAssembled`](Self::NotAssembled)'s argument again: every arm is built from the same

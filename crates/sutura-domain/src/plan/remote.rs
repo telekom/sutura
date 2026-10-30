@@ -41,7 +41,6 @@
 //! range.
 
 use crate::calendar::TimeRange;
-use crate::definitions::NotDigestible;
 use crate::model::{DimensionName, Grain, QualifiedTable, RelationshipName, SourceName};
 use crate::pinned::{MetricDigest, PinnedDefinitions};
 use crate::plan::{InternalLabel, KeyValue, LegPlan, PlanColumn, PlanFilter, PlanKey, PlanTerm, ResultLabel};
@@ -206,9 +205,6 @@ pub enum LegWire {
 /// Why a leg cannot be written for the wire.
 #[derive(Debug, thiserror::Error)]
 pub enum NotSendable {
-    /// The metric the leg measures has no digest in the sender's own pin.
-    #[error(transparent)]
-    Digest(#[from] NotDigestible),
     /// A result label the receiver could not read back.
     #[error(transparent)]
     Label(#[from] InvalidWireLabel),
@@ -217,14 +213,15 @@ pub enum NotSendable {
     KeyTruncated { label: String },
 }
 
-/// The leg as the sender writes it, with the digest of its metric read off the sender's own pin.
+/// The leg as the sender writes it, with the digest its metric was planned under.
 ///
-/// The digest is [`PinnedDefinitions::metric_digest`], never a value the caller supplies, so what
-/// a leg claims about its metric is what the sender planned under.
+/// The digest is the one the planner read off the resolved definition into [`LegPlan::metric`],
+/// never one read here off whatever is pinned now: a catalog refresh between planning and sending
+/// cannot swap it, so what a leg claims about its metric is what the sender planned under.
 ///
 /// A key truncated to a grain is refused as [`NotSendable::KeyTruncated`]: a wire key carries its
 /// column and not its grain, so the receiver would group by the raw column and answer wrongly.
-pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, NotSendable> {
+pub fn to_wire(leg: &LegPlan) -> Result<LegWire, NotSendable> {
     let keys = |keys: &[PlanKey]| -> Result<Vec<WireKey>, NotSendable> {
         keys.iter()
             .map(|key| {
@@ -253,7 +250,7 @@ pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, Not
             ..
         } => LegWire::Fact {
             source,
-            metric: pinned.metric_digest(metric)?,
+            metric: metric.clone(),
             table,
             joins,
             bucket: WireBucket {
@@ -275,7 +272,7 @@ pub fn to_wire(leg: &LegPlan, pinned: &PinnedDefinitions) -> Result<LegWire, Not
         },
         LegPlan::Lookup { ref metric, .. } => LegWire::Lookup {
             source,
-            metric: pinned.metric_digest(metric)?,
+            metric: metric.clone(),
             table,
             joins,
             keys: keys(leg.keys())?,

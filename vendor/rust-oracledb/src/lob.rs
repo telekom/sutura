@@ -41,8 +41,9 @@ use std::io;
 ///
 /// This object is returned when BLOB, CLOB, NCLOB, and BFILE data is fetched
 /// as a LOB locator. Use the methods on this type to read, write, open, close,
-/// trim, and inspect the LOB. This type implements [`std::io::Read`] and
-/// [`std::io::Write`] for streaming access.
+/// trim, and inspect the LOB. BFILEs support reading but not writing or
+/// trimming. This type implements [`std::io::Read`] and [`std::io::Write`] for
+/// streaming access.
 ///
 /// Character LOB offsets and amounts use Oracle UCS-2 units, not UTF-8 bytes
 /// or Rust `char` counts. Supplemental characters use two Oracle units.
@@ -58,13 +59,21 @@ pub struct Lob {
 }
 
 pub(crate) struct PendingLobData {
-    chunk_size: usize,
+    chunk_size: Option<usize>,
     db_type: &'static DbType,
     locator: Vec<u8>,
-    size: usize,
+    size: Option<usize>,
 }
 
 impl PendingLobData {
+    /// Creates pending LOB data from an object attribute's locator.
+    pub(crate) fn from_locator(
+        db_type: &'static DbType,
+        locator: Vec<u8>,
+    ) -> Self {
+        Self { chunk_size: None, db_type, locator, size: None }
+    }
+
     /// Deserializes LOB data from a database response.
     pub(crate) fn from_resp(
         resp: &mut Response,
@@ -74,16 +83,17 @@ impl PendingLobData {
         if non_null_indicator == 0 {
             Ok(None)
         } else {
-            let size: usize = resp.read_ub8()?.try_into().unwrap();
-            let chunk_size: usize = resp.read_ub4()?.try_into().unwrap();
+            let (size, chunk_size) = if db_type == crate::DB_TYPE_BFILE {
+                (None, None)
+            } else {
+                (
+                    Some(resp.read_ub8()?.try_into().unwrap()),
+                    Some(resp.read_ub4()?.try_into().unwrap()),
+                )
+            };
             // LOB locators are returned as a length-encoded byte sequence.
             let locator = resp.read_bytes_with_length()?.into_owned();
-            Ok(Some(Self {
-                chunk_size,
-                db_type,
-                locator,
-                size,
-            }))
+            Ok(Some(Self { chunk_size, db_type, locator, size }))
         }
     }
 
@@ -127,18 +137,14 @@ impl Lob {
         io::Error::other(error.to_string())
     }
 
+    /// Returns whether this LOB is a BFILE.
+    fn is_bfile(&self) -> bool {
+        self.db_type == crate::DB_TYPE_BFILE
+    }
+
     /// Returns whether the LOB contains character data.
     fn is_character_lob(&self) -> bool {
         self.db_type.ora_type_num == constants::ORA_TYPE_NUM_CLOB
-    }
-
-    /// Returns the TTC open mode to use for this LOB type.
-    fn open_mode(&self) -> u64 {
-        if self.db_type == crate::DB_TYPE_BFILE {
-            constants::TTC_LOB_OPEN_READ_ONLY
-        } else {
-            constants::TTC_LOB_OPEN_READ_WRITE
-        }
     }
 
     /// Processes a LOB operation and updates the locator returned by the
@@ -148,7 +154,7 @@ impl Lob {
         op: LobOp<'a>,
     ) -> Result<LobOpMessage<'a>, Error> {
         let mut message = LobOpMessage::new(&self.locator, op);
-        self.client_ref.lock()?.process_message(&mut message)?;
+        self.client_ref.lock()?.process_lob_op(&mut message)?;
         if let Some(locator) = message.take_returned_locator() {
             self.locator = locator;
         }
@@ -215,7 +221,7 @@ impl Lob {
                     csfrm: db_type.csfrm,
                 },
             );
-            client_ref.lock()?.process_message(&mut message)?;
+            client_ref.lock()?.process_lob_op(&mut message)?;
             message
         };
 
@@ -236,21 +242,31 @@ impl Lob {
             client_ref,
             locator: data.locator,
             db_type: data.db_type,
-            size: Some(data.size),
-            chunk_size: Some(data.chunk_size),
+            size: data.size,
+            chunk_size: data.chunk_size,
             offset: 1,
         }
     }
 
     /// Closes the LOB.
     pub fn close(&mut self) -> Result<(), Error> {
-        self.process_lob_op(LobOp::Close)?;
+        let op = if self.is_bfile() { LobOp::FileClose } else { LobOp::Close };
+        self.process_lob_op(op)?;
         Ok(())
     }
 
     /// Returns the database type of the LOB.
     pub fn db_type(&self) -> &'static DbType {
         self.db_type
+    }
+
+    /// Returns whether the file referenced by this BFILE exists.
+    pub fn file_exists(&mut self) -> Result<bool, Error> {
+        if !self.is_bfile() {
+            return Err(Error::operation_only_supported_on_bfile());
+        }
+        let message = self.process_lob_op(LobOp::FileExists)?;
+        Ok(message.returned_bool())
     }
 
     /// Returns the chunk size for the LOB.
@@ -276,18 +292,24 @@ impl Lob {
 
     /// Returns whether the LOB has been opened using [`open`](Self::open).
     pub fn is_open(&mut self) -> Result<bool, Error> {
-        let message = self.process_lob_op(LobOp::IsOpen)?;
+        let op =
+            if self.is_bfile() { LobOp::FileIsOpen } else { LobOp::IsOpen };
+        let message = self.process_lob_op(op)?;
         Ok(message.returned_bool())
     }
 
     /// Opens the LOB.
     pub fn open(&mut self) -> Result<(), Error> {
-        self.process_lob_op(LobOp::Open(self.open_mode()))?;
+        let op = if self.is_bfile() { LobOp::FileOpen } else { LobOp::Open };
+        self.process_lob_op(op)?;
         Ok(())
     }
 
     /// Trims the LOB to the new size.
     pub fn trim(&mut self, new_size: usize) -> Result<(), Error> {
+        if self.is_bfile() {
+            return Err(Error::operation_not_supported_on_bfile());
+        }
         self.process_lob_op(LobOp::Trim(new_size.try_into().unwrap()))?;
         self.size = Some(new_size);
         if self.offset > new_size + 1 {
@@ -299,6 +321,9 @@ impl Lob {
 
 impl Drop for Lob {
     fn drop(&mut self) {
+        if self.is_bfile() {
+            return;
+        }
         let locator = std::mem::take(&mut self.locator);
         if let Ok(mut client) = self.client_ref.lock() {
             client.add_lob_to_close(locator);
@@ -332,8 +357,17 @@ impl io::Read for Lob {
         } else {
             remaining.min(buf.len())
         };
+
+        let explicitly_opened =
+            self.is_bfile() && !self.is_open().map_err(Self::io_error)?;
+        if explicitly_opened {
+            self.open().map_err(Self::io_error)?;
+        }
         let bytes =
             self.read_at(self.offset, amount).map_err(Self::io_error)?;
+        if explicitly_opened {
+            self.close().map_err(Self::io_error)?;
+        }
 
         let (data, offset_increment) = if is_character_lob {
             // Character LOBs are returned to callers as UTF-8, regardless of
@@ -377,7 +411,7 @@ impl io::Write for Lob {
         if buf.is_empty() {
             return Ok(0);
         }
-        if self.db_type == crate::DB_TYPE_BFILE {
+        if self.is_bfile() {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "writing to BFILE is not supported",

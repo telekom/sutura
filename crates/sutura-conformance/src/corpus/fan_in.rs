@@ -33,7 +33,10 @@ fn dimension(name: &str) -> ResultLabel {
 fn lookup(source: sutura_domain::model::SourceName, table_name: &str, keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Lookup {
         source,
-        metric: MetricName::parse("amount_total").expect("a corpus name is a name"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            MetricName::parse("amount_total").expect("a corpus name is a name"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: TableName::parse(table_name).expect("a corpus name is a name").into(),
         keys,
         bindings: PlanBindings::none(),
@@ -64,7 +67,10 @@ fn case(name: &'static str, links: &[usize], lookups: Vec<LookupLeg>, key: Answe
         .collect();
     let fact = LegPlan::Fact {
         source: source(),
-        metric: metric.clone(),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric.clone(),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table()),
         bucket: bucket(),
         keys: links.iter().map(|&leg| link(leg, super::TABLE, "region")).collect(),

@@ -300,3 +300,34 @@ refusal.
 **What this amendment does not touch.** Where the digest travels at the bytes level, the field's
 name and its serde shape: step 3 decides them under decision 3's `deny_unknown_fields` rule. A
 digest over the models, tables and columns of a leg: not decided, and not asked.
+
+## Second amendment, 2026-10-29: the leg carries its digests, and node A's client is built
+
+The owner decided where A reads the digest of the first amendment (2026-10-18). The client receives only
+the `LegPlan`, and a catalog refresh replaces the pin without rebuilding the warehouses
+(`crates/sutura-cli/src/serve/refresh.rs`). So the planner stamps each leg with the digest of the
+definition it resolved (`Metric::digest`), and `to_wire` reads it off the leg. A leg planned before
+a refresh sends the digest it was planned under. This replaces "A reads the digests off its own pin"
+in point 4 of that amendment; the digest is the same value, read earlier.
+
+What is built: `sutura-exec-node` (decisions 1, 2, 5 and 6), the `node` source kind and its load
+refusals, and its composition behind `sutura-cli`'s default-off `node` feature. The port gains two
+defaulted items: `leg_not_certified`, which A maps to `RemoteLegNotCertified` naming its own source
+(decision 3), and `relays_to_a_node`, which B reads to refuse a leg over a `node` source (decision
+9). A shared `node` entry with no `delegation` is refused as `InvalidDelegation::NodeNotImpersonating`,
+and a last hop for A's own audience as `NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience`.
+
+Limits of what is built:
+
+- `relays_to_a_node` defaults to `false`, the unsafe direction. An adapter that relays and does not
+  declare it lets a second hop through. One adapter relays, and its cell holds the line.
+- The `node` source's name at A must be the real source's name at B, because the leg names it and B
+  looks it up in its own registry. Nothing at A checks this. A mismatch is B's
+  `RemoteLegNotCertified`.
+- A node source opens only inside `sutura serve`'s mixed registry. `sutura query` and `sutura mcp`
+  refuse it. A question that compiles to a whole plan over a node source, and an anchor on one, fail
+  rather than run: a node runs legs only.
+- B's other refusals, and B's `unauthenticated`, reach A's caller as a `503`, not as their own
+  refusal or `identity_unavailable`.
+- A reads its trust anchors once, at boot. Nothing rotates them for the node channel.
+- Nothing here ran two nodes. That is #137's next step.

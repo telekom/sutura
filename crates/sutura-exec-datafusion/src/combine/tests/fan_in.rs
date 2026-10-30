@@ -212,7 +212,10 @@ fn ratio_plan(chained: bool) -> Result<FederatedPlan, FederatedPlanError> {
     };
     let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
         source: SourceName::parse(on).expect("a test source is a source"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: fact_table.clone().into(),
         keys,
         bindings: PlanBindings::none(),
