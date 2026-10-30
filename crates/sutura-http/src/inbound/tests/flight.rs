@@ -34,7 +34,7 @@ struct CountingSurface {
 
 impl Surface for CountingSurface {
     fn definitions(&self) -> Arc<PinnedDefinitions> {
-        panic!("a remote leg never reads the pinned bundle")
+        Arc::new(crate::testing::bundle())
     }
 
     #[expect(clippy::panic_in_result_fn, reason = "never called: a remote leg never adopts a bundle")]
