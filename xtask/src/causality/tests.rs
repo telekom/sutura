@@ -128,6 +128,15 @@ fn only_a_tree_that_did_not_compile_is_asked_twice() {
     // Nothing is held at HEAD, so a second attempt would reconstruct the same tree and fail
     // the same way. One build, not two.
     assert!(!retry_with_held_back(&BaseOutcome::DidNotCompile, &nothing_held));
+    // A retry whose only change is a stubbed entry - the crate's `src/lib.rs` held at HEAD the
+    // first time, kept the second only by a test file - still builds a different tree.
+    let entry = [String::from("crates/x/src/lib.rs")];
+    let only_stubbed = BaseState {
+        restore: Vec::new(),
+        remove: Vec::new(),
+        stub: &entry,
+    };
+    assert!(retry_with_held_back(&BaseOutcome::DidNotCompile, &only_stubbed));
     // A run that reached an assertion has ANSWERED. Retrying would revert the implementation
     // whose absence that assertion just measured, turning evidence into a different question.
     assert!(!retry_with_held_back(
