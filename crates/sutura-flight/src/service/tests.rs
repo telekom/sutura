@@ -413,20 +413,17 @@ async fn a_request_stream_that_never_ends_is_deadline_exceeded() {
     assert_eq!(surface.calls(), 0);
 }
 
-/// A parameter batch with zero rows: `params::decode`'s own `RowCount` refusal, reached only once
-/// framing itself succeeded.
+/// A parameter batch with two rows: `params::decode`'s own `RowCount` refusal, reached only once
+/// framing itself succeeded. A zero-row batch would not do: the encoder sends no batch for it, so
+/// framing refuses first.
 #[tokio::test]
 async fn a_parameter_decode_refusal_is_invalid_argument() {
     let surface = FakeSurface::answering(|| Ok(an_answer()));
     let mut client = serve(service_over(&surface), admitted()).await;
-    let zero_rows = RecordBatch::try_new_with_options(
-        Arc::new(Schema::empty()),
-        Vec::new(),
-        &arrow_array::RecordBatchOptions::new().with_row_count(Some(0)),
-    )
-    .expect("zero columns, zero rows is a valid batch shape");
+    let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Utf8, false)]));
+    let two_rows = RecordBatch::try_new(schema, vec![Arc::new(StringArray::from(vec!["berlin", "bonn"]))]).expect("two rows");
     let request =
-        crate::request_stream(&a_lookup_leg(), futures_util::stream::iter(vec![Ok(zero_rows)])).expect("an encodable leg");
+        crate::request_stream(&a_lookup_leg(), futures_util::stream::iter(vec![Ok(two_rows)])).expect("an encodable leg");
     let Err(FlightError::Tonic(status)) = client.do_exchange(request).await else {
         panic!("a malformed parameter batch was not refused with a status");
     };
