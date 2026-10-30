@@ -474,6 +474,8 @@ mod tests {
             "          E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}",
             "          ORACLE_RESULT: ${{ needs.oracle-tier.result }}",
             "          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle }}",
+            "          MN_RESULT: ${{ needs.multi-node.result }}",
+            "          MN_SELECTED: ${{ needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true' }}",
             "          DH_RESULT: ${{ needs.ci-datahub-tier.result }}",
             "          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}",
             "          OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}",
