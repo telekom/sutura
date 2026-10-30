@@ -217,7 +217,7 @@ fn prove(
     };
     let unreverted = separable.unreverted_from(&reverting.revert);
 
-    if first.restore.is_empty() && first.stub.is_empty() {
+    if first.restore.is_empty() {
         return report_no_base_behaviour(base.short(), &first.remove, coverage, &unreverted);
     }
 

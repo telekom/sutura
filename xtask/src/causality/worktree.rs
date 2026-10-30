@@ -683,7 +683,7 @@ mod tests {
         assert!(applied.is_ok(), "{applied:?}");
         assert!(
             written.is_ok_and(|text| !text.trim().is_empty()),
-            "a stub must exist and parse as Rust"
+            "a stub must exist, as a Rust file holding only a comment"
         );
     }
 }

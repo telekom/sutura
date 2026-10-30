@@ -1105,9 +1105,10 @@ reverts the entry like any other impl-only file - new here, so there is nothing 
 and deleting it orphans the held submodule's `mod` line: the manifest stays, the entry does not, same
 `no targets specified in the manifest` refusal one level in. `membership::stub_entries` answers it by
 writing that entry as a synthetic empty file rather than checking it out or deleting it - the manifest
-resolves, the held module still compiles into it, and the held file's own test (now with no base build
-to have run in) correctly produces no base result, which the existing no-base-exemption refusal
-already covers. **The limit:** only `src/lib.rs` is considered; a crate whose entry is `src/main.rs`
+resolves and the rest of the PR is measured. The stub declares no `mod`, so the held file is not
+compiled at base and its test produces no base result: a new crate's submodule tests are refused by
+name unless `devco/causality-no-base-exemptions` lists them, as any added test with no base run is.
+A branch that only adds files still takes the no-base-behaviour pass before any stub is written. **The limit:** only `src/lib.rs` is considered; a crate whose entry is `src/main.rs`
 and nothing else, kept this way, is not yet covered.
 
 **A SECOND CAUSE WEARS THAT SAME VERDICT, and this file recorded only the first one - #332.** *A

@@ -77,9 +77,9 @@
 //! the same `DidNotResolve` shape as the first gap, over a crate the first fix already keeps in the
 //! workspace. [`stub_entries`] answers it: an added crate's `src/lib.rs`, kept by some OTHER held
 //! file and not itself held, is written as a synthetic empty file rather than checked out (base has
-//! nothing to check out) or deleted (orphaning `call.rs`'s `mod` line). The manifest resolves, the
-//! held module still compiles into it, and `call.rs`'s own test - now with no base build to have run
-//! in - correctly produces no base result, which `base::report` already refuses unless
+//! nothing to check out) or deleted (orphaning `call.rs`'s `mod` line). The manifest resolves, and
+//! the crate is empty at base: the stub declares no `mod`, so `call.rs` is not compiled there and
+//! its test does not exist there - no base result, which `base::report` already refuses unless
 //! `no_base::Exemptions` names it: no new exemption is this module's to grant.
 //!
 //! **THE LIMIT, next to this claim too.** Only `src/lib.rs` is considered - a library's conventional
@@ -227,8 +227,9 @@ fn withdrawn(added: &[String], inputs: &[String], at_head: &[String]) -> Vec<Str
 /// (`github.com/telekom/sutura#1629`, measured adding `crates/sutura-exec-node` with its only test
 /// in a held `src/call.rs`). Checking it out is not an option either - base has nothing to check
 /// out. A synthetic empty file is the third thing: it satisfies cargo's target resolution without
-/// claiming either tree's content, and the module held at HEAD still compiles - its own test then
-/// has no base run, which `base::report` already refuses unless `no_base::Exemptions` names it.
+/// claiming either tree's content. It declares no `mod`, so the module held at HEAD is not compiled
+/// at base and its test has no base run, which `base::report` already refuses unless
+/// `no_base::Exemptions` names it.
 ///
 /// Limit: only `src/lib.rs` is considered. A crate whose entry is `src/main.rs` and nothing else,
 /// kept this way, is not yet covered - the module header's scope is the library case this gate
