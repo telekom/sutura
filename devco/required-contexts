@@ -227,6 +227,10 @@ ci.yml:oracle-tier
 # `data_source_node`, `data_source_clickhouse` or `identity`. `ci-aggregate` holds run-or-fail for it.
 ci.yml:multi-node
 
+# The chart scaled by its autoscaler in a k3s VM, advisory for `oracle-tier`'s reason: gated on the
+# `chart` area. `ci-aggregate` holds run-or-fail for it.
+ci.yml:k3s-autoscaling
+
 # The DataHub docker tier, advisory for `oracle-tier`'s reason above: category-gated on
 # `catalog_datahub` (derived from `crates/sutura-catalog-datahub`; a docker-tier
 # `compose.services.yaml` change falls open to `core`, which runs it), so it reports nothing on

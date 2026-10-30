@@ -243,11 +243,11 @@ ci:
     # `libadbc_driver_bigquery.so` builds (review telekom/sutura#913 round 1 found no gate built the
     # driver), so a broken driver triple reds this task like any other gate check.
     # adbc-driver-postgresql, -duckdb and -clickhouse are in it for the same reason, over their own builds.
-    # postgres-linked-driver (tier cells through the LINKED static musl driver) and multi-node (two
-    # NixOS VMs, needs KVM) run only on an x86_64-linux host; anywhere else each is a stub saying so.
+    # postgres-linked-driver (the LINKED static musl driver), multi-node and k3s-autoscaling (NixOS VMs,
+    # KVM) run only on an x86_64-linux host; anywhere else each is a stub saying so.
     # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
     # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node vendored-oracledb slides; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node k3s-autoscaling vendored-oracledb slides; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
