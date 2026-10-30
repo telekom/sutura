@@ -42,14 +42,22 @@ pub(crate) enum LobOp<'a> {
     CreateTemp { ora_type_num: u16, csfrm: u8 },
     /// Close an opened LOB locator.
     Close,
+    /// Close an opened BFILE.
+    FileClose,
+    /// Check whether the file referenced by a BFILE exists.
+    FileExists,
+    /// Check whether a BFILE is open.
+    FileIsOpen,
+    /// Open a BFILE for reading.
+    FileOpen,
     /// Retrieve the optimal database chunk size for the LOB.
     GetChunkSize,
     /// Retrieve the current LOB length.
     GetLength,
     /// Check whether the LOB locator is currently open.
     IsOpen,
-    /// Open the LOB with the supplied TTC open mode.
-    Open(u64),
+    /// Open the LOB for reading and writing.
+    Open,
     /// Read data at the supplied offset and amount.
     Read(u64, u64),
     /// Trim the LOB to the supplied size.
@@ -62,7 +70,8 @@ impl LobOp<'_> {
     /// Returns the LOB amount value for operations that use one.
     fn amount(&self) -> u64 {
         match self {
-            LobOp::Open(mode) => *mode,
+            LobOp::Open => constants::TTC_LOB_OPEN_READ_WRITE,
+            LobOp::FileOpen => constants::TTC_LOB_OPEN_READ_ONLY,
             LobOp::Read(_, amount) => *amount,
             LobOp::Trim(new_size) => *new_size,
             _ => 0,
@@ -117,7 +126,10 @@ impl LobOp<'_> {
     /// Returns the NULL LOB pointer value.
     fn null_lob_pointer(&self) -> u8 {
         match self {
-            LobOp::CreateTemp { .. } | LobOp::IsOpen => 1,
+            LobOp::CreateTemp { .. }
+            | LobOp::IsOpen
+            | LobOp::FileExists
+            | LobOp::FileIsOpen => 1,
             _ => 0,
         }
     }
@@ -127,10 +139,14 @@ impl LobOp<'_> {
         match self {
             LobOp::CreateTemp { .. } => constants::TTC_LOB_OP_CREATE_TEMP,
             LobOp::Close => constants::TTC_LOB_OP_CLOSE,
+            LobOp::FileClose => constants::TTC_LOB_OP_FILE_CLOSE,
+            LobOp::FileExists => constants::TTC_LOB_OP_FILE_EXISTS,
+            LobOp::FileIsOpen => constants::TTC_LOB_OP_FILE_ISOPEN,
+            LobOp::FileOpen => constants::TTC_LOB_OP_FILE_OPEN,
             LobOp::GetChunkSize => constants::TTC_LOB_OP_GET_CHUNK_SIZE,
             LobOp::GetLength => constants::TTC_LOB_OP_GET_LENGTH,
             LobOp::IsOpen => constants::TTC_LOB_OP_IS_OPEN,
-            LobOp::Open(_) => constants::TTC_LOB_OP_OPEN,
+            LobOp::Open => constants::TTC_LOB_OP_OPEN,
             LobOp::Read(_, _) => constants::TTC_LOB_OP_READ,
             LobOp::Trim(_) => constants::TTC_LOB_OP_TRIM,
             LobOp::Write(_, _) => constants::TTC_LOB_OP_WRITE,
@@ -139,7 +155,7 @@ impl LobOp<'_> {
 
     /// Returns whether the operation expects a boolean return value.
     fn returns_bool(&self) -> bool {
-        matches!(self, LobOp::IsOpen)
+        matches!(self, LobOp::IsOpen | LobOp::FileExists | LobOp::FileIsOpen)
     }
 
     /// Returns whether the operation returns character set metadata.
@@ -153,7 +169,8 @@ impl LobOp<'_> {
             self,
             LobOp::GetChunkSize
                 | LobOp::GetLength
-                | LobOp::Open(_)
+                | LobOp::Open
+                | LobOp::FileOpen
                 | LobOp::Read(_, _)
                 | LobOp::Trim(_)
         )

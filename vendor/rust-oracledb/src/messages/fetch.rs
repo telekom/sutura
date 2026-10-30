@@ -38,19 +38,16 @@ use crate::statement::CachedStatement;
 use crate::write_buffer::WriteBuffer;
 
 pub struct FetchMessage<'statement> {
-    statement: &'statement CachedStatement,
+    statement: &'statement mut CachedStatement,
     last_row: Option<DbRow>,
 }
 
 impl FetchMessage<'_> {
     pub fn new<'statement>(
-        statement: &'statement CachedStatement,
+        statement: &'statement mut CachedStatement,
         last_row: Option<DbRow>,
     ) -> FetchMessage<'statement> {
-        FetchMessage {
-            statement,
-            last_row,
-        }
+        FetchMessage { statement, last_row }
     }
 }
 
@@ -66,10 +63,10 @@ impl Message for FetchMessage<'_> {
 
     fn post_deserialize(
         &mut self,
-        _client: &mut Client,
+        client: &mut Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
-        resp.check_for_end_of_fetch(self.statement)
+        resp.check_for_statement_error(client, self.statement)
     }
 
     fn pre_deserialize(&mut self, _client: &mut Client, resp: &mut Response) {

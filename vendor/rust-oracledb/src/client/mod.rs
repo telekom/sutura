@@ -34,6 +34,7 @@ mod capabilities;
 use std::mem;
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::sync::Arc;
 
 use crate::bind_params::BindParameters;
 use crate::config::Address;
@@ -42,10 +43,12 @@ use crate::config::Description;
 use crate::config::parse_redirect_data;
 use crate::constants;
 use crate::db_info::DbInfo;
+use crate::dbobject::DbObjectTypeCache;
 use crate::end_user_security_context::EndUserSecurityContext;
 use crate::error::Error;
 use crate::external_auth;
 use crate::messages::AuthMessage;
+use crate::messages::CommitMessage;
 use crate::messages::ConnectMessage;
 use crate::messages::DataTypesMessage;
 use crate::messages::EofMessage;
@@ -53,14 +56,17 @@ use crate::messages::ExecuteMessage;
 use crate::messages::FastAuthMessage;
 use crate::messages::FetchMessage;
 use crate::messages::FlushOutBindsMessage;
+use crate::messages::LobOpMessage;
 use crate::messages::LogoffMessage;
 use crate::messages::MarkerMessage;
 use crate::messages::Message;
+use crate::messages::PingMessage;
 use crate::messages::ProtocolMessage;
 use crate::messages::RollbackMessage;
 use crate::packet::Packet;
 use crate::response::Response;
 use crate::row::DbRow;
+use crate::row::Row;
 use crate::statement::CachedStatement;
 use crate::statement::StatementCache;
 use crate::statement::StatementOptions;
@@ -73,11 +79,12 @@ const TTC_SECURITY_CONTEXT_ATTACH_FLAG: u32 = 0x01;
 const TTC_END_USER_SECURITY_CONTEXT_KEY: &str = "ORCL_XS_AUTHZ_CONTEXT";
 
 pub struct Client {
+    iam_auth: Option<(String, String)>,
     transport: Transport,
     caps: capabilities::Capabilities,
     config: Config,
     combo_key: Option<[u8; 32]>,
-    iam_auth: Option<(String, String)>,
+    dbobject_type_cache: DbObjectTypeCache,
     charset_id: u16,
     ncharset_id: u16,
     statement_cache: StatementCache,
@@ -134,6 +141,20 @@ impl Client {
     /// Processes the call status flags returned by the server.
     fn process_call_status(&mut self, call_status: u32) {
         self.transaction_in_progress = call_status & 0x00000002 != 0
+    }
+
+    /// Processes a single message and receives back the response. If the
+    /// message requires resending, that is done and only the second response
+    /// is returned.
+    fn process_message(
+        &mut self,
+        message: &mut impl Message,
+    ) -> Result<Response, Error> {
+        let mut response = self.perform_round_trip(message)?;
+        if message.resend_needed() {
+            response = self.perform_round_trip(message)?;
+        }
+        Ok(response)
     }
 
     /// Receives a data packet from the database. Control packets and marker
@@ -254,7 +275,9 @@ impl Client {
         message: &mut impl Message,
     ) -> Result<(), Error> {
         let mut buf = WriteBuffer::new();
-        self.write_piggybacks(&mut buf);
+        if message.get_packet_type() == constants::PACKET_TYPE_DATA {
+            self.write_piggybacks(&mut buf);
+        }
         message.serialize(self, &mut buf);
         self.transport.send_packets(
             message.get_packet_type(),
@@ -585,10 +608,24 @@ impl Client {
 
     /// Closes the connection to the database.
     pub(crate) fn close(&mut self) -> Result<(), Error> {
+        self.dbobject_type_cache.clear();
         self.end_request()?;
         self.process_message(&mut LogoffMessage::new())?;
         self.send_message(&mut EofMessage::new())?;
         self.transport.close()
+    }
+
+    /// Ensures that a statement is closed and the cursor number cleared for
+    /// errors that require it.
+    pub(crate) fn close_cursor(&mut self, statement: &mut CachedStatement) {
+        self.statement_cache.close_cursor(statement);
+        statement.clear_cursor();
+    }
+
+    /// Commits any pending transaction.
+    pub(crate) fn commit(&mut self) -> Result<(), Error> {
+        self.process_message(&mut CommitMessage::new())?;
+        Ok(())
     }
 
     /// Returns the configuration associated with the client.
@@ -634,8 +671,7 @@ impl Client {
                 TcpStream::connect(sock_addr)?
             };
         self.transport.connect(stream, address, &self.config)?;
-        self.transport
-            .set_max_packet_size(description.sdu() as usize);
+        self.transport.set_max_packet_size(description.sdu() as usize);
         let mut address = address.clone();
         let mut connect_data = connect_data.to_string();
         let mut connect_message =
@@ -710,7 +746,14 @@ impl Client {
             self.override_ttc_field_version =
                 constants::FAST_AUTH_TTC_FIELD_VERSION;
             self.process_message(&mut fast_auth_message)?;
-            fast_auth_message.process_auth_phase_two(self)
+            let auth_message = fast_auth_message.auth_message();
+            // the fast authentication message may already have carried the
+            // second phase of authorization; only perform it as a separate
+            // round trip when the server asked for more
+            if auth_message.resend_needed() {
+                self.process_message(auth_message)?;
+            }
+            self.post_connect(auth_message)
 
         // otherwise, do the normal authentication; disable end of response
         // for the first two messages as the server does not send an end of
@@ -735,15 +778,15 @@ impl Client {
         self.security_context = None;
         self.last_warning = None;
         self.transport.set_read_timeout(None)?;
-        if self.in_request {
-            if self.pending_session_state != 0 {
-                self.in_request = false;
-            } else {
-                self.pending_session_state =
-                    constants::TTC_SESSION_STATE_REQUEST_END;
-            }
+        if self.in_request && self.pending_session_state != 0 {
+            self.in_request = false;
         }
         if self.in_request || self.transaction_in_progress {
+            if self.in_request {
+                self.pending_session_state =
+                    constants::TTC_SESSION_STATE_REQUEST_END;
+                self.in_request = false;
+            }
             self.process_message(&mut RollbackMessage::new())?;
         }
         Ok(())
@@ -781,7 +824,7 @@ impl Client {
             let mut message =
                 ExecuteMessage::new(statement, params, parse_only);
             let mut response = self.process_message(&mut message)?;
-            response.finalize_rows(client_ref, statement.out_metadata());
+            response.complete_values(self, client_ref, statement)?;
             if statement.requires_define() {
                 statement.clear_requires_define();
             }
@@ -792,14 +835,37 @@ impl Client {
     /// Performs a fetch and returns the database response.
     pub(crate) fn fetch(
         &mut self,
-        statement: &CachedStatement,
+        statement: &mut CachedStatement,
         client_ref: &ClientRef,
         last_row: Option<DbRow>,
     ) -> Result<Response, Error> {
         let mut message = FetchMessage::new(statement, last_row);
         let mut response = self.process_message(&mut message)?;
-        response.finalize_rows(client_ref, statement.out_metadata());
+        response.complete_values(self, client_ref, statement)?;
         Ok(response)
+    }
+
+    /// Fetches all rows from the database given the initial response returned
+    /// for the execute (or an empty response if using a REF cursor).
+    pub(crate) fn fetch_all_rows(
+        &mut self,
+        client_ref: &ClientRef,
+        statement: &mut CachedStatement,
+        mut response: Response,
+    ) -> Result<Vec<Row>, Error> {
+        let metadata = Arc::new(statement.out_metadata().to_vec());
+        let mut all_rows = Vec::new();
+        loop {
+            let rows = response.take_rows().unwrap_or_default();
+            let last_row = rows.last().cloned();
+            all_rows
+                .extend(rows.into_iter().map(|row| Row::new(&metadata, row)));
+            if response.is_end_of_fetch() {
+                break;
+            }
+            response = self.fetch(statement, client_ref, last_row)?;
+        }
+        Ok(all_rows)
     }
 
     /// Returns the call timeout set on the connection or an error if the
@@ -825,6 +891,11 @@ impl Client {
         self.ncharset_id
     }
 
+    /// Returns the database character set used by object images.
+    pub(crate) fn get_charset_id(&self) -> u16 {
+        self.charset_id
+    }
+
     /// Returns the runtime capabilities.
     pub(crate) fn get_runtime_caps(&self) -> &[u8] {
         self.caps.runtime_caps()
@@ -847,6 +918,20 @@ impl Client {
             info.clear_cursor();
         }
         Ok(info)
+    }
+
+    /// Discovers a named object type while holding the client lock.
+    pub(crate) fn get_type(
+        &mut self,
+        client_ref: &ClientRef,
+        name: &str,
+    ) -> Result<Arc<crate::DbObjectType>, Error> {
+        // Discovery needs both mutable cache access and the locked client for
+        // SQL.
+        let mut cache = mem::take(&mut self.dbobject_type_cache);
+        let result = cache.get_type(self, client_ref, name);
+        self.dbobject_type_cache = cache;
+        result
     }
 
     /// Returns the header and signature required for OCI IAM token based
@@ -880,6 +965,7 @@ impl Client {
             config,
             combo_key: None,
             iam_auth: None,
+            dbobject_type_cache: DbObjectTypeCache::default(),
             charset_id: 0,
             ncharset_id: 0,
             statement_cache: StatementCache::new(cache_size),
@@ -900,6 +986,12 @@ impl Client {
             pool_id,
             temp_lobs_to_close: Vec::new(),
         }
+    }
+
+    /// Commits any pending transaction.
+    pub(crate) fn ping(&mut self) -> Result<(), Error> {
+        self.process_message(&mut PingMessage::new())?;
+        Ok(())
     }
 
     /// Runs activities after the auth message has been processed. The auth
@@ -926,18 +1018,13 @@ impl Client {
         Ok(db_info)
     }
 
-    /// Processes a single message and receives back the response. If the
-    /// message requires resending, that is done and only the second response
-    /// is returned.
-    pub(crate) fn process_message(
+    /// Processes a LOB operation.
+    pub(crate) fn process_lob_op(
         &mut self,
-        message: &mut impl Message,
-    ) -> Result<Response, Error> {
-        let mut response = self.perform_round_trip(message)?;
-        if message.resend_needed() {
-            response = self.perform_round_trip(message)?;
-        }
-        Ok(response)
+        message: &mut LobOpMessage,
+    ) -> Result<(), Error> {
+        self.process_message(message)?;
+        Ok(())
     }
 
     /// Returns whether the client should be closed based on the pending error
@@ -951,6 +1038,12 @@ impl Client {
     /// authentication.
     pub(crate) fn reset_ttc_field_version(&mut self) {
         self.override_ttc_field_version = 0;
+    }
+
+    /// Rolls back any pending transaction.
+    pub(crate) fn rollback(&mut self) -> Result<(), Error> {
+        self.process_message(&mut RollbackMessage::new())?;
+        Ok(())
     }
 
     /// Returns a statement to the statement cache for subsequent use, or

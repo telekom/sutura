@@ -28,43 +28,73 @@
 // Defines the structure representing statement options.
 //-----------------------------------------------------------------------------
 
+#[cfg(feature = "arrow")]
+use arrow_schema::SchemaRef;
+
 #[derive(Clone)]
 pub(crate) struct StatementOptions {
     prefetch_rows: u32,
     fetch_array_size: u32,
     fetch_lobs: bool,
+    #[cfg(feature = "arrow")]
+    requested_schema: Option<SchemaRef>,
 }
 
 impl StatementOptions {
+    /// Creates a new structure and returns it.
     pub(crate) fn new() -> StatementOptions {
         StatementOptions {
             prefetch_rows: 2,
             fetch_array_size: 100,
             fetch_lobs: false,
+            #[cfg(feature = "arrow")]
+            requested_schema: None,
         }
     }
 
+    /// Returns the configured fetch array size.
     pub(crate) fn fetch_array_size(&self) -> u32 {
         self.fetch_array_size
     }
 
+    /// Returns the configured setting for fetching LOBs (instead of
+    /// strings/vectors).
     pub(crate) fn fetch_lobs(&self) -> bool {
         self.fetch_lobs
     }
 
+    /// Returns the configured number of rows to prefetch with the initial
+    /// execution of the statement.
     pub(crate) fn prefetch_rows(&self) -> u32 {
         self.prefetch_rows
     }
 
+    /// Returns the requested schema to use when fetching Arrow data.
+    #[cfg(feature = "arrow")]
+    pub(crate) fn requested_schema(&self) -> Option<&SchemaRef> {
+        self.requested_schema.as_ref()
+    }
+
+    /// Sets the number of rows to fetch each time rows are fetched.
     pub(crate) fn set_fetch_array_size(&mut self, value: u32) {
         self.fetch_array_size = value;
     }
 
+    /// Specifies that LOBs should be fetched instead of strings/vectors.
     pub(crate) fn set_fetch_lobs(&mut self) {
         self.fetch_lobs = true;
     }
 
+    /// Sets the number of rows to prefetch with the initial execution of the
+    /// statement. Note that this value has no effect if LOB columns are being
+    /// fetched.
     pub(crate) fn set_prefetch_rows(&mut self, value: u32) {
         self.prefetch_rows = value;
+    }
+
+    /// Sets the requested schema to use when fetching Arrow data.
+    #[cfg(feature = "arrow")]
+    pub(crate) fn set_requested_schema(&mut self, schema: SchemaRef) {
+        self.requested_schema = Some(schema);
     }
 }

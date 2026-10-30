@@ -29,8 +29,9 @@
 let
   # The patched modules that carry tests. Patch (4)'s `messages/connect.rs` has none:
   # `crates/sutura-exec-oracle/tests/dial.rs` drives it through a fake listener instead.
-  modules = [ "config::base::" "transport::" "metadata::" "messages::execute::" "response::error_info::" "ora_type::timestamp::" "external_auth::" "arrow::fetch::" ];
-  floor = 17;
+  # `metadata::` dropped: upstream now reads annotations itself, so this crate keeps no test there.
+  modules = [ "config::base::" "transport::" "messages::execute::" "response::error_info::" "ora_type::timestamp::" "external_auth::" "arrow::fetch::" ];
+  floor = 14;
 in
 craneLib.mkCargoDerivation (noArtifacts // {
   pname = "vendored-oracledb-tests";

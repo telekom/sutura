@@ -49,16 +49,17 @@ use crate::row::Row;
 pub struct Statement {
     client_ref: ClientRef,
     statement: CachedStatement,
+    return_on_drop: bool,
 }
 
 impl Statement {
     /// Gets the response to a fetch.
     pub(crate) fn fetch(
-        &self,
+        &mut self,
         last_row: Option<DbRow>,
     ) -> Result<Response, Error> {
         self.client_ref.lock()?.fetch(
-            &self.statement,
+            &mut self.statement,
             &self.client_ref,
             last_row,
         )
@@ -80,16 +81,24 @@ impl Statement {
         )
     }
 
+    /// Transfers the cached statement; the caller must return it to the client.
+    pub(crate) fn into_cached_statement(mut self) -> CachedStatement {
+        let empty = CachedStatement::create_empty(
+            String::new(),
+            false,
+            self.statement.options(),
+        );
+        self.return_on_drop = false;
+        std::mem::replace(&mut self.statement, empty)
+    }
+
     /// Creates a new public facing statement from the internal cached
     /// statement.
     pub(crate) fn new(
         client_ref: ClientRef,
         statement: CachedStatement,
     ) -> Self {
-        Self {
-            client_ref,
-            statement,
-        }
+        Self { client_ref, statement, return_on_drop: true }
     }
 
     /// Returns the bind names used by the statement.
@@ -131,11 +140,7 @@ impl Statement {
         self.statement.check_binds(&params)?;
         let num_execs = params.num_rows();
         let mut response = self.get_execute_response(params, false)?;
-        Ok(ExecBatchResult::new(
-            &self.statement,
-            num_execs,
-            &mut response,
-        ))
+        Ok(ExecBatchResult::new(&self.statement, num_execs, &mut response))
     }
 
     /// Executes the statement with the given named parameters and returns an
@@ -217,18 +222,32 @@ impl Statement {
         params: BindParameters,
     ) -> Result<arrow_array::RecordBatch, Error> {
         self.statement.check_binds(&params)?;
-        arrow::query_single_batch(self, params)
+        let mut client = self.client_ref.lock()?;
+        arrow::query_single_batch(
+            &mut client,
+            &mut self.statement,
+            &self.client_ref,
+            params,
+        )
     }
 
     #[cfg(feature = "arrow")]
     /// Performs a query against the database and returns an iterator of
     /// Arrow RecordBatch structures, one for each round trip to the database.
+    /// The next round trip is made only when the next batch is requested.
     pub fn query_arrow_batches<'a>(
         mut self,
         params: BindParameters<'a>,
     ) -> Result<arrow::ArrowBatches<'a>, Error> {
         self.statement.check_binds(&params)?;
         arrow::ArrowBatches::new(self, params)
+    }
+
+    /// Returns the schema requested for an Arrow query, if one was set with
+    /// [StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema).
+    #[cfg(feature = "arrow")]
+    pub(crate) fn requested_schema(&self) -> Option<&arrow_schema::SchemaRef> {
+        self.statement.options().requested_schema()
     }
 
     /// Executes the statement with the given parameters and returns a Cursor
@@ -281,7 +300,8 @@ impl Statement {
 
 impl Drop for Statement {
     fn drop(&mut self) {
-        if let Ok(mut client) = self.client_ref.lock() {
+        if self.return_on_drop {
+            let mut client = self.client_ref.lock().unwrap();
             client.return_statement(&self.statement);
         }
     }

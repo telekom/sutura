@@ -105,19 +105,13 @@ fn test_2702(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     let mut result = conn.execute_named(
         "insert into test_2702 (id, value) values (:id, :value) \
          returning value into :out_value",
-        &[
-            ("id", &1),
-            ("value", &"returned value"),
-            ("out_value", &out_value),
-        ],
+        &[("id", &1), ("value", &"returned value"), ("out_value", &out_value)],
     )?;
     conn.commit()?;
     assert_eq!(result.rows_affected(), 1);
     let returned_data = result.returned_data();
-    let values: Vec<String> = returned_data
-        .into_iter()
-        .map(|v| v.get(0).unwrap())
-        .collect();
+    let values: Vec<String> =
+        returned_data.into_iter().map(|v| v.get(0).unwrap()).collect();
     assert_eq!(values, vec!["returned value"]);
     Ok(())
 }
@@ -193,10 +187,7 @@ fn test_2705(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
 /// Tests that a server-side statement error does not poison a later valid
 /// statement on the same connection.
 fn test_2706(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
-    assert!(
-        conn.query("select no_such_column_2706 from dual", &[])
-            .is_err()
-    );
+    assert!(conn.query("select no_such_column_2706 from dual", &[]).is_err());
     let row = conn.query_row("select 2706 from dual", &[])?;
     let value: i32 = row.get(0)?;
     assert_eq!(value, 2706);
@@ -328,10 +319,7 @@ fn test_2711(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         Ok(_) => panic!("mixed bind types in a batch must fail"),
         Err(err) => err,
     };
-    assert!(matches!(
-        err.kind(),
-        oracledb::ErrorKind::DifferentTypes(_, _)
-    ));
+    assert!(matches!(err.kind(), oracledb::ErrorKind::DifferentTypes(_, _)));
     Ok(())
 }
 
@@ -387,11 +375,8 @@ fn test_2713(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
 fn test_2714(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     let sql = "select to_clob(:1) from dual";
     let value = "statement cache LOB option".to_string();
-    let mut row = conn
-        .statement(sql)?
-        .fetch_lobs()
-        .build()?
-        .query_row(&[&value])?;
+    let mut row =
+        conn.statement(sql)?.fetch_lobs().build()?.query_row(&[&value])?;
     let _: oracledb::Lob = row.take(0)?;
     row = conn.query_row(sql, &[&value])?;
     let fetched_value: String = row.get(0)?;
@@ -529,9 +514,8 @@ fn test_2718(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         &[],
     )?;
     let cursor: oracledb::Cursor = row.take("nested_cur")?;
-    let values: Vec<i32> = cursor
-        .map(|row| row?.get("level"))
-        .collect::<Result<Vec<_>, _>>()?;
+    let values: Vec<i32> =
+        cursor.map(|row| row?.get("level")).collect::<Result<Vec<_>, _>>()?;
     assert_eq!(values, vec![1, 2, 3]);
     Ok(())
 }
@@ -643,10 +627,8 @@ fn test_2722(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
     let mut result = conn.execute_batch("begin :2 := :1 * 2; end;", params)?;
 
     let out_bind_data = result.out_bind_data();
-    let values: Vec<i32> = out_bind_data
-        .iter()
-        .map(|row| row.get(0).unwrap())
-        .collect();
+    let values: Vec<i32> =
+        out_bind_data.iter().map(|row| row.get(0).unwrap()).collect();
     assert_eq!(values, vec![200, 400, 600]);
     Ok(())
 }
@@ -697,9 +679,8 @@ fn test_2724(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         "test_2724",
         "id number primary key, value varchar2(30)",
     )?;
-    let mut statement = conn
-        .statement("insert into test_2724 values (:1, :2)")?
-        .build()?;
+    let mut statement =
+        conn.statement("insert into test_2724 values (:1, :2)")?.build()?;
     statement.execute(&[&1, &"first"])?;
     conn.commit()?;
 
@@ -761,5 +742,21 @@ fn test_2726(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         .map(|row| row?.get::<u16>(0))
         .collect::<Result<Vec<u16>, _>>()?;
     assert_eq!(fetched_values, vec![100, 200, 300, 400, 500]);
+    Ok(())
+}
+
+#[rstest]
+/// Tests re-execution of statements with an error.
+fn test_2727(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    let sql = "select * from test_2727";
+    match conn.query(sql, &[]) {
+        Ok(_) => panic!("expected failure"),
+        Err(error) => {
+            assert!(matches!(error.kind(), oracledb::ErrorKind::DbError(_)));
+        }
+    };
+    let _guard =
+        common::create_table(&conn, "test_2727", "data varchar2(30)")?;
+    let _ = conn.query(sql, &[])?;
     Ok(())
 }

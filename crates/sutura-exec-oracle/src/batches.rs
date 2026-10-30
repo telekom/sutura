@@ -6,15 +6,18 @@
 //! its exact decimal text; a value of that text that parses as an `i64` is read as
 //! [`Value::Integer`](sutura_domain::warehouse::Value::Integer) and every other stays exact
 //! [`Value::Text`](sutura_domain::warehouse::Value::Text), the split the Postgres adapter draws
-//! for `NUMERIC`. A `DATE` or `TIMESTAMP` arrives as a microsecond timestamp, a `TIMESTAMP WITH
-//! TIME ZONE` as that timestamp in UTC beside the value's offset, and each is read as its date-time
-//! text; a `TIMESTAMP WITH LOCAL TIME ZONE` column is refused by name. Every other type is the
-//! domain reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
+//! for `NUMERIC`. A `DATE`, `TIMESTAMP` or `TIMESTAMP WITH TIME ZONE` arrives as a timestamp in the
+//! unit its scale implies - a zoned value already folded to its UTC instant - and is read as its
+//! date-time text, a fraction finer than a microsecond dropped; a `TIMESTAMP WITH LOCAL TIME ZONE`
+//! column is refused by name. Every other type is the domain
+//! reader's: a `RAW` or a `BINARY_FLOAT` column is refused.
 
 use std::sync::Arc;
 
 use arrow_array::cast::AsArray as _;
-use arrow_array::types::{Int16Type, TimestampMicrosecondType};
+use arrow_array::types::{
+    ArrowPrimitiveType, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
+};
 use arrow_array::{Array as _, ArrayRef, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, RowSet, UnannouncedBatch, UnreadableCell, Value};
@@ -97,7 +100,7 @@ fn dated(schema: &SchemaRef) -> SchemaRef {
         .fields()
         .iter()
         .map(|field| {
-            if is_timestamp(field.data_type()) || is_zoned(field.data_type()) {
+            if is_timestamp(field.data_type()) {
                 field.as_ref().clone().with_data_type(DataType::Utf8)
             } else {
                 field.as_ref().clone()
@@ -107,24 +110,8 @@ fn dated(schema: &SchemaRef) -> SchemaRef {
     Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
 }
 
-fn is_timestamp(data_type: &DataType) -> bool {
-    *data_type == DataType::Timestamp(TimeUnit::Microsecond, None)
-}
-
-/// A `TIMESTAMP WITH TIME ZONE` column as the driver hands it: the UTC instant beside the offset.
-fn is_zoned(data_type: &DataType) -> bool {
-    let DataType::Struct(fields) = data_type else {
-        return false;
-    };
-    let mut types = fields.iter().map(|field| field.data_type());
-    matches!(
-        (types.next(), types.next(), types.next()),
-        (
-            Some(DataType::Timestamp(TimeUnit::Microsecond, _)),
-            Some(DataType::Int16),
-            None
-        )
-    )
+const fn is_timestamp(data_type: &DataType) -> bool {
+    matches!(data_type, DataType::Timestamp(_, None))
 }
 
 /// `batch` under `schema`, each date-typed column as its text.
@@ -133,31 +120,35 @@ fn dated_batch(schema: &SchemaRef, batch: &RecordBatch) -> Result<RecordBatch, O
         .columns()
         .iter()
         .map(|column| {
-            let texts: StringArray = if is_timestamp(column.data_type()) {
-                column
-                    .as_primitive::<TimestampMicrosecondType>()
-                    .iter()
-                    .map(|micros| micros.map(|micros| date_text(micros, None)).transpose())
-                    .collect::<Result<_, _>>()?
-            } else if is_zoned(column.data_type()) {
-                let parts = column.as_struct();
-                let instants = parts.column(0).as_primitive::<TimestampMicrosecondType>();
-                let offsets = parts.column(1).as_primitive::<Int16Type>();
-                (0..parts.len())
-                    .map(|row| {
-                        parts
-                            .is_valid(row)
-                            .then(|| date_text(instants.value(row), Some(offsets.value(row))))
-                            .transpose()
-                    })
-                    .collect::<Result<_, _>>()?
-            } else {
-                return Ok(Arc::clone(column));
+            let texts = match column.data_type() {
+                DataType::Timestamp(TimeUnit::Second, None) => {
+                    texts::<TimestampSecondType>(column, |seconds| seconds.saturating_mul(1_000_000))?
+                }
+                DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                    texts::<TimestampMillisecondType>(column, |millis| millis.saturating_mul(1_000))?
+                }
+                DataType::Timestamp(TimeUnit::Microsecond, None) => texts::<TimestampMicrosecondType>(column, |micros| micros)?,
+                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
+                    texts::<TimestampNanosecondType>(column, |nanos| nanos.div_euclid(1_000))?
+                }
+                _ => return Ok(Arc::clone(column)),
             };
             Ok(Arc::new(texts) as ArrayRef)
         })
         .collect::<Result<Vec<_>, OracleError>>()?;
     RecordBatch::try_new(Arc::clone(schema), columns).map_err(|cause| OracleError::Batch { cause })
+}
+
+/// Each value of a timestamp `column` of unit `T` as its date-time text, by way of `to_micros`.
+fn texts<T>(column: &ArrayRef, to_micros: fn(i64) -> i64) -> Result<StringArray, OracleError>
+where
+    T: ArrowPrimitiveType<Native = i64>,
+{
+    column
+        .as_primitive::<T>()
+        .iter()
+        .map(|value| value.map(|value| date_text(to_micros(value))).transpose())
+        .collect()
 }
 
 fn unannounced(cause: UnannouncedBatch) -> OracleError {
@@ -210,8 +201,11 @@ mod tests {
     use std::cell::Cell;
     use std::sync::Arc;
 
-    use arrow_array::{Array as _, ArrayRef, Int16Array, RecordBatch, StringArray, StructArray, TimestampMicrosecondArray};
-    use arrow_schema::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
+    use arrow_array::{
+        ArrayRef, RecordBatch, StringArray, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray,
+    };
+    use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
     use sutura_domain::warehouse::{ResultBudget, RowSet, Value};
 
     use super::{Stop, number_columns, read};
@@ -379,24 +373,38 @@ mod tests {
     }
 
     #[test]
-    fn a_time_of_day_before_1970_lands_on_its_day() {
-        let rows = texts(timestamp_batch(vec![Some(-43_200_000_000), Some(-1)]));
-        assert_eq!(rows, [text("1969-12-31T12:00:00"), text("1969-12-31T23:59:59.999999")]);
+    fn every_unit_the_scale_implies_reads_as_its_date_time() {
+        // 2026-10-11T00:00:00.456789123: a `DATE`, a `TIMESTAMP(3)` and a `TIMESTAMP(9)`, each in
+        // the unit the driver fetches its scale in.
+        let batch = |data_type: DataType, column: ArrayRef| {
+            let schema = Arc::new(Schema::new(vec![Field::new("D", data_type, true)]));
+            RecordBatch::try_new(schema, vec![column]).expect("one timestamp column")
+        };
+        let day = texts(batch(
+            DataType::Timestamp(TimeUnit::Second, None),
+            Arc::new(TimestampSecondArray::from(vec![1_791_676_800])),
+        ));
+        let millis = texts(batch(
+            DataType::Timestamp(TimeUnit::Millisecond, None),
+            Arc::new(TimestampMillisecondArray::from(vec![1_791_676_800_456])),
+        ));
+        let nanos = texts(batch(
+            DataType::Timestamp(TimeUnit::Nanosecond, None),
+            Arc::new(TimestampNanosecondArray::from(vec![1_791_676_800_456_789_123])),
+        ));
+        assert_eq!(
+            [day, millis, nanos],
+            [
+                [text("2026-10-11")],
+                [text("2026-10-11T00:00:00.456")],
+                [text("2026-10-11T00:00:00.456789")]
+            ]
+        );
     }
 
     #[test]
-    fn a_zoned_timestamp_keeps_its_own_offset() {
-        let instants = TimestampMicrosecondArray::from(vec![Some(1_761_933_135_456_000), None]).with_timezone("UTC");
-        let fields = Fields::from(vec![
-            Field::new("timestamp", instants.data_type().clone(), true),
-            Field::new("offset_minutes", DataType::Int16, true),
-        ]);
-        let offsets = Int16Array::from(vec![Some(-360), None]);
-        let nulls = offsets.nulls().cloned();
-        let zoned = StructArray::new(fields, vec![Arc::new(instants), Arc::new(offsets)], nulls);
-        let schema = Arc::new(Schema::new(vec![Field::new("T", zoned.data_type().clone(), true)]));
-        let batch = RecordBatch::try_new(schema, vec![Arc::new(zoned)]).expect("one zoned column");
-        // The driver's reading of `2025-10-31 11:52:15.456 -06:00`: the UTC instant beside the offset.
-        assert_eq!(texts(batch), [text("2025-10-31T11:52:15.456-06:00"), vec![Value::Null]]);
+    fn a_time_of_day_before_1970_lands_on_its_day() {
+        let rows = texts(timestamp_batch(vec![Some(-43_200_000_000), Some(-1)]));
+        assert_eq!(rows, [text("1969-12-31T12:00:00"), text("1969-12-31T23:59:59.999999")]);
     }
 }

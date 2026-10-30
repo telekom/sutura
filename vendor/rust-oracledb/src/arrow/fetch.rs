@@ -28,7 +28,7 @@
 // Defines support for fetching query results as Arrow record batches.
 //-----------------------------------------------------------------------------
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use arrow_array::builder::ArrayBuilder;
@@ -36,12 +36,19 @@ use arrow_array::builder::make_builder;
 use arrow_array::builder::{
     BinaryBuilder, BooleanBuilder, Decimal128Builder, Float32Builder,
     Float64Builder, Int8Builder, Int16Builder, Int32Builder, Int64Builder,
-    StringBuilder, StructBuilder, TimestampMicrosecondBuilder, UInt8Builder,
+    LargeBinaryBuilder, LargeStringBuilder, StringBuilder,
+    TimestampMicrosecondBuilder, TimestampMillisecondBuilder,
+    TimestampNanosecondBuilder, TimestampSecondBuilder, UInt8Builder,
     UInt16Builder, UInt32Builder, UInt64Builder,
 };
-use arrow_schema::{DataType, Field, Fields, Schema, SchemaRef, TimeUnit};
+use arrow_array::types::{
+    Decimal128Type, validate_decimal_precision_and_scale,
+};
+use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 
 use crate::bind_params::BindParameters;
+use crate::client::Client;
+use crate::client::ClientRef;
 use crate::constants;
 use crate::error::Error;
 use crate::metadata::Metadata;
@@ -50,28 +57,60 @@ use crate::ora_type::OracleTimestamp;
 use crate::response::Response;
 use crate::row::DbRow;
 use crate::row::Row;
+use crate::statement::CachedStatement;
 use crate::statement::Statement;
 
 /// Returns the default schema to use for fetching data in the Arrow format.
-fn default_schema(columns: &[Metadata]) -> Result<Schema, Error> {
+/// When `exact_number_text` is true, a `NUMBER` with no fixed precision, or
+/// whose scale's absolute value exceeds its precision, is given the exact
+/// decimal text type (`Utf8`) instead of `Float64`: no fixed Arrow decimal
+/// holds every value such a column may store, and `Float64` rounds most of
+/// them. [query_arrow()](crate::Connection::query_arrow) keeps `Float64` to
+/// leave its output unchanged;
+/// [query_arrow_batches()](crate::Connection::query_arrow_batches) uses the
+/// exact text default.
+fn default_schema(
+    columns: &[Metadata],
+    exact_number_text: bool,
+) -> Result<Schema, Error> {
     let mut fields: Vec<Field> = Vec::with_capacity(columns.len());
     for col in columns {
-        let data_type = default_type(col)?;
-        fields.push(Field::new(col.name(), data_type, col.nullable()));
+        let data_type = default_type(col, exact_number_text)?;
+        let metadata =
+            HashMap::from([("oracle.type-name".to_string(), col.data_type())]);
+        fields.push(
+            Field::new(col.name(), data_type, col.nullable())
+                .with_metadata(metadata),
+        );
     }
     Ok(Schema::new(fields))
 }
 
 /// Returns the default type to use for fetching data in the Arrow format.
-fn default_type(col: &Metadata) -> Result<DataType, Error> {
-    if col.db_type().is_string_type() {
+/// See [default_schema()] for `exact_number_text`.
+fn default_type(
+    col: &Metadata,
+    exact_number_text: bool,
+) -> Result<DataType, Error> {
+    let db_type = col.db_type();
+    if db_type == crate::DB_TYPE_LONG
+        || db_type == crate::DB_TYPE_LONG_NVARCHAR
+    {
+        Ok(DataType::LargeUtf8)
+    } else if db_type == crate::DB_TYPE_LONG_RAW {
+        Ok(DataType::LargeBinary)
+    } else if db_type.is_string_type() {
         Ok(DataType::Utf8)
-    } else if col.db_type().is_binary_type() {
+    } else if db_type.is_binary_type() {
         Ok(DataType::Binary)
-    } else if col.db_type() == crate::DB_TYPE_TIMESTAMP_TZ {
-        Ok(timestamp_with_offset())
     } else if col.db_type().is_date_type() {
-        Ok(DataType::Timestamp(TimeUnit::Microsecond, None))
+        let unit = match col.scale() {
+            0 => TimeUnit::Second,
+            1..=3 => TimeUnit::Millisecond,
+            4..=6 => TimeUnit::Microsecond,
+            _ => TimeUnit::Nanosecond,
+        };
+        Ok(DataType::Timestamp(unit, None))
     } else {
         match col.db_type().ora_type_num {
             constants::ORA_TYPE_NUM_BINARY_DOUBLE => Ok(DataType::Float64),
@@ -82,14 +121,17 @@ fn default_type(col: &Metadata) -> Result<DataType, Error> {
                 let scale = col.scale();
                 // Arrow decimal values require a fixed precision and scale.
                 // Oracle uses a precision of 0 to indicate that the precision
-                // and scale of the stored numbers may vary: up to 40
-                // significant digits, at a decimal exponent from -130 to 125.
-                // No fixed Arrow decimal holds all of these values, and a
-                // float rounds most of them, so the exact decimal text is
-                // used instead. The same applies when the absolute value of
-                // the scale exceeds the precision.
+                // and scale of the stored numbers may vary. Arrow decimal
+                // values also require that the absolute value of the scale
+                // does not exceed precision. If these constraints are not met
+                // then Float64 is used instead, unless the caller asked for
+                // the exact decimal text.
                 if precision == 0 || scale.unsigned_abs() > precision {
-                    Ok(DataType::Utf8)
+                    if exact_number_text {
+                        Ok(DataType::Utf8)
+                    } else {
+                        Ok(DataType::Float64)
+                    }
                 } else if scale != 0 || precision > 18 {
                     Ok(DataType::Decimal128(precision, scale))
                 } else if precision <= 2 {
@@ -107,117 +149,111 @@ fn default_type(col: &Metadata) -> Result<DataType, Error> {
     }
 }
 
-/// Returns the type used for a TIMESTAMP WITH TIME ZONE value: the instant
-/// in UTC, beside the offset of the value from UTC in minutes. An Arrow
-/// timestamp holds one time zone for all of its column, but each value in a
-/// TIMESTAMP WITH TIME ZONE column can have a different offset.
-fn timestamp_with_offset() -> DataType {
-    let instant =
-        DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()));
-    DataType::Struct(Fields::from(vec![
-        Field::new("timestamp", instant, true),
-        Field::new("offset_minutes", DataType::Int16, true),
-    ]))
-}
-
 /// Performs a query with one or more sets of parameters and returns a single
 /// RecordBatch containing all of the data.
 pub(crate) fn query_single_batch(
-    statement: Statement,
+    client: &mut Client,
+    statement: &mut CachedStatement,
+    client_ref: &ClientRef,
     params: BindParameters,
 ) -> Result<arrow_array::RecordBatch, Error> {
-    let mut batches = ArrowBatches::new(statement, params)?;
-    while batches.add_round_trip()? {}
-    batches.creator.create_batch()
-}
-
-/// The results of a query as Arrow record batches, one batch for each round
-/// trip to the database. Returned by
-/// [Connection::query_arrow_batches()](`crate::Connection::query_arrow_batches`).
-/// The next round trip is made only when the next batch is requested, so a
-/// caller can stop reading between round trips, for example when the data
-/// already received exceeds a limit. This struct implements the Iterator
-/// trait.
-pub struct ArrowBatches<'a> {
-    statement: Statement,
-    params: BindParameters<'a>,
-    next_params: usize,
-    column_info: Arc<Vec<Metadata>>,
-    creator: RecordBatchCreator,
-    response: Option<Response>,
-    last_row: Option<DbRow>,
-    end_of_fetch: bool,
-}
-
-impl<'a> ArrowBatches<'a> {
-    /// Executes the query with the first set of parameters.
-    pub(crate) fn new(
-        mut statement: Statement,
-        params: BindParameters<'a>,
-    ) -> Result<Self, Error> {
-        let response =
-            statement.get_execute_response(params.slice(0, 1), false)?;
-        let metadata = statement.out_metadata().to_vec();
-        let creator = RecordBatchCreator::new(&metadata)?;
-        Ok(Self {
-            statement,
-            params,
-            next_params: 1,
-            column_info: Arc::new(metadata),
-            creator,
-            response: Some(response),
-            last_row: None,
-            end_of_fetch: false,
-        })
-    }
-
-    /// Returns the schema of every batch.
-    pub fn schema(&self) -> SchemaRef {
-        self.creator.schema.clone()
-    }
-
-    /// Returns the columns of the query.
-    pub fn columns(&self) -> &[Metadata] {
-        &self.column_info
-    }
-
-    /// Adds the rows of the next round trip to the batch being created.
-    /// Returns false when no round trip is left.
-    fn add_round_trip(&mut self) -> Result<bool, Error> {
-        let mut response = if let Some(response) = self.response.take() {
-            response
-        } else if !self.end_of_fetch {
-            self.statement.fetch(self.last_row.take())?
-        } else if self.next_params < self.params.num_rows() {
-            let params = self.params.slice(self.next_params, 1);
-            self.next_params += 1;
-            self.statement.get_execute_response(params, false)?
-        } else {
-            return Ok(false);
-        };
-        self.end_of_fetch = response.is_end_of_fetch();
-        if let Some(rows) = response.take_rows() {
-            let mut rows: VecDeque<DbRow> = rows.into();
-            while let Some(row) = rows.pop_front() {
-                if rows.is_empty() {
-                    self.last_row = Some(row.clone());
+    // perform first query to determine the schema
+    let mut last_row: Option<DbRow> = None;
+    let mut response =
+        client.execute(statement, client_ref, params.slice(0, 1), false)?;
+    let metadata = statement.out_metadata().to_vec();
+    let schema = if let Some(schema) = statement.options().requested_schema() {
+        if schema.fields().len() != metadata.len() {
+            return Err(Error::wrong_arrow_schema_length(
+                schema.fields().len(),
+                metadata.len(),
+            ));
+        }
+        for (column, field) in metadata.iter().zip(schema.fields()) {
+            validate_fetch_type(column, field)?;
+        }
+        schema.clone()
+    } else {
+        Arc::new(default_schema(&metadata, false)?)
+    };
+    let mut creator = RecordBatchCreator::new(schema)?;
+    let column_info = Arc::new(metadata);
+    for index in 0..params.num_rows() {
+        if index > 0 {
+            response = client.execute(
+                statement,
+                client_ref,
+                params.slice(index, 1),
+                false,
+            )?;
+        }
+        loop {
+            if let Some(rows) = response.take_rows() {
+                let mut rows: VecDeque<DbRow> = rows.into();
+                while let Some(row) = rows.pop_front() {
+                    if rows.is_empty() {
+                        last_row = Some(row.clone());
+                    }
+                    creator.add_row(&Row::new(&column_info, row))?;
                 }
-                self.creator.add_row(&Row::new(&self.column_info, row))?;
             }
+            if response.is_end_of_fetch() {
+                break;
+            }
+            response = client.fetch(statement, client_ref, last_row.take())?;
         }
-        Ok(true)
     }
+    creator.create_batch()
 }
 
-impl Iterator for ArrowBatches<'_> {
-    type Item = Result<arrow_array::RecordBatch, Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.add_round_trip() {
-            Ok(true) => Some(self.creator.create_batch()),
-            Ok(false) => None,
-            Err(e) => Some(Err(e)),
-        }
+/// Validates that an Oracle result column supports the requested Arrow type.
+fn validate_fetch_type(column: &Metadata, field: &Field) -> Result<(), Error> {
+    let data_type = field.data_type();
+    if let DataType::Decimal128(precision, scale) = data_type {
+        validate_decimal_precision_and_scale::<Decimal128Type>(
+            *precision, *scale,
+        )?;
+    }
+    let db_type = column.db_type();
+    let is_compatible = if db_type == crate::DB_TYPE_NUMBER {
+        matches!(
+            data_type,
+            DataType::Decimal128(_, _)
+                | DataType::Float32
+                | DataType::Float64
+                | DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Utf8
+                | DataType::LargeUtf8
+        )
+    } else if db_type.is_binary_type() {
+        matches!(data_type, DataType::Binary | DataType::LargeBinary)
+    } else if db_type == crate::DB_TYPE_BOOLEAN {
+        matches!(data_type, DataType::Boolean)
+    } else if db_type.is_date_type() {
+        matches!(data_type, DataType::Timestamp(_, _))
+    } else if db_type.is_string_type() {
+        matches!(data_type, DataType::Utf8 | DataType::LargeUtf8)
+    } else if db_type == crate::DB_TYPE_BINARY_FLOAT {
+        matches!(data_type, DataType::Float32)
+    } else if db_type == crate::DB_TYPE_BINARY_DOUBLE {
+        matches!(data_type, DataType::Float64)
+    } else {
+        false
+    };
+    if is_compatible {
+        Ok(())
+    } else {
+        Err(Error::unsupported_conversion(
+            &format!("{} column {}", column.data_type(), field.name()),
+            &data_type.to_string(),
+        ))
     }
 }
 
@@ -225,7 +261,6 @@ impl Iterator for ArrowBatches<'_> {
 struct RecordBatchCreator {
     schema: SchemaRef,
     builders: Vec<Box<dyn ArrayBuilder>>,
-    number_text: Vec<bool>,
 }
 
 impl RecordBatchCreator {
@@ -234,18 +269,7 @@ impl RecordBatchCreator {
         let fields = self.schema.fields();
         for (column_index, field) in fields.into_iter().enumerate() {
             let builder = &mut self.builders[column_index];
-            if self.number_text[column_index] {
-                let value = row
-                    .get::<Option<OracleNumber>>(column_index)?
-                    .map(|v| v.to_string());
-                builder
-                    .as_any_mut()
-                    .downcast_mut::<StringBuilder>()
-                    .unwrap()
-                    .append_option(value);
-            } else {
-                Self::add_value(row, field, builder, column_index)?;
-            }
+            Self::add_value(row, field, builder, column_index)?;
         }
         Ok(())
     }
@@ -258,13 +282,16 @@ impl RecordBatchCreator {
         column_index: usize,
     ) -> Result<(), Error> {
         match field.data_type() {
-            DataType::Binary | DataType::LargeBinary => {
-                builder
-                    .as_any_mut()
-                    .downcast_mut::<BinaryBuilder>()
-                    .unwrap()
-                    .append_option(row.get::<Option<Vec<u8>>>(column_index)?);
-            }
+            DataType::Binary => builder
+                .as_any_mut()
+                .downcast_mut::<BinaryBuilder>()
+                .unwrap()
+                .append_option(row.get::<Option<Vec<u8>>>(column_index)?),
+            DataType::LargeBinary => builder
+                .as_any_mut()
+                .downcast_mut::<LargeBinaryBuilder>()
+                .unwrap()
+                .append_option(row.get::<Option<Vec<u8>>>(column_index)?),
             DataType::Boolean => {
                 builder
                     .as_any_mut()
@@ -325,39 +352,33 @@ impl RecordBatchCreator {
                     .unwrap()
                     .append_option(row.get::<Option<i64>>(column_index)?);
             }
-            DataType::Timestamp(TimeUnit::Microsecond, _) => {
+            DataType::Timestamp(time_unit, _) => {
                 let value = row
                     .get::<Option<OracleTimestamp>>(column_index)?
-                    .map(|v| v.to_timestamp_micros())
+                    .map(|v| v.to_timestamp(*time_unit))
                     .transpose()?;
-                builder
-                    .as_any_mut()
-                    .downcast_mut::<TimestampMicrosecondBuilder>()
-                    .unwrap()
-                    .append_option(value)
-            }
-            DataType::Struct(_) => {
-                let value =
-                    row.get::<Option<OracleTimestamp>>(column_index)?;
-                let micros =
-                    value.map(|v| v.to_timestamp_micros()).transpose()?;
-                let offset = value.map(|v| {
-                    i16::from(v.tz_hour_offset()) * 60
-                        + i16::from(v.tz_minute_offset())
-                });
-                let builder = builder
-                    .as_any_mut()
-                    .downcast_mut::<StructBuilder>()
-                    .unwrap();
-                builder
-                    .field_builder::<TimestampMicrosecondBuilder>(0)
-                    .unwrap()
-                    .append_option(micros);
-                builder
-                    .field_builder::<Int16Builder>(1)
-                    .unwrap()
-                    .append_option(offset);
-                builder.append(value.is_some());
+                match time_unit {
+                    TimeUnit::Second => builder
+                        .as_any_mut()
+                        .downcast_mut::<TimestampSecondBuilder>()
+                        .unwrap()
+                        .append_option(value),
+                    TimeUnit::Millisecond => builder
+                        .as_any_mut()
+                        .downcast_mut::<TimestampMillisecondBuilder>()
+                        .unwrap()
+                        .append_option(value),
+                    TimeUnit::Microsecond => builder
+                        .as_any_mut()
+                        .downcast_mut::<TimestampMicrosecondBuilder>()
+                        .unwrap()
+                        .append_option(value),
+                    TimeUnit::Nanosecond => builder
+                        .as_any_mut()
+                        .downcast_mut::<TimestampNanosecondBuilder>()
+                        .unwrap()
+                        .append_option(value),
+                }
             }
             DataType::UInt8 => {
                 builder
@@ -387,13 +408,16 @@ impl RecordBatchCreator {
                     .unwrap()
                     .append_option(row.get::<Option<u64>>(column_index)?);
             }
-            DataType::Utf8 | DataType::LargeUtf8 => {
-                builder
-                    .as_any_mut()
-                    .downcast_mut::<StringBuilder>()
-                    .unwrap()
-                    .append_option(row.get::<Option<String>>(column_index)?);
-            }
+            DataType::Utf8 => builder
+                .as_any_mut()
+                .downcast_mut::<StringBuilder>()
+                .unwrap()
+                .append_option(row.get::<Option<String>>(column_index)?),
+            DataType::LargeUtf8 => builder
+                .as_any_mut()
+                .downcast_mut::<LargeStringBuilder>()
+                .unwrap()
+                .append_option(row.get::<Option<String>>(column_index)?),
             _ => {
                 return Err(Error::unsupported_arrow_type(
                     field.data_type().to_string(),
@@ -407,105 +431,141 @@ impl RecordBatchCreator {
     fn create_batch(&mut self) -> Result<arrow_array::RecordBatch, Error> {
         let arrays: Vec<arrow_array::ArrayRef> =
             self.builders.iter_mut().map(|b| b.finish()).collect();
-        Ok(arrow_array::RecordBatch::try_new(
-            self.schema.clone(),
-            arrays,
-        )?)
+        Ok(arrow_array::RecordBatch::try_new(self.schema.clone(), arrays)?)
     }
 
     /// Creates a new structure for creating a RecordBatch
-    fn new(columns: &[Metadata]) -> Result<Self, Error> {
-        let schema = default_schema(columns)?;
+    fn new(schema: SchemaRef) -> Result<Self, Error> {
         let builders = schema
             .fields()
             .iter()
             .map(|f| make_builder(f.data_type(), 0))
             .collect();
-        let number_text = columns
-            .iter()
-            .zip(schema.fields())
-            .map(|(col, field)| {
-                col.db_type().ora_type_num == constants::ORA_TYPE_NUM_NUMBER
-                    && field.data_type() == &DataType::Utf8
-            })
-            .collect();
+        Ok(Self { schema, builders })
+    }
+}
+
+/// Iterator returned by
+/// [Statement::query_arrow_batches()](crate::Statement::query_arrow_batches)
+/// that yields one RecordBatch per round trip to the database. The next
+/// round trip is only made when the next batch is requested.
+pub struct ArrowBatches<'a> {
+    statement: Statement,
+    params: BindParameters<'a>,
+    next_param_set: usize,
+    column_info: Arc<Vec<Metadata>>,
+    schema: SchemaRef,
+    pending: Option<Response>,
+    last_row: Option<DbRow>,
+    cursor_open: bool,
+}
+
+impl<'a> ArrowBatches<'a> {
+    /// Creates a new iterator of RecordBatches, performing the first round
+    /// trip to determine the schema. When no schema was requested with
+    /// [StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema),
+    /// a `NUMBER` with no fixed precision, or whose scale's absolute value
+    /// exceeds its precision, is fetched as exact decimal text (`Utf8`).
+    pub(crate) fn new(
+        mut statement: Statement,
+        params: BindParameters<'a>,
+    ) -> Result<Self, Error> {
+        let response =
+            statement.get_execute_response(params.slice(0, 1), false)?;
+        let metadata = statement.out_metadata().to_vec();
+        let schema = if let Some(schema) = statement.requested_schema() {
+            if schema.fields().len() != metadata.len() {
+                return Err(Error::wrong_arrow_schema_length(
+                    schema.fields().len(),
+                    metadata.len(),
+                ));
+            }
+            for (column, field) in metadata.iter().zip(schema.fields()) {
+                validate_fetch_type(column, field)?;
+            }
+            schema.clone()
+        } else {
+            Arc::new(default_schema(&metadata, true)?)
+        };
+        let cursor_open = !response.is_end_of_fetch();
         Ok(Self {
-            schema: schema.into(),
-            builders,
-            number_text,
+            statement,
+            params,
+            next_param_set: 1,
+            column_info: Arc::new(metadata),
+            schema,
+            pending: Some(response),
+            last_row: None,
+            cursor_open,
         })
+    }
+
+    /// Returns the schema of every batch.
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    /// Returns the columns of the query.
+    pub fn columns(&self) -> &[Metadata] {
+        &self.column_info
+    }
+
+    /// Performs at most one round trip (the next pending execute or fetch)
+    /// and turns its rows into a RecordBatch, or returns `None` once every
+    /// parameter set has been fully fetched.
+    fn next_batch(&mut self) -> Result<Option<arrow_array::RecordBatch>, Error> {
+        let mut response = match self.pending.take() {
+            Some(response) => response,
+            None if self.cursor_open => {
+                self.statement.fetch(self.last_row.take())?
+            }
+            None if self.next_param_set < self.params.num_rows() => {
+                let response = self.statement.get_execute_response(
+                    self.params.slice(self.next_param_set, 1),
+                    false,
+                )?;
+                self.next_param_set += 1;
+                response
+            }
+            None => return Ok(None),
+        };
+        self.cursor_open = !response.is_end_of_fetch();
+        let mut creator = RecordBatchCreator::new(self.schema.clone())?;
+        if let Some(rows) = response.take_rows() {
+            let mut rows: VecDeque<DbRow> = rows.into();
+            while let Some(row) = rows.pop_front() {
+                if rows.is_empty() {
+                    self.last_row = Some(row.clone());
+                }
+                creator.add_row(&Row::new(&self.column_info, row))?;
+            }
+        }
+        Ok(Some(creator.create_batch()?))
+    }
+}
+
+impl Iterator for ArrowBatches<'_> {
+    type Item = Result<arrow_array::RecordBatch, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_batch().transpose()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::sync::Arc;
-
-    use arrow_array::cast::AsArray;
-    use arrow_array::types::{Int16Type, TimestampMicrosecondType};
     use arrow_schema::DataType;
 
-    use super::RecordBatchCreator;
-    use crate::db_value::DbValue;
+    use super::default_type;
     use crate::metadata::Metadata;
-    use crate::ora_type::{OracleNumber, OracleTimestamp};
-    use crate::row::{DbRow, Row};
 
+    /// A `NUMBER` with no fixed precision is the exact decimal text default
+    /// [query_arrow_batches()](crate::Connection::query_arrow_batches) asks
+    /// for, and stays `Float64` for every other caller.
     #[test]
     fn number_without_precision_is_fetched_as_exact_text() {
-        let values = [
-            "9007199254740993",
-            "12345678901234567890123456789012345678",
-            "-0.000000000000000000000000000000000001",
-        ];
-        let columns =
-            Arc::new(vec![Metadata::new_scalar("N", crate::DB_TYPE_NUMBER, 0)]);
-        let mut creator = RecordBatchCreator::new(&columns).unwrap();
-        for value in values {
-            let number = OracleNumber::from_str(value).unwrap();
-            let row = DbRow::new(vec![Some(DbValue::Number(number))]);
-            creator.add_row(&Row::new(&columns, row)).unwrap();
-        }
-        let batch = creator.create_batch().unwrap();
-        assert_eq!(batch.schema().field(0).data_type(), &DataType::Utf8);
-        let fetched = batch.column(0).as_string::<i32>();
-        for (index, value) in values.into_iter().enumerate() {
-            let exact = OracleNumber::from_str(value).unwrap().to_string();
-            assert_eq!(fetched.value(index), exact);
-        }
-        assert_eq!(fetched.value(0), "9007199254740993");
-    }
-
-    #[test]
-    fn timestamp_with_time_zone_is_fetched_with_its_offset() {
-        let columns = Arc::new(vec![Metadata::new_scalar(
-            "T",
-            crate::DB_TYPE_TIMESTAMP_TZ,
-            0,
-        )]);
-        let mut creator = RecordBatchCreator::new(&columns).unwrap();
-        // 2025-10-31 11:22:15.456 -06:30, read as UTC fields beside the
-        // offset.
-        let value = OracleTimestamp::new_timestamp_tz(
-            2025,
-            10,
-            31,
-            17,
-            52,
-            15,
-            456_000_000,
-            -6,
-            -30,
-        );
-        let row = DbRow::new(vec![Some(DbValue::Timestamp(value))]);
-        creator.add_row(&Row::new(&columns, row)).unwrap();
-        let batch = creator.create_batch().unwrap();
-        let fetched = batch.column(0).as_struct();
-        let instants =
-            fetched.column(0).as_primitive::<TimestampMicrosecondType>();
-        let offsets = fetched.column(1).as_primitive::<Int16Type>();
-        assert_eq!(instants.value(0), 1_761_933_135_456_000);
-        assert_eq!(offsets.value(0), -390);
+        let column = Metadata::new_scalar("N", crate::DB_TYPE_NUMBER, 0);
+        assert_eq!(default_type(&column, true).unwrap(), DataType::Utf8);
+        assert_eq!(default_type(&column, false).unwrap(), DataType::Float64);
     }
 }
