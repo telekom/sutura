@@ -61,6 +61,8 @@ const REQUIRED: &[(&str, &str)] = &[
     ("E2E_REQUIRED", "ci"),
     ("ORACLE_RESULT", "oracle-tier"),
     ("ORACLE_SELECTED", "ci"),
+    ("MN_RESULT", "multi-node"),
+    ("MN_SELECTED", "ci"),
     ("DH_RESULT", "ci-datahub-tier"),
     ("DH_SELECTED", "ci"),
     ("OM_RESULT", "ci-openmetadata-tier"),

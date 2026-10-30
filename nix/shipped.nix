@@ -899,6 +899,7 @@ in
     keyFor
     nativeBinaries
     localImages
+    nativeFor
     ociImages
     probeManifests
     releaseTargets

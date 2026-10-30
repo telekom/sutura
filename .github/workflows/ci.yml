@@ -2146,6 +2146,45 @@ jobs:
       - uses: $/.github/actions/nix-store-cache-report
         if: always()
 
+  # TWO `sutura serve` PROCESSES IN TWO NixOS VMs (`telekom/sutura#828`): one leg crosses from
+  # `query` to `source` over Flight and runs against ClickHouse signed in as the caller.
+  # `nix/multi-node.nix` says what that observes and what it does not. Category-gated on the node
+  # and ClickHouse adapters and identity; a change to the test itself, the HTTP or Flight surface or
+  # the app falls open to `core`, which runs every leg. Held run-or-fail by `ci-aggregate`. A VM test
+  # needs `/dev/kvm`, which the runner has and does not open to the job's user, so the first step
+  # opens it, and nix is told the feature exists.
+  multi-node:
+    needs: [ci]
+    if: needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    concurrency:
+      group: multi-node-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - name: Open KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Multi-node VM test
+        run: nix build .#checks.x86_64-linux.multi-node -L
+
   # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
   # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for
   # developing and testing an application and is NOT OSI-approved: this job runs Oracle under it on
@@ -2373,6 +2412,7 @@ jobs:
       bigquery-conformance,
       causality,
       postgres-linked-driver,
+      multi-node,
       cross,
     ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
@@ -2389,6 +2429,8 @@ jobs:
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
           ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
+          MN_RESULT: ${{ needs.multi-node.result }}
+          MN_SELECTED: ${{ needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true' }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}
           DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
           OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}
@@ -2482,6 +2524,17 @@ jobs:
             case "$ORACLE_RESULT" in
               skipped|success) ;;
               *) fail "oracle-tier reported '$ORACLE_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The multi-node VM test reads no secret either: oracle-tier's rule, over its own three categories.
+          if [ "$MN_SELECTED" = "true" ]; then
+            if [ "$MN_RESULT" != "success" ]; then
+              fail "multi-node must run (data_source_node, data_source_clickhouse or identity selected) but reported '$MN_RESULT'"
+            fi
+          else
+            case "$MN_RESULT" in
+              skipped|success) ;;
+              *) fail "multi-node reported '$MN_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           # The DataHub docker tier reads no secret, so it carries no event exception: every

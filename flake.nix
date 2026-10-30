@@ -838,6 +838,27 @@
           postgres-linked-driver = shipped.linkedDriversTests."adbc-postgres-tier-x86_64-unknown-linux-musl-test"
             or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
+          # Two `sutura serve` processes in two NixOS VMs, one leg crossing between them over Flight
+          # (`telekom/sutura#828`) - `nix/multi-node.nix` says what it observes and what it does not.
+          # A VM test needs a linux builder with KVM, so on any other system this is a stub that says
+          # so and proves nothing.
+          multi-node =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "clickhouse" "node" "flight" "tls" ];
+                };
+                clickhouse = clickhouseTier.package;
+                clickhouseDriver = clickhouseAdbcHostDriver;
+                example = ./examples/single-player;
+                golden = builtins.path { path = ./crates/sutura-app/tests/snapshots + "/recurring-revenue-by-region__rows@postgres.snap"; name = "recurring-revenue-by-region.snap"; };
+              }
+            else
+              pkgs.runCommand "multi-node-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # The vendored `oracledb`'s own unit tests for the modules this repository patched, which
           # the workspace's `nextest` never compiles. `nix/vendored-oracledb.nix` says what it runs,
           # and it goes away with the vendored copy.
