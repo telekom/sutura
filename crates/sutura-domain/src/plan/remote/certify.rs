@@ -627,7 +627,8 @@ fn certify_fact(wire: FactWire, pinned: &PinnedDefinitions, params: Vec<ParamVal
     declared_filters(wire.filters.get(2..).unwrap_or_default(), &params, (&surface, joins), held)?;
     Ok(LegPlan::Fact {
         source: wire.source,
-        metric: name.clone(),
+        // Agreed with this node's own digest above, so the pair is this node's own.
+        metric: wire.metric,
         tables: statement.tables,
         bucket: PlanBucket::new(ResultLabel::bucket(), grain, column),
         keys,
@@ -655,7 +656,7 @@ fn certify_lookup(wire: LookupWire, pinned: &PinnedDefinitions, params: Vec<Para
     declared_filters(&wire.filters, &params, (&surface, joins), |_| false)?;
     Ok(LegPlan::Lookup {
         source: wire.source,
-        metric: declared.name().clone(),
+        metric: wire.metric,
         table: statement.tables,
         keys,
         bindings: PlanBindings::parse(wire.filters, params)?,

@@ -30,14 +30,9 @@
 //! inherits unchanged: neither variant carries a [`sutura_domain::pinned::Provenance`], so a remote
 //! leg's answer cannot be mistaken for this node's own certified one at the type level.
 //!
-//! # Not built here, named rather than silently absent
-//!
-//! **`kind: node` does not exist yet.** Decision 9 - refusing a source that is itself another
-//! node, rather than a data system - needs a `SourceKind` this node's registry does not carry in
-//! this slice; it is `telekom/sutura#137` step 3's slice 4. Nothing here special-cases a node
-//! source, so one is refused the same way an uncertified source is, under the same closed code -
-//! which is not Decision 9's own refusal, and is recorded here as the open point rather than
-//! implied to be covered.
+//! **Decision 9 refuses a source that is itself another node** ([`Warehouse::relays_to_a_node`]),
+//! under the same closed code, so a leg crosses one hop at most. Its limit is the method's own: it
+//! is defaulted to `false`, so it holds only for an adapter that declares it.
 
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, Expiry, RequestContext, SourceSet};
 use sutura_domain::pinned::PinnedDefinitions;
@@ -137,9 +132,12 @@ where
     let Some(warehouse) = warehouses.get(&source) else {
         return Ok(RanRemoteLeg::declined_before_minting(not_certified(source)));
     };
-    // Decision 7, read off the adapter's own posture variant and its own declared capability -
-    // never a value a sender could have shaped to look like a match.
-    if !(matches!(warehouse.posture(), SourcePosture::ImpersonationAtSource) && warehouse.executes_legs()) {
+    // Decisions 7 and 9, read off the adapter's own posture variant and its own declarations -
+    // never a value a sender could have shaped to look like a match. A source that is itself
+    // another node is refused, so a leg crosses one hop at most.
+    if warehouse.relays_to_a_node()
+        || !(matches!(warehouse.posture(), SourcePosture::ImpersonationAtSource) && warehouse.executes_legs())
+    {
         return Ok(RanRemoteLeg::declined_before_minting(not_certified(source)));
     }
     let plan = match leg.parse(pinned, params) {

@@ -114,6 +114,7 @@ mod oracle;
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "node",
     feature = "oracle",
     feature = "postgres",
     feature = "rdbms"
@@ -135,6 +136,7 @@ mod postgres;
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "node",
     feature = "openmetadata",
     feature = "oracle"
 ))]

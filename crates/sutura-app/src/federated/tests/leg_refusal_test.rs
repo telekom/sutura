@@ -219,7 +219,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
         .collect();
     let fact = LegPlan::Fact {
         source: fact_source,
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         tables: StatementTables::only(table.clone()),
         bucket: bucket("month"),
         keys: vec![key("product_family"), link()],
@@ -229,7 +229,7 @@ fn federated_plan_inner_join() -> sutura_domain::plan::FederatedPlan {
     };
     let lookup = LegPlan::Lookup {
         source: lookup_source,
-        metric: metric(),
+        metric: crate::tests::planned_metric(),
         table: table.clone().into(),
         keys: vec![link(), key("region")],
         bindings: PlanBindings::none(),
@@ -404,6 +404,80 @@ fn a_federated_address_outside_the_delegated_domains_is_its_own_refusal() {
             ToolOutcome::Refusal {
                 reason: RefusalReason::AddressOutsideDomains { .. }
             }
+        ),
+        "{outcome:?}"
+    );
+}
+
+/// A leg-running fake whose every leg another node declines as not certified.
+struct UncertifyingLegsWarehouse(SourceName, sutura_domain::source::SourcePosture);
+
+impl sutura_domain::warehouse::Warehouse for UncertifyingLegsWarehouse {
+    type Error = crate::tests_support::AdapterFailure;
+
+    const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
+        sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.0
+    }
+
+    fn posture(&self) -> &sutura_domain::source::SourcePosture {
+        &self.1
+    }
+
+    fn execute(
+        &self,
+        _executable: sutura_domain::plan::Executable<'_>,
+        _presented: &sutura_domain::identity::Presented,
+        _deadline: sutura_domain::warehouse::deadline::Deadline,
+    ) -> Result<sutura_domain::warehouse::ResultBatches, Self::Error> {
+        Err(crate::tests_support::AdapterFailure::RefusedBySource)
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(crate::tests_support::AdapterFailure::RefusedBySource)
+    }
+
+    fn leg_not_certified(&self, error: &Self::Error) -> bool {
+        matches!(error, crate::tests_support::AdapterFailure::RefusedBySource)
+    }
+}
+
+#[test]
+fn a_leg_another_node_does_not_certify_is_refused_naming_this_nodes_source() {
+    // Decision 3 on the sending side: the receiving node's closed code reaches the caller as the
+    // same refusal, naming the source here, never as the `503` an outage produces.
+    let warehouses = Warehouses::of(UncertifyingLegsWarehouse(
+        SourceName::parse("facts").expect("a test source"),
+        shared(),
+    ))
+    .and(UncertifyingLegsWarehouse(
+        SourceName::parse("geo").expect("a test source"),
+        shared(),
+    ))
+    .expect("two sources, one registry");
+    let outcome = answer_federated(
+        (&bundle(), sutura_domain::warehouse::schema::PinnedSchemas::default().digest()),
+        &federated_plan(),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds"),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::Ceilings::DEFAULT,
+    )
+    .expect("a refusal, not an error")
+    .into_outcome();
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::RemoteLegNotCertified { ref source }
+            } if source.as_str() == "facts"
         ),
         "{outcome:?}"
     );

@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Anchor, Audience, Description, Dimension, InconsistentDefinitions, Metric, SharedCalendars};
+use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::expression::Computation;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{ColumnName, DimensionName, Grain, IdentifierCase, MetricName, ModelName};
+use crate::pinned::MetricDigest;
 
 impl Metric {
     /// A certified metric, or a refusal if two of its dimensions answer to one label.
@@ -114,6 +116,16 @@ impl Metric {
     #[inline]
     pub const fn name(&self) -> &MetricName {
         &self.name
+    }
+
+    /// This definition's digest beside its name - what a leg planned from it carries, so the leg
+    /// names the definition it was planned under rather than one read later off a pin.
+    ///
+    /// # Errors
+    ///
+    /// The definition could not be serialized into its canonical form.
+    pub fn digest(&self) -> Result<MetricDigest, NotDigestible> {
+        DefinitionDigest::of_one(self).map(|digest| MetricDigest::new(self.name.clone(), digest))
     }
 
     /// Who may see this metric - `docs/adr/0028`.

@@ -64,6 +64,14 @@ pub struct MetricDigest {
 }
 
 impl MetricDigest {
+    /// A pair stated rather than computed - [`Metric::digest`] computes one. Deserializing gives the same power, so this grants none:
+    /// a receiver compares the pair with its own pin and never trusts it.
+    #[inline]
+    #[must_use]
+    pub const fn new(metric: MetricName, digest: DefinitionDigest) -> Self {
+        Self { metric, digest }
+    }
+
     /// The metric this entry certifies.
     #[inline]
     pub const fn metric(&self) -> &MetricName {
@@ -75,6 +83,12 @@ impl MetricDigest {
     pub const fn digest(&self) -> &DefinitionDigest {
         &self.digest
     }
+}
+
+/// `metric` with a stated digest, for a hand-built leg no node certifies.
+#[cfg(test)]
+pub(crate) fn stated_digest(metric: MetricName) -> MetricDigest {
+    MetricDigest::new(metric, DefinitionDigest::parse("a".repeat(64)).expect("a digest"))
 }
 
 /// What defined an answer, and what each of its legs executed as - travelling with it.

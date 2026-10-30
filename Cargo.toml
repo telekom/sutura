@@ -65,6 +65,8 @@ members = [
   "crates/sutura-oracle-connect",
   # A Warehouse over a Cube metrics serving layer's REST API: Cube computes each metric.
   "crates/sutura-exec-cube",
+  # A Warehouse whose legs another sutura node runs, over one Arrow Flight `DoExchange` per leg.
+  "crates/sutura-exec-node",
   "crates/sutura-adbc",
   # The PostgreSQL ADBC connector, held off `sutura-sql` so a catalog reader can share it.
   "crates/sutura-adbc-postgres",
@@ -97,7 +99,7 @@ members = [
   "crates/sutura-runtime",
   "crates/sutura-http",
   # The Arrow Flight `DoExchange` framing for a typed remote leg. It is a transport adapter over
-  # the domain wire shape; the listener and Warehouse client are composed in later slices.
+  # the domain wire shape; `sutura-exec-node` sends through its outbound half.
   "crates/sutura-flight",
   # The agent-facing surface, and a SECOND transport rather than a layer on the first: it depends on
   # `sutura-app`'s driving port and on nothing in `sutura-http`, because an adapter that reached into
@@ -162,6 +164,7 @@ sutura-exec-oracle = { path = "crates/sutura-exec-oracle" }
 sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 # `sutura-app` inherits it as a development dependency, for the golden matrix.
 sutura-exec-cube = { path = "crates/sutura-exec-cube" }
+sutura-exec-node = { path = "crates/sutura-exec-node" }
 sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
 sutura-oracle-connect = { path = "crates/sutura-oracle-connect" }
@@ -175,10 +178,7 @@ sutura-http = { path = "crates/sutura-http" }
 # earlier absence of this entry deferred, and the absent-crate comment below it records the previous
 # state rather than deleting it. `cargo xtask unused-deps` keeps this line honest in either direction.
 sutura-mcp = { path = "crates/sutura-mcp" }
-# Node B's Flight server, an OPTIONAL edge from `sutura-http` and `sutura-cli` behind each crate's
-# own default-off `flight` feature: unlike `sutura-mcp` above, nothing here links it unconditionally,
-# because this is the edge the feature exists to keep out of the default closure. `cargo xtask
-# unused-deps` keeps the line honest in either direction.
+# The leg framing `sutura-exec-node` sends through, and node B's server behind a default-off `flight`.
 sutura-flight = { path = "crates/sutura-flight" }
 # Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
 # because a test harness has to be able to learn where a provisioned service is listening and
@@ -226,8 +226,8 @@ bzip2 = "0.6"
 arrow-array = "59"
 arrow-schema = "59"
 arrow-flight = { version = "59", default-features = false }
-# `sutura-flight`'s `FlightService` server. Not a new crate: `arrow-flight` already builds it with
-# these features, so the graph keeps one `tonic`.
+# `sutura-flight`'s server and `sutura-exec-node`'s client, no TLS feature (the client brings its
+# own rustls). `arrow-flight` already builds it with these features: the graph keeps one `tonic`.
 tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
@@ -470,6 +470,8 @@ axum = { version = "0.8", default-features = false, features = [
 # (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
 # `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
 http = "1.5"
+# `TokioIo`, handing that connector's stream to the gRPC client.
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 # The middleware abstraction every layer below is written against.
 tower = "0.5"
 # `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.

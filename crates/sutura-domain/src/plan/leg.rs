@@ -39,7 +39,8 @@
 //! `LIMIT` for a leg.
 
 use crate::calendar::TimeRange;
-use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
+use crate::model::{QualifiedTable, SourceName, TableName};
+use crate::pinned::MetricDigest;
 use crate::plan::{PlanBindings, PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
 use crate::warehouse::ParamValue;
 
@@ -148,10 +149,11 @@ impl LegTerm {
 ///
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
-/// fn _dated(source: SourceName, metric: MetricName, table: QualifiedTable, range: TimeRange) -> LegPlan {
+/// fn _dated(source: SourceName, metric: MetricDigest, table: QualifiedTable, range: TimeRange) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         metric,
@@ -164,10 +166,11 @@ impl LegTerm {
 /// ```
 ///
 /// ```
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{LegPlan, PlanBindings, StatementTables};
 ///
-/// fn _undated(source: SourceName, metric: MetricName, table: QualifiedTable) -> LegPlan {
+/// fn _undated(source: SourceName, metric: MetricDigest, table: QualifiedTable) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         metric,
@@ -185,13 +188,14 @@ impl LegTerm {
 /// `compile_fail,E0451` doctest on `PlanBindings` itself is what holds that second boundary.
 ///
 /// ```compile_fail,E0559
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{LegPlan, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
 /// fn _loose(
 ///     source: SourceName,
-///     metric: MetricName,
+///     metric: MetricDigest,
 ///     table: QualifiedTable,
 ///     filters: Vec<PlanFilter>,
 ///     params: Vec<ParamValue>,
@@ -208,13 +212,14 @@ impl LegTerm {
 /// ```
 ///
 /// ```
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{IncoherentBindings, LegPlan, PlanBindings, PlanFilter, StatementTables};
 /// use sutura_domain::warehouse::ParamValue;
 ///
 /// fn _parsed(
 ///     source: SourceName,
-///     metric: MetricName,
+///     metric: MetricDigest,
 ///     table: QualifiedTable,
 ///     filters: Vec<PlanFilter>,
 ///     params: Vec<ParamValue>,
@@ -234,12 +239,13 @@ impl LegTerm {
 ///
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin};
 ///
 /// fn _unchecked(
 ///     source: SourceName,
-///     metric: MetricName,
+///     metric: MetricDigest,
 ///     table: QualifiedTable,
 ///     joins: Vec<PlanJoin>,
 ///     bucket: PlanBucket,
@@ -261,12 +267,13 @@ impl LegTerm {
 ///
 /// ```
 /// use sutura_domain::calendar::TimeRange;
-/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
+/// use sutura_domain::pinned::MetricDigest;
 /// use sutura_domain::plan::{LegPlan, PlanBindings, PlanBucket, PlanJoin, StatementTables};
 ///
 /// fn _checked(
 ///     source: SourceName,
-///     metric: MetricName,
+///     metric: MetricDigest,
 ///     table: QualifiedTable,
 ///     joins: Vec<PlanJoin>,
 ///     bucket: PlanBucket,
@@ -319,7 +326,8 @@ pub enum LegPlan {
     /// [`Lookup`](LegPlan::Lookup) leg, not a join.
     Fact {
         source: SourceName,
-        metric: MetricName,
+        /// The metric and the digest of the definition this leg was planned under.
+        metric: MetricDigest,
         #[serde(flatten)]
         tables: StatementTables,
         bucket: PlanBucket,
@@ -356,7 +364,8 @@ pub enum LegPlan {
     /// splitter and is deliberately not a field here.
     Lookup {
         source: SourceName,
-        metric: MetricName,
+        /// The metric whose dimension this reads, with the digest it was planned under.
+        metric: MetricDigest,
         #[serde(flatten)]
         table: StatementTables,
         keys: Vec<PlanKey>,
@@ -376,6 +385,15 @@ impl LegPlan {
     pub const fn source(&self) -> &SourceName {
         match *self {
             Self::Fact { ref source, .. } | Self::Lookup { ref source, .. } => source,
+        }
+    }
+
+    /// The metric this leg measures or reads a dimension of, with the digest of the definition it
+    /// was planned under - what a node sending the leg writes on the wire.
+    #[inline]
+    pub const fn metric(&self) -> &MetricDigest {
+        match *self {
+            Self::Fact { ref metric, .. } | Self::Lookup { ref metric, .. } => metric,
         }
     }
 

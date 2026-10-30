@@ -333,7 +333,10 @@ mod tests {
     fn fact_leg(name: &str, keys: Vec<PlanKey>, federation: &Federation) -> LegPlan {
         LegPlan::Fact {
             source: SourceName::parse("facts").expect("a test source"),
-            metric: metric(name),
+            metric: sutura_domain::pinned::MetricDigest::new(
+                metric(name),
+                sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+            ),
             tables: StatementTables::only(table(FACT)),
             bucket: bucket(),
             keys,
@@ -372,7 +375,10 @@ mod tests {
         let federation = federation();
         let lookup = LegPlan::Lookup {
             source: SourceName::parse("geo").expect("a test source"),
-            metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            metric: sutura_domain::pinned::MetricDigest::new(
+                sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+                sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+            ),
             table: table(FACT).into(),
             keys: vec![link_key(), region_key()],
             bindings: PlanBindings::none(),

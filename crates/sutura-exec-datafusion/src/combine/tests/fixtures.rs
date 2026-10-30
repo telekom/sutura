@@ -141,7 +141,10 @@ fn fact_leg(federation: &Federation) -> LegPlan {
     keys.extend(pulled_keys(federation));
     LegPlan::Fact {
         source: source("facts"),
-        metric: metric("revenue"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("revenue"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys,
@@ -154,7 +157,10 @@ fn fact_leg(federation: &Federation) -> LegPlan {
 fn lookup_leg() -> LegPlan {
     LegPlan::Lookup {
         source: source("geo"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: table(FACT).into(),
         keys: vec![link_key(), key("region")],
         bindings: PlanBindings::none(),
@@ -199,7 +205,10 @@ pub(super) fn fan_in_plan() -> FederatedPlan {
     let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
     let fact = LegPlan::Fact {
         source: source("facts"),
-        metric: metric("revenue"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("revenue"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![linked(0, "customer_key"), linked(2, "customer_key")],
@@ -209,7 +218,10 @@ pub(super) fn fan_in_plan() -> FederatedPlan {
     };
     let lookup = |on: &str, keys: Vec<PlanKey>| LegPlan::Lookup {
         source: source(on),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),
@@ -269,7 +281,10 @@ fn compound_parts() -> Vec<PlanKey> {
 fn compound_fact(source_name: &str, table_name: &str, terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(source_name),
-        metric: metric("revenue"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("revenue"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(table_name)),
         bucket: bucket(),
         keys: compound_parts(),
@@ -285,7 +300,10 @@ fn compound_lookup() -> LegPlan {
     keys.push(key("region"));
     LegPlan::Lookup {
         source: source("geo"),
-        metric: sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            sutura_domain::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         table: table(FACT).into(),
         keys,
         bindings: PlanBindings::none(),
@@ -419,7 +437,10 @@ pub(super) fn two_fact_plan() -> FederatedPlan {
     let federation = Federation::of(&measure);
     let fact_leg = |second: bool| LegPlan::Fact {
         source: source(if second { "visits" } else { "facts" }),
-        metric: metric("revenue"),
+        metric: sutura_domain::pinned::MetricDigest::new(
+            metric("revenue"),
+            sutura_domain::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![link_key()],

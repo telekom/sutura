@@ -20,6 +20,7 @@
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "node",
     feature = "openmetadata",
     feature = "oracle"
 ))]

@@ -94,7 +94,7 @@ fn a_plan_whose_legs_do_not_project_the_link_does_not_construct() {
     // a missing column when a leg had not projected it. A plan that cannot be joined is not a plan.
     let unlinked = LegPlan::Lookup {
         source: source(REMOTE_SOURCE),
-        metric: crate::model::MetricName::parse("revenue").expect("a test metric is a metric"),
+        metric: crate::pinned::stated_digest(crate::model::MetricName::parse("revenue").expect("a test metric is a metric")),
         table: table(FACT).into(),
         keys: vec![key("region", FACT)],
         bindings: PlanBindings::none(),
@@ -128,7 +128,7 @@ fn a_fact_leg_that_does_not_project_the_link_does_not_construct_either() {
     // `sutura_semantic::CompileFailure::NotAssembled`, keeping the side and label this reads.
     let unlinked = LegPlan::Fact {
         source: source(FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![key("product_family", FACT)],
@@ -405,7 +405,7 @@ fn a_second_fact_that_does_not_project_the_link_does_not_construct() {
     let federation = Federation::of(&Measure::Simple(term(Aggregate::Sum, "mrr_cents")));
     let unlinked = LegPlan::Fact {
         source: source(SECOND_FACT_SOURCE),
-        metric: metric("revenue"),
+        metric: crate::pinned::stated_digest(metric("revenue")),
         tables: StatementTables::only(table("dim_orders")),
         bucket: bucket(),
         keys: vec![key("product_family", "dim_orders")],
