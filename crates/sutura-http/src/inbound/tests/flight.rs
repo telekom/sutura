@@ -116,7 +116,8 @@ fn a_lookup_leg() -> LegWire {
 /// A refusal from the service is a trailers-only response and fails the call itself; one from leg 1
 /// is a plain HTTP status, which the client reports on the first read of the response stream.
 async fn refused(router: axum::Router, bearer: Option<&str>) -> tonic::Status {
-    let rows = RowSet::new(vec![String::from("key")], vec![vec![Value::Integer(1)]]).expect("a one-column row set");
+    let rows =
+        RowSet::new(vec![String::from("key")], vec![vec![Value::Text(String::from("berlin"))]]).expect("a one-column row set");
     let batches = canned(&rows).into_batches().into_iter().map(Ok::<_, FlightError>);
     let request = sutura_flight::request_stream(&a_lookup_leg(), futures_util::stream::iter(batches)).expect("an encodable leg");
     let mut client = FlightClient::new(router);
