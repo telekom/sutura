@@ -1098,6 +1098,18 @@ at HEAD keeps its manifest (removing it would take the package a measured test c
 the workspace), and reverting every changed manifest also reverts any other dependency the branch
 added - which is `the base tree does not build`, loud, and still not a pass.
 
+**#936'S OWN "KEEPS ITS MANIFEST" CASE HAD A SECOND GAP - #1629.** A crate kept because some file of
+it is held still needs its conventional entry (`src/lib.rs`) to be a resolvable target, and a branch
+whose held file is a SUBMODULE (`src/call.rs`, declared via `mod call;`) rather than the entry itself
+reverts the entry like any other impl-only file - new here, so there is nothing at base to check out,
+and deleting it orphans the held submodule's `mod` line: the manifest stays, the entry does not, same
+`no targets specified in the manifest` refusal one level in. `membership::stub_entries` answers it by
+writing that entry as a synthetic empty file rather than checking it out or deleting it - the manifest
+resolves, the held module still compiles into it, and the held file's own test (now with no base build
+to have run in) correctly produces no base result, which the existing no-base-exemption refusal
+already covers. **The limit:** only `src/lib.rs` is considered; a crate whose entry is `src/main.rs`
+and nothing else, kept this way, is not yet covered.
+
 **A SECOND CAUSE WEARS THAT SAME VERDICT, and this file recorded only the first one - #332.** *A
 commit that changes a public signature a kept-at-HEAD test file calls.* The gate holds test files at
 HEAD and reverts implementation files to base, so if the change altered an item's ARITY or TYPE the

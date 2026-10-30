@@ -116,10 +116,12 @@ fn only_a_tree_that_did_not_compile_is_asked_twice() {
     let held = BaseState {
         restore: vec![&one],
         remove: Vec::new(),
+        stub: &[],
     };
     let nothing_held = BaseState {
         restore: Vec::new(),
         remove: Vec::new(),
+        stub: &[],
     };
     // The case the second attempt exists for.
     assert!(retry_with_held_back(&BaseOutcome::DidNotCompile, &held));
