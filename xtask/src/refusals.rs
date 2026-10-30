@@ -681,7 +681,8 @@ mod tests {
                 "NotFitToServe",
                 "NotValidated",
                 "RawRefusalReason",
-                "TlsNotUsable"
+                "TlsNotUsable",
+                "InvalidDelegation"
             ]
         );
     }
@@ -733,7 +734,8 @@ mod tests {
                 "NotFitToServe",
                 "NotValidated",
                 "RawRefusalReason",
-                "TlsNotUsable"
+                "TlsNotUsable",
+                "InvalidDelegation"
             ]
         );
     }
