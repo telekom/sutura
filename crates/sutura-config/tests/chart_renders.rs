@@ -312,10 +312,12 @@ mod tests {
         Accepts(&'static str),
         /// The chart fails deriving a value from a limit, so no configuration reaches the binary.
         Derivation,
+        /// The chart refuses an object the binary never reads, so no configuration reaches it: what.
+        NeverReads(&'static str),
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 33] = [
+    const REFUSALS: [(&str, Binary); 35] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -342,6 +344,11 @@ mod tests {
                 )
             }),
         ),
+        (
+            "autoscaling-cpu-without-request",
+            Binary::NeverReads("the autoscaler, which measures CPU as a share of a request"),
+        ),
+        ("autoscaling-no-target", Binary::NeverReads("the autoscaler's target")),
         (
             "behind-gateway-authorization-in-base-with-access-token",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeploymentTokenSharesTheHeader)),
@@ -526,6 +533,14 @@ mod tests {
                 }
                 continue;
             }
+            if let Binary::NeverReads(what) = binary {
+                if render.is_file() {
+                    wrong.push(format!(
+                        "{name}: declared as refusing {what}, and testdata/golden/unguarded/{name}.yaml renders"
+                    ));
+                }
+                continue;
+            }
             if !render.is_file() {
                 wrong.push(format!("{name}: no testdata/golden/unguarded/{name}.yaml"));
                 continue;
@@ -558,7 +573,7 @@ mod tests {
                         serve_refusals(&settings)
                     ));
                 }
-                (Binary::Accepts(_) | Binary::Derivation | Binary::Fails(_), Ok(_)) => {}
+                (Binary::Accepts(_) | Binary::Derivation | Binary::NeverReads(_) | Binary::Fails(_), Ok(_)) => {}
             }
         }
         assert!(
