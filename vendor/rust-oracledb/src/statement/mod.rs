@@ -362,6 +362,11 @@ impl CachedStatement {
         &self.out_metadata
     }
 
+    /// Returns mutable metadata for out variables.
+    pub(crate) fn out_metadata_mut(&mut self) -> &mut [Metadata] {
+        &mut self.out_metadata
+    }
+
     /// Populates statement metadata from the describe info returned by the
     /// database.
     pub(crate) fn populate_from_describe_info(

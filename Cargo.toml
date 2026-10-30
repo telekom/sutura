@@ -165,6 +165,8 @@ sutura-exec-clickhouse = { path = "crates/sutura-exec-clickhouse" }
 # `sutura-app` inherits it as a development dependency, for the golden matrix.
 sutura-exec-cube = { path = "crates/sutura-exec-cube" }
 sutura-exec-node = { path = "crates/sutura-exec-node" }
+# The leg framing `sutura-exec-node` sends through, and the server behind `flight` features.
+sutura-flight = { path = "crates/sutura-flight" }
 sutura-adbc = { path = "crates/sutura-adbc" }
 sutura-adbc-postgres = { path = "crates/sutura-adbc-postgres" }
 sutura-oracle-connect = { path = "crates/sutura-oracle-connect" }
@@ -178,8 +180,6 @@ sutura-http = { path = "crates/sutura-http" }
 # earlier absence of this entry deferred, and the absent-crate comment below it records the previous
 # state rather than deleting it. `cargo xtask unused-deps` keeps this line honest in either direction.
 sutura-mcp = { path = "crates/sutura-mcp" }
-# The leg framing `sutura-exec-node` sends through, and node B's server behind a default-off `flight`.
-sutura-flight = { path = "crates/sutura-flight" }
 # Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
 # because a test harness has to be able to learn where a provisioned service is listening and
 # `xtask` has to name the same compose project the harness sees.

@@ -47,13 +47,6 @@ pub(crate) struct StatementCache {
 }
 
 impl StatementCache {
-    /// Close any cursor associated with the statement.
-    fn close_cursor(&mut self, info: &CachedStatement) {
-        if info.has_cursor() && !info.is_nested() {
-            self.cursors_to_close.push(info.cursor_id());
-        }
-    }
-
     /// Returns a slot that is available in the cache. This method should only
     /// be called if there is space available in the cache. Preference is given
     /// to empty slots, but if there are no empty slots, a free used slot is
@@ -124,6 +117,13 @@ impl StatementCache {
             self.slots_by_name.insert(sql.to_string(), slot_num);
         }
         Ok(statement)
+    }
+
+    /// Close any cursor associated with the statement.
+    pub(crate) fn close_cursor(&mut self, info: &CachedStatement) {
+        if info.has_cursor() && !info.is_nested() {
+            self.cursors_to_close.push(info.cursor_id());
+        }
     }
 
     /// Returns whether the cache is able to accept more entries.

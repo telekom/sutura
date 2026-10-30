@@ -39,6 +39,9 @@ use crate::read_buffer::FromBuf;
 use crate::write_buffer::ToBuf;
 use crate::write_buffer::WriteBuffer;
 
+#[cfg(feature = "arrow")]
+use arrow_array::types::DecimalType;
+
 /// Represents the value of NUMBER columns in the database.
 #[derive(Clone, Copy)]
 pub struct OracleNumber {
@@ -57,22 +60,29 @@ impl OracleNumber {
         precision: u8,
         scale: i8,
     ) -> Result<i128, Error> {
+        // zero can be represented at any scale
+        if self.num_digits == 0 && self.decimal_point_index == 0 {
+            return Ok(0);
+        }
+
         // the precision of the number cannot exceed the requested precision
         if self.num_digits > precision {
-            return Err(Error::out_of_range(format!(
-                "NUMBER has precision {} but requested precision is {}",
-                self.num_digits, precision
-            )));
+            return Err(Error::cannot_convert_to_arrow_decimal128(
+                self.to_string(),
+                precision,
+                scale,
+            ));
         }
 
         // the scale of the number cannot exceed the requested scale
         let num_scale = i16::from(self.num_digits) - self.decimal_point_index;
         let num_zeros_to_add = i16::from(scale) - num_scale;
         if num_zeros_to_add < 0 {
-            return Err(Error::out_of_range(format!(
-                "NUMBER has scale {} but requested scale is {}",
-                num_scale, scale
-            )));
+            return Err(Error::cannot_convert_to_arrow_decimal128(
+                self.to_string(),
+                precision,
+                scale,
+            ));
         }
 
         // add each of the digits to the result
@@ -84,14 +94,24 @@ impl OracleNumber {
 
         // add any trailing zeros that are required
         if num_zeros_to_add > 0 {
-            result *= 10_i128.pow(num_zeros_to_add.try_into().unwrap());
+            result = 10_i128
+                .checked_pow(num_zeros_to_add.try_into().unwrap())
+                .and_then(|factor| result.checked_mul(factor))
+                .ok_or_else(|| {
+                    Error::cannot_convert_to_arrow_decimal128(
+                        self.to_string(),
+                        precision,
+                        scale,
+                    )
+                })?;
         }
 
-        if self.is_positive {
-            Ok(result)
-        } else {
-            Ok(-result)
-        }
+        // validate precision and scale
+        arrow_array::types::Decimal128Type::validate_decimal_precision(
+            result, precision, scale,
+        )?;
+
+        if self.is_positive { Ok(result) } else { Ok(-result) }
     }
 }
 
@@ -185,11 +205,8 @@ impl FromBuf for OracleNumber {
         for i in 0..num_mantissa_digits {
             // positive numbers have 1 added to them whereas negative numbers
             // are subtracted from the value 101
-            let mantissa_byte = if is_positive {
-                buf[i + 1] - 1
-            } else {
-                101 - buf[i + 1]
-            };
+            let mantissa_byte =
+                if is_positive { buf[i + 1] - 1 } else { 101 - buf[i + 1] };
 
             // process the first digit; leading zeroes are ignored
             let mut digit = mantissa_byte / 10;
@@ -245,10 +262,11 @@ impl FromStr for OracleNumber {
             if ch == '.' && !decimal_point_detected {
                 decimal_point_detected = true;
                 if num_digits > 0 {
-                    num_digits += num_zeros;
-                    decimal_point_index = num_digits.try_into().unwrap();
+                    decimal_point_index =
+                        (num_digits + num_zeros).try_into().unwrap();
+                } else {
+                    num_zeros = 0;
                 }
-                num_zeros = 0;
             } else if let Some(digit) = ch.to_digit(10) {
                 if digit == 0 {
                     num_zeros += 1;

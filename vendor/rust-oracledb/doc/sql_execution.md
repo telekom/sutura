@@ -188,6 +188,15 @@ This prints:
 column: TITLE VARCHAR2(100)
 ```
 
+[Metadata::data_type()](crate::Metadata::data_type()) returns a string
+representation of the database type while
+[Metadata::db_type()](crate::Metadata::db_type())
+returns the rust-oracledb database type constant. For example, for a
+`VARCHAR2(100)` column, [Metadata::data_type()](crate::Metadata::data_type())
+returns `VARCHAR2(100)`, while
+[Metadata::db_type()](crate::Metadata::db_type()) returns
+[DB_TYPE_VARCHAR](crate::DB_TYPE_VARCHAR).
+
 ### <a name="defaultfetchtypes"></a> 3.1.4 Fetch Data Types
 
 The following table lists Oracle Database types that rust-oracledb can fetch,

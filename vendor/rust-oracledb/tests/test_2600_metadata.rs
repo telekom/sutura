@@ -163,7 +163,7 @@ fn test_2602(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
 
     let columns = cursor.columns();
     assert_column(&columns[0], "CURSOR_COL", oracledb::DB_TYPE_CURSOR);
-    assert_column(&columns[1], "XML_COL", oracledb::DB_TYPE_OBJECT);
+    assert_column(&columns[1], "XML_COL", oracledb::DB_TYPE_XMLTYPE);
     Ok(())
 }
 
@@ -254,9 +254,8 @@ fn test_2608(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
         &[],
     )?;
     let cursor: oracledb::Cursor = row.take(0)?;
-    let values: Vec<i32> = cursor
-        .map(|row| row?.get(0))
-        .collect::<Result<Vec<_>, _>>()?;
+    let values: Vec<i32> =
+        cursor.map(|row| row?.get(0)).collect::<Result<Vec<_>, _>>()?;
     assert_eq!(values, vec![1, 2, 3]);
     Ok(())
 }
@@ -296,4 +295,37 @@ fn test_2609() {
     ] {
         assert!(db_type.is_string_type(), "{}", db_type.name());
     }
+}
+
+#[rstest]
+/// Tests annotations of table columns.
+fn test_2610(conn: oracledb::Connection) -> Result<(), oracledb::Error> {
+    if common::skip_unless_domains_supported(&conn) {
+        return Ok(());
+    }
+    let _guard = common::create_table(
+        &conn,
+        "test_2610",
+        r#"
+        annotated_col number annotations (Display 'x', Hidden),
+        not_annotated_col number,
+        domain_col positive_number_d
+        "#,
+    )?;
+    let cursor = conn.query(
+        "select annotated_col, not_annotated_col, domain_col from test_2610",
+        &[],
+    )?;
+    let columns = cursor.columns();
+    assert_eq!(
+        columns[0].annotations(),
+        [
+            ("DISPLAY".to_string(), "x".to_string()),
+            ("HIDDEN".to_string(), String::new())
+        ]
+    );
+    assert!(columns[1].annotations().is_empty());
+    assert!(columns[0].domain().is_none());
+    assert_eq!(columns[2].domain(), Some(("SYS", "POSITIVE_NUMBER_D")));
+    Ok(())
 }

@@ -26,36 +26,45 @@ limitations under the License.
 Set the following environment variables to provide credentials for the test
 suite.
 
-* `RSO_TEST_MAIN_USER` provides the username of the schema user which you used
-  for testing.
+* `RSO_TEST_MAIN_USER` provides the name of the user which will be used for
+  running the test suite.
 
-* `RSO_TEST_MAIN_PASSWORD` provides the password of the schema user which you
-  used for testing.
+* `RSO_TEST_MAIN_PASSWORD` provides the password of the user which will be used
+  for running the test suite.
 
 * `RSO_TEST_CONNECT_STRING` provides the connection string that points to your
   database's location.
 
-* `RSO_TEST_ADMIN_USER` provides the username of the DBA user which you used
-  for testing`.
+* `RSO_TEST_ADMIN_USER` provides the name of the DBA user which will be used
+  for running the test suite.
 
-* `RSO_TEST_ADMIN_PASSWORD` provides the password of the DBA user which you
-  used for testing.
+* `RSO_TEST_ADMIN_PASSWORD` provides the password of the DBA user will be used
+  for running the test suite.
 
-Note: the test suite requires the schema to have these privileges: CREATE
-TABLE, CREATE SESSION, CREATE PROCEDURE, CREATE SEQUENCE, CREATE TRIGGER, and
-CREATE TYPE.  Certain tests require CREATE DOMAIN, CREATE VIEW privileges as
-well.
+* `RSO_TEST_DIRECTORY_NAME` specifies an existing DIRECTORY object for tests
+  that create server files. The referenced path must exist and be writable by
+  the OS user running the database.
+
+Once these environment variables have been set, run the script for creating the
+test user:
+
+```
+cargo run --bin create_test_schema
+```
+
+This will drop the test user if it exists, then create the test user and ensure
+all necessary grants have been granted.
 
 To run the complete test suite,
 
 ```
-cargo test
+cargo test --all-features
 ```
 
 To run the complete test suite and ensure that the skipped test messages are displayed,
 
 ```
-cargo test -- --nocapture
+cargo test --all-features -- --nocapture
 ```
 
 To run a specific test file,
