@@ -5,8 +5,9 @@ description: How the nodes that run a cross-node combine come and go on Kubernet
 
 # An operator sizes the pool of nodes that run a combine's stages
 
-Status: **proposed**, 2026-10-30. The owner chose an operator, the venue and the certificate
-authorities, the first answers below. The rest is proposed here. Nothing is built or compiled. This
+Status: **proposed**, 2026-10-30. The owner chose an operator, the venue, the certificate
+authorities, the pool shape and what a question does while workers are short: the answers below.
+The rest is proposed here. Nothing is built or compiled. This
 record decides; it proves nothing.
 
 ## The question
@@ -28,6 +29,10 @@ and what they may hold?
 | Q2. Where is it verified?                     | k3s inside a NixOS VM, gated by the paths of the chart and the operator        |
 | Q3. Which authority issues node certificates? | nix in the VM venue, cert-manager in the k3s venue                             |
 | Q4. What scales the serving nodes?            | The chart's autoscaler, on CPU and on questions in flight                      |
+| Q5. Does the operator own the serving nodes?  | No, only the workers                                                           |
+| Q6. A separate worker pool, or every node?    | A separate pool, with no source credential                                     |
+| Q7. A question finds too few ready workers    | It waits for them, bounded, and is refused if they are not ready in time       |
+| Q8. One certificate per worker or per pool?   | Per worker, from cert-manager's CSI driver                                     |
 
 ## Decision
 
@@ -71,26 +76,28 @@ and what they may hold?
 10. **Verified in the k3s VM venue.** The test that already scales the chart also installs the
     operator and one `SuturaWorkerPool`, and checks the warm reserve, scaling on demand, idle-first
     removal and a refused worker configuration. The operator's paths select it.
+11. **A question waits for workers, bounded.** A cross-node question that finds fewer ready workers
+    than it needs waits for them, up to a setting below its deadline, and its demand counts in the
+    gauge while it waits. If they are not ready in time, it is refused, as a refusal the caller may
+    retry.
+12. **Each worker has its own certificate**, from cert-manager's CSI driver, issued by the
+    deployment's authority. A leaked key names one pod. The cluster needs the driver installed.
 
 ## Open, with a proposal
 
-| Question                                           | Proposal                                                                                                                                    |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Does the operator also own the serving nodes?      | No. The chart and its autoscaler already do that; moving them into the operator rewrites the chart in Rust                                  |
-| A separate worker pool, or every node both kinds?  | Separate. A worker that mounts no source credential cannot leak one; in a symmetric pool every node in the middle of a combine holds them   |
-| A question finds fewer ready workers than it needs | It is refused at once, as a refusal the caller may retry. Its demand is counted, so the pool grows. `warm` is the knob that makes this rare |
-| One certificate per worker or per pool?            | Per worker, from cert-manager's CSI driver: a leaked key names one pod. It needs the driver installed in the cluster                        |
-| The resource's API group                           | A domain the project controls. None is named here                                                                                           |
-| Which release triples ship the operator?           | The two Linux image triples only. It runs nowhere but a cluster                                                                             |
+| Question                                 | Proposal                                                        |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| The resource's API group                 | A domain the project controls. None is named here               |
+| Which release triples ship the operator? | The two Linux image triples only. It runs nowhere but a cluster |
 
 ## The refusals this adds
 
-| Where        | Refused                                                      | Why        |
-| ------------ | ------------------------------------------------------------ | ---------- |
-| Operator     | A worker configuration `sutura-config` refuses               | Decision 7 |
-| Operator     | A worker configuration that declares a source or a catalog   | Decision 7 |
-| Operator     | A `SuturaWorkerPool` whose `min` is above its `max`          | Decision 4 |
-| Serving node | A cross-node question with fewer ready workers than it needs | Open       |
+| Where        | Refused                                                           | Why         |
+| ------------ | ----------------------------------------------------------------- | ----------- |
+| Operator     | A worker configuration `sutura-config` refuses                    | Decision 7  |
+| Operator     | A worker configuration that declares a source or a catalog        | Decision 7  |
+| Operator     | A `SuturaWorkerPool` whose `min` is above its `max`               | Decision 4  |
+| Serving node | A cross-node question whose workers are not ready within its wait | Decision 11 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal gets its own cell.
 
@@ -101,6 +108,9 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
 - **Deletion cost is a preference.** The Deployment controller honours it, and a stage can still
   start on a worker between the operator's read and the removal. The stop budget covers that stage
   only if it ends in time; otherwise its question fails, as the shuffle record's lost node does.
+- **A waiting question holds its serving node's slot.** It counts against that node's concurrency
+  bound while it waits, so a burst of cross-node questions can fill a serving node before any
+  worker is ready.
 - **The operator trusts the serving nodes' gauge.** A serving node that reports too much grows the
   pool to `max` and no further. `max` is a cost bound, not a security one.
 - **The operator reads the metrics token.** That token shows counters, not rows or credentials
