@@ -1,14 +1,14 @@
 ---
 title: An operator sizes the pool of nodes that run a combine's stages
-description: How the nodes that run a cross-node combine come and go on Kubernetes (#828). A Rust operator in this workspace keeps a pool of worker nodes sized to what the serving nodes report they need, plus a warm reserve. It removes idle workers first, and it refuses a worker configuration that declares a source.
+description: How the nodes that run a cross-node combine come and go on Kubernetes (#828). A Rust operator in this workspace keeps a pool of worker nodes sized to what the serving nodes report they need, plus a warm reserve. A chart value switches it on, the pool may shrink to no worker at all, and chart values bound it. It removes idle workers first, and it refuses a worker configuration that declares a source.
 ---
 
 # An operator sizes the pool of nodes that run a combine's stages
 
 Status: **proposed**, 2026-10-30. The owner chose an operator, the venue, the certificate
-authorities, the pool shape and what a question does while workers are short: the answers below.
-The rest is proposed here. Nothing is built or compiled. This
-record decides; it proves nothing.
+authorities, the pool shape, what a question does while workers are short, and a chart switch with
+a pool that may be empty: the answers below. The rest is proposed here. Nothing is built or
+compiled. This record decides; it proves nothing.
 
 ## The question
 
@@ -33,6 +33,7 @@ and what they may hold?
 | Q6. A separate worker pool, or every node?    | A separate pool, with no source credential                                     |
 | Q7. A question finds too few ready workers    | It waits for them, bounded, and is refused if they are not ready in time       |
 | Q8. One certificate per worker or per pool?   | Per worker, from cert-manager's CSI driver                                     |
+| Q9. How is the pool switched on and bounded?  | A chart value. The pool may scale to zero, within limits set in chart values   |
 
 ## Decision
 
@@ -74,14 +75,24 @@ and what they may hold?
    resource's status. Only the custom resource definition is cluster-scoped, and the chart installs
    it.
 10. **Verified in the k3s VM venue.** The test that already scales the chart also installs the
-    operator and one `SuturaWorkerPool`, and checks the warm reserve, scaling on demand, idle-first
-    removal and a refused worker configuration. The operator's paths select it.
+    operator and one `SuturaWorkerPool`, and checks the warm reserve, scaling on demand from an empty
+    pool and back to it, idle-first removal and a refused worker configuration. The operator's paths
+    select it.
 11. **A question waits for workers, bounded.** A cross-node question that finds fewer ready workers
     than it needs waits for them, up to a setting below its deadline, and its demand counts in the
     gauge while it waits. If they are not ready in time, it is refused, as a refusal the caller may
     retry.
 12. **Each worker has its own certificate**, from cert-manager's CSI driver, issued by the
     deployment's authority. A leaked key names one pod. The cluster needs the driver installed.
+13. **A chart value switches the pool on, and the pool may be empty.** Off, the default, the chart
+    renders no resource definition, operator, Role or `SuturaWorkerPool`, and every question runs
+    on one serving node as today; one that node refuses for its working set stays refused. On, the
+    chart renders all four, with `min`, `max`, `warm`, `idleAfter` and the worker resources taken
+    from its values. `min` and `warm` may be 0: no worker pod then runs until a serving node reports
+    demand, and the pool returns to none after `idleAfter` without it. Only the operator's pod
+    stays. The definition is a template under the switch, not a file in the chart's `crds/`
+    directory, which Helm installs regardless of values and never upgrades. Switching off deletes
+    it, and with it the pool and its workers.
 
 ## Open, with a proposal
 
@@ -108,6 +119,9 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
 - **Deletion cost is a preference.** The Deployment controller honours it, and a stage can still
   start on a worker between the operator's read and the removal. The stop budget covers that stage
   only if it ends in time; otherwise its question fails, as the shuffle record's lost node does.
+- **An empty pool starts cold.** With `min` and `warm` at 0, the first cross-node question waits
+  for a pod to be scheduled, its image pulled and its certificate issued. A wait shorter than that
+  refuses it, and so does a pool already at `max`.
 - **A waiting question holds its serving node's slot.** It counts against that node's concurrency
   bound while it waits, so a burst of cross-node questions can fill a serving node before any
   worker is ready.
@@ -146,5 +160,7 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
   worker.
 - A worker role in `sutura-config`, so that a worker's configuration is refused at startup if it
   declares a source, as well as by the operator.
+- A chart switch and the pool's limits in the chart's values, with a chart refusal cell for each
+  value it refuses.
 - The k3s VM test grows the operator's cells, and the operator's paths join the gating area that
   selects it.
