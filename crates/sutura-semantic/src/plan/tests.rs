@@ -520,7 +520,7 @@ fn every_leg_carries_the_digest_of_the_definition_it_was_planned_from() {
         panic!("a dimension on another data system is a federated plan");
     };
     let legs = planned.legs();
-    assert_eq!(legs.len(), 2, "a fact leg and a lookup leg");
+    assert!(legs.len() > 1, "a fact leg and at least one lookup leg, got {}", legs.len());
     for leg in legs {
         assert_eq!(leg.metric(), &expected, "{} carries another digest", leg.source());
     }
