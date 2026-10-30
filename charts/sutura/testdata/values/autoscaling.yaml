@@ -1,0 +1,20 @@
+# CPU and in-flight targets, with a CPU request the CPU target is measured against.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+resources:
+  requests:
+    cpu: 500m
+autoscaling:
+  enabled: true
+  maxReplicas: 4
+  targetSlotsInUsePerPod: 2
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

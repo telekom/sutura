@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/hpa.yaml:4:3): autoscaling.enabled names no target: set autoscaling.targetCPUUtilizationPercentage, autoscaling.targetSlotsInUsePerPod or both - with neither, Kubernetes scales on 80% CPU, a target nobody chose
+
+Use --debug flag to render out invalid YAML

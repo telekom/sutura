@@ -27,8 +27,20 @@ serviceAccount:
 # Deployment environment: development, test or production.
 environment: ""
 
-# Number of pod replicas.
+# Number of pod replicas. Not rendered while autoscaling is enabled.
 replicaCount: 1
+
+# A HorizontalPodAutoscaler for the Deployment. Enabled, it owns the replica count.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  # Average CPU use across pods, as a percentage of each pod's CPU request. Empty leaves CPU out.
+  # Needs resources.requests.cpu or resources.limits.cpu.
+  targetCPUUtilizationPercentage: 70
+  # Average sutura_execution_slots_in_use per pod: questions running at once. Empty leaves it out.
+  # Needs an adapter that serves this Prometheus series through the custom metrics API.
+  targetSlotsInUsePerPod: ""
 
 # Settings files that the service reads.
 config:

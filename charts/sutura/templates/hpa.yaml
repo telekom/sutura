@@ -1,0 +1,40 @@
+{{- if .Values.autoscaling.enabled }}
+{{- $scale := .Values.autoscaling }}
+{{- if not (or $scale.targetCPUUtilizationPercentage $scale.targetSlotsInUsePerPod) }}
+{{ fail "autoscaling.enabled names no target: set autoscaling.targetCPUUtilizationPercentage, autoscaling.targetSlotsInUsePerPod or both - with neither, Kubernetes scales on 80% CPU, a target nobody chose" }}
+{{- end }}
+{{- if and $scale.targetCPUUtilizationPercentage (not (or (dig "requests" "cpu" "" .Values.resources) (dig "limits" "cpu" "" .Values.resources))) }}
+{{ fail "autoscaling.targetCPUUtilizationPercentage needs resources.requests.cpu or resources.limits.cpu: the autoscaler measures CPU as a share of the pod's request, and with none it never scales on CPU" }}
+{{- end }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "sutura.fullname" . }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "sutura.fullname" . }}
+  minReplicas: {{ $scale.minReplicas }}
+  maxReplicas: {{ $scale.maxReplicas }}
+  metrics:
+    {{- with $scale.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with $scale.targetSlotsInUsePerPod }}
+    - type: Pods
+      pods:
+        metric:
+          name: sutura_execution_slots_in_use
+        target:
+          type: AverageValue
+          averageValue: {{ . | quote }}
+    {{- end }}
+{{- end }}
