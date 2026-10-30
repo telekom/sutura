@@ -101,3 +101,23 @@ This prints the following output:
 ```text
 BLOB bytes: [10, 20, 30, 40, 255]
 ```
+
+## <a name="bfile"></a> 9.3 Reading BFILEs
+
+A BFILE refers to a file on the database server through a DIRECTORY
+object. It is always fetched as an `oracledb::Lob` locator, including when
+`fetch_lobs()` is not enabled. The schema user needs READ access to the
+DIRECTORY, and the file must be readable by the database server.
+
+```rust
+let mut row = connection.query_row(
+    "select bfilename('MY_DIRECTORY', 'example.bin') from dual",
+    &[],
+)?;
+let mut file: oracledb::Lob = row.take(0)?;
+let mut bytes = Vec::new();
+file.read_to_end(&mut bytes)?;
+```
+
+`read()` opens and closes the file when needed. You can also call `open()` and
+`close()` around multiple reads. BFILEs cannot be written or trimmed.

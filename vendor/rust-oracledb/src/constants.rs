@@ -75,6 +75,7 @@ pub const ORA_TYPE_NUM_VECTOR: u16 = 127;
 // Oracle type buffer sizes
 pub const ORA_TYPE_SIZE_BINARY_DOUBLE: usize = 8;
 pub const ORA_TYPE_SIZE_BINARY_FLOAT: usize = 4;
+pub const ORA_TYPE_SIZE_BINARY_INTEGER: usize = 4;
 pub const ORA_TYPE_SIZE_BOOLEAN: usize = 4;
 pub const ORA_TYPE_SIZE_DATE: usize = 7;
 pub const ORA_TYPE_SIZE_INTERVAL_DS: usize = 11;
@@ -149,10 +150,18 @@ pub const PROTOCOL_VERSION_18: u16 = 318;
 pub const PROTOCOL_VERSION_23: u16 = 319;
 
 // database error constants
-pub const DB_ERR_NUM_NO_DATA_FOUND: usize = 1403;
+pub const DB_ERR_NUM_CANNOT_INSERT_NULL: usize = 1400;
+pub const DB_ERR_NUM_CHECK_CONSTRAINT_VIOLATED: usize = 2290;
+pub const DB_ERR_NUM_CHILD_RECORD_FOUND: usize = 2292;
+pub const DB_ERR_NUM_DBOBJECT_CONSTRAINT_VIOLATED: usize = 21525;
 pub const DB_ERR_NUM_INVALID_SERVICE_NAME: usize = 12514;
 pub const DB_ERR_NUM_INVALID_SID: usize = 12505;
+pub const DB_ERR_NUM_JSON_SERIALIZER_ERROR: usize = 40479;
+pub const DB_ERR_NUM_NO_DATA_FOUND: usize = 1403;
+pub const DB_ERR_NUM_PARENT_KEY_NOT_FOUND: usize = 2291;
 pub const DB_ERR_NUM_SESSION_SHUTDOWN: usize = 12572;
+pub const DB_ERR_NUM_UNIQUE_CONSTRAINT_VIOLATED: usize = 1;
+pub const DB_ERR_NUM_VALUE_LARGER_THAN_PRECISION: usize = 1438;
 
 // TTC field version constants
 pub const _TTC_FIELD_VERSION_11_2: u8 = 6;
@@ -300,10 +309,10 @@ pub const TTC_LOB_OP_OPEN: u32 = 0x8000;
 pub const TTC_LOB_OP_CLOSE: u32 = 0x10000;
 pub const TTC_LOB_OP_IS_OPEN: u32 = 0x11000;
 pub const TTC_LOB_OP_ARRAY: u32 = 0x80000;
-pub const _TTC_LOB_OP_FILE_EXISTS: u32 = 0x0800;
-pub const _TTC_LOB_OP_FILE_OPEN: u32 = 0x0100;
-pub const _TTC_LOB_OP_FILE_CLOSE: u32 = 0x0200;
-pub const _TTC_LOB_OP_FILE_ISOPEN: u32 = 0x0400;
+pub const TTC_LOB_OP_FILE_EXISTS: u32 = 0x0800;
+pub const TTC_LOB_OP_FILE_OPEN: u32 = 0x0100;
+pub const TTC_LOB_OP_FILE_CLOSE: u32 = 0x0200;
+pub const TTC_LOB_OP_FILE_ISOPEN: u32 = 0x0400;
 
 // LOB open modes
 pub const TTC_LOB_OPEN_READ_WRITE: u64 = 2;
@@ -341,6 +350,7 @@ pub const TTC_SESSION_STATE_EXPLICIT_BOUNDARY: u8 = 0x40;
 
 // character sets
 pub const CHARSET_ID_UTF8: u16 = 873;
+pub const CHARSET_ID_UTF16: u16 = 2000;
 
 // verifier types
 pub const _VERIFIER_TYPE_11G_1: u16 = 0xb152;

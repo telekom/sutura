@@ -33,11 +33,14 @@ mod conn_impl;
 pub(crate) use conn_impl::ConnImpl;
 pub(crate) use conn_impl::ConnImplStatus;
 
+use std::sync::Arc;
+
 use crate::bind_params::BindParameters;
 use crate::config::Config;
 use crate::cursor::Cursor;
 use crate::db_type::DbType;
 use crate::db_value::ToDbValue;
+use crate::dbobject::DbObjectType;
 use crate::end_user_security_context::EndUserSecurityContext;
 use crate::error::Error;
 use crate::exec_result::ExecBatchResult;
@@ -84,10 +87,7 @@ impl Connection {
     /// Establishes a standalone connection to the database and returns it.
     pub(crate) fn connect(config: Config) -> Result<Connection, Error> {
         let conn_impl = ConnImpl::connect(config, String::new())?;
-        Ok(Connection {
-            conn_impl: Some(conn_impl),
-            pool_contents_ref: None,
-        })
+        Ok(Connection { conn_impl: Some(conn_impl), pool_contents_ref: None })
     }
 
     /// Creates a connection from a pooled connection.
@@ -170,6 +170,14 @@ impl Connection {
         params: &[(&str, &dyn ToDbValue)],
     ) -> Result<ExecResult, Error> {
         self.get_impl()?.execute_named(sql, params)
+    }
+
+    /// Returns metadata for the named object or collection type.
+    /// SQL types and package-qualified PL/SQL types share cached type handles.
+    /// All reachable metadata is discovered before this call returns.
+    /// The returned handle retains this type, but does not retain the cache.
+    pub fn get_type(&self, name: &str) -> Result<Arc<DbObjectType>, Error> {
+        self.get_impl()?.get_type(name)
     }
 
     /// Returns the instance name used to connect to the database.
@@ -303,8 +311,7 @@ impl Connection {
         &self,
         client_identifier: &str,
     ) -> Result<(), Error> {
-        self.get_impl()?
-            .set_pending_client_identifier(client_identifier)
+        self.get_impl()?.set_pending_client_identifier(client_identifier)
     }
 
     /// Sets the client info associated with the connection. This is the same

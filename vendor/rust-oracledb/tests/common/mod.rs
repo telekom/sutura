@@ -28,6 +28,41 @@
 
 use rstest::*;
 
+pub struct PackageGuard<'a> {
+    conn: &'a oracledb::Connection,
+    name: &'a str,
+}
+
+impl<'a> PackageGuard<'a> {
+    /// Creates the package with the given definition.
+    fn create_package(&self, definition: &str) -> Result<(), oracledb::Error> {
+        let sql =
+            format!("create package {} as {} end;", self.name, definition);
+        self.conn.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// Drops the package from the database but ignores the error if the
+    /// package does not exist.
+    fn drop_package(&self) -> Result<(), oracledb::Error> {
+        let sql = format!("drop package {}", self.name);
+        let result = self.conn.execute(&sql, &[]);
+        if let Err(err) = result
+            && let oracledb::ErrorKind::DbError(db_error) = err.kind()
+            && db_error.code() != 4043
+        {
+            return Err(err);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for PackageGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.drop_package();
+    }
+}
+
 pub struct TableGuard<'a> {
     conn: &'a oracledb::Connection,
     table_name: &'a str,
@@ -69,6 +104,40 @@ impl Drop for TableGuard<'_> {
     }
 }
 
+pub struct TypeGuard<'a> {
+    conn: &'a oracledb::Connection,
+    type_name: &'a str,
+}
+
+impl<'a> TypeGuard<'a> {
+    /// Creates the type with the given definition.
+    fn create_type(&self, definition: &str) -> Result<(), oracledb::Error> {
+        let sql = format!("create type {} as {}", self.type_name, definition);
+        self.conn.execute(&sql, &[])?;
+        Ok(())
+    }
+
+    /// Drops the type from the database but ignores the error if the type
+    /// does not exist.
+    fn drop_type(&self) -> Result<(), oracledb::Error> {
+        let sql = format!("drop type {} force", self.type_name);
+        let result = self.conn.execute(&sql, &[]);
+        if let Err(err) = result
+            && let oracledb::ErrorKind::DbError(db_error) = err.kind()
+            && db_error.code() != 4043
+        {
+            return Err(err);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TypeGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.drop_type();
+    }
+}
+
 /// Returns a boolean indicating if the database to which the connection has
 /// been established is at the specified minimum version.
 fn is_db_min_version(
@@ -87,9 +156,21 @@ fn is_db_min_version(
 pub fn conn() -> oracledb::Connection {
     let config = oracledb::get_test_config().config.clone();
     let conn = oracledb::connect(config).unwrap();
-    conn.execute("alter session set time_zone = 'UTC'", &[])
-        .unwrap();
+    conn.execute("alter session set time_zone = 'UTC'", &[]).unwrap();
     conn
+}
+
+#[allow(dead_code)]
+/// Creates the package with the given name and definition.
+pub fn create_package<'a>(
+    conn: &'a oracledb::Connection,
+    name: &'a str,
+    definition: &str,
+) -> Result<PackageGuard<'a>, oracledb::Error> {
+    let guard = PackageGuard { conn, name };
+    guard.drop_package()?;
+    guard.create_package(definition)?;
+    Ok(guard)
 }
 
 #[allow(dead_code)]
@@ -117,6 +198,19 @@ pub fn create_table_with_options<'a>(
 }
 
 #[allow(dead_code)]
+/// Creates the type with the given name and definition.
+pub fn create_type<'a>(
+    conn: &'a oracledb::Connection,
+    type_name: &'a str,
+    definition: &str,
+) -> Result<TypeGuard<'a>, oracledb::Error> {
+    let guard = TypeGuard { conn, type_name };
+    guard.drop_type()?;
+    guard.create_type(definition)?;
+    Ok(guard)
+}
+
+#[allow(dead_code)]
 /// Returns whether the connection is to an Oracle Cloud database.
 pub fn is_on_oracle_cloud(
     conn: &oracledb::Connection,
@@ -135,6 +229,17 @@ pub fn is_on_oracle_cloud(
 pub fn skip_test(reason: &str) -> bool {
     println!("SKIPPED: {reason}");
     true
+}
+
+#[allow(dead_code)]
+/// Returns a boolean indicating if the connection can be used for testing
+/// domains and annotations on table columns.
+pub fn skip_unless_domains_supported(conn: &oracledb::Connection) -> bool {
+    if is_db_min_version(conn, 23, 0) {
+        false
+    } else {
+        skip_test("database does not support domains (requires 23+)")
+    }
 }
 
 #[allow(dead_code)]

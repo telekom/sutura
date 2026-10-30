@@ -100,12 +100,7 @@ impl ErrorInfo {
             })
         };
 
-        Ok(ErrorInfo {
-            cursor_id,
-            flags,
-            rowcount,
-            db_error,
-        })
+        Ok(ErrorInfo { cursor_id, flags, rowcount, db_error })
     }
 
     /// Returns the cursor id.
@@ -151,6 +146,24 @@ impl std::fmt::Display for DbError {
 }
 
 impl DbError {
+    /// Returns whether or not a database error should result in the statement
+    /// that executed it being closed (and therefore reparsed when another
+    /// attempt to execute it takes place). Data integrity errors are known to
+    /// be acceptable. All other errors will result in the cursor being closed.
+    pub(crate) fn should_close_cursor(&self) -> bool {
+        !matches!(
+            self.code,
+            constants::DB_ERR_NUM_CANNOT_INSERT_NULL
+                | constants::DB_ERR_NUM_CHECK_CONSTRAINT_VIOLATED
+                | constants::DB_ERR_NUM_CHILD_RECORD_FOUND
+                | constants::DB_ERR_NUM_DBOBJECT_CONSTRAINT_VIOLATED
+                | constants::DB_ERR_NUM_JSON_SERIALIZER_ERROR
+                | constants::DB_ERR_NUM_PARENT_KEY_NOT_FOUND
+                | constants::DB_ERR_NUM_VALUE_LARGER_THAN_PRECISION
+                | constants::DB_ERR_NUM_UNIQUE_CONSTRAINT_VIOLATED
+        )
+    }
+
     /// Returns the error code associated with the database error.
     pub fn code(&self) -> usize {
         self.code

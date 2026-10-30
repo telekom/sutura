@@ -28,15 +28,18 @@
 // Defines support for binding Arrow record batches to SQL statements.
 //-----------------------------------------------------------------------------
 
+use arrow_array::Array;
 use arrow_array::cast::AsArray;
 use arrow_array::types::{
-    Date32Type, Date64Type, Decimal128Type, Float32Type, Float64Type,
-    Int8Type, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType,
-    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
-    UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+    Date32Type, Date64Type, Decimal128Type, Float16Type, Float32Type,
+    Float64Type, Int8Type, Int16Type, Int32Type, Int64Type,
+    TimestampMicrosecondType, TimestampMillisecondType,
+    TimestampNanosecondType, TimestampSecondType, UInt8Type, UInt16Type,
+    UInt32Type, UInt64Type,
 };
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit;
+use chrono::Datelike;
 
 use crate::db_type::DbType;
 use crate::db_value::ToDbValue;
@@ -62,7 +65,9 @@ pub(crate) fn column_db_type(
         | DataType::UInt32
         | DataType::UInt64
         | DataType::Decimal128(_, _) => Ok(crate::DB_TYPE_NUMBER),
-        DataType::Float32 => Ok(crate::DB_TYPE_BINARY_FLOAT),
+        DataType::Float16 | DataType::Float32 => {
+            Ok(crate::DB_TYPE_BINARY_FLOAT)
+        }
         DataType::Float64 => Ok(crate::DB_TYPE_BINARY_DOUBLE),
         DataType::Date32 | DataType::Date64 | DataType::Timestamp(_, _) => {
             Ok(crate::DB_TYPE_TIMESTAMP)
@@ -70,12 +75,14 @@ pub(crate) fn column_db_type(
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
             Ok(crate::DB_TYPE_VARCHAR)
         }
-        DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
-            Ok(crate::DB_TYPE_RAW)
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::FixedSizeBinary(_)
+        | DataType::BinaryView => Ok(crate::DB_TYPE_RAW),
+        DataType::Null => Ok(crate::DB_TYPE_NUMBER),
+        _ => {
+            Err(Error::unsupported_arrow_type(column.data_type().to_string()))
         }
-        _ => Err(Error::unsupported_arrow_type(
-            column.data_type().to_string(),
-        )),
     }
 }
 
@@ -86,11 +93,7 @@ pub(crate) fn column_max_size(
 ) -> usize {
     macro_rules! max_size {
         ($e:expr) => {
-            $e.iter()
-                .flatten()
-                .map(|item| item.len())
-                .max()
-                .unwrap_or(0)
+            $e.iter().flatten().map(|item| item.len()).max().unwrap_or(0)
         };
     }
     match column.data_type() {
@@ -100,8 +103,76 @@ pub(crate) fn column_max_size(
         DataType::Binary => max_size!(column.as_binary::<i32>()),
         DataType::LargeBinary => max_size!(column.as_binary::<i64>()),
         DataType::BinaryView => max_size!(column.as_binary_view()),
+        DataType::FixedSizeBinary(_) => {
+            column.as_fixed_size_binary().value_length() as usize
+        }
         _ => 0,
     }
+}
+
+/// Validates values in an Arrow column before they are bound to Oracle.
+/// Timestamp conversion must be checked here because writing a bind value to
+/// the buffer is infallible.
+pub(crate) fn validate_column(
+    column: &std::sync::Arc<dyn arrow_array::Array>,
+) -> Result<(), Error> {
+    let invalid_timestamp = match column.data_type() {
+        DataType::Timestamp(TimeUnit::Second, _) => {
+            let values = column.as_primitive::<TimestampSecondType>();
+            (0..values.len()).any(|row_index| {
+                !values.is_null(row_index)
+                    && is_timestamp_out_of_oracle_range(
+                        values.value_as_datetime(row_index),
+                    )
+            })
+        }
+        DataType::Timestamp(TimeUnit::Millisecond, _) => {
+            let values = column.as_primitive::<TimestampMillisecondType>();
+            (0..values.len()).any(|row_index| {
+                !values.is_null(row_index)
+                    && is_timestamp_out_of_oracle_range(
+                        values.value_as_datetime(row_index),
+                    )
+            })
+        }
+        DataType::Timestamp(TimeUnit::Microsecond, _) => {
+            let values = column.as_primitive::<TimestampMicrosecondType>();
+            (0..values.len()).any(|row_index| {
+                !values.is_null(row_index)
+                    && is_timestamp_out_of_oracle_range(
+                        values.value_as_datetime(row_index),
+                    )
+            })
+        }
+        DataType::Timestamp(TimeUnit::Nanosecond, _) => {
+            let values = column.as_primitive::<TimestampNanosecondType>();
+            (0..values.len()).any(|row_index| {
+                !values.is_null(row_index)
+                    && is_timestamp_out_of_oracle_range(
+                        values.value_as_datetime(row_index),
+                    )
+            })
+        }
+        _ => false,
+    };
+
+    if invalid_timestamp {
+        Err(Error::out_of_range("timestamp is outside Oracle range"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Chrono uses ISO 8601 year numbering: year 0 is 1 BC, so Oracle's
+/// minimum year of 4712 BC corresponds to Chrono year -4711.
+/// This range check accepts Chrono year 0. Oracle has no year 0, so it
+/// must be converted to Oracle year -1 when binding; that conversion
+/// is currently missing.
+/// https://docs.rs/chrono/latest/chrono/struct.NaiveDate.html#calendar-date
+fn is_timestamp_out_of_oracle_range(
+    value: Option<chrono::NaiveDateTime>,
+) -> bool {
+    value.is_none_or(|value| !(-4711..=9999).contains(&value.year()))
 }
 
 /// Utility function that writes the value found at the specified row index in
@@ -133,6 +204,9 @@ pub(crate) fn write_to_buf(
             .then(|| column.as_primitive::<UInt32Type>().value(row_index)),
         DataType::UInt64 => &(!is_null)
             .then(|| column.as_primitive::<UInt64Type>().value(row_index)),
+        DataType::Float16 => &(!is_null).then(|| {
+            column.as_primitive::<Float16Type>().value(row_index).to_f32()
+        }),
         DataType::Float32 => &(!is_null)
             .then(|| column.as_primitive::<Float32Type>().value(row_index)),
         DataType::Float64 => &(!is_null)
@@ -190,12 +264,16 @@ pub(crate) fn write_to_buf(
         DataType::Binary => {
             &(!is_null).then(|| column.as_binary::<i32>().value(row_index))
         }
+        DataType::FixedSizeBinary(_) => {
+            &(!is_null).then(|| column.as_fixed_size_binary().value(row_index))
+        }
         DataType::BinaryView => {
             &(!is_null).then(|| column.as_binary_view().value(row_index))
         }
         DataType::LargeBinary => {
             &(!is_null).then(|| column.as_binary::<i64>().value(row_index))
         }
+        DataType::Null => &None::<OracleNumber>,
         _ => unreachable!("should be handled in column_db_type()"),
     };
     value.to_buf(buf, metadata.db_type(), true);

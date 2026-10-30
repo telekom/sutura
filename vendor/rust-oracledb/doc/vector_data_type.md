@@ -26,6 +26,13 @@ The supported Rust variants are:
 - `VectorData::Float32(Vec<f32>)` for `float32`
 - `VectorData::Float64(Vec<f64>)` for `float64`
 
+Metadata for VECTOR columns can be retrieved with
+[Metadata::vector_dimensions()](crate::Metadata::vector_dimensions()) and
+[Metadata::vector_storage_format()](crate::Metadata::vector_storage_format()).
+For sparse VECTOR columns,
+[Metadata::is_sparse_vector()](crate::Metadata::is_sparse_vector()) returns
+`true`.
+
 Vectors can also be defined with an arbitrary number of dimensions and
 formats. This allows you to specify vectors of different dimensions with
 the various storage formats mentioned above. For example:

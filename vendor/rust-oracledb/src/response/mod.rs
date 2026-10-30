@@ -70,6 +70,28 @@ pub(crate) struct Response {
 }
 
 impl Response {
+    /// Resolves object types in the supplied statement and pending REF cursors.
+    fn resolve_object_types(
+        &mut self,
+        client: &mut Client,
+        client_ref: &ClientRef,
+        statement: &mut CachedStatement,
+    ) -> Result<(), Error> {
+        let cursors =
+            self.pending_values.iter_mut().filter_map(|value| match value {
+                Some(PendingDbValue::Cursor(statement)) => Some(statement),
+                _ => None,
+            });
+        for statement in std::iter::once(statement).chain(cursors) {
+            for metadata in statement.out_metadata_mut() {
+                metadata.resolve_object_type(|identity| {
+                    client.get_type(client_ref, &identity.lookup_name())
+                })?;
+            }
+        }
+        Ok(())
+    }
+
     /// Takes database error information associated with the response and
     /// transfers ownership of it to the caller.
     fn take_db_error(&mut self) -> Option<DbError> {
@@ -116,45 +138,43 @@ impl Response {
         self.call_status
     }
 
-    /// Checks to see if any error has taken place and if so, returns it. The
-    /// error "no data found" when found for a query is ignored and the end of
-    /// fetch marker is set instead.
-    pub(crate) fn check_for_end_of_fetch(
+    /// Checks to see if any error has taken place and, if so, returns it.
+    pub(crate) fn check_for_error(&mut self) -> Result<(), Error> {
+        self.take_db_error().map_or(Ok(()), |e| Err(Error::db_error(e)))
+    }
+
+    /// Checks to see if any error has taken place after executing a statement
+    /// or fetching rows from a cursor, and if so, returns it. The error "no
+    /// data found" when found for a query is ignored and the end of fetch
+    /// marker is set instead.
+    pub(crate) fn check_for_statement_error(
         &mut self,
-        statement: &CachedStatement,
+        client: &mut Client,
+        statement: &mut CachedStatement,
     ) -> Result<(), Error> {
         if let Some(db_error) = self.take_db_error() {
+            if db_error.should_close_cursor() {
+                client.close_cursor(statement);
+            }
             if statement.is_query()
                 && db_error.code() == constants::DB_ERR_NUM_NO_DATA_FOUND
             {
                 self.end_of_fetch = true;
                 Ok(())
             } else {
-                Err(Error::db_error(db_error.clone()))
+                Err(Error::db_error(db_error))
             }
         } else {
             Ok(())
         }
     }
 
-    /// Checks to see if any error has taken place and, if so, returns it.
-    pub(crate) fn check_for_error(&mut self) -> Result<(), Error> {
-        self.take_db_error()
-            .map_or(Ok(()), |e| Err(Error::db_error(e)))
-    }
-
-    /// Queues resources created before response deserialization failed.
+    /// Cleans up any pending values. This method is called when an error takes
+    /// place during deserialization and the response cannot be returned for
+    /// further processing.
     pub(crate) fn cleanup_pending_values(&mut self, client: &mut Client) {
-        for value in std::mem::take(&mut self.pending_values) {
-            match value {
-                Some(PendingDbValue::Cursor(statement)) => {
-                    client.return_statement(&statement);
-                }
-                Some(PendingDbValue::Lob(mut data)) => {
-                    client.add_lob_to_close(data.take_locator());
-                }
-                None => {}
-            }
+        for value in self.pending_values.drain(..).flatten() {
+            value.cleanup(client);
         }
     }
 
@@ -218,7 +238,7 @@ impl Response {
         let opcode = self.read_u8()?;
         match opcode {
             constants::TTC_SERVER_PIGGYBACK_LTXID => {
-                let _ltxid = self.read_bytes_with_length()?;
+                let _ltxid = self.read_bytes_with_double_length()?;
             }
             constants::TTC_SERVER_PIGGYBACK_QUERY_CACHE_INVALIDATION
             | constants::TTC_SERVER_PIGGYBACK_TRACE_EVENT => {}
@@ -244,7 +264,7 @@ impl Response {
                 let _flags = self.read_ub4()?;
                 let _error_code = self.read_ub4()?;
                 let _queue = self.read_u8()?;
-                let _replay_context = self.read_bytes_with_length()?;
+                let _replay_context = self.read_bytes_with_double_length()?;
             }
             constants::TTC_SERVER_PIGGYBACK_SESS_RET => {
                 self.read_ub2()?;
@@ -315,12 +335,31 @@ impl Response {
         Ok(())
     }
 
-    /// Finalizes pending LOB and cursor values after deserialization.
-    pub(crate) fn finalize_rows(
+    /// Attaches resolved object metadata and finalizes LOB and cursor handles.
+    pub(crate) fn complete_values(
         &mut self,
+        client: &mut Client,
+        client_ref: &ClientRef,
+        statement: &mut CachedStatement,
+    ) -> Result<(), Error> {
+        self.resolve_object_types(client, client_ref, statement)
+            .and_then(|_| {
+                self.finalize_rows(
+                    client,
+                    client_ref,
+                    statement.out_metadata(),
+                )
+            })
+            .inspect_err(|_| self.cleanup_pending_values(client))
+    }
+
+    /// Finalizes pending objects, LOBs and cursors after type discovery.
+    fn finalize_rows(
+        &mut self,
+        client: &Client,
         client_ref: &ClientRef,
         metadata: &[Metadata],
-    ) {
+    ) -> Result<(), Error> {
         let values = std::mem::take(&mut self.pending_values);
         if !values.is_empty() {
             let column_nums: Vec<usize> = metadata
@@ -334,11 +373,18 @@ impl Response {
             for row in self.rows.as_mut().unwrap() {
                 for column_num in &column_nums {
                     if let Some(data) = values.next().unwrap() {
-                        row.finalize_column(*column_num, client_ref, data);
+                        row.finalize_column(
+                            *column_num,
+                            client,
+                            client_ref,
+                            data,
+                            &metadata[*column_num],
+                        )?;
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// Returns the cursor id returned by the error response.
@@ -600,8 +646,7 @@ impl Response {
     }
 
     /// Transfers information from another response that was received earlier.
-    /// This is intended for use when a batch of statements is being executed
-    /// and a single response is being returned.
+    /// Preserves row and pending-value order when combining executions or fetches.
     pub(crate) fn transfer_info(&mut self, other_resp: &mut Response) {
         if self.rows.is_none() {
             self.rows = other_resp.take_rows();
@@ -610,6 +655,10 @@ impl Response {
             other_rows.append(&mut final_rows);
             self.rows = Some(other_rows);
         }
+        let mut pending_values =
+            std::mem::take(&mut other_resp.pending_values);
+        pending_values.append(&mut self.pending_values);
+        self.pending_values = pending_values;
         if let Some(error_info) = self.error_info.as_mut()
             && let Some(other_error_info) = other_resp.error_info.as_mut()
         {

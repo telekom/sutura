@@ -71,11 +71,12 @@ Database bind type.
 | `Int8`, `Int16`, `Int32`, `Int64` | `DB_TYPE_NUMBER` |
 | `UInt8`, `UInt16`, `UInt32`, `UInt64` | `DB_TYPE_NUMBER` |
 | `Decimal128` | `DB_TYPE_NUMBER` |
-| `Float32` | `DB_TYPE_BINARY_FLOAT` |
+| `Null` | `DB_TYPE_NUMBER` |
+| `Float16`, `Float32` | `DB_TYPE_BINARY_FLOAT` |
 | `Float64` | `DB_TYPE_BINARY_DOUBLE` |
 | `Date32`, `Date64`, `Timestamp` | `DB_TYPE_TIMESTAMP` |
 | `Utf8`, `LargeUtf8` | `DB_TYPE_VARCHAR` |
-| `Binary`, `LargeBinary` | `DB_TYPE_RAW` |
+| `Binary`, `LargeBinary`, `FixedSizeBinary` | `DB_TYPE_RAW` |
 
 Null values in Arrow arrays are bound as database nulls. If an Arrow type is
 not supported, [Connection.execute_batch()](crate::Connection::execute_batch)
@@ -129,6 +130,11 @@ id=1, name=Anna
 id=2, name=John
 ```
 
+To control the output types or schema metadata, execute the query through a
+`StatementBuilder` and call
+[StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema).
+See [Requesting an Arrow Schema](#arrowrequestedschema).
+
 ### <a name="arrowfetchtypemapping"></a> 13.2.1 Arrow Fetch Type Mapping
 
 Rust-oracledb maps Oracle Database column types to Arrow array types when
@@ -145,9 +151,10 @@ second column displays the Arrow type.
 | oracledb Database Type | Arrow Type |
 | ---------------------- | ---------- |
 | `DB_TYPE_CHAR`, `DB_TYPE_VARCHAR`, `DB_TYPE_NCHAR`, and `DB_TYPE_NVARCHAR` | `Utf8` |
-| `DB_TYPE_RAW`, `DB_TYPE_LONG_RAW`, and `DB_TYPE_BLOB` | `Binary` |
-| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(Microsecond, None)` |
-| `DB_TYPE_TIMESTAMP_TZ` | `Struct` of `timestamp`, a `Timestamp(Microsecond, "UTC")`, and `offset_minutes`, an `Int16` |
+| `DB_TYPE_CLOB`, `DB_TYPE_NCLOB` and `DB_TYPE_LONG` | `LargeUtf8` |
+| `DB_TYPE_RAW` | `Binary` |
+| `DB_TYPE_BLOB` and `DB_TYPE_LONG_RAW` | `LargeBinary` |
+| `DB_TYPE_DATE`, `DB_TYPE_TIMESTAMP`, `DB_TYPE_TIMESTAMP_TZ`, and `DB_TYPE_TIMESTAMP_LTZ` | `Timestamp(unit, None)` |
 | `DB_TYPE_BINARY_FLOAT` | `Float32` |
 | `DB_TYPE_BINARY_DOUBLE` | `Float64` |
 | `DB_TYPE_BOOLEAN` | `Boolean` |
@@ -156,21 +163,84 @@ second column displays the Arrow type.
 | `DB_TYPE_NUMBER`, precision 5 to 9, scale 0 | `Int32` |
 | `DB_TYPE_NUMBER`, precision 10 to 18, scale 0 | `Int64` |
 | `DB_TYPE_NUMBER` with nonzero scale, or precision greater than 18 | `Decimal128` |
-| `DB_TYPE_NUMBER` with precision 0, or scale whose absolute value is greater than precision | `Utf8` |
+| `DB_TYPE_NUMBER` with precision 0, or scale whose absolute value is greater than precision | `Float64` |
+
+`DATE` values use seconds. `TIMESTAMP` values use seconds for scale 0,
+milliseconds for scales 1 to 3, microseconds for scales 4 to 6, and nanoseconds
+for scales 7 to 9.
 
 For Arrow decimal values, Arrow requires a fixed precision and scale. If an
 Oracle `NUMBER` column does not have fixed precision, or if its scale cannot be
-represented as an Arrow decimal, rust-oracledb fetches the value as its exact
-decimal text, for example `9007199254740993`. Such a column can store up to
-40 significant digits at a decimal exponent from -130 to 125, which no fixed
-Arrow decimal holds, and a `Float64` value rounds most of them.
-
+represented as an Arrow decimal, `query_arrow()` fetches the value as
+`Float64`.
 [Connection::query_arrow_batches()](crate::Connection::query_arrow_batches)
-returns the same data as an iterator with one RecordBatch for each round trip
-to the database. The next round trip is made only when the next batch is
-requested, so the application can stop reading between round trips.
+fetches such a column as its exact decimal text (`Utf8`) instead, unless a
+requested schema says otherwise: such a column can store up to 40 significant
+digits at a decimal exponent from -130 to 125, which no fixed Arrow decimal
+holds and `Float64` rounds most of them.
 
 If a query column has an Oracle Database type that cannot be mapped to an
 Arrow type, `query_arrow()` returns an error.
+
+`query_arrow_batches()` returns the same data as an iterator yielding one
+RecordBatch per round trip to the database. The next round trip is made only
+when the next batch is requested, so the application can stop reading between
+round trips.
+
+### <a name="arrowrequestedschema"></a> 13.2.2 Requesting an Arrow Schema
+
+By default, [Connection::query_arrow()](crate::Connection::query_arrow) derives
+the Arrow schema and data types from Oracle Database metadata. To choose the
+Arrow data type for a query result, use
+[StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema).
+For example:
+
+```rust
+use std::sync::Arc;
+use arrow_schema::{DataType, Field, Schema};
+
+// Fields correspond to SELECT columns by position
+let schema = Arc::new(Schema::new(vec![
+    Field::new("ID", DataType::Int64, true),
+    Field::new("NAME", DataType::LargeUtf8, true),
+]));
+
+let batch = connection
+    .statement("select id, name from arrow_table order by id")?
+    .with_requested_schema(schema)
+    .build()?
+    .query_arrow(oracledb::BindParameters::default())?;
+```
+
+Fields map to query columns by position. The requested schema must contain
+one field for each result column. The returned `RecordBatch` uses the requested
+schema's field names, nullability, and metadata. Fields that can contain null
+values should be marked as nullable.
+
+The following requested conversions are supported:
+
+| Oracle Database Type | Requested Arrow Type |
+| -------------------- | -------------------- |
+| `NUMBER` | `Int8`, `Int16`, `Int32`, `Int64` |
+| `NUMBER` | `UInt8`, `UInt16`, `UInt32`, `UInt64` |
+| `NUMBER` | `Float32`, `Float64` |
+| `NUMBER` | `Decimal128(precision, scale)` |
+| `NUMBER` | `Utf8`, `LargeUtf8` |
+| Character types, including CLOB, NCLOB, LONG, and ROWID types | `Utf8`, `LargeUtf8` |
+| RAW, LONG RAW, and BLOB | `Binary`, `LargeBinary` |
+| DATE and TIMESTAMP types | `Timestamp` with seconds, milliseconds, microseconds, or nanoseconds |
+| `BINARY_FLOAT` | `Float32` |
+| `BINARY_DOUBLE` | `Float64` |
+| `BOOLEAN` | `Boolean` |
+
+Values must fit the requested type. Integer conversions require whole numbers
+within the target integer range. Decimal128 conversions must preserve the
+value exactly and fit the requested precision and scale. Timestamp units
+coarser than the stored precision discard fractional digits. Timestamp
+timezone metadata does not perform a timezone conversion.
+
+An incompatible type, invalid decimal definition, or column count mismatch
+returns an error. Without a requested schema, the default fetch mappings
+continue to apply.
 
 [Apache Arrow]: https://docs.rs/crate/arrow/latest

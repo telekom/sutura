@@ -58,6 +58,13 @@ fn main() -> Result<(), oracledb::Error> {
         test_config.user
     );
     admin_conn.execute(&grant_statement, &[])?;
+    if let Ok(directory) = std::env::var("RSO_TEST_DIRECTORY_NAME") {
+        let grant_statement = format!(
+            "grant read, write on directory {} to {}",
+            directory, test_config.user,
+        );
+        admin_conn.execute(&grant_statement, &[])?;
+    }
     println!("Schema successfully created.");
     Ok(())
 }
