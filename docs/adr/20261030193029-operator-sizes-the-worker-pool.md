@@ -6,8 +6,9 @@ description: How the nodes that run a cross-node combine come and go on Kubernet
 # An operator sizes the pool of nodes that run a combine's stages
 
 Status: **proposed**, 2026-10-30. The owner chose an operator, the venue, the certificate
-authorities, the pool shape, what a question does while workers are short, and a chart switch with
-a pool that may be empty: the answers below. The rest is proposed here. Nothing is built or
+authorities, the pool shape, what a question does while workers are short, a chart switch with a
+pool that may be empty, and on 2026-10-31 the resource's API group and how the operator ships: the
+answers below. The rest is proposed here. Nothing is built or
 compiled. This record decides; it proves nothing.
 
 ## The question
@@ -34,6 +35,8 @@ and what they may hold?
 | Q7. A question finds too few ready workers    | It waits for them, bounded, and is refused if they are not ready in time       |
 | Q8. One certificate per worker or per pool?   | Per worker, from cert-manager's CSI driver                                     |
 | Q9. How is the pool switched on and bounded?  | A chart value. The pool may scale to zero, within limits set in chart values   |
+| Q10. The resource's API group?                | A setting, defaulting to a name under the project's public GitHub Pages domain |
+| Q11. How does the operator ship?              | As every shipped binary does, through the standard release                     |
 
 ## Decision
 
@@ -94,12 +97,14 @@ and what they may hold?
     directory, which Helm installs regardless of values and never upgrades. Switching off deletes
     it, and with it the pool and its workers.
 
-## Open, with a proposal
-
-| Question                                 | Proposal                                                        |
-| ---------------------------------------- | --------------------------------------------------------------- |
-| The resource's API group                 | A domain the project controls. None is named here               |
-| Which release triples ship the operator? | The two Linux image triples only. It runs nowhere but a cluster |
+14. **The resource's API group is a setting**, `operator.api_group` in the operator's sutura
+    configuration, defaulting to `sutura.telekom.github.io`: a name under the project's public
+    GitHub Pages domain. The chart renders the resource definition under the same value, and the
+    operator addresses the resource by the group it starts with, not one fixed when it is compiled.
+    A group that is not a lowercase DNS subdomain is refused at startup.
+15. **The operator ships as every shipped binary does.** The release builds it at the same four
+    triples, as a tarball and an image for each, with the same SBOMs and signatures. The chart's
+    operator image is that release's.
 
 ## The refusals this adds
 
@@ -108,6 +113,7 @@ and what they may hold?
 | Operator     | A worker configuration `sutura-config` refuses                    | Decision 7  |
 | Operator     | A worker configuration that declares a source or a catalog        | Decision 7  |
 | Operator     | A `SuturaWorkerPool` whose `min` is above its `max`               | Decision 4  |
+| Operator     | An API group that is not a lowercase DNS subdomain                | Decision 14 |
 | Serving node | A cross-node question whose workers are not ready within its wait | Decision 11 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal gets its own cell.
@@ -131,6 +137,12 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
   (`docs/adr/0015-an-authenticated-metrics-endpoint.md`).
 - **The worker check reads the configuration, not the pod.** A volume added by hand to the
   Deployment is not seen until the operator renders it again.
+- **The default group is a name, not a domain anyone checks.** Kubernetes does not ask whoever
+  installs a definition to prove control of its group. The definition is cluster-scoped, so two
+  releases in one cluster need different groups. Helm is expected to refuse the second install of a
+  definition another release owns; that has not been run here.
+- **Changing the group on an installed release is a new definition.** The pool under the old group
+  and its workers go with the old one, as Decision 13's switch-off does.
 - **Nothing is measured.** Not the reconcile period, the time from demand to a ready worker, or the
   operator's footprint.
 
@@ -155,7 +167,8 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
 
 ## Consequences
 
-- A new binary crate, its image, and its `cargo-deny` review.
+- A new binary crate, its image, and its `cargo-deny` review. The release workflow ships a second
+  binary at every triple.
 - Two gauges that do not exist yet: worker slots wanted on a serving node, stages in flight on a
   worker.
 - A worker role in `sutura-config`, so that a worker's configuration is refused at startup if it
