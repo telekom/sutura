@@ -544,3 +544,7 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
         vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]
     }
 }
+
+/// `server.nodes.wait_for_workers_seconds` through `Settings::load`, and its refusal.
+#[cfg(test)]
+mod tests;

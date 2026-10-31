@@ -314,11 +314,6 @@ mod charged_leg_test;
 #[cfg(test)]
 mod across_test;
 
-/// A combine that found no other node ready, split out for the same `max-lines` reason;
-/// `#[cfg(test)]` for the same `test-causality` reason the submodules above state.
-#[cfg(test)]
-mod workers_test;
-
 #[test]
 fn a_federated_fact_preflight_refusal_is_not_a_partial_answer() {
     let shared = shared();

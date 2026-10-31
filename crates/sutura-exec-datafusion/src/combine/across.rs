@@ -72,7 +72,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
 use std::sync::Arc;
-use std::time::Instant;
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
@@ -99,8 +98,8 @@ use url::{Host, Url};
 use super::CombineError;
 use crate::pool::{self, WorkingSet};
 
-/// How often a waiting question resolves the other nodes again.
-const POLL: Duration = Duration::from_millis(200);
+/// How many other nodes a question wants, and the bounded wait for them.
+mod wait;
 
 /// The nodes one combine's stages may run on, this one among them.
 pub struct Nodes {
@@ -213,37 +212,12 @@ impl Nodes {
     ) -> Result<SessionContext, CombineError> {
         self.wait_for_workers.map_or_else(
             || self.session(working_set),
-            |wait| self.session_over(working_set, self.ready(self.others_wanted(legs_bytes, ceiling_bytes), wait)?),
+            |wait| {
+                let wanted = wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes);
+                let ready = wait::ready(wanted, wait, || self.others.iter().flat_map(resolved).collect())?;
+                self.session_over(working_set, ready)
+            },
         )
-    }
-
-    /// The other nodes a question whose legs hold `legs_bytes` wants: one for each share of the
-    /// threshold they hold beyond this node's share, and one at least, since it goes across.
-    fn others_wanted(&self, legs_bytes: u64, ceiling_bytes: u64) -> usize {
-        let share = self.across_above.map_or(ceiling_bytes, NonZeroU64::get).max(1);
-        usize::try_from(legs_bytes.div_ceil(share))
-            .unwrap_or(usize::MAX)
-            .saturating_sub(1)
-            .max(1)
-    }
-
-    /// The other nodes resolved now, resolved again every [`POLL`] while fewer than `wanted` are,
-    /// until `wait` ends.
-    fn ready(&self, wanted: usize, wait: Duration) -> Result<Vec<Url>, CombineError> {
-        let started = Instant::now();
-        let mut ready: Vec<Url> = self.others.iter().flat_map(resolved).collect();
-        while ready.len() < wanted {
-            let left = wait.saturating_sub(started.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            std::thread::sleep(left.min(POLL));
-            ready = self.others.iter().flat_map(resolved).collect();
-        }
-        if ready.is_empty() {
-            return Err(CombineError::WorkersNotReady { wanted, ready: 0 });
-        }
-        Ok(ready)
     }
 
     /// A session over the other nodes resolved now. See [`Self::session_over`].

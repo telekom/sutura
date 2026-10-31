@@ -499,7 +499,3 @@ fn a_node_declared_by_a_host_is_dialled_where_it_resolves_and_one_resolving_nowh
         "the node declared by a host was sent no request, so its stage ran here"
     );
 }
-
-/// A question that waits for other nodes, bounded.
-#[cfg(test)]
-mod wait;

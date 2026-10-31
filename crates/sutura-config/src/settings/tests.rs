@@ -992,8 +992,3 @@ mod datahub_platforms;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod nodes;
-
-/// `server.nodes.wait_for_workers_seconds`, and its refusal. Same `#[cfg(test)]` reason as
-/// `governance` above.
-#[cfg(test)]
-mod workers_wait;

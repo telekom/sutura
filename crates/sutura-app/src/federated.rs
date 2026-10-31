@@ -316,10 +316,8 @@ where
 
 /// What a combine produced, or the answer a failure of it is.
 ///
-/// A leg's refusal wins over a combine failure. The governance outcomes are taken off the combiner's
-/// error FIRST, in the order the mono path asks its own adapter: the ceiling, then no other node
-/// ready in time, then a deterministic refusal about what the legs returned, then this workspace's
-/// own defect.
+/// A leg's refusal wins over a combine failure, and a combine failure is a refusal whenever
+/// [`governed::refusal`] reads one off it.
 fn settled<W, B, C>(combiner: &C, credentials: &BoundToTheRequest, executed: Ran<W, B, C>) -> Settled<W, B, C>
 where
     W: Warehouse,
@@ -336,33 +334,9 @@ where
         }
         Err(ExecuteError::Combine(cause)) => cause,
     };
-    if let Some(ceiling_bytes) = combiner.working_set_exhausted(&cause) {
-        return Err(Box::new(Ok(Answered::refused(
-            credentials,
-            RefusalReason::ResourcesExhausted { ceiling_bytes },
-        ))));
-    }
-    if let Some(short) = combiner.workers_not_ready(&cause) {
-        return Err(Box::new(Ok(Answered::refused(
-            credentials,
-            RefusalReason::WorkersNotReady {
-                wanted: short.wanted(),
-                ready: short.ready(),
-            },
-        ))));
-    }
-    // D19 + A4: a deterministic combine failure - the same plan against the same legs fails
-    // again - is a governance refusal and not a data-system outage, so a caller is never
-    // told to retry one. `None` is this workspace's own wiring, which stays an internal
-    // `ServiceError` because no caller caused it and none can fix it.
-    Err(Box::new(combiner.answer_not_well_formed(&cause).map_or_else(
+    Err(Box::new(governed::refusal(combiner, &cause).map_or_else(
         || Err(ServiceError::Combine { cause }),
-        |federated| {
-            Ok(Answered::refused(
-                credentials,
-                RefusalReason::FederatedAnswerNotWellFormed { federated },
-            ))
-        },
+        |reason| Ok(Answered::refused(credentials, reason)),
     )))
 }
 
@@ -537,6 +511,8 @@ where
 mod across;
 pub(crate) use across::answer_drill_across;
 pub(crate) use leg::{LegsAtTheirSources, preflight_and_charge};
+/// The refusal a combine failure is, when it is one.
+mod governed;
 mod leg;
 
 /// The federated answer orchestration: the two-source answer path exercised above fake leg-executing
