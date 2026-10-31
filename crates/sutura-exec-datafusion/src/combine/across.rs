@@ -20,7 +20,7 @@
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
-//! - No binary builds a [`Nodes`] yet.
+//! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;

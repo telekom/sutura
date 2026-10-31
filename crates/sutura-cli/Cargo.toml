@@ -157,6 +157,11 @@ agent = ["sutura-mcp/http", "sutura-http/agent"]
 # `sutura-flight` and `arrow-flight`, and this crate reaches them only through that surface's types.
 flight = ["sutura-http/flight"]
 
+# A combine planned across the nodes `server.nodes` declares, each link mutual TLS under
+# `server.tls_node_authority`, and this node's worker mounted on the same listener. Default-off:
+# no published binary should open node links it was not built for.
+distributed = ["sutura-exec-datafusion/distributed", "sutura-http/worker", "tls"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }

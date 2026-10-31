@@ -320,6 +320,7 @@ pub struct TlsMaterial {
 pub struct DeclaredNodes {
     own: Url,
     others: Vec<Url>,
+    authority: PathBuf,
 }
 
 impl DeclaredNodes {
@@ -332,6 +333,12 @@ impl DeclaredNodes {
     #[inline]
     pub fn others(&self) -> &[Url] {
         &self.others
+    }
+
+    /// The authority every node's certificate is checked against, the same `tls_node_authority`.
+    #[inline]
+    pub fn authority(&self) -> &Path {
+        &self.authority
     }
 }
 
@@ -442,12 +449,13 @@ impl TlsMaterial {
     /// The same material, planning a combine across `own` and `others`. Refused without a node
     /// authority.
     pub fn with_nodes(self, own: &str, others: &[String]) -> Result<Self, InvalidTlsMaterial> {
-        if self.node_authority.is_none() {
+        let Some(authority) = self.node_authority.clone() else {
             return Err(InvalidTlsMaterial::NodesWithoutAuthority);
-        }
+        };
         let nodes = DeclaredNodes {
             own: node_address(own)?,
             others: others.iter().map(|other| node_address(other)).collect::<Result<_, _>>()?,
+            authority,
         };
         Ok(Self {
             nodes: Some(nodes),

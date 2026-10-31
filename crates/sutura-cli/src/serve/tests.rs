@@ -411,6 +411,8 @@ mod agent;
 #[cfg(not(feature = "flight"))]
 mod flight;
 
+mod nodes;
+
 // The `bigquery`-kind cells: the settings-tree refusal, the no-adapter refusal, and (on a build that
 // linked it) the credential/ceiling/anchor/boot-line cells. Moved out as a pure relocation to keep
 // this file under the 1000-line cap.
