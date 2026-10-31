@@ -35,6 +35,13 @@ mod fan_in;
 #[cfg(test)]
 mod link_parts;
 
+/// A combine planned across nodes on localhost. `#[cfg(test)]` on the declaration for
+/// `telekom/sutura#657`'s reason: a bare `mod across;` names nothing `xtask test-causality`'s scan
+/// reads as a test, so its base run reverted this line and ran nothing.
+#[cfg(feature = "distributed")]
+#[cfg(test)]
+mod across;
+
 /// `2^53`: every integer below it is exactly representable as an `f64`.
 const TWO_POW_53: i64 = 1 << 53;
 
