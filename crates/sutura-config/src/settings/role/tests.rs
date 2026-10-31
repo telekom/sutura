@@ -1,9 +1,8 @@
 //! `server.role: worker`: one boot refusal per thing a worker may not declare, the worker that is
 //! fit, and the `serving` default.
 //!
-//! A file of its own because `settings/tests.rs` is at the thousand-line limit `cargo xtask
-//! max-lines` enforces. `InProcessTlsNotCompiledIn` is dropped from every list: a worker needs
-//! in-process TLS, and whether the binary can terminate it is the build's answer, not the role's -
+//! `InProcessTlsNotCompiledIn` is dropped from every list: a worker needs in-process TLS, and
+//! whether the binary can terminate it is the build's answer, not the role's -
 //! `in_process_tls_is_refused_when_the_binary_cannot_do_it` holds both arms of that.
 
 use crate::server::ServerRole;
@@ -56,7 +55,7 @@ fn a_worker_that_declares_a_source_is_not_fit_to_serve() {
 #[test]
 fn a_worker_whose_file_declares_a_catalog_is_not_fit_to_serve() {
     let catalog = "catalogs:\n  - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n";
-    let dir = super::scratch("worker-catalog");
+    let dir = crate::settings::tests::scratch("worker-catalog");
     std::fs::write(dir.join("base.yaml"), worker(AUTHORITY, catalog)).expect("a scratch file is writable");
     let declared = refusals(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
     std::fs::write(dir.join("base.yaml"), worker(AUTHORITY, "")).expect("a scratch file is writable");

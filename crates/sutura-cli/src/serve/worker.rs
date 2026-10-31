@@ -59,3 +59,6 @@ pub(super) fn mount(
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     Ok(sutura_http::WorkerMount::new(own.into_worker_server()))
 }
+
+#[cfg(test)]
+mod tests;

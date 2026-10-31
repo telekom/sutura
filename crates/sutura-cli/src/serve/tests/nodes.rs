@@ -9,7 +9,7 @@ fn declaring(certificate: &str, key: &str, authority: &str) -> sutura_config::Tl
         .expect("https addresses are nodes")
 }
 
-fn runtime() -> sutura_config::RuntimeSettings {
+pub(in crate::serve) fn runtime() -> sutura_config::RuntimeSettings {
     sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
         .expect("the defaults load")
         .runtime()
@@ -31,7 +31,7 @@ fn declared_nodes_are_refused_by_a_build_without_the_feature() {
 /// A node certificate and key, written where `declaring` can name them, the certificate its own
 /// authority.
 #[cfg(feature = "distributed")]
-fn written(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+pub(in crate::serve) fn written(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let issued = rcgen::generate_simple_self_signed([String::from("node-a.example.com")]).expect("a pair generates");
     let at = |part: &str| std::env::temp_dir().join(format!("sutura-cli-{name}-{part}-{}.pem", std::process::id()));
     let (certificate, key) = (at("certificate"), at("key"));
@@ -82,18 +82,4 @@ fn a_worker_is_refused_by_a_build_without_the_feature() {
         refused.contains("--features distributed"),
         "the refusal must name the feature that would serve a worker: {refused}"
     );
-}
-
-#[cfg(feature = "distributed")]
-#[test]
-fn a_worker_builds_from_its_pair_and_node_authority_with_no_nodes_declared() {
-    let (certificate, key) = written("worker");
-    let path = |path: &std::path::Path| path.display().to_string();
-    let tls = sutura_config::TlsMaterial::parse(Some(&path(&certificate)), Some(&path(&key)), Some(&path(&certificate)))
-        .expect("a pair and an authority are TLS material")
-        .expect("material was declared");
-    assert!(tls.nodes().is_none(), "this cell is about a worker with no server.nodes");
-    let built = super::super::worker::mount(&tls, &certificate, runtime());
-    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
-    let _mount = built.expect("a signed node with its authority builds the worker it serves");
 }

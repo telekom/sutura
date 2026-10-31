@@ -44,3 +44,6 @@ pub(super) fn worker_refusals(settings: &Settings) -> Vec<NotFitToServe> {
     }
     refusals
 }
+
+#[cfg(test)]
+mod tests;
