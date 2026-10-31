@@ -80,10 +80,9 @@ members = [
   # The bounded, TLS-rotating `ureq` client `sutura-catalog-datahub` and `sutura-catalog-openmetadata`
   # share for their HTTP readers - `Endpoint` parsing, `ReadBounds`/`Budget`, the TLS anchor fold and
   # (behind `test`, enabled only by `sutura-cli`'s own dev-dependencies) the loopback fakes.
-  # Extracted under `github.com/telekom/sutura#970`'s
-  # review once a second reader made the two crates' own copies byte-for-byte identical
-  # (`cargo xtask check-jscpd`); same shape as `sutura-tls` one layer up, and joins neither the "data
-  # systems" nor the "metadata providers" class in `xtask/src/boundaries/adapters.rs`.
+  # Extracted under `github.com/telekom/sutura#970`'s review once a second reader made the two crates' own copies
+  # byte-for-byte identical (`cargo xtask check-jscpd`); same shape as `sutura-tls` one layer up, and joins
+  # neither the "data systems" nor the "metadata providers" class in `xtask/src/boundaries/adapters.rs`.
   "crates/sutura-http-client",
   # The bounded single-open document read and sorted directory walk that `sutura-catalog-local`,
   # `sutura-catalog-okf` (`#1022` hardened it there) and `sutura-catalog-datacontract` (`#1043`)
@@ -106,6 +105,7 @@ members = [
   # another adapter is the one direction this layout forbids. The cost of that rule is a second wire
   # type, and the cost is paid deliberately - `crates/sutura-mcp/src/wire.rs` says so at length.
   "crates/sutura-mcp",
+  "crates/sutura-operator",
   "xtask",
   "dev",
 ]

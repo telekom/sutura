@@ -69,6 +69,8 @@ pub(crate) struct RawSettings {
     /// composition root, on the catalog naming a source it has no declaration for.
     #[serde(default)]
     pub(crate) sources: std::collections::BTreeMap<String, RawSource>,
+    /// Read by `sutura-operator` alone; a served deployment carries it and reads none of it.
+    pub(crate) operator: RawOperator,
 }
 
 /// One source's entry.
@@ -864,4 +866,11 @@ pub(crate) struct RawPrompt {
     pub(crate) catalog_prose: Option<String>,
     #[serde(default)]
     pub(crate) list_physical_schema: bool,
+}
+
+/// The `operator` section.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawOperator {
+    pub(crate) api_group: String,
 }

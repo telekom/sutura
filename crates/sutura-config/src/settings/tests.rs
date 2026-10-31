@@ -992,3 +992,7 @@ mod datahub_platforms;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod nodes;
+
+/// `operator`: a served tree carries it. Same `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod operator_section;
