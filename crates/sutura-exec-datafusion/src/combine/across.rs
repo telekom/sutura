@@ -9,8 +9,19 @@
 //! is spread across the nodes too. What crosses a link is a leg's share, inside the stage sent to a
 //! node, and each stage's input, as Arrow batches.
 //!
+//! **A question goes across only when one node is too small for it.** A combine reading one data
+//! system runs on this node, and so does one reading several whose legs hold no more than
+//! `server.nodes.across_above_bytes`, the question's own ceiling when unset, unless this node refuses
+//! it for its working set. A link costs latency a question one node answers does not need to pay.
+//!
 //! **Limits, next to the claim.**
 //!
+//! - A leg's size is Arrow's measure of its buffers, which counts a buffer two columns share once
+//!   for each, so a leg decoded from one message can measure more than it holds. It errs towards
+//!   going across.
+//! - A question one node refuses is refused for its working set by any operator, the answer's own
+//!   collection among them, and is asked across the nodes again whichever it was: one the
+//!   collection refused is refused there too.
 //! - A leg's share is rows this node read, as the caller it serves, and chose to send. What a check
 //!   holds is the other side: a [`Nodes::worker`] refuses a stage with a leaf that reads anything
 //!   but another node's stage or rows the plan itself carries, such as a file scan
@@ -30,6 +41,7 @@
 //!   against the question's own ceiling.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
+use core::num::NonZeroU64;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -69,6 +81,8 @@ pub struct Nodes {
     /// One set of channels for every combine, instead of the engine's default, which keys its
     /// channels on the runtime environment and so would dial again for each question.
     channels: Links,
+    /// The leg bytes above which a question is planned across before it is tried on this node.
+    across_above: Option<NonZeroU64>,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -98,7 +112,24 @@ impl Nodes {
             own_url,
             all: Declared(all),
             channels: Links::of(identity),
+            across_above: None,
         }
+    }
+
+    /// The same nodes, planning a question whose legs hold more than `bytes` across them at once,
+    /// or more than its own ceiling when that is `None`.
+    #[must_use]
+    pub fn across_above(self, bytes: Option<NonZeroU64>) -> Self {
+        Self {
+            across_above: bytes,
+            ..self
+        }
+    }
+
+    /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
+    /// planned across these nodes before it is tried on this one.
+    pub(super) fn first_across(&self, legs_bytes: u64, ceiling_bytes: u64) -> bool {
+        legs_bytes > self.across_above.map_or(ceiling_bytes, NonZeroU64::get)
     }
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill

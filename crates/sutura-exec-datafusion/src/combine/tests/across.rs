@@ -1,7 +1,7 @@
 //! A combine planned across three nodes on localhost, against the same combine on one node, every
 //! link over mutual TLS.
 
-use core::num::NonZeroUsize;
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -166,8 +166,9 @@ fn a_combine_across_three_nodes_answers_what_one_node_answers_and_sends_both_oth
             served(&servers, listening(&other, authority.peers()), worker, Arc::clone(count))
         })
         .collect();
-    let across =
-        DataFusionCombiner::across(Nodes::declared(own, own_url, others, authority.identity(&node))).expect("a combiner builds");
+    let declared = || Nodes::declared(own.clone(), own_url.clone(), others.clone(), authority.identity(&node));
+    let here = DataFusionCombiner::across(declared()).expect("a combiner builds");
+    let across = DataFusionCombiner::across(declared().across_above(NonZeroU64::new(1))).expect("a combiner builds");
 
     let plan = sum_plan(true);
     let results = legs(&plan);
@@ -187,6 +188,15 @@ fn a_combine_across_three_nodes_answers_what_one_node_answers_and_sends_both_oth
             vec![text("B"), text("north"), text("2026-06"), Value::Integer(50)],
         ]
     );
+    // Legs this node holds within the question's ceiling are combined here, and no link is dialled.
+    assert_eq!(answer(&here).rows(), one.rows());
+    for (other, count) in sent.iter().enumerate() {
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            0,
+            "the other node {other} was sent a stage of a question this node holds"
+        );
+    }
     // Every listener here refuses a peer without a certificate the authority signed, so this answers
     // only if each link presents one.
     assert_eq!(answer(&across).rows(), one.rows());
@@ -325,7 +335,8 @@ fn a_node_another_authority_signed_is_sent_no_stage() {
         })
         .collect();
     let across =
-        DataFusionCombiner::across(Nodes::declared(own, own_url, others, ours.identity(&node))).expect("a combiner builds");
+        DataFusionCombiner::across(Nodes::declared(own, own_url, others, ours.identity(&node)).across_above(NonZeroU64::new(1)))
+            .expect("a combiner builds");
 
     let plan = sum_plan(true);
     let results = legs(&plan);
