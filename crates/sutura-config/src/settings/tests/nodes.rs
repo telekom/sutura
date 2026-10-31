@@ -46,7 +46,8 @@ fn a_leg_size_declared_with_the_nodes_rides_with_them_and_zero_is_refused() {
     let nodes = |above: u64| {
         Sources::defaults(Environment::Development).with_overlay(format!(
             "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
-             others: [\"https://b.example:8443\"]\n    across_above_bytes: {above}\n"
+             others: [\"https://b.example:8443\"]\n    across_above_bytes: {above}\n\
+             security:\n  tls_termination: \"in-process\"\n"
         ))
     };
     let settings = Settings::load(&nodes(4096)).expect("a declared leg size loads");
