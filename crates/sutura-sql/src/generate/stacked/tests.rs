@@ -95,8 +95,8 @@ fn a_later_arm_binds_its_own_values_past_the_earlier_arms() {
     assert_eq!(query.params().len(), 4, "{text}");
 }
 
-/// Every dialect stacks the arms, groups them again and takes each measure's `MAX`, bounded by
-/// one row past the cap.
+/// Every dialect stacks the arms, groups them again and takes each measure's `MAX`, in the case
+/// that dialect spells it, bounded by one row past the cap.
 #[test]
 fn every_dialect_stacks_the_arms_and_takes_each_measures_max() {
     let plan = stacked();
@@ -104,7 +104,7 @@ fn every_dialect_stacks_the_arms_and_takes_each_measures_max() {
         let text = sql(&plan, dialect);
         assert!(text.contains("UNION ALL"), "{dialect}:\n{text}");
         assert!(text.contains("NULL AS"), "{dialect}:\n{text}");
-        assert_eq!(text.matches("MAX(").count(), 2, "{dialect}:\n{text}");
+        assert_eq!(text.to_ascii_lowercase().matches("max(").count(), 2, "{dialect}:\n{text}");
         assert!(text.contains("10001"), "{dialect}:\n{text}");
     }
 }
