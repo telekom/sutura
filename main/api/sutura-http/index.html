@@ -5479,6 +5479,7 @@ either runs.</p>
   mismatched pair without complaint; what fails is every handshake, at the client, with a
   signature error that says nothing about a configuration file. Checked here so it is a startup
   refusal - or, on a reload, a rejected candidate and a listener that keeps working.
+- <code>NotAnAuthority</code> - The node authority file holds a certificate no trust anchor can be read from.
 - <code>NotConfigurable</code> - The server configuration itself would not build.</p>
 <p>Unreachable from a pair that got this far, and an error rather than a panic for the reason
   <code>crate::middleware::LimiterNotBuilt</code> is one.</p>
