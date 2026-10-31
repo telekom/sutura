@@ -839,7 +839,8 @@
             or (pkgs.runCommand "postgres-linked-driver-not-on-${system}" { } "echo 'only x86_64-linux runs the linked musl driver' > $out");
 
           # Two `sutura serve` processes in two NixOS VMs, one leg crossing between them over Flight
-          # (`telekom/sutura#828`) - `nix/multi-node.nix` says what it observes and what it does not.
+          # and the combine's stages planned across both (`telekom/sutura#828`) - `nix/multi-node.nix`
+          # says what it observes and what it does not.
           # A VM test needs a linux builder with KVM, so on any other system this is a stub that says
           # so and proves nothing.
           multi-node =
@@ -849,7 +850,7 @@
                 sutura = shipped.nativeFor {
                   binary = builtins.head shipped.binaries;
                   profile = "ci";
-                  features = [ "clickhouse" "node" "flight" "tls" ];
+                  features = [ "clickhouse" "node" "flight" "tls" "distributed" ];
                 };
                 clickhouse = clickhouseTier.package;
                 clickhouseDriver = clickhouseAdbcHostDriver;
