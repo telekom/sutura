@@ -78,8 +78,7 @@ async fn a_node_the_authority_signed_and_a_caller_with_none_get_in_and_another_a
     );
     let anonymous = get_over_tls(port, "/health", &pair.certificate).await;
     assert!(anonymous.starts_with("HTTP/1.1 200 OK"), "{anonymous}");
-    // Without the authority the listener asks for no certificate, so this node's is never sent and
-    // the request is answered.
+    // A certificate another authority signed fails the handshake, so there is no answer at all.
     let foreign = exchange(port, "/health", Authority::generate().presented_to(&pair)).await;
     assert!(foreign.is_err(), "{foreign:?}");
     serving.abort();

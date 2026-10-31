@@ -37,7 +37,7 @@ fn the_falsifier_seed_leaves_t6_as_the_one_uncovered_variant() {
     drop(std::fs::remove_dir_all(&tree));
 
     let uncovered = "T6: no test names it and no snapshot records it";
-    let floor = "6 variant(s) with evidence plus 0 excused does not account for the 7 TlsNotUsable declares";
+    let floor = "7 variant(s) with evidence plus 0 excused does not account for the 8 TlsNotUsable declares";
     for (name, outcome) in &found {
         let problems = outcome
             .as_ref()
