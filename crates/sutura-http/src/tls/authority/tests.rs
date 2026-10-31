@@ -8,6 +8,7 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs
 
 use super::super::fixture::{Pair, Scratch, atomically, client_presenting, exchange, generate, get_over_tls, write};
 use super::super::{Termination, TlsListener, TlsNotUsable};
+use crate::server::NodeCertified;
 
 /// An authority's certificate, and a node certificate it signed with that node's key.
 struct Authority {
@@ -62,24 +63,30 @@ async fn a_node_the_authority_signed_and_a_caller_with_none_get_in_and_another_a
         .expect("a loopback port is bindable");
     let port = tcp.local_addr().expect("a bound socket has an address").port();
     let listener = TlsListener::wrap(tcp, termination.config()).expect("the listener wraps");
-    let router = axum::Router::new().route("/health", axum::routing::get(|| async { "ok" }));
+    let router = axum::Router::new().route(
+        "/who",
+        axum::routing::get(|node: Option<axum::Extension<NodeCertified>>| async move {
+            if node.is_some() { "node" } else { "anonymous" }
+        }),
+    );
     let serving = tokio::spawn(async move {
-        let _outcome = axum::serve(
-            axum::serve::ListenerExt::tap_io(listener, |_io| ()),
-            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await;
+        let _outcome = axum::serve(listener, crate::server::connected(router)).await;
     });
 
-    let signed = exchange(port, "/health", ours.presented_to(&pair)).await;
+    let signed = exchange(port, "/who", ours.presented_to(&pair)).await;
     assert!(
-        signed.as_deref().is_ok_and(|answer| answer.starts_with("HTTP/1.1 200 OK")),
+        signed
+            .as_deref()
+            .is_ok_and(|answer| answer.starts_with("HTTP/1.1 200 OK") && answer.ends_with("node")),
         "{signed:?}"
     );
-    let anonymous = get_over_tls(port, "/health", &pair.certificate).await;
-    assert!(anonymous.starts_with("HTTP/1.1 200 OK"), "{anonymous}");
+    let anonymous = get_over_tls(port, "/who", &pair.certificate).await;
+    assert!(
+        anonymous.starts_with("HTTP/1.1 200 OK") && anonymous.ends_with("anonymous"),
+        "{anonymous}"
+    );
     // A certificate another authority signed fails the handshake, so there is no answer at all.
-    let foreign = exchange(port, "/health", Authority::generate().presented_to(&pair)).await;
+    let foreign = exchange(port, "/who", Authority::generate().presented_to(&pair)).await;
     assert!(foreign.is_err(), "{foreign:?}");
     serving.abort();
 }

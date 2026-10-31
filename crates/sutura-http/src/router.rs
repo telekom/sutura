@@ -86,19 +86,21 @@ mod metrics;
 // `assemble` read `mount.router` directly (`#758` round 3). Moving it below the module boundary
 // makes the same read `E0616` from every item in THIS module, `assemble` included; the re-export
 // keeps `crate::router::Ungoverned` the path every other crate module already names.
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 mod ungoverned;
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 pub(crate) use ungoverned::Ungoverned;
 
 #[cfg(feature = "flight")]
 mod flight;
 #[cfg(feature = "flight")]
 use flight::flight_subtree;
+#[cfg(feature = "worker")]
+mod worker;
 
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 mod allowlist;
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 pub(crate) use allowlist::{check_ungoverned, ungoverned_routes};
 
 /// What the span calls the route of a request that matched none.
@@ -228,7 +230,7 @@ pub enum RouterNotBuilt {
     /// `check-boundaries`' `ungoverned` gate, which is what makes "no mount with no row"
     /// structural rather than recorder's recall. It does not insist a table row be merged - `/mcp`
     /// is allowed to be absent - which is stated next to [`check_ungoverned`].
-    #[cfg(any(feature = "agent", feature = "flight"))]
+    #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
     #[error(
         "`{path}` is mounted outside the versioned subtree and `sutura_http::router::ungoverned_routes` \
          carries no row naming why, so nothing says it was considered against the routes `governed()` \
@@ -429,9 +431,9 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         .merge(public);
     // Only the blocks below mutate the router, so on a build with neither feature it stays immutable
     // and the shadow is what keeps `mut` from being dead on either side of the cfg.
-    #[cfg(any(feature = "agent", feature = "flight"))]
+    #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
     let mut router = router;
-    #[cfg(any(feature = "agent", feature = "flight"))]
+    #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
     let mut ungoverned: Vec<&'static str> = Vec::new();
     // The agent surface, merged here for the same reason `public` is - outside the version prefix,
     // over the same final unchecked merge, and ONLY through an `Ungoverned`: `agent_subtree` fuses
@@ -451,7 +453,12 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     if let Some(mount) = flight_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
         mount.merge_into(&mut router, &mut ungoverned);
     }
-    #[cfg(any(feature = "agent", feature = "flight"))]
+    // The worker transport, behind the one check `worker::worker_subtree` documents in place of these.
+    #[cfg(feature = "worker")]
+    if let Some(mount) = worker::worker_subtree(state) {
+        mount.merge_into(&mut router, &mut ungoverned);
+    }
+    #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
     {
         for row in ungoverned_routes() {
             tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");

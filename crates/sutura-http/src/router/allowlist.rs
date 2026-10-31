@@ -14,37 +14,20 @@ pub(crate) struct UngovernedRoute {
 
 /// Every route this crate mounts outside the versioned subtree, with the reason each one is.
 ///
-/// One of four fixed-size arrays, picked by which of `agent`/`flight` are compiled, rather than a
-/// `Vec` - the same explicit-size style [`super::Ungoverned`] itself favours, so an added route is a
-/// new element in a literal array rather than a push nothing checks the shape of. `/health`,
-/// `/metrics` and the documentation paths are merged by `assemble` without an allowlist row and are
-/// deliberately not listed here - see [`check_ungoverned`] for what that means this table does and
-/// does not guard.
-#[cfg(all(feature = "agent", feature = "flight"))]
+/// A literal array with one element per compiled feature, so an added route is a new element rather
+/// than a push nothing checks the shape of. `/health`, `/metrics` and the documentation paths are
+/// merged by `assemble` without an allowlist row and are deliberately not listed here - see
+/// [`check_ungoverned`] for what that means this table does and does not guard.
 #[must_use]
-pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 2] {
-    [AGENT_ROUTE, FLIGHT_ROUTE]
-}
-
-/// See [`ungoverned_routes`].
-#[cfg(all(feature = "agent", not(feature = "flight")))]
-#[must_use]
-pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
-    [AGENT_ROUTE]
-}
-
-/// See [`ungoverned_routes`].
-#[cfg(all(feature = "flight", not(feature = "agent")))]
-#[must_use]
-pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 1] {
-    [FLIGHT_ROUTE]
-}
-
-/// See [`ungoverned_routes`].
-#[cfg(not(any(feature = "agent", feature = "flight")))]
-#[must_use]
-pub(crate) const fn ungoverned_routes() -> [UngovernedRoute; 0] {
-    []
+pub(crate) const fn ungoverned_routes() -> &'static [UngovernedRoute] {
+    &[
+        #[cfg(feature = "agent")]
+        AGENT_ROUTE,
+        #[cfg(feature = "flight")]
+        FLIGHT_ROUTE,
+        #[cfg(feature = "worker")]
+        WORKER_ROUTE,
+    ]
 }
 
 #[cfg(feature = "agent")]
@@ -59,6 +42,13 @@ const FLIGHT_ROUTE: UngovernedRoute = UngovernedRoute {
     path: crate::constants::FLIGHT_MOUNT_PATH,
     reason: "a gRPC service dispatches its own methods by the tonic-generated path, which `governed()` \
              {path, capability} cannot name one row for",
+};
+
+#[cfg(feature = "worker")]
+const WORKER_ROUTE: UngovernedRoute = UngovernedRoute {
+    path: crate::constants::WORKER_MOUNT_PATH,
+    reason: "a node's half of a query planned across nodes, answered only on a connection that presented \
+             a node certificate; the caller is a node, so there is no person for a capability to scope",
 };
 
 /// Refuses a RECORDED ungoverned route that [`ungoverned_routes`] does not name.

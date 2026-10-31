@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-http/src/server.rs b/crates/sutura-http/src/server.rs
-index 4775e4afa..1b0d2fae8 100644
+index 152234984..5c72784fe 100644
 --- a/crates/sutura-http/src/server.rs
 +++ b/crates/sutura-http/src/server.rs
-@@ -140,6 +140,12 @@ where
-     SocketAddr: for<'a> axum::extract::connect_info::Connected<axum::serve::IncomingStream<'a, L>>,
+@@ -206,6 +206,12 @@ where
+     Peer: for<'a> Connected<IncomingStream<'a, L>>,
  {
      let graceful = shutdown.clone();
 +    let router = router.layer(axum::middleware::from_fn(
@@ -12,6 +12,6 @@ index 4775e4afa..1b0d2fae8 100644
 +            next.run(request).await
 +        },
 +    ));
-     let serving = axum::serve(
-         listener,
-         // See the module documentation: the limiter has no key without this.
+     let serving = axum::serve(listener, connected(router)).with_graceful_shutdown(async move {
+         let reason = graceful.requested().await;
+         tracing::debug!(%reason, "the server was asked to stop accepting connections");

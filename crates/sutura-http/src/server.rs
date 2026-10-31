@@ -19,6 +19,12 @@
 //! answer every request with "cannot extract key" and limit nothing. That is the failure mode where
 //! a limiter appears configured and is not.
 //!
+//! The same read says whether the client is a node. [`Peer`] is taken from each accepted connection,
+//! and [`connected`] splits it into the `ConnectInfo<SocketAddr>` the limiter keys on and, when the
+//! client presented a certificate the node authority signed, [`NodeCertified`]. Only the TLS
+//! listener's stream can report one, and a request's extensions are never read off the wire, so a
+//! client cannot claim it. It says that a node connected, not which one.
+//!
 //! # Plaintext and TLS are one serve path
 //!
 //! [`serve`] and [`serve_tls`] differ in the listener they build and in nothing else. Both hand it
@@ -36,6 +42,9 @@
 use std::net::SocketAddr;
 
 use axum::Router;
+use axum::extract::Request;
+use axum::extract::connect_info::{ConnectInfo, Connected, IntoMakeServiceWithConnectInfo};
+use axum::serve::{IncomingStream, Listener};
 use sutura_runtime::Shutdown;
 
 /// Why the server stopped, other than being asked to.
@@ -100,12 +109,7 @@ pub async fn serve_tls(
     })?;
     renewal.watch_until_shutdown(crate::tls::RENEWAL_INTERVAL, shutdown.clone());
     tracing::info!(%bound, tls = true, "listening");
-    // `tap_io` with a closure that does nothing, and it is NOT decoration. `axum` gives `SocketAddr`
-    // a `Connected` implementation for `TcpListener` and a blanket one for a tapped listener, and
-    // has none for an arbitrary one - which this crate cannot add, because both types are foreign.
-    // Without this wrapper there is no `ConnectInfo` on the TLS path and the limiter keys on
-    // nothing. `crate::tls` states it at length; there is a test on it.
-    run(axum::serve::ListenerExt::tap_io(listener, |_io| ()), router, shutdown).await
+    run(listener, router, shutdown).await
 }
 
 /// Binds the socket, naming the address in the failure.
@@ -129,23 +133,76 @@ fn local(listener: &tokio::net::TcpListener, requested: SocketAddr) -> Result<So
     })
 }
 
+/// A connection whose client presented a certificate the node authority signed.
+///
+/// In a request's extensions only when its connection carried one, so a route only a node may call
+/// requires it. See the module documentation for what it does not say.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NodeCertified;
+
+/// An accepted connection's client: its address, and whether it is a node.
+///
+/// `Connected` for each listener this module serves rather than once over any listener: `axum`'s own
+/// implementation over `TapIo` is generic in the address, so a generic one here would overlap it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Peer {
+    address: SocketAddr,
+    node: Option<NodeCertified>,
+}
+
+impl Connected<IncomingStream<'_, tokio::net::TcpListener>> for Peer {
+    fn connect_info(stream: IncomingStream<'_, tokio::net::TcpListener>) -> Self {
+        Self {
+            address: *stream.remote_addr(),
+            node: None,
+        }
+    }
+}
+
+#[cfg(feature = "tls")]
+impl Connected<IncomingStream<'_, crate::tls::TlsListener>> for Peer {
+    /// Any client certificate here is one the node authority signed: its verifier fails the
+    /// handshake for another, and without an authority none is asked for.
+    fn connect_info(stream: IncomingStream<'_, crate::tls::TlsListener>) -> Self {
+        Self {
+            address: *stream.remote_addr(),
+            node: stream.io().get_ref().1.peer_certificates().map(|_| NodeCertified),
+        }
+    }
+}
+
+/// `router` as the service `axum::serve` makes per connection, with [`Peer`] split into each
+/// request as the module documentation describes.
+pub(crate) fn connected(router: Router) -> IntoMakeServiceWithConnectInfo<Router, Peer> {
+    router
+        .layer(axum::middleware::map_request(split))
+        .into_make_service_with_connect_info::<Peer>()
+}
+
+/// Replaces [`Peer`] in the request's extensions with its address and, for a node, the marker.
+async fn split(mut request: Request) -> Request {
+    if let Some(ConnectInfo(peer)) = request.extensions_mut().remove::<ConnectInfo<Peer>>() {
+        let _previous = request.extensions_mut().insert(ConnectInfo(peer.address));
+        if let Some(node) = peer.node {
+            let _previous = request.extensions_mut().insert(node);
+        }
+    }
+    request
+}
+
 /// Serves until the drain finishes or its deadline expires.
 ///
 /// Generic over the listener so plaintext and TLS share this, which is the point - see the module
 /// documentation. The `Connected` bound is what guarantees the peer address reaches a handler: a
-/// listener that cannot produce one does not compile, rather than producing a limiter with no key.
+/// listener [`Peer`] cannot be read from does not compile, rather than producing a limiter with no
+/// key.
 async fn run<L>(listener: L, router: Router, shutdown: Shutdown) -> Result<(), ServeFailed>
 where
-    L: axum::serve::Listener<Addr = SocketAddr>,
-    SocketAddr: for<'a> axum::extract::connect_info::Connected<axum::serve::IncomingStream<'a, L>>,
+    L: Listener<Addr = SocketAddr>,
+    Peer: for<'a> Connected<IncomingStream<'a, L>>,
 {
     let graceful = shutdown.clone();
-    let serving = axum::serve(
-        listener,
-        // See the module documentation: the limiter has no key without this.
-        router.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
+    let serving = axum::serve(listener, connected(router)).with_graceful_shutdown(async move {
         let reason = graceful.requested().await;
         tracing::debug!(%reason, "the server was asked to stop accepting connections");
     });

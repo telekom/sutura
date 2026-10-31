@@ -42,7 +42,7 @@ use std::sync::Arc;
 use sutura_config::Settings;
 use sutura_runtime::{Admission, Counter, Gauge, Registry, RegistryBuilder};
 
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 use crate::router::Ungoverned;
 use crate::surface::Surface;
 
@@ -143,6 +143,9 @@ pub struct ServiceState {
     /// mount does.
     #[cfg(feature = "flight")]
     flight: Option<FlightMount>,
+    /// The mounted worker transport, attached the same way.
+    #[cfg(feature = "worker")]
+    worker: Option<WorkerMount>,
     /// Where each request's job-label id is drawn from: the OS source, except in a test of a host
     /// that will not supply one.
     entropy: crate::correlation::Draw,
@@ -399,6 +402,45 @@ impl FlightMount {
     }
 }
 
+/// The mounted worker transport: the query engine's worker service, opaque to this crate.
+///
+/// Like [`FlightMount`], no spend declaration: what a worker computes was charged to the caller's
+/// ledger on the node that planned the query.
+#[cfg(feature = "worker")]
+#[derive(Clone)]
+pub struct WorkerMount {
+    mount: Ungoverned,
+}
+
+#[cfg(feature = "worker")]
+impl WorkerMount {
+    /// Wraps any service `nest_service` can mount, nested at this crate's own `WORKER_MOUNT_PATH`.
+    ///
+    /// The composition root builds the service and restores the request's original URI in front of
+    /// it, as it does for [`FlightMount::new`]'s, because a nested gRPC service otherwise sees its
+    /// method path with the service name stripped.
+    #[must_use]
+    pub fn new<S>(service: S) -> Self
+    where
+        S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        S::Response: axum::response::IntoResponse,
+        S::Future: Send + 'static,
+    {
+        Self {
+            mount: Ungoverned::mount(crate::constants::WORKER_MOUNT_PATH, service),
+        }
+    }
+
+    /// A clone of the fused mount, for `crate::router::worker_subtree` to layer and merge.
+    pub(crate) fn ungoverned(&self) -> Ungoverned {
+        self.mount.clone()
+    }
+}
+
 impl ServiceState {
     /// Builds the state from a started service and the settings it was started under, which outside
     /// a test fixture only [`crate::ServableSettings::check`] hands out.
@@ -473,6 +515,8 @@ impl ServiceState {
             agent: None,
             #[cfg(feature = "flight")]
             flight: None,
+            #[cfg(feature = "worker")]
+            worker: None,
             entropy: crate::correlation::from_the_os,
         }
     }
@@ -549,6 +593,22 @@ impl ServiceState {
     #[must_use]
     pub const fn flight_surface(&self) -> Option<&FlightMount> {
         self.flight.as_ref()
+    }
+
+    /// The same state, with the worker transport attached.
+    #[cfg(feature = "worker")]
+    #[must_use]
+    pub fn with_worker_surface(mut self, mount: WorkerMount) -> Self {
+        self.worker = Some(mount);
+        self
+    }
+
+    /// The mounted worker transport, if this build and deployment carry one.
+    #[cfg(feature = "worker")]
+    #[inline]
+    #[must_use]
+    pub const fn worker_surface(&self) -> Option<&WorkerMount> {
+        self.worker.as_ref()
     }
 
     /// Leg 1, if this deployment has it.
