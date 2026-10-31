@@ -244,3 +244,5 @@ a_node_hop_to_the_deployments_own_audience_is_a_typed_refusal # names `NotFitToS
 a_node_source_is_refused_by_a_build_that_did_not_link_the_client # #[cfg(not(feature = "node"))]: not compiled by the --all-features causality run; `just gates`' default-feature lane runs it
 a_node_endpoint_the_client_cannot_dial_is_refused_at_boot # in crates/sutura-cli/src/serve/node.rs, a module new in this change
 a_node_source_opens_in_the_mix_and_declares_that_it_relays # in crates/sutura-cli/src/serve/node.rs, a module new in this change
+a_node_the_authority_signed_and_a_caller_with_none_get_in_and_another_authoritys_node_does_not # in crates/sutura-http/src/tls/authority/tests.rs, whose module is declared in tls/authority.rs, new in this change
+an_authority_file_with_no_usable_certificate_is_refused_before_the_socket_binds # in crates/sutura-http/src/tls/authority/tests.rs, whose module is declared in tls/authority.rs, new in this change; names `TlsNotUsable::NotAnAuthority`, new here
