@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+index 4630e5b47..3fd96bd99 100644
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -456,7 +456,7 @@ impl DataFusionCombiner {
+         let working_set = working_set_of(ceiling_bytes);
+         #[cfg(feature = "distributed")]
+         if let (Some(nodes), Some(legs_bytes)) = (&self.nodes, legs_bytes) {
+-            if !nodes.first_across(legs_bytes, ceiling_bytes) {
++            if !nodes.first_across(legs_bytes, ceiling_bytes) && false {
+                 match run(&bounded_session(working_set)?, working_set) {
+                     Err(CombineError::Exhausted { .. }) => {}
+                     answered => return answered,

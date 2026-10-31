@@ -33,7 +33,9 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
     )
     .and_then(|tls| match (tls, raw.server.nodes.as_ref()) {
         (tls, None) => Ok(tls),
-        (Some(tls), Some(nodes)) => tls.with_nodes(&nodes.own, &nodes.others).map(Some),
+        (Some(tls), Some(nodes)) => tls
+            .with_nodes(&nodes.own, &nodes.others)
+            .map(|tls| Some(tls.across_above(nodes.across_above_bytes))),
         (None, Some(_)) => Err(crate::server::InvalidTlsMaterial::NodesWithoutAuthority),
     })
     .map_err(|cause| SettingsError::TlsMaterial { cause })?;

@@ -410,6 +410,9 @@ pub(crate) struct RawNodes {
     /// This node's address, as the others reach it.
     pub(crate) own: String,
     pub(crate) others: Vec<String>,
+    /// The leg bytes above which a question reading several data systems is planned across at once.
+    #[serde(default)]
+    pub(crate) across_above_bytes: Option<core::num::NonZeroU64>,
 }
 
 #[derive(serde::Deserialize)]

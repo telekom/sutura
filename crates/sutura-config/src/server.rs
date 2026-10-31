@@ -8,7 +8,7 @@
 //! test somebody has to remember to write.
 
 use std::net::{IpAddr, SocketAddr};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -321,6 +321,7 @@ pub struct DeclaredNodes {
     own: Url,
     others: Vec<Url>,
     authority: PathBuf,
+    across_above: Option<NonZeroU64>,
 }
 
 impl DeclaredNodes {
@@ -339,6 +340,13 @@ impl DeclaredNodes {
     #[inline]
     pub fn authority(&self) -> &Path {
         &self.authority
+    }
+
+    /// The leg bytes above which a question reading several data systems is planned across before
+    /// it is tried on this node, the question's own ceiling when undeclared.
+    #[inline]
+    pub const fn across_above(&self) -> Option<NonZeroU64> {
+        self.across_above
     }
 }
 
@@ -456,11 +464,22 @@ impl TlsMaterial {
             own: node_address(own)?,
             others: others.iter().map(|other| node_address(other)).collect::<Result<_, _>>()?,
             authority,
+            across_above: None,
         };
         Ok(Self {
             nodes: Some(nodes),
             ..self
         })
+    }
+
+    /// The same material, planning a question whose legs hold more than `bytes` across the declared
+    /// nodes before it is tried on this one.
+    #[must_use]
+    pub const fn across_above(mut self, bytes: Option<NonZeroU64>) -> Self {
+        if let Some(nodes) = self.nodes.as_mut() {
+            nodes.across_above = bytes;
+        }
+        self
     }
 
     /// The nodes a combine is planned across, if any were declared.
