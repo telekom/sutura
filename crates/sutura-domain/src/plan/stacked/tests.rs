@@ -99,7 +99,7 @@ fn top() -> Top {
 #[test]
 fn two_arms_on_one_source_answer_every_measure_and_bind_every_parameter_in_arm_order() {
     let plan = stacked(&Arm::of("revenue"), &Arm::of("orders")).expect("two agreeing arms stack");
-    assert_eq!(plan.result_labels(), ["region", "time_bucket", "revenue", "orders"]);
+    assert_eq!(plan.result_labels(), ["region", "period", "revenue", "orders"]);
     assert_eq!(
         plan.params(),
         [
