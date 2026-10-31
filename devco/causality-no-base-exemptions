@@ -120,7 +120,6 @@ a_drill_across_leg_the_source_refuses_is_a_refusal_naming_it_not_a_failure # in 
 metrics_reaching_a_remote_dimension_are_one_joined_arm_each # in plan/tests/drill_across.rs, which names `plan_resolved`, new in this change; killed when `plan_resolved` always plans the whole resolution
 metrics_that_read_every_dimension_the_same_way_stay_one_statement # in plan/tests/drill_across.rs, which names `plan_resolved`, new in this change; killed when `one_statement` is `false`
 a_question_over_more_legs_than_one_answer_may_run_is_refused # in plan/tests/drill_across.rs, which names `plan_resolved`, new in this change; killed when `drill_across::plan` drops its `bounded_legs` call
-metrics_that_reach_a_dimension_by_different_paths_are_an_arm_each # in plan/tests/drill_across.rs, which names `plan_resolved`, new in this change; killed when `one_statement` stops comparing `paths`
 two_metrics_by_a_remote_dimension_are_the_one_source_answer # in differential/federated/multi_metric.rs, which names `Compiled::DrillAcross`, new in this change; killed when `plan_resolved` plans the whole resolution
 two_models_by_a_shared_dimension_are_each_metrics_own_answer # in differential/federated/multi_metric.rs, which names `Compiled::DrillAcross`, new in this change; killed when every arm reads the first metric's dimensions
 a_dimension_ending_on_another_column_is_not_conformed # in differential/federated/multi_metric.rs, which names `Compiled::DrillAcross`, new in this change; killed when `conformed` returns `Ok`
