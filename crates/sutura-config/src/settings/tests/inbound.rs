@@ -468,7 +468,7 @@ fn a_direct_audience_that_is_its_own_issuer_does_not_start() {
         format!("{DIRECT_INBOUND}    audience: \"https://issuer.example.com\"\n"),
     ] {
         let sources = Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}"));
-        let error = Settings::load(&sources).expect_err("an audience that is the issuer is refused");
+        let error = Settings::load(&sources).expect_err("an audience that is its issuer is refused");
         let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
             panic!("expected a posture refusal, got {error:?}");
         };
