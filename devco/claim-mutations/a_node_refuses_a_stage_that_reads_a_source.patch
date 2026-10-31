@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
+index 75771a760..b03aa3b2f 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across.rs
+@@ -153,7 +153,7 @@ pub(super) struct StageReadsASource {
+ fn reads_no_source(event: WorkerPlanRewriteEvent<'_>) -> Result<WorkerPlanRewriteEventResponse, DataFusionError> {
+     let mut source = None;
+     event.plan.apply(|node| {
+-        if node.children().is_empty() && !carried(node) {
++        if node.children().is_empty() && carried(node) {
+             source = Some(String::from(node.name()));
+             return Ok(TreeNodeRecursion::Stop);
+         }

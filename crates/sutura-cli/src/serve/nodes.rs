@@ -8,7 +8,8 @@
 //!
 //! **Limits.** The pair and the authority are read once, at boot: the listener's rotation does not
 //! reach a link, so a renewed node certificate is presented on links after a restart. A link carries
-//! no task grant, so this node runs any stage a node of the same authority sends it.
+//! no task grant, so this node runs any stage that reads no source which a node of the same
+//! authority sends it.
 
 use sutura_config::RuntimeSettings;
 use sutura_config::TlsMaterial;
