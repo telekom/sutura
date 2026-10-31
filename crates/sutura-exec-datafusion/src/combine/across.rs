@@ -9,13 +9,16 @@
 //!
 //! **Limits, next to the claim.**
 //!
-//! - Nothing here refuses a plan that would send a leg to another node. That the legs stay is the
-//!   engine routing a one-task stage, not a check of ours: the record's Decision 3 refusal is not
-//!   built.
+//! - That the legs stay is the engine routing a one-task stage, not a check of ours. What a check
+//!   holds is the other side: a [`Nodes::worker`] refuses a stage with a leaf that reads anything
+//!   but another node's stage or rows the plan itself carries, such as a file scan
+//!   ([`StageReadsASource`], Decision 3). The leaves it accepts are four types, so a leg's rows sent
+//!   to another node would run there; they are rows this node read and chose to send.
 //! - A link is gRPC over mutual TLS: each end presents a certificate the deployment's node authority
 //!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). It carries no grant, so a
-//!   node serving [`Nodes::worker`] runs any stage another node of the authority sends it; Decision 5
-//!   is not built. The identity is read once, so a renewed certificate is presented after a restart.
+//!   node serving [`Nodes::worker`] runs any stage that reads no source another node of the
+//!   authority sends it; Decision 5 is not built. The identity is read once, so a renewed
+//!   certificate is presented after a restart.
 //! - A channel, once dialled, is kept for the process's life, one for every node it has dialled.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
@@ -26,13 +29,19 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
+use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
+use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::empty::EmptyExec;
+use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, SessionStateBuilderExt as _,
-    Worker, WorkerChannel, WorkerQueryContext, WorkerResolver,
+    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, NetworkBoundaryExt as _,
+    SessionStateBuilderExt as _, Worker, WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse,
+    WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
 use tokio_rustls::TlsConnector;
@@ -87,7 +96,8 @@ impl Nodes {
     }
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill
-    /// nowhere, as a combine's own session does, and read another node's stage as `identity`.
+    /// nowhere, as a combine's own session does, read another node's stage as `identity`, and read
+    /// no source ([`StageReadsASource`]).
     ///
     /// # Errors
     ///
@@ -97,7 +107,13 @@ impl Nodes {
         let links = Links::of(identity);
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let links = links.clone();
-            async move { Ok(context.builder.with_distributed_channel_resolver(links).build()) }
+            async move {
+                Ok(context
+                    .builder
+                    .with_distributed_channel_resolver(links)
+                    .with_distributed_worker_plan_rewrite_handler(reads_no_source)
+                    .build())
+            }
         });
         Ok(worker.with_runtime_env(environment.into_runtime()))
     }
@@ -122,6 +138,41 @@ impl Nodes {
             .build();
         Ok(SessionContext::new_with_state(state))
     }
+}
+
+/// A stage sent to a node has a leaf that reads a source: a node reads one only for a question it
+/// plans itself, as the caller it serves.
+#[derive(Debug, thiserror::Error)]
+#[error("a stage sent to this node reads `{leaf}`, and a node reads no source for another node")]
+pub(super) struct StageReadsASource {
+    leaf: String,
+}
+
+/// `event`'s stage, refused if a leaf reads anything but another node's stage or rows the plan
+/// carries.
+fn reads_no_source(event: WorkerPlanRewriteEvent<'_>) -> Result<WorkerPlanRewriteEventResponse, DataFusionError> {
+    let mut source = None;
+    event.plan.apply(|node| {
+        if node.children().is_empty() && !carried(node) {
+            source = Some(String::from(node.name()));
+            return Ok(TreeNodeRecursion::Stop);
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    match source {
+        Some(leaf) => Err(DataFusionError::External(Box::new(StageReadsASource { leaf }))),
+        None => Ok(WorkerPlanRewriteEventResponse::new(event.plan)),
+    }
+}
+
+/// A leaf that reads no source: another node's stage, or rows the plan itself carries.
+fn carried(leaf: &Arc<dyn ExecutionPlan>) -> bool {
+    leaf.as_network_boundary().is_some()
+        || leaf.is::<EmptyExec>()
+        || leaf.is::<PlaceholderRowExec>()
+        || leaf
+            .downcast_ref::<DataSourceExec>()
+            .is_some_and(|scan| scan.data_source().is::<MemorySourceConfig>())
 }
 
 /// What a node presents on a link and which nodes it accepts on the other end: its certificate and

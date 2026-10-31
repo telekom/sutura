@@ -43,9 +43,10 @@ caller's question it belongs to?
    runs where a leg runs today: at the coordinating node, through its own broker, or at the node
    that owns the source, through a remote leg and its one exchange
    (`docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`). A node that runs a stage in
-   the middle of the combine holds no caller credential and reads no source. The plan codec
-   serializes only the engine's shuffle operators and DataFusion's own operators. It refuses a plan
-   that contains a source scan, so a scan cannot reach a node that holds no credential.
+   the middle of the combine holds no caller credential and reads no source. Every node's worker
+   refuses a stage it is sent whose leaf reads anything but another node's stage or rows the plan
+   itself carries. The check sits at the receiving node, on the decoded plan, because a check at
+   the coordinating node does not stop a node that builds a plan of its own.
 4. **A stream between nodes is authenticated by mutual TLS.** Both ends present a node certificate
    from the deployment's own authority: nix-generated in the VM venue, cert-manager in the k3s
    venue. A call to the engine's worker service without a client certificate is refused. The
@@ -74,24 +75,24 @@ caller's question it belongs to?
 
 ## Open, with a proposal
 
-| Question                                        | Proposal                                                                                                                                                                                        |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Which key signs a grant?                        | The coordinating node's certificate key, verified against the deployment's authority. A key shared by the cluster would let any node mint a grant                                               |
-| Which questions go across nodes?                | Only a question that one node refuses for its working set. Every other question stays on one node                                                                                               |
-| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates |
+| Question                                        | Proposal                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Which key signs a grant?                        | The coordinating node's certificate key, verified against the deployment's authority. A key shared by the cluster would let any node mint a grant. Every node holds such a key too, so any node of the authority mints a grant as well: the grant adds an expiry and an audit line, and restricts nothing, unless only coordinating nodes hold a signing authority of their own |
+| Which questions go across nodes?                | Only a question that one node refuses for its working set. Every other question stays on one node                                                                                                                                                                                                                                                                               |
+| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates                                                                                                                                                                                 |
 
 ## The refusals this adds
 
 | Where          | Refused                                                                       | Why        |
 | -------------- | ----------------------------------------------------------------------------- | ---------- |
-| Coordinator    | A plan for another node that contains a source scan                           | Decision 3 |
+| Receiving node | A stage it is sent with a leaf that reads a source                            | Decision 3 |
 | Receiving node | A worker call with no client certificate, or one the authority did not sign   | Decision 4 |
 | Receiving node | A worker call whose grant does not verify, has expired, or names another task | Decision 5 |
 | Any node       | A stage over that node's working-set budget                                   | Decision 6 |
 | Coordinator    | A question that lost a node mid-run                                           | Decision 7 |
 
-A new refusal enum is enrolled in `check-refusal-coverage`, which reads only enrolled enums. Each
-refusal gets its own cell.
+A new refusal enum is enrolled in `check-refusal-coverage`, which reads only enrolled enums. A
+refusal with one mode is a struct, which that gate does not read. Each refusal gets its own cell.
 
 ## Limits
 

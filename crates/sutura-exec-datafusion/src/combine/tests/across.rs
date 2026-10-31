@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-use datafusion_distributed::Worker;
+use datafusion::error::DataFusionError;
+use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion_distributed::{MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
@@ -18,12 +20,14 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
+use tonic::codegen::http::HeaderMap;
 use tonic::service::InterceptorLayer;
 use tonic::transport::Server;
 use tonic::transport::server::Connected;
 use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_row, lookup, sum_plan, text};
+use crate::combine::across::StageReadsASource;
 use crate::combine::{DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
 
@@ -232,6 +236,51 @@ fn a_node_another_authority_signed_is_sent_no_stage() {
             "the node {other} another authority signed was sent a request"
         );
     }
+}
+
+#[test]
+fn a_node_refuses_a_stage_that_reads_a_source() {
+    let authority = Authority::generate();
+    let worker = Nodes::worker(roomy(), authority.identity(&authority.sign())).expect("a worker builds");
+    let path = std::env::temp_dir().join(format!("sutura-stage-source-{}.csv", std::process::id()));
+    std::fs::write(&path, "region\nnorth\n").expect("a temporary file writes");
+    // The stage arrives decoded, as the node's own stages do; one sent over a link is decoded first,
+    // and the same check runs on the decoded plan.
+    let refused = servers().block_on(async {
+        let scan = SessionContext::new()
+            .read_csv(path.to_str().expect("a temporary path is text"), CsvReadOptions::new())
+            .await
+            .expect("a file reads")
+            .create_physical_plan()
+            .await
+            .expect("a file scan plans");
+        #[expect(
+            clippy::default_trait_access,
+            reason = "the question id is a `uuid`, which this crate does not name; the check reads no id"
+        )]
+        let stage = SetPlanRequest {
+            task_key: TaskKey {
+                query_id: Default::default(),
+                stage_id: 1,
+                task_number: 0,
+            },
+            task_count: 1,
+            plan: MaybeEncoded::Decoded(scan),
+            work_unit_feed_declarations: vec![],
+            target_worker_url: Url::parse("https://127.0.0.1:1").expect("an address is a URL"),
+            query_start_time_ns: 0,
+        };
+        worker
+            .coordinator_channel(HeaderMap::new(), stage, Box::pin(stream::empty()))
+            .await
+            .err()
+    });
+    std::fs::remove_file(&path).expect("a temporary file removes");
+    let refused = refused.expect("a node ran a stage that reads a file");
+    assert!(
+        matches!(refused.find_root(), DataFusionError::External(cause) if cause.downcast_ref::<StageReadsASource>().is_some()),
+        "{refused}"
+    );
 }
 
 /// A served TLS connection, as the gRPC server takes one: its own crate's `Connected` for a TLS
