@@ -114,6 +114,11 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 - **The working set is checked per node, not per question.** Several nodes each under budget can
   together hold more than one node's budget. That is the point, and it also means the question's
   total memory is bounded only by the number of nodes.
+- **A link's buffer is charged to the pool without asking.** The engine admits a batch from another
+  node before it reserves for it, so a link left at the engine's default of 64 MiB could fill a
+  node's pool and leave its operators refused. Each link's budget is a quarter of the working set
+  shared by the nodes. It is still overshot by one message, and two questions on a node each hold
+  their own links' share.
 - **The leg size is an estimate.** It is Arrow's in-memory measure of the legs, which counts a
   buffer two arrays share twice, so it errs towards going across. A combine that ran out on one node
   is started again across, and the work it did there is lost.

@@ -11,7 +11,7 @@ use datafusion::arrow::array::{ArrayRef, StringArray};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
-use datafusion_distributed::{MaybeEncoded, SetPlanRequest, TaskKey, Worker};
+use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
@@ -309,6 +309,23 @@ fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() 
         .to_rows()
         .expect("a combined answer decodes");
     assert_eq!(spread.rows(), answer.rows());
+}
+
+#[test]
+fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set() {
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let at = |port: u16| Url::parse(&format!("https://127.0.0.1:{port}")).expect("a node is a URL");
+    let nodes = Nodes::declared(own, at(1), [at(2), at(3)], authority.identity(&node));
+    let working_set = WorkingSet::of_bytes(NonZeroUsize::new(12 << 20).expect("a nonzero size"));
+
+    let session = nodes.session(working_set).expect("a session builds");
+    let state = session.state();
+    let links = DistributedConfig::from_session_config(state.config()).expect("the session plans across nodes");
+
+    assert_eq!(links.worker_connection_buffer_budget_bytes, 1 << 20);
+    assert_eq!(state.config().target_partitions(), 3);
 }
 
 #[test]

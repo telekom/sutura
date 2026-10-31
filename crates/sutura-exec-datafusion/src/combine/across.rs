@@ -39,6 +39,9 @@
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
+//! - A link's buffer is bounded by its budget plus one message, which it admits whatever its size,
+//!   and two questions on one node each hold their own links' share. A worker holds the budget the
+//!   stage it runs carries, which the node that planned it set.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -57,9 +60,10 @@ use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, DistributedLeafExec,
-    NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse, SessionStateBuilderExt as _, Worker,
-    WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse, WorkerQueryContext, WorkerResolver,
+    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedConfig, DistributedExt as _,
+    DistributedLeafExec, NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
+    SessionStateBuilderExt as _, Worker, WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse,
+    WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
 use tokio_rustls::TlsConnector;
@@ -156,12 +160,21 @@ impl Nodes {
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across these
-    /// nodes.
+    /// nodes, each stage one task per node and each task one partition per node.
+    ///
+    /// A link charges the batches it holds to its node's pool without asking, so each link may hold
+    /// a quarter of the working set shared by the nodes: a task reads one link from every node for
+    /// each input, and a join's two inputs then hold half the working set at most, leaving the other
+    /// half to its operators. The budget rides with each stage, so the node running it reads it too.
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
         let count = self.all.0.len();
+        let mut links = DistributedConfig::default();
+        links.worker_connection_buffer_budget_bytes =
+            working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
         let state = SessionStateBuilder::new()
-            .with_config(SessionConfig::new())
+            .with_config(SessionConfig::new().with_target_partitions(count))
+            .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
             .with_default_features()
             .with_distributed_worker_resolver(self.all.clone())
