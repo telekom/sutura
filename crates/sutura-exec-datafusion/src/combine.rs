@@ -74,7 +74,7 @@ use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
-use sutura_domain::model::Aggregate;
+use sutura_domain::model::{Aggregate, SourceName};
 use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs};
 use sutura_domain::query::MAX_LOOKUP_LEGS;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
@@ -433,29 +433,49 @@ impl DataFusionCombiner {
         })
     }
 
-    /// The session one combine runs in, bounded to this call's own ceiling: this node's alone, or
-    /// one planned across [`Self::across`]'s nodes.
+    /// One combine, which `run` answers in the session it is placed in, bounded to `ceiling_bytes`.
+    ///
+    /// On this node, unless [`Self::across`] declared nodes and the question reads more than one data
+    /// system, in which case `legs_bytes` is what its legs hold. Then it is planned across the nodes
+    /// at once when [`Nodes`] says its legs are too large for one, and otherwise tried on this node
+    /// first and planned across only when that is refused for its working set.
     #[cfg_attr(
         not(feature = "distributed"),
-        expect(clippy::unused_self, reason = "reads `self.nodes`, which only `distributed` declares")
+        expect(
+            clippy::unused_self,
+            unused_variables,
+            reason = "reads `self.nodes`, which only `distributed` declares"
+        )
     )]
-    fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
+    fn placed(
+        &self,
+        ceiling_bytes: u64,
+        legs_bytes: Option<u64>,
+        run: impl Fn(&SessionContext, WorkingSet) -> Result<ResultBatches, CombineError>,
+    ) -> Result<ResultBatches, CombineError> {
+        let working_set = working_set_of(ceiling_bytes);
         #[cfg(feature = "distributed")]
-        if let Some(nodes) = &self.nodes {
-            return nodes.session(working_set);
+        if let (Some(nodes), Some(legs_bytes)) = (&self.nodes, legs_bytes) {
+            if !nodes.first_across(legs_bytes, ceiling_bytes) {
+                match run(&bounded_session(working_set)?, working_set) {
+                    Err(CombineError::Exhausted { .. }) => {}
+                    answered => return answered,
+                }
+            }
+            return run(&nodes.session(working_set)?, working_set);
         }
-        bounded_session(working_set)
+        run(&bounded_session(working_set)?, working_set)
     }
 
     /// One combine, in `context`.
     async fn assembled(
         plan: &FederatedPlan,
-        legs: Legs<'_>,
+        legs: &Legs<'_>,
         context: &SessionContext,
         working_set: WorkingSet,
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
-        let logical = arm_plan(plan, &legs, context, ceiling_bytes, working_set).await?;
+        let logical = arm_plan(plan, legs, context, ceiling_bytes, working_set).await?;
         executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
     }
 }
@@ -609,6 +629,30 @@ async fn arm_plan(
     combine_plan(plan, context, &links, &leaves, second_table).await
 }
 
+/// Whether `sources` name more than one data system.
+fn several<'s>(mut sources: impl Iterator<Item = &'s SourceName>) -> bool {
+    let first = sources.next();
+    sources.any(|source| Some(source) != first)
+}
+
+/// The bytes `batches` hold, by Arrow's measure of their buffers.
+fn held(batches: &ResultBatches) -> u64 {
+    batches
+        .batches()
+        .iter()
+        .map(|batch| u64::try_from(batch.get_array_memory_size()).unwrap_or(u64::MAX))
+        .fold(0, u64::saturating_add)
+}
+
+/// The bytes every leg of one combine holds.
+fn legs_held(legs: &Legs<'_>) -> u64 {
+    core::iter::once(legs.fact())
+        .chain(legs.second_fact())
+        .chain(legs.lookups().iter().map(|&(_, batches)| batches))
+        .map(held)
+        .fold(0, u64::saturating_add)
+}
+
 /// A session whose operators reserve against `working_set`: the one pool a question's combine has.
 fn bounded_session(working_set: WorkingSet) -> Result<SessionContext, CombineError> {
     let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
@@ -633,10 +677,11 @@ impl FederationCombiner for DataFusionCombiner {
     type Error = CombineError;
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
-        let working_set = working_set_of(working_set_bytes);
-        let context = self.session(working_set)?;
-        self.runtime()?
-            .block_on(Self::assembled(plan, legs, &context, working_set, working_set_bytes))
+        let legs_bytes = several(plan.sources()).then(|| legs_held(&legs));
+        self.placed(working_set_bytes, legs_bytes, |context, working_set| {
+            self.runtime()?
+                .block_on(Self::assembled(plan, &legs, context, working_set, working_set_bytes))
+        })
     }
 
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {

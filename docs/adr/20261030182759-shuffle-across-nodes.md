@@ -5,9 +5,9 @@ description: How a federated question whose combine is too big for one node spre
 
 # One question's combine runs across nodes, and a stream between them carries a node identity and a task grant
 
-Status: **proposed**, 2026-10-30. The owner chose the engine family and the stream identity, the
-first two answers below. The rest is proposed here. Nothing is built or compiled. This record
-decides; it proves nothing.
+Status: **accepted**, 2026-10-31, scoped to a question whose join or aggregation needs more than
+one node. The owner chose the engine family, the stream identity and when a question goes across,
+the answers below. Decision 5, the task grant, is deferred. This record decides; it proves nothing.
 
 ## The question
 
@@ -26,6 +26,7 @@ caller's question it belongs to?
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Q1. How is one question split across nodes?                                        | A shuffle engine: nodes exchange rows all-to-all                                                                                                                                                           |
 | Q2. How does a stream in the middle of the combine prove whose question it serves? | Node identity plus a task grant. Only a node that reads a source holds the caller's credential. A stream between nodes is authenticated by mutual TLS, plus a short-lived grant from the coordinating node |
+| Q3. Which questions go across nodes?                                               | Only one whose join or aggregation one node cannot hold. A question that reads one data system never does                                                                                                  |
 
 ## Decision
 
@@ -68,17 +69,21 @@ caller's question it belongs to?
    caller gets a refusal and may ask again.
 8. **What scales is the combine's working set, not the answer.** The federated row ceiling still
    applies once, at the coordinating node, to the answer.
-9. **One listener.** The worker service is mounted on `sutura-http`'s listener, behind its own
-   feature, as Flight is behind `flight`. That listener asks for no client certificate today
-   (`crates/sutura-http/src/tls.rs`). It gains an optional client certificate, which only the
-   worker service requires.
+9. **A question goes across only when one node is too small for it.** A question that reads one
+   data system never goes across. One that reads several goes across at once when its legs hold
+   more than the declared `server.nodes.across_above_bytes`, or more than its working-set ceiling
+   when that is unset. Otherwise the receiving node combines it, and plans it across only when that
+   combine runs out of its ceiling. Every link adds a round trip a small question does not need.
+10. **One listener.** The worker service is mounted on `sutura-http`'s listener, behind its own
+    feature, as Flight is behind `flight`. That listener asks for no client certificate today
+    (`crates/sutura-http/src/tls.rs`). It gains an optional client certificate, which only the
+    worker service requires.
 
 ## Open, with a proposal
 
 | Question                                        | Proposal                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Which key signs a grant?                        | The coordinating node's certificate key, verified against the deployment's authority. A key shared by the cluster would let any node mint a grant. Every node holds such a key too, so any node of the authority mints a grant as well: the grant adds an expiry and an audit line, and restricts nothing, unless only coordinating nodes hold a signing authority of their own. Deferred by the owner on 2026-10-31 |
-| Which questions go across nodes?                | Only a question that one node refuses for its working set. Every other question stays on one node                                                                                                                                                                                                                                                                                                                    |
 | Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates                                                                                                                                                                                                                      |
 
 ## The refusals this adds
@@ -109,6 +114,14 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 - **The working set is checked per node, not per question.** Several nodes each under budget can
   together hold more than one node's budget. That is the point, and it also means the question's
   total memory is bounded only by the number of nodes.
+- **A link's buffer is charged to the pool without asking.** The engine admits a batch from another
+  node before it reserves for it, so a link left at the engine's default of 64 MiB could fill a
+  node's pool and leave its operators refused. Each link's budget is a quarter of the working set
+  shared by the nodes. It is still overshot by one message, and two questions on a node each hold
+  their own links' share.
+- **The leg size is an estimate.** It is Arrow's in-memory measure of the legs, which counts a
+  buffer two arrays share twice, so it errs towards going across. A combine that ran out on one node
+  is started again across, and the work it did there is lost.
 - **Not measured.** The engine's throughput, its memory at a large hash join, and the extra round
   trips per stage.
 

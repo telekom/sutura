@@ -317,6 +317,7 @@ server:
   nodes:
     own: "https://node-a.example.com:8443"
     others: ["https://node-b.example.com:8443"]
+    across_above_bytes: 268435456
 ```
 
 `own` is this node's address as the others reach it. Every address is an https URL, and the key is refused without
@@ -324,8 +325,14 @@ server:
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.
 
+A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
+more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
+it, and goes across only when that combine runs out of its ceiling. `0` is refused.
+
 Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
-restart. A link carries no task grant: a node runs any stage another node of the same authority sends it.
+restart. A link carries no task grant: a node runs any stage another node of the same authority sends it. The leg size
+is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
+that ran out on this node is started again across, and the work it did here is lost.
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.

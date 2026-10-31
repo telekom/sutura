@@ -1,7 +1,8 @@
 # Two `sutura serve` processes in two NixOS VMs, over the network between them (`telekom/sutura#828`).
 # `query` answers recurring revenue by region; `customers` lives on `source`, so `query` sends that
 # leg over Flight to `source`, which runs it against ClickHouse signed in as the caller. The two
-# nodes declare each other, so `query` plans the combine's stages above a repartition across both.
+# nodes declare each other and a leg size of one byte, so `query` plans the combine's stages above a
+# repartition across both rather than on itself first.
 #
 # What is observed: the federated answer equals the one-source golden for a caller ClickHouse shows
 # every customer, and for a caller its row policy shows only `north`, everything else falls to the
@@ -87,7 +88,9 @@ let
     tls_certificate = "${material}/${own}.pem";
     tls_key = "${material}/${own}.key";
     tls_node_authority = "${material}/ca.pem";
-    nodes = { own = "https://${own}:8443"; others = [ "https://${other}:8443" ]; };
+    # The fixtures' legs are a few hundred bytes, which one node holds, so a combine reading both
+    # data systems would stay on `query`; one byte sends every such combine across.
+    nodes = { own = "https://${own}:8443"; others = [ "https://${other}:8443" ]; across_above_bytes = 1; };
   };
   offHost = { tls_termination = "in-process"; metrics_token = "multi-node-metrics-token-0000000000"; };
   local = {

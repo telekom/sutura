@@ -29,7 +29,7 @@ use sutura_domain::warehouse::ResultBatches;
 
 use super::arm::{above_expression, leaf_labels, qualified, scan, schema_mismatch};
 use super::schema::{FACT, LegSchema, same_kind};
-use super::{CombineError, DataFusionCombiner, FACT_TABLE, arm_plan, executed, register, working_set_of};
+use super::{CombineError, DataFusionCombiner, FACT_TABLE, arm_plan, executed, held, legs_held, register, several};
 use crate::collect::outputs;
 use crate::pool::WorkingSet;
 
@@ -41,10 +41,18 @@ const NEXT: &str = "next_arm";
 
 impl DrillAcrossCombiner for DataFusionCombiner {
     fn merge(&self, plan: &DrillAcrossPlan, arms: &[ArmLegs<'_>], working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
-        let working_set = working_set_of(working_set_bytes);
-        let context = self.session(working_set)?;
-        self.runtime()?
-            .block_on(merged(plan, arms, &context, working_set, working_set_bytes))
+        let legs_bytes = several(plan.sources()).then(|| {
+            arms.iter()
+                .map(|arm| match *arm {
+                    ArmLegs::Joined(ref legs) => legs_held(legs),
+                    ArmLegs::Local { batches, .. } => held(batches),
+                })
+                .fold(0, u64::saturating_add)
+        });
+        self.placed(working_set_bytes, legs_bytes, |context, working_set| {
+            self.runtime()?
+                .block_on(merged(plan, arms, context, working_set, working_set_bytes))
+        })
     }
 }
 

@@ -9,8 +9,19 @@
 //! is spread across the nodes too. What crosses a link is a leg's share, inside the stage sent to a
 //! node, and each stage's input, as Arrow batches.
 //!
+//! **A question goes across only when one node is too small for it.** A combine reading one data
+//! system runs on this node, and so does one reading several whose legs hold no more than
+//! `server.nodes.across_above_bytes`, the question's own ceiling when unset, unless this node refuses
+//! it for its working set. A link costs latency a question one node answers does not need to pay.
+//!
 //! **Limits, next to the claim.**
 //!
+//! - A leg's size is Arrow's measure of its buffers, which counts a buffer two columns share once
+//!   for each, so a leg decoded from one message can measure more than it holds. It errs towards
+//!   going across.
+//! - A question one node refuses is refused for its working set by any operator, the answer's own
+//!   collection among them, and is asked across the nodes again whichever it was: one the
+//!   collection refused is refused there too.
 //! - A leg's share is rows this node read, as the caller it serves, and chose to send. What a check
 //!   holds is the other side: a [`Nodes::worker`] refuses a stage with a leaf that reads anything
 //!   but another node's stage or rows the plan itself carries, such as a file scan
@@ -28,8 +39,12 @@
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
+//! - A link's buffer is bounded by its budget plus one message, which it admits whatever its size,
+//!   and two questions on one node each hold their own links' share. A worker holds the budget the
+//!   stage it runs carries, which the node that planned it set.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
+use core::num::NonZeroU64;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -45,9 +60,10 @@ use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, DistributedLeafExec,
-    NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse, SessionStateBuilderExt as _, Worker,
-    WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse, WorkerQueryContext, WorkerResolver,
+    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedConfig, DistributedExt as _,
+    DistributedLeafExec, NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
+    SessionStateBuilderExt as _, Worker, WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse,
+    WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
 use tokio_rustls::TlsConnector;
@@ -69,6 +85,8 @@ pub struct Nodes {
     /// One set of channels for every combine, instead of the engine's default, which keys its
     /// channels on the runtime environment and so would dial again for each question.
     channels: Links,
+    /// The leg bytes above which a question is planned across before it is tried on this node.
+    across_above: Option<NonZeroU64>,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -98,7 +116,24 @@ impl Nodes {
             own_url,
             all: Declared(all),
             channels: Links::of(identity),
+            across_above: None,
         }
+    }
+
+    /// The same nodes, planning a question whose legs hold more than `bytes` across them at once,
+    /// or more than its own ceiling when that is `None`.
+    #[must_use]
+    pub fn across_above(self, bytes: Option<NonZeroU64>) -> Self {
+        Self {
+            across_above: bytes,
+            ..self
+        }
+    }
+
+    /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
+    /// planned across these nodes before it is tried on this one.
+    pub(super) fn first_across(&self, legs_bytes: u64, ceiling_bytes: u64) -> bool {
+        legs_bytes > self.across_above.map_or(ceiling_bytes, NonZeroU64::get)
     }
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill
@@ -125,12 +160,21 @@ impl Nodes {
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across these
-    /// nodes.
+    /// nodes, each stage one task per node and each task one partition per node.
+    ///
+    /// A link charges the batches it holds to its node's pool without asking, so each link may hold
+    /// a quarter of the working set shared by the nodes: a task reads one link from every node for
+    /// each input, and a join's two inputs then hold half the working set at most, leaving the other
+    /// half to its operators. The budget rides with each stage, so the node running it reads it too.
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
         let count = self.all.0.len();
+        let mut links = DistributedConfig::default();
+        links.worker_connection_buffer_budget_bytes =
+            working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
         let state = SessionStateBuilder::new()
-            .with_config(SessionConfig::new())
+            .with_config(SessionConfig::new().with_target_partitions(count))
+            .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
             .with_default_features()
             .with_distributed_worker_resolver(self.all.clone())
