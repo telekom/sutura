@@ -26,8 +26,12 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
     let bind = BindAddress::parse(&raw.server.host, raw.server.port).map_err(|cause| SettingsError::Bind { cause })?;
     let timeout = RequestTimeout::parse(raw.server.request_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
     let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
-    let tls = crate::server::TlsMaterial::parse(raw.server.tls_certificate.as_deref(), raw.server.tls_key.as_deref())
-        .map_err(|cause| SettingsError::TlsMaterial { cause })?;
+    let tls = crate::server::TlsMaterial::parse(
+        raw.server.tls_certificate.as_deref(),
+        raw.server.tls_key.as_deref(),
+        raw.server.tls_node_authority.as_deref(),
+    )
+    .map_err(|cause| SettingsError::TlsMaterial { cause })?;
     let allowed_hosts = raw
         .server
         .allowed_hosts

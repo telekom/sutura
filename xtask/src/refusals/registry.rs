@@ -147,7 +147,7 @@ const TLS: Subject = Subject {
     name: "TlsNotUsable",
     declared_in: "crates/sutura-http/src/tls.rs",
     allow_file: "devco/tls-refusals-unprovoked-allow",
-    variants: variants(7),
+    variants: variants(8),
 };
 
 /// One refused `delegation` on a source entry: missing, on a shared entry, over an endpoint in the

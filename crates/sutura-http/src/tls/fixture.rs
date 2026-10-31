@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sutura_config::TlsMaterial;
+use tokio_rustls::rustls::client::WantsClientCert;
 use tokio_rustls::rustls::pki_types::pem::PemObject as _;
-use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use tokio_rustls::rustls::{ClientConfig, ConfigBuilder, RootCertStore};
 
 /// The name every generated certificate is issued for, and the name the client asks for.
 pub(super) const SUBJECT: &str = "localhost";
@@ -44,7 +45,7 @@ pub(super) fn write(directory: &Path, pair: &Pair) -> TlsMaterial {
     let key = directory.join("key.pem");
     atomically(&certificate, pair.certificate.as_bytes());
     atomically(&key, pair.key.as_bytes());
-    TlsMaterial::parse(certificate.to_str(), key.to_str())
+    TlsMaterial::parse(certificate.to_str(), key.to_str(), None)
         .expect("a written pair is a pair")
         .expect("a written pair is material")
 }
@@ -87,19 +88,33 @@ impl Drop for Scratch {
 /// point of the handshake test is that the chain the listener presents is the chain this pair
 /// describes, and a client that skips verification could not tell.
 pub(super) fn client_trusting(certificate: &str) -> Arc<ClientConfig> {
+    Arc::new(client_builder(certificate).with_no_client_auth())
+}
+
+/// The same client, presenting `chain` and its key when the listener asks for a certificate.
+pub(super) fn client_presenting(
+    certificate: &str,
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+) -> Arc<ClientConfig> {
+    Arc::new(
+        client_builder(certificate)
+            .with_client_auth_cert(chain, key)
+            .expect("a generated chain and its key are a client identity"),
+    )
+}
+
+fn client_builder(certificate: &str) -> ConfigBuilder<ClientConfig, WantsClientCert> {
     let mut roots = RootCertStore::empty();
     for entry in CertificateDer::pem_slice_iter(certificate.as_bytes()) {
         roots
             .add(entry.expect("a generated certificate parses"))
             .expect("a generated certificate is a root");
     }
-    Arc::new(
-        ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .expect("the default protocol versions are safe")
-            .with_root_certificates(roots)
-            .with_no_client_auth(),
-    )
+    ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .expect("the default protocol versions are safe")
+        .with_root_certificates(roots)
 }
 
 /// Speaks HTTP/1.1 over a TLS connection, by hand, and returns what came back.
@@ -108,22 +123,25 @@ pub(super) fn client_trusting(certificate: &str) -> Arc<ClientConfig> {
 /// is that a real handshake completed and that the bytes on the other side of it are a real
 /// response, and thirty lines of `write_all` prove that better than a client library would.
 pub(super) async fn get_over_tls(port: u16, path: &str, certificate: &str) -> String {
+    exchange(port, path, client_trusting(certificate))
+        .await
+        .expect("the TLS exchange completes")
+}
+
+/// [`get_over_tls`] as `client`, with what failed as an error rather than a panic.
+pub(super) async fn exchange(port: u16, path: &str, client: Arc<ClientConfig>) -> std::io::Result<String> {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-    let connector = tokio_rustls::TlsConnector::from(client_trusting(certificate));
-    let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
-        .await
-        .expect("the listener is accepting");
+    let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
     let name = ServerName::try_from(SUBJECT).expect("the subject is a server name");
-    let mut tls = connector.connect(name, tcp).await.expect("the TLS handshake completes");
+    let mut tls = tokio_rustls::TlsConnector::from(client).connect(name, tcp).await?;
     tls.write_all(format!("GET {path} HTTP/1.1\r\nHost: {SUBJECT}\r\nConnection: close\r\n\r\n").as_bytes())
-        .await
-        .expect("the request is writable");
-    tls.flush().await.expect("the request flushes");
+        .await?;
+    tls.flush().await?;
     let mut answer = Vec::new();
     // `read_to_end` terminates because the request asked for `Connection: close`.
-    tls.read_to_end(&mut answer).await.expect("the response is readable");
-    String::from_utf8_lossy(&answer).into_owned()
+    tls.read_to_end(&mut answer).await?;
+    Ok(String::from_utf8_lossy(&answer).into_owned())
 }
 
 /// The first base64 line of a PEM block.
