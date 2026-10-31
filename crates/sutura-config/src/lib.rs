@@ -154,7 +154,7 @@ pub use crate::security::{
 };
 pub use crate::server::{
     AllowedHost, BindAddress, BodyLimit, DeclaredNodes, InvalidAllowedHost, InvalidBindAddress, InvalidBound, InvalidTlsMaterial,
-    RequestTimeout, ServerSettings, TlsMaterial,
+    RequestTimeout, ServerRole, ServerSettings, TlsMaterial, UnknownServerRole,
 };
 pub use crate::settings::{
     CONFIG_DIR_VARIABLE, ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, SettingsLoadError, Sources,

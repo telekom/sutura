@@ -491,7 +491,8 @@ where
     // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
     // the plan itself, for its own dialect.
-    let plan = match compiled {
+    let (mut planned, mut stacked) = (None, None);
+    let (max_rows, asked_plan) = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Federated { plan } => {
             return answer_federated(
@@ -521,19 +522,20 @@ where
                 ceilings,
             );
         }
-        Compiled::Planned { plan } => plan,
+        Compiled::Planned { plan } => (plan.max_rows(), Executable::Query(planned.insert(plan))),
+        // Several metrics on one data system are one statement on it, so they take this path too.
+        Compiled::Stacked { plan } => (plan.max_rows(), Executable::Stacked(stacked.insert(plan))),
     };
-    let (Some(warehouse), Some(executed_as)) = (warehouses.get(plan.source()), warehouses.executed_on(plan.source())) else {
+    let source = asked_plan.source();
+    let (Some(warehouse), Some(executed_as)) = (warehouses.get(source), warehouses.executed_on(source)) else {
         return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-            reason: RefusalReason::SourceUnavailable {
-                source: plan.source().clone(),
-            },
+            reason: RefusalReason::SourceUnavailable { source: source.clone() },
         }));
     };
     // The set is a LOCAL, and that is load-bearing rather than tidy: it is what the broker is asked
     // about AND what its answer is checked against one line later. Written inline in the `mint` call,
     // as it was, the second use had nothing to compare with and the check below could not exist.
-    let requested = SourceSet::of(plan.source().clone());
+    let requested = SourceSet::of(source.clone());
     // The credential, minted once for every source this answer reads. A refusal comes back in the
     // `Ok` and leaves as one: "this subject has no credential at that source" is a governance
     // outcome, and a broker that could not be reached is an `Err` - see `ServiceError::Broker`.
@@ -559,7 +561,7 @@ where
         Err(reason) => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
     };
     let presented = credentials
-        .presented_for(plan.source())
+        .presented_for(source)
         .map_err(|cause| ServiceError::Credentials { cause })?;
     // **The leg against the posture the adapter was OPENED with, here rather than in each adapter.**
     // Both shipped adapters make this comparison themselves, and a review pointed out what that is
@@ -574,7 +576,7 @@ where
     // keep their own copy of the check - it is their last line before a driver, and an adapter may not
     // assume who called it.
     presented
-        .agrees_with(warehouse.posture(), plan.source())
+        .agrees_with(warehouse.posture(), source)
         .map_err(|cause| ServiceError::Posture { cause })?;
     // Prepared before it is run, WHERE THAT IS CHEAPER THAN RUNNING IT. For an adapter across a
     // network it is: a statement that would be rejected is rejected before any data is read, which
@@ -605,7 +607,7 @@ where
     if deadline.remaining_at(Instant::now()).is_none() {
         return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
     }
-    let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
+    let bill_to = credentials.bill_to_for(source);
     let preflight = match warehouse
         .dry_run_billed(asked_plan, presented, bill_to, &labels, deadline)
         .map_err(Billed::into_source)
@@ -750,22 +752,22 @@ where
     // decoded set - an Arrow row count would not see the width a caller's cells add up to.
     let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
-    // `plan.max_rows()`, so more than that many coming back means the result was cut short - and a
+    // `max_rows`, so more than that many coming back means the result was cut short - and a
     // truncated result is a wrong total under a certified name, with provenance attached and nothing
     // saying it is partial. Refused, because "this question is too wide to certify" is an answer the
     // caller can act on and a silent partial one is not.
-    if exceeds_row_cap(rows.rows().len(), plan.max_rows()) {
+    if exceeds_row_cap(rows.rows().len(), max_rows) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
                 reason: RefusalReason::ResultTooLarge {
-                    bound: ResultBound::Rows { limit: plan.max_rows() },
+                    bound: ResultBound::Rows { limit: max_rows },
                 },
             },
         ));
     }
     // One measurement further out than the row cap, and it is why this check cannot replace that
-    // one: a result inside `plan.max_rows()` can still be wide - `MAX_DIMENSIONS` grouped columns
+    // one: a result inside `max_rows` can still be wide - `MAX_DIMENSIONS` grouped columns
     // of text a data system returns, which no type here bounds the length of - which the row cap
     // cannot see because it counts rows and not the bytes a caller's own cells add up to. Checked
     // here, still inside the closure `sutura_runtime::spawn_carrying_span` already moved onto the

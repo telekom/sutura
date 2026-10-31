@@ -59,6 +59,14 @@ use compose::shared_identity_service;
 /// The combiner each arm serves through, across declared nodes or on this one.
 mod nodes;
 
+/// A `server.role: worker` node's boot, or its refusal on a build that cannot serve one.
+#[cfg(feature = "distributed")]
+mod worker;
+#[cfg(not(feature = "distributed"))]
+use not_linked::worker_refused as run_worker;
+#[cfg(feature = "distributed")]
+use worker::run as run_worker;
+
 /// The broker a deployment with an impersonating source is served under. `cfg`-gated on the four
 /// adapters that can impersonate: a build that links none has no `DeclaredPrincipalBroker`.
 #[cfg(any(
@@ -185,6 +193,10 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_config::config_dir_from_process(),
     ))
     .map_err(flatten)?;
+    // A worker holds no catalog and no source, so nothing below is its boot.
+    if settings.server().role() == sutura_config::ServerRole::Worker {
+        return run_worker(&settings);
+    }
 
     // A deployment that asked for the agent surface on a build without the transport must refuse
     // rather than silently serve no `/mcp` - the same "configured for a build it does not have"

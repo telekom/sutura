@@ -87,7 +87,7 @@ where
         }
         // An anchor is asked with no dimensions and one metric, so it can only ever be one source and
         // one arm. Reaching this arm is a defect here rather than anything about the data.
-        Compiled::Federated { .. } | Compiled::DrillAcross { .. } => {
+        Compiled::Federated { .. } | Compiled::DrillAcross { .. } | Compiled::Stacked { .. } => {
             return not_executed(NotExecutedReason::ResolvedToTwoSources);
         }
         Compiled::Planned { plan } => plan,

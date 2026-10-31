@@ -42,7 +42,7 @@ use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use sutura_domain::identity::PresentedDisagreesWithPosture;
 use sutura_domain::model::{QualifiedTable, SourceName};
-use sutura_domain::plan::{Executable, LegPlan, QueryPlan};
+use sutura_domain::plan::{Executable, LegPlan, QueryPlan, StackedPlan};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -259,6 +259,9 @@ mod leg;
 /// `top`'s own sort-and-limit, because this adapter renders no SQL for `sutura_sql::generate` to
 /// share it through.
 mod top;
+
+/// Several metrics on one data system, as one logical plan.
+mod stacked;
 
 /// Opt-in peak recording for measurement-only children, excluded from default builds.
 #[cfg(feature = "measurement")]
@@ -487,6 +490,20 @@ impl DataFusionWarehouse {
     /// projection, sort, limit. Nothing here is text, so nothing here can be a quoting or a
     /// placeholder bug.
     async fn logical_plan(&self, plan: &QueryPlan) -> Result<LogicalPlan, DataFusionError> {
+        let (builder, tiebreak) = self.grouped(plan).await?;
+        let labels = plan.result_labels();
+        let group_count = plan.keys().len().saturating_add(1);
+        let (sorts, limit) = top::sort_and_limit(plan.top(), &labels, group_count, tiebreak, plan.max_rows());
+        builder
+            .sort(sorts)
+            .and_then(|sorted| sorted.limit(0, Some(limit)))
+            .and_then(LogicalPlanBuilder::build)
+            .map_err(|cause| DataFusionError::Build { cause })
+    }
+
+    /// The plan up to its projection to its result labels, and the tie-break to order it by: no
+    /// order and no limit, which a stacked plan applies once, after its arms join.
+    async fn grouped(&self, plan: &QueryPlan) -> Result<(LogicalPlanBuilder, Vec<Expr>), DataFusionError> {
         let scan = self.scan(plan.table()).await?;
         let mut builder = LogicalPlanBuilder::from(scan);
 
@@ -534,15 +551,25 @@ impl DataFusionWarehouse {
             .aggregate(grouping, aggregates)
             .map_err(|cause| DataFusionError::Build { cause })?;
 
-        let labels = plan.result_labels();
-        let (projection, tiebreak) = outputs(builder.schema(), &labels, group_count)?;
-        let (sorts, limit) = top::sort_and_limit(plan.top(), &labels, group_count, tiebreak, plan.max_rows());
-        builder
+        let (projection, tiebreak) = outputs(builder.schema(), &plan.result_labels(), group_count)?;
+        let projected = builder
             .project(projection)
-            .and_then(|projected| projected.sort(sorts))
-            .and_then(|sorted| sorted.limit(0, Some(limit)))
-            .and_then(LogicalPlanBuilder::build)
-            .map_err(|cause| DataFusionError::Build { cause })
+            .map_err(|cause| DataFusionError::Build { cause })?;
+        Ok((projected, tiebreak))
+    }
+
+    /// A stacked plan: every arm's grouped plan, joined by [`stacked::logical`].
+    async fn stacked_plan(&self, plan: &StackedPlan) -> Result<LogicalPlan, DataFusionError> {
+        let arm = async |arm| {
+            let (grouped, _) = self.grouped(arm).await?;
+            grouped.build().map_err(|cause| DataFusionError::Build { cause })
+        };
+        let first = arm(plan.arms().first()).await?;
+        let mut rest = Vec::with_capacity(plan.arms().len().saturating_sub(1));
+        for each in plan.arms().iter().skip(1) {
+            rest.push(arm(each).await?);
+        }
+        stacked::logical(plan, first, rest)
     }
 
     /// One registered table, as a plan to build on.
@@ -594,6 +621,7 @@ impl DataFusionWarehouse {
         let logical = match executable {
             Executable::Query(plan) => self.logical_plan(plan).await?,
             Executable::Leg(leg) => self.leg_plan(leg).await?,
+            Executable::Stacked(plan) => self.stacked_plan(plan).await?,
         };
         let frame = self
             .context

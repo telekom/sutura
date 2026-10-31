@@ -75,7 +75,7 @@ use sutura_domain::warehouse::{
     Accumulating, AnchorRows, ParamValue, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, UnannouncedBatch,
     UnreadableCell, Value, Warehouse,
 };
-use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 mod screen;
@@ -527,6 +527,7 @@ impl DuckDbWarehouse {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
             Executable::Leg(leg) => generate_leg(leg, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
+            Executable::Stacked(plan) => generate_stacked(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
         }
     }
 

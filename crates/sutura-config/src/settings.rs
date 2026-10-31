@@ -37,7 +37,7 @@ use crate::runtime::RuntimeSettings;
 use crate::security::{
     DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, SecuritySettings, UnknownTlsTermination,
 };
-use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerSettings};
+use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerSettings, UnknownServerRole};
 use crate::sources::{InvalidSourceRegistry, SourceRegistry};
 use crate::telemetry::{InvalidLogFilter, InvalidServiceName, TelemetrySettings, UnknownLogFormat};
 
@@ -86,8 +86,7 @@ pub struct Sources {
 impl Sources {
     /// The defaults for `environment`, and nothing else.
     ///
-    /// No files and no variables. This is what a test starts from, and what the documentation
-    /// examples describe.
+    /// No files and no variables. This is what a test starts from, and what the documentation examples describe.
     #[inline]
     pub const fn defaults(environment: Environment) -> Self {
         Self {
@@ -232,8 +231,7 @@ pub enum SettingsError {
         #[source]
         cause: InvalidOutbound,
     },
-    /// `security.audience_mapping` names an audience that is not a usable identifier -
-    /// `docs/adr/0028`.
+    /// `security.audience_mapping` names an audience that is not a usable identifier - `docs/adr/0028`.
     #[error("`security.audience_mapping` is not usable")]
     AudienceMapping {
         #[source]
@@ -243,6 +241,11 @@ pub enum SettingsError {
     AllowedHost {
         #[source]
         cause: crate::server::InvalidAllowedHost,
+    },
+    #[error("`server.role` does not name what this node is for")]
+    Role {
+        #[source]
+        cause: UnknownServerRole,
     },
     #[error("`server.tls_certificate`, `server.tls_key` and `server.tls_node_authority` are not usable together")]
     TlsMaterial {
@@ -302,8 +305,7 @@ pub enum SettingsError {
          cannot change it; otherwise remove the key"
     )]
     InboundAddressClaimNotAccepted { claim: crate::inbound::ClaimName },
-    /// A transit lifetime above [`crate::inbound::ProofLifetime::SHORT_LIVED_SECONDS`] with no by-name
-    /// acceptance of it.
+    /// A transit lifetime above [`crate::inbound::ProofLifetime::SHORT_LIVED_SECONDS`] with no by-name acceptance of it.
     #[error(
         "`security.inbound.transit_max_lifetime_seconds` is {found}, above {limit}, and an assertion \
          replays for as long as it lives. Lower it, or set \
@@ -420,8 +422,7 @@ pub enum SettingsError {
         #[source]
         cause: InvalidPlanCeiling,
     },
-    /// The values are all well formed and the deployment they describe is one this service will
-    /// not serve.
+    /// The values are all well formed and the deployment they describe is one this service will not serve.
     ///
     /// **Every refusal is in the message, not just the first, and not behind a `#[source]`.** A
     /// `Vec` has no single cause to chain, so a variant that only said "not fit to serve" would
@@ -443,9 +444,8 @@ pub enum SettingsError {
 /// owned value. `Debug` is safe to log in full: the only credential-shaped field is held in
 /// [`sutura_domain::identity::Secret`], whose `Debug` redacts, and a test in [`crate::security`]
 /// asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
-/// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
-/// `Settings` exists. The
-/// limit: a secret with no `@`, such as one written into a path, is printed.
+/// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a `Settings` exists.
+/// The limit: a secret with no `@`, such as one written into a path, is printed.
 #[derive(Debug, Clone)]
 pub struct Settings {
     layers: ConfigLayers,
@@ -523,8 +523,7 @@ impl Settings {
         })
     }
 
-    /// The tool surface's own settings - which capability beside the certified one this deployment
-    /// turned on.
+    /// The tool surface's own settings - which capability beside the certified one this deployment turned on.
     #[inline]
     #[must_use]
     pub const fn tools(&self) -> &crate::tools::ToolsSettings {
@@ -568,6 +567,7 @@ impl Settings {
         if self.server.flight_surface_enabled() {
             refusals.extend(self.flight_surface_refusals());
         }
+        refusals.extend(role::worker_refusals(self));
         // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
         // aggregate over the same history whether the deployment is labelled `production` or is
         // simply reachable from other hosts. `EphemeralPortInProduction` stays production-only -
@@ -969,8 +969,7 @@ impl Settings {
 }
 
 /// The typed parse of each settings section. Carved out because this file hit the line limit, along
-/// the seam this module's own documentation names: the parse is here, the combination checks are
-/// there.
+/// the seam this module's own documentation names: the parse is here, the combination checks are there.
 mod parse;
 
 /// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
@@ -982,6 +981,7 @@ mod outbound;
 
 /// The delegation-hop combination checks. Carved out for the same reason.
 mod delegation;
+mod role;
 
 mod layers;
 

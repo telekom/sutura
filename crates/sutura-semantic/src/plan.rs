@@ -38,7 +38,7 @@ use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, LegCeiling, PlanBindings,
     PlanBucket, PlanCeilings, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan,
-    ResultLabel, SourceCeiling, StatementTables, plan_measure, plan_required_filter, range_filters,
+    ResultLabel, SourceCeiling, StackedPlanError, StatementTables, plan_measure, plan_required_filter, range_filters,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -48,6 +48,7 @@ use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
 mod chain;
 mod drill_across;
 mod federated;
+pub(crate) mod stacked;
 
 use chain::{Lookups, chain_joins, column_of, every_dimension};
 use federated::federated_plan;
@@ -124,6 +125,13 @@ pub(crate) enum PlanError {
     /// [`LegCeiling`](sutura_domain::plan::LegCeiling) - at most `MAX_LEGS` - before the plan is built.
     #[error(transparent)]
     NotAssembledAcross(#[from] DrillAcrossPlanError),
+    /// The planner built arms on one data system that [`StackedPlan::new`](sutura_domain::plan::StackedPlan::new) then
+    /// rejected.
+    ///
+    /// [`NotAssembledAcross`](Self::NotAssembledAcross)'s argument again, and here no variant is one a
+    /// caller can cause: the arms carry no `top`, and the planner stacks them only on one source.
+    #[error(transparent)]
+    NotStacked(#[from] StackedPlanError),
     /// `federated_plan` ran with no lookup leg it could join through.
     ///
     /// **A2: the same argument [`NotAssembled`](Self::NotAssembled) and [`NotBound`](Self::NotBound)
@@ -178,7 +186,13 @@ pub(crate) fn plan(resolution: &Resolution<'_>, ceilings: PlanCeilings) -> Resul
     }
     let (measure, lookups) = prechecked(resolution)?;
     match lookups.len() {
-        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution, measure)?))),
+        0 => {
+            let plan = mono_plan(resolution, measure)?;
+            Ok(Plan::Mono(Box::new(match resolution.top {
+                Some(top) => plan.with_top(top),
+                None => plan,
+            })))
+        }
         legs if legs > ceilings.lookup_legs().get() => Err(too_many_lookup_legs(legs, ceilings)),
         _ => {
             let planned = federated_plan(resolution, measure, &lookups, true)?;
@@ -229,6 +243,8 @@ pub(super) fn bounded_sources<'a>(
 
 /// Turns a resolved question into a plan: the one statement when every metric reads the same
 /// dimensions the same way, an arm per metric otherwise.
+///
+/// [`stacked::plan_resolved`] answers first, so an arm per metric here reaches another data system.
 pub(crate) fn plan_resolved(resolved: &Resolved<'_>, ceilings: PlanCeilings) -> Result<Plan, PlanError> {
     match resolved.per_metric.as_slice() {
         [first, second, rest @ ..] if !one_statement(resolved) => drill_across::plan(first, second, rest, ceilings),
@@ -398,10 +414,7 @@ fn mono_plan(resolution: &Resolution<'_>, closed: &Measure) -> Result<QueryPlan,
         )
     };
 
-    Ok(match resolution.top {
-        Some(top) => plan.with_top(top),
-        None => plan,
-    })
+    Ok(plan)
 }
 
 /// Every predicate a fact leg will carry, and the parameters they bind, built together.

@@ -69,7 +69,7 @@ use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RawExecution, RawRows, ResultBatches, RowSet, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GeneratedQuery};
 
 use crate::PostgresError;
@@ -241,6 +241,7 @@ fn render(executable: Executable<'_>) -> Result<GeneratedQuery, PostgresError> {
     match executable {
         Executable::Query(plan) => generate(plan, Dialect::Postgres),
         Executable::Leg(leg) => generate_leg(leg, Dialect::Postgres),
+        Executable::Stacked(plan) => generate_stacked(plan, Dialect::Postgres),
     }
     .map_err(|cause| PostgresError::Render { cause })
 }

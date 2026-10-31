@@ -41,7 +41,9 @@
 use crate::calendar::TimeRange;
 use crate::model::{QualifiedTable, SourceName, TableName};
 use crate::pinned::MetricDigest;
-use crate::plan::{PlanBindings, PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StatementTables};
+use crate::plan::{
+    PlanBindings, PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, ResultLabel, StackedPlan, StatementTables,
+};
 use crate::warehouse::ParamValue;
 
 /// One number a leg computes, and the label it is projected under.
@@ -511,6 +513,7 @@ impl LegPlan {
 ///     match executable {
 ///         Executable::Query(_) => "a whole answer",
 ///         Executable::Leg(_) => "one source's share of one",
+///         Executable::Stacked(_) => "several whole answers from one data system, joined by it",
 ///     }
 /// }
 /// ```
@@ -520,6 +523,8 @@ pub enum Executable<'plan> {
     Query(&'plan QueryPlan),
     /// One data system's share of an answer assembled above it.
     Leg(&'plan LegPlan),
+    /// Several metrics' whole answers from one data system, joined by it.
+    Stacked(&'plan StackedPlan),
 }
 
 impl<'plan> Executable<'plan> {
@@ -529,6 +534,7 @@ impl<'plan> Executable<'plan> {
     pub fn row_limit(self) -> Option<usize> {
         match self {
             Self::Query(plan) => Some(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
+            Self::Stacked(plan) => Some(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
             Self::Leg(_) => None,
         }
     }
@@ -539,6 +545,7 @@ impl<'plan> Executable<'plan> {
         match self {
             Self::Query(plan) => plan.source(),
             Self::Leg(leg) => leg.source(),
+            Self::Stacked(plan) => plan.source(),
         }
     }
 
@@ -548,6 +555,7 @@ impl<'plan> Executable<'plan> {
         match self {
             Self::Query(plan) => plan.params(),
             Self::Leg(leg) => leg.params(),
+            Self::Stacked(plan) => plan.params(),
         }
     }
 
@@ -557,6 +565,7 @@ impl<'plan> Executable<'plan> {
         match self {
             Self::Query(plan) => plan.result_labels(),
             Self::Leg(leg) => leg.result_labels(),
+            Self::Stacked(plan) => plan.result_labels(),
         }
     }
 }

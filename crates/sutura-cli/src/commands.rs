@@ -28,7 +28,7 @@ use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_runtime::TracingAuditSink;
 use sutura_semantic::Compiled;
-use sutura_sql::Dialect;
+use sutura_sql::{Dialect, GeneratedQuery};
 
 /// The version a locally-read catalog is stamped with when the caller did not say.
 ///
@@ -431,16 +431,11 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
             }
             Compiled::Planned { plan } => {
                 let query = sutura_sql::generate(&plan, dialect).map_err(|e| render(&e))?;
-                println!("-- dialect {dialect}");
-                println!("{}", query.sql());
-                println!();
-                for (index, param) in query.params().iter().enumerate() {
-                    println!("-- ${} = {}", index.saturating_add(1), param.render());
-                }
-                println!();
-                println!("-- plan");
-                let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
-                print!("{rendered}");
+                print_statement(dialect, &query, serde_norway::to_string(&*plan))?;
+            }
+            Compiled::Stacked { plan } => {
+                let query = sutura_sql::generate_stacked(&plan, dialect).map_err(|e| render(&e))?;
+                print_statement(dialect, &query, serde_norway::to_string(&*plan))?;
             }
             Compiled::Federated { plan } => {
                 print_legs("federated", &plan.legs(), serde_norway::to_string(&*plan), dialect)?;
@@ -451,6 +446,20 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
         }
         Ok(())
     })())
+}
+
+/// The one statement for `dialect`, its parameters, then the plan it renders.
+fn print_statement(dialect: Dialect, query: &GeneratedQuery, plan: Result<String, serde_norway::Error>) -> Result<(), String> {
+    println!("-- dialect {dialect}");
+    println!("{}", query.sql());
+    println!();
+    for (index, param) in query.params().iter().enumerate() {
+        println!("-- ${} = {}", index.saturating_add(1), param.render());
+    }
+    println!();
+    println!("-- plan");
+    print!("{}", plan.map_err(|e| format!("the plan could not be rendered: {e}"))?);
+    Ok(())
 }
 
 /// One statement per leg for `dialect`, then the plan that holds them.

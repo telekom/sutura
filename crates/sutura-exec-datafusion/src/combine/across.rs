@@ -14,6 +14,12 @@
 //! `server.nodes.across_above_bytes`, the question's own ceiling when unset, unless this node refuses
 //! it for its working set. A link costs latency a question one node answers does not need to pay.
 //!
+//! **A node may be declared by a host, which is resolved when each question is planned.** Each
+//! address it resolves to is one node, its IPv4 ones when it has any so a dual-stack pod is not two,
+//! dialled at that address and checked against the host: a pool of workers behind one name, as a
+//! headless service's is, is the nodes it holds at that moment
+//! (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//!
 //! **Limits, next to the claim.**
 //!
 //! - A leg's size is Arrow's measure of its buffers, which counts a buffer two columns share once
@@ -35,7 +41,10 @@
 //!   node serving [`Nodes::worker`] runs any stage that reads no source another node of the
 //!   authority sends it; Decision 5 is not built. The identity is read once, so a renewed
 //!   certificate is presented after a restart.
-//! - A channel, once dialled, is kept for the process's life, one for every node it has dialled.
+//! - A channel, once dialled, is kept for the process's life, one for every address it has dialled,
+//!   so a host whose addresses change keeps one for each it was ever dialled at.
+//! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
+//!   plans every question onto the other nodes rather than refusing it.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
@@ -47,6 +56,7 @@
 use core::num::NonZeroU64;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
 use std::sync::Arc;
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
@@ -80,8 +90,8 @@ pub struct Nodes {
     /// same worker at `own_url`, which is where another node reads their output.
     own: Worker,
     own_url: Url,
-    /// Every node a stage may be planned onto, `own_url` first.
-    all: Declared,
+    /// The other nodes a stage may be planned onto, as declared.
+    others: Vec<Url>,
     /// One set of channels for every combine, instead of the engine's default, which keys its
     /// channels on the runtime environment and so would dial again for each question.
     channels: Links,
@@ -91,13 +101,13 @@ pub struct Nodes {
 
 impl core::fmt::Debug for Nodes {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Nodes").field("all", &self.all.0).finish_non_exhaustive()
+        f.debug_struct("Nodes").field("others", &self.others).finish_non_exhaustive()
     }
 }
 
-/// The declared list, as the engine reads it.
+/// One question's nodes, `own_url` first, as the engine reads them.
 #[derive(Clone)]
-struct Declared(std::sync::Arc<[Url]>);
+struct Declared(Arc<[Url]>);
 
 impl WorkerResolver for Declared {
     fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
@@ -110,11 +120,10 @@ impl Nodes {
     /// each reached as `identity`.
     #[must_use]
     pub fn declared(own: Worker, own_url: Url, others: impl IntoIterator<Item = Url>, identity: NodeIdentity) -> Self {
-        let all = core::iter::once(own_url.clone()).chain(others).collect();
         Self {
             own,
             own_url,
-            all: Declared(all),
+            others: others.into_iter().collect(),
             channels: Links::of(identity),
             across_above: None,
         }
@@ -168,7 +177,12 @@ impl Nodes {
     /// half to its operators. The budget rides with each stage, so the node running it reads it too.
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
-        let count = self.all.0.len();
+        let all = Declared(
+            core::iter::once(self.own_url.clone())
+                .chain(self.others.iter().flat_map(resolved))
+                .collect(),
+        );
+        let count = all.0.len();
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =
             working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
@@ -177,7 +191,7 @@ impl Nodes {
             .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
             .with_default_features()
-            .with_distributed_worker_resolver(self.all.clone())
+            .with_distributed_worker_resolver(all)
             .with_distributed_channel_resolver(self.channels.clone())
             .with_distributed_local_worker_context(self.own.to_local_worker_context(self.own_url.clone()))
             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
@@ -190,6 +204,25 @@ impl Nodes {
             .build();
         Ok(SessionContext::new_with_state(state))
     }
+}
+
+/// The nodes `declared` names now: itself when its host is an address, and otherwise one for each
+/// address its host resolves to, of one family, with that address in its fragment.
+fn resolved(declared: &Url) -> Vec<Url> {
+    let (Some(Host::Domain(host)), Some(port)) = (declared.host(), declared.port_or_known_default()) else {
+        return vec![declared.clone()];
+    };
+    let addresses: Vec<SocketAddr> = (host, port).to_socket_addrs().map_or_default(Iterator::collect);
+    let ipv4 = addresses.iter().any(SocketAddr::is_ipv4);
+    addresses
+        .into_iter()
+        .filter(|address| address.is_ipv4() == ipv4)
+        .map(|address| {
+            let mut node = declared.clone();
+            node.set_fragment(Some(&address.ip().to_string()));
+            node
+        })
+        .collect()
 }
 
 /// `event`'s leg scan as one variant per task, each with every `task_count`th batch of each
@@ -326,7 +359,8 @@ impl Links {
         }
     }
 
-    /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used.
+    /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used, at
+    /// the address its fragment names when it names one, and checks the peer against its host.
     fn dial(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
         let host = match url.host() {
             Some(Host::Domain(name)) => String::from(name),
@@ -338,16 +372,25 @@ impl Links {
             .port_or_known_default()
             .ok_or_else(|| DataFusionError::Configuration(format!("the node {url} has no port")))?;
         let name = ServerName::try_from(host.clone()).map_err(|cause| DataFusionError::External(Box::new(cause)))?;
+        let address = match url.fragment() {
+            Some(address) => address
+                .parse::<IpAddr>()
+                .map_err(|cause| DataFusionError::External(Box::new(cause)))?
+                .to_string(),
+            None => host,
+        };
         let connector = self.identity.0.clone();
         let dial = tower::service_fn(move |_uri| {
-            let (connector, name, host) = (connector.clone(), name.clone(), host.clone());
+            let (connector, name, address) = (connector.clone(), name.clone(), address.clone());
             async move {
-                let tcp = tokio::net::TcpStream::connect((host.as_str(), port)).await?;
+                let tcp = tokio::net::TcpStream::connect((address.as_str(), port)).await?;
                 let tls = connector.connect(name, tcp).await?;
                 Ok::<_, std::io::Error>(TokioIo::new(tls))
             }
         });
-        let endpoint = tonic::transport::Endpoint::from_shared(url.to_string())
+        let mut origin = url.clone();
+        origin.set_fragment(None);
+        let endpoint = tonic::transport::Endpoint::from_shared(origin.to_string())
             .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
         Ok(BoxCloneSyncChannel::new(endpoint.connect_with_connector_lazy(dial)))
     }
