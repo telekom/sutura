@@ -2149,7 +2149,8 @@ jobs:
         if: always()
 
   # TWO `sutura serve` PROCESSES IN TWO NixOS VMs (`telekom/sutura#828`): one leg crosses from
-  # `query` to `source` over Flight and runs against ClickHouse signed in as the caller.
+  # `query` to `source` over Flight and runs against ClickHouse signed in as the caller, and the
+  # combine's stages are planned across both nodes.
   # `nix/multi-node.nix` says what that observes and what it does not. Category-gated on the node
   # and ClickHouse adapters and identity; a change to the test itself, the HTTP or Flight surface or
   # the app falls open to `core`, which runs every leg. Held run-or-fail by `ci-aggregate`. A VM test

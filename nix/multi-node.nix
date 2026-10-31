@@ -1,16 +1,19 @@
 # Two `sutura serve` processes in two NixOS VMs, over the network between them (`telekom/sutura#828`).
 # `query` answers recurring revenue by region; `customers` lives on `source`, so `query` sends that
-# leg over Flight to `source`, which runs it against ClickHouse signed in as the caller.
+# leg over Flight to `source`, which runs it against ClickHouse signed in as the caller. The two
+# nodes declare each other, so `query` plans the combine's stages above a repartition across both.
 #
 # What is observed: the federated answer equals the one-source golden for a caller ClickHouse shows
 # every customer, and for a caller its row policy shows only `north`, everything else falls to the
 # outer join's null region - so the leg ran as the caller's own ClickHouse user, two hops from where
 # they asked. Each hop's exchange is read out of the identity provider's journal, and an anonymous
-# question is refused at `query`.
+# question is refused at `query`. After the first question `source` holds a link it dialled to a
+# node's listener and before it none: a node dials one only to read the input of a stage it was sent.
 #
 # What this does not show: nobody signs in - `nix/multi-node-idp.py` is a fake identity provider, one
 # per VM over one key, and the test mints the callers' tokens. One question per caller: nothing here
-# measures load, a slow peer or a node going away.
+# measures load, a slow peer or a node going away. The link shows that a stage ran on `source`, not
+# how much of the combine did. One CA signs both node certificates and is also the node authority.
 { pkgs, sutura, clickhouse, clickhouseDriver, example, golden }:
 let
   python = pkgs.python3.withPackages (p: [ p.pyjwt p.cryptography ]);
@@ -19,16 +22,19 @@ let
   servicePassword = "multi-node-service-password";
   version = "multi-node";
 
-  # A CA, `source`'s TLS leaf under it, the identity provider's ES256 key and its key set, and the
+  # A CA, each node's TLS leaf under it, the identity provider's ES256 key and its key set, and the
   # test's fixed secrets. The CA key is not kept.
   material = pkgs.runCommand "multi-node-material" { nativeBuildInputs = [ pkgs.openssl ]; } ''
     mkdir "$out" && cd "$out"
     printf '[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n[dn]\nCN=multi-node-ca\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\nsubjectKeyIdentifier=hash\n' > ca.cnf
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 3650 -config ca.cnf
-    openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout source.key -out source.csr -subj /CN=source
-    printf 'subjectAltName=DNS:source\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n' > source.ext
-    openssl x509 -req -in source.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out source.pem -days 3650 -extfile source.ext
-    rm ca.key ca.srl ca.cnf source.csr source.ext
+    for node in query source; do
+      openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout $node.key -out $node.csr -subj /CN=$node
+      printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' $node > $node.ext
+      openssl x509 -req -in $node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
+      rm $node.csr $node.ext
+    done
+    rm ca.key ca.srl ca.cnf
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -out idp.key
     openssl pkey -in idp.key -pubout -out idp.pub
     ${idp} jwks idp.pub ${kid} > jwks.json
@@ -67,6 +73,16 @@ let
     telemetry.format = "bunyan";
     catalogs = [{ name = "model"; kind = "markdown"; dir = "${catalog}"; data_dir = "${example}/data"; inherit version; }];
   } // rest));
+  # A node's listener: over TLS, beside its node certificate and authority, and declaring the other.
+  listener = own: other: {
+    host = "0.0.0.0";
+    port = 8443;
+    tls_certificate = "${material}/${own}.pem";
+    tls_key = "${material}/${own}.key";
+    tls_node_authority = "${material}/ca.pem";
+    nodes = { own = "https://${own}:8443"; others = [ "https://${other}:8443" ]; };
+  };
+  offHost = { tls_termination = "in-process"; metrics_token = "multi-node-metrics-token-0000000000"; };
   local = {
     kind = "files";
     data_dir = "${example}/data";
@@ -120,16 +136,20 @@ pkgs.testers.runNixOSTest {
 
   nodes.query = {
     virtualisation.memorySize = 2048;
+    # One core plans one partition, so no repartition and no stage another node could run.
+    virtualisation.cores = 2;
     environment.systemPackages = [ pkgs.curl ];
+    networking.firewall.allowedTCPPorts = [ 8443 ];
     systemd.services.idp = daemon "${idp} idp ${material}/idp.key ${kid} ${material}/client-secret 9100";
     systemd.services.sutura = serve
       (settings {
-        server = { host = "127.0.0.1"; port = 8080; };
-        security = { inbound = inbound "https://query"; outbound.transport_anchors = "${material}/ca.pem"; };
+        server = listener "query" "source";
+        security = offHost // { inbound = inbound "https://query"; outbound.transport_anchors = "${material}/ca.pem"; };
         sources = {
           inherit local;
           sales = { kind = "node"; endpoint = "https://source:8443"; posture = "impersonation-at-source"; delegation = delegation "https://source"; };
         };
+        rest.rate_limit.enabled = true;
       })
       { };
   };
@@ -146,14 +166,8 @@ pkgs.testers.runNixOSTest {
     };
     systemd.services.sutura = serve
       (settings {
-        server = {
-          host = "0.0.0.0";
-          port = 8443;
-          tls_certificate = "${material}/source.pem";
-          tls_key = "${material}/source.key";
-          flight_surface.enabled = true;
-        };
-        security = { tls_termination = "in-process"; metrics_token = "multi-node-metrics-token-0000000000"; inbound = inbound "https://source"; };
+        server = listener "source" "query" // { flight_surface.enabled = true; };
+        security = offHost // { inbound = inbound "https://source"; };
         sources = {
           inherit local;
           sales = {
@@ -193,7 +207,7 @@ pkgs.testers.runNixOSTest {
     def ask(sub: str) -> dict[str, int]:
         token = query.succeed(f"${idp} mint ${material}/idp.key ${kid} {sub} https://query sutura:metrics.ask").strip()
         reply = json.loads(query.succeed(
-            f"curl -sS -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' http://127.0.0.1:8080/v1/query"
+            f"curl -sS --cacert ${material}/ca.pem -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query"
         ))
         assert reply.get("outcome") == "answer", reply
         region, revenue = reply["columns"].index("region"), reply["columns"].index("recurring_revenue")
@@ -213,11 +227,18 @@ pkgs.testers.runNixOSTest {
     query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://source:8443/health", timeout=120)
     query.wait_for_unit("idp.service")
     query.succeed("systemctl start sutura")
-    query.wait_until_succeeds("curl -fsS http://127.0.0.1:8080/health", timeout=120)
+    query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://query:8443/health", timeout=120)
+
+    # A connection `source` dialled to a node's listener, its own or `query`'s.
+    LINK = "ss -Htn state established dport = :8443 | grep -q ."
+    source.fail(LINK)
 
     expected = golden()
     with subtest("a caller ClickHouse shows every customer gets the one-source answer"):
         assert ask("analyst_a") == expected, expected
+
+    with subtest("source ran a stage of the combine, reading its input over a node link"):
+        source.succeed(LINK)
 
     with subtest("a caller ClickHouse shows only north gets north, and the rest under the null region"):
         total = sum(expected.values())
@@ -229,7 +250,7 @@ pkgs.testers.runNixOSTest {
         source.succeed("journalctl -u checker | grep -F 'admit analyst_b'")
 
     with subtest("an anonymous question is refused at the node it was asked"):
-        status = query.succeed(f"curl -sS -o /dev/null -w '%{{http_code}}' -H 'Content-Type: application/json' --data '{QUESTION}' http://127.0.0.1:8080/v1/query")
+        status = query.succeed(f"curl -sS -o /dev/null -w '%{{http_code}}' --cacert ${material}/ca.pem -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query")
         assert status == "401", status
   '';
 }
