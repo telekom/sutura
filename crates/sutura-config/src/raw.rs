@@ -406,6 +406,14 @@ pub(crate) struct RawSpendCeiling {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct RawNodes {
+    /// This node's address, as the others reach it.
+    pub(crate) own: String,
+    pub(crate) others: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RawServer {
     pub(crate) host: String,
     pub(crate) port: u16,
@@ -420,6 +428,10 @@ pub(crate) struct RawServer {
     /// asks a client for none.
     #[serde(default)]
     pub(crate) tls_node_authority: Option<String>,
+    /// The nodes a combine is planned across, this one among them. Absent means every combine runs
+    /// here alone.
+    #[serde(default)]
+    pub(crate) nodes: Option<RawNodes>,
     /// Whether the agent surface (the MCP streamable-HTTP transport) is mounted at all.
     ///
     /// Absent (or `false`) means the deployment serves no `/mcp` even in a build that compiled the

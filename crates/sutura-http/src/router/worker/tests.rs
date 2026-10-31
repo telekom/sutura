@@ -8,7 +8,8 @@ use crate::testing::{broker, bundle, call, catalog_of, fake_warehouse, request, 
 
 const EXECUTE_TASK: &str = "/worker.WorkerService/ExecuteTask";
 
-/// The real router with a worker mount whose service answers `200` to anything that reaches it.
+/// The real router with a worker mount whose service answers `200` to a call that reaches it on its
+/// full method path, as a generated gRPC server routes, and `404` to any other.
 fn with_a_worker() -> axum::Router {
     let service = crate::surface::LocalService::start(
         &catalog_of(bundle()),
@@ -19,8 +20,13 @@ fn with_a_worker() -> axum::Router {
         1 << 30,
     )
     .expect("the test bundle validates");
-    let reached =
-        tower::service_fn(|_request: axum::extract::Request| async { Ok::<_, std::convert::Infallible>(StatusCode::OK) });
+    let reached = tower::service_fn(|request: axum::extract::Request| async move {
+        Ok::<_, std::convert::Infallible>(if request.uri().path() == EXECUTE_TASK {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_FOUND
+        })
+    });
     let state = state_over(Arc::new(service), settings_with("")).with_worker_surface(WorkerMount::new(reached));
     crate::router(&state).expect("the test router assembles")
 }

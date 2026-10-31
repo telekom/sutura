@@ -1,9 +1,10 @@
-//! A build missing a transport's feature, with its switch on anyway: both refusals, one file.
+//! A build missing a feature, with the key that needs it set anyway: every such refusal, one file.
 //!
 //! Moved out of `serve.rs` by the thousand-line limit `cargo xtask max-lines` enforces. Each
 //! function here only compiles for the build it refuses - `check-default-feature-tests` is the
-//! cell that runs it, since `just test`'s `--all-features` run never sees either body.
+//! cell that runs it, since `just test`'s `--all-features` run never sees any body here.
 
+#[cfg(any(not(feature = "agent"), not(feature = "flight")))]
 use sutura_config::Settings;
 
 /// A build without the `agent` feature: an enabled switch is a startup refusal.
@@ -36,6 +37,20 @@ pub(super) fn flight_refused_if_enabled(settings: &Settings) -> Result<(), Strin
         return Err(String::from(
             "server.flight_surface.enabled is set and this binary was built without the `flight` \
              feature, so it has no Flight transport to mount. Rebuild with `--features flight`, or \
+             remove the key.",
+        ));
+    }
+    Ok(())
+}
+
+/// A build without the `distributed` feature: declared nodes are a startup refusal, not a combine
+/// that quietly runs on one node. `crate::serve::tests::nodes` holds it.
+#[cfg(not(feature = "distributed"))]
+pub(super) fn nodes_refused_if_declared(tls: Option<&sutura_config::TlsMaterial>) -> Result<(), String> {
+    if tls.and_then(sutura_config::TlsMaterial::nodes).is_some() {
+        return Err(String::from(
+            "server.nodes is set and this binary was built without the `distributed` feature, so \
+             it cannot plan a combine across nodes. Rebuild with `--features distributed`, or \
              remove the key.",
         ));
     }

@@ -36,11 +36,12 @@ pub(crate) fn open_cube(
 pub(super) fn served(
     catalogs: &crate::catalog::OpenedCatalogs,
     engines: sutura_app::Warehouses<super::CubeSource>,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
     settings: &sutura_config::Settings,
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<super::Serving, String> {
     let broker = super::broker::build_broker(settings.sources(), outbound)?;
-    super::started(catalogs, engines, broker, None, settings)
+    super::compose::started(catalogs, engines, broker, combiner, None, settings)
 }
 
 /// The refusal for a build that did not link the Cube adapter - `open_oracle`'s twin shape.
@@ -211,9 +212,15 @@ mod tests {
         .expect("a directory and a version are a settings");
         let catalogs = crate::catalog::open_catalog(&Catalogs::parse(vec![catalog]).expect("one name is a registry"), None)
             .expect("a markdown catalog opens");
-        let error = super::served(&catalogs, engines, &settings, None)
-            .map(drop)
-            .expect_err("the declared client secret file is not there");
+        let error = super::served(
+            &catalogs,
+            engines,
+            crate::catalog::one_node_combiner().expect("a combiner on one node builds"),
+            &settings,
+            None,
+        )
+        .map(drop)
+        .expect_err("the declared client secret file is not there");
         assert!(
             error.contains("sources.warehouse.delegation[0].client_secret_file"),
             "{error}"

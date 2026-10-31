@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sutura_domain::warehouse::deadline::{Budget, NoBudget};
+use url::Url;
 
 /// The socket the service listens on.
 ///
@@ -308,6 +309,37 @@ pub struct TlsMaterial {
     certificate: PathBuf,
     key: PathBuf,
     node_authority: Option<PathBuf>,
+    nodes: Option<DeclaredNodes>,
+}
+
+/// The nodes a combine is planned across: this node's address as the others reach it, and theirs.
+///
+/// Every address is `https`. A link is mutual TLS whatever its URL says, so an `http` address would
+/// read as a plaintext link that does not exist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredNodes {
+    own: Url,
+    others: Vec<Url>,
+    authority: PathBuf,
+}
+
+impl DeclaredNodes {
+    /// This node's address, as the others reach it.
+    #[inline]
+    pub const fn own(&self) -> &Url {
+        &self.own
+    }
+
+    #[inline]
+    pub fn others(&self) -> &[Url] {
+        &self.others
+    }
+
+    /// The authority every node's certificate is checked against, the same `tls_node_authority`.
+    #[inline]
+    pub fn authority(&self) -> &Path {
+        &self.authority
+    }
 }
 
 /// Why the paths are not usable TLS material.
@@ -327,6 +359,12 @@ pub enum InvalidTlsMaterial {
     /// TLS cannot ask a peer for a certificate.
     #[error("server.tls_node_authority is set and server.tls_certificate and server.tls_key are not")]
     AuthorityWithoutPair,
+    /// Nodes were declared with no node authority: the listener would admit any client as a node,
+    /// and a peer would be dialled with nothing to check its certificate against.
+    #[error("server.nodes is set and server.tls_node_authority is not")]
+    NodesWithoutAuthority,
+    #[error("`{found}` in server.nodes is not an https URL with a host")]
+    NotANodeAddress { found: String },
 }
 
 impl TlsMaterial {
@@ -383,6 +421,7 @@ impl TlsMaterial {
                     certificate: PathBuf::from(certificate),
                     key: PathBuf::from(key),
                     node_authority,
+                    nodes: None,
                 }))
             }
         }
@@ -405,6 +444,38 @@ impl TlsMaterial {
     #[inline]
     pub fn node_authority(&self) -> Option<&Path> {
         self.node_authority.as_deref()
+    }
+
+    /// The same material, planning a combine across `own` and `others`. Refused without a node
+    /// authority.
+    pub fn with_nodes(self, own: &str, others: &[String]) -> Result<Self, InvalidTlsMaterial> {
+        let Some(authority) = self.node_authority.clone() else {
+            return Err(InvalidTlsMaterial::NodesWithoutAuthority);
+        };
+        let nodes = DeclaredNodes {
+            own: node_address(own)?,
+            others: others.iter().map(|other| node_address(other)).collect::<Result<_, _>>()?,
+            authority,
+        };
+        Ok(Self {
+            nodes: Some(nodes),
+            ..self
+        })
+    }
+
+    /// The nodes a combine is planned across, if any were declared.
+    #[inline]
+    pub const fn nodes(&self) -> Option<&DeclaredNodes> {
+        self.nodes.as_ref()
+    }
+}
+
+fn node_address(written: &str) -> Result<Url, InvalidTlsMaterial> {
+    match Url::parse(written.trim()) {
+        Ok(url) if url.scheme() == "https" && url.has_host() => Ok(url),
+        Ok(_) | Err(_) => Err(InvalidTlsMaterial::NotANodeAddress {
+            found: String::from(written),
+        }),
     }
 }
 
@@ -778,6 +849,33 @@ mod tests {
             .expect("a pair and an authority parse")
             .expect("a pair is material");
         assert_eq!(material.node_authority(), Some(std::path::Path::new("/tls/nodes.pem")));
+    }
+
+    #[test]
+    fn declared_nodes_need_the_node_authority_and_https_addresses() {
+        let pair = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), None)
+            .expect("a pair parses")
+            .expect("a pair is material");
+        let others = [String::from("https://b.example:8443")];
+        assert_eq!(
+            pair.with_nodes("https://a.example:8443", &others),
+            Err(InvalidTlsMaterial::NodesWithoutAuthority)
+        );
+        let material = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), Some("/tls/nodes.pem"))
+            .expect("a pair and an authority parse")
+            .expect("a pair is material");
+        assert_eq!(
+            material.clone().with_nodes("http://a.example:8443", &others),
+            Err(InvalidTlsMaterial::NotANodeAddress {
+                found: String::from("http://a.example:8443")
+            })
+        );
+        let declared = material
+            .with_nodes(" https://a.example:8443 ", &others)
+            .expect("https addresses under an authority are nodes");
+        let nodes = declared.nodes().expect("the nodes ride with the material");
+        assert_eq!(nodes.own().as_str(), "https://a.example:8443/");
+        assert_eq!(nodes.others().len(), 1);
     }
 
     #[test]

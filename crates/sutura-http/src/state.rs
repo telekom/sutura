@@ -376,8 +376,8 @@ impl FlightMount {
     ///
     /// Unlike [`AgentMount::new`], this crate may name the wrapped type directly -
     /// `sutura_flight::RemoteLegService` is reached through tonic's own generated
-    /// `FlightServiceServer`, which the composition root builds and wraps with the
-    /// `OriginalUri`-restoring adapter `crate::flight` provides before handing it here.
+    /// `FlightServiceServer`, which sees its full method path through
+    /// `crate::original_uri::RestoreOriginalUri`.
     #[must_use]
     pub fn new<S>(service: S) -> Self
     where
@@ -390,7 +390,10 @@ impl FlightMount {
         S::Future: Send + 'static,
     {
         Self {
-            mount: Ungoverned::mount(crate::constants::FLIGHT_MOUNT_PATH, service),
+            mount: Ungoverned::mount(
+                crate::constants::FLIGHT_MOUNT_PATH,
+                crate::original_uri::RestoreOriginalUri::new(service),
+            ),
         }
     }
 
@@ -416,9 +419,9 @@ pub struct WorkerMount {
 impl WorkerMount {
     /// Wraps any service `nest_service` can mount, nested at this crate's own `WORKER_MOUNT_PATH`.
     ///
-    /// The composition root builds the service and restores the request's original URI in front of
-    /// it, as it does for [`FlightMount::new`]'s, because a nested gRPC service otherwise sees its
-    /// method path with the service name stripped.
+    /// The service sees its full method path through `crate::original_uri::RestoreOriginalUri`, as
+    /// [`FlightMount::new`]'s does: a nested gRPC service otherwise sees it with the service name
+    /// stripped and answers no method.
     #[must_use]
     pub fn new<S>(service: S) -> Self
     where
@@ -431,7 +434,10 @@ impl WorkerMount {
         S::Future: Send + 'static,
     {
         Self {
-            mount: Ungoverned::mount(crate::constants::WORKER_MOUNT_PATH, service),
+            mount: Ungoverned::mount(
+                crate::constants::WORKER_MOUNT_PATH,
+                crate::original_uri::RestoreOriginalUri::new(service),
+            ),
         }
     }
 
