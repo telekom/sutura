@@ -324,8 +324,12 @@ fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_se
     let state = session.state();
     let links = DistributedConfig::from_session_config(state.config()).expect("the session plans across nodes");
 
-    assert_eq!(links.worker_connection_buffer_budget_bytes, 1 << 20);
-    assert_eq!(state.config().target_partitions(), 3);
+    assert_eq!(
+        links.worker_connection_buffer_budget_bytes,
+        1 << 20,
+        "each link holds a quarter of the working set shared by three nodes"
+    );
+    assert_eq!(state.config().target_partitions(), 3, "a task plans one partition per node");
 }
 
 #[test]
