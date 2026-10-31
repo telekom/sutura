@@ -42,8 +42,12 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let own = Nodes::worker(crate::sources::working_set(runtime), identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     let mount = sutura_http::WorkerMount::new(own.clone().into_worker_server());
-    let across =
-        Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity).across_above(nodes.across_above());
+    let wait = nodes
+        .wait_for_workers()
+        .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
+    let across = Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity)
+        .across_above(nodes.across_above())
+        .wait_for_workers(wait);
     let combiner = DataFusionCombiner::across(across)
         .map_err(|cause| format!("{}\ncould not build the federation combiner", super::flatten(cause)))?;
     Ok((combiner, Some(mount)))

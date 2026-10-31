@@ -1,6 +1,6 @@
 //! `server.nodes` through `Settings::load`: declared without a node authority it is refused, an
-//! address that is not `https` is refused naming it, and a leg size above which a question goes
-//! across rides with the nodes, never as zero.
+//! address that is not `https` is refused naming it, a leg size above which a question goes
+//! across rides with the nodes, never as zero, and so does a bounded wait for other nodes.
 //!
 //! The refusal cells read the refusal only through what the base tree already exports - its
 //! variant and `Display` - so they build there and fail on its behaviour.
@@ -59,4 +59,19 @@ fn a_leg_size_declared_with_the_nodes_rides_with_them_and_zero_is_refused() {
     assert_eq!(declared.across_above().map(NonZeroU64::get), Some(4096));
     let error = Settings::load(&nodes(0)).expect_err("a leg size of zero is refused");
     assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+}
+
+#[test]
+fn a_wait_for_workers_declared_with_the_nodes_loads() {
+    let overlay = format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
+         others: [\"https://b.example:8443\"]\n    wait_for_workers_seconds: 5\n\
+         security:\n  tls_termination: \"in-process\"\n"
+    );
+    let settings =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("a declared wait loads");
+    assert!(
+        settings.server().tls().and_then(TlsMaterial::nodes).is_some(),
+        "the nodes are declared"
+    );
 }

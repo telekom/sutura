@@ -83,6 +83,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `tools.run_sql.enabled: true`, `security.identity: multi-user`, and no acknowledged shared source               | Acknowledge a shared source, use `single-user`, or leave the tool off                       |
 | A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, or a data system or catalog adapter)                            | The message names the feature. Use a build that has it                                      |
+| `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                              | Lower the wait                                                                              |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
 refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
@@ -242,7 +243,7 @@ A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentenc
 | `413`  | `result_too_large`: more rows than the cap, more data than the data system returns at once, or more bytes than a response may hold                                                                                                                                                                                                                        |
 | `422`  | `dimension_not_conformed`, `too_many_metrics`, `duplicate_metric_name`, `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, `too_many_filters`, `duplicate_dimension`, `cross_model_ratio_without_shared_dimension`, `top_over_uncertified_rows`, `resources_exhausted`, `deadline_exceeded`                                             |
 | `429`  | `budget_exhausted`                                                                                                                                                                                                                                                                                                                                        |
-| `503`  | `source_unavailable`. This is the one refusal that is worth a retry                                                                                                                                                                                                                                                                                       |
+| `503`  | `source_unavailable`, `workers_not_ready`. These are the refusals worth a retry                                                                                                                                                                                                                                                                           |
 
 12 refusal reasons land on `422`. A client should expect a `422` to fail again on an unchanged request.
 
@@ -318,6 +319,7 @@ server:
     own: "https://node-a.example.com:8443"
     others: ["https://node-b.example.com:8443"]
     across_above_bytes: 268435456
+    wait_for_workers_seconds: 10
 ```
 
 `own` is this node's address as the others reach it. Every address is an https URL, and the key is refused without
@@ -334,10 +336,19 @@ A question that reads one data system never goes across. One that reads several 
 more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
 it, and goes across only when that combine runs out of its ceiling. `0` is refused.
 
+`wait_for_workers_seconds` lets a question that goes across wait for the other nodes it wants: one for each
+`across_above_bytes` (or ceiling) that its legs hold beyond this node's share, and at least one. While fewer resolve, it
+resolves again every 200 ms until the wait ends, then plans across those that did. It is refused with
+`503 workers_not_ready` only when none did. Unset, a question plans across whatever resolves at once. `0` is refused,
+and so is a wait that is not below `server.request_timeout_seconds`.
+
 Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
 restart. A link carries no task grant: a node runs any stage another node of the same authority sends it. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
-that ran out on this node is started again across, and the work it did here is lost.
+that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
+`runtime.max_concurrent_queries` slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
+largest plans across what it has, and a question too large for it is refused for its working set. A resolved address
+counts as a worker, so a host that also names a serving node counts that node.
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.

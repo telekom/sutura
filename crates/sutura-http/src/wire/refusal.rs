@@ -392,6 +392,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  not an outage and asking the same leg again returns this same refusal"
             ),
         ),
+        // 503, like `SourceUnavailable`, and the other refusal worth a retry: a pool that is
+        // starting has nodes a moment later. No `Retry-After`, because nothing here knows when.
+        RefusalReason::WorkersNotReady { wanted, ready } => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "this question needed {wanted} other nodes to answer and {ready} were ready in time; asking again \
+                 shortly may succeed"
+            ),
+        ),
     };
     (
         status,
@@ -508,7 +517,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::CrossModelRatioWithoutSharedCalendar { .. }
         | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
         | RefusalReason::CrossModelRatioLinkAmbiguous { .. }
-        | RefusalReason::RemoteLegNotCertified { .. } => None,
+        | RefusalReason::RemoteLegNotCertified { .. }
+        | RefusalReason::WorkersNotReady { .. } => None,
     }
 }
 
@@ -555,6 +565,8 @@ mod link;
 mod payer;
 #[cfg(test)]
 mod second_half;
+#[cfg(test)]
+mod workers;
 
 #[cfg(test)]
 mod tests {

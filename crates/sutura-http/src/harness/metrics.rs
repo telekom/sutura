@@ -137,6 +137,7 @@ sutura_refusals_total{reason="too_many_dimensions"} 0
 sutura_refusals_total{reason="too_many_filters"} 0
 sutura_refusals_total{reason="too_many_metrics"} 0
 sutura_refusals_total{reason="top_over_uncertified_rows"} 0
+sutura_refusals_total{reason="workers_not_ready"} 0
 # TYPE sutura_question_duration_seconds histogram
 sutura_question_duration_seconds_bucket{le="0.01"} 0
 sutura_question_duration_seconds_bucket{le="0.05"} 0
@@ -645,6 +646,10 @@ impl FederationCombiner for CombinesTo {
     }
 
     fn answer_not_well_formed(&self, _error: &Self::Error) -> Option<FederatedAnswerRefusal> {
+        None
+    }
+
+    fn workers_not_ready(&self, _error: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
         None
     }
 }

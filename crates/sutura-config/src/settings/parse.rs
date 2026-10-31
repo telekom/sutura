@@ -39,6 +39,8 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
         (None, Some(_)) => Err(crate::server::InvalidTlsMaterial::NodesWithoutAuthority),
     })
     .map_err(|cause| SettingsError::TlsMaterial { cause })?;
+    let wait = raw.server.nodes.as_ref().and_then(|nodes| nodes.wait_for_workers_seconds);
+    let tls = tls.map(|tls| tls.wait_for_workers(wait));
     let allowed_hosts = raw
         .server
         .allowed_hosts

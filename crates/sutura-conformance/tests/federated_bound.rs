@@ -145,6 +145,10 @@ mod stages {
         fn answer_not_well_formed(&self, _: &Self::Error) -> Option<FederatedAnswerRefusal> {
             None
         }
+
+        fn workers_not_ready(&self, _: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
+            None
+        }
     }
 
     impl DrillAcrossCombiner for FailingCombiner {

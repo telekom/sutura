@@ -444,8 +444,7 @@ pub enum SettingsError {
 /// [`sutura_domain::identity::Secret`], whose `Debug` redacts, and a test in [`crate::security`]
 /// asserts that at struct depth. A catalog endpoint, an inbound URL, a delegation token endpoint or a
 /// source host carrying an `@` - userinfo, however a URL parser splits it - is refused before a
-/// `Settings` exists. The
-/// limit: a secret with no `@`, such as one written into a path, is printed.
+/// `Settings` exists. The limit: a secret with no `@`, such as one written into a path, is printed.
 #[derive(Debug, Clone)]
 pub struct Settings {
     layers: ConfigLayers,
@@ -559,6 +558,7 @@ impl Settings {
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(posture::audience_refusal(self.security.inbound()));
+        refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));

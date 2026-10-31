@@ -316,9 +316,10 @@ where
 
 /// What a combine produced, or the answer a failure of it is.
 ///
-/// A leg's refusal wins over a combine failure. The two governance outcomes are taken off the
-/// combiner's error FIRST, in the order the mono path asks its own adapter: the ceiling, then a
-/// deterministic refusal about what the legs returned, then this workspace's own defect.
+/// A leg's refusal wins over a combine failure. The governance outcomes are taken off the combiner's
+/// error FIRST, in the order the mono path asks its own adapter: the ceiling, then no other node
+/// ready in time, then a deterministic refusal about what the legs returned, then this workspace's
+/// own defect.
 fn settled<W, B, C>(combiner: &C, credentials: &BoundToTheRequest, executed: Ran<W, B, C>) -> Settled<W, B, C>
 where
     W: Warehouse,
@@ -339,6 +340,15 @@ where
         return Err(Box::new(Ok(Answered::refused(
             credentials,
             RefusalReason::ResourcesExhausted { ceiling_bytes },
+        ))));
+    }
+    if let Some(short) = combiner.workers_not_ready(&cause) {
+        return Err(Box::new(Ok(Answered::refused(
+            credentials,
+            RefusalReason::WorkersNotReady {
+                wanted: short.wanted(),
+                ready: short.ready(),
+            },
         ))));
     }
     // D19 + A4: a deterministic combine failure - the same plan against the same legs fails

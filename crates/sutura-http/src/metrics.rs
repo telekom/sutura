@@ -123,6 +123,7 @@ const REFUSAL_REASONS: &[Label] = &[
     label("too_many_filters"),
     label("too_many_metrics"),
     label("top_over_uncertified_rows"),
+    label("workers_not_ready"),
 ];
 
 const ANSWER: Label = label("answer");

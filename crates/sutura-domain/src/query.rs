@@ -552,6 +552,13 @@ pub enum RefusalReason {
     /// here. Distinguishing them would hand a hostile sender a map of this node's own definitions
     /// or its identity posture; naming the `source` is the whole of what crosses back.
     RemoteLegNotCertified { source: SourceName },
+    /// A question that needed other nodes to combine, when none of them was ready within the wait
+    /// `server.nodes.wait_for_workers_seconds` declares.
+    ///
+    /// May be retried: a pool that is starting has nodes a moment later. Refused only when no other
+    /// node resolved, so a pool already at its largest plans across what it has rather than turning a
+    /// retry into one that never succeeds. Carries counts of other nodes, never their addresses.
+    WorkersNotReady { wanted: usize, ready: usize },
 }
 
 /// What a tool call produced.

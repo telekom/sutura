@@ -13,7 +13,7 @@ use sutura_domain::model::SourceName;
 
 use crate::inbound::InboundIdentity;
 use crate::security::DeploymentIdentity;
-use crate::server::BindAddress;
+use crate::server::{BindAddress, ServerSettings};
 
 /// Which of the two reasons a caller-facing credential, or the limiter, was required.
 ///
@@ -455,6 +455,13 @@ pub enum NotFitToServe {
          system every ability a holder of the deployment token has. Use a different value for each"
     )]
     MetricsTokenSharesTheApiToken,
+    /// A question would wait for other nodes as long as the request it serves may take, or longer,
+    /// so the wait would end in the deadline rather than in planning across the nodes that did start.
+    #[error(
+        "server.nodes.wait_for_workers_seconds is {wait_seconds}, which is not below \
+         server.request_timeout_seconds ({timeout_seconds}). Lower the wait"
+    )]
+    WorkersWaitNotBelowDeadline { wait_seconds: u32, timeout_seconds: u64 },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
@@ -489,6 +496,17 @@ pub(super) fn audience_refusal(inbound: Option<&InboundIdentity>) -> Option<NotF
         } if resource.audience().as_str() == authorization_server.as_str() => Some(NotFitToServe::InboundAudienceIsTheIssuer),
         InboundIdentity::Direct { .. } | InboundIdentity::BehindGateway { .. } => None,
     }
+}
+
+/// [`NotFitToServe::WorkersWaitNotBelowDeadline`], when a declared wait is not below the request
+/// timeout.
+pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToServe> {
+    let wait_seconds = server.tls()?.nodes()?.wait_for_workers()?.get();
+    let timeout_seconds = server.request_timeout().seconds();
+    (u64::from(wait_seconds) >= timeout_seconds).then_some(NotFitToServe::WorkersWaitNotBelowDeadline {
+        wait_seconds,
+        timeout_seconds,
+    })
 }
 
 pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<NotFitToServe> {
