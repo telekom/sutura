@@ -1,6 +1,6 @@
 ---
 title: Several metrics on one data system
-description: A question over several metrics whose arms all read one data system runs as one statement on it. Each metric is aggregated in its own derived table and the tables are FULL joined in the statement. The data system joins them, not the combiner and not a second node (github.com/telekom/sutura#828).
+description: A question over several metrics whose arms all read one data system runs as one statement on it. Each metric is aggregated in its own branch, the branches are stacked with UNION ALL and grouped again on the keys and bucket. The data system joins them, not the combiner and not a second node (github.com/telekom/sutura#828).
 ---
 
 # Several metrics on one data system
@@ -26,17 +26,20 @@ node for it.
 
 - **Each metric is the whole-answer plan it would be if asked alone.** Its own model, joins,
   filters, bucket and measure, rendered by the generator that renders a single metric today. Each
-  metric is aggregated in its own derived table before any join.
-- **The derived tables are FULL joined left to right on every key and the bucket, null-safe.** Each
-  joined key is the coalesce of the two sides, the same shape as the in-process merge
-  (`crates/sutura-exec-datafusion/src/combine/merge.rs`). A null key from two arms is one row, and a
-  metric with no rows in a merged group answers null.
+  metric is aggregated in its own branch before any join.
+- **The branches are stacked with `UNION ALL` and grouped again on every key and the bucket.** Each
+  branch projects its own measure and a null under every other metric's label, and the outer
+  statement takes each measure's `MAX`. A branch has at most one row per group, so `MAX` returns that
+  row's value, and a metric with no rows in a group answers null. `GROUP BY` puts null keys in one
+  group in every dialect, so a null key from two arms is one row, as in the in-process merge's
+  null-safe full join (`crates/sutura-exec-datafusion/src/combine/merge.rs`).
 - **The chasm trap stays impossible.** `docs/adr/0002` makes it impossible by never letting two facts
-  share a `FROM` before each is aggregated. A derived table per metric holds that property inside one
+  share a `FROM` before each is aggregated. A branch per metric holds that property inside one
   statement, as two statements held it before. What `0002` ruled out is two facts in one `FROM`, not
   one statement.
 - **A `top` for the whole question is the outer statement's.** Its order and limit apply after every
-  arm joins, as the in-process merge applies them. The row limit applies to the outer statement only.
+  arm joins, as the in-process merge applies them. A `top` by metric ranks by the last metric's
+  measure, as that merge ranks. The row limit applies to the outer statement only.
 - **The plan is a whole answer from one data system.** It is one more shape the `Warehouse` port
   executes. It is not a set of legs, so an adapter that runs no leg answers it too, and one broker
   mint, one pre-flight and one charge cover it.
@@ -47,20 +50,15 @@ node for it.
   size rule on the legs decides whether the join runs on one node or across several
   (`docs/adr/20261030182759-shuffle-across-nodes.md`).
 
-## Per dialect
+## One rendering, not one per dialect
 
-| Dialect    | Null-safe key equality                                                              |
-| ---------- | ----------------------------------------------------------------------------------- |
-| PostgreSQL | `IS NOT DISTINCT FROM`                                                              |
-| DuckDB     | `IS NOT DISTINCT FROM`                                                              |
-| BigQuery   | `IS NOT DISTINCT FROM`                                                              |
-| ClickHouse | `isNotDistinctFrom`, with `join_use_nulls = 1` so an unmatched side is null         |
-| Oracle     | `(a = b OR (a IS NULL AND b IS NULL))`, unless the pinned server takes the operator |
+A null-safe `FULL JOIN` needs a different key equality per dialect, and PostgreSQL refuses it. On
+PostgreSQL 18.6 both `ON l.k IS NOT DISTINCT FROM r.k` and `ON (l.k = r.k OR (l.k IS NULL AND r.k IS
+NULL))` fail with `FULL JOIN is only supported with merge-joinable or hash-joinable join conditions`.
+`UNION ALL` and `GROUP BY` need no key equality, and one rendering serves every dialect.
 
-Each row is a decision to verify, not a fact measured here. Each dialect's golden parse check and,
-where a tier runs, the differential decide which rendering ships. Bind parameters are concatenated
-in arm order. A numbered placeholder in a later arm is shifted past the arms before it, and the
-existing placeholder count check holds the whole statement.
+Bind parameters are concatenated in arm order. A numbered placeholder in a later arm is shifted past
+the arms before it, and the existing placeholder count check holds the whole statement.
 
 ## What this changes in older records
 
@@ -73,19 +71,22 @@ existing placeholder count check holds the whole statement.
 ## What is not built
 
 - **A cross-model ratio's two facts on one source** stay two statements combined in-process on the
-  node that asked. Running them as one statement is the same derived-table shape. It is left for its
-  own change, because the ratio divides across the two derived tables and applies `zero_denominator`
-  above them.
+  node that asked. Running them as one statement is the same branch shape. It is left for its own
+  change, because the ratio divides across the two branches and applies `zero_denominator` above
+  them.
 - **A joined arm** (a metric that reaches another data system's dimension) keeps the arm per metric
   even when every other arm reads one source.
 
 ## Limits
 
-- **The data system's comparison rules decide the join.** The in-process merge refuses a key or a
-  bucket of another Arrow kind (`KeyKindMismatch`, `BucketKindMismatch`). One statement gets no such
-  refusal. Two buckets of different SQL types are compared as that data system compares them, and
-  that comparison may be an implicit cast. A conformed key ends on one model and column, so this
-  limit is about the bucket.
+- **The data system's type rules decide the join.** The in-process merge refuses a key or a bucket
+  of another Arrow kind (`KeyKindMismatch`, `BucketKindMismatch`). One statement gets no such
+  refusal. `UNION ALL` resolves two buckets of different SQL types to a common type as that data
+  system resolves it, or refuses them. A conformed key ends on one model and column, so this limit is
+  about the bucket.
+- **A typeless null is the data system's to type.** A branch projects an untyped null under another
+  metric's label. PostgreSQL 18.6 and DuckDB resolve it to the other branch's type. ClickHouse,
+  Oracle and BigQuery have not been run here, and each dialect's tier decides.
 - **The leg cap no longer bounds this shape's memory, and the source's own limits do.** The cap of
   legs bounded what sutura holds. Here sutura holds only the answer, bounded by the row limit, and the
   data system bounds the join.
