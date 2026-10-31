@@ -1,18 +1,21 @@
 //! A combine planned across three nodes on localhost, against the same combine on one node, every
 //! link over mutual TLS.
 
+use core::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
+use datafusion::arrow::array::{ArrayRef, StringArray};
+use datafusion::arrow::datatypes::DataType;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
 use datafusion_distributed::{MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
-use sutura_domain::warehouse::Value;
+use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Value};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::crypto::ring;
@@ -26,7 +29,7 @@ use tonic::transport::Server;
 use tonic::transport::server::Connected;
 use url::Url;
 
-use super::{UNBOUNDED, assigned, combiner, fact, fact_row, lookup, sum_plan, text};
+use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
 use crate::combine::{DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
@@ -195,6 +198,107 @@ fn a_combine_across_three_nodes_answers_what_one_node_answers_and_sends_both_oth
             "the other node {other} was sent no request, so its stage ran here"
         );
     }
+}
+
+/// Link values in a question one node is too small for: each leg is past the engine's thresholds
+/// for broadcasting a join's smaller side, so the join is hash-partitioned and each node builds a part.
+const LINKS: usize = 1 << 17;
+
+/// Rows per batch, as a source streams them.
+const BATCH: usize = 8192;
+
+/// `sum_plan`'s legs over [`LINKS`] link values from `c0`, in batches of [`BATCH`] rows: one fact of A
+/// per link value, each in the north.
+fn wide(plan: &FederatedPlan) -> Vec<LegResult> {
+    let parts: Vec<ArrayRef> = (0..LINKS)
+        .step_by(BATCH)
+        .map(|first| -> ArrayRef {
+            Arc::new(StringArray::from_iter_values(
+                (first..LINKS.min(first + BATCH)).map(|link| format!("c{link}")),
+            ))
+        })
+        .collect();
+    let streamed = |batches: Vec<ResultBatches>| {
+        let schema = Arc::clone(batches.first().expect("a question has a link value").schema());
+        let mut accumulating = Accumulating::announcing(schema, LINKS, ResultBudget::of_bytes(NonZeroUsize::MAX));
+        for batch in batches.into_iter().flat_map(ResultBatches::into_batches) {
+            accumulating
+                .push(batch)
+                .expect("a part agrees with the schema it was built under");
+        }
+        accumulating.finish()
+    };
+    plan.legs()
+        .into_iter()
+        .zip([
+            streamed(
+                parts
+                    .iter()
+                    .map(|part| fact_linked(DataType::Utf8, Arc::clone(part)))
+                    .collect(),
+            ),
+            streamed(
+                parts
+                    .iter()
+                    .map(|part| lookup_linked(DataType::Utf8, Arc::clone(part)))
+                    .collect(),
+            ),
+        ])
+        .map(|(leg, batches)| LegResult::of(leg, batches))
+        .collect()
+}
+
+#[test]
+fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() {
+    let plan = sum_plan(true);
+    let results = wide(&plan);
+    let one = combiner();
+    let answer = one
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect("one roomy node answers")
+        .to_rows()
+        .expect("a combined answer decodes");
+    let sum = i64::try_from(LINKS).expect("the link count is an integer") * 100;
+    assert_eq!(
+        answer.rows(),
+        &[vec![text("A"), text("north"), text("2026-06"), Value::Integer(sum)]]
+    );
+
+    // The widest ceiling, halving from a roomy one, that one node refuses for its working set.
+    let mut working_set = UNBOUNDED;
+    let refused = loop {
+        match one.combine(&plan, assigned(&plan, &results), working_set) {
+            Ok(_) => working_set >>= 1,
+            Err(refused) => break refused,
+        }
+    };
+    assert_eq!(one.working_set_exhausted(&refused), Some(working_set), "{refused:?}");
+
+    // Each node's pool, and the question's own ceiling, is the one a single node refused.
+    let pool = || {
+        let bytes = usize::try_from(working_set).expect("a ceiling under one node's roomy one fits a pointer");
+        WorkingSet::of_bytes(NonZeroUsize::new(bytes).expect("a refused ceiling halved from a roomy one is not zero"))
+    };
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(pool(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let others: Vec<Url> = std::iter::repeat_with(|| {
+        let other = authority.sign();
+        let worker = Nodes::worker(pool(), authority.identity(&other)).expect("a worker builds");
+        served(&servers, listening(&other, authority.peers()), worker, Arc::default())
+    })
+    .take(2)
+    .collect();
+    let across =
+        DataFusionCombiner::across(Nodes::declared(own, own_url, others, authority.identity(&node))).expect("a combiner builds");
+    let spread = across
+        .combine(&plan, assigned(&plan, &results), working_set)
+        .expect("three nodes answer what one refused")
+        .to_rows()
+        .expect("a combined answer decodes");
+    assert_eq!(spread.rows(), answer.rows());
 }
 
 #[test]

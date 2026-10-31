@@ -1,19 +1,24 @@
 //! A combine whose stages above a repartition run on several nodes, on `datafusion-distributed`:
 //! `docs/adr/20261030182759-shuffle-across-nodes.md`.
 //!
-//! **The legs stay on this node, by the engine's own routing.** A leg is a `MemTable`, a leaf the
-//! engine plans as one task, and a stage of one task runs on the node that plans the question, in
-//! process and unencoded. Every node above a leaf asks for one task per declared node, so a stage
-//! above a hash repartition - the join's or the aggregate's - is spread across them, and what
-//! crosses a link is that stage's input, as Arrow batches.
+//! **A leg's rows are dealt across the nodes.** A leg is a `MemTable`, and its scan, like every node
+//! above it, asks for one task per declared node; `dealt` splits the scan batch by batch, one share
+//! per task. Each node scans and repartitions a share of the rows, where a leg planned as one task
+//! would run on this node alone, and this node's own worker would then refuse a question one node
+//! refuses for its working set. A stage above a hash repartition - the join's or the aggregate's -
+//! is spread across the nodes too. What crosses a link is a leg's share, inside the stage sent to a
+//! node, and each stage's input, as Arrow batches.
 //!
 //! **Limits, next to the claim.**
 //!
-//! - That the legs stay is the engine routing a one-task stage, not a check of ours. What a check
+//! - A leg's share is rows this node read, as the caller it serves, and chose to send. What a check
 //!   holds is the other side: a [`Nodes::worker`] refuses a stage with a leaf that reads anything
 //!   but another node's stage or rows the plan itself carries, such as a file scan
-//!   (`StageReadsASource`, Decision 3). The leaves it accepts are four types, so a leg's rows sent
-//!   to another node would run there; they are rows this node read and chose to send.
+//!   (`StageReadsASource`, Decision 3). The leaves it accepts are four types.
+//! - A leg's scan with a limit or a declared order is not dealt: it is planned as one task, which
+//!   runs on this node, and so does every node of its stage.
+//! - This node holds every leg's rows until the question is answered: they are the caller's
+//!   batches, outside any pool. Dealing them changes which node scans them, not which holds them.
 //! - A link is gRPC over mutual TLS: each end presents a certificate the deployment's node authority
 //!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). It carries no grant, so a
 //!   node serving [`Nodes::worker`] runs any stage that reads no source another node of the
@@ -31,6 +36,7 @@ use std::sync::Arc;
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
+use datafusion::datasource::source::DataSource as _;
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::ExecutionPlan;
@@ -39,9 +45,9 @@ use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, NetworkBoundaryExt as _,
-    SessionStateBuilderExt as _, Worker, WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse,
-    WorkerQueryContext, WorkerResolver,
+    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, DistributedLeafExec,
+    NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse, SessionStateBuilderExt as _, Worker,
+    WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse, WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
 use tokio_rustls::TlsConnector;
@@ -131,13 +137,46 @@ impl Nodes {
             .with_distributed_channel_resolver(self.channels.clone())
             .with_distributed_local_worker_context(self.own.to_local_worker_context(self.own_url.clone()))
             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
-                // A leaf answered `None` is planned as one task, which routes to this node.
-                (!event.plan.children().is_empty()).then(|| Ok(DesiredTaskCountEventResponse::desired(count)))
+                // Any other leaf, answered `None`, is planned as one task, which routes to this node.
+                (!event.plan.children().is_empty() || dealable(event.plan).is_some())
+                    .then(|| Ok(DesiredTaskCountEventResponse::desired(count)))
             })
+            .with_distributed_scale_up_leaf_node_handler(dealt)
             .with_distributed_planner()
             .build();
         Ok(SessionContext::new_with_state(state))
     }
+}
+
+/// `event`'s leg scan as one variant per task, each with every `task_count`th batch of each
+/// partition, so the tasks read the leg's rows between them and none twice.
+fn dealt(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLeafNodeEventResponse, DataFusionError>> {
+    let rows = dealable(event.plan)?;
+    let tasks = event.task_count;
+    (tasks > 1).then(|| {
+        let variants = (0..tasks)
+            .map(|task| {
+                let partitions: Vec<Vec<_>> = rows
+                    .partitions()
+                    .iter()
+                    .map(|batches| batches.iter().skip(task).step_by(tasks).cloned().collect())
+                    .collect();
+                MemorySourceConfig::try_new_exec(&partitions, rows.original_schema(), rows.projection().clone())
+                    .map(|scan| scan as Arc<dyn ExecutionPlan>)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let leaf = DistributedLeafExec::try_new(Arc::clone(event.plan), variants)?;
+        Ok(ScaleUpLeafNodeEventResponse::new(Arc::new(leaf)))
+    })
+}
+
+/// A leg's scan whose rows may be split between tasks: one with no limit and no declared order.
+fn dealable(leaf: &Arc<dyn ExecutionPlan>) -> Option<&MemorySourceConfig> {
+    let rows = leaf
+        .downcast_ref::<DataSourceExec>()?
+        .data_source()
+        .downcast_ref::<MemorySourceConfig>()?;
+    (rows.fetch().is_none() && rows.sort_information().is_empty()).then_some(rows)
 }
 
 /// A stage sent to a node has a leaf that reads a source: a node reads one only for a question it

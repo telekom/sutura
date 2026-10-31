@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
+index 553a48b0e..b367514aa 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across.rs
+@@ -139,7 +139,7 @@ impl Nodes {
+             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
+                 // Any other leaf, answered `None`, is planned as one task, which routes to this node.
+                 (!event.plan.children().is_empty() || dealable(event.plan).is_some())
+-                    .then(|| Ok(DesiredTaskCountEventResponse::desired(count)))
++                    .then(|| Ok(DesiredTaskCountEventResponse::desired(1)))
+             })
+             .with_distributed_scale_up_leaf_node_handler(dealt)
+             .with_distributed_planner()
