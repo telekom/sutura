@@ -15,6 +15,9 @@ use std::time::Duration;
 use sutura_domain::warehouse::deadline::{Budget, NoBudget};
 use url::Url;
 
+mod role;
+pub use role::{ServerRole, UnknownServerRole};
+
 /// The socket the service listens on.
 ///
 /// An `IpAddr` and a port, never a hostname. A hostname is refused rather than resolved: a name
@@ -585,6 +588,7 @@ impl AllowedHost {
 /// the group itself is read once, at assembly time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerSettings {
+    role: ServerRole,
     bind: BindAddress,
     request_timeout: RequestTimeout,
     max_body: BodyLimit,
@@ -609,6 +613,7 @@ impl ServerSettings {
     /// [`crate::Settings::parse`], because they need the other groups to decide.
     #[inline]
     pub const fn new(
+        role: ServerRole,
         bind: BindAddress,
         request_timeout: RequestTimeout,
         max_body: BodyLimit,
@@ -618,6 +623,7 @@ impl ServerSettings {
         allowed_hosts: Vec<AllowedHost>,
     ) -> Self {
         Self {
+            role,
             bind,
             request_timeout,
             max_body,
@@ -626,6 +632,12 @@ impl ServerSettings {
             flight_surface_enabled,
             allowed_hosts,
         }
+    }
+
+    /// Whether this node serves callers or only runs the serving nodes' combine stages.
+    #[inline]
+    pub const fn role(&self) -> ServerRole {
+        self.role
     }
 
     #[inline]

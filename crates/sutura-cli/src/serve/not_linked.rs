@@ -4,7 +4,6 @@
 //! function here only compiles for the build it refuses - `check-default-feature-tests` is the
 //! cell that runs it, since `just test`'s `--all-features` run never sees any body here.
 
-#[cfg(any(not(feature = "agent"), not(feature = "flight")))]
 use sutura_config::Settings;
 
 /// A build without the `agent` feature: an enabled switch is a startup refusal.
@@ -55,4 +54,14 @@ pub(super) fn nodes_refused_if_declared(tls: Option<&sutura_config::TlsMaterial>
         ));
     }
     Ok(())
+}
+
+/// A build without the `distributed` feature: `server.role: worker` is a startup refusal, not a node
+/// that serves nothing. `crate::serve::tests::nodes` holds it.
+#[cfg(not(feature = "distributed"))]
+pub(super) fn worker_refused(_settings: &Settings) -> Result<(), String> {
+    Err(String::from(
+        "server.role is worker and this binary was built without the `distributed` feature, so it \
+         has no worker to serve. Rebuild with `--features distributed`, or set server.role to serving.",
+    ))
 }

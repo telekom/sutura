@@ -1,4 +1,4 @@
-//! Declared nodes, on a build that can plan across them and on one that cannot.
+//! Declared nodes and a worker, on a build that can plan across nodes and on one that cannot.
 
 /// Material naming nodes at `authority`. Nothing here is read until a combiner is built from it.
 fn declaring(certificate: &str, key: &str, authority: &str) -> sutura_config::TlsMaterial {
@@ -67,5 +67,19 @@ fn an_unreadable_node_authority_is_refused_naming_it() {
     assert!(
         refused.contains(missing),
         "the refusal must name the authority it could not read: {refused}"
+    );
+}
+
+#[cfg(not(feature = "distributed"))]
+#[test]
+fn a_worker_is_refused_by_a_build_without_the_feature() {
+    let settings = sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+        .expect("the defaults load");
+    let Err(refused) = super::super::not_linked::worker_refused(&settings) else {
+        panic!("a worker on a build without the feature was not refused");
+    };
+    assert!(
+        refused.contains("--features distributed"),
+        "the refusal must name the feature that would serve a worker: {refused}"
     );
 }

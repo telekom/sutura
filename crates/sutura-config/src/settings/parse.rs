@@ -17,7 +17,7 @@ use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{AccessToken, DeploymentIdentity, SecuritySettings, TlsTermination};
-use crate::server::{AllowedHost, BindAddress, BodyLimit, RequestTimeout, ServerSettings};
+use crate::server::{AllowedHost, BindAddress, BodyLimit, RequestTimeout, ServerRole, ServerSettings};
 use crate::sources::caller_identity::CallerIdentityBlocks;
 use crate::sources::{RawSourceEntry, SourceRegistry};
 use crate::telemetry::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
@@ -48,6 +48,7 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
         .map(|written| AllowedHost::parse(written).map_err(|cause| SettingsError::AllowedHost { cause }))
         .collect::<Result<_, _>>()?;
     Ok(ServerSettings::new(
+        ServerRole::parse(&raw.server.role).map_err(|cause| SettingsError::Role { cause })?,
         bind,
         timeout,
         body,

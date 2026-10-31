@@ -18,12 +18,18 @@ use axum::response::{IntoResponse as _, Response};
 
 use super::Ungoverned;
 use crate::server::NodeCertified;
-use crate::state::ServiceState;
+use crate::state::{ServiceState, WorkerMount};
 
 /// The worker subtree, or no mount when this build and deployment carry none.
 pub(super) fn worker_subtree(state: &ServiceState) -> Option<Ungoverned> {
-    let mount = state.worker_surface()?.ungoverned();
-    Some(mount.layered(|router| router.route_layer(axum::middleware::from_fn(certified_node))))
+    state.worker_surface().map(certified)
+}
+
+/// `mount` behind [`certified_node`].
+pub(super) fn certified(mount: &WorkerMount) -> Ungoverned {
+    mount
+        .ungoverned()
+        .layered(|router| router.route_layer(axum::middleware::from_fn(certified_node)))
 }
 
 /// Passes a request on only when its connection presented a node certificate.
