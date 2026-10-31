@@ -169,6 +169,7 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
                 .into_iter()
                 .find(|case| case.leg() == leg)
                 .map(|case| case.expected().clone()),
+            Executable::Stacked(_) => None,
         }
     }
 
@@ -184,6 +185,7 @@ impl<const LEGS: bool, const PRICES: bool> Fake<LEGS, PRICES> {
                 .into_iter()
                 .find(|case| case.leg() == leg)
                 .map(|case| case.name().to_owned()),
+            Executable::Stacked(_) => None,
         }
     }
 
@@ -296,7 +298,7 @@ impl<const LEGS: bool, const PRICES: bool> Warehouse for Fake<LEGS, PRICES> {
             }
         }
         match executable {
-            Executable::Query(_) => self.answer(executable),
+            Executable::Query(_) | Executable::Stacked(_) => self.answer(executable),
             Executable::Leg(_) if LEGS || self.answers_a_leg_anyway => self.answer(executable),
             Executable::Leg(_) => Err(FakeFailure::NoLeg),
         }

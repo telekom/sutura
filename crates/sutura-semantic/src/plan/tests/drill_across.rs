@@ -13,7 +13,7 @@ fn plan_resolved(resolved: &Resolved<'_>) -> Result<Plan, PlanError> {
     crate::plan::plan_resolved(resolved, PlanCeilings::DEFAULT)
 }
 
-fn june() -> TimeRange {
+pub(super) fn june() -> TimeRange {
     TimeRange::new(
         Date::parse("2026-06-01").expect("a test date is a date"),
         Date::parse("2026-07-01").expect("a test date is a date"),
@@ -143,90 +143,6 @@ fn metrics_on_different_sources_beside_a_remote_one_plan_over_three_data_systems
         planned.sources().collect::<BTreeSet<_>>().len(),
         3,
         "local, remote and other are three data systems, and the lookup-leg cap bounds them"
-    );
-}
-
-/// `each` alone, reaching `segment` through the one hop of `placed` or on its own model.
-fn reach<'a>(each: &'a Metric, through: bool, placed: (&'a Model, &'a Model, &'a Relationship)) -> Resolution<'a> {
-    let (facts, segments, link) = placed;
-    Resolution {
-        metric: each,
-        metrics: vec![each],
-        model: facts,
-        grain: Grain::Month,
-        range: june(),
-        keys: vec![ResolvedDimension {
-            dimension: each
-                .dimension(&dimension_name("segment"))
-                .expect("the metric declares this dimension"),
-            join: through.then(|| {
-                vec![ResolvedJoin {
-                    relationship: link,
-                    model: segments,
-                }]
-            }),
-        }],
-        filters: Vec::new(),
-        top: None,
-        cross: None,
-    }
-}
-
-#[test]
-fn metrics_that_reach_a_dimension_by_different_paths_are_an_arm_each() {
-    let facts = model("facts", "local", &["amount_cents", "segment_key", "segment_name", "day"]);
-    let segments = model("segments", "local", &["segment_key", "name"]);
-    let link = relationship("facts_segment", ("facts", "segment_key"), ("segments", "segment_key"));
-    let metric = |name: &str, dimension: Dimension| {
-        Metric::new(
-            MetricName::parse(name).expect("a test metric is a metric"),
-            ModelName::parse("facts").expect("a test model is a model"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-            Vec::new(),
-            column("day"),
-            BTreeSet::from([Grain::Month]),
-            vec![dimension],
-            None,
-            Description::default(),
-            Audience::Open,
-        )
-        .expect("no dimensions to duplicate")
-    };
-    let joined = metric("joined", declared("segment", "name", &["facts_segment"]));
-    let own = metric(
-        "own",
-        Dimension::new(
-            dimension_name("segment"),
-            column("segment_name"),
-            None,
-            None,
-            Description::default(),
-        ),
-    );
-    let placed = (&facts, &segments, &link);
-    let both = Resolved {
-        whole: Resolution {
-            metrics: vec![&joined, &own],
-            ..reach(&joined, true, placed)
-        },
-        per_metric: vec![reach(&joined, true, placed), reach(&own, false, placed)],
-    };
-    let planned = across(plan_resolved(&both));
-    let read: Vec<(String, String)> = planned
-        .arms()
-        .iter()
-        .map(|arm| {
-            assert!(matches!(arm, Arm::Local(_)), "no dimension is on another data system");
-            read_from(arm.fact().keys().first())
-        })
-        .collect();
-    assert_eq!(
-        read,
-        [
-            (String::from("dim_segments"), String::from("name")),
-            (String::from("dim_facts"), String::from("segment_name")),
-        ],
-        "each arm reads its own metric's column, not the first metric's"
     );
 }
 

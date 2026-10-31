@@ -1,9 +1,10 @@
 diff --git a/crates/sutura-exec-bigquery/src/lib.rs b/crates/sutura-exec-bigquery/src/lib.rs
+index b5936276c..fa3e0561f 100644
 --- a/crates/sutura-exec-bigquery/src/lib.rs
 +++ b/crates/sutura-exec-bigquery/src/lib.rs
-@@ -324,7 +324,7 @@
-             Executable::Query(plan) => generate(plan, Dialect::BigQuery),
+@@ -329,7 +329,7 @@ where
              Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery),
+             Executable::Stacked(plan) => generate_stacked(plan, Dialect::BigQuery),
          }
 -        .map_err(|cause| BigQueryError::Render { cause })
 +        .map_err(|_cause| BigQueryError::NoIdentityInTheAnswer { rows: 0, columns: 0 })

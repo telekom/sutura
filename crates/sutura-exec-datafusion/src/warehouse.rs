@@ -94,13 +94,13 @@ impl Warehouse for DataFusionWarehouse {
         let Some(remaining) = deadline.remaining_at(std::time::Instant::now()) else {
             return Err(DataFusionError::DeadlineExceeded { budget });
         };
-        // **Both shapes, one path, and the match stays exhaustive.** It would read more simply as a
+        // **Every shape, one path, and the match stays exhaustive.** It would read more simply as a
         // single call now that `rows` takes the `Executable` - and that is exactly what it must not
-        // be: `Executable` is the port's whole vocabulary, and the arm is what makes a third plan
+        // be: `Executable` is the port's whole vocabulary, and the arm is what makes a new plan
         // shape a compile error in this adapter rather than something it silently ran as one of
-        // these two.
+        // these.
         let rows = match executable {
-            Executable::Query(_) | Executable::Leg(_) => self.rows(executable),
+            Executable::Query(_) | Executable::Leg(_) | Executable::Stacked(_) => self.rows(executable),
         };
         // Built INSIDE this `async move`, not handed to `block_on` directly: a `Sleep` registers on
         // CONSTRUCTION, before `block_on`'s own argument is even evaluated - measured as a panic.

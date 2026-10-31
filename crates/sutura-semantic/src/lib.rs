@@ -40,8 +40,8 @@ use crate::resolve::ResolveError;
 use sutura_domain::model::MetricName;
 use sutura_domain::pinned::view::ScopedView;
 use sutura_domain::plan::QueryPlan as DomainPlan;
-pub use sutura_domain::plan::{DrillAcrossPlan, FederatedPlan, QueryPlan};
-use sutura_domain::plan::{DrillAcrossPlanError, FederatedPlanError, IncoherentBindings};
+pub use sutura_domain::plan::{DrillAcrossPlan, FederatedPlan, QueryPlan, StackedPlan};
+use sutura_domain::plan::{DrillAcrossPlanError, FederatedPlanError, IncoherentBindings, StackedPlanError};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
@@ -65,6 +65,9 @@ pub enum Compiled {
     /// fact leg beside a lookup leg. The combiner behind
     /// [`DrillAcrossCombiner`](sutura_domain::plan::DrillAcrossCombiner) joins the arms above them.
     DrillAcross { plan: Box<DrillAcrossPlan> },
+    /// The question named several metrics on one data system, each answered by its own whole-answer
+    /// arm, and that data system joins the arms in one statement.
+    Stacked { plan: Box<StackedPlan> },
     /// The question was refused, and this is why.
     Refused { reason: RefusalReason },
 }
@@ -74,7 +77,7 @@ impl Compiled {
     pub const fn refusal(&self) -> Option<&RefusalReason> {
         match *self {
             Self::Refused { ref reason } => Some(reason),
-            Self::Planned { .. } | Self::Federated { .. } | Self::DrillAcross { .. } => None,
+            Self::Planned { .. } | Self::Federated { .. } | Self::DrillAcross { .. } | Self::Stacked { .. } => None,
         }
     }
     /// The plan, if the question resolved to one data system.
@@ -82,7 +85,7 @@ impl Compiled {
     pub const fn plan(&self) -> Option<&DomainPlan> {
         match *self {
             Self::Planned { ref plan } => Some(plan),
-            Self::Federated { .. } | Self::DrillAcross { .. } | Self::Refused { .. } => None,
+            Self::Federated { .. } | Self::DrillAcross { .. } | Self::Stacked { .. } | Self::Refused { .. } => None,
         }
     }
 }
@@ -126,6 +129,9 @@ pub enum CompileFailure {
     /// A drill-across plan this workspace compiled from arms it could not then assemble.
     #[error("this deployment compiled a question over several metrics it could not assemble")]
     NotAssembledAcross(#[from] DrillAcrossPlanError),
+    /// A stacked plan this workspace compiled from arms on one data system it could not then assemble.
+    #[error("this deployment compiled a question over several metrics on one data system it could not assemble")]
+    NotStacked(#[from] StackedPlanError),
     /// A plan this workspace compiled whose predicates and parameters did not resolve each other.
     #[error("this deployment compiled a question whose parameters did not bind")]
     NotBound(#[from] IncoherentBindings),
@@ -203,11 +209,13 @@ pub fn compile(
         Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),
+        Ok(plan::Plan::Stacked(stacked)) => Ok(Compiled::Stacked { plan: stacked }),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
         Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),
         Err(PlanError::NotBound(cause)) => Err(cause.into()),
         Err(PlanError::NotAssembledAcross(cause)) => Err(cause.into()),
+        Err(PlanError::NotStacked(cause)) => Err(cause.into()),
         Err(PlanError::NoRemoteJoin) => Err(CompileFailure::NoRemoteJoin),
         Err(PlanError::NoSecondFactModel) => Err(CompileFailure::NoSecondFactModel),
         Err(PlanError::NotDigestible(cause)) => Err(cause.into()),

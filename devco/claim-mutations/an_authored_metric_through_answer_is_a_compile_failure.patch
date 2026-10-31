@@ -1,9 +1,10 @@
 diff --git a/crates/sutura-semantic/src/lib.rs b/crates/sutura-semantic/src/lib.rs
+index 8bde31b5f..1ca75e262 100644
 --- a/crates/sutura-semantic/src/lib.rs
 +++ b/crates/sutura-semantic/src/lib.rs
-@@ -216,7 +216,9 @@
-         Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
+@@ -211,7 +211,9 @@ pub fn compile(
          Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),
+         Ok(plan::Plan::Stacked(stacked)) => Ok(Compiled::Stacked { plan: stacked }),
          Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
 -        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
 +        Err(PlanError::AuthoredSqlNotPlanned { metric }) => Ok(Compiled::Refused {

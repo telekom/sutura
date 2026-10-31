@@ -1,10 +1,11 @@
 diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
+index ad11043db..4baeb634e 100644
 --- a/crates/sutura-app/src/lib.rs
 +++ b/crates/sutura-app/src/lib.rs
-@@ -599,29 +599,7 @@
+@@ -608,29 +608,7 @@ where
          return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
      }
-     let (asked_plan, bill_to) = (Executable::Query(&plan), credentials.bill_to_for(plan.source()));
+     let bill_to = credentials.bill_to_for(source);
 -    let preflight = match warehouse
 -        .dry_run_billed(asked_plan, presented, bill_to, &labels, deadline)
 -        .map_err(Billed::into_source)

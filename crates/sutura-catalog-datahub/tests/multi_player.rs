@@ -120,8 +120,8 @@ mod tests {
             Compiled::Refused { reason } => {
                 panic!("the README's question must not be refused by its own catalog: {reason:?}")
             }
-            Compiled::Federated { .. } | Compiled::DrillAcross { .. } => {
-                panic!("the example corpus is one source; nothing federates")
+            Compiled::Federated { .. } | Compiled::DrillAcross { .. } | Compiled::Stacked { .. } => {
+                panic!("the example question is one metric")
             }
         }
     }
