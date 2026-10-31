@@ -2594,17 +2594,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#use-nodes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        use Nodes
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#use-combineerror" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2631,6 +2620,39 @@
     <span class="md-ellipsis">
       
         use SourceProvider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-nodeidentity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use NodeIdentity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Nodes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-notanidentity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use NotAnIdentity
       
     </span>
   </a>
@@ -2996,8 +3018,6 @@ compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
 parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
 reach. This crate does not depend on that one and must not: an adapter does not call another
 adapter, so the composition root converts.</p>
-<h2 id="use-nodes"><code>use Nodes</code><a class="headerlink" href="#use-nodes" title="Permanent link">&para;</a></h2>
-<p>The nodes one combine's stages may run on, this one among them.</p>
 <h2 id="use-combineerror"><code>use CombineError</code><a class="headerlink" href="#use-combineerror" title="Permanent link">&para;</a></h2>
 <p>Why a combine could not be assembled.</p>
 <p>Split the way the port's two predicates read it: the caller-facing arms are deterministic
@@ -3018,6 +3038,13 @@ per subject instead is a <code>ComputeContext</code> - see
 <code>Self::for_subject</code>.</p>
 <h2 id="use-sourceprovider"><code>use SourceProvider</code><a class="headerlink" href="#use-sourceprovider" title="Permanent link">&para;</a></h2>
 <p>The provider for <code>subject</code>'s scans of <code>source</code>.</p>
+<h2 id="use-nodeidentity"><code>use NodeIdentity</code><a class="headerlink" href="#use-nodeidentity" title="Permanent link">&para;</a></h2>
+<p>What a node presents on a link and which nodes it accepts on the other end: its certificate and
+key, and the deployment's node authority.</p>
+<h2 id="use-nodes"><code>use Nodes</code><a class="headerlink" href="#use-nodes" title="Permanent link">&para;</a></h2>
+<p>The nodes one combine's stages may run on, this one among them.</p>
+<h2 id="use-notanidentity"><code>use NotAnIdentity</code><a class="headerlink" href="#use-notanidentity" title="Permanent link">&para;</a></h2>
+<p>The node's certificate, key or authority is not one a link can present or trust.</p>
 <h2 id="module-measurement">Module <code>measurement</code><a class="headerlink" href="#module-measurement" title="Permanent link">&para;</a></h2>
 <p>Opt-in peak recording for measurement-only children, excluded from default builds.
 Opt-in measurement construction for bounded DataFusion execution.</p>
