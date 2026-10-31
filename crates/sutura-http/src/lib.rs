@@ -103,6 +103,8 @@ pub mod inbound;
 pub mod metrics;
 pub mod middleware;
 pub mod openapi;
+#[cfg(any(feature = "flight", feature = "worker"))]
+mod original_uri;
 pub(crate) mod principal;
 pub mod problem;
 pub mod router;
