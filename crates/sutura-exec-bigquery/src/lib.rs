@@ -123,7 +123,7 @@ use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::preflight::TablesPresent;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, PreFlight, ResultBatches, RowSet, Warehouse};
-use sutura_sql::generate::{generate, generate_leg};
+use sutura_sql::generate::{generate, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 mod preflight;
@@ -321,13 +321,13 @@ where
             .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })
     }
 
-    /// The plan, rendered as one `GoogleSQL` statement. The dialect is not a parameter: a `BigQuery`
-    /// adapter renders `BigQuery`. Every table already names its project - [`Self::payer_of`] and
-    /// [`Self::unstated_payer`]'s callers refuse one that does not before anything renders.
+    /// The plan, rendered as one `GoogleSQL` statement. Every table already names its project -
+    /// [`Self::payer_of`] and [`Self::unstated_payer`]'s callers refuse one that does not before anything renders.
     fn render(executable: Executable<'_>) -> Mapped<GeneratedQuery, T::Error> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::BigQuery),
             Executable::Leg(leg) => generate_leg(leg, Dialect::BigQuery),
+            Executable::Stacked(plan) => generate_stacked(plan, Dialect::BigQuery),
         }
         .map_err(|cause| BigQueryError::Render { cause })
     }

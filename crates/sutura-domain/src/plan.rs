@@ -37,6 +37,7 @@ pub mod key;
 pub mod label;
 pub mod leg;
 pub mod remote;
+pub mod stacked;
 pub mod tables;
 
 #[cfg(test)]
@@ -64,6 +65,7 @@ pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
+pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// Why [`QueryPlan::resolve_tables`] could not produce a valid plan.

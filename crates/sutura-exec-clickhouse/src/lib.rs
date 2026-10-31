@@ -99,7 +99,7 @@ use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqu
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, ResultBatches, RowSet, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 use transport::ClickHouseTransport;
 
@@ -279,6 +279,9 @@ where
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
             Executable::Leg(leg) => generate_leg(leg, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
+            Executable::Stacked(plan) => {
+                generate_stacked(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause })
+            }
         }
     }
 

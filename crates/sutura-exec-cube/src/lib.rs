@@ -89,6 +89,10 @@ where
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
     #[error(
+        "this adapter answers one metric's whole plan, and the metrics stacked on {table} need one statement Cube does not run"
+    )]
+    Stacked { table: String },
+    #[error(
         "source `{at}` was handed {presented}, which this adapter cannot send to Cube. This is a wiring \
          defect between the credential broker and the source declaration"
     )]
@@ -226,6 +230,11 @@ where
             Executable::Leg(leg) => {
                 return Err(CubeError::LegWithoutCombiner {
                     table: leg.table().to_string(),
+                });
+            }
+            Executable::Stacked(plan) => {
+                return Err(CubeError::Stacked {
+                    table: plan.arms().first().table().to_string(),
                 });
             }
         };

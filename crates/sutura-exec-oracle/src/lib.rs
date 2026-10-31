@@ -65,7 +65,7 @@ use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, ResultBatches, RowSet, Warehouse};
 use sutura_oracle_connect::{DialError, PrepareError};
-use sutura_sql::generate::{generate, generate_key_probe, generate_leg};
+use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 use crate::datetime::oracle_date;
@@ -405,6 +405,7 @@ impl OracleWarehouse {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::Oracle).map_err(|cause| OracleError::Render { cause }),
             Executable::Leg(leg) => generate_leg(leg, Dialect::Oracle).map_err(|cause| OracleError::Render { cause }),
+            Executable::Stacked(plan) => generate_stacked(plan, Dialect::Oracle).map_err(|cause| OracleError::Render { cause }),
         }
     }
 
