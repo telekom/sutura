@@ -12,22 +12,33 @@
 //! - Nothing here refuses a plan that would send a leg to another node. That the legs stay is the
 //!   engine routing a one-task stage, not a check of ours: the record's Decision 3 refusal is not
 //!   built.
-//! - A link is plaintext gRPC and carries no grant, so a node serving [`Nodes::worker`] runs any
-//!   stage it is sent. The record's Decisions 4 and 5 are not built.
+//! - A link is gRPC over mutual TLS: each end presents a certificate the deployment's node authority
+//!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). It carries no grant, so a
+//!   node serving [`Nodes::worker`] runs any stage another node of the authority sends it; Decision 5
+//!   is not built. The identity is read once, so a renewed certificate is presented after a restart.
+//! - A channel, once dialled, is kept for the process's life, one for every node it has dialled.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
 //! - No binary builds a [`Nodes`] yet.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::sync::Arc;
+
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_distributed::grpc::DefaultChannelResolver;
+use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
 use datafusion_distributed::{
-    DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, SessionStateBuilderExt as _, Worker,
-    WorkerResolver,
+    ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedExt as _, SessionStateBuilderExt as _,
+    Worker, WorkerChannel, WorkerQueryContext, WorkerResolver,
 };
-use url::Url;
+use hyper_util::rt::TokioIo;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use url::{Host, Url};
 
 use super::CombineError;
 use crate::pool::{self, WorkingSet};
@@ -42,7 +53,7 @@ pub struct Nodes {
     all: Declared,
     /// One set of channels for every combine, instead of the engine's default, which keys its
     /// channels on the runtime environment and so would dial again for each question.
-    channels: DefaultChannelResolver,
+    channels: Links,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -62,27 +73,33 @@ impl WorkerResolver for Declared {
 }
 
 impl Nodes {
-    /// This node's worker, served at `own_url`, and the other nodes a stage may be planned onto.
+    /// This node's worker, served at `own_url`, and the other nodes a stage may be planned onto,
+    /// each reached as `identity`.
     #[must_use]
-    pub fn declared(own: Worker, own_url: Url, others: impl IntoIterator<Item = Url>) -> Self {
+    pub fn declared(own: Worker, own_url: Url, others: impl IntoIterator<Item = Url>, identity: NodeIdentity) -> Self {
         let all = core::iter::once(own_url.clone()).chain(others).collect();
         Self {
             own,
             own_url,
             all: Declared(all),
-            channels: DefaultChannelResolver::default(),
+            channels: Links::of(identity),
         }
     }
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill
-    /// nowhere, as a combine's own session does.
+    /// nowhere, as a combine's own session does, and read another node's stage as `identity`.
     ///
     /// # Errors
     ///
     /// [`CombineError::Environment`] if the bounded environment cannot be built.
-    pub fn worker(working_set: WorkingSet) -> Result<Worker, CombineError> {
+    pub fn worker(working_set: WorkingSet, identity: NodeIdentity) -> Result<Worker, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
-        Ok(Worker::default().with_runtime_env(environment.into_runtime()))
+        let links = Links::of(identity);
+        let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
+            let links = links.clone();
+            async move { Ok(context.builder.with_distributed_channel_resolver(links).build()) }
+        });
+        Ok(worker.with_runtime_env(environment.into_runtime()))
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across these
@@ -104,5 +121,111 @@ impl Nodes {
             .with_distributed_planner()
             .build();
         Ok(SessionContext::new_with_state(state))
+    }
+}
+
+/// What a node presents on a link and which nodes it accepts on the other end: its certificate and
+/// key, and the deployment's node authority.
+#[derive(Clone)]
+pub struct NodeIdentity(TlsConnector);
+
+impl core::fmt::Debug for NodeIdentity {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NodeIdentity").finish_non_exhaustive()
+    }
+}
+
+/// The node's certificate, key or authority is not one a link can present or trust.
+#[derive(Debug, thiserror::Error)]
+#[error("the node's certificate, key or authority is not usable on a link")]
+pub struct NotAnIdentity {
+    #[source]
+    cause: tokio_rustls::rustls::Error,
+}
+
+impl NodeIdentity {
+    /// `chain` and `key` presented to every node dialled, and a node accepted only with a
+    /// certificate `authority` signed.
+    ///
+    /// # Errors
+    ///
+    /// [`NotAnIdentity`] if an authority certificate is not a trust anchor, or the key does not
+    /// belong to the chain.
+    pub fn new(
+        chain: Vec<CertificateDer<'static>>,
+        key: PrivateKeyDer<'static>,
+        authority: impl IntoIterator<Item = CertificateDer<'static>>,
+    ) -> Result<Self, NotAnIdentity> {
+        let mut roots = RootCertStore::empty();
+        for anchor in authority {
+            roots.add(anchor).map_err(|cause| NotAnIdentity { cause })?;
+        }
+        let mut config = ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|cause| NotAnIdentity { cause })?
+            .with_root_certificates(roots)
+            .with_client_auth_cert(chain, key)
+            .map_err(|cause| NotAnIdentity { cause })?;
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        Ok(Self(TlsConnector::from(Arc::new(config))))
+    }
+}
+
+/// The channels a node reaches other nodes on, each dialled once as `identity` and kept.
+///
+/// A channel's connection runs on the runtime that first used it and works only while that runtime
+/// does, so every runtime a worker or a combine runs on has to run on threads of its own for the
+/// process's life - [`DataFusionCombiner::across`](super::DataFusionCombiner::across)'s does.
+#[derive(Clone)]
+struct Links {
+    identity: NodeIdentity,
+    channels: Arc<tokio::sync::Mutex<Kept>>,
+}
+
+type Kept = HashMap<Url, BoxCloneSyncChannel>;
+
+impl Links {
+    fn of(identity: NodeIdentity) -> Self {
+        Self {
+            identity,
+            channels: Arc::default(),
+        }
+    }
+
+    /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used.
+    fn dial(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
+        let host = match url.host() {
+            Some(Host::Domain(name)) => String::from(name),
+            Some(Host::Ipv4(address)) => address.to_string(),
+            Some(Host::Ipv6(address)) => address.to_string(),
+            None => return Err(DataFusionError::Configuration(format!("the node {url} has no host"))),
+        };
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| DataFusionError::Configuration(format!("the node {url} has no port")))?;
+        let name = ServerName::try_from(host.clone()).map_err(|cause| DataFusionError::External(Box::new(cause)))?;
+        let connector = self.identity.0.clone();
+        let dial = tower::service_fn(move |_uri| {
+            let (connector, name, host) = (connector.clone(), name.clone(), host.clone());
+            async move {
+                let tcp = tokio::net::TcpStream::connect((host.as_str(), port)).await?;
+                let tls = connector.connect(name, tcp).await?;
+                Ok::<_, std::io::Error>(TokioIo::new(tls))
+            }
+        });
+        let endpoint = tonic::transport::Endpoint::from_shared(url.to_string())
+            .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
+        Ok(BoxCloneSyncChannel::new(endpoint.connect_with_connector_lazy(dial)))
+    }
+}
+
+#[async_trait::async_trait]
+impl ChannelResolver for Links {
+    async fn get_worker_client_for_url(&self, url: &Url) -> Result<Box<dyn WorkerChannel>, DataFusionError> {
+        let channel = match self.channels.lock().await.entry(url.clone()) {
+            Entry::Occupied(kept) => kept.get().clone(),
+            Entry::Vacant(unseen) => unseen.insert(self.dial(url)?).clone(),
+        };
+        Ok(create_worker_client(channel))
     }
 }
