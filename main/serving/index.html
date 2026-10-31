@@ -3508,9 +3508,25 @@ bearer token in clear text:</p>
 30 seconds. When the bytes change and the new pair is valid, new handshakes use it and open connections stay open.
 An invalid pair is logged at <code>error</code> and ignored. Let a certificate manager renew the files. sutura has no ACME client.</p>
 <p><code>server.tls_node_authority</code> (a PEM bundle path) makes the listener ask each client for a certificate. A client that
-presents one the bundle's authority did not sign fails the handshake. A client that presents none is served as before,
-so no route requires a node certificate yet. The bundle is read once at startup; replacing it needs a restart. Setting
-it without the pair is a startup refusal.</p>
+presents one the bundle's authority did not sign fails the handshake. A client that presents none is served, but not on
+the node routes below. The bundle is read once at startup; replacing it needs a restart. Setting it without the pair is
+a startup refusal.</p>
+<p><code>server.nodes</code> plans a federated combine across nodes. It needs a binary built with <code>--features distributed</code>; any other
+build refuses the key at startup rather than combining on one node.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node.pem"</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node-key.pem"</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">tls_node_authority</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/nodes-ca.pem"</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">nodes</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">own</span><span class="p">:</span><span class="w"> </span><span class="s">"https://node-a.example.com:8443"</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">others</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"https://node-b.example.com:8443"</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<p><code>own</code> is this node's address as the others reach it. Every address is an https URL, and the key is refused without
+<code>server.tls_node_authority</code>. The pair is this node's identity twice: the listener presents it, and so does every link
+this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
+node serves its worker on the same listener, to clients whose certificate the authority signed.</p>
+<p>Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
+restart. A link carries no task grant: a node runs any stage another node of the same authority sends it.</p>
 <p><code>security.outbound.transport_anchors</code> (a PEM bundle path, or <code>system</code>) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.</p>
 <h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
@@ -3556,8 +3572,8 @@ For callers on the same machine and nothing else, publish no port. Use <code>--n
 same two. The default is <code>bunyan</code> in production and <code>pretty</code> elsewhere. <code>telemetry.service_name</code> (default <code>sutura</code>) is
 the <code>name</code> field of each bunyan record. <code>telemetry.filter</code> is <code>info</code> by default, and <code>RUST_LOG</code> overrides it. The log
 goes to standard output.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">telemetry</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bunyan</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">telemetry</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bunyan</span>
 </span></code></pre></div>
 <p>Audit records (<code>answered</code> and <code>refused</code>, and <code>raw_answered</code> and <code>raw_refused</code> for raw SQL) use the same stream and format.
 A question or a raw SQL call that fails, for example because the data system does not answer, writes <code>failed</code> or
