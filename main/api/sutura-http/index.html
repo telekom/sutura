@@ -2730,39 +2730,46 @@ fn _reachable(</em>: sutura_http::ServableSettings) {}
 </span><span id="__span-4-36"><a id="__codelineno-4-36" name="__codelineno-4-36" href="#__codelineno-4-36"></a>
 </span><span id="__span-4-37"><a id="__codelineno-4-37" name="__codelineno-4-37" href="#__codelineno-4-37"></a>The request state.
 </span><span id="__span-4-38"><a id="__codelineno-4-38" name="__codelineno-4-38" href="#__codelineno-4-38"></a>
-</span><span id="__span-4-39"><a id="__codelineno-4-39" name="__codelineno-4-39" href="#__codelineno-4-39"></a>## `use AgentMount`
+</span><span id="__span-4-39"><a id="__codelineno-4-39" name="__codelineno-4-39" href="#__codelineno-4-39"></a>## `use WorkerMount`
 </span><span id="__span-4-40"><a id="__codelineno-4-40" name="__codelineno-4-40" href="#__codelineno-4-40"></a>
-</span><span id="__span-4-41"><a id="__codelineno-4-41" name="__codelineno-4-41" href="#__codelineno-4-41"></a>The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
-</span><span id="__span-4-42"><a id="__codelineno-4-42" name="__codelineno-4-42" href="#__codelineno-4-42"></a>`sutura-mcp` type a transport crate composes.
-</span><span id="__span-4-43"><a id="__codelineno-4-43" name="__codelineno-4-43" href="#__codelineno-4-43"></a>
-</span><span id="__span-4-44"><a id="__codelineno-4-44" name="__codelineno-4-44" href="#__codelineno-4-44"></a>Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
-</span><span id="__span-4-45"><a id="__codelineno-4-45" name="__codelineno-4-45" href="#__codelineno-4-45"></a>value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
-</span><span id="__span-4-46"><a id="__codelineno-4-46" name="__codelineno-4-46" href="#__codelineno-4-46"></a>rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
-</span><span id="__span-4-47"><a id="__codelineno-4-47" name="__codelineno-4-47" href="#__codelineno-4-47"></a>`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
-</span><span id="__span-4-48"><a id="__codelineno-4-48" name="__codelineno-4-48" href="#__codelineno-4-48"></a>two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
-</span><span id="__span-4-49"><a id="__codelineno-4-49" name="__codelineno-4-49" href="#__codelineno-4-49"></a>than the one the transport actually answers on.
+</span><span id="__span-4-41"><a id="__codelineno-4-41" name="__codelineno-4-41" href="#__codelineno-4-41"></a>The mounted worker transport: the query engine's worker service, opaque to this crate.
+</span><span id="__span-4-42"><a id="__codelineno-4-42" name="__codelineno-4-42" href="#__codelineno-4-42"></a>
+</span><span id="__span-4-43"><a id="__codelineno-4-43" name="__codelineno-4-43" href="#__codelineno-4-43"></a>Like `FlightMount`, no spend declaration: what a worker computes was charged to the caller's
+</span><span id="__span-4-44"><a id="__codelineno-4-44" name="__codelineno-4-44" href="#__codelineno-4-44"></a>ledger on the node that planned the query.
+</span><span id="__span-4-45"><a id="__codelineno-4-45" name="__codelineno-4-45" href="#__codelineno-4-45"></a>
+</span><span id="__span-4-46"><a id="__codelineno-4-46" name="__codelineno-4-46" href="#__codelineno-4-46"></a>## `use AgentMount`
+</span><span id="__span-4-47"><a id="__codelineno-4-47" name="__codelineno-4-47" href="#__codelineno-4-47"></a>
+</span><span id="__span-4-48"><a id="__codelineno-4-48" name="__codelineno-4-48" href="#__codelineno-4-48"></a>The mounted agent transport, boxed so `sutura-http` can hold and nest it without naming the
+</span><span id="__span-4-49"><a id="__codelineno-4-49" name="__codelineno-4-49" href="#__codelineno-4-49"></a>`sutura-mcp` type a transport crate composes.
 </span><span id="__span-4-50"><a id="__codelineno-4-50" name="__codelineno-4-50" href="#__codelineno-4-50"></a>
-</span><span id="__span-4-51"><a id="__codelineno-4-51" name="__codelineno-4-51" href="#__codelineno-4-51"></a>## `use ReplicaSpendGauge`
-</span><span id="__span-4-52"><a id="__codelineno-4-52" name="__codelineno-4-52" href="#__codelineno-4-52"></a>
-</span><span id="__span-4-53"><a id="__codelineno-4-53" name="__codelineno-4-53" href="#__codelineno-4-53"></a>This replica's `sutura_spend_headroom_bytes` gauge and its `sutura_spend_bytes_total` counter,
-</span><span id="__span-4-54"><a id="__codelineno-4-54" name="__codelineno-4-54" href="#__codelineno-4-54"></a>obtainable only from the `ServiceState` that registered them.
-</span><span id="__span-4-55"><a id="__codelineno-4-55" name="__codelineno-4-55" href="#__codelineno-4-55"></a>
-</span><span id="__span-4-56"><a id="__codelineno-4-56" name="__codelineno-4-56" href="#__codelineno-4-56"></a>**Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
-</span><span id="__span-4-57"><a id="__codelineno-4-57" name="__codelineno-4-57" href="#__codelineno-4-57"></a>A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
-</span><span id="__span-4-58"><a id="__codelineno-4-58" name="__codelineno-4-58" href="#__codelineno-4-58"></a>`RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
-</span><span id="__span-4-59"><a id="__codelineno-4-59" name="__codelineno-4-59" href="#__codelineno-4-59"></a>while pushing onto a series no scrape of this deployment renders. A private field closes it.
-</span><span id="__span-4-60"><a id="__codelineno-4-60" name="__codelineno-4-60" href="#__codelineno-4-60"></a>It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
-</span><span id="__span-4-61"><a id="__codelineno-4-61" name="__codelineno-4-61" href="#__codelineno-4-61"></a>series are registered under one condition by `ServiceState::new`, so one declaration carries
-</span><span id="__span-4-62"><a id="__codelineno-4-62" name="__codelineno-4-62" href="#__codelineno-4-62"></a>both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
-</span><span id="__span-4-63"><a id="__codelineno-4-63" name="__codelineno-4-63" href="#__codelineno-4-63"></a>
-</span><span id="__span-4-64"><a id="__codelineno-4-64" name="__codelineno-4-64" href="#__codelineno-4-64"></a>The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
-</span><span id="__span-4-65"><a id="__codelineno-4-65" name="__codelineno-4-65" href="#__codelineno-4-65"></a>`compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
-</span><span id="__span-4-66"><a id="__codelineno-4-66" name="__codelineno-4-66" href="#__codelineno-4-66"></a>syntax error - would itself fail to compile:
-</span><span id="__span-4-67"><a id="__codelineno-4-67" name="__codelineno-4-67" href="#__codelineno-4-67"></a>
-</span><span id="__span-4-68"><a id="__codelineno-4-68" name="__codelineno-4-68" href="#__codelineno-4-68"></a>```compile_fail,E0423
-</span><span id="__span-4-69"><a id="__codelineno-4-69" name="__codelineno-4-69" href="#__codelineno-4-69"></a>fn _unrelated(gauge: sutura_runtime::Gauge, counter: sutura_runtime::Counter) -&gt; sutura_http::ReplicaSpendGauge {
-</span><span id="__span-4-70"><a id="__codelineno-4-70" name="__codelineno-4-70" href="#__codelineno-4-70"></a>    sutura_http::ReplicaSpendGauge(gauge, counter)
-</span><span id="__span-4-71"><a id="__codelineno-4-71" name="__codelineno-4-71" href="#__codelineno-4-71"></a>}
+</span><span id="__span-4-51"><a id="__codelineno-4-51" name="__codelineno-4-51" href="#__codelineno-4-51"></a>Built by the composition root from `sutura_mcp::http::service`. It is kept as an `Ungoverned`
+</span><span id="__span-4-52"><a id="__codelineno-4-52" name="__codelineno-4-52" href="#__codelineno-4-52"></a>value rather than a bare `axum::Router` (the transport nested at the router's own root, `Router`
+</span><span id="__span-4-53"><a id="__codelineno-4-53" name="__codelineno-4-53" href="#__codelineno-4-53"></a>rather than tower's `BoxCloneService` for the reason `Self::new` states) so the path
+</span><span id="__span-4-54"><a id="__codelineno-4-54" name="__codelineno-4-54" href="#__codelineno-4-54"></a>`Ungoverned::mount` was given travels with the router end to end - this type never unfuses the
+</span><span id="__span-4-55"><a id="__codelineno-4-55" name="__codelineno-4-55" href="#__codelineno-4-55"></a>two, so `crate::router::agent_subtree` cannot re-record the mount under a different literal path
+</span><span id="__span-4-56"><a id="__codelineno-4-56" name="__codelineno-4-56" href="#__codelineno-4-56"></a>than the one the transport actually answers on.
+</span><span id="__span-4-57"><a id="__codelineno-4-57" name="__codelineno-4-57" href="#__codelineno-4-57"></a>
+</span><span id="__span-4-58"><a id="__codelineno-4-58" name="__codelineno-4-58" href="#__codelineno-4-58"></a>## `use ReplicaSpendGauge`
+</span><span id="__span-4-59"><a id="__codelineno-4-59" name="__codelineno-4-59" href="#__codelineno-4-59"></a>
+</span><span id="__span-4-60"><a id="__codelineno-4-60" name="__codelineno-4-60" href="#__codelineno-4-60"></a>This replica's `sutura_spend_headroom_bytes` gauge and its `sutura_spend_bytes_total` counter,
+</span><span id="__span-4-61"><a id="__codelineno-4-61" name="__codelineno-4-61" href="#__codelineno-4-61"></a>obtainable only from the `ServiceState` that registered them.
+</span><span id="__span-4-62"><a id="__codelineno-4-62" name="__codelineno-4-62" href="#__codelineno-4-62"></a>
+</span><span id="__span-4-63"><a id="__codelineno-4-63" name="__codelineno-4-63" href="#__codelineno-4-63"></a>**Only `SpendHeadroomPush::of` can make one, which is the whole point of the type existing.**
+</span><span id="__span-4-64"><a id="__codelineno-4-64" name="__codelineno-4-64" href="#__codelineno-4-64"></a>A `Gauge` cannot be constructed outside `sutura_runtime`'s registry, but any caller holding a
+</span><span id="__span-4-65"><a id="__codelineno-4-65" name="__codelineno-4-65" href="#__codelineno-4-65"></a>`RegistryBuilder` can mint an unrelated one - and a declaration carrying that would typecheck
+</span><span id="__span-4-66"><a id="__codelineno-4-66" name="__codelineno-4-66" href="#__codelineno-4-66"></a>while pushing onto a series no scrape of this deployment renders. A private field closes it.
+</span><span id="__span-4-67"><a id="__codelineno-4-67" name="__codelineno-4-67" href="#__codelineno-4-67"></a>It carries the gauge and this replica's `sutura_spend_bytes_total` counter together: the two
+</span><span id="__span-4-68"><a id="__codelineno-4-68" name="__codelineno-4-68" href="#__codelineno-4-68"></a>series are registered under one condition by `ServiceState::new`, so one declaration carries
+</span><span id="__span-4-69"><a id="__codelineno-4-69" name="__codelineno-4-69" href="#__codelineno-4-69"></a>both handles and the agent surface pushes both through the one `SpendHeadroomPush`.
+</span><span id="__span-4-70"><a id="__codelineno-4-70" name="__codelineno-4-70" href="#__codelineno-4-70"></a>
+</span><span id="__span-4-71"><a id="__codelineno-4-71" name="__codelineno-4-71" href="#__codelineno-4-71"></a>The fence names the error code (`E0423`, a tuple struct with private fields) rather than a bare
+</span><span id="__span-4-72"><a id="__codelineno-4-72" name="__codelineno-4-72" href="#__codelineno-4-72"></a>`compile_fail`, so a change that made this fail for the WRONG reason - a rename, an unrelated
+</span><span id="__span-4-73"><a id="__codelineno-4-73" name="__codelineno-4-73" href="#__codelineno-4-73"></a>syntax error - would itself fail to compile:
+</span><span id="__span-4-74"><a id="__codelineno-4-74" name="__codelineno-4-74" href="#__codelineno-4-74"></a>
+</span><span id="__span-4-75"><a id="__codelineno-4-75" name="__codelineno-4-75" href="#__codelineno-4-75"></a>```compile_fail,E0423
+</span><span id="__span-4-76"><a id="__codelineno-4-76" name="__codelineno-4-76" href="#__codelineno-4-76"></a>fn _unrelated(gauge: sutura_runtime::Gauge, counter: sutura_runtime::Counter) -&gt; sutura_http::ReplicaSpendGauge {
+</span><span id="__span-4-77"><a id="__codelineno-4-77" name="__codelineno-4-77" href="#__codelineno-4-77"></a>    sutura_http::ReplicaSpendGauge(gauge, counter)
+</span><span id="__span-4-78"><a id="__codelineno-4-78" name="__codelineno-4-78" href="#__codelineno-4-78"></a>}
 </span></code></pre></div></p>
 <p>Both arguments are correctly typed - the fence's only defect is that the fields are private, so
 the E0423 it names is the error it fails for and not an ill-typed construction a code pin was
@@ -3045,6 +3052,10 @@ cannot be changed without the generated client code disagreeing. <code>security.
 <code>direct</code>; anything else is a startup refusal (<code>FlightSurfaceWithoutDirectInbound</code>), not a silent
 skip. Not versioned under <code>API_V1_PREFIX</code>: Flight is a gRPC service, not a path this crate's own
 REST versioning scheme reaches.</p>
+<h3 id="constant-worker_mount_path"><code>constant WORKER_MOUNT_PATH</code><a class="headerlink" href="#constant-worker_mount_path" title="Permanent link">&para;</a></h3>
+<p>Where the worker surface is mounted, when it is mounted at all.</p>
+<p><strong>Only compiled when the <code>worker</code> feature is on.</strong> The gRPC service name the query engine's
+worker client dials, so, like <code>FLIGHT_MOUNT_PATH</code>, not a path this crate chose.</p>
 <h3 id="module-base_paths">Module <code>base_paths</code><a class="headerlink" href="#module-base_paths" title="Permanent link">&para;</a></h3>
 <p>The mount point of each group inside a version.</p>
 <h4 id="constant-catalog"><code>constant CATALOG</code><a class="headerlink" href="#constant-catalog" title="Permanent link">&para;</a></h4>
@@ -5048,6 +5059,11 @@ grace period rather than forever - see <code>Shutdown::grace_period</code>.</p>
 peer address, and without the connect info there is no address to key on - the limiter would
 answer every request with "cannot extract key" and limit nothing. That is the failure mode where
 a limiter appears configured and is not.</p>
+<p>The same read says whether the client is a node. <code>Peer</code> is taken from each accepted connection,
+and <code>connected</code> splits it into the <code>ConnectInfo&lt;SocketAddr&gt;</code> the limiter keys on and, when the
+client presented a certificate the node authority signed, <code>NodeCertified</code>. Only the TLS
+listener's stream can report one, and a request's extensions are never read off the wire, so a
+client cannot claim it. It says that a node connected, not which one.</p>
 <h1 id="plaintext-and-tls-are-one-serve-path">Plaintext and TLS are one serve path<a class="headerlink" href="#plaintext-and-tls-are-one-serve-path" title="Permanent link">&para;</a></h1>
 <p><code>serve</code> and <code>serve_tls</code> differ in the listener they build and in nothing else. Both hand it
 to <code>run</code>, which is where <code>axum::serve</code>, the graceful-shutdown future and the bounded drain above
@@ -5212,10 +5228,16 @@ separate registries.</p>
 <p>Called by the composition root, after it has read the key set the declaration names. A state
 whose settings declare an inbound identity and which has not been through this is a state
 <code>crate::router::assemble</code> refuses.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_surface</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">mount</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkerMount</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The same state, with the worker transport attached.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worker_surface</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">WorkerMount</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The mounted worker transport, if this build and deployment carry one.</p>
 <h4 id="implements_36">Implements<a class="headerlink" href="#implements_36" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="struct-agentmount"><code>struct AgentMount</code><a class="headerlink" href="#struct-agentmount" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AgentMount</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AgentMount</span>
 </span></code></pre></div>
 <p>The mounted agent transport, boxed so <code>sutura-http</code> can hold and nest it without naming the
 <code>sutura-mcp</code> type a transport crate composes.</p>
@@ -5226,7 +5248,7 @@ rather than tower's <code>BoxCloneService</code> for the reason <code>Self::new<
 two, so <code>crate::router::agent_subtree</code> cannot re-record the mount under a different literal path
 than the one the transport actually answers on.</p>
 <h4 id="methods_19">Methods<a class="headerlink" href="#methods_19" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">,</span><span class="w"> </span><span class="n">spend</span><span class="p">:</span><span class="w"> </span><span class="nc">SpendHeadroomPush</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">,</span><span class="w"> </span><span class="n">spend</span><span class="p">:</span><span class="w"> </span><span class="nc">SpendHeadroomPush</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Wraps any service <code>nest_service</code> can mount, so <code>sutura-http</code> never names its concrete type.</p>
 <p><strong><code>spend</code> is required, and that is the mechanism rather than a parameter.</strong> The mounted
@@ -5249,7 +5271,7 @@ transport the way <code>sutura_mcp</code>'s own <code>StreamableHttpService::clo
 <h4 id="implements_37">Implements<a class="headerlink" href="#implements_37" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code></p>
 <h3 id="enum-spendheadroompush"><code>enum SpendHeadroomPush</code><a class="headerlink" href="#enum-spendheadroompush" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SpendHeadroomPush</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SpendHeadroomPush</span>
 </span></code></pre></div>
 <p>Where the served agent surface pushes this replica's spend headroom.</p>
 <p><strong>A two-variant declaration rather than an <code>Option&lt;Gauge&gt;</code>, because at a call site an <code>Option</code>
@@ -5272,19 +5294,19 @@ merely "someone chose a gauge". <code>Self::gauge</code> hands an <code>Option</
   anything" and "there is nothing to push" have to be different values or the second one is
   indistinguishable from the first.</p>
 <h4 id="methods_20">Methods<a class="headerlink" href="#methods_20" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">gauge</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Gauge</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">gauge</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Gauge</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The gauge to push onto, or <code>None</code> where this deployment has no ceiling at all.</p>
 <p>For the push site, which has to branch: a <code>None</code> reading leaves the gauge untouched rather
 than fabricating zero, and where there is no gauge there is nothing to leave untouched.
 The counter does not need its own getter - the push site reads the total off the surface
 and hands it to <code>Self::push_spend_total</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">state</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceState</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">state</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceState</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>This state's own declaration, whichever of the two it is.</p>
 <p>The only route to <code>Self::ThisReplicasGauge</code>. <code>Gauge</code> shares its storage by <code>Arc</code>, so the
 state and every holder of the returned declaration observe one series.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">push_spend_total</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">total</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">push_spend_total</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">total</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Raises this replica's <code>sutura_spend_bytes_total</code> counter to <code>total</code>, where the deployment
 registered one.</p>
@@ -5298,7 +5320,7 @@ the gauge's own push follows.</p>
 <h4 id="implements_38">Implements<a class="headerlink" href="#implements_38" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h3 id="struct-replicaspendgauge"><code>struct ReplicaSpendGauge</code><a class="headerlink" href="#struct-replicaspendgauge" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ReplicaSpendGauge</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ReplicaSpendGauge</span>
 </span></code></pre></div>
 <p>This replica's <code>sutura_spend_headroom_bytes</code> gauge and its <code>sutura_spend_bytes_total</code> counter,
 obtainable only from the <code>ServiceState</code> that registered them.</p>
@@ -5316,34 +5338,34 @@ syntax error - would itself fail to compile:</p>
 fn <em>unrelated(gauge: sutura_runtime::Gauge, counter: sutura_runtime::Counter) -&gt; sutura_http::ReplicaSpendGauge {
     sutura_http::ReplicaSpendGauge(gauge, counter)
 }
-<div class="language-text highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a>Both arguments are correctly typed - the fence's only defect is that the fields are private, so
-</span><span id="__span-159-2"><a id="__codelineno-159-2" name="__codelineno-159-2" href="#__codelineno-159-2"></a>the E0423 it names is the error it fails for and not an ill-typed construction a code pin was
-</span><span id="__span-159-3"><a id="__codelineno-159-3" name="__codelineno-159-3" href="#__codelineno-159-3"></a>holding up.
-</span><span id="__span-159-4"><a id="__codelineno-159-4" name="__codelineno-159-4" href="#__codelineno-159-4"></a>
-</span><span id="__span-159-5"><a id="__codelineno-159-5" name="__codelineno-159-5" href="#__codelineno-159-5"></a>The compiling twin, so the failure above is the privacy error it claims to be and not an
-</span><span id="__span-159-6"><a id="__codelineno-159-6" name="__codelineno-159-6" href="#__codelineno-159-6"></a>unresolved path: the same path, in the same crate, named rather than constructed.
+<div class="language-text highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a>Both arguments are correctly typed - the fence's only defect is that the fields are private, so
+</span><span id="__span-161-2"><a id="__codelineno-161-2" name="__codelineno-161-2" href="#__codelineno-161-2"></a>the E0423 it names is the error it fails for and not an ill-typed construction a code pin was
+</span><span id="__span-161-3"><a id="__codelineno-161-3" name="__codelineno-161-3" href="#__codelineno-161-3"></a>holding up.
+</span><span id="__span-161-4"><a id="__codelineno-161-4" name="__codelineno-161-4" href="#__codelineno-161-4"></a>
+</span><span id="__span-161-5"><a id="__codelineno-161-5" name="__codelineno-161-5" href="#__codelineno-161-5"></a>The compiling twin, so the failure above is the privacy error it claims to be and not an
+</span><span id="__span-161-6"><a id="__codelineno-161-6" name="__codelineno-161-6" href="#__codelineno-161-6"></a>unresolved path: the same path, in the same crate, named rather than constructed.
 </span></code></pre></div>
 fn _reachable(</em>: sutura_http::ReplicaSpendGauge) {}
-<div class="language-text highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a>The limit: this holds that the gauge came from *a* `ServiceState`, not from the one the mount
-</span><span id="__span-160-2"><a id="__codelineno-160-2" name="__codelineno-160-2" href="#__codelineno-160-2"></a>is attached to. Two states in one process could cross their gauges, and what catches that is the
-</span><span id="__span-160-3"><a id="__codelineno-160-3" name="__codelineno-160-3" href="#__codelineno-160-3"></a>assembly refusal `crate::router::agent_subtree` raises on a declaration whose presence
-</span><span id="__span-160-4"><a id="__codelineno-160-4" name="__codelineno-160-4" href="#__codelineno-160-4"></a>disagrees with the attaching state's own registration - a presence check, not gauge identity.
-</span><span id="__span-160-5"><a id="__codelineno-160-5" name="__codelineno-160-5" href="#__codelineno-160-5"></a>
-</span><span id="__span-160-6"><a id="__codelineno-160-6" name="__codelineno-160-6" href="#__codelineno-160-6"></a>#### Implements
-</span><span id="__span-160-7"><a id="__codelineno-160-7" name="__codelineno-160-7" href="#__codelineno-160-7"></a>
-</span><span id="__span-160-8"><a id="__codelineno-160-8" name="__codelineno-160-8" href="#__codelineno-160-8"></a>`Clone`, `Debug`
-</span><span id="__span-160-9"><a id="__codelineno-160-9" name="__codelineno-160-9" href="#__codelineno-160-9"></a>
-</span><span id="__span-160-10"><a id="__codelineno-160-10" name="__codelineno-160-10" href="#__codelineno-160-10"></a>### `struct FlightMount`
-</span><span id="__span-160-11"><a id="__codelineno-160-11" name="__codelineno-160-11" href="#__codelineno-160-11"></a>
-</span><span id="__span-160-12"><a id="__codelineno-160-12" name="__codelineno-160-12" href="#__codelineno-160-12"></a>```rust
-</span><span id="__span-160-13"><a id="__codelineno-160-13" name="__codelineno-160-13" href="#__codelineno-160-13"></a>pub struct FlightMount
+<div class="language-text highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a>The limit: this holds that the gauge came from *a* `ServiceState`, not from the one the mount
+</span><span id="__span-162-2"><a id="__codelineno-162-2" name="__codelineno-162-2" href="#__codelineno-162-2"></a>is attached to. Two states in one process could cross their gauges, and what catches that is the
+</span><span id="__span-162-3"><a id="__codelineno-162-3" name="__codelineno-162-3" href="#__codelineno-162-3"></a>assembly refusal `crate::router::agent_subtree` raises on a declaration whose presence
+</span><span id="__span-162-4"><a id="__codelineno-162-4" name="__codelineno-162-4" href="#__codelineno-162-4"></a>disagrees with the attaching state's own registration - a presence check, not gauge identity.
+</span><span id="__span-162-5"><a id="__codelineno-162-5" name="__codelineno-162-5" href="#__codelineno-162-5"></a>
+</span><span id="__span-162-6"><a id="__codelineno-162-6" name="__codelineno-162-6" href="#__codelineno-162-6"></a>#### Implements
+</span><span id="__span-162-7"><a id="__codelineno-162-7" name="__codelineno-162-7" href="#__codelineno-162-7"></a>
+</span><span id="__span-162-8"><a id="__codelineno-162-8" name="__codelineno-162-8" href="#__codelineno-162-8"></a>`Clone`, `Debug`
+</span><span id="__span-162-9"><a id="__codelineno-162-9" name="__codelineno-162-9" href="#__codelineno-162-9"></a>
+</span><span id="__span-162-10"><a id="__codelineno-162-10" name="__codelineno-162-10" href="#__codelineno-162-10"></a>### `struct FlightMount`
+</span><span id="__span-162-11"><a id="__codelineno-162-11" name="__codelineno-162-11" href="#__codelineno-162-11"></a>
+</span><span id="__span-162-12"><a id="__codelineno-162-12" name="__codelineno-162-12" href="#__codelineno-162-12"></a>```rust
+</span><span id="__span-162-13"><a id="__codelineno-162-13" name="__codelineno-162-13" href="#__codelineno-162-13"></a>pub struct FlightMount
 </span></code></pre></div></p>
 <p>The mounted Flight transport.</p>
 <p>Unlike <code>AgentMount</code>, carries no spend declaration: the Flight surface charges leg 2's own
 ledger at the source, not the ledger <code>POST /v1/query</code> and <code>/mcp</code> share, so there is no gauge
 mismatch for this mount to disagree with the attaching state about.</p>
 <h4 id="methods_21">Methods<a class="headerlink" href="#methods_21" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Wraps any service <code>nest_service</code> can mount, nested at this crate's own <code>FLIGHT_MOUNT_PATH</code>.</p>
 <p>Unlike <code>AgentMount::new</code>, this crate may name the wrapped type directly -
@@ -5351,6 +5373,21 @@ mismatch for this mount to disagree with the attaching state about.</p>
 <code>FlightServiceServer</code>, which the composition root builds and wraps with the
 <code>OriginalUri</code>-restoring adapter <code>crate::flight</code> provides before handing it here.</p>
 <h4 id="implements_39">Implements<a class="headerlink" href="#implements_39" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code></p>
+<h3 id="struct-workermount"><code>struct WorkerMount</code><a class="headerlink" href="#struct-workermount" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkerMount</span>
+</span></code></pre></div>
+<p>The mounted worker transport: the query engine's worker service, opaque to this crate.</p>
+<p>Like <code>FlightMount</code>, no spend declaration: what a worker computes was charged to the caller's
+ledger on the node that planned the query.</p>
+<h4 id="methods_22">Methods<a class="headerlink" href="#methods_22" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Wraps any service <code>nest_service</code> can mount, nested at this crate's own <code>WORKER_MOUNT_PATH</code>.</p>
+<p>The composition root builds the service and restores the request's original URI in front of
+it, as it does for <code>FlightMount::new</code>'s, because a nested gRPC service otherwise sees its
+method path with the service name stripped.</p>
+<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code></p>
 <h2 id="module-surface">Module <code>surface</code><a class="headerlink" href="#module-surface" title="Permanent link">&para;</a></h2>
 <p>The application-facing surface, re-exported. <strong>The port itself is not declared here any more.</strong></p>
@@ -5402,8 +5439,8 @@ is replaced here by something narrower - see the rotation section - and the narr
 refuses a pair that does not match, which upstream's does not.</p>
 <p>Two more decisions live in <code>listener</code> rather than here, because they are about accepting a
 connection rather than about what certificate is presented on it: the handshake is done off the
-accept path, and the peer address is carried through with <code>tap_io</code> so the rate limiter keys the
-same way over TLS as it does over plaintext.</p>
+accept path, and the peer address is carried through so the rate limiter keys the same way over
+TLS as it does over plaintext.</p>
 <h1 id="rotation-without-dropping-a-connection">Rotation without dropping a connection<a class="headerlink" href="#rotation-without-dropping-a-connection" title="Permanent link">&para;</a></h1>
 <p>A certificate expires and something replaces the files - <code>cert-manager</code> writing a Secret, or an
 operator with a new pair. A restart is not zero downtime, so the listener has to pick the new
@@ -5439,7 +5476,7 @@ filesystem watch, and not for want of a crate:</p>
 <p>The cost is bounded staleness: up to <code>RENEWAL_INTERVAL</code> between the write and the swap. For a
 certificate rotation, which is planned days ahead by whatever issues them, that is nothing.</p>
 <h3 id="enum-tlsnotusable"><code>enum TlsNotUsable</code><a class="headerlink" href="#enum-tlsnotusable" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsNotUsable</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsNotUsable</span>
 </span></code></pre></div>
 <p>Why the configured certificate and key are not usable TLS material.</p>
 <p>Every variant names the path. <code>sutura_config::TlsMaterial</code> parses the <em>pair</em> - both halves or
@@ -5483,32 +5520,32 @@ either runs.</p>
 - <code>NotConfigurable</code> - The server configuration itself would not build.</p>
 <p>Unreachable from a pair that got this far, and an error rather than a panic for the reason
   <code>crate::middleware::LimiterNotBuilt</code> is one.</p>
-<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
+<h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-termination"><code>struct Termination</code><a class="headerlink" href="#struct-termination" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Termination</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Termination</span>
 </span></code></pre></div>
 <p>A validated TLS configuration, and the means to keep it current.</p>
 <p><strong>Two values because they have two owners</strong>, the way <code>crate::router::Assembled</code> is two: the
 configuration goes to the listener, and the renewal goes to whatever will poll it. <code>Self::prepare</code>
 hands both back rather than starting the poll itself, so a test can drive a rotation a step at a
 time instead of waiting on a wall clock.</p>
-<h4 id="methods_22">Methods<a class="headerlink" href="#methods_22" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span>
+<h4 id="methods_23">Methods<a class="headerlink" href="#methods_23" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The configuration a listener is built from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Renewal</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">into_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="p">(</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">Renewal</span><span class="p">)</span>
 </span></code></pre></div>
 <p>The two halves, for a caller that owns them separately.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">material</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsMaterial</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">TlsNotUsable</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">prepare</span><span class="p">(</span><span class="n">material</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TlsMaterial</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">TlsNotUsable</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads the pair, validates it, and builds the configuration around it.</p>
 <p>Called before the socket is bound, so a configuration mistake is a process that does not
 start rather than a port that accepts connections and fails every handshake.</p>
-<h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
+<h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="enum-renewed"><code>enum Renewed</code><a class="headerlink" href="#enum-renewed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Renewed</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Renewed</span>
 </span></code></pre></div>
 <p>What one look at the files decided.</p>
 <h4 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h4>
@@ -5517,27 +5554,27 @@ start rather than a port that accepts connections and fails every handshake.</p>
 <li><code>Rotated</code> - The files changed, the new pair validated, and it is what new handshakes will use.</li>
 <li><code>Rejected</code> - The files changed and the new pair is not usable. What was being served still is.</li>
 </ul>
-<h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
+<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-renewal"><code>struct Renewal</code><a class="headerlink" href="#struct-renewal" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Renewal</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-172-1"><a id="__codelineno-172-1" name="__codelineno-172-1" href="#__codelineno-172-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Renewal</span>
 </span></code></pre></div>
 <p>Keeps the presented certificate current with what is on disk.</p>
 <p>Owns the sending half of the channel the resolver reads, so this is the only thing that can
 change what a handshake is offered.</p>
-<h4 id="methods_23">Methods<a class="headerlink" href="#methods_23" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">poll_once</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Renewed</span>
+<h4 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-173-1"><a id="__codelineno-173-1" name="__codelineno-173-1" href="#__codelineno-173-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">poll_once</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Renewed</span>
 </span></code></pre></div>
 <p>Looks at the files once.</p>
 <p>Public so a test can rotate a certificate without waiting for an interval to elapse, which
 is the difference between asserting that rotation works and asserting that a timer fires.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">watch_until_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">interval</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-174-1"><a id="__codelineno-174-1" name="__codelineno-174-1" href="#__codelineno-174-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">watch_until_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">interval</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">,</span><span class="w"> </span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Polls on an interval until shutdown is asked for.</p>
 <p>A <code>tokio</code> task rather than the OS thread <code>crate::middleware::spawn_reaper</code> uses, and the
 difference is where it is started from: the reaper is spawned while the router is assembled,
 before a runtime exists, and this is spawned from inside <code>serve</code>.</p>
-<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
+<h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="use-tlslistener_1"><code>use TlsListener</code><a class="headerlink" href="#use-tlslistener_1" title="Permanent link">&para;</a></h3>
 <p>A TLS listener <code>axum::serve</code> can drive.</p>
@@ -5563,32 +5600,30 @@ does no work. Handshakes are therefore concurrent, capped by a semaphore so a fl
 without bound, and each one has its own deadline.</p>
 <p>A connection still mid-handshake when shutdown arrives is dropped rather than drained. That is
 correct rather than a compromise: it carries no request yet, so there is no answer to lose.</p>
-<h1 id="connectinfo-and-the-reason-for-tap_io"><code>ConnectInfo</code>, and the reason for <code>tap_io</code><a class="headerlink" href="#connectinfo-and-the-reason-for-tap_io" title="Permanent link">&para;</a></h1>
+<h1 id="connectinfo-and-which-client-is-a-node"><code>ConnectInfo</code>, and which client is a node<a class="headerlink" href="#connectinfo-and-which-client-is-a-node" title="Permanent link">&para;</a></h1>
 <p>The limiter keys on the peer address, which reaches a handler as <code>ConnectInfo&lt;SocketAddr&gt;</code> - and
 <code>crate::client_address</code> is where the consequence of losing it is written down: the limiter reports
 that it cannot extract a key and bounds nothing.</p>
-<p><code>axum</code> gives <code>SocketAddr</code> a <code>Connected</code> implementation for <code>TcpListener</code> specifically, and a
-blanket one for <code>TapIo&lt;L, F&gt;</code> where <code>L::Addr</code> is the address type. It does <em>not</em> have one for an
-arbitrary listener, and this crate cannot add it - <code>Connected</code> and <code>SocketAddr</code> are both foreign,
-so the orphan rule forbids it. Wrapping in <code>tap_io</code> is therefore not decoration: it is what makes
-the TLS path produce the same <code>ConnectInfo&lt;SocketAddr&gt;</code> the plaintext path produces, so the
-limiter keys identically on both. The alternative was a local <code>Peer(SocketAddr)</code> newtype, which
-would have compiled and left the limiter keying on nothing over TLS.</p>
+<p><code>axum</code> has no <code>Connected</code> implementation for <code>SocketAddr</code> over an arbitrary listener, and this
+crate cannot add one - both are foreign. So <code>crate::server::Peer</code> is taken from every connection
+instead and split back into <code>ConnectInfo&lt;SocketAddr&gt;</code> before a route runs, which keys the limiter
+identically over TLS and plaintext. <code>Peer</code>'s implementation for this listener is also where the
+stream says whether the client presented a node certificate.</p>
 <h4 id="struct-tlslistener"><code>struct TlsListener</code><a class="headerlink" href="#struct-tlslistener" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsListener</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-175-1"><a id="__codelineno-175-1" name="__codelineno-175-1" href="#__codelineno-175-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsListener</span>
 </span></code></pre></div>
 <p>A TLS listener <code>axum::serve</code> can drive.</p>
 <p>Holds no socket. The socket is owned by the task <code>TlsListener::wrap</code> spawns, and this is the
 receiving end of the connections that task has finished handshaking - see the module
 documentation for why the handshake is not done here.</p>
-<h5 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-172-1"><a id="__codelineno-172-1" name="__codelineno-172-1" href="#__codelineno-172-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">wrap</span><span class="p">(</span><span class="n">tcp</span><span class="p">:</span><span class="w"> </span><span class="nc">TcpListener</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span>
+<h5 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-176-1"><a id="__codelineno-176-1" name="__codelineno-176-1" href="#__codelineno-176-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">wrap</span><span class="p">(</span><span class="n">tcp</span><span class="p">:</span><span class="w"> </span><span class="nc">TcpListener</span><span class="p">,</span><span class="w"> </span><span class="n">config</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">ServerConfig</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">io</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Takes over a bound socket and starts handshaking on it.</p>
 <p>The <code>TcpListener</code> is moved into the accept task, which is what makes it impossible to accept
 a plaintext connection on this socket by accident: after this call there is no other handle
 to it.</p>
-<h5 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h5>
+<h5 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Listener</code></p>
 <h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
 <p>The shapes on the wire, and the conversions to and from the domain.</p>
@@ -5608,7 +5643,7 @@ and a caller who believes they sent SQL gets an answer to a different question. 
 attempt is a 400 naming the field. The tool surface has no field for any of that - see
 <code>sutura_domain::query</code> - and this is what keeps that true across a JSON parser.</p>
 <h3 id="enum-malformedquestion"><code>enum MalformedQuestion</code><a class="headerlink" href="#enum-malformedquestion" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-173-1"><a id="__codelineno-173-1" name="__codelineno-173-1" href="#__codelineno-173-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-177-1"><a id="__codelineno-177-1" name="__codelineno-177-1" href="#__codelineno-177-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
 </span></code></pre></div>
 <p>Why a body is not a question.</p>
 <p><strong>Mostly owned by <code>sutura-domain::question</code>, not by this transport.</strong> HTTP's and MCP's field
@@ -5624,38 +5659,38 @@ the domain does not have and must not gain - <code>Self::Range</code> wraps
 <li><code>Refused</code></li>
 <li><code>Range</code></li>
 </ul>
-<h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
+<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-questionbody"><code>struct QuestionBody</code><a class="headerlink" href="#struct-questionbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-174-1"><a id="__codelineno-174-1" name="__codelineno-174-1" href="#__codelineno-174-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QuestionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-178-1"><a id="__codelineno-178-1" name="__codelineno-178-1" href="#__codelineno-178-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QuestionBody</span>
 </span></code></pre></div>
 <p>A question, as it arrives.</p>
-<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
-<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
-<h3 id="struct-topbody"><code>struct TopBody</code><a class="headerlink" href="#struct-topbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-175-1"><a id="__codelineno-175-1" name="__codelineno-175-1" href="#__codelineno-175-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopBody</span>
-</span></code></pre></div>
-<p>A <code>top</code> clause: rank by <code>by</code>, in <code>direction</code>, keep the first <code>n</code>.</p>
 <h4 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
+<h3 id="struct-topbody"><code>struct TopBody</code><a class="headerlink" href="#struct-topbody" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-179-1"><a id="__codelineno-179-1" name="__codelineno-179-1" href="#__codelineno-179-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TopBody</span>
+</span></code></pre></div>
+<p>A <code>top</code> clause: rank by <code>by</code>, in <code>direction</code>, keep the first <code>n</code>.</p>
+<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h3 id="struct-rangebody"><code>struct RangeBody</code><a class="headerlink" href="#struct-rangebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-176-1"><a id="__codelineno-176-1" name="__codelineno-176-1" href="#__codelineno-176-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-180-1"><a id="__codelineno-180-1" name="__codelineno-180-1" href="#__codelineno-180-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeBody</span>
 </span></code></pre></div>
 <p>A half-open period: <code>start</code> is included, <code>end</code> is not. Either an absolute period
 (<code>start</code>/<code>end</code>) or a period relative to today (<code>last</code>) - never both, never neither.</p>
 <p>Half-open at every grain and in every dialect, which is what makes a month
 <code>[2026-06-01, 2026-07-01)</code> rather than a last day that differs per month.</p>
-<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
+<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h3 id="struct-lastbody"><code>struct LastBody</code><a class="headerlink" href="#struct-lastbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-177-1"><a id="__codelineno-177-1" name="__codelineno-177-1" href="#__codelineno-177-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-181-1"><a id="__codelineno-181-1" name="__codelineno-181-1" href="#__codelineno-181-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LastBody</span>
 </span></code></pre></div>
 <p>A count of calendar periods before today, resolved at request time rather than authored as
 dates - <code>telekom/sutura#778</code>.</p>
-<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
+<h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h3 id="enum-filterbody"><code>enum FilterBody</code><a class="headerlink" href="#enum-filterbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-178-1"><a id="__codelineno-178-1" name="__codelineno-178-1" href="#__codelineno-178-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-182-1"><a id="__codelineno-182-1" name="__codelineno-182-1" href="#__codelineno-182-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">FilterBody</span>
 </span></code></pre></div>
 <p>One filter: a dimension, and what it must - or must not - equal.</p>
 <p>Tagged by <code>op</code>, mirroring <code>sutura_domain::query::Filter</code> - <code>github.com/telekom/sutura#968</code>. Every
@@ -5667,10 +5702,10 @@ the predicate's shape and never the source of a value.</p>
 <li><code>In</code> - The dimension equals one of these values. At least one.</li>
 <li><code>NotIn</code> - The dimension equals none of these values. At least one. A row whose value for this dimension is unmatched/NULL (an unresolved join key) is excluded, not included.</li>
 </ul>
-<h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
+<h4 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h3 id="enum-outcomebody"><code>enum OutcomeBody</code><a class="headerlink" href="#enum-outcomebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-179-1"><a id="__codelineno-179-1" name="__codelineno-179-1" href="#__codelineno-179-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-183-1"><a id="__codelineno-183-1" name="__codelineno-183-1" href="#__codelineno-183-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeBody</span>
 </span></code></pre></div>
 <p>What a question produced.</p>
 <p><strong>The two variants come back with different statuses</strong>, and the <code>outcome</code> discriminator is what a
@@ -5686,25 +5721,25 @@ below is unchanged: same <code>outcome</code> tag, same <code>reason</code> obje
 <li><code>Answer</code> - The question was answered.</li>
 <li><code>Refusal</code> - The question was refused.</li>
 </ul>
-<h4 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h4>
+<h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-provenancebody"><code>struct ProvenanceBody</code><a class="headerlink" href="#struct-provenancebody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-180-1"><a id="__codelineno-180-1" name="__codelineno-180-1" href="#__codelineno-180-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-184-1"><a id="__codelineno-184-1" name="__codelineno-184-1" href="#__codelineno-184-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceBody</span>
 </span></code></pre></div>
 <p>Which definitions produced this answer.</p>
 <p>Always present on an answer, and it is the reason an answer can be trusted at all: the version
 names the snapshot and the digest is over its canonical form, so the same question against a
 different bundle is visibly a different answer.</p>
-<h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
-<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
-<h3 id="struct-metricdigestbody"><code>struct MetricDigestBody</code><a class="headerlink" href="#struct-metricdigestbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-181-1"><a id="__codelineno-181-1" name="__codelineno-181-1" href="#__codelineno-181-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricDigestBody</span>
-</span></code></pre></div>
-<p>One metric and the digest of its canonical form.</p>
 <h4 id="implements_53">Implements<a class="headerlink" href="#implements_53" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
+<h3 id="struct-metricdigestbody"><code>struct MetricDigestBody</code><a class="headerlink" href="#struct-metricdigestbody" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-185-1"><a id="__codelineno-185-1" name="__codelineno-185-1" href="#__codelineno-185-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricDigestBody</span>
+</span></code></pre></div>
+<p>One metric and the digest of its canonical form.</p>
+<h4 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h4>
+<p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-legbody"><code>struct LegBody</code><a class="headerlink" href="#struct-legbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-182-1"><a id="__codelineno-182-1" name="__codelineno-182-1" href="#__codelineno-182-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-186-1"><a id="__codelineno-186-1" name="__codelineno-186-1" href="#__codelineno-186-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegBody</span>
 </span></code></pre></div>
 <p>One leg of an answer: which source it ran on, and which identity it ran as.</p>
 <p><strong>The posture is a word and the operator's acknowledgement reason is NOT here</strong>, deliberately. The
@@ -5714,10 +5749,10 @@ for. What a caller needs is which of the two postures produced the rows, and tha
 <p><strong>Reading this is not a control.</strong> It reaches a caller after the rows did, so it cannot prevent a
 disclosure. It makes one attributable, and it makes a misconfiguration visible to whoever reads an
 answer; what stops a shared source being served unnoticed is a startup refusal.</p>
-<h4 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h4>
+<h4 id="implements_55">Implements<a class="headerlink" href="#implements_55" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-refusalbody"><code>struct RefusalBody</code><a class="headerlink" href="#struct-refusalbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-183-1"><a id="__codelineno-183-1" name="__codelineno-183-1" href="#__codelineno-183-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-187-1"><a id="__codelineno-187-1" name="__codelineno-187-1" href="#__codelineno-187-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalBody</span>
 </span></code></pre></div>
 <p>Why a question was refused.</p>
 <p>A stable <code>code</code> per refusal, the status it came back as, and a sentence. The code is what a
@@ -5730,20 +5765,20 @@ reflecting caller text into a message that reaches a log, a UI and an agent's co
 rejected value becomes somebody else's input. The identifiers that <em>are</em> echoed are parsed
 newtypes over a bounded character set, and the numbers are derived from parsed dates or are this
 service's own limits.</p>
-<h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-184-1"><a id="__codelineno-184-1" name="__codelineno-184-1" href="#__codelineno-184-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_26">Methods<a class="headerlink" href="#methods_26" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-188-1"><a id="__codelineno-188-1" name="__codelineno-188-1" href="#__codelineno-188-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The code, for a test that asserts on the contract rather than on the prose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-185-1"><a id="__codelineno-185-1" name="__codelineno-185-1" href="#__codelineno-185-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-186-1"><a id="__codelineno-186-1" name="__codelineno-186-1" href="#__codelineno-186-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-190-1"><a id="__codelineno-190-1" name="__codelineno-190-1" href="#__codelineno-190-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The status, as the body carries it.</p>
-<h4 id="implements_55">Implements<a class="headerlink" href="#implements_55" title="Permanent link">&para;</a></h4>
+<h4 id="implements_56">Implements<a class="headerlink" href="#implements_56" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-outcome"><code>struct Outcome</code><a class="headerlink" href="#struct-outcome" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-187-1"><a id="__codelineno-187-1" name="__codelineno-187-1" href="#__codelineno-187-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Outcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-191-1"><a id="__codelineno-191-1" name="__codelineno-191-1" href="#__codelineno-191-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Outcome</span>
 </span></code></pre></div>
 <p>An outcome, and the status the transport says it with.</p>
 <p><strong>The one conversion from a <code>ToolOutcome</code> to a response</strong>, and it is one rather than two
@@ -5754,14 +5789,14 @@ argument and for why this file used to claim the opposite.</p>
 not an <code>Err</code>: it arrives here through <code>Ok</code>, this handler cannot get one by mistake, and nothing
 on the way turned it into a <code>crate::problem::Failure</code>. What changed is only what the transport
 says about it.</p>
-<h4 id="methods_26">Methods<a class="headerlink" href="#methods_26" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-188-1"><a id="__codelineno-188-1" name="__codelineno-188-1" href="#__codelineno-188-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">OutcomeBody</span>
+<h4 id="methods_27">Methods<a class="headerlink" href="#methods_27" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-192-1"><a id="__codelineno-192-1" name="__codelineno-192-1" href="#__codelineno-192-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">OutcomeBody</span>
 </span></code></pre></div>
 <p>The body, for a test that asserts on the JSON rather than on the response.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">StatusCode</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-193-1"><a id="__codelineno-193-1" name="__codelineno-193-1" href="#__codelineno-193-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">StatusCode</span>
 </span></code></pre></div>
 <p>The status this outcome comes back as.</p>
-<h4 id="implements_56">Implements<a class="headerlink" href="#implements_56" title="Permanent link">&para;</a></h4>
+<h4 id="implements_57">Implements<a class="headerlink" href="#implements_57" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>IntoResponse</code></p>
 <h3 id="use-rawmalformedstatement"><code>use RawMalformedStatement</code><a class="headerlink" href="#use-rawmalformedstatement" title="Permanent link">&para;</a></h3>
 <p>Why a <code>run_sql</code> request body was not a statement.</p>
@@ -5814,23 +5849,23 @@ two keys on both bodies, because both carry rows and need the same two labels fo
 <code>sutura_mcp::wire::raw::RawContent</code>'s shape on the other transport.</p>
 <p>The two are kept equal by review, the same limit <code>sutura_mcp::wire</code> states for the certified pair.</p>
 <h4 id="struct-runsqlbody"><code>struct RunSqlBody</code><a class="headerlink" href="#struct-runsqlbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-190-1"><a id="__codelineno-190-1" name="__codelineno-190-1" href="#__codelineno-190-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-194-1"><a id="__codelineno-194-1" name="__codelineno-194-1" href="#__codelineno-194-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlBody</span>
 </span></code></pre></div>
 <p>One raw statement, as the request body.</p>
-<h5 id="implements_57">Implements<a class="headerlink" href="#implements_57" title="Permanent link">&para;</a></h5>
+<h5 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>ToSchema</code></p>
 <h4 id="enum-malformedstatement"><code>enum MalformedStatement</code><a class="headerlink" href="#enum-malformedstatement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-191-1"><a id="__codelineno-191-1" name="__codelineno-191-1" href="#__codelineno-191-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-195-1"><a id="__codelineno-195-1" name="__codelineno-195-1" href="#__codelineno-195-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedStatement</span>
 </span></code></pre></div>
 <p>Why a <code>run_sql</code> request body was not a statement.</p>
 <h5 id="variants_20">Variants<a class="headerlink" href="#variants_20" title="Permanent link">&para;</a></h5>
 <ul>
 <li><code>Statement</code></li>
 </ul>
-<h5 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h5>
+<h5 id="implements_59">Implements<a class="headerlink" href="#implements_59" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h4 id="enum-rawoutcomebody"><code>enum RawOutcomeBody</code><a class="headerlink" href="#enum-rawoutcomebody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-192-1"><a id="__codelineno-192-1" name="__codelineno-192-1" href="#__codelineno-192-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawOutcomeBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-196-1"><a id="__codelineno-196-1" name="__codelineno-196-1" href="#__codelineno-196-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RawOutcomeBody</span>
 </span></code></pre></div>
 <p>What running a raw statement produced.</p>
 <p>Tagged so it cannot be mistaken for a certified answer's <code>super::OutcomeBody</code> - see the module
@@ -5844,20 +5879,20 @@ certified path's own <code>outcome: "refusal"</code>, the one collision the arch
 <li><code>Rows</code></li>
 <li><code>Refusal</code></li>
 </ul>
-<h5 id="implements_59">Implements<a class="headerlink" href="#implements_59" title="Permanent link">&para;</a></h5>
+<h5 id="implements_60">Implements<a class="headerlink" href="#implements_60" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-runsqloutcome"><code>struct RunSqlOutcome</code><a class="headerlink" href="#struct-runsqloutcome" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-193-1"><a id="__codelineno-193-1" name="__codelineno-193-1" href="#__codelineno-193-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlOutcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-197-1"><a id="__codelineno-197-1" name="__codelineno-197-1" href="#__codelineno-197-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RunSqlOutcome</span>
 </span></code></pre></div>
 <p>A raw outcome, and the status the transport says it with.</p>
 <p><code>super::Outcome</code>'s shape, over <code>RawOutcome</code> instead of a certified
 <code>sutura_domain::query::ToolOutcome</code>.</p>
-<h5 id="methods_27">Methods<a class="headerlink" href="#methods_27" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-194-1"><a id="__codelineno-194-1" name="__codelineno-194-1" href="#__codelineno-194-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawOutcomeBody</span>
+<h5 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-198-1"><a id="__codelineno-198-1" name="__codelineno-198-1" href="#__codelineno-198-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">RawOutcomeBody</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-195-1"><a id="__codelineno-195-1" name="__codelineno-195-1" href="#__codelineno-195-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">StatusCode</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-199-1"><a id="__codelineno-199-1" name="__codelineno-199-1" href="#__codelineno-199-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">StatusCode</span>
 </span></code></pre></div>
-<h5 id="implements_60">Implements<a class="headerlink" href="#implements_60" title="Permanent link">&para;</a></h5>
+<h5 id="implements_61">Implements<a class="headerlink" href="#implements_61" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code>, <code>IntoResponse</code></p>
 <h3 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h3>
 <p>The catalog tool's own wire shape, kept apart from every certified shape above for the reason
@@ -5869,7 +5904,7 @@ thousand-line limit it enforces and cannot exempt, and this is one whole tool's 
 rather than a share of lines - the same split <code>sutura-mcp</code>'s own <code>wire::catalog</code> already made
 for the mirror-image reason.</p>
 <h4 id="struct-catalogbody"><code>struct CatalogBody</code><a class="headerlink" href="#struct-catalogbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-196-1"><a id="__codelineno-196-1" name="__codelineno-196-1" href="#__codelineno-196-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-200-1"><a id="__codelineno-200-1" name="__codelineno-200-1" href="#__codelineno-200-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
 </span></code></pre></div>
 <p>What this catalog defines.</p>
 <h1 id="why-a-structured-surface-reads-the-prose-setting-at-all_1">Why a structured surface reads the prose setting at all<a class="headerlink" href="#why-a-structured-surface-reads-the-prose-setting-at-all_1" title="Permanent link">&para;</a></h1>
@@ -5880,8 +5915,8 @@ operator whose catalog authors are not the people who decide what their agents a
 prose, and a description that still reached an agent through a second transport would make that
 setting a statement about one surface rather than about the deployment. So the omission is
 honoured wherever the prose is carried, and the escaping stays where the delimiter is.</p>
-<h5 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-197-1"><a id="__codelineno-197-1" name="__codelineno-197-1" href="#__codelineno-197-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<h5 id="methods_29">Methods<a class="headerlink" href="#methods_29" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-201-1"><a id="__codelineno-201-1" name="__codelineno-201-1" href="#__codelineno-201-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">view</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ScopedView</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">prose</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The reader's view of a caller-scoped catalog, under the prose setting this deployment was
 started with.</p>
@@ -5896,22 +5931,22 @@ apply one visibility rule and this body holds no second copy of it.</p>
 <code>CatalogProse::default()</code> is <code>Quoted</code>, so a conversion reachable without the setting fails
 OPEN: it ships the prose of a deployment that asked for none, which is the defect this
 function exists to close. A second argument cannot be left out.</p>
-<h5 id="implements_61">Implements<a class="headerlink" href="#implements_61" title="Permanent link">&para;</a></h5>
+<h5 id="implements_62">Implements<a class="headerlink" href="#implements_62" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-metricbody"><code>struct MetricBody</code><a class="headerlink" href="#struct-metricbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-198-1"><a id="__codelineno-198-1" name="__codelineno-198-1" href="#__codelineno-198-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-202-1"><a id="__codelineno-202-1" name="__codelineno-202-1" href="#__codelineno-202-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
 </span></code></pre></div>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <p>Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
 catalog port takes no request context and cannot - so this is a reader's view of a pinned
 bundle rather than an input to one.</p>
-<h5 id="implements_62">Implements<a class="headerlink" href="#implements_62" title="Permanent link">&para;</a></h5>
+<h5 id="implements_63">Implements<a class="headerlink" href="#implements_63" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h4 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-199-1"><a id="__codelineno-199-1" name="__codelineno-199-1" href="#__codelineno-199-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-203-1"><a id="__codelineno-203-1" name="__codelineno-203-1" href="#__codelineno-203-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h5 id="implements_63">Implements<a class="headerlink" href="#implements_63" title="Permanent link">&para;</a></h5>
+<h5 id="implements_64">Implements<a class="headerlink" href="#implements_64" title="Permanent link">&para;</a></h5>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 
 
