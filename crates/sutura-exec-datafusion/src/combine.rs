@@ -805,7 +805,6 @@ async fn collected(
     // caller to retry a bound that fires again in the same place.
     let exhaustion = |cause: datafusion::error::DataFusionError| {
         if pool::exhausted(&cause) {
-            eprintln!("DIAGNOSE exhausted: {cause}");
             CombineError::Exhausted { ceiling_bytes }
         } else {
             CombineError::Execute { cause }

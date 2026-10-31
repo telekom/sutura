@@ -249,7 +249,6 @@ fn wide(plan: &FederatedPlan) -> Vec<LegResult> {
 }
 
 #[test]
-#[ignore = "diagnosing"]
 fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() {
     let plan = sum_plan(true);
     let results = wide(&plan);
@@ -300,70 +299,6 @@ fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() 
         .to_rows()
         .expect("a combined answer decodes");
     assert_eq!(spread.rows(), answer.rows());
-}
-
-#[test]
-fn diagnose_where_three_nodes_refuse() {
-    use core::fmt::Write as _;
-    let plan = sum_plan(true);
-    let results = wide(&plan);
-    let one = combiner();
-    let mut ceiling = UNBOUNDED;
-    eprintln!("DIAGNOSE halving on one node");
-    while one.combine(&plan, assigned(&plan, &results), ceiling).is_ok() {
-        ceiling >>= 1;
-    }
-    let mut table = String::new();
-    writeln!(table, "one node refuses at {ceiling}").expect("a string takes a line");
-    let pool = |times: u64| {
-        if times == 0 {
-            roomy()
-        } else {
-            let bytes = usize::try_from(ceiling * times).expect("fits");
-            WorkingSet::of_bytes(NonZeroUsize::new(bytes).expect("not zero"))
-        }
-    };
-    let servers = servers();
-    for (own_times, other_times, question_times) in [
-        (1, 1, 1),
-        (0, 1, 1),
-        (1, 0, 1),
-        (1, 1, 0),
-        (0, 0, 1),
-        (0, 1, 0),
-        (1, 0, 0),
-        (2, 2, 2),
-        (2, 1, 1),
-        (1, 2, 1),
-        (1, 1, 2),
-    ] {
-        let authority = Authority::generate();
-        let node = authority.sign();
-        let own = Nodes::worker(pool(own_times), authority.identity(&node)).expect("a worker builds");
-        let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
-        let others: Vec<Url> = std::iter::repeat_with(|| {
-            let other = authority.sign();
-            let worker = Nodes::worker(pool(other_times), authority.identity(&other)).expect("a worker builds");
-            served(&servers, listening(&other, authority.peers()), worker, Arc::default())
-        })
-        .take(2)
-        .collect();
-        let across = DataFusionCombiner::across(Nodes::declared(own, own_url, others, authority.identity(&node)))
-            .expect("a combiner builds");
-        let question = if question_times == 0 {
-            UNBOUNDED
-        } else {
-            ceiling * question_times
-        };
-        eprintln!("DIAGNOSE own {own_times} others {other_times} question {question_times}");
-        let outcome = across.combine(&plan, assigned(&plan, &results), question).map(|_| ());
-        writeln!(
-            table,
-            "own {own_times} others {other_times} question {question_times}: {outcome:?}"
-        )
-        .expect("a string takes a line");
-    }
-    panic!("{table}");
 }
 
 #[test]
