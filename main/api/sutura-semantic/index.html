@@ -2627,6 +2627,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-stackedplan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use StackedPlan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-planfilter" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2752,6 +2763,7 @@ call.</p>
   <code>FederationCombiner</code> turns the batches
   back into one answer above them.
 - <code>DrillAcross</code> - The question named several metrics, and each is answered by its own arm: one fact leg, or a fact leg beside a lookup leg. The combiner behind <code>DrillAcrossCombiner</code> joins the arms above them.
+- <code>Stacked</code> - The question named several metrics on one data system, each answered by its own whole-answer arm, and that data system joins the arms in one statement.
 - <code>Refused</code> - The question was refused, and this is why.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">DomainPlan</span><span class="o">&gt;</span>
@@ -2794,6 +2806,7 @@ as a refusal a caller would retry.</p>
 <li><code>AuthoredSqlNotPlanned</code> - The bundle carries authored SQL, while the domain plan deliberately carries no SQL.</li>
 <li><code>NotAssembled</code> - A two-source plan this workspace compiled and could not then assemble.</li>
 <li><code>NotAssembledAcross</code> - A drill-across plan this workspace compiled from arms it could not then assemble.</li>
+<li><code>NotStacked</code> - A stacked plan this workspace compiled from arms on one data system it could not then assemble.</li>
 <li><code>NotBound</code> - A plan this workspace compiled whose predicates and parameters did not resolve each other.</li>
 <li><code>NoRemoteJoin</code> - A2: the splitter ran with no remote dimension to join the fact leg through.</li>
 </ul>
@@ -2852,6 +2865,7 @@ conditional on another check having been right.</p>
 <h2 id="use-drillacrossplan"><code>use DrillAcrossPlan</code><a class="headerlink" href="#use-drillacrossplan" title="Permanent link">&para;</a></h2>
 <h2 id="use-federatedplan"><code>use FederatedPlan</code><a class="headerlink" href="#use-federatedplan" title="Permanent link">&para;</a></h2>
 <h2 id="use-queryplan"><code>use QueryPlan</code><a class="headerlink" href="#use-queryplan" title="Permanent link">&para;</a></h2>
+<h2 id="use-stackedplan"><code>use StackedPlan</code><a class="headerlink" href="#use-stackedplan" title="Permanent link">&para;</a></h2>
 <h2 id="use-planfilter"><code>use PlanFilter</code><a class="headerlink" href="#use-planfilter" title="Permanent link">&para;</a></h2>
 <h2 id="use-planmeasure"><code>use PlanMeasure</code><a class="headerlink" href="#use-planmeasure" title="Permanent link">&para;</a></h2>
 <h2 id="use-planpredicate"><code>use PlanPredicate</code><a class="headerlink" href="#use-planpredicate" title="Permanent link">&para;</a></h2>

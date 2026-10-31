@@ -2738,6 +2738,10 @@ statement per shape per dialect, parse-checked in the dialect it was generated f
 changed rather than went away:</strong> one of those five dialects is now what a release executes, and
 a parse check is not an execution - the executed evidence is
 <code>crates/sutura-exec-postgres/tests/conformance.rs</code>'s leg cell against a provisioned tier.</p>
+<h2 id="use-generate_stacked"><code>use generate_stacked</code><a class="headerlink" href="#use-generate_stacked" title="Permanent link">&para;</a></h2>
+<p>Renders a stacked plan as one statement, paired with its parameters in arm order.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>GenerateError</code> as <code>super::generate()</code> returns it for any arm, or for the whole statement.</p>
 <h2 id="module-dialect">Module <code>dialect</code><a class="headerlink" href="#module-dialect" title="Permanent link">&para;</a></h2>
 <p>Which data system a statement is rendered for, and the two things we do not delegate.</p>
 <p>The dialect layer we build on knows more about dialects than we do: it renders <code>DATE_TRUNC</code> as
@@ -3468,6 +3472,10 @@ reason a single null key is excluded, so <code>rows</code> and <code>distinct</c
 and another there. The two aliases are <code>sutura-domain</code>'s constants rather than this crate's
 literals, so the label an adapter reads the count back under is the label the statement asked
 for.</p>
+<h3 id="use-generate_stacked_1"><code>use generate_stacked</code><a class="headerlink" href="#use-generate_stacked_1" title="Permanent link">&para;</a></h3>
+<p>Renders a stacked plan as one statement, paired with its parameters in arm order.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>GenerateError</code> as <code>super::generate()</code> returns it for any arm, or for the whole statement.</p>
 
 
 
