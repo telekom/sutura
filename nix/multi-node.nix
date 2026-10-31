@@ -9,11 +9,14 @@
 # they asked. Each hop's exchange is read out of the identity provider's journal, and an anonymous
 # question is refused at `query`. After the first question `source` holds a link it dialled to a
 # node's listener and before it none: a node dials one only to read the input of a stage it was sent.
+# `source`'s worker service refuses a call with no client certificate, fails the handshake of one with
+# a certificate another CA signed, and passes a call with `query`'s own certificate on to the engine.
 #
 # What this does not show: nobody signs in - `nix/multi-node-idp.py` is a fake identity provider, one
 # per VM over one key, and the test mints the callers' tokens. One question per caller: nothing here
 # measures load, a slow peer or a node going away. The link shows that a stage ran on `source`, not
 # how much of the combine did. One CA signs both node certificates and is also the node authority.
+# A call with a node's certificate is any node's: nothing checks which task it may run.
 { pkgs, sutura, clickhouse, clickhouseDriver, example, golden }:
 let
   python = pkgs.python3.withPackages (p: [ p.pyjwt p.cryptography ]);
@@ -22,8 +25,8 @@ let
   servicePassword = "multi-node-service-password";
   version = "multi-node";
 
-  # A CA, each node's TLS leaf under it, the identity provider's ES256 key and its key set, and the
-  # test's fixed secrets. The CA key is not kept.
+  # A CA, each node's TLS leaf under it, a client leaf under another CA, the identity provider's
+  # ES256 key and its key set, and the test's fixed secrets. No CA key is kept.
   material = pkgs.runCommand "multi-node-material" { nativeBuildInputs = [ pkgs.openssl ]; } ''
     mkdir "$out" && cd "$out"
     printf '[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n[dn]\nCN=multi-node-ca\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\nsubjectKeyIdentifier=hash\n' > ca.cnf
@@ -34,7 +37,11 @@ let
       openssl x509 -req -in $node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
       rm $node.csr $node.ext
     done
-    rm ca.key ca.srl ca.cnf
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout other.key -out other.pem -days 3650 -config ca.cnf -subj /CN=other-ca
+    openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout stranger.key -out stranger.csr -subj /CN=stranger
+    printf 'basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n' > stranger.ext
+    openssl x509 -req -in stranger.csr -CA other.pem -CAkey other.key -CAcreateserial -out stranger.pem -days 3650 -extfile stranger.ext
+    rm ca.key ca.srl ca.cnf other.key other.pem other.srl stranger.csr stranger.ext
     openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:prime256v1 -out idp.key
     openssl pkey -in idp.key -pubout -out idp.pub
     ${idp} jwks idp.pub ${kid} > jwks.json
@@ -252,5 +259,19 @@ pkgs.testers.runNixOSTest {
     with subtest("an anonymous question is refused at the node it was asked"):
         status = query.succeed(f"curl -sS -o /dev/null -w '%{{http_code}}' --cacert ${material}/ca.pem -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query")
         assert status == "401", status
+
+    # A call to `source`'s worker service, as another node makes one, with an empty request.
+    WORKER = "curl -sS -o /dev/null -w '%{http_code}' --http2 --cacert ${material}/ca.pem -X POST -H 'Content-Type: application/grpc' https://source:8443/worker.WorkerService/ExecuteTask"
+
+    with subtest("a worker call without a client certificate is refused"):
+        status = query.succeed(WORKER)
+        assert status == "401", status
+
+    with subtest("a worker call with a certificate another authority signed fails its handshake"):
+        query.fail(f"{WORKER} --cert ${material}/stranger.pem --key ${material}/stranger.key")
+
+    with subtest("a worker call with a node's certificate reaches the engine"):
+        status = query.succeed(f"{WORKER} --cert ${material}/query.pem --key ${material}/query.key")
+        assert status == "200", status
   '';
 }
