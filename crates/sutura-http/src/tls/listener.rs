@@ -15,19 +15,17 @@
 //! A connection still mid-handshake when shutdown arrives is dropped rather than drained. That is
 //! correct rather than a compromise: it carries no request yet, so there is no answer to lose.
 //!
-//! # `ConnectInfo`, and the reason for `tap_io`
+//! # `ConnectInfo`, and which client is a node
 //!
 //! The limiter keys on the peer address, which reaches a handler as `ConnectInfo<SocketAddr>` - and
 //! `crate::client_address` is where the consequence of losing it is written down: the limiter reports
 //! that it cannot extract a key and bounds nothing.
 //!
-//! `axum` gives `SocketAddr` a `Connected` implementation for `TcpListener` specifically, and a
-//! blanket one for `TapIo<L, F>` where `L::Addr` is the address type. It does *not* have one for an
-//! arbitrary listener, and this crate cannot add it - `Connected` and `SocketAddr` are both foreign,
-//! so the orphan rule forbids it. Wrapping in `tap_io` is therefore not decoration: it is what makes
-//! the TLS path produce the same `ConnectInfo<SocketAddr>` the plaintext path produces, so the
-//! limiter keys identically on both. The alternative was a local `Peer(SocketAddr)` newtype, which
-//! would have compiled and left the limiter keying on nothing over TLS.
+//! `axum` has no `Connected` implementation for `SocketAddr` over an arbitrary listener, and this
+//! crate cannot add one - both are foreign. So `crate::server::Peer` is taken from every connection
+//! instead and split back into `ConnectInfo<SocketAddr>` before a route runs, which keys the limiter
+//! identically over TLS and plaintext. `Peer`'s implementation for this listener is also where the
+//! stream says whether the client presented a node certificate.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

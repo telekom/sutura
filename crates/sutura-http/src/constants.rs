@@ -50,6 +50,13 @@ pub const AGENT_MOUNT_PATH: &str = "/mcp";
 #[cfg(feature = "flight")]
 pub const FLIGHT_MOUNT_PATH: &str = "/arrow.flight.protocol.FlightService";
 
+/// Where the worker surface is mounted, when it is mounted at all.
+///
+/// **Only compiled when the `worker` feature is on.** The gRPC service name the query engine's
+/// worker client dials, so, like [`FLIGHT_MOUNT_PATH`], not a path this crate chose.
+#[cfg(feature = "worker")]
+pub const WORKER_MOUNT_PATH: &str = "/worker.WorkerService";
+
 /// The mount point of each group inside a version.
 pub mod base_paths {
     /// What this catalog defines.

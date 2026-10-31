@@ -36,14 +36,14 @@ use axum::Router;
 /// `.nest`/`.nest_service`/`.route_service`/`.fallback_service` and a wildcard `.route` anywhere in
 /// `sutura-http` or `sutura-cli` except inside [`Self::mount`] - a backstop for a mount primitive
 /// written with no `Ungoverned` in sight at all, not for what this type already holds.
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 #[derive(Clone, Debug)]
 pub(crate) struct Ungoverned {
     router: Router,
     path: &'static str,
 }
 
-#[cfg(any(feature = "agent", feature = "flight"))]
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 impl Ungoverned {
     /// Nests a transport service at `path` - the one place anything outside the governed subtree
     /// is mounted - and fuses it with the path.
