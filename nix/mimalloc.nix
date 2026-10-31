@@ -37,7 +37,7 @@ let
   # because 3.5.0 redefined `MI_SECURE=4` to mean level 3 and moved byte-precise
   # buffer-overflow checking to level 5; without it a `secure level: 4` line would be
   # quietly weaker than the one it replaces. See issue #5.
-  mimallocVersion = "3.6.0";
+  mimallocVersion = "3.6.1";
   mimallocFor = { targetPkgs, optLevel, isMusl }:
     let
       # ARMv8.3 FLOOR for the aarch64 targets, deliberately. The pinned mimalloc gains from
@@ -59,7 +59,7 @@ let
       src = pkgs.fetchurl {
         name = "mimalloc-${mimallocVersion}.tar.gz";
         url = "https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v${mimallocVersion}";
-        sha256 = "c663101ba193b5b823c8541c1b719ab67e3ebf9976e425a02359a5cad5e52990";
+        sha256 = "2672e6a99d4579fb4bb32d9de0d63aa424ce600d31fbfaf06eb74d940d2e07a6";
       };
       dontConfigure = true;
       # Matches cc-rs, which sets it for the same reason: a timestamp in the archive
