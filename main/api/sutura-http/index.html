@@ -2661,6 +2661,12 @@ come from the variant, so two handlers cannot answer the same situation with dif
 <p>The failure body.</p>
 <p>Three fields and no more. A request identifier would belong here and there is none: nothing in
 this service mints one yet, and a field that is always absent is worse than no field.</p>
+<h2 id="use-worker_router"><code>use worker_router</code><a class="headerlink" href="#use-worker_router" title="Permanent link">&para;</a></h2>
+<p>Builds a worker node's router, and starts the sweeper for its keyed state.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>RouterNotBuilt::Limiter</code> when a rate limit tier cannot be built, <code>RouterNotBuilt::Reaper</code>
+when its sweeper cannot start, and <code>RouterNotBuilt::UngovernedRouteNotAllowlisted</code> as in
+<code>super::assemble</code>.</p>
 <h2 id="use-assembled"><code>use Assembled</code><a class="headerlink" href="#use-assembled" title="Permanent link">&para;</a></h2>
 <p>The router, and the limiter state something has to keep sweeping.</p>
 <p><strong>Two values because they have two owners.</strong> The router goes to whatever serves it; the handles
@@ -4506,7 +4512,7 @@ handler and this has to run for a whole subtree. It runs for every path in that 
 RESOLVES to a handler; a path under the prefix matching no route skips it and falls through to
 the top-level <code>404</code>, which <code>crate::router</code> states along with why that is acceptable.</p>
 <h3 id="fn-require_metrics_token"><code>fn require_metrics_token</code><a class="headerlink" href="#fn-require_metrics_token" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-105-1"><a id="__codelineno-105-1" name="__codelineno-105-1" href="#__codelineno-105-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">require_metrics_token</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">state</span><span class="p">::</span><span class="n">ServiceState</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-105-1"><a id="__codelineno-105-1" name="__codelineno-105-1" href="#__codelineno-105-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">require_metrics_token</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">sync</span><span class="p">::</span><span class="n">Arc</span><span class="o">&lt;</span><span class="n">sutura_config</span><span class="p">::</span><span class="n">AccessToken</span><span class="o">&gt;&gt;&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
 </span></code></pre></div>
 <p>Requires the metrics token, which is a DIFFERENT credential from the API token.</p>
 <p>The architecture decision: a holder of the API token can ask any question the catalog
@@ -4514,6 +4520,8 @@ certifies and a scrape needs none of that, so <code>/metrics</code> is gated by 
 <code>security.metrics_token</code>. This mirrors <code>require_token</code>'s shape - the presented bearer is
 compared through the same <code>AccessToken::matches_in_constant_time</code>, reused rather than copied -
 and a <code>401</code> here is the same three-shape answer a wrong API token gets.</p>
+<p>Its state is the token alone rather than a <code>ServiceState</code>, so a router with no surface - a
+worker node's - gates <code>/metrics</code> with the same function.</p>
 <h3 id="fn-record_response"><code>fn record_response</code><a class="headerlink" href="#fn-record_response" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-106-1"><a id="__codelineno-106-1" name="__codelineno-106-1" href="#__codelineno-106-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">record_response</span><span class="p">(</span><span class="n">__arg0</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">State</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">metrics</span><span class="p">::</span><span class="n">Metrics</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">request</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">extract</span><span class="p">::</span><span class="n">Request</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">:</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">middleware</span><span class="p">::</span><span class="n">Next</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">response</span><span class="p">::</span><span class="n">Response</span>
 </span></code></pre></div>
@@ -4978,6 +4986,12 @@ request never arrives at a branch that could turn a control off.</p>
 <p>For a caller that wants to sweep on its own schedule, and for a test that wants to assert on the
 keyed store. It starts no thread, so a test suite that assembles one router per test does not
 accumulate one sweeper per test.</p>
+<h3 id="use-worker_router_1"><code>use worker_router</code><a class="headerlink" href="#use-worker_router_1" title="Permanent link">&para;</a></h3>
+<p>Builds a worker node's router, and starts the sweeper for its keyed state.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>RouterNotBuilt::Limiter</code> when a rate limit tier cannot be built, <code>RouterNotBuilt::Reaper</code>
+when its sweeper cannot start, and <code>RouterNotBuilt::UngovernedRouteNotAllowlisted</code> as in
+<code>super::assemble</code>.</p>
 <h2 id="module-servable">Module <code>servable</code><a class="headerlink" href="#module-servable" title="Permanent link">&para;</a></h2>
 <p>Settings <code>/v1</code> may be served under, and the one check that says so.</p>
 <p><code>crate::ServiceState::new</code> takes a <code>ServableSettings</code> rather than bare settings in a build
@@ -5008,7 +5022,7 @@ fn _reachable(</em>: sutura_http::ServableSettings) {}
 </span></code></pre></div></p>
 <p>Accepts <code>settings</code> that declare <code>security.inbound</code>, or whose deployment may serve <code>/v1</code>
 without it by <code>Settings::query_surface_refusals</code>; refuses every other one with each reason.</p>
-<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
 <p><code>NotServable</code> carrying every refusal, not just the first.</p>
 <h4 id="implements_32">Implements<a class="headerlink" href="#implements_32" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code></p>

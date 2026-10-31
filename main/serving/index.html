@@ -767,6 +767,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="TLS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-worker-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A worker node
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2827,6 +2844,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="TLS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-worker-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A worker node
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2937,6 +2971,11 @@ variables, in that order. <a href="../configuration/">Configuration</a> lists th
 <td>Host names, with no port, that <code>/v1/*</code>, <code>/docs</code>, <code>/openapi.json</code> and <code>/mcp</code> answer</td>
 </tr>
 <tr>
+<td><code>server.role</code></td>
+<td><code>serving</code></td>
+<td><code>serving</code>, or <code>worker</code> for a node that holds no data (<a href="#a-worker-node">a worker node</a>)</td>
+</tr>
+<tr>
 <td><code>security.access_token</code></td>
 <td>none</td>
 <td>The deployment token: an RFC 6750 <code>b64token</code> of at least 32 characters</td>
@@ -3045,6 +3084,26 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <tr>
 <td><code>rate_limit.enabled: false</code>, in production or off-host</td>
 <td>Set <code>rate_limit.enabled: true</code></td>
+</tr>
+<tr>
+<td><code>server.role: worker</code> and a <code>sources</code> entry</td>
+<td>Remove the sources. A worker reads none</td>
+</tr>
+<tr>
+<td><code>server.role: worker</code> and <code>catalogs</code> in a file or a variable</td>
+<td>Remove the catalogs</td>
+</tr>
+<tr>
+<td><code>server.role: worker</code> and no <code>server.tls_node_authority</code></td>
+<td>Set it (<a href="#a-worker-node">a worker node</a>)</td>
+</tr>
+<tr>
+<td><code>server.role: worker</code> and <code>server.agent_surface.enabled</code></td>
+<td>Remove the switch</td>
+</tr>
+<tr>
+<td><code>server.role: worker</code> and <code>server.flight_surface.enabled</code></td>
+<td>Remove the switch</td>
 </tr>
 <tr>
 <td><code>server.port: 0</code> in production</td>
@@ -3539,6 +3598,23 @@ is Arrow's in-memory measure, which counts a buffer two arrays share twice, so i
 that ran out on this node is started again across, and the work it did here is lost.</p>
 <p><code>security.outbound.transport_anchors</code> (a PEM bundle path, or <code>system</code>) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.</p>
+<h3 id="a-worker-node">A worker node<a class="headerlink" href="#a-worker-node" title="Permanent link">&para;</a></h3>
+<p><code>server.role: worker</code> runs a node that holds no data. It opens no catalog and no source, and does not read
+<code>server.nodes</code>. It serves <code>/health</code>, <code>/metrics</code> behind its token, and the worker transport to clients whose certificate
+the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the documentation answer <code>404</code>. It needs a binary built with
+<code>--features distributed</code>; any other build refuses the role at startup.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="s">"worker"</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node.pem"</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node-key.pem"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">tls_node_authority</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/nodes-ca.pem"</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span></code></pre></div>
+<p>Limits: a worker in production or off-host still needs <code>security.access_token</code> or <code>security.inbound</code>, and <code>security.metrics_token</code>,
+although no route on it reads the deployment token. A catalog counts only when a file or a variable declares it.
+<code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
+alone. The worker carries the limits of the node links above.</p>
 <h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
 <p>A published port (<code>docker run -p</code>, or a <code>ports:</code> entry in a compose file) lets callers reach the container from outside it.
 Inside the container, loopback is the container, so the bind is <code>server.host: "0.0.0.0"</code>. sutura sees a bind that other
@@ -3582,8 +3658,8 @@ For callers on the same machine and nothing else, publish no port. Use <code>--n
 same two. The default is <code>bunyan</code> in production and <code>pretty</code> elsewhere. <code>telemetry.service_name</code> (default <code>sutura</code>) is
 the <code>name</code> field of each bunyan record. <code>telemetry.filter</code> is <code>info</code> by default, and <code>RUST_LOG</code> overrides it. The log
 goes to standard output.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">telemetry</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bunyan</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">telemetry</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">format</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bunyan</span>
 </span></code></pre></div>
 <p>Audit records (<code>answered</code> and <code>refused</code>, and <code>raw_answered</code> and <code>raw_refused</code> for raw SQL) use the same stream and format.
 A question or a raw SQL call that fails, for example because the data system does not answer, writes <code>failed</code> or
