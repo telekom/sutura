@@ -55,7 +55,9 @@ fn a_worker_that_declares_a_source_is_not_fit_to_serve() {
 #[test]
 fn a_worker_whose_file_declares_a_catalog_is_not_fit_to_serve() {
     let catalog = "catalogs:\n  - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n";
-    let dir = crate::settings::tests::scratch("worker-catalog");
+    let dir = std::env::temp_dir().join(format!("sutura-config-worker-catalog-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
     std::fs::write(dir.join("base.yaml"), worker(AUTHORITY, catalog)).expect("a scratch file is writable");
     let declared = refusals(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
     std::fs::write(dir.join("base.yaml"), worker(AUTHORITY, "")).expect("a scratch file is writable");

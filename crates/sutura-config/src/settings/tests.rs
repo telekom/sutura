@@ -762,7 +762,7 @@ fn a_variable_overrides_the_environment_default_in_both_directions() {
 /// Named after the process and the case, which is the shape the catalog adapter's own filesystem
 /// tests use: `CARGO_TARGET_TMPDIR` is defined for an integration target and not for a unit test
 /// under `src/`.
-pub(in crate::settings) fn scratch(case: &str) -> PathBuf {
+fn scratch(case: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("sutura-config-{case}-{}", std::process::id()));
     drop(std::fs::remove_dir_all(&dir));
     std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");

@@ -9,7 +9,7 @@ fn declaring(certificate: &str, key: &str, authority: &str) -> sutura_config::Tl
         .expect("https addresses are nodes")
 }
 
-pub(in crate::serve) fn runtime() -> sutura_config::RuntimeSettings {
+fn runtime() -> sutura_config::RuntimeSettings {
     sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
         .expect("the defaults load")
         .runtime()
@@ -31,7 +31,7 @@ fn declared_nodes_are_refused_by_a_build_without_the_feature() {
 /// A node certificate and key, written where `declaring` can name them, the certificate its own
 /// authority.
 #[cfg(feature = "distributed")]
-pub(in crate::serve) fn written(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+fn written(name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let issued = rcgen::generate_simple_self_signed([String::from("node-a.example.com")]).expect("a pair generates");
     let at = |part: &str| std::env::temp_dir().join(format!("sutura-cli-{name}-{part}-{}.pem", std::process::id()));
     let (certificate, key) = (at("certificate"), at("key"));
