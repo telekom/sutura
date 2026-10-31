@@ -244,3 +244,4 @@ a_node_hop_to_the_deployments_own_audience_is_a_typed_refusal # names `NotFitToS
 a_node_source_is_refused_by_a_build_that_did_not_link_the_client # #[cfg(not(feature = "node"))]: not compiled by the --all-features causality run; `just gates`' default-feature lane runs it
 a_node_endpoint_the_client_cannot_dial_is_refused_at_boot # in crates/sutura-cli/src/serve/node.rs, a module new in this change
 a_node_source_opens_in_the_mix_and_declares_that_it_relays # in crates/sutura-cli/src/serve/node.rs, a module new in this change
+a_combine_across_three_nodes_answers_what_one_node_answers_and_sends_both_others_work # #[cfg(feature = "distributed")]: the base Cargo.toml declares no such feature, so the reconstruction leaves the test out

@@ -35,6 +35,10 @@ mod fan_in;
 #[cfg(test)]
 mod link_parts;
 
+/// A combine planned across nodes on localhost.
+#[cfg(feature = "distributed")]
+mod across;
+
 /// `2^53`: every integer below it is exactly representable as an `f64`.
 const TWO_POW_53: i64 = 1 << 53;
 
