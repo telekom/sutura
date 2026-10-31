@@ -142,6 +142,8 @@ pub use crate::server::{ServeFailed, serve};
 #[cfg(feature = "flight")]
 pub use crate::state::FlightMount;
 pub use crate::state::ServiceState;
+#[cfg(feature = "worker")]
+pub use crate::state::WorkerMount;
 #[cfg(feature = "agent")]
 pub use crate::state::{AgentMount, ReplicaSpendGauge, SpendHeadroomPush};
 pub use crate::surface::{ErasedCause, LocalService, ServiceNotStarted, Surface, SurfaceFailure, cause_chain};

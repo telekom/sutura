@@ -33,8 +33,8 @@
 //!
 //! Two more decisions live in [`listener`] rather than here, because they are about accepting a
 //! connection rather than about what certificate is presented on it: the handshake is done off the
-//! accept path, and the peer address is carried through with `tap_io` so the rate limiter keys the
-//! same way over TLS as it does over plaintext.
+//! accept path, and the peer address is carried through so the rate limiter keys the same way over
+//! TLS as it does over plaintext.
 //!
 //! # Rotation without dropping a connection
 //!
@@ -117,14 +117,14 @@ const MAX_MATERIAL_BYTES: usize = 64 * 1024;
 
 /// The one protocol this surface speaks, advertised.
 ///
-/// Set explicitly rather than left empty. Without the `flight` feature `axum` is compiled here
+/// Set explicitly rather than left empty. Without `flight` or `worker` `axum` is compiled here
 /// with `http1` and no `http2`, so a client that offered `h2` over ALPN and had it accepted would
 /// get a connection this process cannot speak. Naming `http/1.1` is what makes the negotiation say
 /// so.
 const ALPN_HTTP11: &[u8] = b"http/1.1";
 
-/// Offered alongside [`ALPN_HTTP11`] only when the `flight` feature is compiled in - Arrow Flight
-/// is a gRPC service, and gRPC runs over HTTP/2.
+/// Offered alongside [`ALPN_HTTP11`] only when `flight` or `worker` is compiled in - each mounts a
+/// gRPC service, and gRPC runs over HTTP/2.
 const ALPN_H2: &[u8] = b"h2";
 
 /// Why the configured certificate and key are not usable TLS material.
@@ -401,11 +401,11 @@ impl Termination {
             .map_err(|cause| TlsNotUsable::NotConfigurable { cause })?
             .with_client_cert_verifier(authority::verifier(material, &provider)?)
             .with_cert_resolver(Arc::new(Rotating { current: receiver }));
-        // See `ALPN_HTTP11`/`ALPN_H2`: without `flight` this surface is compiled with `http1`
-        // alone, so `h2` must not be negotiable; with it, the Flight mount needs HTTP/2 on the
-        // same listener. A runtime `cfg!` rather than two `#[cfg]` bodies, so both arms stay
+        // See `ALPN_HTTP11`/`ALPN_H2`: without `flight` or `worker` this surface is compiled with
+        // `http1` alone, so `h2` must not be negotiable; with either, its gRPC mount needs HTTP/2 on
+        // the same listener. A runtime `cfg!` rather than two `#[cfg]` bodies, so both arms stay
         // compiled and neither can rot unnoticed.
-        config.alpn_protocols = if cfg!(feature = "flight") {
+        config.alpn_protocols = if cfg!(any(feature = "flight", feature = "worker")) {
             vec![ALPN_H2.to_vec(), ALPN_HTTP11.to_vec()]
         } else {
             vec![ALPN_HTTP11.to_vec()]
@@ -628,11 +628,7 @@ mod tests {
 
         let router = axum::Router::new().route("/health", axum::routing::get(|| async { r#"{"status":"ok"}"# }));
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(
-                axum::serve::ListenerExt::tap_io(listener, |_io| ()),
-                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await;
+            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
         });
 
         let answer = get_over_tls(port, "/health", &pair.certificate).await;
@@ -643,11 +639,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_peer_address_survives_the_tls_path_so_the_limiter_still_has_a_key() {
-        // The property `client_address` depends on and `tap_io` exists for. Without a `Connected`
-        // implementation reaching this listener there is no `ConnectInfo`, the limiter reports that
-        // it cannot extract a key, and it bounds nothing - a limiter that looks configured and is
-        // not. Asserted through a handler that reads the extractor, because the type checking alone
-        // would not catch a listener whose address never arrives.
+        // The property `client_address` depends on and `crate::server::Peer` exists for. Without it
+        // there is no `ConnectInfo`, the limiter reports that it cannot extract a key, and it bounds
+        // nothing - a limiter that looks configured and is not. Asserted through a handler that
+        // reads the extractor, because the type checking alone would not catch a listener whose
+        // address never arrives.
         let scratch = Scratch::new("connectinfo");
         let pair = generate();
         let material = write(scratch.path(), &pair);
@@ -667,11 +663,7 @@ mod tests {
             ),
         );
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(
-                axum::serve::ListenerExt::tap_io(listener, |_io| ()),
-                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await;
+            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
         });
 
         let answer = get_over_tls(port, "/peer", &pair.certificate).await;
@@ -832,11 +824,7 @@ mod tests {
         let listener = TlsListener::wrap(tcp, config).expect("the listener wraps");
         let router = axum::Router::new().route("/health", axum::routing::get(|| async { r#"{"status":"ok"}"# }));
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(
-                axum::serve::ListenerExt::tap_io(listener, |_io| ()),
-                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await;
+            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
         });
 
         assert!(

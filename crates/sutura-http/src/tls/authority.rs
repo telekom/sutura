@@ -5,8 +5,8 @@
 //! did not sign is refused in the handshake, before a request is read.
 //!
 //! **Limits.** The authority is read once, when the listener is prepared: replacing the file needs a
-//! restart, unlike the listener's own pair. And nothing yet tells a route which node connected, so
-//! no route can require one.
+//! restart, unlike the listener's own pair. And a route is told only that a node connected
+//! (`crate::server::NodeCertified`), not which one.
 
 use std::sync::Arc;
 

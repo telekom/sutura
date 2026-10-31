@@ -45,6 +45,12 @@ agent = []
 # protocol when it is enabled.
 flight = ["dep:sutura-flight", "sutura-flight/service", "dep:arrow-flight", "axum/http2"]
 
+# The worker transport: a node's half of a query planned across nodes, mounted opaquely like
+# `agent`'s, and answered only on a connection whose client presented a node certificate. That
+# certificate is only ever read by the TLS listener, so the feature turns on `tls`; HTTP/2 for the
+# same reason `flight` takes it.
+worker = ["tls", "axum/http2"]
+
 # `ServiceState::new` over bare `Arc<Settings>` that `ServableSettings::check` was never asked of,
 # for another crate's test fixtures - this crate's own tests have it under `cfg(test)`. Turned on
 # only by `sutura-cli`'s `[dev-dependencies]`. `check-default-features` refuses it in a shipped
