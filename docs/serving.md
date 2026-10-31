@@ -325,6 +325,11 @@ server:
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.
 
+A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
+ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
+that moment, each dialled at its address and checked against the host, so every worker's certificate carries that
+host. A host that resolves to nothing is no node, as an empty pool is, so a misspelled one is not refused.
+
 A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
 it, and goes across only when that combine runs out of its ceiling. `0` is refused.

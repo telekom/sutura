@@ -452,3 +452,50 @@ impl AsyncWrite for Tls {
         Pin::new(&mut self.0).poll_shutdown(cx)
     }
 }
+
+/// A node certificate `authority` signed for `host` alone.
+fn signed_for(authority: &Authority, host: &str) -> Signed {
+    let key = KeyPair::generate().expect("a key generates");
+    let certificate = CertificateParams::new(vec![String::from(host)])
+        .expect("a host is valid parameters")
+        .signed_by(&key, &authority.0)
+        .expect("the authority signs a node");
+    Signed {
+        certificate: certificate.der().clone(),
+        key: PrivatePkcs8KeyDer::from(key.serialize_der()),
+    }
+}
+
+#[test]
+fn a_node_declared_by_a_host_is_dialled_where_it_resolves_and_one_resolving_nowhere_is_no_node() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let named = signed_for(&authority, "localhost");
+    let worker = Nodes::worker(roomy(), authority.identity(&named)).expect("a worker builds");
+    let sent = Arc::<AtomicUsize>::default();
+    let mut localhost = served(&servers, listening(&named, authority.peers()), worker, Arc::clone(&sent));
+    localhost.set_host(Some("localhost")).expect("a name is a host");
+    let nowhere = Url::parse("https://nowhere.invalid:8443").expect("a reserved name is a URL");
+    let nodes = Nodes::declared(own, own_url, [localhost, nowhere], authority.identity(&node));
+    let across = DataFusionCombiner::across(nodes.across_above(NonZeroU64::new(1))).expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let answer = |combiner: &DataFusionCombiner| {
+        combiner
+            .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+            .expect("this combine answers")
+            .to_rows()
+            .expect("a combined answer decodes")
+    };
+    // `localhost` is dialled at its IPv4 address, where its worker listens, under a certificate that
+    // names only the host; a host `.invalid` reserves resolves to nothing, so no stage is sent there.
+    assert_eq!(answer(&across).rows(), answer(&combiner()).rows());
+    assert!(
+        sent.load(Ordering::SeqCst) > 0,
+        "the node declared by a host was sent no request, so its stage ran here"
+    );
+}
