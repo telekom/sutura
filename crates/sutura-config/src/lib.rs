@@ -151,7 +151,7 @@ pub use crate::security::{
     OutboundIdentity, SecuritySettings, TlsTermination, UnknownDeploymentIdentity, UnknownTlsTermination,
 };
 pub use crate::server::{
-    AllowedHost, BindAddress, BodyLimit, InvalidAllowedHost, InvalidBindAddress, InvalidBound, InvalidTlsMaterial,
+    AllowedHost, BindAddress, BodyLimit, DeclaredNodes, InvalidAllowedHost, InvalidBindAddress, InvalidBound, InvalidTlsMaterial,
     RequestTimeout, ServerSettings, TlsMaterial,
 };
 pub use crate::settings::{

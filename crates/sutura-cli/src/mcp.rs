@@ -277,7 +277,13 @@ where
     // declaration minted, and re-loads every catalog and re-runs every anchor - the same contract
     // `commands::started` stated. The unattached-table check is what closes the gap its second
     // catalog load leaves, exactly as it does there and in `crate::serve`.
-    let service = crate::catalog::start_composed(catalogs, opened.engines, opened.broker, settings)?;
+    let service = crate::catalog::start_composed(
+        catalogs,
+        opened.engines,
+        opened.broker,
+        crate::catalog::one_node_combiner()?,
+        settings,
+    )?;
     if let Some(attached) = opened.attached {
         sutura_app::preflight::refuse_unattached(&sutura_app::preflight::served_tables(&service.definitions()), &attached)
             .map_err(|changed| changed.to_string())?;

@@ -302,9 +302,30 @@ sutura checks the pair before it binds the socket and never falls back to plain 
 An invalid pair is logged at `error` and ignored. Let a certificate manager renew the files. sutura has no ACME client.
 
 `server.tls_node_authority` (a PEM bundle path) makes the listener ask each client for a certificate. A client that
-presents one the bundle's authority did not sign fails the handshake. A client that presents none is served as before,
-so no route requires a node certificate yet. The bundle is read once at startup; replacing it needs a restart. Setting
-it without the pair is a startup refusal.
+presents one the bundle's authority did not sign fails the handshake. A client that presents none is served, but not on
+the node routes below. The bundle is read once at startup; replacing it needs a restart. Setting it without the pair is
+a startup refusal.
+
+`server.nodes` plans a federated combine across nodes. It needs a binary built with `--features distributed`; any other
+build refuses the key at startup rather than combining on one node.
+
+```yaml
+server:
+  tls_certificate: "/tls/node.pem"
+  tls_key: "/tls/node-key.pem"
+  tls_node_authority: "/tls/nodes-ca.pem"
+  nodes:
+    own: "https://node-a.example.com:8443"
+    others: ["https://node-b.example.com:8443"]
+```
+
+`own` is this node's address as the others reach it. Every address is an https URL, and the key is refused without
+`server.tls_node_authority`. The pair is this node's identity twice: the listener presents it, and so does every link
+this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
+node serves its worker on the same listener, to clients whose certificate the authority signed.
+
+Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
+restart. A link carries no task grant: a node runs any stage another node of the same authority sends it.
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.
