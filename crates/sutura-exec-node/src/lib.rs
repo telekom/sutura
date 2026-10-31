@@ -152,6 +152,11 @@ impl Warehouse for NodeWarehouse {
                     table: plan.table().to_string(),
                 });
             }
+            Executable::Stacked(plan) => {
+                return Err(NodeError::WholePlan {
+                    table: plan.arms().first().table().to_string(),
+                });
+            }
         };
         let wire = to_wire(leg).map_err(|cause| NodeError::NotSendable { cause })?;
         let values = params::batch(leg.params()).map_err(|_cause| NodeError::Framing)?;

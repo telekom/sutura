@@ -546,7 +546,11 @@ mod top;
 
 /// One measure, as one expression - the guard/aggregate rendering.
 mod measure;
+
+/// Several metrics on one data system, as one statement.
+mod stacked;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
+pub use stacked::generate_stacked;
 
 /// The statement, as this dialect writes it.
 ///
@@ -645,23 +649,75 @@ fn assert_placeholder_count(ast: &Expression, dialect: Dialect, params: &[ParamV
     Ok(())
 }
 
-/// Renders a plan as one statement, paired with its parameters.
-pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
-    let bucket = plan.bucket();
-    let bucket_expr = bucket_expression(bucket, dialect);
+/// A plan's keys then its bucket, each aliased by its label, and the same expressions unaliased.
+struct Head {
+    projection: Vec<Expr>,
+    grouping: Vec<Expr>,
+    bucket: Expr,
+}
 
-    // Dimensions, then the time bucket, then one measure column per metric. A stable order,
-    // because it is the result schema a caller reads by position and a golden pins by text - and
-    // `QueryPlan::result_labels` states the same order for the adapter that builds a schema instead
-    // of a projection (keys, bucket, measures).
+/// Dimensions, then the time bucket, ahead of one measure column per metric.
+///
+/// A stable order, because it is the result schema a caller reads by position and a golden pins by
+/// text - and `QueryPlan::result_labels` states the same order for the adapter that builds a schema
+/// instead of a projection (keys, bucket, measures).
+fn head(plan: &QueryPlan, dialect: Dialect) -> Result<Head, GenerateError> {
+    let bucket = bucket_expression(plan.bucket(), dialect);
     let mut projection = Vec::with_capacity(plan.keys().len().saturating_add(plan.measures().len()).saturating_add(1));
     let mut grouping = Vec::with_capacity(plan.keys().len().saturating_add(1));
     for key in plan.keys() {
         projection.push(aliased(key_expr(key, dialect), key.label())?);
         grouping.push(key_expr(key, dialect));
     }
-    projection.push(aliased(bucket_expr.clone(), bucket.label())?);
-    grouping.push(bucket_expr.clone());
+    projection.push(aliased(bucket.clone(), plan.bucket().label())?);
+    grouping.push(bucket.clone());
+    Ok(Head {
+        projection,
+        grouping,
+        bucket,
+    })
+}
+
+/// `projection` over the plan's table and joins, filtered by its predicates, grouped by `grouping`.
+///
+/// Folded in plan order, which is parameter order: the range bounds, then the caller's. A
+/// single-metric plan's metric filters live here too; a multi-metric plan's are each measure's own
+/// guard (folded into the SELECT) and never reach this clause. Each filter here renders exactly
+/// once, so its value is pushed to `emitted` once, in the same order, right after every guard in
+/// `projection` - matching the SELECT-then-WHERE order the rendered text will have.
+fn grouped(
+    plan: &QueryPlan,
+    dialect: Dialect,
+    projection: Vec<Expr>,
+    grouping: Vec<Expr>,
+    emitted: &mut Vec<ParamValue>,
+) -> Result<SelectBuilder, GenerateError> {
+    let statement = joined(
+        builder::select(projection).from(&table_path(plan.table(), dialect)?),
+        plan.joins(),
+        dialect,
+    )?;
+    let mut clauses = plan.filters().iter().map(|f| predicate(dialect, f.predicate()));
+    let Some(first) = clauses.next() else {
+        // Unreachable: a plan always carries its two range bounds, because a `TimeRange` cannot be
+        // unbounded. Written as a branch rather than an `expect` because a panic here would be
+        // reachable from a catalog file.
+        return Err(GenerateError::NoPredicate);
+    };
+    let where_clause = clauses.fold(first, Expr::and);
+    for filter in plan.filters() {
+        emitted.extend(predicate_values(filter.predicate(), plan.params()));
+    }
+    Ok(statement.where_(where_clause).group_by(grouping))
+}
+
+/// Renders a plan as one statement, paired with its parameters.
+pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    let Head {
+        mut projection,
+        grouping,
+        bucket: bucket_expr,
+    } = head(plan, dialect)?;
     // The parameters this statement actually binds, in the order their placeholders will render -
     // built up as the SELECT list and then the `WHERE` are constructed, which is text order. Used
     // verbatim below for `PlaceholderStyle::Question` and `Colon` (Oracle binds a plain statement by
@@ -679,33 +735,12 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         let expr = measure_expression(measure.measure(), guard.as_ref(), dialect, &mut emitted);
         projection.push(aliased(expr, measure.label())?);
     }
-    let statement = joined(
-        builder::select(projection).from(&table_path(plan.table(), dialect)?),
-        plan.joins(),
-        dialect,
-    )?;
-
-    // Folded in plan order, which is parameter order: the range bounds, then the caller's. A
-    // single-metric plan's metric filters live here too; a multi-metric plan's are each measure's
-    // own guard (folded into the SELECT) and never reach this clause. Each filter here renders
-    // exactly once, so its value is pushed to `emitted` once, in the same order, right after every
-    // guard above - matching the SELECT-then-WHERE order the rendered text will have.
-    let mut clauses = plan.filters().iter().map(|f| predicate(dialect, f.predicate()));
-    let Some(first) = clauses.next() else {
-        // Unreachable: a plan always carries its two range bounds, because a `TimeRange` cannot be
-        // unbounded. Written as a branch rather than an `expect` because a panic here would be
-        // reachable from a catalog file.
-        return Err(GenerateError::NoPredicate);
-    };
-    let where_clause = clauses.fold(first, Expr::and);
-    for filter in plan.filters() {
-        emitted.extend(predicate_values(filter.predicate(), plan.params()));
-    }
+    let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
+    let statement = grouped(plan, dialect, projection, grouping, &mut emitted)?;
 
     // `top` replaces both the ordering and the limit - see `top::ordering` for the tie-break
     // argument - with the caller's own count rather than one past the row cap, since a `top`
     // answer is bounded by construction and there is nothing to detect.
-    let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
     let (ordering, limit) = match plan.top() {
         Some(requested) => (
             top::ordering(requested, measure_expr, bucket_expr, tiebreak),
@@ -714,8 +749,6 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         None => (tiebreak, usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
     };
     let ast = statement
-        .where_(where_clause)
-        .group_by(grouping)
         // Ordered by what it groups by, so two runs of one question return rows in one order.
         // Without it row order is unspecified and a golden over results flaps for reasons that have
         // nothing to do with the change under review. Each ascending, nulls last - `ordered_nulls_last`

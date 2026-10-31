@@ -1,8 +1,8 @@
 //! `edited::moved` and `edited::callsite` at the level a caller sees: what `plan_with_base` answers
-//! over a range that moves tests across files, or only wraps call-site arguments inside them. Every
-//! move cell moves at least one test unchanged, so each is red on a tree that reads every move as a
-//! deletion; every call-site cell wraps at least one, so each is red on a tree that reads every
-//! wrap as an added test.
+//! over a range that moves tests across files, or only wraps call-site arguments or widens match arms
+//! inside them. Every move cell moves at least one test unchanged, so each is red on a tree that reads
+//! every move as a deletion; every call-site cell wraps or widens at least one, so each is red on a
+//! tree that reads every such edit as an added test.
 
 use crate::causality::diff::ChangedFile;
 use crate::causality::fixtures::{changed_removing, tree};
@@ -394,4 +394,77 @@ fn an_added_trait_import_no_wrapper_names_is_still_added() {
         ["crates/x/tests/t.rs"],
         "an import the wraps do not need is an edit of its own"
     );
+}
+
+const SHAPE: [&str; 3] = [
+    "crates/x/src/lib.rs",
+    "pub enum Shape {\n    Square,\n    Line(u8),\n}\n",
+    "pub enum Shape {\n    Square,\n    Line(u8),\n    Circle { r: u8 },\n}\n",
+];
+const SIDES: &str = "use x::Shape;\n\n#[test]\nfn sides() {\n    match x::shape() {\n        Shape::Square => {}\n        Shape::Line(_) => panic!(\"no lines\"),\n    }\n}\n";
+
+/// `SIDES` with the one change the new variant forces.
+fn widened() -> String {
+    SIDES.replace("Shape::Line(_) =>", "Shape::Line(_) | Shape::Circle { .. } =>")
+}
+
+/// `widened`, its arm body put in a block as the formatter does past the line width.
+fn blocked() -> String {
+    SIDES.replace(
+        "Shape::Line(_) => panic!(\"no lines\"),",
+        "Shape::Line(_) | Shape::Circle { .. } => {\n            panic!(\"no lines\")\n        }",
+    )
+}
+
+#[test]
+fn a_match_arm_widened_to_a_new_variant_is_edited_not_added() {
+    let (widened, blocked) = (widened(), blocked());
+    let plan = plan_of(&[
+        SHAPE,
+        ["crates/x/tests/s.rs", SIDES, &widened],
+        ["crates/x/tests/t.rs", SIDES, &blocked],
+        ["crates/x/tests/b.rs", "", FOO],
+    ]);
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan);
+    for path in ["crates/x/tests/s.rs", "crates/x/tests/t.rs"] {
+        assert!(revert.contains(&String::from(path)), "{path}: {revert:?}");
+    }
+    assert_eq!(measured, ["crates/x/tests/b.rs"], "a widened arm is no proof of the change");
+}
+
+/// Each arm edit the criterion must not read as a gained alternative: a guard, a binding, a name the
+/// base spells, an alternative before the old one, a new arm, a reworded panic message and a body
+/// made a statement.
+#[test]
+fn each_arm_edit_beyond_a_gained_alternative_is_still_added() {
+    let widened = widened();
+    let arm = |to: &str| SIDES.replace("Shape::Line(_) =>", to);
+    let edits = [
+        arm("Shape::Line(_) | Shape::Circle if circle() =>"),
+        arm("Shape::Line(_) | Shape::Circle { r } =>"),
+        arm("Shape::Line(_) | Shape::Square =>"),
+        arm("Shape::Circle { .. } | Shape::Line(_) =>"),
+        arm("Shape::Circle { .. } => {}\n        Shape::Line(_) =>"),
+        widened.replace("no lines", "no lines, no circles"),
+        blocked().replace("panic!(\"no lines\")", "panic!(\"no lines\");"),
+    ];
+    let paths: Vec<String> = (1..=edits.len()).map(|n| format!("crates/x/tests/c{n}.rs")).collect();
+    let mut files = vec![SHAPE, ["crates/x/tests/s.rs", SIDES, &widened]];
+    files.extend(
+        paths
+            .iter()
+            .zip(&edits)
+            .map(|(path, edit)| [path.as_str(), SIDES, edit.as_str()]),
+    );
+    let Separable {
+        revert,
+        test_files: measured,
+        ..
+    } = separable(plan_of(&files));
+    assert!(revert.contains(&String::from("crates/x/tests/s.rs")), "{revert:?}");
+    assert_eq!(measured, paths);
 }

@@ -92,6 +92,20 @@ fn two_metrics_by_a_remote_dimension_apply_top_after_the_join() {
     }
 }
 
+/// Metrics on two models of one data system are joined by that data system, so the question compiles
+/// to none of the shapes a single model, a second data system or a join above the sources earns.
+#[test]
+fn two_models_on_one_data_system_are_joined_by_it() {
+    let compiled = compiled(&derived().one_source, BY_FAMILY);
+    assert!(
+        !matches!(
+            compiled,
+            Compiled::Planned { .. } | Compiled::Federated { .. } | Compiled::DrillAcross { .. } | Compiled::Refused { .. }
+        ),
+        "two metrics on one data system are one statement it joins, not {compiled:?}"
+    );
+}
+
 /// One answer's measure by its `(family, month)` group, each group beside the cells that name it.
 type Measures = BTreeMap<String, (Vec<Value>, Value)>;
 

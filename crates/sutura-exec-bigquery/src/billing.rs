@@ -66,17 +66,23 @@ pub(crate) fn projects<'p>(
         .collect()
 }
 
-/// The distinct projects one statement's tables live in: its own table and every join's.
+/// The distinct projects one statement's tables live in: its own table and every join's, of every
+/// arm of a stacked plan.
 ///
 /// # Errors
 ///
 /// [`TableNamesNoProject`] for the first path without one.
 pub(crate) fn executable_projects(executable: Executable<'_>) -> Result<BTreeSet<&str>, TableNamesNoProject> {
-    let (table, joins) = match executable {
-        Executable::Query(plan) => (plan.table(), plan.joins()),
-        Executable::Leg(leg) => (leg.tables().table(), leg.tables().joins()),
-    };
-    projects(core::iter::once(table).chain(joins.iter().map(PlanJoin::table)))
+    match executable {
+        Executable::Query(plan) => projects(tables(plan.table(), plan.joins())),
+        Executable::Leg(leg) => projects(tables(leg.tables().table(), leg.tables().joins())),
+        Executable::Stacked(plan) => projects(plan.arms().iter().flat_map(|arm| tables(arm.table(), arm.joins()))),
+    }
+}
+
+/// One statement's own table, then every join's.
+fn tables<'p>(table: &'p QualifiedTable, joins: &'p [PlanJoin]) -> impl Iterator<Item = &'p QualifiedTable> {
+    core::iter::once(table).chain(joins.iter().map(PlanJoin::table))
 }
 
 /// The project a job over `projects` bills.
