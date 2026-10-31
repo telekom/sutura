@@ -100,8 +100,10 @@ const STARTUP: Subject = Subject {
     // token as its own caller, the same reason `/mcp` and `/v1` carry this refusal. 26:
     // `NodeDelegationToTheDeploymentsOwnAudience`, the deployment's own audience for a `node`
     // source's last hop. 27: `InboundAudienceIsTheIssuer`, a `direct` audience that is its own
-    // authorization server's issuer.
-    variants: variants(27),
+    // authorization server's issuer. 32: `WorkerDeclaresSources`, `WorkerDeclaresCatalogs`,
+    // `WorkerWithoutNodeAuthority`, `WorkerWithAgentSurface` and `WorkerWithFlightSurface`, what a
+    // `server.role: worker` configuration may not declare.
+    variants: variants(32),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

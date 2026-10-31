@@ -33,6 +33,7 @@ variables, in that order. [Configuration](configuration.md) lists the layers and
 | `server.request_timeout_seconds` | `30`        | The longest wait of a caller. At most 300                                                 |
 | `server.max_body_bytes`          | `65536`     | The largest request body. At most 1 MiB                                                   |
 | `server.allowed_hosts`           | none        | Host names, with no port, that `/v1/*`, `/docs`, `/openapi.json` and `/mcp` answer        |
+| `server.role`                    | `serving`   | `serving`, or `worker` for a node that holds no data ([a worker node](#a-worker-node))    |
 | `security.access_token`          | none        | The deployment token: an RFC 6750 `b64token` of at least 32 characters                    |
 | `security.metrics_token`         | none        | The token of `GET /metrics`, with the same form. It must differ from the deployment token |
 
@@ -73,6 +74,11 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                            | Keep the default `at+jwt`, or accept `any` by name                                          |
 | A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`          | Name the real proxy hops                                                                    |
 | `rate_limit.enabled: false`, in production or off-host                                                          | Set `rate_limit.enabled: true`                                                              |
+| `server.role: worker` and a `sources` entry                                                                     | Remove the sources. A worker reads none                                                     |
+| `server.role: worker` and `catalogs` in a file or a variable                                                    | Remove the catalogs                                                                         |
+| `server.role: worker` and no `server.tls_node_authority`                                                        | Set it ([a worker node](#a-worker-node))                                                    |
+| `server.role: worker` and `server.agent_surface.enabled`                                                        | Remove the switch                                                                           |
+| `server.role: worker` and `server.flight_surface.enabled`                                                       | Remove the switch                                                                           |
 | `server.port: 0` in production                                                                                  | Set a port                                                                                  |
 | An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                | Fix the name                                                                                |
 | A configured source and no `security.identity`                                                                  | Write `single-user` or `multi-user`                                                         |
@@ -341,6 +347,28 @@ that ran out on this node is started again across, and the work it did here is l
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.
+
+### A worker node
+
+`server.role: worker` runs a node that holds no data. It opens no catalog and no source, and does not read
+`server.nodes`. It serves `/health`, `/metrics` behind its token, and the worker transport to clients whose certificate
+the node authority signed. `/v1`, `/mcp`, Flight and the documentation answer `404`. It needs a binary built with
+`--features distributed`; any other build refuses the role at startup.
+
+```yaml
+server:
+  role: "worker"
+  tls_certificate: "/tls/node.pem"
+  tls_key: "/tls/node-key.pem"
+  tls_node_authority: "/tls/nodes-ca.pem"
+security:
+  tls_termination: "in-process"
+```
+
+Limits: a worker in production or off-host still needs `security.access_token` or `security.inbound`, and `security.metrics_token`,
+although no route on it reads the deployment token. A catalog counts only when a file or a variable declares it.
+`server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
+alone. The worker carries the limits of the node links above.
 
 ## A published container port
 

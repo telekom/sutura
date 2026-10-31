@@ -60,3 +60,10 @@ fn a_leg_size_declared_with_the_nodes_rides_with_them_and_zero_is_refused() {
     let error = Settings::load(&nodes(0)).expect_err("a leg size of zero is refused");
     assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
 }
+
+/// `server.role` is a key a served tree may name, beside the nodes a worker serves.
+#[test]
+fn a_served_tree_naming_its_role_loads() {
+    let sources = Sources::defaults(Environment::Development).with_overlay("server:\n  role: \"serving\"\n");
+    Settings::load(&sources).expect("a tree naming the serving role loads");
+}

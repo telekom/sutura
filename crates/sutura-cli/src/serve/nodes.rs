@@ -38,7 +38,7 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let Some((tls, nodes)) = tls.and_then(|tls| tls.nodes().map(|nodes| (tls, nodes))) else {
         return Ok((crate::catalog::one_node_combiner()?, None));
     };
-    let identity = identity(tls, nodes)?;
+    let identity = identity(tls, nodes.authority())?;
     let own = Nodes::worker(crate::sources::working_set(runtime), identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     let mount = sutura_http::WorkerMount::new(own.clone().into_worker_server());
@@ -56,8 +56,9 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, _runtime: RuntimeSettings) -> 
     Ok((crate::catalog::one_node_combiner()?, ()))
 }
 
+/// This node's identity: the listener's pair, accepting only a node `authority` signed.
 #[cfg(feature = "distributed")]
-fn identity(tls: &TlsMaterial, nodes: &sutura_config::DeclaredNodes) -> Result<sutura_exec_datafusion::NodeIdentity, String> {
+pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result<sutura_exec_datafusion::NodeIdentity, String> {
     let pair = sutura_tls::Identity::new(tls.certificate().to_path_buf(), tls.key().to_path_buf());
     let (chain, key) = sutura_tls::load_identity(&pair)
         .map_err(|cause| {
@@ -67,10 +68,10 @@ fn identity(tls: &TlsMaterial, nodes: &sutura_config::DeclaredNodes) -> Result<s
             )
         })?
         .into_parts();
-    let authority = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(nodes.authority().to_path_buf()))
+    let authority = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(authority.to_path_buf()))
         .map_err(|cause| format!("{}\nserver.tls_node_authority is not a node authority", super::flatten(cause)))?;
     sutura_exec_datafusion::NodeIdentity::new(chain, key, authority)
-        .map_err(|cause| format!("{}\nserver.nodes cannot be reached", super::flatten(cause)))
+        .map_err(|cause| format!("{}\nthis node's identity could not be built", super::flatten(cause)))
 }
 
 /// `state` with this node's worker mounted, when there is one.

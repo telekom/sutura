@@ -97,6 +97,10 @@ mod flight;
 use flight::flight_subtree;
 #[cfg(feature = "worker")]
 mod worker;
+#[cfg(feature = "worker")]
+mod worker_role;
+#[cfg(feature = "worker")]
+pub use worker_role::worker_router;
 
 #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 mod allowlist;
@@ -399,7 +403,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
             .with_state(metrics::MetricsState::new(state.registry())),
     )
     .route_layer(axum::middleware::from_fn_with_state(
-        state.clone(),
+        settings.security().metrics_token().cloned().map(Arc::new),
         middleware::require_metrics_token,
     ));
     let metrics = if limits.enabled() {
@@ -465,7 +469,13 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         }
         check_ungoverned(&ungoverned)?;
     }
-    let router = router
+    let router = outer(router, settings, state.metrics(), state.entropy());
+    Ok(Assembled { router, limiters })
+}
+
+/// The layers every route runs inside, [`assemble`]'s and a worker node's alike.
+fn outer(router: Router, settings: &Settings, metrics: &crate::metrics::Metrics, draw: crate::correlation::Draw) -> Router {
+    router
         // The request bound, as a middleware of ours rather than `tower_http`'s: that one answers
         // the status with an EMPTY body, and every `408` this surface documents carries a
         // `ProblemBody`. See `middleware::enforce_timeout`.
@@ -490,18 +500,14 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
                 ),
         )
         // Outside the span, so the span's id and the request context's drawn one are resolved once.
-        .layer(axum::middleware::from_fn_with_state(
-            state.entropy(),
-            crate::correlation::resolve,
-        ))
+        .layer(axum::middleware::from_fn_with_state(draw, crate::correlation::resolve))
         // The final outer boundary sees every terminal response, including one produced by a layer
         // above the handler. Route plus method identifies the governed question capability; typed
         // response extensions carry the outcome without parsing a body.
         .layer(axum::middleware::from_fn_with_state(
-            state.metrics().clone(),
+            metrics.clone(),
             middleware::record_response,
-        ));
-    Ok(Assembled { router, limiters })
+        ))
 }
 
 /// The span every request runs inside.

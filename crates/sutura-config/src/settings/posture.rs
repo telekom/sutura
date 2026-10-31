@@ -455,6 +455,34 @@ pub enum NotFitToServe {
          system every ability a holder of the deployment token has. Use a different value for each"
     )]
     MetricsTokenSharesTheApiToken,
+    /// A worker declares sources. A worker holds no source credential, so the serving nodes' grants
+    /// are the only ones a question is read under.
+    #[error(
+        "server.role is `worker` and {count} source(s) are declared. A worker runs combine stages on \
+         rows a serving node already read and opens no source. Remove the `sources` tree"
+    )]
+    WorkerDeclaresSources { count: usize },
+    /// A worker's configuration files or variables write `catalogs`. The embedded defaults' catalog
+    /// is not counted: every configuration carries it, and a worker never opens it.
+    #[error(
+        "server.role is `worker` and `catalogs` is declared. A worker answers no question from a \
+         catalog and opens none. Remove the `catalogs` list"
+    )]
+    WorkerDeclaresCatalogs,
+    /// A worker with no node authority would accept a combine stage from a caller that presented no
+    /// node certificate.
+    #[error(
+        "server.role is `worker` and server.tls_node_authority is not set. A worker serves only the \
+         serving nodes, which it knows by their certificates. Set server.tls_certificate, \
+         server.tls_key and server.tls_node_authority"
+    )]
+    WorkerWithoutNodeAuthority,
+    /// A worker would mount `/mcp`, which reads the catalog and the sources a worker has none of.
+    #[error("server.role is `worker` and server.agent_surface.enabled is true. A worker mounts no `/mcp`. Turn it off")]
+    WorkerWithAgentSurface,
+    /// A worker would mount the Flight surface, which runs a leg against a source a worker has none of.
+    #[error("server.role is `worker` and server.flight_surface.enabled is true. A worker runs no leg. Turn it off")]
+    WorkerWithFlightSurface,
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

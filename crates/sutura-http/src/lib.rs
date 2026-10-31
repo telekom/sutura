@@ -136,6 +136,8 @@ pub use crate::client_address::ClientAddress;
 pub use crate::correlation::{CorrelationId, NotACorrelationId};
 pub use crate::inbound::{InboundGate, InboundNotUsable, VerifiedCaller};
 pub use crate::problem::{Failure, ProblemBody};
+#[cfg(feature = "worker")]
+pub use crate::router::worker_router;
 pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 pub use crate::servable::{NotServable, ServableSettings};
 #[cfg(feature = "tls")]
