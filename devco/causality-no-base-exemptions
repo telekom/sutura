@@ -250,3 +250,4 @@ a_worker_call_reaches_the_engine_only_over_a_connection_that_presented_a_node_ce
 declared_nodes_are_refused_by_a_build_without_the_feature # #[cfg(not(feature = "distributed"))]: not compiled by the --all-features causality run; `just gates`' default-feature lane runs it
 declared_nodes_serve_this_nodes_worker # in crates/sutura-cli/src/serve/tests/nodes.rs, a module new in this change; calls `serve::nodes::combiner`, new here
 an_unreadable_node_authority_is_refused_naming_it # in crates/sutura-cli/src/serve/tests/nodes.rs, a module new in this change; calls `serve::nodes::combiner`, new here
+a_direct_audience_that_is_its_own_issuer_does_not_start # names `NotFitToServe::InboundAudienceIsTheIssuer`, new in this change, so its file does not compile at base; killed when `audience_refusal`'s guard is `&& false`

@@ -558,6 +558,7 @@ impl Settings {
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
+        refusals.extend(posture::audience_refusal(self.security.inbound()));
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
