@@ -638,8 +638,7 @@ where
     // **The composition root is where the combiner is chosen**, which is the whole point of
     // `docs/adr/0007`'s second driven port: `sutura-app` is generic in it and names no engine, and
     // this binary already links the one implementor.
-    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
-        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
+    let combiner = crate::catalog::one_node_combiner()?;
     let service = LocalService::start(
         catalog,
         opened.engines,

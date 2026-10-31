@@ -31,6 +31,11 @@ pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, Settings
         raw.server.tls_key.as_deref(),
         raw.server.tls_node_authority.as_deref(),
     )
+    .and_then(|tls| match (tls, raw.server.nodes.as_ref()) {
+        (tls, None) => Ok(tls),
+        (Some(tls), Some(nodes)) => tls.with_nodes(&nodes.own, &nodes.others).map(Some),
+        (None, Some(_)) => Err(crate::server::InvalidTlsMaterial::NodesWithoutAuthority),
+    })
     .map_err(|cause| SettingsError::TlsMaterial { cause })?;
     let allowed_hosts = raw
         .server

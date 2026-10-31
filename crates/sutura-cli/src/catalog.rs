@@ -162,6 +162,11 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
     }
 }
 
+/// The combiner that runs every stage of a combine on this node.
+pub(crate) fn one_node_combiner() -> Result<sutura_exec_datafusion::DataFusionCombiner, String> {
+    sutura_exec_datafusion::DataFusionCombiner::new().map_err(|cause| format!("{cause}\ncould not build the federation combiner"))
+}
+
 /// The single place either composition root turns [`OpenedCatalogs`] into a serving
 /// [`sutura_http::LocalService`].
 ///
@@ -173,9 +178,9 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
 /// `shared_identity_service` does - a `bigquery` build attaches the principal-presenting broker
 /// and every other shape the static one.
 ///
-/// The working-set bytes, the spend ledger, the row ceiling and the combiner are read from the
-/// settings here, the same values each root read before, so neither caller names a number the
-/// other could pick differently. The combiner is always the datafusion one this binary links, and
+/// The working-set bytes, the spend ledger and the row ceiling are read from the settings here, the
+/// same values each root read before, so neither caller names a number the other could pick
+/// differently. The combiner is the caller's, because only `serve` can plan one across nodes, and
 /// the sink is always [`sutura_runtime::TracingAuditSink`] - this process installs no subscriber,
 /// so a record is written onto a dispatcher that discards it until a composition installs one,
 /// the same limit `commands::started` states.
@@ -199,6 +204,7 @@ pub(crate) fn start_composed<W, B>(
     catalogs: &OpenedCatalogs,
     engines: sutura_app::Warehouses<W>,
     broker: B,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
     settings: &sutura_config::Settings,
 ) -> Result<Started<W, B>, String>
 where
@@ -213,8 +219,6 @@ where
             .spend_budget()
             .map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
     );
-    let combiner = sutura_exec_datafusion::DataFusionCombiner::new()
-        .map_err(|cause| format!("{cause}\ncould not build the federation combiner"))?;
     let service = match catalogs {
         OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
             catalogs,

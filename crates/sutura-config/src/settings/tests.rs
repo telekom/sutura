@@ -987,3 +987,8 @@ mod deployment_pages;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod datahub_platforms;
+
+/// `server.nodes`: refused without a node authority, and for an address that is not `https`. Same
+/// `#[cfg(test)]` reason as `governance` above.
+#[cfg(test)]
+mod nodes;
