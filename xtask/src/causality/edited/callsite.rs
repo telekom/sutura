@@ -1,11 +1,12 @@
-//! A changed test file whose only change is a call-site argument a signature change forced is
-//! EDITED, not added.
+//! A changed test file whose only change is a call-site argument a signature change forced, or a
+//! match arm widened to a variant an enum gained, is EDITED, not added.
 //!
 //! The defect this closes. Change `render(&defs)` to take a wrapper and every existing test calling
 //! it gains `render(&Wrapper::of(&defs))`. [`super::touches`] names each such test - an added line
 //! lands inside its span - so its file was kept at HEAD for the base run, where it calls the NEW
 //! signature against the reverted implementation: the base tree does not compile with nothing held
-//! back, and a change with no defect in it was refused whatever else it proved.
+//! back, and a change with no defect in it was refused whatever else it proved. Add a variant to an
+//! enum and every exhaustive `match` on it in a test gains an alternative, with the same result.
 //!
 //! **THE RULE.** Such a file is put back to its BASE content for the base run, like any
 //! implementation file: every test in it existed at base under the same path and name, so that
@@ -27,6 +28,14 @@
 //!   run, with only identifiers, `&`, `:` and `(` before it and only `)` after it.
 //!   `&defs` -> `&Wrapper::of(&defs)` qualifies; `x` -> `f(x, 2)`, `x` -> `-x`, `x` -> `x.into()` and
 //!   `1` -> `2` do not.
+//! - **An alternative a match arm gained for a name the base never spells.** `| Path`,
+//!   `| Path { .. }` or `| Path(_, ..)` - fields binding nothing - directly before the arm's `=>`,
+//!   the path's last segment an identifier the base file never spells.
+//!   `A { .. } => panic!()` -> `A { .. } | New { .. } => panic!()` qualifies; a new arm, a guard, a
+//!   binding, a name the base spells or an alternative anywhere but last does not.
+//! - **An arm body the formatter put in a block.** `=> E,` and `=> { E }` compare equal where `E`
+//!   holds no top-level `;`: a block holding only its tail expression is that expression, and a
+//!   gained alternative pushes an arm past the line width.
 //! - **An added `use` item whose every bound name the base never spells and some accepted wrapper
 //!   does** - the import exists for the wrap. A glob, a `self` leaf, a visibility or attribute in front,
 //!   or a REMOVED import is never such an item.
@@ -38,14 +47,16 @@
 //! criterion exactly as `f(x)` -> `f(Wrapper::of(x))` does, because both are a call around the old
 //! argument and no token comparison can tell an adaptor from a transformation. An import a wrapper
 //! names is in scope for the whole file too, so a TRAIT it brings in can change what an unchanged
-//! `x.method()` elsewhere resolves to. Both are bounded by the verdict, not the criterion: an edited
+//! `x.method()` elsewhere resolves to. A gained alternative's name is unspelled at base, yet a
+//! variant it names may have existed there and reached another arm, so the test may now take a
+//! different arm for it. All three are bounded by the verdict, not the criterion: an edited
 //! file is named and caps the run at INCONCLUSIVE. Where a file is judged is also a limit: a helper
 //! in ANOTHER file is judged there, and a revert of an edited file under a declarer kept at HEAD is
 //! taken whatever the declarer's `use` lines expect.
 
 use std::collections::BTreeSet;
 
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Punct, Spacing, TokenStream, TokenTree};
 
 use crate::Verdict;
 use crate::causality::declared;
@@ -133,7 +144,7 @@ fn touched(file: &ChangedFile, read: &PostImage<'_>) -> Vec<String> {
 pub(crate) fn name(edited: &[Edited]) {
     for one in edited {
         println!(
-            "  edited, not measured: {}  (only call-site arguments wrapped; the base run takes its base version)",
+            "  edited, not measured: {}  (only call-site arguments wrapped or match arms widened; the base run takes its base version)",
             one.path
         );
         for test in &one.tests {
@@ -155,18 +166,19 @@ pub(crate) fn cap(edited: &[Edited], verdict: Verdict) -> Verdict {
     Verdict::Inconclusive
 }
 
-/// The verdict for a range whose every test file in scope only wrapped call-site arguments.
+/// The verdict for a range whose every test file in scope only wrapped call-site arguments or widened
+/// a match arm.
 pub(crate) fn report(edited: &[Edited]) -> Verdict {
     name(edited);
     println!();
-    println!("xtask test-causality: INCONCLUSIVE - every test file in scope only wrapped call-site arguments,");
-    println!("so no test in scope is new and none was run. Add a test that is red on base, or prove the");
+    println!("xtask test-causality: INCONCLUSIVE - every test file in scope only wrapped call-site arguments");
+    println!("or widened a match arm, so no test in scope is new and none was run. Add a test that is red on base, or prove the");
     println!("change by MUTATION and state it in the handoff. Exit code 3, not a pass.");
     Verdict::Inconclusive
 }
 
-/// Is `after` `before` with nothing changed but wrapped call-site arguments and the imports the
-/// wrappers need?
+/// Is `after` `before` with nothing changed but wrapped call-site arguments, the imports the
+/// wrappers need and alternatives match arms gained?
 pub(crate) fn wrapped(before: &str, after: &str) -> bool {
     let (Ok(before), Ok(after)) = (before.parse::<TokenStream>(), after.parse::<TokenStream>()) else {
         return false;
@@ -243,10 +255,11 @@ fn flat(input: &[TokenTree]) -> Vec<Flat> {
     out
 }
 
-/// The two sequences, the head's added imports aside, equal up to wrapped call arguments - and what
-/// that relied on - or `None`.
+/// The two sequences, the head's added imports and gained alternatives and both sides' arm blocks
+/// aside, equal up to wrapped call arguments - and what that relied on - or `None`.
 fn same(before: &[TokenTree], after: &[TokenTree], spelled: &BTreeSet<String>) -> Option<Seen> {
     let (after, imported) = unimported(after, spelled);
+    let (before, after) = (unblocked(before), unblocked(&unarmed(&after, spelled)));
     if before.len() != after.len() {
         return None;
     }
@@ -369,6 +382,91 @@ fn unimported(trees: &[TokenTree], spelled: &BTreeSet<String>) -> Unimported {
         at = at.saturating_add(1);
     }
     (out, imported)
+}
+
+/// `seq` with every arm body `=> { E }` at this depth read as `=> E,`, where `E` holds no top-level `;`.
+fn unblocked(seq: &[TokenTree]) -> Vec<TokenTree> {
+    let mut out: Vec<TokenTree> = Vec::with_capacity(seq.len());
+    let mut at = 0_usize;
+    while let Some(tree) = seq.get(at) {
+        at = at.saturating_add(1);
+        let arrow = matches!(out.as_slice(), [.., TokenTree::Punct(eq), TokenTree::Punct(gt)] if eq.as_char() == '=' && gt.as_char() == '>');
+        let body = match tree {
+            TokenTree::Group(block) if arrow && block.delimiter() == Delimiter::Brace => Some(trees(block.stream())),
+            _ => None,
+        };
+        let Some(body) = body.filter(|inner| {
+            !inner
+                .iter()
+                .any(|one| matches!(one, TokenTree::Punct(semi) if semi.as_char() == ';'))
+        }) else {
+            out.push(tree.clone());
+            continue;
+        };
+        out.extend(body);
+        out.push(TokenTree::Punct(Punct::new(',', Spacing::Alone)));
+        if matches!(seq.get(at), Some(TokenTree::Punct(comma)) if comma.as_char() == ',') {
+            at = at.saturating_add(1);
+        }
+    }
+    out
+}
+
+/// `seq` less every alternative at this depth that a match arm gained for a name `spelled` lacks.
+fn unarmed(seq: &[TokenTree], spelled: &BTreeSet<String>) -> Vec<TokenTree> {
+    let mut out = Vec::with_capacity(seq.len());
+    let mut at = 0_usize;
+    while let Some(tree) = seq.get(at) {
+        if let Some(len) = gained(seq.get(at..).unwrap_or_default(), spelled) {
+            at = at.saturating_add(len);
+            continue;
+        }
+        out.push(tree.clone());
+        at = at.saturating_add(1);
+    }
+    out
+}
+
+/// The length of the `| Path`, `| Path { .. }` or `| Path(_, ..)` `seq` opens with, directly before
+/// a `=>`, whose last segment `spelled` lacks, or `None`.
+fn gained(seq: &[TokenTree], spelled: &BTreeSet<String>) -> Option<usize> {
+    let [TokenTree::Punct(bar), rest @ ..] = seq else {
+        return None;
+    };
+    let path = rest
+        .iter()
+        .take_while(|one| match one {
+            TokenTree::Ident(_) => true,
+            TokenTree::Punct(colon) => colon.as_char() == ':',
+            _ => false,
+        })
+        .count();
+    let (segments, tail) = rest.split_at_checked(path)?;
+    let Some(TokenTree::Ident(last)) = segments.last() else {
+        return None;
+    };
+    // `New if ready` and `ref new` are two identifiers in a row, never one path.
+    if segments
+        .windows(2)
+        .any(|pair| matches!(pair, [TokenTree::Ident(_), TokenTree::Ident(_)]))
+    {
+        return None;
+    }
+    let fields = usize::from(matches!(tail.first(), Some(TokenTree::Group(group)) if binds_nothing(group)));
+    let arrow = flat(tail.get(fields..fields.saturating_add(2)).unwrap_or_default());
+    let name = last.to_string();
+    (bar.as_char() == '|' && arrow == [Flat::Punct('='), Flat::Punct('>')] && name != "_" && !spelled.contains(&name))
+        .then(|| path.saturating_add(fields).saturating_add(1))
+}
+
+/// Is `group` a `{ .. }` or `(_, ..)` binding no field?
+fn binds_nothing(group: &Group) -> bool {
+    matches!(group.delimiter(), Delimiter::Brace | Delimiter::Parenthesis)
+        && flat(&trees(group.stream())).iter().all(|one| match one {
+            Flat::Punct(dot) => matches!(dot, '.' | ','),
+            Flat::Ident(name) => name == "_",
+            _ => false,
+        })
 }
 
 /// The names a `use` item binds, or `None` for a glob or a `self` leaf.

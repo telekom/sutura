@@ -1132,14 +1132,19 @@ arguments wrapped - `render(&defs)` -> `render(&Wrapper::of(&defs))` - plus adde
 the base never spells and some accepted wrapper does. `causality::edited::callsite` compares the two
 images as `proc_macro2` token trees: inside a call's `(..)`, each head argument is the base one or
 contains it as one contiguous token run behind only identifiers, `&`, `:` and `(` and ahead of only
-`)`. Such a file is reverted with the implementation and none of its tests counts as proof. **Any
+`)`. An enum that gains a variant is the same shape: an arm that gained `| Path`, `| Path { .. }` or
+`| Path(_, ..)` directly before its `=>`, the last segment a name the base file never spells, is an
+edit, and `=> E,` reads as `=> { E }` where `E` holds no top-level `;`, since the formatter blocks an
+arm the alternative pushed past the line width. Such a file is reverted with the implementation and none of its tests counts as proof. **Any
 edited file is named with its tests, and caps the run at INCONCLUSIVE (exit 3), never a pass** -
 `Plan::EditedTests` when nothing else is in scope, and `callsite::cap` over a passing proof of the
 tests added beside it. A changed literal, assertion, statement, helper body, name, extra argument,
-operator, removed import or unneeded import anywhere in the file leaves it ADDED. **The limit:** the
+operator, removed import, unneeded import, new arm, guard, binding or reworded panic message anywhere
+in the file leaves it ADDED - so a variant that rewords an arm's message loses the edit. **The limit:** the
 wrapper's own behaviour is not read - `f(x)` -> `f(weaken(x))` is a wrap by that criterion - and a
-trait a wrapper's import brings into scope can change an unchanged `x.method()` elsewhere; the cap is
-what bounds both, so a wrong admission is a disclosed exit 3, never a silent exit 0. A file that ALSO
+trait a wrapper's import brings into scope can change an unchanged `x.method()` elsewhere, and a
+gained alternative's variant may have existed at base and reached another arm; the cap is what bounds
+all three, so a wrong admission is a disclosed exit 3, never a silent exit 0. A file that ALSO
 adds a test is added as a whole, so its wrapped calls still break the base build and the substitutes
 above still apply.
 
