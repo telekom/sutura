@@ -137,9 +137,10 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 
 ## Consequences
 
-- Cells for every refusal above. Also an exact differential in the multi-node VM venue: a question
-  over one node's budget is refused on one node, and on several nodes it returns exactly the
-  answer a single node with a larger budget returns.
+- Cells for every refusal above. Also an exact differential, in process over three localhost nodes
+  linked by mutual TLS: a question one node refuses for its working set is answered on three nodes,
+  each with that same working set, with exactly what one node with a larger one answers. The
+  multi-node VM venue proves the links between hosts, not a ceiling.
 - A node certificate per node in both venues, and a client-certificate path on the listener.
 - The `Cargo.toml` entry for the engine states why `sql` is off, as the `datafusion-federation`
   entry does.
