@@ -95,7 +95,7 @@ mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
 #[cfg(feature = "distributed")]
-pub use across::Nodes;
+pub use across::{NodeIdentity, Nodes, NotAnIdentity};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
@@ -365,14 +365,17 @@ impl DataFusionCombiner {
 
     /// A combiner whose stages above a repartition run across `nodes`.
     ///
-    /// Its runtime drives I/O as well as time, for the links to the other nodes.
+    /// Its runtime drives I/O as well as time, for the links to the other nodes, and on a thread of
+    /// its own rather than only while a combine waits on it: this node's served worker runs its local
+    /// stages here, on links it keeps, and a link's connection runs on the runtime that dialled it.
     ///
     /// # Errors
     ///
-    /// [`CombineError::Runtime`] if a current-thread runtime cannot be built.
+    /// [`CombineError::Runtime`] if the runtime cannot be built.
     #[cfg(feature = "distributed")]
     pub fn across(nodes: Nodes) -> Result<Self, CombineError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .enable_all()
             .build()
             .map_err(|cause| CombineError::Runtime { cause })?;

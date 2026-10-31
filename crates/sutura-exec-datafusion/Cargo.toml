@@ -27,6 +27,15 @@ datafusion-distributed = { version = "4.0.0", default-features = false, features
   "parquet",
 ], optional = true }
 url = { workspace = true, optional = true }
+# The links between nodes, each dialled over mutual TLS on the workspace's own rustls over ring, the
+# way `sutura-exec-node` dials, so the gRPC client turns on no TLS feature. Every one is already in the
+# graph through `datafusion-distributed` or the Flight transports; `async-trait` because the engine's
+# channel trait is declared with it.
+async-trait = { version = "0.1", optional = true }
+hyper-util = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+tower = { workspace = true, optional = true, features = ["util"] }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
@@ -59,6 +68,8 @@ bzip2 = { workspace = true }
 # each one is sent. `tonic` is already a dependency of the workspace's Flight transports.
 tonic = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
+# The node authorities those nodes' certificates are signed by.
+rcgen = { workspace = true }
 
 [features]
 fixtures = ["sutura-domain/fixtures"]
@@ -67,8 +78,18 @@ fixtures = ["sutura-domain/fixtures"]
 measurement = []
 # A combine whose stages above a repartition run on several nodes, `combine::across`. Default-off: no
 # binary plans a combine across nodes yet. `tokio/net` for the runtime's I/O driver, which the links
-# to the other nodes need.
-distributed = ["dep:datafusion-distributed", "dep:url", "tokio/net"]
+# to the other nodes need, and `tokio/sync` for the lock their channels are kept under.
+distributed = [
+  "dep:datafusion-distributed",
+  "dep:url",
+  "dep:async-trait",
+  "dep:hyper-util",
+  "dep:tokio-rustls",
+  "dep:tonic",
+  "dep:tower",
+  "tokio/net",
+  "tokio/sync",
+]
 
 [[test]]
 name = "conformance"
