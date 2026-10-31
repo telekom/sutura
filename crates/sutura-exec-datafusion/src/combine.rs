@@ -432,6 +432,10 @@ impl DataFusionCombiner {
 
     /// The session one combine runs in, bounded to this call's own ceiling: this node's alone, or
     /// one planned across [`Self::across`]'s nodes.
+    #[cfg_attr(
+        not(feature = "distributed"),
+        expect(clippy::unused_self, reason = "reads `self.nodes`, which only `distributed` declares")
+    )]
     fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
         #[cfg(feature = "distributed")]
         if let Some(nodes) = &self.nodes {
