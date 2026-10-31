@@ -418,6 +418,8 @@ pub(crate) struct RawNodes {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawServer {
+    /// `serving` or `worker`. Required, so `defaults.yaml` is where the default is written.
+    pub(crate) role: String,
     pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) request_timeout_seconds: u64,

@@ -992,3 +992,8 @@ mod datahub_platforms;
 /// `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod nodes;
+
+/// `server.role`: a worker's boot refusals, and the `serving` default. Same `#[cfg(test)]` reason as
+/// `governance` above.
+#[cfg(test)]
+mod worker_role;

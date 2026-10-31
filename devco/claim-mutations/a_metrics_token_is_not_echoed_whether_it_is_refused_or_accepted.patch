@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-http/src/middleware.rs b/crates/sutura-http/src/middleware.rs
-index fce51766b..5f6478590 100644
+index ebe4e7248..d37a786ac 100644
 --- a/crates/sutura-http/src/middleware.rs
 +++ b/crates/sutura-http/src/middleware.rs
-@@ -306,6 +306,7 @@ pub async fn require_metrics_token(State(state): State<ServiceState>, request: R
+@@ -313,6 +313,7 @@ pub async fn require_metrics_token(
      }
      tracing::warn!(
          presented = presented.is_some(),

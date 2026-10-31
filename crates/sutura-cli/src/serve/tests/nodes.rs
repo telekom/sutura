@@ -1,4 +1,4 @@
-//! Declared nodes, on a build that can plan across them and on one that cannot.
+//! Declared nodes and a worker, on a build that can plan across nodes and on one that cannot.
 
 /// Material naming nodes at `authority`. Nothing here is read until a combiner is built from it.
 fn declaring(certificate: &str, key: &str, authority: &str) -> sutura_config::TlsMaterial {
@@ -68,4 +68,32 @@ fn an_unreadable_node_authority_is_refused_naming_it() {
         refused.contains(missing),
         "the refusal must name the authority it could not read: {refused}"
     );
+}
+
+#[cfg(not(feature = "distributed"))]
+#[test]
+fn a_worker_is_refused_by_a_build_without_the_feature() {
+    let settings = sutura_config::Settings::load(&sutura_config::Sources::defaults(sutura_config::Environment::Development))
+        .expect("the defaults load");
+    let Err(refused) = super::super::not_linked::worker_refused(&settings) else {
+        panic!("a worker on a build without the feature was not refused");
+    };
+    assert!(
+        refused.contains("--features distributed"),
+        "the refusal must name the feature that would serve a worker: {refused}"
+    );
+}
+
+#[cfg(feature = "distributed")]
+#[test]
+fn a_worker_builds_from_its_pair_and_node_authority_with_no_nodes_declared() {
+    let (certificate, key) = written("worker");
+    let path = |path: &std::path::Path| path.display().to_string();
+    let tls = sutura_config::TlsMaterial::parse(Some(&path(&certificate)), Some(&path(&key)), Some(&path(&certificate)))
+        .expect("a pair and an authority are TLS material")
+        .expect("material was declared");
+    assert!(tls.nodes().is_none(), "this cell is about a worker with no server.nodes");
+    let built = super::super::worker::mount(&tls, &certificate, runtime());
+    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
+    let _mount = built.expect("a signed node with its authority builds the worker it serves");
 }

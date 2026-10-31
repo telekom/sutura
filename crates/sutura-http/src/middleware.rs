@@ -293,8 +293,15 @@ pub async fn require_token(State(state): State<ServiceState>, request: Request, 
 /// `security.metrics_token`. This mirrors [`require_token`]'s shape - the presented bearer is
 /// compared through the same `AccessToken::matches_in_constant_time`, reused rather than copied -
 /// and a `401` here is the same three-shape answer a wrong API token gets.
-pub async fn require_metrics_token(State(state): State<ServiceState>, request: Request, next: Next) -> Response {
-    let Some(expected) = state.settings().security().metrics_token() else {
+///
+/// Its state is the token alone rather than a [`ServiceState`], so a router with no surface - a
+/// worker node's - gates `/metrics` with the same function.
+pub async fn require_metrics_token(
+    State(expected): State<Option<Arc<sutura_config::AccessToken>>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(expected) = expected else {
         // No metrics token. Reachable only when `Settings::refusals` permits it, which is a
         // loopback bind outside production - the same posture `require_token` relies on for the
         // API token.
