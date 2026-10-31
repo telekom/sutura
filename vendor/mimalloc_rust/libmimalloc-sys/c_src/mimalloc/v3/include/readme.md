@@ -9,3 +9,4 @@ if you control all sources).
 - [`mimalloc`](mimalloc): Internal allocator headers.
   See in particular [`types.h`](mimalloc/types.h) for the type definitions of all
   internal mimalloc data structures.
+
