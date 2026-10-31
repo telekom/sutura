@@ -278,7 +278,11 @@ fn a_node_refuses_a_stage_that_reads_a_source() {
     std::fs::remove_file(&path).expect("a temporary file removes");
     let refused = refused.expect("a node ran a stage that reads a file");
     assert!(
-        matches!(refused.find_root(), DataFusionError::External(cause) if cause.downcast_ref::<StageReadsASource>().is_some()),
+        matches!(
+            refused.find_root(),
+            DataFusionError::External(cause)
+                if cause.downcast_ref::<StageReadsASource>().is_some_and(|refusal| refusal.leaf == "DataSourceExec")
+        ),
         "{refused}"
     );
 }

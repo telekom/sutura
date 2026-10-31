@@ -12,7 +12,7 @@
 //! - That the legs stay is the engine routing a one-task stage, not a check of ours. What a check
 //!   holds is the other side: a [`Nodes::worker`] refuses a stage with a leaf that reads anything
 //!   but another node's stage or rows the plan itself carries, such as a file scan
-//!   ([`StageReadsASource`], Decision 3). The leaves it accepts are four types, so a leg's rows sent
+//!   (`StageReadsASource`, Decision 3). The leaves it accepts are four types, so a leg's rows sent
 //!   to another node would run there; they are rows this node read and chose to send.
 //! - A link is gRPC over mutual TLS: each end presents a certificate the deployment's node authority
 //!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). It carries no grant, so a
@@ -97,7 +97,7 @@ impl Nodes {
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill
     /// nowhere, as a combine's own session does, read another node's stage as `identity`, and read
-    /// no source ([`StageReadsASource`]).
+    /// no source (`StageReadsASource`).
     ///
     /// # Errors
     ///
@@ -145,7 +145,7 @@ impl Nodes {
 #[derive(Debug, thiserror::Error)]
 #[error("a stage sent to this node reads `{leaf}`, and a node reads no source for another node")]
 pub(super) struct StageReadsASource {
-    leaf: String,
+    pub(super) leaf: String,
 }
 
 /// `event`'s stage, refused if a leaf reads anything but another node's stage or rows the plan
