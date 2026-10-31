@@ -649,6 +649,8 @@ impl DataFusionWarehouse {
 /// per-question argument.
 mod combine;
 
+#[cfg(feature = "distributed")]
+pub use crate::combine::Nodes;
 pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 
 /// How wide the engine runs, in its own file for the same reason.

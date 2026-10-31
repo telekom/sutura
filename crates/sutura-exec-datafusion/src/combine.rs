@@ -81,6 +81,9 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
 use crate::pool::{self, WorkingSet};
 
+/// A combine whose stages above a repartition run on several nodes.
+#[cfg(feature = "distributed")]
+mod across;
 /// The one logical plan above the legs, and the labels and leaves it reads.
 mod arm;
 /// The cast a relationship's declared key comparison asks of a link column.
@@ -91,6 +94,8 @@ mod merge;
 mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
+#[cfg(feature = "distributed")]
+pub use across::Nodes;
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
@@ -310,6 +315,9 @@ pub struct DataFusionCombiner {
     runtime: Option<tokio::runtime::Runtime>,
     /// The per-subject discriminator this combine's session is keyed on, when a subject is in hand.
     context: Option<sutura_domain::identity::ComputeContext>,
+    /// The nodes a combine's stages are planned across, when it is not this node's alone.
+    #[cfg(feature = "distributed")]
+    nodes: Option<Nodes>,
 }
 
 impl core::fmt::Debug for DataFusionCombiner {
@@ -350,6 +358,28 @@ impl DataFusionCombiner {
         Ok(Self {
             runtime: Some(runtime),
             context: None,
+            #[cfg(feature = "distributed")]
+            nodes: None,
+        })
+    }
+
+    /// A combiner whose stages above a repartition run across `nodes`.
+    ///
+    /// Its runtime drives I/O as well as time, for the links to the other nodes.
+    ///
+    /// # Errors
+    ///
+    /// [`CombineError::Runtime`] if a current-thread runtime cannot be built.
+    #[cfg(feature = "distributed")]
+    pub fn across(nodes: Nodes) -> Result<Self, CombineError> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|cause| CombineError::Runtime { cause })?;
+        Ok(Self {
+            runtime: Some(runtime),
+            context: None,
+            nodes: Some(nodes),
         })
     }
 
@@ -400,16 +430,30 @@ impl DataFusionCombiner {
         })
     }
 
-    /// One combine, in a session bounded to this call's own ceiling.
+    /// The session one combine runs in, bounded to this call's own ceiling: this node's alone, or
+    /// one planned across [`Self::across`]'s nodes.
+    #[cfg_attr(
+        not(feature = "distributed"),
+        expect(clippy::unused_self, reason = "reads `self.nodes`, which only `distributed` declares")
+    )]
+    fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
+        #[cfg(feature = "distributed")]
+        if let Some(nodes) = &self.nodes {
+            return nodes.session(working_set);
+        }
+        bounded_session(working_set)
+    }
+
+    /// One combine, in `context`.
     async fn assembled(
         plan: &FederatedPlan,
         legs: Legs<'_>,
+        context: &SessionContext,
         working_set: WorkingSet,
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
-        let context = bounded_session(working_set)?;
-        let logical = arm_plan(plan, &legs, &context, ceiling_bytes, working_set).await?;
-        executed(&context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
+        let logical = arm_plan(plan, &legs, context, ceiling_bytes, working_set).await?;
+        executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
     }
 }
 
@@ -587,8 +631,9 @@ impl FederationCombiner for DataFusionCombiner {
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
         let working_set = working_set_of(working_set_bytes);
+        let context = self.session(working_set)?;
         self.runtime()?
-            .block_on(Self::assembled(plan, legs, working_set, working_set_bytes))
+            .block_on(Self::assembled(plan, legs, &context, working_set, working_set_bytes))
     }
 
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {

@@ -29,7 +29,7 @@ use sutura_domain::warehouse::ResultBatches;
 
 use super::arm::{above_expression, leaf_labels, qualified, scan, schema_mismatch};
 use super::schema::{FACT, LegSchema, same_kind};
-use super::{CombineError, DataFusionCombiner, FACT_TABLE, arm_plan, bounded_session, executed, register, working_set_of};
+use super::{CombineError, DataFusionCombiner, FACT_TABLE, arm_plan, executed, register, working_set_of};
 use crate::collect::outputs;
 use crate::pool::WorkingSet;
 
@@ -42,13 +42,16 @@ const NEXT: &str = "next_arm";
 impl DrillAcrossCombiner for DataFusionCombiner {
     fn merge(&self, plan: &DrillAcrossPlan, arms: &[ArmLegs<'_>], working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
         let working_set = working_set_of(working_set_bytes);
-        self.runtime()?.block_on(merged(plan, arms, working_set, working_set_bytes))
+        let context = self.session(working_set)?;
+        self.runtime()?
+            .block_on(merged(plan, arms, &context, working_set, working_set_bytes))
     }
 }
 
 async fn merged(
     plan: &DrillAcrossPlan,
     arms: &[ArmLegs<'_>],
+    context: &SessionContext,
     working_set: WorkingSet,
     ceiling_bytes: u64,
 ) -> Result<ResultBatches, CombineError> {
@@ -57,7 +60,6 @@ async fn merged(
             arm: arms.len().min(plan.arms().len()),
         });
     }
-    let context = bounded_session(working_set)?;
     let grouped: Vec<&str> = plan.keys().into_iter().chain([plan.bucket_label()]).collect();
     let first_legs = arms.first().ok_or(CombineError::ArmsMiswired { arm: 0 })?;
     let first = cut(
@@ -65,7 +67,7 @@ async fn merged(
         plan.arms().first(),
         first_legs,
         &grouped,
-        &context,
+        context,
         (ceiling_bytes, working_set),
     )
     .await?;
@@ -73,7 +75,7 @@ async fn merged(
     let mut running = aliased(first, MERGED)?;
     let mut measures = vec![plan.arms().first().measure_label()];
     for (index, (arm, legs)) in plan.arms().iter().zip(arms).enumerate().skip(1) {
-        let next = cut(index, arm, legs, &grouped, &context, (ceiling_bytes, working_set)).await?;
+        let next = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
         agreeing_kinds(&grouped, plan.bucket_label(), &first_kinds, &kinds_of(&next, &grouped)?)?;
         running = joined_with(running, next, &grouped, &measures, arm.measure_label())?;
         measures.push(arm.measure_label());
@@ -101,7 +103,7 @@ async fn merged(
         })
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
-    executed(&context, logical, labels, measures.len(), ceiling_bytes, working_set).await
+    executed(context, logical, labels, measures.len(), ceiling_bytes, working_set).await
 }
 
 /// One arm's logical plan.
