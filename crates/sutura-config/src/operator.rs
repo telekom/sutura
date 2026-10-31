@@ -106,3 +106,7 @@ mod tests {
         );
     }
 }
+
+/// Apart from `tests`, so neither file names every `InvalidApiGroup` variant (`check-refusal-coverage`).
+#[cfg(test)]
+mod at_load;
