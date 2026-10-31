@@ -244,7 +244,7 @@ pub enum SettingsError {
         #[source]
         cause: crate::server::InvalidAllowedHost,
     },
-    #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
+    #[error("`server.tls_certificate`, `server.tls_key` and `server.tls_node_authority` are not usable together")]
     TlsMaterial {
         #[source]
         cause: InvalidTlsMaterial,

@@ -416,6 +416,10 @@ pub(crate) struct RawServer {
     pub(crate) tls_certificate: Option<String>,
     #[serde(default)]
     pub(crate) tls_key: Option<String>,
+    /// The authority whose node certificates the listener accepts from a client. Absent means it
+    /// asks a client for none.
+    #[serde(default)]
+    pub(crate) tls_node_authority: Option<String>,
     /// Whether the agent surface (the MCP streamable-HTTP transport) is mounted at all.
     ///
     /// Absent (or `false`) means the deployment serves no `/mcp` even in a build that compiled the

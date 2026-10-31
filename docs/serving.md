@@ -301,6 +301,11 @@ sutura checks the pair before it binds the socket and never falls back to plain 
 30 seconds. When the bytes change and the new pair is valid, new handshakes use it and open connections stay open.
 An invalid pair is logged at `error` and ignored. Let a certificate manager renew the files. sutura has no ACME client.
 
+`server.tls_node_authority` (a PEM bundle path) makes the listener ask each client for a certificate. A client that
+presents one the bundle's authority did not sign fails the handshake. A client that presents none is served as before,
+so no route requires a node certificate yet. The bundle is read once at startup; replacing it needs a restart. Setting
+it without the pair is a startup refusal.
+
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.
 

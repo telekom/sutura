@@ -77,6 +77,7 @@
 //! The cost is bounded staleness: up to [`RENEWAL_INTERVAL`] between the write and the swap. For a
 //! certificate rotation, which is planned days ahead by whatever issues them, that is nothing.
 
+mod authority;
 pub mod listener;
 
 use std::io::Read as _;
@@ -193,6 +194,13 @@ pub enum TlsNotUsable {
     KeyDoesNotMatch {
         certificate: PathBuf,
         key: PathBuf,
+        #[source]
+        cause: rustls::Error,
+    },
+    /// The node authority file holds a certificate no trust anchor can be read from.
+    #[error("{path} holds a certificate that cannot be the node authority")]
+    NotAnAuthority {
+        path: PathBuf,
         #[source]
         cause: rustls::Error,
     },
@@ -391,7 +399,7 @@ impl Termination {
         let mut config = ServerConfig::builder_with_provider(Arc::clone(&provider))
             .with_safe_default_protocol_versions()
             .map_err(|cause| TlsNotUsable::NotConfigurable { cause })?
-            .with_no_client_auth()
+            .with_client_cert_verifier(authority::verifier(material, &provider)?)
             .with_cert_resolver(Arc::new(Rotating { current: receiver }));
         // See `ALPN_HTTP11`/`ALPN_H2`: without `flight` this surface is compiled with `http1`
         // alone, so `h2` must not be negotiable; with it, the Flight mount needs HTTP/2 on the
@@ -742,6 +750,7 @@ mod tests {
         let material = TlsMaterial::parse(
             scratch.path().join("nothing.pem").to_str(),
             scratch.path().join("nokey.pem").to_str(),
+            None,
         )
         .expect("two paths are a pair")
         .expect("two paths are material");

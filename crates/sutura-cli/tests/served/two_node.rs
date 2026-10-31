@@ -167,7 +167,7 @@ mod tests {
         let issued = rcgen::generate_simple_self_signed([String::from("localhost")]).expect("a self-signed pair generates");
         let anchor = scratch.write("node-b.pem", &issued.cert.pem());
         let key = scratch.write("node-b.key", &issued.signing_key.serialize_pem());
-        let material = TlsMaterial::parse(anchor.to_str(), key.to_str())
+        let material = TlsMaterial::parse(anchor.to_str(), key.to_str(), None)
             .expect("a generated pair is valid material")
             .expect("both halves are given");
         let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!(

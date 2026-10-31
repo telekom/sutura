@@ -294,7 +294,8 @@ impl BodyLimit {
     }
 }
 
-/// A certificate chain and the private key that goes with it, as paths.
+/// A certificate chain and the private key that goes with it, as paths, and the authority whose
+/// node certificates the listener accepts from a client, if it accepts any.
 ///
 /// **Paths and nothing more, and the split is deliberate.** This crate holds no framework and
 /// reads no files: it parses the *pair* - both halves or neither - and stops there. Whether the
@@ -306,9 +307,10 @@ impl BodyLimit {
 pub struct TlsMaterial {
     certificate: PathBuf,
     key: PathBuf,
+    node_authority: Option<PathBuf>,
 }
 
-/// Why a pair of paths is not usable TLS material.
+/// Why the paths are not usable TLS material.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidTlsMaterial {
     /// One half was given and the other was not.
@@ -321,14 +323,32 @@ pub enum InvalidTlsMaterial {
     /// A path was given as an empty string, which is not a path.
     #[error("{name} is empty - remove the key to disable TLS rather than setting it to nothing")]
     EmptyPath { name: &'static str },
+    /// A node authority was given with no certificate and key: a listener that does not terminate
+    /// TLS cannot ask a peer for a certificate.
+    #[error("server.tls_node_authority is set and server.tls_certificate and server.tls_key are not")]
+    AuthorityWithoutPair,
 }
 
 impl TlsMaterial {
-    /// Reads the pair, or nothing.
+    /// Reads the pair, and the authority a peer node's certificate is checked against, or nothing.
     ///
-    /// `None` for both is "no in-process TLS", which is the default and is not an error.
-    pub fn parse(certificate: Option<&str>, key: Option<&str>) -> Result<Option<Self>, InvalidTlsMaterial> {
+    /// `None` for all three is "no in-process TLS", which is the default and is not an error.
+    pub fn parse(
+        certificate: Option<&str>,
+        key: Option<&str>,
+        node_authority: Option<&str>,
+    ) -> Result<Option<Self>, InvalidTlsMaterial> {
+        let node_authority = match trimmed(node_authority) {
+            None => None,
+            Some("") => {
+                return Err(InvalidTlsMaterial::EmptyPath {
+                    name: "server.tls_node_authority",
+                });
+            }
+            Some(authority) => Some(PathBuf::from(authority)),
+        };
         match (trimmed(certificate), trimmed(key)) {
+            (None, None) if node_authority.is_some() => Err(InvalidTlsMaterial::AuthorityWithoutPair),
             (None, None) => Ok(None),
             (Some(certificate), None) => {
                 if certificate.is_empty() {
@@ -362,6 +382,7 @@ impl TlsMaterial {
                 Ok(Some(Self {
                     certificate: PathBuf::from(certificate),
                     key: PathBuf::from(key),
+                    node_authority,
                 }))
             }
         }
@@ -377,6 +398,13 @@ impl TlsMaterial {
     #[inline]
     pub fn key(&self) -> &Path {
         &self.key
+    }
+
+    /// The authority a peer node's client certificate is checked against, in PEM, if this listener
+    /// asks for one.
+    #[inline]
+    pub fn node_authority(&self) -> Option<&Path> {
+        self.node_authority.as_deref()
     }
 }
 
@@ -706,8 +734,8 @@ mod tests {
 
     #[test]
     fn tls_material_is_both_halves_or_neither() {
-        assert_eq!(TlsMaterial::parse(None, None), Ok(None));
-        let pair = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"))
+        assert_eq!(TlsMaterial::parse(None, None, None), Ok(None));
+        let pair = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), None)
             .expect("a pair parses")
             .expect("a pair is material");
         assert_eq!(pair.certificate(), std::path::Path::new("/tls/chain.pem"));
@@ -719,14 +747,14 @@ mod tests {
         // The failure this refuses is the quiet one: a certificate with no key either falls back to
         // plaintext on a port somebody believes is encrypted, or dies at the first handshake.
         assert_eq!(
-            TlsMaterial::parse(Some("/tls/chain.pem"), None),
+            TlsMaterial::parse(Some("/tls/chain.pem"), None, None),
             Err(InvalidTlsMaterial::OnlyOneHalf {
                 given: "server.tls_certificate",
                 missing: "server.tls_key"
             })
         );
         assert_eq!(
-            TlsMaterial::parse(None, Some("/tls/key.pem")),
+            TlsMaterial::parse(None, Some("/tls/key.pem"), None),
             Err(InvalidTlsMaterial::OnlyOneHalf {
                 given: "server.tls_key",
                 missing: "server.tls_certificate"
@@ -735,17 +763,35 @@ mod tests {
     }
 
     #[test]
+    fn a_node_authority_needs_the_pair_and_rides_with_it() {
+        assert_eq!(
+            TlsMaterial::parse(None, None, Some("/tls/nodes.pem")),
+            Err(InvalidTlsMaterial::AuthorityWithoutPair)
+        );
+        assert_eq!(
+            TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), Some(" ")),
+            Err(InvalidTlsMaterial::EmptyPath {
+                name: "server.tls_node_authority"
+            })
+        );
+        let material = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), Some("/tls/nodes.pem"))
+            .expect("a pair and an authority parse")
+            .expect("a pair is material");
+        assert_eq!(material.node_authority(), Some(std::path::Path::new("/tls/nodes.pem")));
+    }
+
+    #[test]
     fn a_path_set_to_nothing_is_an_error_and_not_a_switch() {
         // An empty string is what an unset variable looks like in a shell, and reading it as "TLS
         // off" is how a deployment that meant to serve TLS serves plaintext instead.
         assert_eq!(
-            TlsMaterial::parse(Some(""), Some("/tls/key.pem")),
+            TlsMaterial::parse(Some(""), Some("/tls/key.pem"), None),
             Err(InvalidTlsMaterial::EmptyPath {
                 name: "server.tls_certificate"
             })
         );
         assert_eq!(
-            TlsMaterial::parse(Some("/tls/chain.pem"), Some("  ")),
+            TlsMaterial::parse(Some("/tls/chain.pem"), Some("  "), None),
             Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" })
         );
     }
