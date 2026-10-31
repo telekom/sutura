@@ -160,9 +160,27 @@ const DELEGATION: Subject = Subject {
     variants: variants(4),
 };
 
+/// One refused `operator.api_group`: not a lowercase DNS subdomain, or one with no dot, so
+/// `sutura-operator` does not start.
+const API_GROUP: Subject = Subject {
+    name: "InvalidApiGroup",
+    declared_in: "crates/sutura-config/src/operator.rs",
+    allow_file: "devco/api-group-refusals-unprovoked-allow",
+    variants: variants(2),
+};
+
+/// One refused worker pool: its `min` above its `max`. One variant, so every file naming it names
+/// them all and is a census - `devco/pool-refusals-unprovoked-allow` says why it is excused.
+const POOL: Subject = Subject {
+    name: "InvalidPool",
+    declared_in: "crates/sutura-operator/src/lib.rs",
+    allow_file: "devco/pool-refusals-unprovoked-allow",
+    variants: variants(1),
+};
+
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s
 /// module doc for the direction this list does NOT hold.
-pub(super) const ENROLLED: [&Subject; 6] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS, &DELEGATION];
+pub(super) const ENROLLED: [&Subject; 8] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS, &DELEGATION, &API_GROUP, &POOL];
 
 /// Two subjects sharing one allow file would share their exceptions, and
 /// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids

@@ -34,6 +34,7 @@ or incomplete configuration, and the error names the key.
 | `tools`             | The raw SQL tool                                               | [Serving over HTTP](serving.md#the-raw-sql-tool)                                                      |
 | `telemetry`         | The log filter and format                                      | [Serving over HTTP](serving.md#the-log)                                                               |
 | `governance`        | Optional limits on spend and on the rows of a `top` question   | [`defaults.yaml`](https://github.com/telekom/sutura/blob/main/crates/sutura-config/src/defaults.yaml) |
+| `operator`          | The API group of the worker-pool resource                      | [`defaults.yaml`](https://github.com/telekom/sutura/blob/main/crates/sutura-config/src/defaults.yaml) |
 
 ## Defaults that matter first
 

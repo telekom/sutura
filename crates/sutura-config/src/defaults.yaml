@@ -319,6 +319,13 @@ prompt:
   # An EMPTY string is an error rather than an absence: an empty path resolves to the working
   # directory. Remove the key to mean "no operator text".
 
+operator:
+  # The API group `sutura-operator` serves the worker-pool resource under, read by nothing else. A
+  # lowercase DNS subdomain with at least one dot, as Kubernetes requires of a group; anything else
+  # refuses to start. A cluster cannot rename the group of a definition it holds, so changing this
+  # is a new resource type beside the old one.
+  api_group: sutura.telekom.github.io
+
 # `governance` is deliberately absent. Uncommenting `per_replica_spend_ceiling` turns on a
 # per-replica, in-process byte ceiling per subject - PER REPLICA, not a deployment-wide budget: N
 # replicas give N times this ceiling before every one of them has independently refused, and it

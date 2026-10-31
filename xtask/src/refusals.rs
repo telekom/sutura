@@ -682,7 +682,9 @@ mod tests {
                 "NotValidated",
                 "RawRefusalReason",
                 "TlsNotUsable",
-                "InvalidDelegation"
+                "InvalidDelegation",
+                "InvalidApiGroup",
+                "InvalidPool"
             ]
         );
     }
@@ -735,7 +737,9 @@ mod tests {
                 "NotValidated",
                 "RawRefusalReason",
                 "TlsNotUsable",
-                "InvalidDelegation"
+                "InvalidDelegation",
+                "InvalidApiGroup",
+                "InvalidPool"
             ]
         );
     }
