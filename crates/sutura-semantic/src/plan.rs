@@ -38,8 +38,7 @@ use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::{
     DrillAcrossPlan, DrillAcrossPlanError, FederatedPlan, FederatedPlanError, IncoherentBindings, LegCeiling, PlanBindings,
     PlanBucket, PlanCeilings, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlannedMeasure, PredicateOrigin, QueryPlan,
-    ResultLabel, SourceCeiling, StackedPlan, StackedPlanError, StatementTables, plan_measure, plan_required_filter,
-    range_filters,
+    ResultLabel, SourceCeiling, StackedPlanError, StatementTables, plan_measure, plan_required_filter, range_filters,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -49,7 +48,7 @@ use crate::resolve::{Resolution, Resolved, ResolvedFilter, ResolvedFilterValue};
 mod chain;
 mod drill_across;
 mod federated;
-mod stacked;
+pub(crate) mod stacked;
 
 use chain::{Lookups, chain_joins, column_of, every_dimension};
 use federated::federated_plan;
@@ -66,8 +65,6 @@ pub(crate) enum Plan {
     Federated(Box<FederatedPlan>),
     /// One arm per metric, each answered on its own and joined above.
     DrillAcross(Box<DrillAcrossPlan>),
-    /// Several metrics' whole answers from one data system, joined by it in one statement.
-    Stacked(Box<StackedPlan>),
 }
 
 /// Refused, or this workspace could not assemble the plan it had just decided on.
@@ -128,7 +125,8 @@ pub(crate) enum PlanError {
     /// [`LegCeiling`](sutura_domain::plan::LegCeiling) - at most `MAX_LEGS` - before the plan is built.
     #[error(transparent)]
     NotAssembledAcross(#[from] DrillAcrossPlanError),
-    /// The planner built arms on one data system that [`StackedPlan::new`] then rejected.
+    /// The planner built arms on one data system that [`StackedPlan::new`](sutura_domain::plan::StackedPlan::new) then
+    /// rejected.
     ///
     /// [`NotAssembledAcross`](Self::NotAssembledAcross)'s argument again, and here no variant is one a
     /// caller can cause: the arms carry no `top`, and the planner stacks them only on one source.
@@ -243,18 +241,13 @@ pub(super) fn bounded_sources<'a>(
     Ok(())
 }
 
-/// Turns a resolved question into a plan: the one grouped statement when every metric reads the
-/// same dimensions the same way, a statement per metric stacked into one when every metric reads one
-/// data system, an arm per metric otherwise.
+/// Turns a resolved question into a plan: the one statement when every metric reads the same
+/// dimensions the same way, an arm per metric otherwise.
+///
+/// [`stacked::plan_resolved`] answers first, so an arm per metric here reaches another data system.
 pub(crate) fn plan_resolved(resolved: &Resolved<'_>, ceilings: PlanCeilings) -> Result<Plan, PlanError> {
     match resolved.per_metric.as_slice() {
-        [first, second, rest @ ..] if !one_statement(resolved) => {
-            if resolved.per_metric.iter().all(|each| stacked::local_to(each, first)) {
-                stacked::plan(first, second, rest)
-            } else {
-                drill_across::plan(first, second, rest, ceilings)
-            }
-        }
+        [first, second, rest @ ..] if !one_statement(resolved) => drill_across::plan(first, second, rest, ceilings),
         _ => plan(&resolved.whole, ceilings),
     }
 }

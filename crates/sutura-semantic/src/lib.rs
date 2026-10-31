@@ -205,11 +205,18 @@ pub fn compile(
         Err(ResolveError::Refused(reason)) => return Ok(Compiled::Refused { reason }),
         Err(ResolveError::Bundle(cause)) => return Err(cause.into()),
     };
-    match plan::plan_resolved(&resolved, ceilings.plan()) {
-        Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
-        Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
-        Ok(plan::Plan::DrillAcross(arms)) => Ok(Compiled::DrillAcross { plan: arms }),
-        Ok(plan::Plan::Stacked(stacked)) => Ok(Compiled::Stacked { plan: stacked }),
+    let planned = plan::stacked::plan_resolved(&resolved).map_or_else(
+        || {
+            plan::plan_resolved(&resolved, ceilings.plan()).map(|planned| match planned {
+                plan::Plan::Mono(query) => Compiled::Planned { plan: query },
+                plan::Plan::Federated(federated) => Compiled::Federated { plan: federated },
+                plan::Plan::DrillAcross(arms) => Compiled::DrillAcross { plan: arms },
+            })
+        },
+        |stacked| stacked.map(|plan| Compiled::Stacked { plan }),
+    );
+    match planned {
+        Ok(compiled) => Ok(compiled),
         Err(PlanError::Refused(reason)) => Ok(Compiled::Refused { reason }),
         Err(PlanError::AuthoredSqlNotPlanned { metric }) => Err(CompileFailure::AuthoredSqlNotPlanned { metric }),
         Err(PlanError::NotAssembled(cause)) => Err(cause.into()),

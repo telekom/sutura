@@ -193,7 +193,7 @@ where
             }
             // The golden corpus is one source and one metric at a time, so no question in it federates.
             Compiled::Federated { .. } | Compiled::DrillAcross { .. } | Compiled::Stacked { .. } => {
-                panic!("the question corpus asks one metric of one data system at a time")
+                panic!("the question corpus spans one data system; no question federates")
             }
         });
     }

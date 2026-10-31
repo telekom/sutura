@@ -165,7 +165,7 @@ fn a_bundle_from_a_dictionary_loads_validates_and_answers_no_certified_question(
         sutura_semantic::Compiled::Federated { .. }
         | sutura_semantic::Compiled::DrillAcross { .. }
         | sutura_semantic::Compiled::Stacked { .. } => {
-            panic!("a dictionary bundle defines no metric, so nothing plans")
+            panic!("a dictionary bundle is one source; nothing federates")
         }
     }
 }

@@ -32,7 +32,6 @@ mod federation;
 mod federation_second_source;
 mod link_types;
 mod ratio_links;
-mod stacked;
 mod two_sources;
 use corpus::{Corpus, federated_by, join_tables, lookup_at, lookup_shape, pair, read_from};
 use two_sources::{ONE_SOURCE, Placed, TwoSources, ask, ask_within, federated, refusal, revenue_beside_a_ratio, two_facts};
@@ -105,9 +104,7 @@ fn ceilings(sources: usize, lookup_legs: usize, legs: usize) -> PlanCeilings {
 fn mono(resolution: &Resolution<'_>) -> Box<QueryPlan> {
     match plan(resolution).expect("this resolution plans") {
         Plan::Mono(query) => query,
-        Plan::Federated(_) | Plan::DrillAcross(_) | Plan::Stacked(_) => {
-            panic!("every model here is local, so the plan is one statement")
-        }
+        Plan::Federated(_) | Plan::DrillAcross(_) => panic!("every model here is local, so the plan is one statement"),
     }
 }
 
@@ -314,9 +311,7 @@ fn the_legs_and_their_links_do_not_depend_on_the_order_the_dimensions_are_asked(
     let planned =
         |by: [&str; 2]| match plan(&corpus.asking(by.iter().map(|name| corpus.key(name)).collect())).expect("this plans") {
             Plan::Federated(planned) => planned,
-            Plan::Mono(_) | Plan::DrillAcross(_) | Plan::Stacked(_) => {
-                panic!("dimensions on other data systems are a federated plan")
-            }
+            Plan::Mono(_) | Plan::DrillAcross(_) => panic!("dimensions on other data systems are a federated plan"),
         };
     let (forward, reverse) = (planned(["region", "brand"]), planned(["brand", "region"]));
     assert_eq!(lookup_shape(&forward), lookup_shape(&reverse));
