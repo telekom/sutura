@@ -257,6 +257,17 @@ pub enum NotFitToServe {
          receive a token that is valid here too. Ask the last hop for the node's own audience"
     )]
     NodeDelegationToTheDeploymentsOwnAudience { alias: SourceName },
+    /// A `direct` deployment whose audience (`security.inbound.resource`, or `audience` when written)
+    /// is its `authorization_server`. A grant the issuer mints for itself - an identity assertion
+    /// addressed to the authorization server, say - then carries this deployment's audience and its
+    /// issuer, and only the token class is left to tell it from an access token. The comparison is
+    /// of the configured strings, byte for byte, as both claims are compared.
+    #[error(
+        "this deployment's audience (`security.inbound.resource` or `security.inbound.audience`) is \
+         its `security.inbound.authorization_server`, so a grant that issuer mints for itself carries \
+         this deployment's audience. Give the deployment an audience of its own"
+    )]
+    InboundAudienceIsTheIssuer,
     /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
     /// `shared-service-user`.
     ///
@@ -467,6 +478,19 @@ fn hopless_fixes(alias: &SourceName) -> String {
 }
 
 /// [`NotFitToServe::FlightSurfaceWithoutDirectInbound`], unless `inbound` is `direct`.
+/// [`NotFitToServe::InboundAudienceIsTheIssuer`], read off a `direct` declaration only: a
+/// `behind-gateway` deployment verifies a proof the gateway mints, under its own audience and issuer.
+pub(super) fn audience_refusal(inbound: Option<&InboundIdentity>) -> Option<NotFitToServe> {
+    match *inbound? {
+        InboundIdentity::Direct {
+            ref resource,
+            ref authorization_server,
+            ..
+        } if resource.audience().as_str() == authorization_server.as_str() => Some(NotFitToServe::InboundAudienceIsTheIssuer),
+        InboundIdentity::Direct { .. } | InboundIdentity::BehindGateway { .. } => None,
+    }
+}
+
 pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<NotFitToServe> {
     if matches!(inbound, Some(InboundIdentity::Direct { .. })) {
         Vec::new()

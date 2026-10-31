@@ -99,8 +99,9 @@ const STARTUP: Subject = Subject {
     // declared on a deployment that verifies no `direct` caller - it must verify the exchanged
     // token as its own caller, the same reason `/mcp` and `/v1` carry this refusal. 26:
     // `NodeDelegationToTheDeploymentsOwnAudience`, the deployment's own audience for a `node`
-    // source's last hop.
-    variants: variants(26),
+    // source's last hop. 27: `InboundAudienceIsTheIssuer`, a `direct` audience that is its own
+    // authorization server's issuer.
+    variants: variants(27),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

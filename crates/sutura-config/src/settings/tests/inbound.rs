@@ -461,6 +461,22 @@ fn direct_token_type_any_does_not_start_without_its_opt_in() {
 }
 
 #[test]
+fn a_direct_audience_that_is_its_own_issuer_does_not_start() {
+    // Written either way the audience is read: as the resource, and as `audience` over it.
+    for written in [
+        DIRECT_INBOUND.replacen("https://sutura.example.com", "https://issuer.example.com", 1),
+        format!("{DIRECT_INBOUND}    audience: \"https://issuer.example.com\"\n"),
+    ] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!("security:\n{written}"));
+        let error = Settings::load(&sources).expect_err("an audience that is its issuer is refused");
+        let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+            panic!("expected a posture refusal, got {error:?}");
+        };
+        assert_eq!(*refusals, [NotFitToServe::InboundAudienceIsTheIssuer]);
+    }
+}
+
+#[test]
 fn direct_token_type_any_starts_with_its_opt_in() {
     let settings = loads(format!(
         "security:\n{DIRECT_INBOUND}    token_type: \"any\"\n    accept_any_token_type: true\n"
