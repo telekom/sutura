@@ -9,6 +9,11 @@ repository.workspace = true
 publish = false
 description = "The service: generic over the ports, holding no framework types."
 
+[features]
+# Does the binary link DataFusion's SQL frontend? No dependency: it chooses only the raw tool's
+# summary, which says the statement is planned. `sutura-cli`'s `sql` turns it on.
+sql = []
+
 [dependencies]
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }

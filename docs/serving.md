@@ -185,14 +185,28 @@ on this deployment. The operator turns it on with `tools.run_sql.enabled`. ``. T
 without the scope. When it is on, the caller needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with
 `code: insufficient_scope`, and `/mcp` gets `-32601` with a message that names the scope. `tools.run_sql.sources` lists,
 by alias, the sources the tool runs over. Nothing is inferred: with the tool on, an empty list is a startup refusal, and
-so is an alias that no source declares or whose adapter runs no raw statement. The tool answers only where the deployment
-has one source. The row cap of a certified answer applies, and every call writes an audit record. The
-page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
+so is an alias that no source declares or whose adapter runs no raw statement. A build without the `sql` feature passes
+the statement, unparsed, to the one listed source, and answers only where the deployment has one source. The row cap of
+a certified answer applies, and every call writes an audit record. The page of the data system says what bounds a
+statement: [Postgres](integrations/data-systems/postgres.md),
 [DuckDB](integrations/data-systems/duckdb.md).
 
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
-or with more than one listed source, because it links no SQL parser. A build with it starts, and the tool still answers only where the deployment has one
-source.
+or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
+on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan
+into one part for each source that the statement reads, and runs each part at its source under that source's posture.
+Anything but one query over such tables is refused with `statement_failed`, and that includes `select 1`. With the switch
+off, a statement that reads more than one source is refused with `plan_spans_more_than_one_source`. With it on, the join or
+aggregate over the parts runs in this deployment, and the answer names each source that it read and the posture that ran
+there. Planning and that local part stop at the request's deadline. What this does not bound:
+
+- The local part runs in the deployment's memory, within the combiner's working set. It stops at the deadline only at its
+  next batch, so one batch, or the final pass of a sort, runs to its end.
+- Each part's rows are held in the deployment's memory before the per-part row cap refuses them - up to one row past the
+  cap, whatever their width - and are not charged to the memory pool.
+- A scalar function over constants, such as `repeat`, is folded while the statement is planned. Neither the deadline nor
+  the working set stops it.
+- A certified answer that combines legs shares one runtime with the local part, and may wait while it runs.
 
 ## Endpoints
 

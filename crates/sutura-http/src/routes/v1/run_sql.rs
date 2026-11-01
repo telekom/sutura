@@ -30,7 +30,7 @@ use crate::wire::{RawMalformedStatement, RawOutcomeBody, RunSqlBody, RunSqlOutco
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "run_sql";
 
-/// Runs one literal SQL statement against this deployment's configured source, or says why it will
+/// Runs one SQL statement over the sources `tools.run_sql.sources` lists, or says why it will
 /// not.
 #[utoipa::path(
     post,

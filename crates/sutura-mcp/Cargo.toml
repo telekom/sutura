@@ -29,6 +29,9 @@ description = "The agent-facing surface. Transport only: at most three tools ove
 # Nothing in `sutura-mcp` MOUNTS this yet: `http.rs`'s `service`/`config` are a plain
 # `tower_service::Service` a composition root nests behind its own layers - PR4's job.
 http = ["rmcp/transport-streamable-http-server"]
+# The raw tool's description and notice for a binary that plans its statement. `sutura-cli`'s
+# `sql` turns it on.
+sql = ["sutura-app/sql"]
 
 [dependencies]
 # The service, behind the driving port. This crate calls the port's `definitions`, `answer` and
