@@ -182,6 +182,8 @@ sutura-semantic = { workspace = true }
 # in this crate that needed a typed error of its own rather than the `Result<_, String>` this root
 # is exempt into everywhere else.
 thiserror = { workspace = true }
+# `zeroize`, re-exported, for the untrimmed copy of a secret file `crate::password_file` reads.
+secrecy = { workspace = true }
 # `security.outbound.transport_anchors` (`github.com/telekom/sutura#125`) - the shared bundle-or-
 # system-store read, resolved ONCE in `crate::sources::resolve_outbound_anchors` regardless of which
 # adapter feature is on, the same way `sutura-config` itself is unconditional: a declaration is read

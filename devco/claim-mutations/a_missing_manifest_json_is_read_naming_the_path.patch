@@ -1,14 +1,11 @@
 --- a/crates/sutura-catalog-wren/src/lib.rs
 +++ b/crates/sutura-catalog-wren/src/lib.rs
-@@ -74,10 +74,7 @@
- /// into it fails.
- pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
-     let manifest_path = source.join("manifest.json");
--    let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {
--        path: manifest_path.clone(),
--        source,
--    })?;
-+    let text = fs::read_to_string(&manifest_path).map_err(|_source| ImportError::DestinationNotEmpty(manifest_path.clone()))?;
-     let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|source| ImportError::NotAManifest {
-         path: manifest_path.clone(),
-         source,
+@@ -84,7 +84,7 @@
+     // Only a regular file within the bound is read, so a FIFO cannot block the import and a mistyped
+     // path is not read whole. A file swapped or grown between this check and the read is read as it
+     // then is; the path is the operator's own.
+-    let held = fs::metadata(&manifest_path).map_err(unreadable)?;
++    let held = fs::metadata(&manifest_path).map_err(|_source| ImportError::DestinationNotEmpty(manifest_path.clone()))?;
+     if !held.is_file() {
+         return Err(unreadable(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")));
+     }

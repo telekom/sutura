@@ -64,6 +64,9 @@ pub enum ImportError {
     Write { path: PathBuf, source: io::Error },
 }
 
+/// The most bytes a manifest may hold, the bound the file catalogs put on all their documents together.
+const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
+
 /// Converts the wren project at `source` into markdown catalog documents and a refusal report
 /// under `destination`, which must be absent or empty.
 ///
@@ -74,10 +77,24 @@ pub enum ImportError {
 /// into it fails.
 pub fn import(source: &Path, destination: &Path) -> Result<Summary, ImportError> {
     let manifest_path = source.join("manifest.json");
-    let text = fs::read_to_string(&manifest_path).map_err(|source| ImportError::Read {
+    let unreadable = |source| ImportError::Read {
         path: manifest_path.clone(),
         source,
-    })?;
+    };
+    // Only a regular file within the bound is read, so a FIFO cannot block the import and a mistyped
+    // path is not read whole. A file swapped or grown between this check and the read is read as it
+    // then is; the path is the operator's own.
+    let held = fs::metadata(&manifest_path).map_err(unreadable)?;
+    if !held.is_file() {
+        return Err(unreadable(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")));
+    }
+    if held.len() > MAX_MANIFEST_BYTES {
+        return Err(unreadable(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            format!("more than {MAX_MANIFEST_BYTES} bytes"),
+        )));
+    }
+    let text = fs::read_to_string(&manifest_path).map_err(unreadable)?;
     let manifest: wire::Manifest = serde_json::from_str(&text).map_err(|source| ImportError::NotAManifest {
         path: manifest_path.clone(),
         source,
