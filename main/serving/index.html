@@ -3574,8 +3574,8 @@ An invalid pair is logged at <code>error</code> and ignored. Let a certificate m
 presents one the bundle's authority did not sign fails the handshake. A client that presents none is served, but not on
 the node routes below. The bundle is read once at startup; replacing it needs a restart. Setting it without the pair is
 a startup refusal.</p>
-<p><code>server.nodes</code> plans a federated combine across nodes. It needs a binary built with <code>--features distributed</code>; any other
-build refuses the key at startup rather than combining on one node.</p>
+<p><code>server.nodes</code> plans a federated combine across nodes. It needs a binary built with <code>--features distributed</code>, which every release is; any
+other build refuses the key at startup rather than combining on one node.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">server</span><span class="p">:</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node.pem"</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node-key.pem"</span>
@@ -3615,7 +3615,7 @@ OpenMetadata readers. These are re-read on the same interval. The old material s
 <p><code>server.role: worker</code> runs a node that holds no data. It opens no catalog and no source, and does not read
 <code>server.nodes</code>. It serves <code>/health</code>, <code>/metrics</code> behind its token, and the worker transport to clients whose certificate
 the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the documentation answer <code>404</code>. It needs a binary built with
-<code>--features distributed</code>; any other build refuses the role at startup.</p>
+<code>--features distributed</code>, which every release is; any other build refuses the role at startup.</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">server</span><span class="p">:</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="s">"worker"</span>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/node.pem"</span>
