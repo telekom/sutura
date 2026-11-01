@@ -183,8 +183,9 @@ const AREAS: &[Area] = &[
         consumers: &[],
     },
     Area {
-        // The chart and what `checks.k3s-autoscaling` installs it with: the pinned helm, the image
-        // and the example it serves. That VM test is the one job this area starts. `rust` follows
+        // The chart and what `checks.k3s-autoscaling` and `checks.k3s-worker-pool` install it with:
+        // the pinned helm, the image, the operator that sizes the pool and the example it serves.
+        // Those VM tests are the one job this area starts. `rust` follows
         // because `crates/sutura-config/tests/chart_renders.rs` and `xtask/tests/chart_gate.rs` read
         // `charts/`. The `Chart` step and `kind-smoke` run on every event, so neither needs it.
         name: "chart",
@@ -192,8 +193,10 @@ const AREAS: &[Area] = &[
             "charts/**",
             "examples/single-player/**",
             "nix/k3s-autoscaling.nix",
+            "nix/k3s-worker-pool.nix",
             "nix/helm-chart.nix",
             "nix/oci.nix",
+            "crates/sutura-operator/**",
         ],
         consumers: &["rust"],
     },
@@ -826,7 +829,9 @@ mod tests {
             "charts/sutura/templates/hpa.yaml",
             "examples/single-player/catalog/metrics/churn_rate.md",
             "nix/k3s-autoscaling.nix",
+            "nix/k3s-worker-pool.nix",
             "nix/oci.nix",
+            "crates/sutura-operator/src/reconcile.rs",
         ] {
             let r = classify(&paths(&[path]));
             assert!(!r.run_all, "{path}: {:?}", r.reasons);

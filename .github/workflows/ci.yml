@@ -2189,8 +2189,9 @@ jobs:
         run: nix build .#checks.x86_64-linux.multi-node -L
 
   # THIS CHART IN A k3s CLUSTER INSIDE A NixOS VM (`telekom/sutura#828`), scaled up by its CPU
-  # autoscaler under load and back down. `nix/k3s-autoscaling.nix` says what that observes and what
-  # it does not. Gated on the `chart` area of `xtask/src/changes.rs` - the chart, the pinned helm,
+  # autoscaler under load and back down, and its worker pool started by `sutura-operator` for a
+  # federated question and stopped once idle. `nix/k3s-autoscaling.nix` and `nix/k3s-worker-pool.nix`
+  # say what each observes and what it does not. Gated on the `chart` area of `xtask/src/changes.rs` - the chart, the pinned helm,
   # the image and the test - and held run-or-fail by `ci-aggregate`. `/dev/kvm` as in `multi-node`.
   k3s-autoscaling:
     needs: [ci]
@@ -2221,8 +2222,8 @@ jobs:
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      - name: k3s autoscaling VM test
-        run: nix build .#checks.x86_64-linux.k3s-autoscaling -L
+      - name: k3s autoscaling and worker pool VM tests
+        run: nix build .#checks.x86_64-linux.k3s-autoscaling .#checks.x86_64-linux.k3s-worker-pool -L
 
   # The Oracle docker tier (#127) - the only CI venue that executes a statement against a live
   # Oracle. The `gvenzl/oracle-free` image carries the Oracle Free licence, which permits use for

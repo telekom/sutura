@@ -248,7 +248,26 @@ issues it as the pod starts and renews it in place; sutura reads it once, at sta
       csi.cert-manager.io/dns-names: {{ printf "%s.%s.svc" .name .root.Release.Namespace }}
       csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
       csi.cert-manager.io/duration: {{ .root.Values.workerPool.certificateDuration }}
-      csi.cert-manager.io/fs-group: {{ .root.Values.podSecurityContext.runAsGroup | default 65532 | quote }}
+      csi.cert-manager.io/fs-group: {{ include "sutura.nodeGroup" .root | quote }}
+{{- end -}}
+
+{{/*
+The group a node certificate's files belong to. The driver writes them readable by that group alone,
+so every pod mounting one runs in it as `fsGroup` - the image's own group is not relied on.
+*/}}
+{{- define "sutura.nodeGroup" -}}
+{{- .Values.podSecurityContext.fsGroup | default .Values.podSecurityContext.runAsGroup | default 65532 -}}
+{{- end -}}
+
+{{/*
+`podSecurityContext`, in the group `sutura.nodeGroup` names when the pod mounts a node certificate.
+*/}}
+{{- define "sutura.podSecurityContext" -}}
+{{- $context := deepCopy .Values.podSecurityContext -}}
+{{- if .Values.workerPool.enabled -}}
+{{- $_ := set $context "fsGroup" (include "sutura.nodeGroup" . | int64) -}}
+{{- end -}}
+{{- toYaml $context -}}
 {{- end -}}
 
 {{/*

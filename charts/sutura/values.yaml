@@ -167,6 +167,8 @@ podLabels: {}
 podSecurityContext:
   runAsNonRoot: true
   # The image runs as user 65532. Set runAsUser and runAsGroup to pin a user.
+  # With the worker pool, fsGroup is set to the group node certificates are written for: fsGroup,
+  # else runAsGroup, else 65532.
   seccompProfile:
     type: RuntimeDefault
 

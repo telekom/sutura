@@ -875,6 +875,24 @@
             else
               pkgs.runCommand "k3s-autoscaling-not-on-${system}" { } "echo 'only x86_64-linux runs the k3s autoscaling VM test' > $out";
 
+          # This chart's worker pool in a k3s cluster inside a NixOS VM, started by `sutura-operator`
+          # for a federated question and stopped once idle (`telekom/sutura#828`) -
+          # `nix/k3s-worker-pool.nix` says what it observes and what it does not. A stub on any other
+          # system, for `multi-node`'s reason.
+          k3s-worker-pool =
+            if system == "x86_64-linux" then
+              import ./nix/k3s-worker-pool.nix {
+                inherit pkgs;
+                chartHelm = chart.helm;
+                ociImage = shipped.localImages.oci;
+                operatorImage = shipped.localImages.oci-operator;
+                chart = ./charts/sutura;
+                example = ./examples/single-player;
+                golden = builtins.path { path = ./crates/sutura-app/tests/snapshots + "/recurring-revenue-by-region__rows@datafusion.snap"; name = "recurring-revenue-by-region.snap"; };
+              }
+            else
+              pkgs.runCommand "k3s-worker-pool-not-on-${system}" { } "echo 'only x86_64-linux runs the k3s worker pool VM test' > $out";
+
           # The vendored `oracledb`'s own unit tests for the modules this repository patched, which
           # the workspace's `nextest` never compiles. `nix/vendored-oracledb.nix` says what it runs,
           # and it goes away with the vendored copy.
