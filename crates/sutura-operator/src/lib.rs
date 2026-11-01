@@ -167,6 +167,7 @@ pub fn definition(group: &ApiGroup) -> Result<CustomResourceDefinition, serde_js
     if let Some(required) = status.required.as_mut() {
         required.retain(|field| field != "replicas");
     }
+    status.required = status.required.take().filter(|required| !required.is_empty());
     let root = JSONSchemaProps {
         type_: Some(String::from("object")),
         properties: Some(BTreeMap::from([
