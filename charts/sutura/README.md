@@ -46,6 +46,11 @@ Any other `image.variant` fails the render.
 An upgrade from a chart that ran the glibc image changes the image: set `image.variant: glibc` to keep it.
 `image.performance: true` adds `-performance` before the variant suffix.
 `image.tag` sets the tag as it is.
+Set `image.digest` to pin the exact image instead of a tag (github.com/telekom/sutura#1680
+finding 7), as `sha256:` followed by 64 lower-case hex digits; the chart then renders
+`image.repository@digest` and ignores `image.tag`, `image.variant` and `image.performance`. Any
+other `image.digest` fails the render. `workerPool.operator.image.digest` pins the operator's image
+the same way, independent of the app image's own tag or digest.
 
 ## Logs
 

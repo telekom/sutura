@@ -1,0 +1,26 @@
+# `pool/worker-pool.yaml` with an explicit `workerPool.operator.image.digest`: the operator's
+# image is pinned by digest (github.com/telekom/sutura#1680 finding 7) while the workers still run
+# the app image by tag.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+  max: 3
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  operator:
+    image:
+      digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

@@ -1,0 +1,16 @@
+# An `image.digest` that is not a digest: refused at render time rather than failing a later
+# `kubectl apply` or an image pull that silently falls back to a tag.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  digest: "latest"
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"

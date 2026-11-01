@@ -12,6 +12,10 @@ image:
   # before the variant's suffix (`<version>-performance-musl`). That image exists only for releases
   # where it was published. An explicit `tag` wins and is used as is.
   performance: false
+  # Pin the exact image by digest instead of a tag (github.com/telekom/sutura#1680 finding 7): set
+  # to e.g. "sha256:<64 hex digits>" as `docker inspect` or the registry reports it. When set, the
+  # chart renders `image.repository@digest` and ignores `tag`, `variant` and `performance`.
+  digest: ""
   pullPolicy: IfNotPresent
 
 # Secrets that hold image pull credentials.
@@ -138,6 +142,9 @@ workerPool:
     image:
       # Empty means the app version with `-operator`, then `-musl` when image.variant is musl.
       tag: ""
+      # Pin the operator's image by digest instead of a tag, the same way image.digest does for
+      # the app image. When set, the chart renders `image.repository@digest` and ignores `tag`.
+      digest: ""
     resources: {}
 
 # Engine thread and memory settings for the runtime.

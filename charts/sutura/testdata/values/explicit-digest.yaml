@@ -1,0 +1,17 @@
+# `minimal.yaml` with an explicit `image.digest`: the app image is pinned by digest instead of a
+# tag (github.com/telekom/sutura#1680 finding 7), and `image.tag`/`variant`/`performance` are
+# ignored.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+image:
+  digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
