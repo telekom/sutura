@@ -1599,11 +1599,11 @@ jobs:
         run: |
           set -u
           runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$GITHUB_SHA&per_page=100" \
-            --jq '.workflow_runs[] | select(.event == "merge_group" and .head_sha == $ENV.GITHUB_SHA and .status == "completed" and .conclusion == "success") | .id')" || runs=""
+            | jq -r --arg sha "$GITHUB_SHA" '.workflow_runs[] | select(.event == "merge_group" and .head_sha == $sha and .status == "completed" and .conclusion == "success") | .id')" || runs=""
           passed=""
           for run in $runs; do
             jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=latest&per_page=100" \
-              --jq '.jobs[] | select(.head_sha == $ENV.GITHUB_SHA and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
+              | jq -r --arg sha "$GITHUB_SHA" '.jobs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
             passed="$passed"$'\n'"$jobs"
           done
           for leg in keycloak-served-test bigquery-driver-check multi-node k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do

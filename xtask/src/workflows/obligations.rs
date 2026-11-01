@@ -809,7 +809,7 @@ mod tests {
             ("the run's event", r#"select(.event == "merge_group" and "#, "select("),
             (
                 "the run's commit",
-                r#""merge_group" and .head_sha == $ENV.GITHUB_SHA and "#,
+                r#""merge_group" and .head_sha == $sha and "#,
                 r#""merge_group" and "#,
             ),
             (
@@ -823,11 +823,7 @@ mod tests {
                 r#"and .status == "completed") | .id"#,
             ),
             ("the latest attempt", "jobs?filter=latest&per_page=100", "jobs?per_page=100"),
-            (
-                "the job's commit",
-                "select(.head_sha == $ENV.GITHUB_SHA and .status",
-                "select(.status",
-            ),
+            ("the job's commit", "select(.head_sha == $sha and .status", "select(.status"),
             (
                 "a skipped job counts",
                 r#".conclusion == "success") | .name"#,
