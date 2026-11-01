@@ -49,7 +49,7 @@ flight = ["dep:sutura-flight", "sutura-flight/service", "dep:arrow-flight", "axu
 # `agent`'s, and answered only on a connection whose client presented a node certificate. That
 # certificate is only ever read by the TLS listener, so the feature turns on `tls`; HTTP/2 for the
 # same reason `flight` takes it.
-worker = ["tls", "axum/http2"]
+worker = ["tls", "axum/http2", "dep:http-body"]
 
 # `ServiceState::new` over bare `Arc<Settings>` that `ServableSettings::check` was never asked of,
 # for another crate's test fixtures - this crate's own tests have it under `cfg(test)`. Turned on
@@ -118,6 +118,10 @@ tracing = { workspace = true }
 # new package in `Cargo.lock`: `sutura-exec-bigquery` already resolves this version.
 getrandom = { version = "0.4" }
 ureq = { workspace = true }
+# A worker's response body that keeps its call in the in-flight count until it is dropped, which
+# names `Frame` and `SizeHint`; `axum` re-exports the trait and neither of those. Already in the lock
+# through `axum`, so no new package.
+http-body = { version = "1", optional = true }
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }

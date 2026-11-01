@@ -42,3 +42,31 @@ async fn a_worker_router_serves_liveness_and_the_worker_subtree_and_nothing_a_ca
     let (status, _body) = call(&app, certified).await;
     assert_eq!(status, StatusCode::OK, "a node's call did not reach the worker service");
 }
+
+#[tokio::test]
+async fn a_worker_counts_a_node_call_in_flight_until_its_response_stream_is_dropped() {
+    let streaming = tower::service_fn(|_request: axum::extract::Request| async move {
+        Ok::<_, std::convert::Infallible>(axum::response::Response::new(Body::from_stream(
+            futures_util::stream::pending::<Result<axum::body::Bytes, std::convert::Infallible>>(),
+        )))
+    });
+    let app = super::worker_router(&settings_with(""), &WorkerMount::new(streaming)).expect("the worker router builds");
+
+    let mut certified = request("POST", EXECUTE_TASK, None, Body::empty());
+    let _previous = certified.extensions_mut().insert(NodeCertified);
+    let answered = tower::ServiceExt::oneshot(app.clone(), certified)
+        .await
+        .expect("the router answers");
+    let (_status, during) = call(&app, request("GET", "/metrics", None, Body::empty())).await;
+    assert!(
+        during.contains("\nsutura_worker_requests_in_flight 1\n"),
+        "a call whose stream is still open is not counted: {during}"
+    );
+
+    drop(answered);
+    let (_status, after) = call(&app, request("GET", "/metrics", None, Body::empty())).await;
+    assert!(
+        after.contains("\nsutura_worker_requests_in_flight 0\n"),
+        "a dropped stream is still counted: {after}"
+    );
+}
