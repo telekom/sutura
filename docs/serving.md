@@ -86,7 +86,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | A source that the catalog reads and no `sources.<alias>` entry declares                                             | Declare the source                                                                          |
 | `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                     | Use a posture the adapter supports                                                          |
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                      | Declare `verification_identity`, or remove the anchor                                       |
-| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and no acknowledged shared source                   | Acknowledge a shared source, use `single-user`, or leave the tool off                       |
+| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one  | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
 | `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements | List the sources the tool runs over, each one whose adapter runs a raw statement            |
 | A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                    | Remove them from `security.outbound`, or serve that source from a deployment without them   |
 | A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                         | The message names the feature. Use a build that has it                                      |
@@ -184,11 +184,11 @@ call to `/v1/sql/run` gets `403` with `code: tool_not_enabled` and a detail that
 on this deployment. The operator turns it on with `tools.run_sql.enabled`. ``. This holds for every caller, with or
 without the scope. When it is on, the caller needs `sutura:sql.run` as well: without it, `/v1/sql/run` gets `403` with
 `code: insufficient_scope`, and `/mcp` gets `-32601` with a message that names the scope. `tools.run_sql.sources` lists,
-by alias, the sources the tool runs over. Nothing is inferred: with the tool on, an empty list is a startup refusal, and
-so is an alias that no source declares or whose adapter runs no raw statement. A build without the `sql` feature passes
-the statement, unparsed, to the one listed source, and answers only where the deployment has one source. The row cap of
-a certified answer applies, and every call writes an audit record. The page of the data system says what bounds a
-statement: [Postgres](integrations/data-systems/postgres.md),
+by alias, the sources the tool runs over. Nothing is inferred: an empty list, or one naming an alias twice, does not parse;
+with the tool on, no list is a startup refusal, and so is an alias that no source declares or whose adapter runs no raw
+statement. A build without the `sql` feature passes the statement, unparsed, to the one listed source, and answers only
+where the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record.
+The page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
 [DuckDB](integrations/data-systems/duckdb.md).
 
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,

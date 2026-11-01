@@ -301,13 +301,18 @@ pub(super) fn parse_plan_ceilings(raw: &RawSettings) -> Result<PlanCeilings, Set
 ///
 /// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
 /// its own copy of the defaults gets the default rather than a deserialization failure.
-/// Infallible past deserialization, which already parsed each listed alias. Named as its own
-/// function anyway, matching the other groups, so `Settings::parse` reads as one list of "read this
-/// section" calls rather than one inline and the rest not.
-pub(super) fn parse_tools(raw: &RawSettings) -> crate::tools::ToolsSettings {
-    crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
+/// Deserialization already parsed each listed alias; the list itself is parsed here.
+pub(super) fn parse_tools(raw: &RawSettings) -> Result<crate::tools::ToolsSettings, SettingsError> {
+    let sources = raw
+        .tools
+        .run_sql
+        .sources
+        .clone()
+        .map(crate::tools::RunSqlSources::parse)
+        .transpose();
+    Ok(crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
         .with_federation_allowed(raw.tools.run_sql.federation_allowed)
-        .with_sources(raw.tools.run_sql.sources.clone())
+        .with_sources(sources.map_err(|cause| SettingsError::RunSqlSources { cause })?))
 }
 
 pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {

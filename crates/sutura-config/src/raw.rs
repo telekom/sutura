@@ -847,10 +847,11 @@ pub(crate) struct RawRunSql {
     /// Off unless an operator writes `true`, and then [`Self::sources`] must list a source.
     #[serde(default)]
     pub(crate) enabled: bool,
-    /// The source aliases the tool runs over. Nothing is inferred: an enabled tool with an empty list
-    /// is a startup refusal, and more than one in a build without the `sql` feature is another.
+    /// The source aliases the tool runs over. Nothing is inferred: an empty or repeating list does
+    /// not parse, an enabled tool without the key is a startup refusal, and more than one in a build
+    /// without the `sql` feature is another.
     #[serde(default)]
-    pub(crate) sources: Vec<sutura_domain::model::SourceName>,
+    pub(crate) sources: Option<Vec<sutura_domain::model::SourceName>>,
     /// Whether one statement may name tables in more than one source. Off unless an operator writes
     /// `true`, and `true` in a build without the `sql` feature is a startup refusal.
     #[serde(default)]

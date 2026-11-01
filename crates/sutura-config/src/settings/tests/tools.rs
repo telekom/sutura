@@ -122,16 +122,29 @@ fn federation_allowed_false_is_read_and_refuses_nothing() {
 fn the_raw_tool_on_over_no_listed_source_is_not_fit_to_serve() {
     // Nothing is inferred: an operator who turns the tool on names what it runs over. By rendered
     // text, so the cell compiles against a tree that lacks the refusal and fails by assertion there.
-    const SINGLE_USER: &str = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
-    for list in ["", "    sources: []\n"] {
-        let refusals = refusals_of(format!("{SINGLE_USER}tools:\n  run_sql:\n    enabled: true\n{list}"));
-        let rendered: Vec<String> = refusals.iter().map(ToString::to_string).collect();
-        assert_eq!(rendered.len(), 1, "{list:?}: {rendered:?}");
-        assert!(
-            rendered
-                .iter()
-                .all(|refusal| refusal.contains("tools.run_sql.sources lists no source")),
-            "{list:?}: {rendered:?}"
-        );
-    }
+    let refusals = refusals_of(String::from(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\ntools:\n  run_sql:\n    enabled: true\n",
+    ));
+    let rendered: Vec<String> = refusals.iter().map(ToString::to_string).collect();
+    assert_eq!(rendered.len(), 1, "{rendered:?}");
+    assert!(
+        rendered
+            .iter()
+            .all(|refusal| refusal.contains("tools.run_sql.sources lists no source")),
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn the_raw_tool_in_multi_user_mode_over_a_listed_impersonating_source_is_not_fit_to_serve() {
+    // Every listed source answers for itself: an acknowledged shared source does not carry an
+    // `impersonation-at-source` one listed beside it.
+    let listed =
+        "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\", \"other\"]\n";
+    let other = format!("  other:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/other\"\n{IMPERSONATING}");
+    let refusals = refusals_of(format!("{listed}{LOCAL}{SHARED}{ACKNOWLEDGED}{other}"));
+    assert!(
+        refusals.contains(&NotFitToServe::RunSqlEnabledInMultiUserMode),
+        "{refusals:?}"
+    );
 }
