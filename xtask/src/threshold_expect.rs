@@ -32,15 +32,18 @@ use crate::rust_source;
 /// message builds the `clippy::` prefix so this source cannot report itself.
 const FORBIDDEN: &[&str] = &["too_many_lines", "too_many_arguments", "cognitive_complexity"];
 
-/// Rust source, and nothing else. A [`repo::Scope`]: a bare `fn`, so it cannot count subjects and
-/// is not handed the content - an ordinal narrowing has nowhere to keep its counter. It is NOT
-/// sealed against a predicate that opens the file itself; [`repo::Scope`] measures that fail-open
-/// and says which of the five printed numbers it can and cannot move.
+/// Rust source outside `vendor/`, and nothing else. `vendor/` is upstream's code kept as published
+/// and excluded from the workspace, so no workspace clippy run holds its `#[expect]`s to firing;
+/// `VENDOR.md` is where a local change to it is argued. A [`repo::Scope`]: a bare `fn`, so it cannot
+/// count subjects and is not handed the content - an ordinal narrowing has nowhere to keep its
+/// counter. It is NOT sealed against a predicate that opens the file itself; [`repo::Scope`]
+/// measures that fail-open and says which of the five printed numbers it can and cannot move.
 fn rust_source(rel: &str) -> bool {
-    std::path::Path::new(rel)
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|ext| ext == "rs")
+    !rel.starts_with("vendor/")
+        && std::path::Path::new(rel)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|ext| ext == "rs")
 }
 
 /// One banned attribute, located for the report.
@@ -432,6 +435,9 @@ fn collisions(needles: &[Needle]) -> Vec<NeedleViolation> {
     }
     out
 }
+
+#[cfg(test)]
+mod scope_tests;
 
 #[cfg(test)]
 mod tests {
