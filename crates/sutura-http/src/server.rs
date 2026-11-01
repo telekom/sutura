@@ -271,6 +271,7 @@ where
             () = signal_tx.closed() => break,
         };
 
+        tracing::trace!(%address, "connection accepted");
         let peer = L::peer(&io, address);
         let io = TokioIo::new(io);
         let service = Extension(ConnectInfo(peer))
