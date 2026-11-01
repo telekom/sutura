@@ -265,6 +265,7 @@ spec:
         app.kubernetes.io/instance: test-release
     spec:
       securityContext:
+        fsGroup: 65532
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -394,6 +395,7 @@ spec:
         app.kubernetes.io/instance: test-release
     spec:
       securityContext:
+        fsGroup: 65532
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -468,6 +470,7 @@ spec:
         app.kubernetes.io/instance: test-release
     spec:
       securityContext:
+        fsGroup: 65532
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault

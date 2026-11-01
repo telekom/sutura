@@ -166,7 +166,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "sutura.podSecurityContext" . | nindent 8 }}
       serviceAccountName: {{ $fullname }}-operator
       # The operator reads the cluster with its own account's token.
       automountServiceAccountToken: true
@@ -222,7 +222,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- include "sutura.podSecurityContext" . | nindent 8 }}
       serviceAccountName: {{ include "sutura.serviceAccountName" . }}
       # A stage runs at most as long as the question it serves.
       terminationGracePeriodSeconds: {{ add $timeout 10 }}

@@ -209,7 +209,7 @@ pkgs.testers.runNixOSTest {
             machine.wait_until_succeeds("test \"$(kubectl get deployment sutura-workers -o jsonpath='{.spec.replicas}')\" = 0", timeout=300)
             reported(0)
     except Exception:
-        print(machine.execute("kubectl get suturaworkerpools -o yaml; kubectl get pods -A; kubectl describe pods; kubectl logs deployment/sutura-operator --tail=100; kubectl logs deployment/sutura --tail=100; kubectl logs -l app.kubernetes.io/name=sutura-worker --tail=100")[1])
+        print(machine.execute("kubectl get suturaworkerpools -o yaml; kubectl get pods -A; kubectl describe pods; kubectl get pods -o custom-columns='NAME:.metadata.name,USER:.status.containerStatuses[*].user'; ls -lanR /var/lib/kubelet/pods/*/volumes/kubernetes.io~csi; kubectl logs deployment/sutura-operator --tail=100; kubectl logs deployment/sutura --tail=100; kubectl logs -l app.kubernetes.io/name=sutura-worker --tail=100")[1])
         raise
   '';
 }
