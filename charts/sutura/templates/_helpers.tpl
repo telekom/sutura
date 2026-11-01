@@ -66,7 +66,17 @@ entry the binary would read as one of them is refused against the list the Deplo
       name: {{ .Values.security.metricsToken.secretName }}
       key: {{ .Values.security.metricsToken.secretKey }}
 {{- end }}
-{{- if .Values.tls.enabled }}
+{{- if .Values.workerPool.enabled }}
+{{ include "sutura.nodeTls" . }}
+# The Service names every serving pod alike; the pod's own address after `#` is where a worker
+# answers this one.
+- name: POD_IP
+  valueFrom:
+    fieldRef:
+      fieldPath: status.podIP
+- name: SUTURA__SERVER__NODES__OWN
+  value: {{ printf "https://%s.%s.svc:%v#$(POD_IP)" (include "sutura.fullname" .) .Release.Namespace .Values.service.port | quote }}
+{{- else if .Values.tls.enabled }}
 - name: SUTURA__SECURITY__TLS_TERMINATION
   value: "in-process"
 - name: SUTURA__SERVER__TLS_CERTIFICATE
@@ -176,7 +186,7 @@ so a values file that breaks an earlier rule still fails at that rule.
 {{- if not .Values.security.metricsToken.secretName -}}
 {{ fail "security.metricsToken.secretName is required: this chart's Service makes the pod reachable off-host, and sutura refuses to start with no security.metrics_token there (Settings::refusals::MetricsTokenRequired)" }}
 {{- end -}}
-{{- $tlsDeclared := or .Values.tls.enabled (ne .Values.security.tlsTermination "") -}}
+{{- $tlsDeclared := or .Values.tls.enabled (ne .Values.security.tlsTermination "") .Values.workerPool.enabled -}}
 {{- if not $tlsDeclared -}}
 {{ fail "set tls.enabled=true or security.tlsTermination (sidecar|ingress|in-process): sutura refuses to start off-host with security.tls_termination undeclared (Settings::refusals::TlsTerminationUndeclared)" }}
 {{- end -}}
@@ -194,6 +204,59 @@ so a values file that breaks an earlier rule still fails at that rule.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The worker pool's own guards, outside the posture guard: no binary reads the issuer, and a TLS
+setting beside the pool's would be dropped without a word, as the pool's node certificate replaces it.
+*/}}
+{{- define "sutura.requireWorkerPool" -}}
+{{- if not .Values.workerPool.issuer.name -}}
+{{ fail "workerPool.enabled requires workerPool.issuer.name: every node's certificate comes from that cert-manager issuer, and its CA certificate is the node authority" }}
+{{- end -}}
+{{- if or .Values.tls.enabled (not (has .Values.security.tlsTermination (list "" "in-process"))) -}}
+{{ fail "workerPool.enabled ends TLS in each pod with its node certificate: set tls.enabled to false and security.tlsTermination to empty or in-process" }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+TLS in the pod from its node certificate, which also makes the node identity.
+*/}}
+{{- define "sutura.nodeTls" -}}
+- name: SUTURA__SECURITY__TLS_TERMINATION
+  value: "in-process"
+- name: SUTURA__SERVER__TLS_CERTIFICATE
+  value: /etc/sutura/node/tls.crt
+- name: SUTURA__SERVER__TLS_KEY
+  value: /etc/sutura/node/tls.key
+- name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+  value: /etc/sutura/node/ca.crt
+{{- end -}}
+
+{{/*
+A pod's node certificate from cert-manager's CSI driver, for the service name in `name`. The driver
+issues it as the pod starts and renews it in place; sutura reads it once, at start.
+*/}}
+{{- define "sutura.nodeCertificate" -}}
+- name: node
+  csi:
+    driver: csi.cert-manager.io
+    readOnly: true
+    volumeAttributes:
+      csi.cert-manager.io/issuer-name: {{ .root.Values.workerPool.issuer.name }}
+      csi.cert-manager.io/issuer-kind: {{ .root.Values.workerPool.issuer.kind }}
+      csi.cert-manager.io/dns-names: {{ printf "%s.%s.svc" .name .root.Release.Namespace }}
+      csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+      csi.cert-manager.io/duration: {{ .root.Values.workerPool.certificateDuration }}
+      csi.cert-manager.io/fs-group: {{ .root.Values.podSecurityContext.runAsGroup | default 65532 | quote }}
+{{- end -}}
+
+{{/*
+The operator's tag: an explicit `workerPool.operator.image.tag`, else the app version with
+`-operator`, then `-musl` when `image.variant` is `musl`.
+*/}}
+{{- define "sutura.operatorImageTag" -}}
+{{- .Values.workerPool.operator.image.tag | default (printf "%s-operator%s" .Chart.AppVersion (ternary "-musl" "" (eq .Values.image.variant "musl"))) -}}
 {{- end -}}
 
 {{/*

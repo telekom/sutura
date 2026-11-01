@@ -36,12 +36,15 @@
 #
 # NO NETWORK AT CHECK TIME. `kubeconform`'s default schema source is a URL fetch, which a nix
 # sandbox refuses - so `schemas` below vendors the schema files this chart's own Kinds need
-# (Service, ConfigMap, Deployment, ServiceAccount, HorizontalPodAutoscaler) as fixed-output
+# (Service, ConfigMap, Deployment, ServiceAccount, HorizontalPodAutoscaler, Role, RoleBinding) as fixed-output
 # derivations, each pinned by content hash rather than by trusting the tag. `-strict` still
 # passes against them - checked by rendering this chart's own complete-values output through
 # kubeconform locally before this comment was written, not asserted from the tool's docs. `ServiceMonitor` is a Prometheus
 # Operator CRD with no schema in this set; `-skip ServiceMonitor` is the documented answer
-# for a CRD with no vendored schema, not a workaround for a hole in this pin.
+# for a CRD with no vendored schema, not a workaround for a hole in this pin. `SuturaWorkerPool` is
+# this chart's own such kind, and `CustomResourceDefinition` has no standalone schema at this pin
+# (its schema is recursive); `sutura-operator`'s own test holds the rendered definition equal to
+# the one it generates.
 #
 # TWO KUBERNETES VERSIONS, not several: no Kind this chart renders (`apps/v1` since 1.9,
 # `v1` Service/ConfigMap since 1.0, `autoscaling/v2` since 1.23) has moved its `apiVersion`
@@ -74,6 +77,10 @@ let
       "$out/v1.29.0-standalone-strict/serviceaccount-v1.json"
     cp ${schemaFile "v1.29.0-standalone-strict" "horizontalpodautoscaler-autoscaling-v2.json" "sha256-KOUv7f3SkHjqzSAwkyEkkkWlMecMKOdjXAgHm0TjLZE="} \
       "$out/v1.29.0-standalone-strict/horizontalpodautoscaler-autoscaling-v2.json"
+    cp ${schemaFile "v1.29.0-standalone-strict" "role-rbac-v1.json" "sha256-d8iuDfJeSbo7Bir0L3vZtnqehYl4wDD9VgyPET2pCI4="} \
+      "$out/v1.29.0-standalone-strict/role-rbac-v1.json"
+    cp ${schemaFile "v1.29.0-standalone-strict" "rolebinding-rbac-v1.json" "sha256-OtrN2eki+QgPu95j5BJrXcRm2PUmH/mzJ8pv4khqmEE="} \
+      "$out/v1.29.0-standalone-strict/rolebinding-rbac-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "configmap-v1.json" "sha256-4Ord69Z3wIqgkrLaImTYasT8NO7RErn6wpRbPwDB6bE="} \
       "$out/v1.31.0-standalone-strict/configmap-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "deployment-apps-v1.json" "sha256-PjAI9mpfaM7jmESFrBiS2+3H8HKzqHBkEWurKUh06Z4="} \
@@ -84,6 +91,10 @@ let
       "$out/v1.31.0-standalone-strict/serviceaccount-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "horizontalpodautoscaler-autoscaling-v2.json" "sha256-dedLYU2Qnh0BQPaihtbViHbJWRkX69P4RW98dkbLkh8="} \
       "$out/v1.31.0-standalone-strict/horizontalpodautoscaler-autoscaling-v2.json"
+    cp ${schemaFile "v1.31.0-standalone-strict" "role-rbac-v1.json" "sha256-3+j7A7FkL5hbV7Eu3RcntoZ8E+1LZ2Hvgb3VGx0jZxE="} \
+      "$out/v1.31.0-standalone-strict/role-rbac-v1.json"
+    cp ${schemaFile "v1.31.0-standalone-strict" "rolebinding-rbac-v1.json" "sha256-h6tiDQrd3NKAO5I1f84oVK91IybfjFQIp1iKrpizAx0="} \
+      "$out/v1.31.0-standalone-strict/rolebinding-rbac-v1.json"
   '';
 in
 {
@@ -124,15 +135,18 @@ in
     kubeVersions="1.29.0 1.31.0"
     failed=0
 
-    for valuesFile in "$testdata"/values/*.yaml; do
-      name="$(basename "$valuesFile" .yaml)"
+    # `values/pool/` holds the worker pool's renders, which `chart_renders.rs` reads one Deployment
+    # at a time rather than as the single serving pod the top-level goldens are.
+    for valuesFile in "$testdata"/values/*.yaml "$testdata"/values/pool/*.yaml; do
+      name="''${valuesFile#"$testdata"/values/}"
+      name="''${name%.yaml}"
       golden="$testdata/golden/$name.yaml"
       if [ ! -f "$golden" ]; then
         echo "sutura-chart: $valuesFile has no golden at $golden" >&2
         failed=1
         continue
       fi
-      rendered="$work/$name.rendered.yaml"
+      rendered="$work/''${name//\//-}.rendered.yaml"
       helm template test-release "$chart" -f "$valuesFile" > "$rendered"
       if ! diff -u "$golden" "$rendered"; then
         echo "sutura-chart: $name's render drifted from its golden (diff above)." \
@@ -144,7 +158,7 @@ in
         kubeconform -strict -summary \
           -kubernetes-version "$kv" \
           -schema-location '${schemas}/{{ .NormalizedKubernetesVersion }}-standalone-strict/{{ .ResourceKind }}{{ .KindSuffix }}.json' \
-          -skip ServiceMonitor \
+          -skip ServiceMonitor,SuturaWorkerPool,CustomResourceDefinition \
           "$rendered"
       done
     done
@@ -202,10 +216,10 @@ in
     done
 
     # The other direction: a golden with no values file left it orphaned rather than removed.
-    for goldenFile in "$testdata"/golden/*.yaml; do
-      name="$(basename "$goldenFile" .yaml)"
-      if [ ! -f "$testdata/values/$name.yaml" ]; then
-        echo "sutura-chart: $goldenFile has no matching values file at testdata/values/$name.yaml" >&2
+    for goldenFile in "$testdata"/golden/*.yaml "$testdata"/golden/pool/*.yaml; do
+      name="''${goldenFile#"$testdata"/golden/}"
+      if [ ! -f "$testdata/values/$name" ]; then
+        echo "sutura-chart: $goldenFile has no matching values file at testdata/values/$name" >&2
         failed=1
       fi
     done

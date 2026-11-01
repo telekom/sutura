@@ -57,6 +57,11 @@ spec:
               mountPath: /etc/sutura/tls
               readOnly: true
             {{- end }}
+            {{- if .Values.workerPool.enabled }}
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+            {{- end }}
             {{- if .Values.security.inbound.keySetSecretName }}
             - name: inbound-keys
               mountPath: /etc/sutura/inbound-keys
@@ -69,16 +74,23 @@ spec:
           # deliberately no readiness route - docs/serving.md. The startup probe carries the
           # generous failure budget: boot re-verifies every anchor before the listener opens,
           # a round trip per anchor against a networked source.
+          {{- $https := or .Values.tls.enabled .Values.workerPool.enabled (eq .Values.security.tlsTermination "in-process") }}
           startupProbe:
             httpGet:
               path: /health
               port: http
+              {{- if $https }}
+              scheme: HTTPS
+              {{- end }}
             failureThreshold: {{ .Values.probes.startup.failureThreshold }}
             periodSeconds: {{ .Values.probes.startup.periodSeconds }}
           livenessProbe:
             httpGet:
               path: /health
               port: http
+              {{- if $https }}
+              scheme: HTTPS
+              {{- end }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           securityContext:
@@ -93,6 +105,9 @@ spec:
         - name: tls
           secret:
             secretName: {{ .Values.tls.secretName }}
+        {{- end }}
+        {{- if .Values.workerPool.enabled }}
+        {{- include "sutura.nodeCertificate" (dict "root" . "name" (include "sutura.fullname" .)) | nindent 8 }}
         {{- end }}
         {{- if .Values.security.inbound.keySetSecretName }}
         - name: inbound-keys

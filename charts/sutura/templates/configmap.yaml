@@ -3,9 +3,17 @@ The settings directory `SUTURA_CONFIG_DIR` points at: `base.yaml`, then
 `<environment>.yaml`, layered by `sutura-config` on top of the binary's embedded defaults -
 `crates/sutura-config/src/settings.rs`'s `Sources::with_directory`. Values are copied
 verbatim; this chart parses none of them. `telemetry` in `base.yaml` is the chart's own default, which a
-`telemetry` key in `config.base` overrides, and the environment file overrides in turn.
+`telemetry` key in `config.base` overrides, and the environment file overrides in turn. So does
+`server.nodes`, which the worker pool adds.
 */}}
 {{- include "sutura.requireOffHostPosture" . -}}
+{{- $defaults := dict "telemetry" (dict "format" .Values.telemetry.format "filter" .Values.telemetry.filter) -}}
+{{- if .Values.workerPool.enabled -}}
+{{- $nodes := dict "others" (list (printf "https://%s-workers.%s.svc:%v" (include "sutura.fullname" .) .Release.Namespace .Values.service.port)) -}}
+{{- with .Values.workerPool.acrossAboveBytes }}{{ $_ := set $nodes "across_above_bytes" (int64 .) }}{{ end -}}
+{{- with .Values.workerPool.waitForWorkersSeconds }}{{ $_ := set $nodes "wait_for_workers_seconds" (int .) }}{{ end -}}
+{{- $_ := set $defaults "server" (dict "nodes" $nodes) -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,6 +22,6 @@ metadata:
     {{- include "sutura.labels" . | nindent 4 }}
 data:
   base.yaml: |
-    {{- toYaml (mustMergeOverwrite (dict "telemetry" (dict "format" .Values.telemetry.format "filter" .Values.telemetry.filter)) (.Values.config.base | default dict)) | nindent 4 }}
+    {{- toYaml (mustMergeOverwrite $defaults (.Values.config.base | default dict)) | nindent 4 }}
   {{ .Values.environment }}.yaml: |
     {{- toYaml .Values.config.environment | nindent 4 }}

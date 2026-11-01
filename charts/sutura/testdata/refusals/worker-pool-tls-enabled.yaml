@@ -1,0 +1,15 @@
+# The worker pool beside `tls.enabled`: the pool's node certificate would replace this one without
+# a word.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+tls:
+  enabled: true
+  secretName: sutura-tls
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
