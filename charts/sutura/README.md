@@ -66,6 +66,19 @@ Every pod gets its own certificate from that issuer and ends TLS itself, so the 
 A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
 The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
 
+### Node issuer
+
+Any certificate signed by `workerPool.issuer` is treated as a node: the server checks the chain,
+not the name, so a workload holding one of this issuer's certificates can run stages on every node
+of this release. Dedicate the issuer to this release - never point two releases, or a workload this
+release does not run, at the same CA. The chart refuses `workerPool.issuer.kind: ClusterIssuer`
+unless `workerPool.issuer.acknowledgeSharedIssuer: true` is also set, because a `ClusterIssuer` can
+sign for every namespace in the cluster. **Stated limit:** the chart cannot check that a namespaced
+`Issuer` is dedicated to this release rather than shared by name with another release or hand-issued
+elsewhere - it refuses only the `ClusterIssuer` case it can see from the values file. It also does
+not check the certificate's Subject Alternative Name at the TLS layer; that check, if added, belongs
+in the server (`crates/sutura-http/src/tls/authority.rs`), not in this chart.
+
 ## Configure
 
 Set every option in `values.yaml`.

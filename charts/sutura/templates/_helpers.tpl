@@ -217,6 +217,9 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 {{- if or .Values.tls.enabled (not (has .Values.security.tlsTermination (list "" "in-process"))) -}}
 {{ fail "workerPool.enabled ends TLS in each pod with its node certificate: set tls.enabled to false and security.tlsTermination to empty or in-process" }}
 {{- end -}}
+{{- if and (eq .Values.workerPool.issuer.kind "ClusterIssuer") (not .Values.workerPool.issuer.acknowledgeSharedIssuer) -}}
+{{ fail "workerPool.issuer.kind is ClusterIssuer: any certificate this node authority signs is a node (github.com/telekom/sutura#1680 finding 5), and a ClusterIssuer can sign for every namespace in the cluster, not only this release - dedicate a namespaced Issuer to this release's node authority, or set workerPool.issuer.acknowledgeSharedIssuer: true to accept that any workload able to ask the ClusterIssuer for a certificate joins the node set" }}
+{{- end -}}
 {{- end -}}
 
 {{/*

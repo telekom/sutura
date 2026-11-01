@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/worker-pool.yaml:9:4): workerPool.issuer.kind is ClusterIssuer: any certificate this node authority signs is a node (github.com/telekom/sutura#1680 finding 5), and a ClusterIssuer can sign for every namespace in the cluster, not only this release - dedicate a namespaced Issuer to this release's node authority, or set workerPool.issuer.acknowledgeSharedIssuer: true to accept that any workload able to ask the ClusterIssuer for a certificate joins the node set
+
+Use --debug flag to render out invalid YAML
