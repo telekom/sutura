@@ -308,10 +308,10 @@ jobs:
       # `deps` stayed `false` for every one of them. `deps_closure`'s patterns are exactly
       # `nix-store-cache`'s own `primary-key` inputs (`crate::changes::DEPS_CLOSURE_INPUTS`).
       deps_closure: ${{ steps.classify.outputs.deps_closure }}
-      # AREA axis again, for `ci-aggregate` alone: the three flags `causality` and
-      # `postgres-linked-driver` are selected by. They were these steps' own conditions before #1280
-      # moved the steps out, and the aggregate reads `ci`'s copy so a job that skips where `ci`
-      # selects is red rather than silently absent.
+      # AREA axis again, for `ci-aggregate` alone: the three flags `causality`,
+      # `postgres-linked-driver` and `shipped-features` are selected by. They were these steps' own
+      # conditions before #1280 and #1696 moved the steps out, and the aggregate reads `ci`'s copy so
+      # a job that skips where `ci` selects is red rather than silently absent.
       rust: ${{ steps.classify.outputs.rust }}
       run_all: ${{ steps.classify.outputs.run_all }}
       nix: ${{ steps.classify.outputs.nix }}
@@ -602,9 +602,9 @@ jobs:
       #     they would have said, so deferring them to the next push costs a round trip and not a
       #     guarantee. `Secrets` is the case where that argument fails, because a committed
       #     credential is already disclosed - which is why that one got the line and this did not.
-      #   * `CRAP score` now follows the two shipped-feature-set steps, which is the order #639
-      #     asked for: behaviour before the metrics about the behaviour. `Test causality` followed
-      #     them too until #1280 moved it into its own job.
+      #   * `CRAP score` followed the two shipped-feature-set steps, which is the order #639 asked
+      #     for: behaviour before the metrics about the behaviour. `Test causality` followed them
+      #     too until #1280 moved it into its own job, and #1696 moved the two steps into theirs.
       #
       # NO GATE PAIRS A ROOT WITH ITS STEP, and the reason that is tolerable is the blast radius,
       # stated rather than assumed. If someone narrows a step's `if:` and forgets its root, or the
@@ -626,9 +626,9 @@ jobs:
       # #985 D2 (owner decision, issuecomment-5900985733): push `ci` is reduced to its 3 unique
       # outputs (CRAP baseline, last-validated marker, main-scoped Nix-store cache save). Every step
       # below this point that verifies the tree - the closure-free gates, the stage-2 lint gates, the
-      # stage-3 tests and tiers, the shipped feature set - is gated off on `push`, because the merge
-      # queue already verified the same tree (`causality` and `postgres-linked-driver`, the two jobs
-      # #1280 moved out of this one, carry the same `!= 'push'`). `github.event_name != 'push'` on each step is
+      # stage-3 tests and tiers - is gated off on `push`, because the merge queue already verified
+      # the same tree (`causality` and `postgres-linked-driver`, which #1280 moved out of this one,
+      # and `shipped-features`, which #1696 did, carry the same `!= 'push'`). `github.event_name != 'push'` on each step is
       # the mechanism; `xtask/src/workflows/obligations.rs` pins it on Secrets, Licensing and Chart
       # only.
       - name: Realise the closure-free gates in one graph
@@ -953,69 +953,6 @@ jobs:
       - name: API reference pages
         if: steps.classify.outputs.api == 'true' && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.api-docs -L
-
-      # THE ONLY TWO STEPS HERE THAT TOUCH CARGO'S DEFAULT FEATURES - the set `nix/shipped.nix`
-      # publishes and no other venue in this job uses. Every compiling gate above passes
-      # `--all-features`, `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever
-      # compiled with the feature ON was a hard error in the exact configuration a release builds
-      # while every step here was green. That shipped once, and its `cfg(not(..))` TEST was compiled
-      # by the gate below and executed by nothing at all.
-      #
-      # Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
-      # registry and a writable target directory the sandbox has not got.
-      #
-      # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
-      # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
-      # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third
-      # of each dependency graph is compiled again. Whichever runs first pays that; the second
-      # reuses it. `xtask/src/default_features.rs` carries the measurement and says why the
-      # recompile is the price of the question rather than a defect. Neither position makes the warm
-      # start possible: the stage-2 graph puts the closure in the store before either of these
-      # steps, whichever way round they sit.
-      #
-      # BEFORE `CRAP score` NOW (#639 slice I), and before `Test causality` until #1280 moved
-      # that out, where they used to follow both. The old order was argued as a correctness one
-      # - `Test causality` regenerates
-      # build script output whose baked `OUT_DIR` did not survive the unpack - and that argument
-      # does not hold, because the purge is not the causality step's to do: all three tail apps
-      # reach the writable dir through `cargoWarmStart` in `nix/cargo-env.nix`, which embeds
-      # `nix/purge-baked-out-dirs.sh` itself. So the sweep happens in whichever of the three runs
-      # first, and the order decides only which step pays for it - exactly as the sentence this
-      # replaces already conceded. What the new order buys is the ask: the shipped feature set is
-      # test BEHAVIOUR, and it now reports before the step that measures a property OF the
-      # tests rather than the tests themselves.
-      #
-      # `rust` and not a narrower classification, for both: the package list is derived from
-      # `nix/shipped.nix`, which matches no area and so fails open to `run_all` anyway.
-      #
-      # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only,
-      # so the `cross` legs stay the authority on a musl LINK - and nothing here reaches a
-      # feature no shipped binary enables, which is what the `--all-features` gates are for.
-      #
-      # BOTH WRAPPED IN `measure-host` (#562): the post-graph cargo tail (~300-450 s) had NO
-      # utilisation telemetry at all - `measure-host` covered only the then-merged graph step - so
-      # nobody could say whether it was CPU-bound or waiting. Sampling it (true busy since #564) is cheap and
-      # answers that next question. The `run:` is the same command, `nix run .#default-features`;
-      # only the wrapper is added.
-      - name: The shipped feature set compiles and lints
-        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
-        uses: $/.github/actions/measure-host
-        with:
-          label: shipped feature set compiles and lints
-          run: |-
-            set -eu
-            nix run .#default-features
-
-      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
-      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
-      - name: The shipped feature set runs its tests
-        if: steps.classify.outputs.rust == 'true' && github.event_name != 'push'
-        uses: $/.github/actions/measure-host
-        with:
-          label: shipped feature set runs its tests
-          run: |-
-            set -eu
-            nix run .#default-feature-tests
 
       # CRAP: cyclomatic complexity weighted by the tests that cover it. Neither a complexity
       # limit nor a coverage percentage catches the combination on its own, which is what makes it
@@ -1524,12 +1461,12 @@ jobs:
   # behind `ci`'s. `ci-aggregate` reads the flag off `ci`, as it does `identity`, so the argument
   # above holds for it unchanged.
   #
-  # `rust` AND `postgres_driver` ARE PUBLISHED HERE FOR `causality` AND `postgres-linked-driver`
-  # (#1280), the two `ci` steps that became jobs, on the same terms: `ci-aggregate` reads `ci`'s own
-  # `rust`/`run_all`/`nix`/`data_source_postgres`, so this job only ever widens what they run. THE
-  # COST IS LATENCY, and it is now on their path: this job has no store-cache restore (above), so its
-  # `classify` ran 80 s warm and 361 s with a cold `.#xtask` (runs 37610275316, 37606732243), where
-  # `ci`'s own took 17-18 s behind its restore.
+  # `rust` AND `postgres_driver` ARE PUBLISHED HERE FOR `causality`, `postgres-linked-driver`
+  # (#1280) and `shipped-features` (#1696), the `ci` steps that became jobs, on the same terms:
+  # `ci-aggregate` reads `ci`'s own `rust`/`run_all`/`nix`/`data_source_postgres`, so this job only
+  # ever widens what they run. THE COST IS LATENCY, and it is now on their path: this job has no
+  # store-cache restore (above), so its `classify` ran 80 s warm and 361 s with a cold `.#xtask`
+  # (runs 37610275316, 37606732243), where `ci`'s own took 17-18 s behind its restore.
   identity-classify:
     runs-on: rust-mcp-16core
     # 20 minutes: real margin over the measured worst case (488s realise + 62s setup = 550s), not
@@ -1544,7 +1481,8 @@ jobs:
       # `bigquery-driver-check`'s selection, one flag: its `if:` may hold no `||` beside the
       # release-skip clause (`xtask/src/workflows/obligations.rs`), so the OR is taken here.
       driver_check: ${{ steps.classify.outputs.data_source_bigquery == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
-      # `causality`'s selection: the `rust` area, as the step it replaced read it.
+      # `causality`'s and `shipped-features`' selection: the `rust` area, as the steps they replaced
+      # read it.
       rust: ${{ steps.classify.outputs.rust }}
       # `postgres-linked-driver`'s, one flag for `driver_check`'s reason: the step's own three-way OR.
       postgres_driver: ${{ steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_postgres == 'true' }}
@@ -1818,11 +1756,12 @@ jobs:
         run: rm -f "$RUNNER_TEMP/bq-key.json"
 
   # Legs and their categories: `ci` is always required; `e2e-datahub-adbc` is selected by
-  # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`; `causality` is the `rust`
-  # area and `postgres-linked-driver` is `run_all`, `nix` or `data_source_postgres`, off a push,
-  # which is what the two `ci` steps they replaced were gated on. `core` (a shared or unmapped
-  # path) subsumes every category because the category outputs are emitted as `core || selected`,
-  # so a `core` diff requires every leg to run and forbids every allowed skip.
+  # BigQuery, DataHub or identity; `keycloak-served-test` is `identity`; `causality` and
+  # `shipped-features` are the `rust` area and `postgres-linked-driver` is `run_all`, `nix` or
+  # `data_source_postgres`, off a push, which is what the `ci` steps they replaced were gated on.
+  # `core` (a shared or unmapped path) subsumes every category because the category outputs are
+  # emitted as `core || selected`, so a `core` diff requires every leg to run and forbids every
+  # allowed skip.
   #
   # One event exception is deliberate and matches `e2e-datahub-adbc`'s own `if:`: a fork pull
   # request cannot reach the `bq-test` environment secret, and the merge queue never runs it (its
@@ -1907,9 +1846,9 @@ jobs:
   #     causality. Both report; `ci-aggregate` is the only place the two meet.
   #   * THE GATING HOP. The step was gated by the required `ci` context; this job is gated by the
   #     required `ci-aggregate` context, through the shell that reads `needs.causality.result`.
-  #   * THE WARM TARGET. The two shipped-feature steps in `ci` used to leave `target/causality-target`
-  #     warm for this gate. Here the directory holds only what `cargoWarmStart` unpacks from the
-  #     store, and the gate compiles the rest.
+  #   * THE WARM TARGET. The two shipped-feature steps, then in `ci`, used to leave
+  #     `target/causality-target` warm for this gate. Here the directory holds only what
+  #     `cargoWarmStart` unpacks from the store, and the gate compiles the rest.
   #   * ITS OWN SETUP: waiting for `identity-classify`, then checkout, disk, Nix and the store
   #     restore, none of which `ci` paid again for this step.
   causality:
@@ -2144,6 +2083,113 @@ jobs:
       # what that leaves out. Gated on the adapter, its driver and its tier.
       - name: Postgres linked driver
         run: nix build .#checks.x86_64-linux.postgres-linked-driver -L
+
+      - uses: $/.github/actions/nix-store-cache-report
+        if: always()
+
+  # #1696: THE SHIPPED FEATURE SET AS ITS OWN JOB, on #1280's terms. Its two steps were the only ones
+  # in `ci` that touch cargo's default features - the set `nix/shipped.nix` publishes - and ran 74 s
+  # and 85 s (pull-request medians, n=33) on `ci`'s path. Here they start beside `ci`.
+  #
+  # WHAT THEY ASK, unchanged by the move. Every compiling gate in `ci` passes `--all-features`,
+  # `Clippy` and `Tests` included, so a `#[cfg(feature = ..)]` arm only ever compiled with the
+  # feature ON was a hard error in the exact configuration a release builds while `ci` was green.
+  # That shipped once, and its `cfg(not(..))` TEST was compiled by `ci` and executed by nothing at
+  # all. Apps rather than checks for `Supply chain`'s reason: both shell out to cargo, which needs a
+  # registry and a writable target directory the sandbox has not got.
+  #
+  # THE CONDITION IS THE STEPS' OLD ONE, read off `identity-classify` for `causality`'s reason, and
+  # `ci-aggregate` holds run-or-fail against `ci`'s OWN `rust`: `ci` selects and this job skips or
+  # fails is a RED aggregate, never a silent pass. `rust` and not a narrower classification: the
+  # package list is derived from `nix/shipped.nix`, which matches no area and so fails open to
+  # `run_all` anyway.
+  #
+  # WHERE THE DEPENDENCY CLOSURE COMES FROM NOW. In `ci` the stage-2 graph had put it in the store
+  # before either step. Nothing here does: each app's script embeds `cargoWarmStart`, so `.#deps`
+  # (`ciArtifacts`) is an input of the app's derivation and its output path is in the script text,
+  # and `nix run` realises it - from this job's store-cache restore, from a substituter
+  # (`cachix-push.yml` publishes `.#deps`), or by building it. A change that moves the closure
+  # builds it here as well as in `ci`, on two runners at once.
+  #
+  # ADJACENT, AND THAT IS THE ONE THING THE ORDER DECIDES. The two ask cargo the SAME narrow
+  # question - one shipped package, no feature flags - which the v2 resolver gives a narrower
+  # feature set than the workspace-wide union `craneLib.buildDepsOnly` warmed, so about a third of
+  # each dependency graph is compiled again. Whichever runs first pays that; the second reuses it
+  # in this runner's `target/causality-target`. `xtask/src/default_features.rs` carries the
+  # measurement and says why the recompile is the price of the question rather than a defect.
+  #
+  # THAT TARGET IS THIS JOB'S ALONE. `cargoWarmStart` unpacks the closure into a fresh runner's
+  # `target/causality-target` and runs `nix/purge-baked-out-dirs.sh` itself, and nothing a step
+  # here compiles reaches another job: `causality` unpacks its own on its own runner.
+  #
+  # WHAT NEITHER COVERS: the first stops at metadata and the second links the HOST triple only, so
+  # the `cross` legs stay the authority on a musl LINK - and nothing here reaches a feature no
+  # shipped binary enables, which is what the `--all-features` gates are for.
+  #
+  # WHAT THIS GIVES UP is `causality`'s list: fail-fast, the gating hop (required through
+  # `ci-aggregate` now), and its own setup - `identity-classify`, checkout, disk, Nix and the
+  # store restore, none of which `ci` paid again for these steps.
+  shipped-features:
+    needs: [identity-classify]
+    if: github.event_name != 'push' && needs.identity-classify.outputs.rust == 'true'
+    runs-on: rust-mcp-16core
+    # 45: a cold closure fits in the 992 s a `ci` run rebuilding it took whole, and the steps add 159 s.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    concurrency:
+      group: shipped-features-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # EXACTLY ONE INSTALLER PER EVENT, `ci`'s pattern and for its reason (#980).
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        if: github.event_name != 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        if: github.event_name == 'pull_request'
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org https://sutura-prs.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens= sutura-prs.cachix.org-1:UTZrp8XfnC5a3XIvdtADv3/s+vQ686Ac7doOEu2Gizw=
+
+      - uses: $/.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      # BOTH WRAPPED IN `measure-host` (#562): the cargo tail had no utilisation telemetry before,
+      # so nobody could say whether it was CPU-bound or waiting. The `run:` is the gate's command;
+      # only the wrapper is added.
+      - name: The shipped feature set compiles and lints
+        uses: $/.github/actions/measure-host
+        with:
+          label: shipped feature set compiles and lints
+          run: |-
+            set -eu
+            nix run .#default-features
+
+      # The other half. `xtask/src/default_feature_tests.rs` carries its own argument, its own
+      # measurement - 2m18s reusing the warmed closure at the `ci` profile - and its own limits.
+      - name: The shipped feature set runs its tests
+        uses: $/.github/actions/measure-host
+        with:
+          label: shipped feature set runs its tests
+          run: |-
+            set -eu
+            nix run .#default-feature-tests
 
       - uses: $/.github/actions/nix-store-cache-report
         if: always()
@@ -2452,6 +2498,7 @@ jobs:
       bigquery-conformance,
       causality,
       postgres-linked-driver,
+      shipped-features,
       multi-node,
       k3s-autoscaling,
       cross,
@@ -2486,6 +2533,8 @@ jobs:
           CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
           PGD_RESULT: ${{ needs.postgres-linked-driver.result }}
           PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}
+          SHIP_RESULT: ${{ needs.shipped-features.result }}
+          SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}
           CROSS_RESULT: ${{ needs.cross.result }}
         run: |
           set -eu
@@ -2628,9 +2677,10 @@ jobs:
               *) fail "ci-cube-tier reported '$CUBE_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
-          # `causality` and `postgres-linked-driver` were steps of `ci` (#1280): they must run
-          # wherever `ci`'s OWN classification selects them, off a push. The selection is never the
-          # job's `identity-classify` read, so a job that skips where `ci` selects is red here.
+          # `causality` and `postgres-linked-driver` (#1280) and `shipped-features` (#1696) were
+          # steps of `ci`: they must run wherever `ci`'s OWN classification selects them, off a push.
+          # The selection is never the job's `identity-classify` read, so a job that skips where `ci`
+          # selects is red here.
           if [ "$CAUS_REQUIRED" = "true" ]; then
             if [ "$CAUS_RESULT" != "success" ]; then
               fail "causality must run (the rust area is selected) but reported '$CAUS_RESULT'"
@@ -2649,6 +2699,16 @@ jobs:
             case "$PGD_RESULT" in
               skipped|success) ;;
               *) fail "postgres-linked-driver reported '$PGD_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          if [ "$SHIP_REQUIRED" = "true" ]; then
+            if [ "$SHIP_RESULT" != "success" ]; then
+              fail "shipped-features must run (the rust area is selected) but reported '$SHIP_RESULT'"
+            fi
+          else
+            case "$SHIP_RESULT" in
+              skipped|success) ;;
+              *) fail "shipped-features reported '$SHIP_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           # The link matrix. Its legs report `cross / link (<triple>)`, contexts the ruleset does not

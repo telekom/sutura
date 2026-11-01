@@ -79,8 +79,9 @@
 # The validation context the ruleset requires. Everything routed through this job IS gated: the structural
 # gates, the lints, the tests, the doctests, the API pages. A STEP inside it is gated for the same
 # reason, which is how a gate that only runs there is genuinely gating. The causality gate and the
-# linked PostgreSQL driver build used to be steps here and are jobs now (#1280): they are gated
-# through `ci-aggregate` below instead, which is one hop further from the ruleset.
+# linked PostgreSQL driver build used to be steps here and are jobs now (#1280), as is the shipped
+# feature set (#1696): they are gated through `ci-aggregate` below instead, which is one hop further
+# from the ruleset.
 ci
 
 # The category aggregator: a plain job, so its context resolves like any other - the reason the file
@@ -207,6 +208,11 @@ ci.yml:causality
 # (#1280) on `ci.yml:causality`'s terms. Selected by `run_all`, `nix` or `data_source_postgres`; held
 # run-or-fail by `ci-aggregate` against `ci`'s own copy of those three flags.
 ci.yml:postgres-linked-driver
+
+# The shipped feature set - cargo's default features compiled, linted and tested - out of `ci`
+# (#1696) on `ci.yml:causality`'s terms. Selected by `rust`; held run-or-fail by `ci-aggregate`
+# against `ci`'s own `rust`, off a push.
+ci.yml:shipped-features
 
 # The hosted DataHub/ADBC acceptance runs when a BigQuery, DataHub or identity change selects it
 # and the event can receive the bq-test credential. The required ci-aggregate job refuses a skip

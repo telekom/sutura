@@ -61,9 +61,10 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             path: ".github/workflows/ci.yml",
             holds: "nix run .#default-features",
         }],
-        instead: "the required `ci` job runs `nix run .#default-features` on every pull request that \
-                  touches Rust, so the lint half of that lane is a required check rather than the \
-                  four `cross` link builds alone",
+        instead: "`ci.yml`'s `shipped-features` job runs `nix run .#default-features` on every pull \
+                  request that touches Rust, and the required `ci-aggregate` holds that job \
+                  run-or-fail, so the lint half of that lane is gated rather than left to the four \
+                  `cross` link builds alone",
         only: &[],
         // The record states the limit and amends it in place, which is what `except` is for.
         except: &["docs/adr/0017-what-a-bigquery-test-runs-against.md"],
@@ -416,13 +417,12 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
             path: ".github/workflows/ci.yml",
             holds: "nix run .#default-feature-tests",
         }],
-        instead: "one half of that lane is a required check. The `ci` job runs \
-                  `nix run .#default-feature-tests` on every change the classification marks as \
-                  Rust, so the shipped set's TESTS are gated in CI as well as in `just gates`, and \
-                  `xtask/src/default_feature_tests.rs` carries the measurement and every limit. \
-                  What reaches `just gates` alone is the COMPILE and LINT halves - \
-                  `cargo xtask check-default-features` - for which CI still has the four `cross` \
-                  link builds and, for the lint half, nothing",
+        instead: "every half of that lane is gated in CI. `ci.yml`'s `shipped-features` job runs \
+                  `nix run .#default-features` and `nix run .#default-feature-tests` on every change \
+                  the classification marks as Rust, and the required `ci-aggregate` holds that job \
+                  run-or-fail, so the shipped set compiles, lints and runs its TESTS in CI as well as \
+                  in `just gates`; `xtask/src/default_feature_tests.rs` carries the measurement and \
+                  every limit",
         only: &[],
         except: &[],
     },

@@ -27,12 +27,14 @@
 //! resolvable registry and a target directory; the nix sandbox `hygiene` runs in has neither. So it
 //! lives in `just gates`, which is where every gate that shells out to cargo lives.
 //!
-//! **CI runs it as `nix run .#default-features`, inside the one required job.** Before that step
+//! **CI runs it as `nix run .#default-features`, in the `shipped-features` job.** Before that step
 //! existed, what CI had for this lane was the four `cross` link builds for the COMPILE half - and
 //! they are `needs: [ci]`, so a `ci` failure skips them, which is exactly how the branch above
 //! reached review - and nothing at all for the LINT half. An app rather than a check for the reason
-//! the paragraph above gives. `tests::both_lanes_still_invoke_this_gate` is what holds the
-//! wiring, in both venues, by reading the step rather than the file.
+//! the paragraph above gives. The step was in the one required job until #1696 gave it its own; it
+//! gates now because the required `ci-aggregate` holds that job run-or-fail wherever `ci` selects
+//! `rust`. `tests::both_lanes_still_invoke_this_gate` is what holds the wiring, in both venues, by
+//! reading the step rather than the file.
 //!
 //! **The profile is DERIVED from the target directory and not passed as a flag** -
 //! [`crate::warm_start::profile_for`], shared with this lane's other half. Cargo keys artifacts per
@@ -59,8 +61,8 @@
 //!
 //! **That cost is SHARED now, so the figure above will not reproduce alone.** It was taken before
 //! `check-default-feature-tests` existed, and that gate compiles the same narrow configuration -
-//! whichever of the two `ci` steps runs first pays the recompile and the second reuses it. They are
-//! adjacent in `ci.yml` for that reason. Cost the pair, never this step by itself.
+//! whichever of the two `shipped-features` steps runs first pays the recompile and the second reuses
+//! it. They are adjacent in `ci.yml` for that reason. Cost the pair, never this step by itself.
 //!
 //! **The package list is DERIVED and not written here**, which is the single-owner rule: it is every
 //! `package = "..."` inside `nix/shipped.nix`'s `binaries` list, the same declaration
@@ -613,11 +615,11 @@ mod tests {
     /// The workflow the CI lane lives in.
     const WORKFLOW: &str = ".github/workflows/ci.yml";
 
-    /// The job it has to be in, which is the one required context.
-    const JOB: &str = "ci";
+    /// The job it has to be in. `ci-aggregate` holds it run-or-fail, which is what makes it gate.
+    const JOB: &str = "shipped-features";
 
-    /// The condition every rust step in that job is gated on.
-    const CLASSIFIED: &str = "steps.classify.outputs.rust == 'true'";
+    /// The selection that job runs under: the `rust` area, as the step in `ci` read it.
+    const CLASSIFIED: &str = "needs.identity-classify.outputs.rust == 'true'";
 
     #[test]
     fn target_declarations_are_complete_literal_inputs_not_a_host_subset() {
@@ -885,8 +887,8 @@ mod tests {
     fn both_lanes_still_invoke_this_gate() {
         // A gate reachable from neither lane is a module, and this lane's whole history is a check
         // that existed while nothing ran it. Two readers, therefore: the developer's `just gates`
-        // and the required CI job. `check-workflows` holds the other direction, that the app this
-        // names is declared in flake.nix.
+        // and the CI job. `check-workflows` holds the other direction, that the app this names is
+        // declared in flake.nix.
         //
         // NEITHER READER IS `contains` OVER RAW TEXT, which is the point of this test rather than
         // a detail of it. `#     cargo run -q -p xtask -- check-default-features` in the recipe and
@@ -906,19 +908,22 @@ mod tests {
             "`just {RECIPE}` no longer runs {TASK} on a line that is not a comment"
         );
         let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("ci.yml");
-        let step = crate::workflows::step::app_step(&workflow, JOB, APP)
+        crate::workflows::step::app_step(&workflow, JOB, APP)
             .unwrap_or_else(|| panic!("a live `nix run .#{APP}` step inside {WORKFLOW}'s `{JOB}` job"));
-        let declared = step.join("\n");
-        // The two ways the step stays in the file and stops being a gate. A job under a NEW name
-        // would be the third and is not reachable from here: which contexts are required is a
-        // branch-ruleset setting no file in this tree states, which is why the step is in `{JOB}`.
+        // The two ways the step stays in the file and stops being a gate, read over the whole job
+        // because a job-level `continue-on-error` reports `success` to `ci-aggregate` as well. The
+        // third, `{JOB}` reaching no required context, is `check-workflows`' to refuse:
+        // `ci-aggregate` must `need` it, and its `SHIP_REQUIRED` input is pinned to `ci`'s own `rust`.
+        let job = crate::workflows::step::job(&workflow, JOB).unwrap_or_default();
+        let live = || job.iter().filter(|line| !line.trim_start().starts_with('#'));
         assert!(
-            !declared.contains("continue-on-error"),
-            "the {APP} step tolerates its own failure, so the CI half reports rather than gates:\n{declared}"
+            !live().any(|line| line.contains("continue-on-error")),
+            "`{JOB}` tolerates a failure, so the CI half reports rather than gates:\n{}",
+            job.join("\n")
         );
         assert!(
-            declared.contains(CLASSIFIED),
-            "the {APP} step is not gated on `{CLASSIFIED}`, which is the condition the rust steps around it use:\n{declared}"
+            live().any(|line| line.starts_with("    if:") && line.contains(CLASSIFIED)),
+            "`{JOB}` is not selected by `{CLASSIFIED}`, the condition the step had in `ci`"
         );
     }
 

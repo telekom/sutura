@@ -1,17 +1,18 @@
-//! The `causality` and `postgres-linked-driver` arms of the real `ci-aggregate` shell (#1280), run
-//! through `aggregate_shell`'s harness. Both were steps of `ci`, so the required context that gated
-//! them before is the aggregate now: a skip or a failure where `ci` selected them must be red. The
-//! `cross` arm is here too: its legs report a context no ruleset lists, so a red one reaches a merge
-//! only through this shell.
+//! The `causality` and `postgres-linked-driver` (#1280) and `shipped-features` (#1696) arms of the
+//! real `ci-aggregate` shell, run through `aggregate_shell`'s harness. All three were steps of `ci`,
+//! so the required context that gated them before is the aggregate now: a skip or a failure where
+//! `ci` selected them must be red. The `cross` arm is here too: its legs report a context no ruleset
+//! lists, so a red one reaches a merge only through this shell.
 
 use super::aggregate_shell::run_aggregator;
 
 /// (result var, required var, the name the verdict must carry).
 type Moved = (&'static str, &'static str, &'static str);
 
-const MOVED: [Moved; 2] = [
+const MOVED: [Moved; 3] = [
     ("CAUS_RESULT", "CAUS_REQUIRED", "causality"),
     ("PGD_RESULT", "PGD_REQUIRED", "postgres-linked-driver"),
+    ("SHIP_RESULT", "SHIP_REQUIRED", "shipped-features"),
 ];
 
 /// A clean aggregate but for the one pair under test.

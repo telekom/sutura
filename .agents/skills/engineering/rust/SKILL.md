@@ -184,9 +184,10 @@ See `sutura/crate-map` for why an adapter is behind a default-off feature at all
 **The limit that survives, because a green run invites the wider reading.** Its package list is
 DERIVED from `nix/shipped.nix`'s `binaries`, so it reaches the binaries a release publishes and
 nothing else - a feature on a crate that does not ship is compiled by the `--all-features` gates
-only, and by nothing at the default set. The lane's CI half is no longer partial: the required `ci`
-job runs `nix run .#default-features` for the compile and lint halves and
-`nix run .#default-feature-tests` for the tests, both gated on the Rust classification.
+only, and by nothing at the default set. The lane's CI half is no longer partial: the
+`shipped-features` job runs `nix run .#default-features` for the compile and lint halves and
+`nix run .#default-feature-tests` for the tests, selected by the Rust classification and held
+run-or-fail by the required `ci-aggregate`.
 `xtask/src/default_features.rs` and `xtask/src/default_feature_tests.rs` each state their own limit,
 and the shared one is that neither LINKS - both stop where `cargo check` and a host-triple test
 binary stop, so the four `cross` builds remain the authority on a musl link. Still run `just gates`

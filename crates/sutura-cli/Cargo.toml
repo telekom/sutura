@@ -37,8 +37,9 @@ tls = ["sutura-config/tls", "sutura-http/tls"]
 # the `cfg(not(feature = "bigquery"))` TEST in `src/sources/bigquery.rs` was compiled by that gate
 # and executed by no venue at all until `cargo xtask check-default-feature-tests` - same package
 # list, same set, and it links and runs. Both reach CI now, as `nix run .#default-features` and
-# `nix run .#default-feature-tests` in the required `ci` job, so this lane's lint half is a required
-# check rather than the four `cross` link builds and a developer's memory.
+# `nix run .#default-feature-tests` in the `shipped-features` job the required `ci-aggregate` holds
+# run-or-fail, so this lane's lint half is gated rather than left to the four `cross` link builds and
+# a developer's memory.
 #
 # `sutura-http-client` carries the delegation exchange a `direct` deployment composes for a source
 # declaring `workload_identity.delegation` (`docs/adr/0014`'s fourth amendment), and an
