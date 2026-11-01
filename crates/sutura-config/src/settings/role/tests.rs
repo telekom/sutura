@@ -6,7 +6,7 @@
 //! `in_process_tls_is_refused_when_the_binary_cannot_do_it` holds both arms of that.
 
 use crate::server::ServerRole;
-use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
+use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources, TokenRequiredBy};
 
 const PAIR: &str = "  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n";
 const AUTHORITY: &str = "  tls_node_authority: \"/tls/nodes.pem\"\n";
@@ -97,6 +97,22 @@ fn a_worker_with_the_flight_surface_is_not_fit_to_serve() {
             NotFitToServe::FlightSurfaceWithoutDirectInbound,
             NotFitToServe::WorkerWithFlightSurface,
         ]
+    );
+}
+
+#[test]
+fn an_off_host_worker_is_asked_for_a_metrics_token_and_no_access_token() {
+    let off_host = worker(
+        &format!("{AUTHORITY}  host: \"0.0.0.0\"\n"),
+        "  metrics_token: \"0123456789abcdef0123456789abcdf0\"\nrate_limit:\n  enabled: true\n",
+    );
+    // A worker serves no `/v1`: the node certificate gates its one surface.
+    assert_eq!(overlaid(&off_host), Vec::new());
+    assert_eq!(
+        overlaid(&off_host.replace("role: \"worker\"", "role: \"serving\"")),
+        vec![NotFitToServe::AccessTokenRequired {
+            because: TokenRequiredBy::OffHost
+        }]
     );
 }
 

@@ -37,7 +37,7 @@ use crate::runtime::RuntimeSettings;
 use crate::security::{
     DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, SecuritySettings, UnknownTlsTermination,
 };
-use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerSettings, UnknownServerRole};
+use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerRole, ServerSettings, UnknownServerRole};
 use crate::sources::{InvalidSourceRegistry, SourceRegistry};
 use crate::telemetry::{InvalidLogFilter, InvalidServiceName, TelemetrySettings, UnknownLogFormat};
 
@@ -786,11 +786,11 @@ impl Settings {
     /// alternative was an unauthenticated way to read whatever the process can read. That argument is
     /// about there being *no* credential - and a deployment that verifies every caller's own token has
     /// one, per caller, audience-bound and expiring. So the requirement now reads "some credential",
-    /// and the message still names which of the two reasons asked for it.
+    /// and the message still names which of the two reasons asked for it. A worker serves no `/v1`, so neither asks it.
     fn credential_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         let inbound = self.security.inbound();
-        if self.security.access_token().is_none() && inbound.is_none() {
+        if self.security.access_token().is_none() && inbound.is_none() && self.server.role() == ServerRole::Serving {
             // Two different reasons, and the message says which: an operator whose production
             // deployment refuses should not have to work out whether it was the bind or the
             // environment that asked for the token.
