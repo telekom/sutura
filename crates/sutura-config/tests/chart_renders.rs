@@ -399,7 +399,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 39] = [
+    const REFUSALS: [(&str, Binary); 40] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -554,6 +554,10 @@ mod tests {
         (
             "worker-pool-issuer-missing",
             Binary::NeverReads("the cert-manager issuer every node's certificate comes from"),
+        ),
+        (
+            "worker-pool-shared-cluster-issuer",
+            Binary::NeverReads("the issuer's kind, Issuer or ClusterIssuer - the chart refuses this at render time"),
         ),
         (
             "worker-pool-tls-enabled",

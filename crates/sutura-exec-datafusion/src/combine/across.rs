@@ -57,11 +57,12 @@
 //!   question planned across fewer nodes than it wanted may still be refused for its working set.
 //! - A waiting question holds its serving node's slot, and a thread, for as long as it waits.
 //! - A node a question was planned onto whose link the engine reports unavailable - a connection
-//!   refused, reset or timed out - fails that question, which is refused as [`CombineError::NodeLost`]
-//!   and may be asked again. Nothing re-plans it onto the nodes that remain. A link that fails with
-//!   any other status, an HTTP/2 stream reset for any reason but refusing the stream among them,
-//!   leaves as [`CombineError::Execute`]. A cell loses a node by declaring one nothing listens on;
-//!   a node that goes away while it answers is not measured.
+//!   refused, reset or timed out - or whose connection ends under a call, closed, reset or no longer
+//!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
+//!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
+//!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
+//!   [`CombineError::Execute`]. A cell loses a node nothing listens on and one that drops its
+//!   connection under a call, over plain TCP; the multi-node VM check kills one while it answers.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -291,7 +292,8 @@ impl Nodes {
 /// `error` as [`CombineError::NodeLost`] when it failed because a node it ran on could not be reached.
 ///
 /// The engine carries a failed call to another node as the call's own status, inside an external
-/// error, so a status in `error`'s chain whose code says the link was unavailable is a lost node.
+/// error, so a status in `error`'s chain whose code says the link was unavailable is a lost node, and
+/// so is one whose cause is the link's connection ending under the call.
 pub(super) fn lost(error: CombineError) -> CombineError {
     match error {
         CombineError::Execute { cause } if unreachable(&cause) => CombineError::NodeLost { cause },
@@ -300,9 +302,31 @@ pub(super) fn lost(error: CombineError) -> CombineError {
 }
 
 fn unreachable(cause: &DataFusionError) -> bool {
-    core::iter::successors(Some(cause as &(dyn core::error::Error + 'static)), |error| error.source())
+    chain(cause)
         .filter_map(|error| error.downcast_ref::<tonic::Status>())
-        .any(|status| status.code() == tonic::Code::Unavailable)
+        .any(|status| status.code() == tonic::Code::Unavailable || chain(status).any(went_away))
+}
+
+/// Whether `error` is a connection that ended under a call: the node closed it, reset it or stopped
+/// reading it. The engine's client reads this as an unknown status, from the cause it keeps.
+fn went_away(error: &(dyn core::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<h2::Error>()
+        .and_then(h2::Error::get_io)
+        .or_else(|| error.downcast_ref::<std::io::Error>())
+        .is_some_and(|io| {
+            matches!(
+                io.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+            )
+        })
+}
+
+fn chain<'a>(error: &'a (dyn core::error::Error + 'static)) -> impl Iterator<Item = &'a (dyn core::error::Error + 'static)> {
+    core::iter::successors(Some(error), |error| error.source())
 }
 
 /// The nodes `declared` names now: itself when its host is an address, and otherwise one for each
