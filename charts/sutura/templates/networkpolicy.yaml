@@ -1,0 +1,94 @@
+{{/*
+NetworkPolicies closing github.com/telekom/sutura#1680 finding 6: the headless workers Service was
+reachable from every namespace, gated only on the node certificate check finding 5 narrows. These
+restrict ingress to the worker pods and egress from the operator pod; they do not touch the serving
+pods' own egress or the workers' egress to a data source, a sibling worker or the serving pods -
+this chart cannot know a data source's address, and the worker pool's own design already bounds who
+may call in. Off by default (`networkPolicy.enabled`) - see values.yaml for why.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $name := include "sutura.name" . }}
+{{- $fullname := include "sutura.fullname" . }}
+---
+# Serving pods keep their public port: this rule is additive, not restrictive, so it changes
+# nothing by itself. It exists so a namespace that later adds its own default-deny NetworkPolicy
+# still serves this port without the chart's intent being tribal knowledge.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "sutura.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+{{- if .Values.workerPool.enabled }}
+---
+# Workers answer only this release's serving pods and each other - a combine across nodes dials a
+# sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
+# namespace or workload needs the node port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-workers
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sutura.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+---
+# The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
+# the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
+# whether the cluster resolves the API server by name.
+# STATED LIMIT: the API server's own address is cluster-specific and this chart has no way to name
+# it, so this bounds the port (443, the apiserver's common port, and 6443, its other common one),
+# not the destination - it does not stop the operator reaching some other HTTPS endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+{{- end }}
+{{- end -}}

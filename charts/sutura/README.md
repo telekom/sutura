@@ -66,6 +66,20 @@ Every pod gets its own certificate from that issuer and ends TLS itself, so the 
 A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
 The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
 
+## Network policy
+
+`networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker and operator
+pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only from this
+release's serving pods and each other, the operator's egress is limited to DNS and the Kubernetes
+API's common ports, and serving pods get an additive policy that keeps their port reachable even if
+the namespace later adds a default-deny policy.
+**Off by default** - the chart cannot tell whether the cluster's CNI enforces `NetworkPolicy`, or
+whether something outside the chart's view (a service mesh, a cross-namespace ingress controller, a
+scrape target) already depends on reachability these rules would remove. Judge against the
+cluster's own network setup before turning it on; it does not restrict a serving pod's own egress,
+or a worker's egress to a data source or a sibling worker, because this chart cannot know a data
+source's address.
+
 ## Configure
 
 Set every option in `values.yaml`.

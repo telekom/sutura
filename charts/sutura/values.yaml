@@ -196,3 +196,11 @@ extraVolumeMounts: []
 # `config.environment`, or with `security.accessToken`, `security.metricsToken` or
 # `security.inbound.keySetSecretName`. A name sutura reads as a variable the chart sets is refused.
 extraEnv: []
+
+# NetworkPolicies for the serving, worker and operator pods (github.com/telekom/sutura#1680
+# finding 6). Off by default: this chart cannot tell whether the cluster's CNI enforces
+# NetworkPolicy, or whether something it cannot see - a service mesh, an ingress controller in
+# another namespace, a scrape target - already depends on reachability these rules would remove,
+# so enabling it is a decision for the operator who knows the cluster, not this chart's default.
+networkPolicy:
+  enabled: false
