@@ -292,6 +292,46 @@ so a misspelling cannot select the glibc image.
 {{- end -}}
 
 {{/*
+`image.digest` validated: exactly `sha256:` then 64 lower-case hex digits, the shape `docker pull
+repo@digest` and `crane digest` both produce. Catches a copy-pasted tag or a truncated digest at
+render time rather than at `kubectl apply` or, worse, a pull that silently falls back to `latest`.
+*/}}
+{{- define "sutura.requireDigestShape" -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .) -}}
+{{ fail (printf "image.digest %q is not a digest: it must be exactly sha256: followed by 64 lower-case hex digits, as `docker inspect --format '{{.RepoDigests}}'` or the registry's own manifest API reports it" .) }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The app image: `image.repository@image.digest` when `image.digest` is set - pinning the exact
+bytes a repushed tag could otherwise swap underneath a release (github.com/telekom/sutura#1680
+finding 7) - else `image.repository:sutura.imageTag` as before. STATED LIMIT: nothing here verifies
+the digest actually names an image for this chart's architecture or variant; an operator sets it
+from a `docker pull` or a registry's own digest, not guessed.
+*/}}
+{{- define "sutura.image" -}}
+{{- if .Values.image.digest -}}
+{{- include "sutura.requireDigestShape" .Values.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (include "sutura.imageTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The operator's image, pinned by `workerPool.operator.image.digest` the same way `sutura.image`
+pins the app image.
+*/}}
+{{- define "sutura.operatorImage" -}}
+{{- if .Values.workerPool.operator.image.digest -}}
+{{- include "sutura.requireDigestShape" .Values.workerPool.operator.image.digest -}}
+{{- printf "%s@%s" .Values.image.repository .Values.workerPool.operator.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (include "sutura.operatorImageTag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 `runtime.engineWorkerThreads`, derived from `resources.limits.cpu` when the operator has not
 set it explicitly - #149 branch 3. `available_parallelism` (`runtime.engine_worker_threads` in
 docs/serving.md) reports the HOST's core count, which over-counts under a CPU quota; this closes that
