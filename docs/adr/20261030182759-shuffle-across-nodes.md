@@ -12,7 +12,9 @@ stages planned across the declared nodes (#1641, #1646), a worker transport only
 certificate may call (#1642, #1643, #1644), the receiving node's refusal of a stage that reads a
 source (#1647), the size rule (#1654), a lost node as `node_lost` (#1674), and the in-process
 differential over three nodes (#1650). The multi-node VM test plans a combine across both nodes and
-refuses a worker call from a non-node (#1648, #1651). Decision 5, the task grant, is not built. This
+refuses a worker call from a non-node (#1648, #1651). Decision 5, the task grant, is built on an
+authorization hook that a vendored copy of the engine carries until a release does (`VENDOR.md`);
+an in-process cell refuses a call with no grant or a forged one, and no VM cell sends one. This
 record decides; it proves nothing.
 
 ## The question
@@ -63,18 +65,18 @@ caller's question it belongs to?
    nodes, in a header of the call that installs their stage. The grant is an HMAC-SHA256 under that
    key, so a node that holds the key checks it without the key riding on the call. The grant rides
    in a header of every call, and a stage node re-attaches the one it was sent to the calls it makes
-   to other stage nodes, which carry no key. A layer in front of the worker service checks it,
-   because that service discards request metadata. The layer reads the engine's query id from the
-   call's first message, which is all it decodes. The first key installed for a query id is the one
-   that query keeps, and a later one must equal it. The coordinating node runs its own stages
-   in-process, past its layer, so it installs its question's key itself, from the query id the
+   to other stage nodes, which carry no key. The worker service asks an authorization hook about
+   each call, handing it the call's headers and the task key it decoded, before the call reaches a
+   task. The first key installed for a query id is the one that query keeps, and a later one must
+   equal it. The coordinating node runs its own stages in-process, past the hook, so it installs
+   its question's key itself, from the query id the
    engine stamps on the stages when it plans them. A node keeps a key for as long as the engine
    keeps that question's state, which is until ten minutes pass without a call. A call is refused
    when it carries no grant, its grant does not verify under that key, or its query id has no key.
    The key and the grant are never logged. The grant grants no source access. It ties a stream to
-   one question, so that a node with a valid certificate cannot pull a question it was not sent. A
-   cell pins the field numbers the layer reads, so an engine upgrade that moves them is red. sutura
-   proposes an authorization hook upstream, which would replace the layer.
+   one question, so that a node with a valid certificate cannot pull a question it was not sent.
+   The engine release sutura uses has no such hook, so sutura carries a vendored copy of the engine
+   with it until a release does (`VENDOR.md`).
 6. **Rows stay in memory and are never stored.** Each node runs its stages under its own
    working-set pool, with the same never-spill policy. A node over its budget refuses, and the
    question is refused with `resources_exhausted`. The engine streams between nodes, and its source, read on 2026-10-30,
@@ -135,8 +137,15 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
   a key of its own, before the coordinating node does, fails that question: the coordinating
   node's own call there is refused. That node is already trusted with the question's rows.
 - **The grant does not recheck the subject's grants at a source.** The rows were read as the
-  caller, by the node that read the source. The grant carries the subject so that audit lines on
-  every node name it, not to authorize the read again.
+  caller, by the node that read the source.
+- **The grant is a bearer token.** It admits any call for its question while a node keeps the
+  question's key. The link's TLS is what keeps it off the wire.
+- **A task waits for its stage, and a node keeps a bounded number of questions.** A call to execute
+  a task waits up to ten seconds, the engine's own wait for a stage, for its question's key, and is
+  refused after it. A node keeps at most 65536 questions and refuses to install one more.
+- **The hook is a local patch to the engine.** An engine upgrade that drops it does not compile, so
+  the grant cannot silently stop being asked; until a release carries the hook, each upgrade means
+  re-vendoring.
 - **One node's failure costs the whole question.** Nothing resumes a stage, and nothing plans the
   question again onto the nodes left. A node is read as lost only from the coordinating node's own
   link to it failing as unavailable. The same failure relayed by another node arrives as text, and

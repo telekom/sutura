@@ -118,7 +118,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/adbc_clickhouse", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
+exclude = ["vendor/adbc_clickhouse", "vendor/datafusion-distributed", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.11.0"

@@ -43,10 +43,12 @@
 //! - This node holds every leg's rows until the question is answered: they are the caller's
 //!   batches, outside any pool. Dealing them changes which node scans them, not which holds them.
 //! - A link is gRPC over mutual TLS: each end presents a certificate the deployment's node authority
-//!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). It carries no grant, so a
-//!   node serving [`Nodes::worker`] runs any stage that reads no source another node of the
-//!   authority sends it; Decision 5 is not built. The identity is read once, so a renewed
-//!   certificate is presented after a restart.
+//!   signed and refuses a peer without one ([`NodeIdentity`], Decision 4). The identity is read once,
+//!   so a renewed certificate is presented after a restart.
+//! - Each call a link carries holds the task grant of its question ([`TaskGrant`], Decision 5): a
+//!   worker that asks for it runs a stage of a question only for a node that holds that question's
+//!   key, or was itself installed with one of its stages. Who may install a stage is the link's
+//!   mutual TLS alone. A worker served without [`TaskGrant`] admits any call.
 //! - A channel, once dialled, is kept for the process's life, one for every address it has dialled,
 //!   so a host whose addresses change keeps one for each it was ever dialled at.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
@@ -101,6 +103,7 @@ use sutura_domain::plan::{SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
+use tower::ServiceExt as _;
 use url::{Host, Url};
 
 use super::CombineError;
@@ -108,6 +111,11 @@ use crate::pool::{self, WorkingSet};
 
 /// How many other nodes a question wants, and the bounded wait for them.
 mod wait;
+
+/// The task grant a node asks of every call to its worker, keyed per question (Decision 5).
+mod grant;
+
+pub use grant::TaskGrant;
 
 #[cfg(test)]
 mod lost;
@@ -129,6 +137,8 @@ pub struct Nodes {
     wait_for_workers: Option<Duration>,
     /// The other nodes the questions going across now want, summed.
     slots_wanted: WorkerSlotsWanted,
+    /// The questions this node planned, each bound to its key, which [`Self::served`] admits.
+    keys: grant::Keys,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -160,7 +170,15 @@ impl Nodes {
             across_above: None,
             wait_for_workers: None,
             slots_wanted: WorkerSlotsWanted::default(),
+            keys: grant::Keys::default(),
         }
+    }
+
+    /// This node's worker, asking every call it is sent for the task grant, which admits the
+    /// questions this node plans as well as those another node installs on it.
+    #[must_use]
+    pub fn served(&self) -> Worker {
+        self.own.clone().with_call_authorizer(TaskGrant::of(self.keys.clone()))
     }
 
     /// The same nodes, planning a question whose legs hold more than `bytes` across them at once,
@@ -214,8 +232,7 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let links = links.clone();
             async move {
-                Ok(context
-                    .builder
+                Ok(grant::forwarded(context.builder, &context.headers)?
                     .with_distributed_channel_resolver(links)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .build())
@@ -269,7 +286,7 @@ impl Nodes {
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =
             working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
-        let state = SessionStateBuilder::new()
+        let planned = SessionStateBuilder::new()
             .with_config(SessionConfig::new().with_target_partitions(count))
             .with_distributed_option_extension(links)
             .with_runtime_env(environment.into_runtime())
@@ -283,7 +300,11 @@ impl Nodes {
                     .then(|| Ok(DesiredTaskCountEventResponse::desired(count)))
             })
             .with_distributed_scale_up_leaf_node_handler(dealt)
-            .with_distributed_planner()
+            .with_distributed_planner();
+        let state = grant::keyed(planned, self.keys.clone())
+            .map_err(|cause| CombineError::Environment {
+                cause: crate::DataFusionError::Environment { cause },
+            })?
             .build();
         Ok(SessionContext::new_with_state(state))
     }
@@ -515,7 +536,9 @@ impl Links {
         origin.set_fragment(None);
         let endpoint = tonic::transport::Endpoint::from_shared(origin.to_string())
             .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
-        Ok(BoxCloneSyncChannel::new(endpoint.connect_with_connector_lazy(dial)))
+        Ok(BoxCloneSyncChannel::new(
+            endpoint.connect_with_connector_lazy(dial).map_request(grant::keyless),
+        ))
     }
 }
 

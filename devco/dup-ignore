@@ -19,4 +19,9 @@
 # source under `crates/` or `xtask/` cannot be exempted here at all. Delete a stale entry with
 # its reason when the clone it excused leaves the tree.
 
-# No entries. A deliberate clone is added here with its reason.
+# A deliberate clone is added here with its reason.
+vendor/datafusion-distributed/src/distributed_ext.rs:1040 == vendor/datafusion-distributed/src/distributed_ext.rs:1190 : the vendored engine's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
+vendor/datafusion-distributed/src/distributed_planner/distributed_query_planner.rs:179 == vendor/datafusion-distributed/src/distributed_planner/inject_network_boundaries.rs:668 : the vendored engine's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
+vendor/datafusion-distributed/src/distributed_planner/distributed_query_planner.rs:229 == vendor/datafusion-distributed/src/distributed_planner/distributed_query_planner.rs:357 : the vendored engine's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
+vendor/datafusion-distributed/src/execution_plans/network_broadcast.rs:215 == vendor/datafusion-distributed/src/execution_plans/network_shuffle.rs:191 : the vendored engine's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
+vendor/datafusion-distributed/src/protocol/grpc/generated/worker.rs:676 == vendor/datafusion-distributed/src/protocol/grpc/observability/generated/observability.rs:250 : the vendored engine's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md

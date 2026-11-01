@@ -1,0 +1,229 @@
+# The published `datafusion-distributed` 4.0.0 manifest as `cargo publish` normalized it, less its
+# example and test targets, which are not vendored. `VENDOR.md` records the local change.
+
+[package]
+edition = "2024"
+name = "datafusion-distributed"
+version = "4.0.0"
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Framework for enhancing Apache DataFusion with distributed capabilities"
+documentation = "https://datafusion-contrib.github.io/datafusion-distributed/"
+readme = "README.md"
+license = "Apache-2.0"
+repository = "https://github.com/datafusion-contrib/datafusion-distributed"
+
+[features]
+avro = ["datafusion/avro"]
+clickbench = ["integration"]
+default = [
+    "grpc",
+    "parquet",
+    "sql",
+]
+grpc = [
+    "arrow-flight",
+    "arrow-select",
+    "arrow-ipc",
+    "tonic",
+    "tower",
+]
+integration = [
+    "insta",
+    "dep:parquet",
+    "arrow",
+    "hyper-util",
+    "grpc",
+    "parquet",
+    "sql",
+]
+parquet = [
+    "datafusion/parquet",
+    "datafusion-proto/parquet",
+]
+slow-tests = []
+sql = ["datafusion/sql"]
+sysinfo = ["dep:sysinfo"]
+system-metrics = ["sysinfo"]
+tpcds = ["integration"]
+tpch = ["integration"]
+
+[lib]
+name = "datafusion_distributed"
+path = "src/lib.rs"
+
+[dependencies.arrow]
+version = "59"
+features = ["test_utils"]
+optional = true
+
+[dependencies.arrow-flight]
+version = "59"
+optional = true
+
+[dependencies.arrow-ipc]
+version = "59"
+features = ["zstd"]
+optional = true
+
+[dependencies.arrow-select]
+version = "59"
+optional = true
+
+[dependencies.async-trait]
+version = "0.1.89"
+
+[dependencies.bincode]
+version = "1"
+
+[dependencies.bytes]
+version = "1.11"
+
+[dependencies.chrono]
+version = "0.4.44"
+
+[dependencies.crossbeam-queue]
+version = "0.3"
+
+[dependencies.dashmap]
+version = "6.0.1"
+
+[dependencies.datafusion]
+version = "55"
+features = [
+    "unicode_expressions",
+    "datetime_expressions",
+]
+default-features = false
+
+[dependencies.datafusion-proto]
+version = "55"
+default-features = false
+
+[dependencies.delegate]
+version = "0.13.4"
+
+[dependencies.futures]
+version = "0.3.31"
+
+[dependencies.http]
+version = "1.3.1"
+
+[dependencies.hyper-util]
+version = "0.1.16"
+optional = true
+
+[dependencies.insta]
+version = "1.46.0"
+features = ["filters"]
+optional = true
+
+[dependencies.itertools]
+version = "0.14.0"
+
+[dependencies.moka]
+version = "0.12"
+features = [
+    "sync",
+    "future",
+]
+
+[dependencies.num-traits]
+version = "0.2"
+
+[dependencies.object_store]
+version = "0.13"
+
+[dependencies.parquet]
+version = "59"
+optional = true
+
+[dependencies.pin-project]
+version = "1.1.10"
+
+[dependencies.prost]
+version = "0.14.1"
+
+[dependencies.rand]
+version = "0.9"
+
+[dependencies.sketches-ddsketch]
+version = "0.3"
+features = ["use_serde"]
+
+[dependencies.sysinfo]
+version = "0.30"
+optional = true
+
+[dependencies.tokio]
+version = "1.48"
+features = ["full"]
+
+[dependencies.tokio-stream]
+version = "0.1.17"
+features = ["sync"]
+
+[dependencies.tokio-util]
+version = "0.7"
+
+[dependencies.tonic]
+version = "0.14.1"
+features = ["transport"]
+optional = true
+
+[dependencies.tonic-prost]
+version = "0.14.2"
+
+[dependencies.tower]
+version = "0.5.2"
+optional = true
+
+[dependencies.url]
+version = "2.5.7"
+
+[dependencies.uuid]
+version = "1.19"
+
+[dev-dependencies.arrow]
+version = "59"
+features = ["test_utils"]
+
+[dev-dependencies.datafusion]
+version = "55"
+features = [
+    "parquet",
+    "sql",
+]
+default-features = false
+
+[dev-dependencies.datafusion-proto]
+version = "55"
+features = ["parquet"]
+default-features = false
+
+[dev-dependencies.hyper-util]
+version = "0.1.16"
+
+[dev-dependencies.insta]
+version = "1.46.0"
+features = ["filters"]
+
+[dev-dependencies.parquet]
+version = "59"
+
+[dev-dependencies.pretty_assertions]
+version = "1.4"
+
+[dev-dependencies.structopt]
+version = "0.3"
+
+[dev-dependencies.test-case]
+version = "3.3.1"
+
+[dev-dependencies.tokio-stream]
+version = "0.1.17"
+features = ["sync"]

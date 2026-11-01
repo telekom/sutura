@@ -21,8 +21,9 @@ datafusion-federation = { workspace = true }
 # Without its default `sql`, which would turn on `datafusion/sql`, kept out by the workspace's entry.
 # `parquet` because `datafusion` has it: the engine's error codec matches every `DataFusionError`
 # variant, and without its own `parquet` it misses the one that feature adds and does not compile. It
-# turns on `datafusion/unicode_expressions` wherever it is compiled.
-datafusion-distributed = { version = "4.0.0", default-features = false, features = [
+# turns on `datafusion/unicode_expressions` wherever it is compiled. VENDORED: the published 4.0.0 plus
+# the call authorization hook the task grant is asked through; `VENDOR.md` says when it goes back.
+datafusion-distributed = { path = "../../vendor/datafusion-distributed", version = "4.0.0", default-features = false, features = [
   "grpc",
   "parquet",
 ], optional = true }
@@ -39,6 +40,10 @@ tower = { workspace = true, optional = true, features = ["util"] }
 # The connection error a link's status keeps as its cause when a node goes away under a call, which
 # is how a lost node is told from a failed one. Already in the graph through `tonic`.
 h2 = { version = "0.4", optional = true }
+# The task grant every call to a worker carries: a key drawn for each question and an HMAC under it
+# on the ring rustls already runs on. Both are already in the lock.
+getrandom = { version = "0.4", optional = true }
+ring = { version = "0.17", optional = true }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
@@ -91,6 +96,8 @@ distributed = [
   "dep:tonic",
   "dep:tower",
   "dep:h2",
+  "dep:getrandom",
+  "dep:ring",
   "tokio/net",
   "tokio/sync",
 ]
