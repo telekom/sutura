@@ -1,0 +1,70 @@
+# HOW OFTEN IS A REALISTIC CORPUS REFUSED, AND HOW LONG DOES AN ANSWER TAKE?
+#
+# A TPC-H star split over two data systems: `lineitem` and `orders` in DuckDB, `customer`, `part`,
+# `supplier`, `nation` and `region` in PostgreSQL. A question grouped only by fact columns stays on
+# one system and is pushed down whole; one grouped by a dimension column crosses into the other and
+# is federated. `nix/tpch/questions.json` tags each question with the path it is meant to take, and
+# `nix/tpch-refusal-rate.py` carries the design.
+#
+# TWO POINTS per scale: the shipped defaults, and `governance.federated_row_ceiling: 1000000` with
+# `runtime.working_set_max_bytes: 8589934592`. The single-source row cap and the top ceiling are the
+# defaults at both, so a refusal for either reads the same at both points.
+#
+# SF1 and SF10 on `rust-mcp-32core` (32 cores, 126 GiB, over 1 TB free, measured in
+# `runner-probe.yml`). At SF10, generating about 60 million `lineitem` rows, a cold release build
+# and the served process share one host. A standard hosted runner (4 cores, 16 GB, ~14 GB free disk)
+# is tight for that and this host is not, so SF3 - the fallback - is not needed. Unmeasured until
+# the first dispatch: the peak memory and disk of either scale.
+#
+# IT GATES NOTHING. Dispatch only, absent from `devco/required-contexts` and `ci-aggregate`, for the
+# runner probe's reason: a measurement for the owner, not a check a commit must pass. A run exits 1
+# only when a question failed for a reason that says the corpus or the deployment is wrong.
+name: tpch-refusal-rate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: rust-mcp-32core
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        scale: [1, 10]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          # The stores this repository publishes, as `release-performance.yml` declares them: the
+          # served binary is the shipped one, and a store that holds it saves building it here.
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Measure
+        env:
+          SCALE: ${{ matrix.scale }}
+        run: nix run .#tpch-refusal-rate -- --scale "$SCALE" --out "tpch-sf$SCALE"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: tpch-refusal-rate-sf${{ matrix.scale }}
+          path: tpch-sf${{ matrix.scale }}/
+          if-no-files-found: warn
