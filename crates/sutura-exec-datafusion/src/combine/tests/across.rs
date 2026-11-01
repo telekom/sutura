@@ -312,6 +312,42 @@ fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() 
 }
 
 #[test]
+fn a_stage_another_node_cannot_hold_in_its_own_working_set_refuses_the_question_for_its_ceiling() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let sent: [Arc<AtomicUsize>; 2] = Default::default();
+    // This node and the question's ceiling are roomy, so a reservation refused anywhere was refused by
+    // another node's own pool, of one byte.
+    let others: Vec<Url> = sent
+        .iter()
+        .map(|count| {
+            let other = authority.sign();
+            let worker =
+                Nodes::worker(WorkingSet::of_bytes(NonZeroUsize::MIN), authority.identity(&other)).expect("a worker builds");
+            served(&servers, listening(&other, authority.peers()), worker, Arc::clone(count))
+        })
+        .collect();
+    let across = DataFusionCombiner::across(
+        Nodes::declared(own, own_url, others, authority.identity(&node)).across_above(NonZeroU64::new(1)),
+    )
+    .expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let refused = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect_err("a combine with a stage over another node's working set answered");
+    assert_eq!(across.working_set_exhausted(&refused), Some(UNBOUNDED), "{refused:?}");
+    assert!(
+        sent.iter().any(|count| count.load(Ordering::SeqCst) > 0),
+        "no other node was sent a stage, so nothing here measured its pool"
+    );
+}
+
+#[test]
 fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_set() {
     let authority = Authority::generate();
     let node = authority.sign();
