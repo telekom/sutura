@@ -7,8 +7,13 @@ description: How a federated question whose combine is too big for one node spre
 
 Status: **accepted**, 2026-10-31, scoped to a question whose join or aggregation needs more than
 one node. The owner chose the engine family, the stream identity and when a question goes across,
-the answers below, and on 2026-11-01 the key that signs a task grant (Decision 5). This record
-decides; it proves nothing.
+the answers below, and on 2026-11-01 the key that signs a task grant (Decision 5). Built: the
+stages planned across the declared nodes (#1641, #1646), a worker transport only a node with a
+certificate may call (#1642, #1643, #1644), the receiving node's refusal of a stage that reads a
+source (#1647), the size rule (#1654), a lost node as `node_lost` (#1674), and the in-process
+differential over three nodes (#1650). The multi-node VM test plans a combine across both nodes and
+refuses a worker call from a non-node (#1648, #1651). Decision 5, the task grant, is not built. This
+record decides; it proves nothing.
 
 ## The question
 

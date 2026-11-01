@@ -5,8 +5,10 @@ description: A question over several metrics whose arms all read one data system
 
 # Several metrics on one data system
 
-Status: **accepted**, 2026-10-31. This is the owner's decision. Nothing is built. This record decides
-and proves nothing.
+Status: **accepted**, 2026-10-31. This is the owner's decision. Built (#1656): metrics on one data
+system are planned as one stacked statement, every SQL adapter renders it, and DataFusion runs it as
+one logical plan. What is not built stays below. No cell runs the statement on a live data system,
+and ClickHouse, Oracle and BigQuery have not run it. This record decides and proves nothing.
 
 ## The question
 
