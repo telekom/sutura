@@ -48,18 +48,22 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
 }
 
 /// This node's worker, accepting only a node `authority` signed. Built with no runtime entered,
-/// as the serving arm builds its own.
+/// as the serving arm builds its own. A message sent to it whose length prefix declares more bytes
+/// than this node's working set is refused before any of it is buffered; the bound is per message,
+/// so concurrent streams each reach it.
 pub(super) fn mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
     runtime: RuntimeSettings,
 ) -> Result<sutura_http::WorkerMount, String> {
     let identity = super::nodes::identity(tls, authority)?;
-    let own = sutura_exec_datafusion::Nodes::worker(crate::sources::working_set(runtime), identity)
+    let working_set = crate::sources::working_set(runtime);
+    let own = sutura_exec_datafusion::Nodes::worker(working_set, identity)
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     Ok(sutura_http::WorkerMount::new(
         own.with_call_authorizer(sutura_exec_datafusion::TaskGrant::default())
-            .into_worker_server(),
+            .into_worker_server()
+            .max_decoding_message_size(working_set.bytes()),
     ))
 }
 
