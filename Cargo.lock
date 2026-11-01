@@ -4816,6 +4816,8 @@ dependencies = [
  "getrandom 0.4.3",
  "governor",
  "http-body",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "parking_lot 0.13.0",
  "rcgen",

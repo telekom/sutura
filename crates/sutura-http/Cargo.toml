@@ -74,6 +74,10 @@ sutura-tls = { workspace = true }
 # after shutdown is asked for, which needs to observe the signal twice.
 sutura-runtime = { workspace = true }
 axum = { workspace = true }
+# Serves each accepted connection ourselves rather than through `axum::serve`, which builds its
+# `hyper` connection with no timer and so no header-read timeout - see `src/server.rs`.
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 # Directly, for `middleware::StateInformationMiddleware` in the limiter's type. It is part of the
 # signature because emitting the remaining-quota headers is a construction-time choice.
 governor = { workspace = true }
