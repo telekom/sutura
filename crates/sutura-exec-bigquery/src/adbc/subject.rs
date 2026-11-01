@@ -71,8 +71,9 @@
 //! **That bound rests on the document never reaching disk or a log.** It is a driver option string
 //! built per request and handed across the C ABI; [`SubjectSource::document`] returns it as a
 //! [`Secret`], whose `Debug` prints `REDACTED` and which has no `Display` - so a `tracing` line, an
-//! error body or a `{:?}` cannot carry it. That is the property to preserve; breaking it is the
-//! leak, not the open port.
+//! error body or a `{:?}` cannot carry it. A failed fetch the driver reports can quote the URL,
+//! nonce included, in its error text; `super::driver_message` cuts every such URL before any driver
+//! error renders. That is the property to preserve; breaking it is the leak, not the open port.
 //!
 //! # What a local process CAN still do, which is delay and not read
 //!
