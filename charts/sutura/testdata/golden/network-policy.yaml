@@ -149,7 +149,7 @@ spec:
                   name: sutura-metrics-token
                   key: token
             - name: SUTURA__SECURITY__TLS_TERMINATION
-              value: "in-process"
+              value: "ingress"
           volumeMounts:
             - name: config
               mountPath: /etc/sutura/config
@@ -162,14 +162,12 @@ spec:
             httpGet:
               path: /health
               port: http
-              scheme: HTTPS
             failureThreshold: 30
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: http
-              scheme: HTTPS
             periodSeconds: 10
             failureThreshold: 3
           securityContext:

@@ -5,7 +5,7 @@ security:
     secretName: sutura-access-token
   metricsToken:
     secretName: sutura-metrics-token
-  tlsTermination: in-process
+  tlsTermination: ingress
 networkPolicy:
   enabled: true
 config:
