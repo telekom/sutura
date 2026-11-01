@@ -3452,7 +3452,7 @@ definition version and digest that it came from:</p>
 </tr>
 <tr>
 <td><code>503</code></td>
-<td><code>source_unavailable</code>, <code>workers_not_ready</code>. These are the refusals worth a retry</td>
+<td><code>source_unavailable</code>, <code>workers_not_ready</code>, <code>node_lost</code>. These are the refusals worth a retry</td>
 </tr>
 </tbody>
 </table>
@@ -3602,13 +3602,20 @@ it, and goes across only when that combine runs out of its ceiling. <code>0</cod
 resolves again every 200 ms until the wait ends, then plans across those that did. It is refused with
 <code>503 workers_not_ready</code> only when none did. Unset, a question plans across whatever resolves at once. <code>0</code> is refused,
 and so is a wait that is not below <code>server.request_timeout_seconds</code>.</p>
+<p>A stage another node cannot hold in its own working set is refused there, and the question is refused with
+<code>resources_exhausted</code>. A node the question was planned onto that cannot be reached while it runs fails the question, which
+is refused with <code>503 node_lost</code>. Asked again, it is planned across the nodes there then.</p>
 <p>Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
 restart. A link carries no task grant: a node runs any stage another node of the same authority sends it. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
 that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
 <code>runtime.max_concurrent_queries</code> slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
 largest plans across what it has, and a question too large for it is refused for its working set. A resolved address
-counts as a worker, so a host that also names a serving node counts that node.</p>
+counts as a worker, so a host that also names a serving node counts that node. A node is read as lost only when its link
+reports itself unavailable: a connection refused, reset or timed out. Any other failure of a link, and the same failure
+relayed by another node, is an internal error.
+Whether a failed TLS handshake reads as lost is not measured. Nothing re-plans a question onto the nodes that remain, and
+a node lost while it streams an answer is not measured, only one that nothing listens on.</p>
 <p><code>security.outbound.transport_anchors</code> (a PEM bundle path, or <code>system</code>) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.</p>
 <h3 id="a-worker-node">A worker node<a class="headerlink" href="#a-worker-node" title="Permanent link">&para;</a></h3>

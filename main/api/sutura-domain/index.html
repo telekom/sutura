@@ -7905,14 +7905,14 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-443-231"><a id="__codelineno-443-231" name="__codelineno-443-231" href="#__codelineno-443-231"></a>implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
 </span><span id="__span-443-232"><a id="__codelineno-443-232" name="__codelineno-443-232" href="#__codelineno-443-232"></a>inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
 </span><span id="__span-443-233"><a id="__codelineno-443-233" name="__codelineno-443-233" href="#__codelineno-443-233"></a>produces - with nothing in a diff to see. So `Self::working_set_exhausted`,
-</span><span id="__span-443-234"><a id="__codelineno-443-234" name="__codelineno-443-234" href="#__codelineno-443-234"></a>`Self::answer_not_well_formed` and `Self::workers_not_ready` have no default body: a second
-</span><span id="__span-443-235"><a id="__codelineno-443-235" name="__codelineno-443-235" href="#__codelineno-443-235"></a>implementor has to write every arm where a reviewer reads them.
+</span><span id="__span-443-234"><a id="__codelineno-443-234" name="__codelineno-443-234" href="#__codelineno-443-234"></a>`Self::answer_not_well_formed`, `Self::workers_not_ready` and `Self::node_lost` have no
+</span><span id="__span-443-235"><a id="__codelineno-443-235" name="__codelineno-443-235" href="#__codelineno-443-235"></a>default body: a second implementor has to write every arm where a reviewer reads them.
 </span><span id="__span-443-236"><a id="__codelineno-443-236" name="__codelineno-443-236" href="#__codelineno-443-236"></a>
 </span><span id="__span-443-237"><a id="__codelineno-443-237" name="__codelineno-443-237" href="#__codelineno-443-237"></a>`Self::worker_slots_wanted` defaults to `None`, which is honest for a combiner that never goes
 </span><span id="__span-443-238"><a id="__codelineno-443-238" name="__codelineno-443-238" href="#__codelineno-443-238"></a>across. **The limit:** one that does go across and inherits it exports no demand, and the
 </span><span id="__span-443-239"><a id="__codelineno-443-239" name="__codelineno-443-239" href="#__codelineno-443-239"></a>operator sizes the worker pool to its floor - nothing but review sees that.
 </span><span id="__span-443-240"><a id="__codelineno-443-240" name="__codelineno-443-240" href="#__codelineno-443-240"></a>
-</span><span id="__span-443-241"><a id="__codelineno-443-241" name="__codelineno-443-241" href="#__codelineno-443-241"></a># What the domain may ask about an implementor's error, and why it is three predicates
+</span><span id="__span-443-241"><a id="__codelineno-443-241" name="__codelineno-443-241" href="#__codelineno-443-241"></a># What the domain may ask about an implementor's error, and why it is four predicates
 </span><span id="__span-443-242"><a id="__codelineno-443-242" name="__codelineno-443-242" href="#__codelineno-443-242"></a>
 </span><span id="__span-443-243"><a id="__codelineno-443-243" name="__codelineno-443-243" href="#__codelineno-443-243"></a>`Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
 </span><span id="__span-443-244"><a id="__codelineno-443-244" name="__codelineno-443-244" href="#__codelineno-443-244"></a>not grow* from *the plan would not build*. The questions split the same way the query path's
@@ -7926,325 +7926,328 @@ use sutura_domain::warehouse::ParamValue;</p>
 </span><span id="__span-443-252"><a id="__codelineno-443-252" name="__codelineno-443-252" href="#__codelineno-443-252"></a>  The same plan against the same rows refuses again, which is what makes it a refusal rather
 </span><span id="__span-443-253"><a id="__codelineno-443-253" name="__codelineno-443-253" href="#__codelineno-443-253"></a>  than a retryable failure.
 </span><span id="__span-443-254"><a id="__codelineno-443-254" name="__codelineno-443-254" href="#__codelineno-443-254"></a>* `Self::workers_not_ready` is the other nodes a combine wanted not being there in time -
-</span><span id="__span-443-255"><a id="__codelineno-443-255" name="__codelineno-443-255" href="#__codelineno-443-255"></a>  `RefusalReason::WorkersNotReady`, the one of
-</span><span id="__span-443-256"><a id="__codelineno-443-256" name="__codelineno-443-256" href="#__codelineno-443-256"></a>  the three a caller may retry.
-</span><span id="__span-443-257"><a id="__codelineno-443-257" name="__codelineno-443-257" href="#__codelineno-443-257"></a>
-</span><span id="__span-443-258"><a id="__codelineno-443-258" name="__codelineno-443-258" href="#__codelineno-443-258"></a>All three are predicates rather than conversions, for the reason
-</span><span id="__span-443-259"><a id="__codelineno-443-259" name="__codelineno-443-259" href="#__codelineno-443-259"></a>`Warehouse::working_set_exhausted` gives:
-</span><span id="__span-443-260"><a id="__codelineno-443-260" name="__codelineno-443-260" href="#__codelineno-443-260"></a>an implementor that could return a `RefusalReason` could mint any
-</span><span id="__span-443-261"><a id="__codelineno-443-261" name="__codelineno-443-261" href="#__codelineno-443-261"></a>of them from a failure of its own. Everything else leaves as the implementor's typed error and
-</span><span id="__span-443-262"><a id="__codelineno-443-262" name="__codelineno-443-262" href="#__codelineno-443-262"></a>reaches a caller as this workspace's own defect.
-</span><span id="__span-443-263"><a id="__codelineno-443-263" name="__codelineno-443-263" href="#__codelineno-443-263"></a>
-</span><span id="__span-443-264"><a id="__codelineno-443-264" name="__codelineno-443-264" href="#__codelineno-443-264"></a>### `use InternalLabel`
-</span><span id="__span-443-265"><a id="__codelineno-443-265" name="__codelineno-443-265" href="#__codelineno-443-265"></a>
-</span><span id="__span-443-266"><a id="__codelineno-443-266" name="__codelineno-443-266" href="#__codelineno-443-266"></a>A column label the splitter and the combiner agree on, in a namespace no question can name.
-</span><span id="__span-443-267"><a id="__codelineno-443-267" name="__codelineno-443-267" href="#__codelineno-443-267"></a>
-</span><span id="__span-443-268"><a id="__codelineno-443-268" name="__codelineno-443-268" href="#__codelineno-443-268"></a>**Why a type rather than a convention.** A federated fact leg's result carries public dimension
-</span><span id="__span-443-269"><a id="__codelineno-443-269" name="__codelineno-443-269" href="#__codelineno-443-269"></a>labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
-</span><span id="__span-443-270"><a id="__codelineno-443-270" name="__codelineno-443-270" href="#__codelineno-443-270"></a>measure. The splitter spelled the first with the physical remote join COLUMN's text and the
-</span><span id="__span-443-271"><a id="__codelineno-443-271" name="__codelineno-443-271" href="#__codelineno-443-271"></a>second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
-</span><span id="__span-443-272"><a id="__codelineno-443-272" name="__codelineno-443-272" href="#__codelineno-443-272"></a>named `customer_key`, backed by a different column, projected two fact columns under one label
-</span><span id="__span-443-273"><a id="__codelineno-443-273" name="__codelineno-443-273" href="#__codelineno-443-273"></a>and the combiner refused the answer it could not disambiguate. A dimension is free to be named
-</span><span id="__span-443-274"><a id="__codelineno-443-274" name="__codelineno-443-274" href="#__codelineno-443-274"></a>anything `DimensionName` accepts, so the internal labels are what
-</span><span id="__span-443-275"><a id="__codelineno-443-275" name="__codelineno-443-275" href="#__codelineno-443-275"></a>has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
-</span><span id="__span-443-276"><a id="__codelineno-443-276" name="__codelineno-443-276" href="#__codelineno-443-276"></a>
-</span><span id="__span-443-277"><a id="__codelineno-443-277" name="__codelineno-443-277" href="#__codelineno-443-277"></a>**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
-</span><span id="__span-443-278"><a id="__codelineno-443-278" name="__codelineno-443-278" href="#__codelineno-443-278"></a>with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
-</span><span id="__span-443-279"><a id="__codelineno-443-279" name="__codelineno-443-279" href="#__codelineno-443-279"></a>digit is legal in some dialects and not others, so it was already refused for portability. No
-</span><span id="__span-443-280"><a id="__codelineno-443-280" name="__codelineno-443-280" href="#__codelineno-443-280"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
-</span><span id="__span-443-281"><a id="__codelineno-443-281" name="__codelineno-443-281" href="#__codelineno-443-281"></a>any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
-</span><span id="__span-443-282"><a id="__codelineno-443-282" name="__codelineno-443-282" href="#__codelineno-443-282"></a>label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
-</span><span id="__span-443-283"><a id="__codelineno-443-283" name="__codelineno-443-283" href="#__codelineno-443-283"></a>
-</span><span id="__span-443-284"><a id="__codelineno-443-284" name="__codelineno-443-284" href="#__codelineno-443-284"></a>**The disjointness has a second half, and it is the one a parse check cannot answer: every target
-</span><span id="__span-443-285"><a id="__codelineno-443-285" name="__codelineno-443-285" href="#__codelineno-443-285"></a>has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
-</span><span id="__span-443-286"><a id="__codelineno-443-286" name="__codelineno-443-286" href="#__codelineno-443-286"></a>`BadFirstCharacter` refuses because it is
-</span><span id="__span-443-287"><a id="__codelineno-443-287" name="__codelineno-443-287" href="#__codelineno-443-287"></a>*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
-</span><span id="__span-443-288"><a id="__codelineno-443-288" name="__codelineno-443-288" href="#__codelineno-443-288"></a>so the same sentence that justifies the namespace is the reason to doubt it. Two different
-</span><span id="__span-443-289"><a id="__codelineno-443-289" name="__codelineno-443-289" href="#__codelineno-443-289"></a>questions live under it: whether a target accepts a digit-leading string as an **identifier**,
-</span><span id="__span-443-290"><a id="__codelineno-443-290" name="__codelineno-443-290" href="#__codelineno-443-290"></a>which is what that refusal is about and where the targets do differ, and whether it accepts one
-</span><span id="__span-443-291"><a id="__codelineno-443-291" name="__codelineno-443-291" href="#__codelineno-443-291"></a>as a **quoted select alias**, which is the only position this scheme puts it in.
-</span><span id="__span-443-292"><a id="__codelineno-443-292" name="__codelineno-443-292" href="#__codelineno-443-292"></a>`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
-</span><span id="__span-443-293"><a id="__codelineno-443-293" name="__codelineno-443-293" href="#__codelineno-443-293"></a>`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
-</span><span id="__span-443-294"><a id="__codelineno-443-294" name="__codelineno-443-294" href="#__codelineno-443-294"></a>label in exactly one place.
-</span><span id="__span-443-295"><a id="__codelineno-443-295" name="__codelineno-443-295" href="#__codelineno-443-295"></a>
-</span><span id="__span-443-296"><a id="__codelineno-443-296" name="__codelineno-443-296" href="#__codelineno-443-296"></a>What is established, and by what:
-</span><span id="__span-443-297"><a id="__codelineno-443-297" name="__codelineno-443-297" href="#__codelineno-443-297"></a>
-</span><span id="__span-443-298"><a id="__codelineno-443-298" name="__codelineno-443-298" href="#__codelineno-443-298"></a>| Claim | Venue | Mechanism |
-</span><span id="__span-443-299"><a id="__codelineno-443-299" name="__codelineno-443-299" href="#__codelineno-443-299"></a>| --- | --- | --- |
-</span><span id="__span-443-300"><a id="__codelineno-443-300" name="__codelineno-443-300" href="#__codelineno-443-300"></a>| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
-</span><span id="__span-443-301"><a id="__codelineno-443-301" name="__codelineno-443-301" href="#__codelineno-443-301"></a>| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05; the acceptance leg that held it was removed with the `wire` transport and the ADBC adoption |
-</span><span id="__span-443-302"><a id="__codelineno-443-302" name="__codelineno-443-302" href="#__codelineno-443-302"></a>| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
-</span><span id="__span-443-303"><a id="__codelineno-443-303" name="__codelineno-443-303" href="#__codelineno-443-303"></a>
-</span><span id="__span-443-304"><a id="__codelineno-443-304" name="__codelineno-443-304" href="#__codelineno-443-304"></a>`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
-</span><span id="__span-443-305"><a id="__codelineno-443-305" name="__codelineno-443-305" href="#__codelineno-443-305"></a>whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
-</span><span id="__span-443-306"><a id="__codelineno-443-306" name="__codelineno-443-306" href="#__codelineno-443-306"></a>2026-09-05, as a dry run and as a real job each time: bare aliases
-</span><span id="__span-443-307"><a id="__codelineno-443-307" name="__codelineno-443-307" href="#__codelineno-443-307"></a>(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
-</span><span id="__span-443-308"><a id="__codelineno-443-308" name="__codelineno-443-308" href="#__codelineno-443-308"></a>the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
-</span><span id="__span-443-309"><a id="__codelineno-443-309" name="__codelineno-443-309" href="#__codelineno-443-309"></a>aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
-</span><span id="__span-443-310"><a id="__codelineno-443-310" name="__codelineno-443-310" href="#__codelineno-443-310"></a>Both are accepted and both come back with the field names the statement asked for. So the
-</span><span id="__span-443-311"><a id="__codelineno-443-311" name="__codelineno-443-311" href="#__codelineno-443-311"></a>documented restriction is on a **declared column** and not on a quoted alias.
-</span><span id="__span-443-312"><a id="__codelineno-443-312" name="__codelineno-443-312" href="#__codelineno-443-312"></a>
-</span><span id="__span-443-313"><a id="__codelineno-443-313" name="__codelineno-443-313" href="#__codelineno-443-313"></a>**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only,
-</span><span id="__span-443-314"><a id="__codelineno-443-314" name="__codelineno-443-314" href="#__codelineno-443-314"></a>and the reason changed for one of them. `ClickHouse` has no execution venue for a LEG at all and
-</span><span id="__span-443-315"><a id="__codelineno-443-315" name="__codelineno-443-315" href="#__codelineno-443-315"></a>leaves `EXECUTES_LEGS` at its default `false`. `Postgres` declares the constant now and its
-</span><span id="__span-443-316"><a id="__codelineno-443-316" name="__codelineno-443-316" href="#__codelineno-443-316"></a>conformance binding executes a leg against a provisioned tier - but that leg's labels come from
-</span><span id="__span-443-317"><a id="__codelineno-443-317" name="__codelineno-443-317" href="#__codelineno-443-317"></a>`ResultLabel`, not from here, so **no venue has ever sent a label in THIS namespace to a
-</span><span id="__span-443-318"><a id="__codelineno-443-318" name="__codelineno-443-318" href="#__codelineno-443-318"></a>Postgres server.** What stands for both is still a quoted-identifier argument rather than a run.
-</span><span id="__span-443-319"><a id="__codelineno-443-319" name="__codelineno-443-319" href="#__codelineno-443-319"></a>Read the row above for what each one is worth.
-</span><span id="__span-443-320"><a id="__codelineno-443-320" name="__codelineno-443-320" href="#__codelineno-443-320"></a>
-</span><span id="__span-443-321"><a id="__codelineno-443-321" name="__codelineno-443-321" href="#__codelineno-443-321"></a>**The reason that sentence keeps changing rather than the claim:** it used to say *the whole
-</span><span id="__span-443-322"><a id="__codelineno-443-322" name="__codelineno-443-322" href="#__codelineno-443-322"></a>federated path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB`
-</span><span id="__span-443-323"><a id="__codelineno-443-323" name="__codelineno-443-323" href="#__codelineno-443-323"></a>vehicle sets*, which stopped being true when the engine declared the constant and a published
-</span><span id="__span-443-324"><a id="__codelineno-443-324" name="__codelineno-443-324" href="#__codelineno-443-324"></a>build began answering two sources; then it said neither of these two dialects had a leg venue,
-</span><span id="__span-443-325"><a id="__codelineno-443-325" name="__codelineno-443-325" href="#__codelineno-443-325"></a>which stopped being true when the Postgres adapter declared it. The claim survived both, because
-</span><span id="__span-443-326"><a id="__codelineno-443-326" name="__codelineno-443-326" href="#__codelineno-443-326"></a>it never rested on the path being gated or on a venue being absent - it rests on nothing having
-</span><span id="__span-443-327"><a id="__codelineno-443-327" name="__codelineno-443-327" href="#__codelineno-443-327"></a>sent an identifier in this namespace to either server.
-</span><span id="__span-443-328"><a id="__codelineno-443-328" name="__codelineno-443-328" href="#__codelineno-443-328"></a>
-</span><span id="__span-443-329"><a id="__codelineno-443-329" name="__codelineno-443-329" href="#__codelineno-443-329"></a>**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
-</span><span id="__span-443-330"><a id="__codelineno-443-330" name="__codelineno-443-330" href="#__codelineno-443-330"></a>range is a wiring defect the combiner reports as a missing column, not a label this type could
-</span><span id="__span-443-331"><a id="__codelineno-443-331" name="__codelineno-443-331" href="#__codelineno-443-331"></a>have refused - which is why the variants carry their data in the open and no constructor is
-</span><span id="__span-443-332"><a id="__codelineno-443-332" name="__codelineno-443-332" href="#__codelineno-443-332"></a>fallible. What the type buys is that the TEXT can only come from here.
-</span><span id="__span-443-333"><a id="__codelineno-443-333" name="__codelineno-443-333" href="#__codelineno-443-333"></a>
-</span><span id="__span-443-334"><a id="__codelineno-443-334" name="__codelineno-443-334" href="#__codelineno-443-334"></a>**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
-</span><span id="__span-443-335"><a id="__codelineno-443-335" name="__codelineno-443-335" href="#__codelineno-443-335"></a>The labels a result carries besides these are public: the answer's dimension labels, the time
-</span><span id="__span-443-336"><a id="__codelineno-443-336" name="__codelineno-443-336" href="#__codelineno-443-336"></a>bucket's `TIME_BUCKET_LABEL` and the measure's metric name.
-</span><span id="__span-443-337"><a id="__codelineno-443-337" name="__codelineno-443-337" href="#__codelineno-443-337"></a>Those are held against each other at load by
-</span><span id="__span-443-338"><a id="__codelineno-443-338" name="__codelineno-443-338" href="#__codelineno-443-338"></a>`Definitions::assemble` -
-</span><span id="__span-443-339"><a id="__codelineno-443-339" name="__codelineno-443-339" href="#__codelineno-443-339"></a>`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
-</span><span id="__span-443-340"><a id="__codelineno-443-340" name="__codelineno-443-340" href="#__codelineno-443-340"></a>`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
-</span><span id="__span-443-341"><a id="__codelineno-443-341" name="__codelineno-443-341" href="#__codelineno-443-341"></a>with another public label at load, and cannot collide with an internal one at all. **The limit:**
-</span><span id="__span-443-342"><a id="__codelineno-443-342" name="__codelineno-443-342" href="#__codelineno-443-342"></a>nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
-</span><span id="__span-443-343"><a id="__codelineno-443-343" name="__codelineno-443-343" href="#__codelineno-443-343"></a>is the property the test asserts, and the thing to re-establish if this spelling ever changes.
-</span><span id="__span-443-344"><a id="__codelineno-443-344" name="__codelineno-443-344" href="#__codelineno-443-344"></a>
-</span><span id="__span-443-345"><a id="__codelineno-443-345" name="__codelineno-443-345" href="#__codelineno-443-345"></a>**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
-</span><span id="__span-443-346"><a id="__codelineno-443-346" name="__codelineno-443-346" href="#__codelineno-443-346"></a>`InternalLabel`; the public half is `ResultLabel`, whose only
-</span><span id="__span-443-347"><a id="__codelineno-443-347" name="__codelineno-443-347" href="#__codelineno-443-347"></a>constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
-</span><span id="__span-443-348"><a id="__codelineno-443-348" name="__codelineno-443-348" href="#__codelineno-443-348"></a>computed string is not a label a plan can carry, and the derivation
-</span><span id="__span-443-349"><a id="__codelineno-443-349" name="__codelineno-443-349" href="#__codelineno-443-349"></a>`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
-</span><span id="__span-443-350"><a id="__codelineno-443-350" name="__codelineno-443-350" href="#__codelineno-443-350"></a>instead. What that changes about the paragraph above: the two namespaces are still disjoint
-</span><span id="__span-443-351"><a id="__codelineno-443-351" name="__codelineno-443-351" href="#__codelineno-443-351"></a>*because* of the leading digit, and what the types add is that no producer can put a value in
-</span><span id="__span-443-352"><a id="__codelineno-443-352" name="__codelineno-443-352" href="#__codelineno-443-352"></a>both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
-</span><span id="__span-443-353"><a id="__codelineno-443-353" name="__codelineno-443-353" href="#__codelineno-443-353"></a>something already parsed, never WHICH of the four constructors produced it - so a value built by
-</span><span id="__span-443-354"><a id="__codelineno-443-354" name="__codelineno-443-354" href="#__codelineno-443-354"></a>`ResultLabel::internal` is accepted anywhere a label is
-</span><span id="__span-443-355"><a id="__codelineno-443-355" name="__codelineno-443-355" href="#__codelineno-443-355"></a>taken, the bucket's position included. Nothing here reads the provenance back, because nothing
-</span><span id="__span-443-356"><a id="__codelineno-443-356" name="__codelineno-443-356" href="#__codelineno-443-356"></a>needs to: the disjointness is the leading digit.
-</span><span id="__span-443-357"><a id="__codelineno-443-357" name="__codelineno-443-357" href="#__codelineno-443-357"></a>
-</span><span id="__span-443-358"><a id="__codelineno-443-358" name="__codelineno-443-358" href="#__codelineno-443-358"></a>**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
-</span><span id="__span-443-359"><a id="__codelineno-443-359" name="__codelineno-443-359" href="#__codelineno-443-359"></a>is 63 characters because that is the tightest among the data systems targeted, and it is a
-</span><span id="__span-443-360"><a id="__codelineno-443-360" name="__codelineno-443-360" href="#__codelineno-443-360"></a>*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
-</span><span id="__span-443-361"><a id="__codelineno-443-361" name="__codelineno-443-361" href="#__codelineno-443-361"></a>columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
-</span><span id="__span-443-362"><a id="__codelineno-443-362" name="__codelineno-443-362" href="#__codelineno-443-362"></a>scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
-</span><span id="__span-443-363"><a id="__codelineno-443-363" name="__codelineno-443-363" href="#__codelineno-443-363"></a>`usize` pair can index is 46 characters.
-</span><span id="__span-443-364"><a id="__codelineno-443-364" name="__codelineno-443-364" href="#__codelineno-443-364"></a>
-</span><span id="__span-443-365"><a id="__codelineno-443-365" name="__codelineno-443-365" href="#__codelineno-443-365"></a>### `use LegAt`
-</span><span id="__span-443-366"><a id="__codelineno-443-366" name="__codelineno-443-366" href="#__codelineno-443-366"></a>
-</span><span id="__span-443-367"><a id="__codelineno-443-367" name="__codelineno-443-367" href="#__codelineno-443-367"></a>One leg of a federated plan, named by its place: the fact leg, or a lookup leg by its position
-</span><span id="__span-443-368"><a id="__codelineno-443-368" name="__codelineno-443-368" href="#__codelineno-443-368"></a>in `LookupLegs`.
+</span><span id="__span-443-255"><a id="__codelineno-443-255" name="__codelineno-443-255" href="#__codelineno-443-255"></a>  `RefusalReason::WorkersNotReady`, one of the
+</span><span id="__span-443-256"><a id="__codelineno-443-256" name="__codelineno-443-256" href="#__codelineno-443-256"></a>  two a caller may retry.
+</span><span id="__span-443-257"><a id="__codelineno-443-257" name="__codelineno-443-257" href="#__codelineno-443-257"></a>* `Self::node_lost` is a node the combine was planned onto not being reachable once it ran -
+</span><span id="__span-443-258"><a id="__codelineno-443-258" name="__codelineno-443-258" href="#__codelineno-443-258"></a>  `RefusalReason::NodeLost`, the other a caller may
+</span><span id="__span-443-259"><a id="__codelineno-443-259" name="__codelineno-443-259" href="#__codelineno-443-259"></a>  retry.
+</span><span id="__span-443-260"><a id="__codelineno-443-260" name="__codelineno-443-260" href="#__codelineno-443-260"></a>
+</span><span id="__span-443-261"><a id="__codelineno-443-261" name="__codelineno-443-261" href="#__codelineno-443-261"></a>All four are predicates rather than conversions, for the reason
+</span><span id="__span-443-262"><a id="__codelineno-443-262" name="__codelineno-443-262" href="#__codelineno-443-262"></a>`Warehouse::working_set_exhausted` gives:
+</span><span id="__span-443-263"><a id="__codelineno-443-263" name="__codelineno-443-263" href="#__codelineno-443-263"></a>an implementor that could return a `RefusalReason` could mint any
+</span><span id="__span-443-264"><a id="__codelineno-443-264" name="__codelineno-443-264" href="#__codelineno-443-264"></a>of them from a failure of its own. Everything else leaves as the implementor's typed error and
+</span><span id="__span-443-265"><a id="__codelineno-443-265" name="__codelineno-443-265" href="#__codelineno-443-265"></a>reaches a caller as this workspace's own defect.
+</span><span id="__span-443-266"><a id="__codelineno-443-266" name="__codelineno-443-266" href="#__codelineno-443-266"></a>
+</span><span id="__span-443-267"><a id="__codelineno-443-267" name="__codelineno-443-267" href="#__codelineno-443-267"></a>### `use InternalLabel`
+</span><span id="__span-443-268"><a id="__codelineno-443-268" name="__codelineno-443-268" href="#__codelineno-443-268"></a>
+</span><span id="__span-443-269"><a id="__codelineno-443-269" name="__codelineno-443-269" href="#__codelineno-443-269"></a>A column label the splitter and the combiner agree on, in a namespace no question can name.
+</span><span id="__span-443-270"><a id="__codelineno-443-270" name="__codelineno-443-270" href="#__codelineno-443-270"></a>
+</span><span id="__span-443-271"><a id="__codelineno-443-271" name="__codelineno-443-271" href="#__codelineno-443-271"></a>**Why a type rather than a convention.** A federated fact leg's result carries public dimension
+</span><span id="__span-443-272"><a id="__codelineno-443-272" name="__codelineno-443-272" href="#__codelineno-443-272"></a>labels beside internal ones - the column the legs are joined on, and one per carried leaf of the
+</span><span id="__span-443-273"><a id="__codelineno-443-273" name="__codelineno-443-273" href="#__codelineno-443-273"></a>measure. The splitter spelled the first with the physical remote join COLUMN's text and the
+</span><span id="__span-443-274"><a id="__codelineno-443-274" name="__codelineno-443-274" href="#__codelineno-443-274"></a>second as `metric__{n}`, and both of those are legal identifiers: a metric with a legal dimension
+</span><span id="__span-443-275"><a id="__codelineno-443-275" name="__codelineno-443-275" href="#__codelineno-443-275"></a>named `customer_key`, backed by a different column, projected two fact columns under one label
+</span><span id="__span-443-276"><a id="__codelineno-443-276" name="__codelineno-443-276" href="#__codelineno-443-276"></a>and the combiner refused the answer it could not disambiguate. A dimension is free to be named
+</span><span id="__span-443-277"><a id="__codelineno-443-277" name="__codelineno-443-277" href="#__codelineno-443-277"></a>anything `DimensionName` accepts, so the internal labels are what
+</span><span id="__span-443-278"><a id="__codelineno-443-278" name="__codelineno-443-278" href="#__codelineno-443-278"></a>has to move - keeping a legal question legal is the constraint, not a naming rule for authors.
+</span><span id="__span-443-279"><a id="__codelineno-443-279" name="__codelineno-443-279" href="#__codelineno-443-279"></a>
+</span><span id="__span-443-280"><a id="__codelineno-443-280" name="__codelineno-443-280" href="#__codelineno-443-280"></a>**What makes the two namespaces disjoint, and it is one character.** Every rendering here starts
+</span><span id="__span-443-281"><a id="__codelineno-443-281" name="__codelineno-443-281" href="#__codelineno-443-281"></a>with a digit, which `crate::model`'s identifier parser refuses as a FIRST character - a leading
+</span><span id="__span-443-282"><a id="__codelineno-443-282" name="__codelineno-443-282" href="#__codelineno-443-282"></a>digit is legal in some dialects and not others, so it was already refused for portability. No
+</span><span id="__span-443-283"><a id="__codelineno-443-283" name="__codelineno-443-283" href="#__codelineno-443-283"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can therefore spell one of these, for
+</span><span id="__span-443-284"><a id="__codelineno-443-284" name="__codelineno-443-284" href="#__codelineno-443-284"></a>any spelling and any length. `federated/tests.rs` asserts that by parsing every constructible
+</span><span id="__span-443-285"><a id="__codelineno-443-285" name="__codelineno-443-285" href="#__codelineno-443-285"></a>label as each of those names and requiring the refusal, rather than leaving it to this paragraph.
+</span><span id="__span-443-286"><a id="__codelineno-443-286" name="__codelineno-443-286" href="#__codelineno-443-286"></a>
+</span><span id="__span-443-287"><a id="__codelineno-443-287" name="__codelineno-443-287" href="#__codelineno-443-287"></a>**The disjointness has a second half, and it is the one a parse check cannot answer: every target
+</span><span id="__span-443-288"><a id="__codelineno-443-288" name="__codelineno-443-288" href="#__codelineno-443-288"></a>has to ACCEPT the label as a quoted alias.** The character this scheme is built on is the one
+</span><span id="__span-443-289"><a id="__codelineno-443-289" name="__codelineno-443-289" href="#__codelineno-443-289"></a>`BadFirstCharacter` refuses because it is
+</span><span id="__span-443-290"><a id="__codelineno-443-290" name="__codelineno-443-290" href="#__codelineno-443-290"></a>*"legal in some dialects and not others, so accepting it would make a model portable by luck"* -
+</span><span id="__span-443-291"><a id="__codelineno-443-291" name="__codelineno-443-291" href="#__codelineno-443-291"></a>so the same sentence that justifies the namespace is the reason to doubt it. Two different
+</span><span id="__span-443-292"><a id="__codelineno-443-292" name="__codelineno-443-292" href="#__codelineno-443-292"></a>questions live under it: whether a target accepts a digit-leading string as an **identifier**,
+</span><span id="__span-443-293"><a id="__codelineno-443-293" name="__codelineno-443-293" href="#__codelineno-443-293"></a>which is what that refusal is about and where the targets do differ, and whether it accepts one
+</span><span id="__span-443-294"><a id="__codelineno-443-294" name="__codelineno-443-294" href="#__codelineno-443-294"></a>as a **quoted select alias**, which is the only position this scheme puts it in.
+</span><span id="__span-443-295"><a id="__codelineno-443-295" name="__codelineno-443-295" href="#__codelineno-443-295"></a>`sutura_sql::generate`'s `aliased` quotes every alias or refuses to render, and `GROUP BY` and
+</span><span id="__span-443-296"><a id="__codelineno-443-296" name="__codelineno-443-296" href="#__codelineno-443-296"></a>`ORDER BY` carry the EXPRESSION rather than the alias, so a leg's statement spells an internal
+</span><span id="__span-443-297"><a id="__codelineno-443-297" name="__codelineno-443-297" href="#__codelineno-443-297"></a>label in exactly one place.
+</span><span id="__span-443-298"><a id="__codelineno-443-298" name="__codelineno-443-298" href="#__codelineno-443-298"></a>
+</span><span id="__span-443-299"><a id="__codelineno-443-299" name="__codelineno-443-299" href="#__codelineno-443-299"></a>What is established, and by what:
+</span><span id="__span-443-300"><a id="__codelineno-443-300" name="__codelineno-443-300" href="#__codelineno-443-300"></a>
+</span><span id="__span-443-301"><a id="__codelineno-443-301" name="__codelineno-443-301" href="#__codelineno-443-301"></a>| Claim | Venue | Mechanism |
+</span><span id="__span-443-302"><a id="__codelineno-443-302" name="__codelineno-443-302" href="#__codelineno-443-302"></a>| --- | --- | --- |
+</span><span id="__span-443-303"><a id="__codelineno-443-303" name="__codelineno-443-303" href="#__codelineno-443-303"></a>| the five dialects' **parsers** accept the alias quoted | `polyglot_sql`, in-process | `every_leg_statement_parses_here` in `crates/sutura-app/tests/golden/legs.rs`, whose own doc states the limit: it parses and stops, and a failure at the service *"is otherwise only discoverable by running it"* |
+</span><span id="__span-443-304"><a id="__codelineno-443-304" name="__codelineno-443-304" href="#__codelineno-443-304"></a>| `BigQuery` **executes** it and answers under that field name | the real service | measured by hand 2026-09-05; the acceptance leg that held it was removed with the `wire` transport and the ADBC adoption |
+</span><span id="__span-443-305"><a id="__codelineno-443-305" name="__codelineno-443-305" href="#__codelineno-443-305"></a>| the pinned `DuckDB` executes it | a live engine | measured by hand in review, 2026-09-05: `SELECT 1 AS "0_link", 2 AS "0_leaf_0"` answers both columns under those names. Not held by a test - the vehicle is dev-only and no cell asks this |
+</span><span id="__span-443-306"><a id="__codelineno-443-306" name="__codelineno-443-306" href="#__codelineno-443-306"></a>
+</span><span id="__span-443-307"><a id="__codelineno-443-307" name="__codelineno-443-307" href="#__codelineno-443-307"></a>`BigQuery` is the target that had to be asked rather than reasoned about, because it is the one
+</span><span id="__span-443-308"><a id="__codelineno-443-308" name="__codelineno-443-308" href="#__codelineno-443-308"></a>whose documentation restricts a **column name** to a letter or an underscore first. Asked twice on
+</span><span id="__span-443-309"><a id="__codelineno-443-309" name="__codelineno-443-309" href="#__codelineno-443-309"></a>2026-09-05, as a dry run and as a real job each time: bare aliases
+</span><span id="__span-443-310"><a id="__codelineno-443-310" name="__codelineno-443-310" href="#__codelineno-443-310"></a>(``SELECT 1 AS `0_link`, 2 AS `0_leaf_0`, 3 AS `0_leaf_26` ``), and then a statement in the shape
+</span><span id="__span-443-311"><a id="__codelineno-443-311" name="__codelineno-443-311" href="#__codelineno-443-311"></a>the generator actually emits - a `CAST(DATE_TRUNC(..) AS DATE)` bucket and a `sum(..)` measure
+</span><span id="__span-443-312"><a id="__codelineno-443-312" name="__codelineno-443-312" href="#__codelineno-443-312"></a>aliased into this namespace, with `GROUP BY` and `ORDER BY .. NULLS LAST` over the expressions.
+</span><span id="__span-443-313"><a id="__codelineno-443-313" name="__codelineno-443-313" href="#__codelineno-443-313"></a>Both are accepted and both come back with the field names the statement asked for. So the
+</span><span id="__span-443-314"><a id="__codelineno-443-314" name="__codelineno-443-314" href="#__codelineno-443-314"></a>documented restriction is on a **declared column** and not on a quoted alias.
+</span><span id="__span-443-315"><a id="__codelineno-443-315" name="__codelineno-443-315" href="#__codelineno-443-315"></a>
+</span><span id="__span-443-316"><a id="__codelineno-443-316" name="__codelineno-443-316" href="#__codelineno-443-316"></a>**The limit, next to the claim:** `Postgres` and `ClickHouse` are asserted at the parser only,
+</span><span id="__span-443-317"><a id="__codelineno-443-317" name="__codelineno-443-317" href="#__codelineno-443-317"></a>and the reason changed for one of them. `ClickHouse` has no execution venue for a LEG at all and
+</span><span id="__span-443-318"><a id="__codelineno-443-318" name="__codelineno-443-318" href="#__codelineno-443-318"></a>leaves `EXECUTES_LEGS` at its default `false`. `Postgres` declares the constant now and its
+</span><span id="__span-443-319"><a id="__codelineno-443-319" name="__codelineno-443-319" href="#__codelineno-443-319"></a>conformance binding executes a leg against a provisioned tier - but that leg's labels come from
+</span><span id="__span-443-320"><a id="__codelineno-443-320" name="__codelineno-443-320" href="#__codelineno-443-320"></a>`ResultLabel`, not from here, so **no venue has ever sent a label in THIS namespace to a
+</span><span id="__span-443-321"><a id="__codelineno-443-321" name="__codelineno-443-321" href="#__codelineno-443-321"></a>Postgres server.** What stands for both is still a quoted-identifier argument rather than a run.
+</span><span id="__span-443-322"><a id="__codelineno-443-322" name="__codelineno-443-322" href="#__codelineno-443-322"></a>Read the row above for what each one is worth.
+</span><span id="__span-443-323"><a id="__codelineno-443-323" name="__codelineno-443-323" href="#__codelineno-443-323"></a>
+</span><span id="__span-443-324"><a id="__codelineno-443-324" name="__codelineno-443-324" href="#__codelineno-443-324"></a>**The reason that sentence keeps changing rather than the claim:** it used to say *the whole
+</span><span id="__span-443-325"><a id="__codelineno-443-325" name="__codelineno-443-325" href="#__codelineno-443-325"></a>federated path is gated by a defaulted-`false` `EXECUTES_LEGS` that only the dev-only `DuckDB`
+</span><span id="__span-443-326"><a id="__codelineno-443-326" name="__codelineno-443-326" href="#__codelineno-443-326"></a>vehicle sets*, which stopped being true when the engine declared the constant and a published
+</span><span id="__span-443-327"><a id="__codelineno-443-327" name="__codelineno-443-327" href="#__codelineno-443-327"></a>build began answering two sources; then it said neither of these two dialects had a leg venue,
+</span><span id="__span-443-328"><a id="__codelineno-443-328" name="__codelineno-443-328" href="#__codelineno-443-328"></a>which stopped being true when the Postgres adapter declared it. The claim survived both, because
+</span><span id="__span-443-329"><a id="__codelineno-443-329" name="__codelineno-443-329" href="#__codelineno-443-329"></a>it never rested on the path being gated or on a venue being absent - it rests on nothing having
+</span><span id="__span-443-330"><a id="__codelineno-443-330" name="__codelineno-443-330" href="#__codelineno-443-330"></a>sent an identifier in this namespace to either server.
+</span><span id="__span-443-331"><a id="__codelineno-443-331" name="__codelineno-443-331" href="#__codelineno-443-331"></a>
+</span><span id="__span-443-332"><a id="__codelineno-443-332" name="__codelineno-443-332" href="#__codelineno-443-332"></a>**Every value is valid, so there is nothing to check.** A `usize` position out of a plan's leaf
+</span><span id="__span-443-333"><a id="__codelineno-443-333" name="__codelineno-443-333" href="#__codelineno-443-333"></a>range is a wiring defect the combiner reports as a missing column, not a label this type could
+</span><span id="__span-443-334"><a id="__codelineno-443-334" name="__codelineno-443-334" href="#__codelineno-443-334"></a>have refused - which is why the variants carry their data in the open and no constructor is
+</span><span id="__span-443-335"><a id="__codelineno-443-335" name="__codelineno-443-335" href="#__codelineno-443-335"></a>fallible. What the type buys is that the TEXT can only come from here.
+</span><span id="__span-443-336"><a id="__codelineno-443-336" name="__codelineno-443-336" href="#__codelineno-443-336"></a>
+</span><span id="__span-443-337"><a id="__codelineno-443-337" name="__codelineno-443-337" href="#__codelineno-443-337"></a>**The other half of the namespace is held elsewhere, and this is the whole of it in one place.**
+</span><span id="__span-443-338"><a id="__codelineno-443-338" name="__codelineno-443-338" href="#__codelineno-443-338"></a>The labels a result carries besides these are public: the answer's dimension labels, the time
+</span><span id="__span-443-339"><a id="__codelineno-443-339" name="__codelineno-443-339" href="#__codelineno-443-339"></a>bucket's `TIME_BUCKET_LABEL` and the measure's metric name.
+</span><span id="__span-443-340"><a id="__codelineno-443-340" name="__codelineno-443-340" href="#__codelineno-443-340"></a>Those are held against each other at load by
+</span><span id="__span-443-341"><a id="__codelineno-443-341" name="__codelineno-443-341" href="#__codelineno-443-341"></a>`Definitions::assemble` -
+</span><span id="__span-443-342"><a id="__codelineno-443-342" name="__codelineno-443-342" href="#__codelineno-443-342"></a>`DimensionShadowsTimeBucket`, `DimensionShadowsMeasure`, `TwoDimensionsOneLabel` and
+</span><span id="__span-443-343"><a id="__codelineno-443-343" name="__codelineno-443-343" href="#__codelineno-443-343"></a>`LabelShadowsTable`, each case-folded to the coarsest dialect rule. So a public label collides
+</span><span id="__span-443-344"><a id="__codelineno-443-344" name="__codelineno-443-344" href="#__codelineno-443-344"></a>with another public label at load, and cannot collide with an internal one at all. **The limit:**
+</span><span id="__span-443-345"><a id="__codelineno-443-345" name="__codelineno-443-345" href="#__codelineno-443-345"></a>nothing compares the two halves, because a leading digit makes the comparison unnecessary - which
+</span><span id="__span-443-346"><a id="__codelineno-443-346" name="__codelineno-443-346" href="#__codelineno-443-346"></a>is the property the test asserts, and the thing to re-establish if this spelling ever changes.
+</span><span id="__span-443-347"><a id="__codelineno-443-347" name="__codelineno-443-347" href="#__codelineno-443-347"></a>
+</span><span id="__span-443-348"><a id="__codelineno-443-348" name="__codelineno-443-348" href="#__codelineno-443-348"></a>**Both halves are now held by a type, and that is `telekom/sutura#337`.** This half is
+</span><span id="__span-443-349"><a id="__codelineno-443-349" name="__codelineno-443-349" href="#__codelineno-443-349"></a>`InternalLabel`; the public half is `ResultLabel`, whose only
+</span><span id="__span-443-350"><a id="__codelineno-443-350" name="__codelineno-443-350" href="#__codelineno-443-350"></a>constructors take a `DimensionName`, a `MetricName`, `InternalLabel` or nothing at all - so a
+</span><span id="__span-443-351"><a id="__codelineno-443-351" name="__codelineno-443-351" href="#__codelineno-443-351"></a>computed string is not a label a plan can carry, and the derivation
+</span><span id="__span-443-352"><a id="__codelineno-443-352" name="__codelineno-443-352" href="#__codelineno-443-352"></a>`sutura_semantic::plan::federated_plan` used to be trusted to keep is the constructor's shape
+</span><span id="__span-443-353"><a id="__codelineno-443-353" name="__codelineno-443-353" href="#__codelineno-443-353"></a>instead. What that changes about the paragraph above: the two namespaces are still disjoint
+</span><span id="__span-443-354"><a id="__codelineno-443-354" name="__codelineno-443-354" href="#__codelineno-443-354"></a>*because* of the leading digit, and what the types add is that no producer can put a value in
+</span><span id="__span-443-355"><a id="__codelineno-443-355" name="__codelineno-443-355" href="#__codelineno-443-355"></a>both. **The limit, next to the claim:** what a `ResultLabel` records is that the text came from
+</span><span id="__span-443-356"><a id="__codelineno-443-356" name="__codelineno-443-356" href="#__codelineno-443-356"></a>something already parsed, never WHICH of the four constructors produced it - so a value built by
+</span><span id="__span-443-357"><a id="__codelineno-443-357" name="__codelineno-443-357" href="#__codelineno-443-357"></a>`ResultLabel::internal` is accepted anywhere a label is
+</span><span id="__span-443-358"><a id="__codelineno-443-358" name="__codelineno-443-358" href="#__codelineno-443-358"></a>taken, the bucket's position included. Nothing here reads the provenance back, because nothing
+</span><span id="__span-443-359"><a id="__codelineno-443-359" name="__codelineno-443-359" href="#__codelineno-443-359"></a>needs to: the disjointness is the leading digit.
+</span><span id="__span-443-360"><a id="__codelineno-443-360" name="__codelineno-443-360" href="#__codelineno-443-360"></a>
+</span><span id="__span-443-361"><a id="__codelineno-443-361" name="__codelineno-443-361" href="#__codelineno-443-361"></a>**Length is bounded by construction, which the scheme it replaces was not.** The identifier limit
+</span><span id="__span-443-362"><a id="__codelineno-443-362" name="__codelineno-443-362" href="#__codelineno-443-362"></a>is 63 characters because that is the tightest among the data systems targeted, and it is a
+</span><span id="__span-443-363"><a id="__codelineno-443-363" name="__codelineno-443-363" href="#__codelineno-443-363"></a>*silent* limit there: a longer alias is truncated rather than rejected, so two distinct leaf
+</span><span id="__span-443-364"><a id="__codelineno-443-364" name="__codelineno-443-364" href="#__codelineno-443-364"></a>columns become one. `metric__{n}` over a 63-character metric name is 66 characters, so the old
+</span><span id="__span-443-365"><a id="__codelineno-443-365" name="__codelineno-443-365" href="#__codelineno-443-365"></a>scheme could produce exactly that. Nothing here reads a metric's name, and the widest label a
+</span><span id="__span-443-366"><a id="__codelineno-443-366" name="__codelineno-443-366" href="#__codelineno-443-366"></a>`usize` pair can index is 46 characters.
+</span><span id="__span-443-367"><a id="__codelineno-443-367" name="__codelineno-443-367" href="#__codelineno-443-367"></a>
+</span><span id="__span-443-368"><a id="__codelineno-443-368" name="__codelineno-443-368" href="#__codelineno-443-368"></a>### `use LegAt`
 </span><span id="__span-443-369"><a id="__codelineno-443-369" name="__codelineno-443-369" href="#__codelineno-443-369"></a>
-</span><span id="__span-443-370"><a id="__codelineno-443-370" name="__codelineno-443-370" href="#__codelineno-443-370"></a>### `use LegResult`
-</span><span id="__span-443-371"><a id="__codelineno-443-371" name="__codelineno-443-371" href="#__codelineno-443-371"></a>
-</span><span id="__span-443-372"><a id="__codelineno-443-372" name="__codelineno-443-372" href="#__codelineno-443-372"></a>One leg's result, tagged with the side the `LegPlan` it was executed from named.
-</span><span id="__span-443-373"><a id="__codelineno-443-373" name="__codelineno-443-373" href="#__codelineno-443-373"></a>
-</span><span id="__span-443-374"><a id="__codelineno-443-374" name="__codelineno-443-374" href="#__codelineno-443-374"></a>**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
-</span><span id="__span-443-375"><a id="__codelineno-443-375" name="__codelineno-443-375" href="#__codelineno-443-375"></a>variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
-</span><span id="__span-443-376"><a id="__codelineno-443-376" name="__codelineno-443-376" href="#__codelineno-443-376"></a>`Legs` exists to make unrepresentable one level up.
-</span><span id="__span-443-377"><a id="__codelineno-443-377" name="__codelineno-443-377" href="#__codelineno-443-377"></a>
-</span><span id="__span-443-378"><a id="__codelineno-443-378" name="__codelineno-443-378" href="#__codelineno-443-378"></a>### `use LegRunner`
-</span><span id="__span-443-379"><a id="__codelineno-443-379" name="__codelineno-443-379" href="#__codelineno-443-379"></a>
-</span><span id="__span-443-380"><a id="__codelineno-443-380" name="__codelineno-443-380" href="#__codelineno-443-380"></a>Runs one leg at its source, under every guard the application holds for a leg.
-</span><span id="__span-443-381"><a id="__codelineno-443-381" name="__codelineno-443-381" href="#__codelineno-443-381"></a>
-</span><span id="__span-443-382"><a id="__codelineno-443-382" name="__codelineno-443-382" href="#__codelineno-443-382"></a>**The driven port a combiner calls back into.** The combiner runs the cut's
-</span><span id="__span-443-383"><a id="__codelineno-443-383" name="__codelineno-443-383" href="#__codelineno-443-383"></a>legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
-</span><span id="__span-443-384"><a id="__codelineno-443-384" name="__codelineno-443-384" href="#__codelineno-443-384"></a>application, and an adapter still never calls another adapter. `sutura_app` implements it.
-</span><span id="__span-443-385"><a id="__codelineno-443-385" name="__codelineno-443-385" href="#__codelineno-443-385"></a>
-</span><span id="__span-443-386"><a id="__codelineno-443-386" name="__codelineno-443-386" href="#__codelineno-443-386"></a>### `use LegSide`
-</span><span id="__span-443-387"><a id="__codelineno-443-387" name="__codelineno-443-387" href="#__codelineno-443-387"></a>
-</span><span id="__span-443-388"><a id="__codelineno-443-388" name="__codelineno-443-388" href="#__codelineno-443-388"></a>Which leg's result an answer key is read from.
-</span><span id="__span-443-389"><a id="__codelineno-443-389" name="__codelineno-443-389" href="#__codelineno-443-389"></a>
-</span><span id="__span-443-390"><a id="__codelineno-443-390" name="__codelineno-443-390" href="#__codelineno-443-390"></a>### `use Legs`
-</span><span id="__span-443-391"><a id="__codelineno-443-391" name="__codelineno-443-391" href="#__codelineno-443-391"></a>
-</span><span id="__span-443-392"><a id="__codelineno-443-392" name="__codelineno-443-392" href="#__codelineno-443-392"></a>Every leg's result, assigned to the plan's legs, which cannot be built without every result.
-</span><span id="__span-443-393"><a id="__codelineno-443-393" name="__codelineno-443-393" href="#__codelineno-443-393"></a>
-</span><span id="__span-443-394"><a id="__codelineno-443-394" name="__codelineno-443-394" href="#__codelineno-443-394"></a>A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
-</span><span id="__span-443-395"><a id="__codelineno-443-395" name="__codelineno-443-395" href="#__codelineno-443-395"></a>second fact model, joined above on the link and the time bucket. The combiner reads it through
-</span><span id="__span-443-396"><a id="__codelineno-443-396" name="__codelineno-443-396" href="#__codelineno-443-396"></a>`Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. Each lookup
-</span><span id="__span-443-397"><a id="__codelineno-443-397" name="__codelineno-443-397" href="#__codelineno-443-397"></a>result arrives beside its `LookupLeg`, which names the leg it joins onto.
-</span><span id="__span-443-398"><a id="__codelineno-443-398" name="__codelineno-443-398" href="#__codelineno-443-398"></a>
-</span><span id="__span-443-399"><a id="__codelineno-443-399" name="__codelineno-443-399" href="#__codelineno-443-399"></a>Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
-</span><span id="__span-443-400"><a id="__codelineno-443-400" name="__codelineno-443-400" href="#__codelineno-443-400"></a>for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
-</span><span id="__span-443-401"><a id="__codelineno-443-401" name="__codelineno-443-401" href="#__codelineno-443-401"></a>so an owned set would say *moved* about something that is shared either way.
-</span><span id="__span-443-402"><a id="__codelineno-443-402" name="__codelineno-443-402" href="#__codelineno-443-402"></a>
-</span><span id="__span-443-403"><a id="__codelineno-443-403" name="__codelineno-443-403" href="#__codelineno-443-403"></a>### `use LegsMiswired`
-</span><span id="__span-443-404"><a id="__codelineno-443-404" name="__codelineno-443-404" href="#__codelineno-443-404"></a>
-</span><span id="__span-443-405"><a id="__codelineno-443-405" name="__codelineno-443-405" href="#__codelineno-443-405"></a>Leg results that do not stand for the plan's legs, so there is nothing to combine.
-</span><span id="__span-443-406"><a id="__codelineno-443-406" name="__codelineno-443-406" href="#__codelineno-443-406"></a>
-</span><span id="__span-443-407"><a id="__codelineno-443-407" name="__codelineno-443-407" href="#__codelineno-443-407"></a>Unreachable through `FederationCombiner::execute`, which builds one `LegResult` per
-</span><span id="__span-443-408"><a id="__codelineno-443-408" name="__codelineno-443-408" href="#__codelineno-443-408"></a>`FederatedPlan::legs` entry. Typed anyway rather than assumed away: a silent choice would
-</span><span id="__span-443-409"><a id="__codelineno-443-409" name="__codelineno-443-409" href="#__codelineno-443-409"></a>combine a leg with the wrong rows, or read a missing leg as a leg with no match.
-</span><span id="__span-443-410"><a id="__codelineno-443-410" name="__codelineno-443-410" href="#__codelineno-443-410"></a>
-</span><span id="__span-443-411"><a id="__codelineno-443-411" name="__codelineno-443-411" href="#__codelineno-443-411"></a>### `use LinkKind`
-</span><span id="__span-443-412"><a id="__codelineno-443-412" name="__codelineno-443-412" href="#__codelineno-443-412"></a>
-</span><span id="__span-443-413"><a id="__codelineno-443-413" name="__codelineno-443-413" href="#__codelineno-443-413"></a>What equality over a link column means, once a type that cannot carry one exactly is refused.
-</span><span id="__span-443-414"><a id="__codelineno-443-414" name="__codelineno-443-414" href="#__codelineno-443-414"></a>
-</span><span id="__span-443-415"><a id="__codelineno-443-415" name="__codelineno-443-415" href="#__codelineno-443-415"></a>**Kinds rather than types, and the reason is that the interior's own row builder may give two
-</span><span id="__span-443-416"><a id="__codelineno-443-416" name="__codelineno-443-416" href="#__codelineno-443-416"></a>legs different types for one logical column.** A leg whose link values all fit an `i64` comes
-</span><span id="__span-443-417"><a id="__codelineno-443-417" name="__codelineno-443-417" href="#__codelineno-443-417"></a>back `Int64`; one whose column mixes a fitting value with exact integral text comes back
-</span><span id="__span-443-418"><a id="__codelineno-443-418" name="__codelineno-443-418" href="#__codelineno-443-418"></a>`Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
-</span><span id="__span-443-419"><a id="__codelineno-443-419" name="__codelineno-443-419" href="#__codelineno-443-419"></a>correctly, so requiring the two types to be EQUAL would refuse a legal pair.
-</span><span id="__span-443-420"><a id="__codelineno-443-420" name="__codelineno-443-420" href="#__codelineno-443-420"></a>
-</span><span id="__span-443-421"><a id="__codelineno-443-421" name="__codelineno-443-421" href="#__codelineno-443-421"></a>What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
-</span><span id="__span-443-422"><a id="__codelineno-443-422" name="__codelineno-443-422" href="#__codelineno-443-422"></a>against a text column misses on every row by construction, and the hand-written combine returned
-</span><span id="__span-443-423"><a id="__codelineno-443-423" name="__codelineno-443-423" href="#__codelineno-443-423"></a>that silently as an empty inner answer or a left answer whose every fact row had a null remote
-</span><span id="__span-443-424"><a id="__codelineno-443-424" name="__codelineno-443-424" href="#__codelineno-443-424"></a>side.
-</span><span id="__span-443-425"><a id="__codelineno-443-425" name="__codelineno-443-425" href="#__codelineno-443-425"></a>
-</span><span id="__span-443-426"><a id="__codelineno-443-426" name="__codelineno-443-426" href="#__codelineno-443-426"></a>**It is also the word a relationship declares its comparison in** (`compare_as`), so it is
-</span><span id="__span-443-427"><a id="__codelineno-443-427" name="__codelineno-443-427" href="#__codelineno-443-427"></a>serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
+</span><span id="__span-443-370"><a id="__codelineno-443-370" name="__codelineno-443-370" href="#__codelineno-443-370"></a>One leg of a federated plan, named by its place: the fact leg, or a lookup leg by its position
+</span><span id="__span-443-371"><a id="__codelineno-443-371" name="__codelineno-443-371" href="#__codelineno-443-371"></a>in `LookupLegs`.
+</span><span id="__span-443-372"><a id="__codelineno-443-372" name="__codelineno-443-372" href="#__codelineno-443-372"></a>
+</span><span id="__span-443-373"><a id="__codelineno-443-373" name="__codelineno-443-373" href="#__codelineno-443-373"></a>### `use LegResult`
+</span><span id="__span-443-374"><a id="__codelineno-443-374" name="__codelineno-443-374" href="#__codelineno-443-374"></a>
+</span><span id="__span-443-375"><a id="__codelineno-443-375" name="__codelineno-443-375" href="#__codelineno-443-375"></a>One leg's result, tagged with the side the `LegPlan` it was executed from named.
+</span><span id="__span-443-376"><a id="__codelineno-443-376" name="__codelineno-443-376" href="#__codelineno-443-376"></a>
+</span><span id="__span-443-377"><a id="__codelineno-443-377" name="__codelineno-443-377" href="#__codelineno-443-377"></a>**The tag is parsed, not passed.** `Self::of` takes the plan and reads the side off the
+</span><span id="__span-443-378"><a id="__codelineno-443-378" name="__codelineno-443-378" href="#__codelineno-443-378"></a>variant, so a caller cannot label a lookup leg's rows as the fact leg's - which is the mistake
+</span><span id="__span-443-379"><a id="__codelineno-443-379" name="__codelineno-443-379" href="#__codelineno-443-379"></a>`Legs` exists to make unrepresentable one level up.
+</span><span id="__span-443-380"><a id="__codelineno-443-380" name="__codelineno-443-380" href="#__codelineno-443-380"></a>
+</span><span id="__span-443-381"><a id="__codelineno-443-381" name="__codelineno-443-381" href="#__codelineno-443-381"></a>### `use LegRunner`
+</span><span id="__span-443-382"><a id="__codelineno-443-382" name="__codelineno-443-382" href="#__codelineno-443-382"></a>
+</span><span id="__span-443-383"><a id="__codelineno-443-383" name="__codelineno-443-383" href="#__codelineno-443-383"></a>Runs one leg at its source, under every guard the application holds for a leg.
+</span><span id="__span-443-384"><a id="__codelineno-443-384" name="__codelineno-443-384" href="#__codelineno-443-384"></a>
+</span><span id="__span-443-385"><a id="__codelineno-443-385" name="__codelineno-443-385" href="#__codelineno-443-385"></a>**The driven port a combiner calls back into.** The combiner runs the cut's
+</span><span id="__span-443-386"><a id="__codelineno-443-386" name="__codelineno-443-386" href="#__codelineno-443-386"></a>legs through it, so the credential per leg, the deadline and the refusal mapping stay in the
+</span><span id="__span-443-387"><a id="__codelineno-443-387" name="__codelineno-443-387" href="#__codelineno-443-387"></a>application, and an adapter still never calls another adapter. `sutura_app` implements it.
+</span><span id="__span-443-388"><a id="__codelineno-443-388" name="__codelineno-443-388" href="#__codelineno-443-388"></a>
+</span><span id="__span-443-389"><a id="__codelineno-443-389" name="__codelineno-443-389" href="#__codelineno-443-389"></a>### `use LegSide`
+</span><span id="__span-443-390"><a id="__codelineno-443-390" name="__codelineno-443-390" href="#__codelineno-443-390"></a>
+</span><span id="__span-443-391"><a id="__codelineno-443-391" name="__codelineno-443-391" href="#__codelineno-443-391"></a>Which leg's result an answer key is read from.
+</span><span id="__span-443-392"><a id="__codelineno-443-392" name="__codelineno-443-392" href="#__codelineno-443-392"></a>
+</span><span id="__span-443-393"><a id="__codelineno-443-393" name="__codelineno-443-393" href="#__codelineno-443-393"></a>### `use Legs`
+</span><span id="__span-443-394"><a id="__codelineno-443-394" name="__codelineno-443-394" href="#__codelineno-443-394"></a>
+</span><span id="__span-443-395"><a id="__codelineno-443-395" name="__codelineno-443-395" href="#__codelineno-443-395"></a>Every leg's result, assigned to the plan's legs, which cannot be built without every result.
+</span><span id="__span-443-396"><a id="__codelineno-443-396" name="__codelineno-443-396" href="#__codelineno-443-396"></a>
+</span><span id="__span-443-397"><a id="__codelineno-443-397" name="__codelineno-443-397" href="#__codelineno-443-397"></a>A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
+</span><span id="__span-443-398"><a id="__codelineno-443-398" name="__codelineno-443-398" href="#__codelineno-443-398"></a>second fact model, joined above on the link and the time bucket. The combiner reads it through
+</span><span id="__span-443-399"><a id="__codelineno-443-399" name="__codelineno-443-399" href="#__codelineno-443-399"></a>`Self::second_fact` and routes each `Carried` leaf to the fact leg its model names. Each lookup
+</span><span id="__span-443-400"><a id="__codelineno-443-400" name="__codelineno-443-400" href="#__codelineno-443-400"></a>result arrives beside its `LookupLeg`, which names the leg it joins onto.
+</span><span id="__span-443-401"><a id="__codelineno-443-401" name="__codelineno-443-401" href="#__codelineno-443-401"></a>
+</span><span id="__span-443-402"><a id="__codelineno-443-402" name="__codelineno-443-402" href="#__codelineno-443-402"></a>Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
+</span><span id="__span-443-403"><a id="__codelineno-443-403" name="__codelineno-443-403" href="#__codelineno-443-403"></a>for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
+</span><span id="__span-443-404"><a id="__codelineno-443-404" name="__codelineno-443-404" href="#__codelineno-443-404"></a>so an owned set would say *moved* about something that is shared either way.
+</span><span id="__span-443-405"><a id="__codelineno-443-405" name="__codelineno-443-405" href="#__codelineno-443-405"></a>
+</span><span id="__span-443-406"><a id="__codelineno-443-406" name="__codelineno-443-406" href="#__codelineno-443-406"></a>### `use LegsMiswired`
+</span><span id="__span-443-407"><a id="__codelineno-443-407" name="__codelineno-443-407" href="#__codelineno-443-407"></a>
+</span><span id="__span-443-408"><a id="__codelineno-443-408" name="__codelineno-443-408" href="#__codelineno-443-408"></a>Leg results that do not stand for the plan's legs, so there is nothing to combine.
+</span><span id="__span-443-409"><a id="__codelineno-443-409" name="__codelineno-443-409" href="#__codelineno-443-409"></a>
+</span><span id="__span-443-410"><a id="__codelineno-443-410" name="__codelineno-443-410" href="#__codelineno-443-410"></a>Unreachable through `FederationCombiner::execute`, which builds one `LegResult` per
+</span><span id="__span-443-411"><a id="__codelineno-443-411" name="__codelineno-443-411" href="#__codelineno-443-411"></a>`FederatedPlan::legs` entry. Typed anyway rather than assumed away: a silent choice would
+</span><span id="__span-443-412"><a id="__codelineno-443-412" name="__codelineno-443-412" href="#__codelineno-443-412"></a>combine a leg with the wrong rows, or read a missing leg as a leg with no match.
+</span><span id="__span-443-413"><a id="__codelineno-443-413" name="__codelineno-443-413" href="#__codelineno-443-413"></a>
+</span><span id="__span-443-414"><a id="__codelineno-443-414" name="__codelineno-443-414" href="#__codelineno-443-414"></a>### `use LinkKind`
+</span><span id="__span-443-415"><a id="__codelineno-443-415" name="__codelineno-443-415" href="#__codelineno-443-415"></a>
+</span><span id="__span-443-416"><a id="__codelineno-443-416" name="__codelineno-443-416" href="#__codelineno-443-416"></a>What equality over a link column means, once a type that cannot carry one exactly is refused.
+</span><span id="__span-443-417"><a id="__codelineno-443-417" name="__codelineno-443-417" href="#__codelineno-443-417"></a>
+</span><span id="__span-443-418"><a id="__codelineno-443-418" name="__codelineno-443-418" href="#__codelineno-443-418"></a>**Kinds rather than types, and the reason is that the interior's own row builder may give two
+</span><span id="__span-443-419"><a id="__codelineno-443-419" name="__codelineno-443-419" href="#__codelineno-443-419"></a>legs different types for one logical column.** A leg whose link values all fit an `i64` comes
+</span><span id="__span-443-420"><a id="__codelineno-443-420" name="__codelineno-443-420" href="#__codelineno-443-420"></a>back `Int64`; one whose column mixes a fitting value with exact integral text comes back
+</span><span id="__span-443-421"><a id="__codelineno-443-421" name="__codelineno-443-421" href="#__codelineno-443-421"></a>`Decimal128(38, 0)`. Both are exact integers and `DataFusion`'s comparison coercion joins them
+</span><span id="__span-443-422"><a id="__codelineno-443-422" name="__codelineno-443-422" href="#__codelineno-443-422"></a>correctly, so requiring the two types to be EQUAL would refuse a legal pair.
+</span><span id="__span-443-423"><a id="__codelineno-443-423" name="__codelineno-443-423" href="#__codelineno-443-423"></a>
+</span><span id="__span-443-424"><a id="__codelineno-443-424" name="__codelineno-443-424" href="#__codelineno-443-424"></a>What it must still refuse is a join across kinds - `telekom/sutura#138`: an integer column
+</span><span id="__span-443-425"><a id="__codelineno-443-425" name="__codelineno-443-425" href="#__codelineno-443-425"></a>against a text column misses on every row by construction, and the hand-written combine returned
+</span><span id="__span-443-426"><a id="__codelineno-443-426" name="__codelineno-443-426" href="#__codelineno-443-426"></a>that silently as an empty inner answer or a left answer whose every fact row had a null remote
+</span><span id="__span-443-427"><a id="__codelineno-443-427" name="__codelineno-443-427" href="#__codelineno-443-427"></a>side.
 </span><span id="__span-443-428"><a id="__codelineno-443-428" name="__codelineno-443-428" href="#__codelineno-443-428"></a>
-</span><span id="__span-443-429"><a id="__codelineno-443-429" name="__codelineno-443-429" href="#__codelineno-443-429"></a>### `use LookupLeg`
-</span><span id="__span-443-430"><a id="__codelineno-443-430" name="__codelineno-443-430" href="#__codelineno-443-430"></a>
-</span><span id="__span-443-431"><a id="__codelineno-443-431" name="__codelineno-443-431" href="#__codelineno-443-431"></a>A lookup leg, the leg it joins onto, and whether a row it does not match survives.
-</span><span id="__span-443-432"><a id="__codelineno-443-432" name="__codelineno-443-432" href="#__codelineno-443-432"></a>
-</span><span id="__span-443-433"><a id="__codelineno-443-433" name="__codelineno-443-433" href="#__codelineno-443-433"></a>### `use LookupLegs`
-</span><span id="__span-443-434"><a id="__codelineno-443-434" name="__codelineno-443-434" href="#__codelineno-443-434"></a>
-</span><span id="__span-443-435"><a id="__codelineno-443-435" name="__codelineno-443-435" href="#__codelineno-443-435"></a>One to `MAX_LOOKUP_LEGS` lookup legs, each joined onto the fact leg or an earlier lookup leg.
-</span><span id="__span-443-436"><a id="__codelineno-443-436" name="__codelineno-443-436" href="#__codelineno-443-436"></a>
-</span><span id="__span-443-437"><a id="__codelineno-443-437" name="__codelineno-443-437" href="#__codelineno-443-437"></a>A leg can name only an earlier one, so the legs form a tree rooted at the fact leg and a cycle
-</span><span id="__span-443-438"><a id="__codelineno-443-438" name="__codelineno-443-438" href="#__codelineno-443-438"></a>cannot be written. A plan with no lookup leg or with more than the cap does not exist.
+</span><span id="__span-443-429"><a id="__codelineno-443-429" name="__codelineno-443-429" href="#__codelineno-443-429"></a>**It is also the word a relationship declares its comparison in** (`compare_as`), so it is
+</span><span id="__span-443-430"><a id="__codelineno-443-430" name="__codelineno-443-430" href="#__codelineno-443-430"></a>serialised in `snake_case` and an unknown word is a deserialisation error at the document edge.
+</span><span id="__span-443-431"><a id="__codelineno-443-431" name="__codelineno-443-431" href="#__codelineno-443-431"></a>
+</span><span id="__span-443-432"><a id="__codelineno-443-432" name="__codelineno-443-432" href="#__codelineno-443-432"></a>### `use LookupLeg`
+</span><span id="__span-443-433"><a id="__codelineno-443-433" name="__codelineno-443-433" href="#__codelineno-443-433"></a>
+</span><span id="__span-443-434"><a id="__codelineno-443-434" name="__codelineno-443-434" href="#__codelineno-443-434"></a>A lookup leg, the leg it joins onto, and whether a row it does not match survives.
+</span><span id="__span-443-435"><a id="__codelineno-443-435" name="__codelineno-443-435" href="#__codelineno-443-435"></a>
+</span><span id="__span-443-436"><a id="__codelineno-443-436" name="__codelineno-443-436" href="#__codelineno-443-436"></a>### `use LookupLegs`
+</span><span id="__span-443-437"><a id="__codelineno-443-437" name="__codelineno-443-437" href="#__codelineno-443-437"></a>
+</span><span id="__span-443-438"><a id="__codelineno-443-438" name="__codelineno-443-438" href="#__codelineno-443-438"></a>One to `MAX_LOOKUP_LEGS` lookup legs, each joined onto the fact leg or an earlier lookup leg.
 </span><span id="__span-443-439"><a id="__codelineno-443-439" name="__codelineno-443-439" href="#__codelineno-443-439"></a>
-</span><span id="__span-443-440"><a id="__codelineno-443-440" name="__codelineno-443-440" href="#__codelineno-443-440"></a>### `use LookupLegsError`
-</span><span id="__span-443-441"><a id="__codelineno-443-441" name="__codelineno-443-441" href="#__codelineno-443-441"></a>
-</span><span id="__span-443-442"><a id="__codelineno-443-442" name="__codelineno-443-442" href="#__codelineno-443-442"></a>Why a list of lookup legs is not one a plan can carry.
-</span><span id="__span-443-443"><a id="__codelineno-443-443" name="__codelineno-443-443" href="#__codelineno-443-443"></a>
-</span><span id="__span-443-444"><a id="__codelineno-443-444" name="__codelineno-443-444" href="#__codelineno-443-444"></a>### `use QuotedColumnType`
-</span><span id="__span-443-445"><a id="__codelineno-443-445" name="__codelineno-443-445" href="#__codelineno-443-445"></a>
-</span><span id="__span-443-446"><a id="__codelineno-443-446" name="__codelineno-443-446" href="#__codelineno-443-446"></a>A declared column type, quoted and escaped so a refusal may carry it.
-</span><span id="__span-443-447"><a id="__codelineno-443-447" name="__codelineno-443-447" href="#__codelineno-443-447"></a>
-</span><span id="__span-443-448"><a id="__codelineno-443-448" name="__codelineno-443-448" href="#__codelineno-443-448"></a>**A source's own dictionary supplied the text**, a catalog adapter read it off a platform nobody
-</span><span id="__span-443-449"><a id="__codelineno-443-449" name="__codelineno-443-449" href="#__codelineno-443-449"></a>here controls, and a refusal reaches a log, a person and an agent's context. So it is never
-</span><span id="__span-443-450"><a id="__codelineno-443-450" name="__codelineno-443-450" href="#__codelineno-443-450"></a>carried raw: the only way to build one is `From&lt;&amp;ColumnType&gt;`, which writes it as a quoted
-</span><span id="__span-443-451"><a id="__codelineno-443-451" name="__codelineno-443-451" href="#__codelineno-443-451"></a>literal with every quote, backslash and non-printing character escaped, and the field cannot be
-</span><span id="__span-443-452"><a id="__codelineno-443-452" name="__codelineno-443-452" href="#__codelineno-443-452"></a>reached any other way. The quoting is the standard library's `{:?}` over a string, the one
-</span><span id="__span-443-453"><a id="__codelineno-443-453" name="__codelineno-443-453" href="#__codelineno-443-453"></a>`InvalidColumnType` already gives a value in its own
-</span><span id="__span-443-454"><a id="__codelineno-443-454" name="__codelineno-443-454" href="#__codelineno-443-454"></a>messages.
-</span><span id="__span-443-455"><a id="__codelineno-443-455" name="__codelineno-443-455" href="#__codelineno-443-455"></a>
-</span><span id="__span-443-456"><a id="__codelineno-443-456" name="__codelineno-443-456" href="#__codelineno-443-456"></a>**What this does and does not bound.** A quoted type cannot close its own quotes or break a line,
-</span><span id="__span-443-457"><a id="__codelineno-443-457" name="__codelineno-443-457" href="#__codelineno-443-457"></a>so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
-</span><span id="__span-443-458"><a id="__codelineno-443-458" name="__codelineno-443-458" href="#__codelineno-443-458"></a>type may still read like an instruction to a model, and is at most
-</span><span id="__span-443-459"><a id="__codelineno-443-459" name="__codelineno-443-459" href="#__codelineno-443-459"></a>`MAX_COLUMN_TYPE_CHARS` characters before escaping.
-</span><span id="__span-443-460"><a id="__codelineno-443-460" name="__codelineno-443-460" href="#__codelineno-443-460"></a>
-</span><span id="__span-443-461"><a id="__codelineno-443-461" name="__codelineno-443-461" href="#__codelineno-443-461"></a>### `use SlotsHeld`
-</span><span id="__span-443-462"><a id="__codelineno-443-462" name="__codelineno-443-462" href="#__codelineno-443-462"></a>
-</span><span id="__span-443-463"><a id="__codelineno-443-463" name="__codelineno-443-463" href="#__codelineno-443-463"></a>Slots counted in a `WorkerSlotsWanted` while this lives.
-</span><span id="__span-443-464"><a id="__codelineno-443-464" name="__codelineno-443-464" href="#__codelineno-443-464"></a>
-</span><span id="__span-443-465"><a id="__codelineno-443-465" name="__codelineno-443-465" href="#__codelineno-443-465"></a>The add and the subtract are the same number, so the count returns to where it was even if a sum
-</span><span id="__span-443-466"><a id="__codelineno-443-466" name="__codelineno-443-466" href="#__codelineno-443-466"></a>of holds wrapped in between.
+</span><span id="__span-443-440"><a id="__codelineno-443-440" name="__codelineno-443-440" href="#__codelineno-443-440"></a>A leg can name only an earlier one, so the legs form a tree rooted at the fact leg and a cycle
+</span><span id="__span-443-441"><a id="__codelineno-443-441" name="__codelineno-443-441" href="#__codelineno-443-441"></a>cannot be written. A plan with no lookup leg or with more than the cap does not exist.
+</span><span id="__span-443-442"><a id="__codelineno-443-442" name="__codelineno-443-442" href="#__codelineno-443-442"></a>
+</span><span id="__span-443-443"><a id="__codelineno-443-443" name="__codelineno-443-443" href="#__codelineno-443-443"></a>### `use LookupLegsError`
+</span><span id="__span-443-444"><a id="__codelineno-443-444" name="__codelineno-443-444" href="#__codelineno-443-444"></a>
+</span><span id="__span-443-445"><a id="__codelineno-443-445" name="__codelineno-443-445" href="#__codelineno-443-445"></a>Why a list of lookup legs is not one a plan can carry.
+</span><span id="__span-443-446"><a id="__codelineno-443-446" name="__codelineno-443-446" href="#__codelineno-443-446"></a>
+</span><span id="__span-443-447"><a id="__codelineno-443-447" name="__codelineno-443-447" href="#__codelineno-443-447"></a>### `use QuotedColumnType`
+</span><span id="__span-443-448"><a id="__codelineno-443-448" name="__codelineno-443-448" href="#__codelineno-443-448"></a>
+</span><span id="__span-443-449"><a id="__codelineno-443-449" name="__codelineno-443-449" href="#__codelineno-443-449"></a>A declared column type, quoted and escaped so a refusal may carry it.
+</span><span id="__span-443-450"><a id="__codelineno-443-450" name="__codelineno-443-450" href="#__codelineno-443-450"></a>
+</span><span id="__span-443-451"><a id="__codelineno-443-451" name="__codelineno-443-451" href="#__codelineno-443-451"></a>**A source's own dictionary supplied the text**, a catalog adapter read it off a platform nobody
+</span><span id="__span-443-452"><a id="__codelineno-443-452" name="__codelineno-443-452" href="#__codelineno-443-452"></a>here controls, and a refusal reaches a log, a person and an agent's context. So it is never
+</span><span id="__span-443-453"><a id="__codelineno-443-453" name="__codelineno-443-453" href="#__codelineno-443-453"></a>carried raw: the only way to build one is `From&lt;&amp;ColumnType&gt;`, which writes it as a quoted
+</span><span id="__span-443-454"><a id="__codelineno-443-454" name="__codelineno-443-454" href="#__codelineno-443-454"></a>literal with every quote, backslash and non-printing character escaped, and the field cannot be
+</span><span id="__span-443-455"><a id="__codelineno-443-455" name="__codelineno-443-455" href="#__codelineno-443-455"></a>reached any other way. The quoting is the standard library's `{:?}` over a string, the one
+</span><span id="__span-443-456"><a id="__codelineno-443-456" name="__codelineno-443-456" href="#__codelineno-443-456"></a>`InvalidColumnType` already gives a value in its own
+</span><span id="__span-443-457"><a id="__codelineno-443-457" name="__codelineno-443-457" href="#__codelineno-443-457"></a>messages.
+</span><span id="__span-443-458"><a id="__codelineno-443-458" name="__codelineno-443-458" href="#__codelineno-443-458"></a>
+</span><span id="__span-443-459"><a id="__codelineno-443-459" name="__codelineno-443-459" href="#__codelineno-443-459"></a>**What this does and does not bound.** A quoted type cannot close its own quotes or break a line,
+</span><span id="__span-443-460"><a id="__codelineno-443-460" name="__codelineno-443-460" href="#__codelineno-443-460"></a>so it stays one delimited span inside a sentence. It does not make the words inside it benign: a
+</span><span id="__span-443-461"><a id="__codelineno-443-461" name="__codelineno-443-461" href="#__codelineno-443-461"></a>type may still read like an instruction to a model, and is at most
+</span><span id="__span-443-462"><a id="__codelineno-443-462" name="__codelineno-443-462" href="#__codelineno-443-462"></a>`MAX_COLUMN_TYPE_CHARS` characters before escaping.
+</span><span id="__span-443-463"><a id="__codelineno-443-463" name="__codelineno-443-463" href="#__codelineno-443-463"></a>
+</span><span id="__span-443-464"><a id="__codelineno-443-464" name="__codelineno-443-464" href="#__codelineno-443-464"></a>### `use SlotsHeld`
+</span><span id="__span-443-465"><a id="__codelineno-443-465" name="__codelineno-443-465" href="#__codelineno-443-465"></a>
+</span><span id="__span-443-466"><a id="__codelineno-443-466" name="__codelineno-443-466" href="#__codelineno-443-466"></a>Slots counted in a `WorkerSlotsWanted` while this lives.
 </span><span id="__span-443-467"><a id="__codelineno-443-467" name="__codelineno-443-467" href="#__codelineno-443-467"></a>
-</span><span id="__span-443-468"><a id="__codelineno-443-468" name="__codelineno-443-468" href="#__codelineno-443-468"></a>### `use WorkerSlotsWanted`
-</span><span id="__span-443-469"><a id="__codelineno-443-469" name="__codelineno-443-469" href="#__codelineno-443-469"></a>
-</span><span id="__span-443-470"><a id="__codelineno-443-470" name="__codelineno-443-470" href="#__codelineno-443-470"></a>The other nodes this node's questions that go across hold or wait for, summed over them.
-</span><span id="__span-443-471"><a id="__codelineno-443-471" name="__codelineno-443-471" href="#__codelineno-443-471"></a>
-</span><span id="__span-443-472"><a id="__codelineno-443-472" name="__codelineno-443-472" href="#__codelineno-443-472"></a>The demand the architecture decision sizes the worker pool from:
-</span><span id="__span-443-473"><a id="__codelineno-443-473" name="__codelineno-443-473" href="#__codelineno-443-473"></a>a serving node exports it on `/metrics`, and a scrape reads it without making the service work.
-</span><span id="__span-443-474"><a id="__codelineno-443-474" name="__codelineno-443-474" href="#__codelineno-443-474"></a>A clone shares the count.
-</span><span id="__span-443-475"><a id="__codelineno-443-475" name="__codelineno-443-475" href="#__codelineno-443-475"></a>
-</span><span id="__span-443-476"><a id="__codelineno-443-476" name="__codelineno-443-476" href="#__codelineno-443-476"></a>### `use WorkersShort`
-</span><span id="__span-443-477"><a id="__codelineno-443-477" name="__codelineno-443-477" href="#__codelineno-443-477"></a>
-</span><span id="__span-443-478"><a id="__codelineno-443-478" name="__codelineno-443-478" href="#__codelineno-443-478"></a>Other nodes a combine wanted beside this one, and how many of them were ready when the wait ended.
-</span><span id="__span-443-479"><a id="__codelineno-443-479" name="__codelineno-443-479" href="#__codelineno-443-479"></a>
-</span><span id="__span-443-480"><a id="__codelineno-443-480" name="__codelineno-443-480" href="#__codelineno-443-480"></a>Counts, never addresses: a refusal built from it crosses to the caller.
-</span><span id="__span-443-481"><a id="__codelineno-443-481" name="__codelineno-443-481" href="#__codelineno-443-481"></a>
-</span><span id="__span-443-482"><a id="__codelineno-443-482" name="__codelineno-443-482" href="#__codelineno-443-482"></a>### `use labels`
-</span><span id="__span-443-483"><a id="__codelineno-443-483" name="__codelineno-443-483" href="#__codelineno-443-483"></a>
-</span><span id="__span-443-484"><a id="__codelineno-443-484" name="__codelineno-443-484" href="#__codelineno-443-484"></a>The one definition of what a carried leaf is projected under.
-</span><span id="__span-443-485"><a id="__codelineno-443-485" name="__codelineno-443-485" href="#__codelineno-443-485"></a>
-</span><span id="__span-443-486"><a id="__codelineno-443-486" name="__codelineno-443-486" href="#__codelineno-443-486"></a>The splitter and the combiner both call this, so the column the combiner reads a leaf from and
-</span><span id="__span-443-487"><a id="__codelineno-443-487" name="__codelineno-443-487" href="#__codelineno-443-487"></a>the label the splitter projected it under cannot disagree - there is no second copy of the rule.
+</span><span id="__span-443-468"><a id="__codelineno-443-468" name="__codelineno-443-468" href="#__codelineno-443-468"></a>The add and the subtract are the same number, so the count returns to where it was even if a sum
+</span><span id="__span-443-469"><a id="__codelineno-443-469" name="__codelineno-443-469" href="#__codelineno-443-469"></a>of holds wrapped in between.
+</span><span id="__span-443-470"><a id="__codelineno-443-470" name="__codelineno-443-470" href="#__codelineno-443-470"></a>
+</span><span id="__span-443-471"><a id="__codelineno-443-471" name="__codelineno-443-471" href="#__codelineno-443-471"></a>### `use WorkerSlotsWanted`
+</span><span id="__span-443-472"><a id="__codelineno-443-472" name="__codelineno-443-472" href="#__codelineno-443-472"></a>
+</span><span id="__span-443-473"><a id="__codelineno-443-473" name="__codelineno-443-473" href="#__codelineno-443-473"></a>The other nodes this node's questions that go across hold or wait for, summed over them.
+</span><span id="__span-443-474"><a id="__codelineno-443-474" name="__codelineno-443-474" href="#__codelineno-443-474"></a>
+</span><span id="__span-443-475"><a id="__codelineno-443-475" name="__codelineno-443-475" href="#__codelineno-443-475"></a>The demand the architecture decision sizes the worker pool from:
+</span><span id="__span-443-476"><a id="__codelineno-443-476" name="__codelineno-443-476" href="#__codelineno-443-476"></a>a serving node exports it on `/metrics`, and a scrape reads it without making the service work.
+</span><span id="__span-443-477"><a id="__codelineno-443-477" name="__codelineno-443-477" href="#__codelineno-443-477"></a>A clone shares the count.
+</span><span id="__span-443-478"><a id="__codelineno-443-478" name="__codelineno-443-478" href="#__codelineno-443-478"></a>
+</span><span id="__span-443-479"><a id="__codelineno-443-479" name="__codelineno-443-479" href="#__codelineno-443-479"></a>### `use WorkersShort`
+</span><span id="__span-443-480"><a id="__codelineno-443-480" name="__codelineno-443-480" href="#__codelineno-443-480"></a>
+</span><span id="__span-443-481"><a id="__codelineno-443-481" name="__codelineno-443-481" href="#__codelineno-443-481"></a>Other nodes a combine wanted beside this one, and how many of them were ready when the wait ended.
+</span><span id="__span-443-482"><a id="__codelineno-443-482" name="__codelineno-443-482" href="#__codelineno-443-482"></a>
+</span><span id="__span-443-483"><a id="__codelineno-443-483" name="__codelineno-443-483" href="#__codelineno-443-483"></a>Counts, never addresses: a refusal built from it crosses to the caller.
+</span><span id="__span-443-484"><a id="__codelineno-443-484" name="__codelineno-443-484" href="#__codelineno-443-484"></a>
+</span><span id="__span-443-485"><a id="__codelineno-443-485" name="__codelineno-443-485" href="#__codelineno-443-485"></a>### `use labels`
+</span><span id="__span-443-486"><a id="__codelineno-443-486" name="__codelineno-443-486" href="#__codelineno-443-486"></a>
+</span><span id="__span-443-487"><a id="__codelineno-443-487" name="__codelineno-443-487" href="#__codelineno-443-487"></a>The one definition of what a carried leaf is projected under.
 </span><span id="__span-443-488"><a id="__codelineno-443-488" name="__codelineno-443-488" href="#__codelineno-443-488"></a>
-</span><span id="__span-443-489"><a id="__codelineno-443-489" name="__codelineno-443-489" href="#__codelineno-443-489"></a>**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
-</span><span id="__span-443-490"><a id="__codelineno-443-490" name="__codelineno-443-490" href="#__codelineno-443-490"></a>function twice, so naming by aggregate would give both leaves one label and a combine that
-</span><span id="__span-443-491"><a id="__codelineno-443-491" name="__codelineno-443-491" href="#__codelineno-443-491"></a>divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
-</span><span id="__span-443-492"><a id="__codelineno-443-492" name="__codelineno-443-492" href="#__codelineno-443-492"></a>metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
-</span><span id="__span-443-493"><a id="__codelineno-443-493" name="__codelineno-443-493" href="#__codelineno-443-493"></a>under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
-</span><span id="__span-443-494"><a id="__codelineno-443-494" name="__codelineno-443-494" href="#__codelineno-443-494"></a>
-</span><span id="__span-443-495"><a id="__codelineno-443-495" name="__codelineno-443-495" href="#__codelineno-443-495"></a>### `use NothingCombined`
-</span><span id="__span-443-496"><a id="__codelineno-443-496" name="__codelineno-443-496" href="#__codelineno-443-496"></a>
-</span><span id="__span-443-497"><a id="__codelineno-443-497" name="__codelineno-443-497" href="#__codelineno-443-497"></a>What `RefusingCombiner` answers with.
-</span><span id="__span-443-498"><a id="__codelineno-443-498" name="__codelineno-443-498" href="#__codelineno-443-498"></a>
-</span><span id="__span-443-499"><a id="__codelineno-443-499" name="__codelineno-443-499" href="#__codelineno-443-499"></a>### `use RefusingCombiner`
-</span><span id="__span-443-500"><a id="__codelineno-443-500" name="__codelineno-443-500" href="#__codelineno-443-500"></a>
-</span><span id="__span-443-501"><a id="__codelineno-443-501" name="__codelineno-443-501" href="#__codelineno-443-501"></a>A combiner that answers nothing, for a transport's own tests.
-</span><span id="__span-443-502"><a id="__codelineno-443-502" name="__codelineno-443-502" href="#__codelineno-443-502"></a>
-</span><span id="__span-443-503"><a id="__codelineno-443-503" name="__codelineno-443-503" href="#__codelineno-443-503"></a>**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
-</span><span id="__span-443-504"><a id="__codelineno-443-504" name="__codelineno-443-504" href="#__codelineno-443-504"></a>exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
-</span><span id="__span-443-505"><a id="__codelineno-443-505" name="__codelineno-443-505" href="#__codelineno-443-505"></a>routing, credentials and refusal shapes, and a service takes a combiner: without this, each
-</span><span id="__span-443-506"><a id="__codelineno-443-506" name="__codelineno-443-506" href="#__codelineno-443-506"></a>transport would write its own, and two copies of a fake are two things to keep in step.
-</span><span id="__span-443-507"><a id="__codelineno-443-507" name="__codelineno-443-507" href="#__codelineno-443-507"></a>
-</span><span id="__span-443-508"><a id="__codelineno-443-508" name="__codelineno-443-508" href="#__codelineno-443-508"></a>**Refusing rather than answering, and that is the honest fake for its callers.** No transport
-</span><span id="__span-443-509"><a id="__codelineno-443-509" name="__codelineno-443-509" href="#__codelineno-443-509"></a>test asks a two-source question - the adapters those suites register are mono fakes - so a
-</span><span id="__span-443-510"><a id="__codelineno-443-510" name="__codelineno-443-510" href="#__codelineno-443-510"></a>combiner that produced rows would be inventing an answer nothing reads. A combine that is
-</span><span id="__span-443-511"><a id="__codelineno-443-511" name="__codelineno-443-511" href="#__codelineno-443-511"></a>reached through this fake is a test that has drifted into the federated path, and it fails
-</span><span id="__span-443-512"><a id="__codelineno-443-512" name="__codelineno-443-512" href="#__codelineno-443-512"></a>loudly rather than passing over a fabricated number.
-</span><span id="__span-443-513"><a id="__codelineno-443-513" name="__codelineno-443-513" href="#__codelineno-443-513"></a>
-</span><span id="__span-443-514"><a id="__codelineno-443-514" name="__codelineno-443-514" href="#__codelineno-443-514"></a>Behind `fixtures`, so nothing published holds it.
-</span><span id="__span-443-515"><a id="__codelineno-443-515" name="__codelineno-443-515" href="#__codelineno-443-515"></a>
-</span><span id="__span-443-516"><a id="__codelineno-443-516" name="__codelineno-443-516" href="#__codelineno-443-516"></a>### `use KeyValue`
-</span><span id="__span-443-517"><a id="__codelineno-443-517" name="__codelineno-443-517" href="#__codelineno-443-517"></a>
-</span><span id="__span-443-518"><a id="__codelineno-443-518" name="__codelineno-443-518" href="#__codelineno-443-518"></a>What a `PlanKey` groups by.
-</span><span id="__span-443-519"><a id="__codelineno-443-519" name="__codelineno-443-519" href="#__codelineno-443-519"></a>
-</span><span id="__span-443-520"><a id="__codelineno-443-520" name="__codelineno-443-520" href="#__codelineno-443-520"></a>### `use PlanKey`
-</span><span id="__span-443-521"><a id="__codelineno-443-521" name="__codelineno-443-521" href="#__codelineno-443-521"></a>
-</span><span id="__span-443-522"><a id="__codelineno-443-522" name="__codelineno-443-522" href="#__codelineno-443-522"></a>One group-by key.
-</span><span id="__span-443-523"><a id="__codelineno-443-523" name="__codelineno-443-523" href="#__codelineno-443-523"></a>
-</span><span id="__span-443-524"><a id="__codelineno-443-524" name="__codelineno-443-524" href="#__codelineno-443-524"></a>**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
-</span><span id="__span-443-525"><a id="__codelineno-443-525" name="__codelineno-443-525" href="#__codelineno-443-525"></a>to be labelled with whatever text its producer computed, and what kept that out of the internal
-</span><span id="__span-443-526"><a id="__codelineno-443-526" name="__codelineno-443-526" href="#__codelineno-443-526"></a>namespace a federated leg also projects into was a derivation held by review. The type is the
-</span><span id="__span-443-527"><a id="__codelineno-443-527" name="__codelineno-443-527" href="#__codelineno-443-527"></a>mechanism now: `ResultLabel` carries the compile-fail pair that says so.
-</span><span id="__span-443-528"><a id="__codelineno-443-528" name="__codelineno-443-528" href="#__codelineno-443-528"></a>
-</span><span id="__span-443-529"><a id="__codelineno-443-529" name="__codelineno-443-529" href="#__codelineno-443-529"></a>**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
-</span><span id="__span-443-530"><a id="__codelineno-443-530" name="__codelineno-443-530" href="#__codelineno-443-530"></a>by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
+</span><span id="__span-443-489"><a id="__codelineno-443-489" name="__codelineno-443-489" href="#__codelineno-443-489"></a>The splitter and the combiner both call this, so the column the combiner reads a leaf from and
+</span><span id="__span-443-490"><a id="__codelineno-443-490" name="__codelineno-443-490" href="#__codelineno-443-490"></a>the label the splitter projected it under cannot disagree - there is no second copy of the rule.
+</span><span id="__span-443-491"><a id="__codelineno-443-491" name="__codelineno-443-491" href="#__codelineno-443-491"></a>
+</span><span id="__span-443-492"><a id="__codelineno-443-492" name="__codelineno-443-492" href="#__codelineno-443-492"></a>**Position, and nothing else.** A ratio of two sums - `sum(a) / sum(b)` - is one aggregating
+</span><span id="__span-443-493"><a id="__codelineno-443-493" name="__codelineno-443-493" href="#__codelineno-443-493"></a>function twice, so naming by aggregate would give both leaves one label and a combine that
+</span><span id="__span-443-494"><a id="__codelineno-443-494" name="__codelineno-443-494" href="#__codelineno-443-494"></a>divides a column by itself. Position cannot collide, and it is all a leg needs: a leg carries one
+</span><span id="__span-443-495"><a id="__codelineno-443-495" name="__codelineno-443-495" href="#__codelineno-443-495"></a>metric, so the metric's name distinguishes nothing inside it. The answer's measure comes back
+</span><span id="__span-443-496"><a id="__codelineno-443-496" name="__codelineno-443-496" href="#__codelineno-443-496"></a>under the metric's own certified name, which `FederatedPlan`'s `measure_label` holds.
+</span><span id="__span-443-497"><a id="__codelineno-443-497" name="__codelineno-443-497" href="#__codelineno-443-497"></a>
+</span><span id="__span-443-498"><a id="__codelineno-443-498" name="__codelineno-443-498" href="#__codelineno-443-498"></a>### `use NothingCombined`
+</span><span id="__span-443-499"><a id="__codelineno-443-499" name="__codelineno-443-499" href="#__codelineno-443-499"></a>
+</span><span id="__span-443-500"><a id="__codelineno-443-500" name="__codelineno-443-500" href="#__codelineno-443-500"></a>What `RefusingCombiner` answers with.
+</span><span id="__span-443-501"><a id="__codelineno-443-501" name="__codelineno-443-501" href="#__codelineno-443-501"></a>
+</span><span id="__span-443-502"><a id="__codelineno-443-502" name="__codelineno-443-502" href="#__codelineno-443-502"></a>### `use RefusingCombiner`
+</span><span id="__span-443-503"><a id="__codelineno-443-503" name="__codelineno-443-503" href="#__codelineno-443-503"></a>
+</span><span id="__span-443-504"><a id="__codelineno-443-504" name="__codelineno-443-504" href="#__codelineno-443-504"></a>A combiner that answers nothing, for a transport's own tests.
+</span><span id="__span-443-505"><a id="__codelineno-443-505" name="__codelineno-443-505" href="#__codelineno-443-505"></a>
+</span><span id="__span-443-506"><a id="__codelineno-443-506" name="__codelineno-443-506" href="#__codelineno-443-506"></a>**A fake over the port, which is this workspace's rule for one** - never a mocked engine. It
+</span><span id="__span-443-507"><a id="__codelineno-443-507" name="__codelineno-443-507" href="#__codelineno-443-507"></a>exists because a transport's suite composes a whole `sutura_app::LocalService` to exercise
+</span><span id="__span-443-508"><a id="__codelineno-443-508" name="__codelineno-443-508" href="#__codelineno-443-508"></a>routing, credentials and refusal shapes, and a service takes a combiner: without this, each
+</span><span id="__span-443-509"><a id="__codelineno-443-509" name="__codelineno-443-509" href="#__codelineno-443-509"></a>transport would write its own, and two copies of a fake are two things to keep in step.
+</span><span id="__span-443-510"><a id="__codelineno-443-510" name="__codelineno-443-510" href="#__codelineno-443-510"></a>
+</span><span id="__span-443-511"><a id="__codelineno-443-511" name="__codelineno-443-511" href="#__codelineno-443-511"></a>**Refusing rather than answering, and that is the honest fake for its callers.** No transport
+</span><span id="__span-443-512"><a id="__codelineno-443-512" name="__codelineno-443-512" href="#__codelineno-443-512"></a>test asks a two-source question - the adapters those suites register are mono fakes - so a
+</span><span id="__span-443-513"><a id="__codelineno-443-513" name="__codelineno-443-513" href="#__codelineno-443-513"></a>combiner that produced rows would be inventing an answer nothing reads. A combine that is
+</span><span id="__span-443-514"><a id="__codelineno-443-514" name="__codelineno-443-514" href="#__codelineno-443-514"></a>reached through this fake is a test that has drifted into the federated path, and it fails
+</span><span id="__span-443-515"><a id="__codelineno-443-515" name="__codelineno-443-515" href="#__codelineno-443-515"></a>loudly rather than passing over a fabricated number.
+</span><span id="__span-443-516"><a id="__codelineno-443-516" name="__codelineno-443-516" href="#__codelineno-443-516"></a>
+</span><span id="__span-443-517"><a id="__codelineno-443-517" name="__codelineno-443-517" href="#__codelineno-443-517"></a>Behind `fixtures`, so nothing published holds it.
+</span><span id="__span-443-518"><a id="__codelineno-443-518" name="__codelineno-443-518" href="#__codelineno-443-518"></a>
+</span><span id="__span-443-519"><a id="__codelineno-443-519" name="__codelineno-443-519" href="#__codelineno-443-519"></a>### `use KeyValue`
+</span><span id="__span-443-520"><a id="__codelineno-443-520" name="__codelineno-443-520" href="#__codelineno-443-520"></a>
+</span><span id="__span-443-521"><a id="__codelineno-443-521" name="__codelineno-443-521" href="#__codelineno-443-521"></a>What a `PlanKey` groups by.
+</span><span id="__span-443-522"><a id="__codelineno-443-522" name="__codelineno-443-522" href="#__codelineno-443-522"></a>
+</span><span id="__span-443-523"><a id="__codelineno-443-523" name="__codelineno-443-523" href="#__codelineno-443-523"></a>### `use PlanKey`
+</span><span id="__span-443-524"><a id="__codelineno-443-524" name="__codelineno-443-524" href="#__codelineno-443-524"></a>
+</span><span id="__span-443-525"><a id="__codelineno-443-525" name="__codelineno-443-525" href="#__codelineno-443-525"></a>One group-by key.
+</span><span id="__span-443-526"><a id="__codelineno-443-526" name="__codelineno-443-526" href="#__codelineno-443-526"></a>
+</span><span id="__span-443-527"><a id="__codelineno-443-527" name="__codelineno-443-527" href="#__codelineno-443-527"></a>**The label is a `ResultLabel` and not a `String`, which is `telekom/sutura#337`.** A key used
+</span><span id="__span-443-528"><a id="__codelineno-443-528" name="__codelineno-443-528" href="#__codelineno-443-528"></a>to be labelled with whatever text its producer computed, and what kept that out of the internal
+</span><span id="__span-443-529"><a id="__codelineno-443-529" name="__codelineno-443-529" href="#__codelineno-443-529"></a>namespace a federated leg also projects into was a derivation held by review. The type is the
+</span><span id="__span-443-530"><a id="__codelineno-443-530" name="__codelineno-443-530" href="#__codelineno-443-530"></a>mechanism now: `ResultLabel` carries the compile-fail pair that says so.
 </span><span id="__span-443-531"><a id="__codelineno-443-531" name="__codelineno-443-531" href="#__codelineno-443-531"></a>
-</span><span id="__span-443-532"><a id="__codelineno-443-532" name="__codelineno-443-532" href="#__codelineno-443-532"></a>### `use ResultLabel`
-</span><span id="__span-443-533"><a id="__codelineno-443-533" name="__codelineno-443-533" href="#__codelineno-443-533"></a>
-</span><span id="__span-443-534"><a id="__codelineno-443-534" name="__codelineno-443-534" href="#__codelineno-443-534"></a>The label one column of a result carries, which can only be built out of something already
-</span><span id="__span-443-535"><a id="__codelineno-443-535" name="__codelineno-443-535" href="#__codelineno-443-535"></a>parsed.
+</span><span id="__span-443-532"><a id="__codelineno-443-532" name="__codelineno-443-532" href="#__codelineno-443-532"></a>**The column is read only through `PlanKey::value`**, a closed enum, so a renderer that groups
+</span><span id="__span-443-533"><a id="__codelineno-443-533" name="__codelineno-443-533" href="#__codelineno-443-533"></a>by the raw column of a truncated key does not compile. A plain key serializes without a `grain`.
+</span><span id="__span-443-534"><a id="__codelineno-443-534" name="__codelineno-443-534" href="#__codelineno-443-534"></a>
+</span><span id="__span-443-535"><a id="__codelineno-443-535" name="__codelineno-443-535" href="#__codelineno-443-535"></a>### `use ResultLabel`
 </span><span id="__span-443-536"><a id="__codelineno-443-536" name="__codelineno-443-536" href="#__codelineno-443-536"></a>
-</span><span id="__span-443-537"><a id="__codelineno-443-537" name="__codelineno-443-537" href="#__codelineno-443-537"></a>**The half of the labelling scheme that used to be held by review.** A federated leg's result
-</span><span id="__span-443-538"><a id="__codelineno-443-538" name="__codelineno-443-538" href="#__codelineno-443-538"></a>carries two kinds of label in one namespace. The internal kind is
-</span><span id="__span-443-539"><a id="__codelineno-443-539" name="__codelineno-443-539" href="#__codelineno-443-539"></a>`InternalLabel`, a type: every rendering starts with a digit, and
-</span><span id="__span-443-540"><a id="__codelineno-443-540" name="__codelineno-443-540" href="#__codelineno-443-540"></a>`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
-</span><span id="__span-443-541"><a id="__codelineno-443-541" name="__codelineno-443-541" href="#__codelineno-443-541"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
-</span><span id="__span-443-542"><a id="__codelineno-443-542" name="__codelineno-443-542" href="#__codelineno-443-542"></a>a `String` on `PlanKey` and `LegTerm`, and what
-</span><span id="__span-443-543"><a id="__codelineno-443-543" name="__codelineno-443-543" href="#__codelineno-443-543"></a>kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
-</span><span id="__span-443-544"><a id="__codelineno-443-544" name="__codelineno-443-544" href="#__codelineno-443-544"></a>derive every one of them from a dimension name, a metric name or
-</span><span id="__span-443-545"><a id="__codelineno-443-545" name="__codelineno-443-545" href="#__codelineno-443-545"></a>`TIME_BUCKET_LABEL` - a derivation held by review, and by no
-</span><span id="__span-443-546"><a id="__codelineno-443-546" name="__codelineno-443-546" href="#__codelineno-443-546"></a>test. `telekom/sutura#337` is the report.
-</span><span id="__span-443-547"><a id="__codelineno-443-547" name="__codelineno-443-547" href="#__codelineno-443-547"></a>
-</span><span id="__span-443-548"><a id="__codelineno-443-548" name="__codelineno-443-548" href="#__codelineno-443-548"></a>This type is the other half. There is no constructor taking text, so the four functions below are
-</span><span id="__span-443-549"><a id="__codelineno-443-549" name="__codelineno-443-549" href="#__codelineno-443-549"></a>the whole of what a label can come from, and a computed string is not one of them. That turns
-</span><span id="__span-443-550"><a id="__codelineno-443-550" name="__codelineno-443-550" href="#__codelineno-443-550"></a>*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
-</span><span id="__span-443-551"><a id="__codelineno-443-551" name="__codelineno-443-551" href="#__codelineno-443-551"></a>version of the same argument and the one the leading digit was chosen to support.
-</span><span id="__span-443-552"><a id="__codelineno-443-552" name="__codelineno-443-552" href="#__codelineno-443-552"></a>
-</span><span id="__span-443-553"><a id="__codelineno-443-553" name="__codelineno-443-553" href="#__codelineno-443-553"></a>**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
-</span><span id="__span-443-554"><a id="__codelineno-443-554" name="__codelineno-443-554" href="#__codelineno-443-554"></a>enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&amp;'static
-</span><span id="__span-443-555"><a id="__codelineno-443-555" name="__codelineno-443-555" href="#__codelineno-443-555"></a>str` rendering to hand out - the position is formatted - so `label()` would return a
-</span><span id="__span-443-556"><a id="__codelineno-443-556" name="__codelineno-443-556" href="#__codelineno-443-556"></a>`Cow` and the five alias call sites in `sutura_sql::generate` would change
-</span><span id="__span-443-557"><a id="__codelineno-443-557" name="__codelineno-443-557" href="#__codelineno-443-557"></a>with it. Measured, not assumed: `aliased(inner: Expr, label: &amp;str)` is called five times there,
-</span><span id="__span-443-558"><a id="__codelineno-443-558" name="__codelineno-443-558" href="#__codelineno-443-558"></a>once per projected column shape. So the rendering is stored and the four constructors are the
-</span><span id="__span-443-559"><a id="__codelineno-443-559" name="__codelineno-443-559" href="#__codelineno-443-559"></a>gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
-</span><span id="__span-443-560"><a id="__codelineno-443-560" name="__codelineno-443-560" href="#__codelineno-443-560"></a>from the value, because nothing reads it back - what the type buys is that the TEXT can only come
-</span><span id="__span-443-561"><a id="__codelineno-443-561" name="__codelineno-443-561" href="#__codelineno-443-561"></a>from one of them.
-</span><span id="__span-443-562"><a id="__codelineno-443-562" name="__codelineno-443-562" href="#__codelineno-443-562"></a>
-</span><span id="__span-443-563"><a id="__codelineno-443-563" name="__codelineno-443-563" href="#__codelineno-443-563"></a>A computed string is not a label, and that is a compile error rather than a review finding:
-</span><span id="__span-443-564"><a id="__codelineno-443-564" name="__codelineno-443-564" href="#__codelineno-443-564"></a>
-</span><span id="__span-443-565"><a id="__codelineno-443-565" name="__codelineno-443-565" href="#__codelineno-443-565"></a>```compile_fail
-</span><span id="__span-443-566"><a id="__codelineno-443-566" name="__codelineno-443-566" href="#__codelineno-443-566"></a>use sutura_domain::model::{ColumnName, TableName};
-</span><span id="__span-443-567"><a id="__codelineno-443-567" name="__codelineno-443-567" href="#__codelineno-443-567"></a>use sutura_domain::plan::{PlanColumn, PlanKey};
-</span><span id="__span-443-568"><a id="__codelineno-443-568" name="__codelineno-443-568" href="#__codelineno-443-568"></a>
-</span><span id="__span-443-569"><a id="__codelineno-443-569" name="__codelineno-443-569" href="#__codelineno-443-569"></a>// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
-</span><span id="__span-443-570"><a id="__codelineno-443-570" name="__codelineno-443-570" href="#__codelineno-443-570"></a>// string that lands in the internal namespace.
-</span><span id="__span-443-571"><a id="__codelineno-443-571" name="__codelineno-443-571" href="#__codelineno-443-571"></a>fn _computed(table: TableName, column: ColumnName, leaf: usize) -&gt; PlanKey {
-</span><span id="__span-443-572"><a id="__codelineno-443-572" name="__codelineno-443-572" href="#__codelineno-443-572"></a>    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
-</span><span id="__span-443-573"><a id="__codelineno-443-573" name="__codelineno-443-573" href="#__codelineno-443-573"></a>}
+</span><span id="__span-443-537"><a id="__codelineno-443-537" name="__codelineno-443-537" href="#__codelineno-443-537"></a>The label one column of a result carries, which can only be built out of something already
+</span><span id="__span-443-538"><a id="__codelineno-443-538" name="__codelineno-443-538" href="#__codelineno-443-538"></a>parsed.
+</span><span id="__span-443-539"><a id="__codelineno-443-539" name="__codelineno-443-539" href="#__codelineno-443-539"></a>
+</span><span id="__span-443-540"><a id="__codelineno-443-540" name="__codelineno-443-540" href="#__codelineno-443-540"></a>**The half of the labelling scheme that used to be held by review.** A federated leg's result
+</span><span id="__span-443-541"><a id="__codelineno-443-541" name="__codelineno-443-541" href="#__codelineno-443-541"></a>carries two kinds of label in one namespace. The internal kind is
+</span><span id="__span-443-542"><a id="__codelineno-443-542" name="__codelineno-443-542" href="#__codelineno-443-542"></a>`InternalLabel`, a type: every rendering starts with a digit, and
+</span><span id="__span-443-543"><a id="__codelineno-443-543" name="__codelineno-443-543" href="#__codelineno-443-543"></a>`crate::model`'s identifier parser refuses a leading digit as a FIRST character, so no
+</span><span id="__span-443-544"><a id="__codelineno-443-544" name="__codelineno-443-544" href="#__codelineno-443-544"></a>`DimensionName`, `MetricName`, `ColumnName` or `TableName` can spell one. The public kind was
+</span><span id="__span-443-545"><a id="__codelineno-443-545" name="__codelineno-443-545" href="#__codelineno-443-545"></a>a `String` on `PlanKey` and `LegTerm`, and what
+</span><span id="__span-443-546"><a id="__codelineno-443-546" name="__codelineno-443-546" href="#__codelineno-443-546"></a>kept a public label out of the internal namespace was that `sutura_semantic::plan` happened to
+</span><span id="__span-443-547"><a id="__codelineno-443-547" name="__codelineno-443-547" href="#__codelineno-443-547"></a>derive every one of them from a dimension name, a metric name or
+</span><span id="__span-443-548"><a id="__codelineno-443-548" name="__codelineno-443-548" href="#__codelineno-443-548"></a>`TIME_BUCKET_LABEL` - a derivation held by review, and by no
+</span><span id="__span-443-549"><a id="__codelineno-443-549" name="__codelineno-443-549" href="#__codelineno-443-549"></a>test. `telekom/sutura#337` is the report.
+</span><span id="__span-443-550"><a id="__codelineno-443-550" name="__codelineno-443-550" href="#__codelineno-443-550"></a>
+</span><span id="__span-443-551"><a id="__codelineno-443-551" name="__codelineno-443-551" href="#__codelineno-443-551"></a>This type is the other half. There is no constructor taking text, so the four functions below are
+</span><span id="__span-443-552"><a id="__codelineno-443-552" name="__codelineno-443-552" href="#__codelineno-443-552"></a>the whole of what a label can come from, and a computed string is not one of them. That turns
+</span><span id="__span-443-553"><a id="__codelineno-443-553" name="__codelineno-443-553" href="#__codelineno-443-553"></a>*nothing compares the two halves* into *nothing can put a value in both*, which is the stronger
+</span><span id="__span-443-554"><a id="__codelineno-443-554" name="__codelineno-443-554" href="#__codelineno-443-554"></a>version of the same argument and the one the leading digit was chosen to support.
+</span><span id="__span-443-555"><a id="__codelineno-443-555" name="__codelineno-443-555" href="#__codelineno-443-555"></a>
+</span><span id="__span-443-556"><a id="__codelineno-443-556" name="__codelineno-443-556" href="#__codelineno-443-556"></a>**Why a newtype over the rendering rather than the four-variant enum the report sketched.** An
+</span><span id="__span-443-557"><a id="__codelineno-443-557" name="__codelineno-443-557" href="#__codelineno-443-557"></a>enum would have to hand out its text, and `Internal(InternalLabel::Leaf(n))` has no `&amp;'static
+</span><span id="__span-443-558"><a id="__codelineno-443-558" name="__codelineno-443-558" href="#__codelineno-443-558"></a>str` rendering to hand out - the position is formatted - so `label()` would return a
+</span><span id="__span-443-559"><a id="__codelineno-443-559" name="__codelineno-443-559" href="#__codelineno-443-559"></a>`Cow` and the five alias call sites in `sutura_sql::generate` would change
+</span><span id="__span-443-560"><a id="__codelineno-443-560" name="__codelineno-443-560" href="#__codelineno-443-560"></a>with it. Measured, not assumed: `aliased(inner: Expr, label: &amp;str)` is called five times there,
+</span><span id="__span-443-561"><a id="__codelineno-443-561" name="__codelineno-443-561" href="#__codelineno-443-561"></a>once per projected column shape. So the rendering is stored and the four constructors are the
+</span><span id="__span-443-562"><a id="__codelineno-443-562" name="__codelineno-443-562" href="#__codelineno-443-562"></a>gate. **The limit, next to the claim:** which of the four a label came from is not recoverable
+</span><span id="__span-443-563"><a id="__codelineno-443-563" name="__codelineno-443-563" href="#__codelineno-443-563"></a>from the value, because nothing reads it back - what the type buys is that the TEXT can only come
+</span><span id="__span-443-564"><a id="__codelineno-443-564" name="__codelineno-443-564" href="#__codelineno-443-564"></a>from one of them.
+</span><span id="__span-443-565"><a id="__codelineno-443-565" name="__codelineno-443-565" href="#__codelineno-443-565"></a>
+</span><span id="__span-443-566"><a id="__codelineno-443-566" name="__codelineno-443-566" href="#__codelineno-443-566"></a>A computed string is not a label, and that is a compile error rather than a review finding:
+</span><span id="__span-443-567"><a id="__codelineno-443-567" name="__codelineno-443-567" href="#__codelineno-443-567"></a>
+</span><span id="__span-443-568"><a id="__codelineno-443-568" name="__codelineno-443-568" href="#__codelineno-443-568"></a>```compile_fail
+</span><span id="__span-443-569"><a id="__codelineno-443-569" name="__codelineno-443-569" href="#__codelineno-443-569"></a>use sutura_domain::model::{ColumnName, TableName};
+</span><span id="__span-443-570"><a id="__codelineno-443-570" name="__codelineno-443-570" href="#__codelineno-443-570"></a>use sutura_domain::plan::{PlanColumn, PlanKey};
+</span><span id="__span-443-571"><a id="__codelineno-443-571" name="__codelineno-443-571" href="#__codelineno-443-571"></a>
+</span><span id="__span-443-572"><a id="__codelineno-443-572" name="__codelineno-443-572" href="#__codelineno-443-572"></a>// The failure `telekom/sutura#325`'s F2 reproduced: a public key labelled with a computed
+</span><span id="__span-443-573"><a id="__codelineno-443-573" name="__codelineno-443-573" href="#__codelineno-443-573"></a>// string that lands in the internal namespace.
+</span><span id="__span-443-574"><a id="__codelineno-443-574" name="__codelineno-443-574" href="#__codelineno-443-574"></a>fn _computed(table: TableName, column: ColumnName, leaf: usize) -&gt; PlanKey {
+</span><span id="__span-443-575"><a id="__codelineno-443-575" name="__codelineno-443-575" href="#__codelineno-443-575"></a>    PlanKey::new(format!("0_leaf_{leaf}"), PlanColumn::new(table, column))
+</span><span id="__span-443-576"><a id="__codelineno-443-576" name="__codelineno-443-576" href="#__codelineno-443-576"></a>}
 </span></code></pre></div></p>
 <p>And the twin, so a rename cannot make that block pass vacuously:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-444-1"><a id="__codelineno-444-1" name="__codelineno-444-1" href="#__codelineno-444-1"></a>use sutura_domain::model::{ColumnName, DimensionName, TableName};
@@ -9155,12 +9158,12 @@ adapter with no memory pool has an honest <code>None</code> to give. A combiner 
 implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
 inherited <code>None</code> would turn a ceiling an operator configured into the <code>503</code> a dead data system
 produces - with nothing in a diff to see. So <code>Self::working_set_exhausted</code>,
-<code>Self::answer_not_well_formed</code> and <code>Self::workers_not_ready</code> have no default body: a second
-implementor has to write every arm where a reviewer reads them.</p>
+<code>Self::answer_not_well_formed</code>, <code>Self::workers_not_ready</code> and <code>Self::node_lost</code> have no
+default body: a second implementor has to write every arm where a reviewer reads them.</p>
 <p><code>Self::worker_slots_wanted</code> defaults to <code>None</code>, which is honest for a combiner that never goes
 across. <strong>The limit:</strong> one that does go across and inherits it exports no demand, and the
 operator sizes the worker pool to its floor - nothing but review sees that.</p>
-<h1 id="what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-three-predicates">What the domain may ask about an implementor's error, and why it is three predicates<a class="headerlink" href="#what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-three-predicates" title="Permanent link">&para;</a></h1>
+<h1 id="what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-four-predicates">What the domain may ask about an implementor's error, and why it is four predicates<a class="headerlink" href="#what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-four-predicates" title="Permanent link">&para;</a></h1>
 <p><code>Self::Error</code> is the implementor's own type, so nothing above this port can tell <em>the pool would
 not grow</em> from <em>the plan would not build</em>. The questions split the same way the query path's
 already do:</p>
@@ -9173,10 +9176,13 @@ already do:</p>
   The same plan against the same rows refuses again, which is what makes it a refusal rather
   than a retryable failure.</li>
 <li><code>Self::workers_not_ready</code> is the other nodes a combine wanted not being there in time -
-  <code>RefusalReason::WorkersNotReady</code>, the one of
-  the three a caller may retry.</li>
+  <code>RefusalReason::WorkersNotReady</code>, one of the
+  two a caller may retry.</li>
+<li><code>Self::node_lost</code> is a node the combine was planned onto not being reachable once it ran -
+  <code>RefusalReason::NodeLost</code>, the other a caller may
+  retry.</li>
 </ul>
-<p>All three are predicates rather than conversions, for the reason
+<p>All four are predicates rather than conversions, for the reason
 <code>Warehouse::working_set_exhausted</code> gives:
 an implementor that could return a <code>RefusalReason</code> could mint any
 of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -9537,7 +9543,7 @@ application, and an adapter still never calls another adapter. <code>sutura_app<
 <ul>
 <li><code>Leg</code> - A leg did not answer. The runner's own error, unchanged.</li>
 <li><code>Miswired</code> - The leg results did not stand for the plan's legs: this workspace's own defect.</li>
-<li><code>Combine</code> - The combine failed, which <code>FederationCombiner</code>'s three predicates classify.</li>
+<li><code>Combine</code> - The combine failed, which <code>FederationCombiner</code>'s four predicates classify.</li>
 </ul>
 <h6 id="implements_117">Implements<a class="headerlink" href="#implements_117" title="Permanent link">&para;</a></h6>
 <p><code>Debug</code></p>
@@ -9597,12 +9603,12 @@ adapter with no memory pool has an honest <code>None</code> to give. A combiner 
 implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
 inherited <code>None</code> would turn a ceiling an operator configured into the <code>503</code> a dead data system
 produces - with nothing in a diff to see. So <code>Self::working_set_exhausted</code>,
-<code>Self::answer_not_well_formed</code> and <code>Self::workers_not_ready</code> have no default body: a second
-implementor has to write every arm where a reviewer reads them.</p>
+<code>Self::answer_not_well_formed</code>, <code>Self::workers_not_ready</code> and <code>Self::node_lost</code> have no
+default body: a second implementor has to write every arm where a reviewer reads them.</p>
 <p><code>Self::worker_slots_wanted</code> defaults to <code>None</code>, which is honest for a combiner that never goes
 across. <strong>The limit:</strong> one that does go across and inherits it exports no demand, and the
 operator sizes the worker pool to its floor - nothing but review sees that.</p>
-<h1 id="what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-three-predicates_1">What the domain may ask about an implementor's error, and why it is three predicates<a class="headerlink" href="#what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-three-predicates_1" title="Permanent link">&para;</a></h1>
+<h1 id="what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-four-predicates_1">What the domain may ask about an implementor's error, and why it is four predicates<a class="headerlink" href="#what-the-domain-may-ask-about-an-implementors-error-and-why-it-is-four-predicates_1" title="Permanent link">&para;</a></h1>
 <p><code>Self::Error</code> is the implementor's own type, so nothing above this port can tell <em>the pool would
 not grow</em> from <em>the plan would not build</em>. The questions split the same way the query path's
 already do:</p>
@@ -9615,10 +9621,13 @@ already do:</p>
   The same plan against the same rows refuses again, which is what makes it a refusal rather
   than a retryable failure.</li>
 <li><code>Self::workers_not_ready</code> is the other nodes a combine wanted not being there in time -
-  <code>RefusalReason::WorkersNotReady</code>, the one of
-  the three a caller may retry.</li>
+  <code>RefusalReason::WorkersNotReady</code>, one of the
+  two a caller may retry.</li>
+<li><code>Self::node_lost</code> is a node the combine was planned onto not being reachable once it ran -
+  <code>RefusalReason::NodeLost</code>, the other a caller may
+  retry.</li>
 </ul>
-<p>All three are predicates rather than conversions, for the reason
+<p>All four are predicates rather than conversions, for the reason
 <code>Warehouse::working_set_exhausted</code> gives:
 an implementor that could return a <code>RefusalReason</code> could mint any
 of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -11057,7 +11066,10 @@ somebody else's input.</p>
 - <code>WorkersNotReady</code> - A question that needed other nodes to combine, when none of them was ready within the wait <code>server.nodes.wait_for_workers_seconds</code> declares.</p>
 <p>May be retried: a pool that is starting has nodes a moment later. Refused only when no other
   node resolved, so a pool already at its largest plans across what it has rather than turning a
-  retry into one that never succeeds. Carries counts of other nodes, never their addresses.</p>
+  retry into one that never succeeds. Carries counts of other nodes, never their addresses.
+- <code>NodeLost</code> - A question planned across other nodes, when one it was planned onto could not be reached while it ran.</p>
+<p>May be retried: asked again, the question is planned from nothing across the nodes that are
+  there then. Carries nothing about the node, never its address.</p>
 <h4 id="methods_92">Methods<a class="headerlink" href="#methods_92" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-643-1"><a id="__codelineno-643-1" name="__codelineno-643-1" href="#__codelineno-643-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
