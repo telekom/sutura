@@ -13,7 +13,7 @@ inputs:
       in step with `binaries` in `nix/shipped.nix`. `sutura` first: it is what an unqualified
       download and an unqualified `docker pull` mean here.
     required: false
-    default: sutura
+    default: sutura sutura-operator
   profile:
     description: >
       `release` or `performance` - the cargo profile, as the nix attribute suffix `nix/shipped.nix`
@@ -35,9 +35,8 @@ inputs:
 # the split under pressure". The next addition arrived - `github.com/telekom/sutura#111`, a SECOND
 # shipped binary - and the part that grew this time was the BUILD, because every step in it is now
 # a loop over the shipped set rather than one invocation. `release.yml` reached 1024 lines with it
-# inline, so this is that argument applied to the other half. `github.com/telekom/sutura#685`
-# step 2 folded that second binary back into the first, so the loop below is over one entry today
-# and stays a loop anyway: a third binary is back to an entry, not a rewrite.
+# inline, so this is that argument applied to the other half. The loop is over `sutura` and
+# `sutura-operator` now, and a further binary is an entry, not a rewrite.
 #
 # WHAT DID NOT MOVE, deliberately: the runner setup, the cache and the checkout stay in the
 # workflow, because they are properties of the JOB rather than of building an artefact - and
@@ -74,10 +73,9 @@ runs:
     #
     # THE KEY. `sutura`'s assets keep the bare triple - `sutura-<triple>.tar.gz`,
     # `sutura-oci-<triple>.cdx.json`, the `<version>-<triple>` leaf tag - because that is what
-    # every release so far published and what a consumer's script reads. A SECOND shipped binary
-    # would be prefixed instead - `<bin>-<triple>.tar.gz` beside `sutura-oci-<prefix>-<triple>.cdx.json`
-    # and the leaf tag `<version>-<prefix>-<triple>` - dormant since `github.com/telekom/sutura#685`
-    # step 2 folded the one binary that used to need it back into `sutura`. `keyFor` in
+    # every release so far published and what a consumer's script reads. Every other binary is
+    # prefixed - `sutura-operator-<triple>.tar.gz` beside `sutura-oci-operator-<triple>.cdx.json`
+    # and the leaf tag `<version>-operator-<triple>`. `keyFor` in
     # `nix/shipped.nix` is the same rule in the same words, and `oci-${key}` is the nix attribute
     # both of them name.
     - name: Binaries
@@ -138,7 +136,7 @@ runs:
     # execute.
     #
     # Unconditional, including on a `workflow_dispatch` from a branch where nothing will be
-    # published. A dry run that builds and runs all four images is the point of having one.
+    # published. A dry run that builds and runs every image is the point of having one.
     - name: Images
       shell: bash
       env:
@@ -169,9 +167,9 @@ runs:
               # qemu-user-static registered on the runner, which this job deliberately does
               # not install: a build step should not also gain an emulator.
               #
-              # TWO SURFACES IN ONE IMAGE since `github.com/telekom/sutura#685` step 2 folded
-              # `sutura-serve` into `sutura serve` - so this is no longer a `case` picking one
-              # smoke test per binary; it runs both against the same image.
+              # ONE SMOKE TEST PER BINARY, and a binary with none is refused rather than shipped
+              # untested. `sutura` carries two surfaces, the tool and `sutura serve`, so it runs
+              # both against the same image.
               #
               # `.github/serve-smoke.sh` starts the image AS `sutura serve` and ASKS A QUESTION -
               # #111's provable outcome is a user asking one through a published artefact, and a
@@ -179,11 +177,23 @@ runs:
               # `POST /v1/query` and still answer `/health`. That script is one file rather than
               # a copy here and another in `ci.yml`, and its header carries the three assertions
               # and why the third is the one that makes the second mean anything.
-              docker run --rm sutura:latest --version
-              docker run --rm sutura:latest doctor
-              # Prove the non-root default actually works rather than assuming it.
-              docker run --rm --user 65532:65532 sutura:latest --version
-              ./.github/serve-smoke.sh "${bin}:latest"
+              #
+              # The operator's `run` needs a cluster and its `crd` its settings, so `--version` is
+              # all it can show here: the image starts its binary, as root and as non-root.
+              case "$bin" in
+                sutura)
+                  docker run --rm sutura:latest --version
+                  docker run --rm sutura:latest doctor
+                  # Prove the non-root default actually works rather than assuming it.
+                  docker run --rm --user 65532:65532 sutura:latest --version
+                  ./.github/serve-smoke.sh "${bin}:latest"
+                  ;;
+                sutura-operator)
+                  docker run --rm sutura-operator:latest --version
+                  docker run --rm --user 65532:65532 sutura-operator:latest --version
+                  ;;
+                *) echo "::error::${bin} has no smoke test here"; exit 1 ;;
+              esac
               ;;
           esac
         done
@@ -261,8 +271,8 @@ runs:
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would write no SBOM"; exit 1; }
         mkdir -p dist
         # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
-        # target, generically: a second shipped binary would link its own crates, not share this
-        # one's inventory, so a single document could never be true of both.
+        # target: each binary links its own crates, so a single document could never be true of
+        # both.
         for bin in $BINARIES; do
           if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar
@@ -308,13 +318,18 @@ runs:
               echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
               exit 1
             fi
-            # AND the engine by name. The floor above would still pass on a document listing a
-            # hundred of the wrong things; DataFusion is the one crate the shipped binary cannot
-            # ship without - `sutura-cli` links it to answer a question locally and, as
-            # `sutura serve`, to answer one over HTTP - so its absence means the section
-            # describes something other than this binary.
-            if ! grep -q '"datafusion"' "$sbom"; then
-              echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
+            # AND one crate per binary by name. The floor above would still pass on a document
+            # listing a hundred of the wrong things. DataFusion is the one crate `sutura` cannot
+            # ship without - it answers a question locally and, as `sutura serve`, over HTTP -
+            # and `k8s-openapi` holds every type the operator reads, so its absence means the
+            # section describes something other than this binary.
+            case "$bin" in
+              sutura) crate=datafusion ;;
+              sutura-operator) crate=k8s-openapi ;;
+              *) echo "::error::${bin} names no crate its SBOM must carry"; exit 1 ;;
+            esac
+            if ! grep -q "\"${crate}\"" "$sbom"; then
+              echo "::error::${sbom} does not name ${crate}, which ${bin} links: this is not an inventory of the crates it was built from"
               exit 1
             fi
             printf '%s: %s named entries\n' "$sbom" "$named"

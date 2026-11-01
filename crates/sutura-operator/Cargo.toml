@@ -12,13 +12,21 @@ description = "Sizes the worker pool a federated JOIN runs on, and renders the S
 [dependencies]
 # The operator's settings: the same layered sources `sutura serve` reads, parsed for `operator` alone.
 sutura-config = { workspace = true }
-# The resource definition's types, and nothing that talks to a cluster yet. `earliest` is the oldest
-# Kubernetes the crate supports; a custom resource definition is the same object on every one of them.
+# The resource definition's types, and the pods and `scale` subresources the operator reads. `earliest`
+# is the oldest Kubernetes the crate supports; each of these is the same object on every one of them.
 k8s-openapi = { version = "0.29", default-features = false, features = ["earliest"] }
 schemars = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 serde_norway = { workspace = true }
+# The metrics token the operator presents to each pod's `/metrics`, redacted in `Debug`.
+sutura-domain = { workspace = true }
+# The one place an outbound agent is built: the API server's over the CA the service account mounts,
+# the pods' over plain `http`, both bounded in time and response size.
+sutura-http-client = { workspace = true }
+sutura-tls = { workspace = true }
 thiserror = { workspace = true }
+ureq = { workspace = true }
 
 [lints]
 workspace = true

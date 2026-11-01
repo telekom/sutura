@@ -1,11 +1,10 @@
 # Publish on a tag: every shipped binary at four triples, and a container image for each. Both
 # kinds, because a binary is what you drop on a host and an image is what a platform schedules.
 #
-# ONE SHIPPED BINARY, `sutura` - four tarballs and four images. It answers certified questions
-# over HTTP too, as `sutura serve`: `github.com/telekom/sutura#111` shipped that surface as a
-# second binary, `sutura-serve`, and `github.com/telekom/sutura#685` step 2 folded it back into
-# this one. Before #111 every published artefact was the tool alone, so nothing a release
-# published could serve a question at all.
+# TWO SHIPPED BINARIES, four tarballs and four images each. `sutura` is the command-line tool
+# and, as `sutura serve`, answers certified questions over HTTP. `sutura-operator` sizes the
+# worker pool a federated JOIN runs on, and the chart's operator image is this release's
+# (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 15).
 #
 # `nix/shipped.nix` is the list, and `cargo xtask check-shipped-binaries` is what makes `BINARIES`
 # below agree with it - on a pull request, before anything is tagged. NOT the arrival check in
@@ -81,10 +80,9 @@ env:
   # this literal produced, so it catches a target lost in the artifact round-trip and cannot catch a
   # binary this literal never mentioned.
   #
-  # `sutura` alone since `github.com/telekom/sutura#685` step 2 - it is what an unqualified
-  # `docker pull` and an unqualified download mean here, and it is the first row of every table
-  # in the notes.
-  BINARIES: sutura
+  # `sutura` FIRST: it is what an unqualified `docker pull` and an unqualified download mean
+  # here, and it is the first row of every table in the notes.
+  BINARIES: sutura sutura-operator
 
 jobs:
   # A release must not ship what the gates never saw, and they run ONCE rather than per target:
@@ -332,7 +330,7 @@ jobs:
       # empty artifact would surface as a failure in `publish`, far from its cause.
       #
       # `retention-days: 7`: long enough that re-running only a failed `publish` days later
-      # still finds its inputs, short enough that four images per release do not accumulate.
+      # still finds its inputs, short enough that a release's images do not accumulate.
       - name: Hand the artifacts to publish
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -499,7 +497,7 @@ jobs:
           done
           ls -l dist/sutura-attribution.md
 
-      # Leaves, the two manifest lists and `dist/image-digests.txt`, in the composite action
+      # Leaves, the manifest lists and `dist/image-digests.txt`, in the composite action
       # `release-performance.yml` calls too - see its header for the tags and why each is so.
       - name: Push the images
         uses: $/.github/actions/push-images
@@ -526,7 +524,7 @@ jobs:
 
       # Everything published so far becomes verifiable here: a Sigstore signature per release
       # asset and per image reference, each leaf image's CycloneDX SBOM attached as a cosign
-      # attestation, and SLSA provenance for the assets and for the two manifest lists.
+      # attestation, and SLSA provenance for the assets and for every manifest list.
       #
       # A LOCAL composite action rather than steps in this file, and the reason is in the action's
       # own header at length. Short version: this file is hand-written configuration under the
@@ -564,7 +562,7 @@ jobs:
       # config, so the file and the release body cannot disagree.
       #
       # The second part is the artifacts. They were always attached and never mentioned, so a
-      # reader got a list of pull requests and no way to tell which of the four tarballs to take
+      # reader got a list of pull requests and no way to tell which of the tarballs to take
       # or what to pull. Everything in it is read back off the files themselves - sizes from
       # the assets, linkage from `file`, digests from image-digests.txt - so the notes cannot
       # describe a build that did not happen.
@@ -591,7 +589,7 @@ jobs:
           # the reader's first impression of the release; it should not be a race result.
           #
           # BINARY OUTERMOST, so the table groups by what a reader is choosing between - the tool
-          # or the server - and only then by triple.
+          # or the operator - and only then by triple.
           : > binary-facts.txt
           for bin in $BINARIES; do
             for target in $TARGETS; do
@@ -610,7 +608,7 @@ jobs:
           # `--strip header` drops the "# Changelog / do not edit" preamble, which belongs to
           # the file and means nothing in one release's body.
           #
-          # A render failure must not fail the release. Four images are on ghcr.io by the time
+          # A render failure must not fail the release. Every image is on ghcr.io by the time
           # this runs; aborting would leave them published with nothing naming them. So it
           # degrades to a pointer at the history, loudly, and the artifact section below is
           # still written - that is the half a reader operationally needs.
@@ -634,11 +632,10 @@ jobs:
             echo
             echo "### Binaries"
             echo
-            # A BINARY COLUMN, kept even with one row today: `sutura` is both the command-line
-            # tool and, as `sutura serve`, what answers certified questions over HTTP. Read off
-            # the facts file rather than derived, so the table cannot describe an artefact the
-            # build did not produce, and a second shipped binary is a second row rather than a
-            # rewrite of this loop.
+            # A BINARY COLUMN: `sutura` rows first, then `sutura-operator`. Read off the facts
+            # file rather than derived, so the table cannot describe an artefact the build did
+            # not produce, and a further shipped binary is more rows rather than a rewrite of
+            # this loop.
             echo "| Binary | Target | Asset | Size | Linking |"
             echo "| --- | --- | --- | --- | --- |"
             while IFS='|' read -r bin target linkage; do
@@ -655,7 +652,7 @@ jobs:
               echo
               # ONE ROW PER BINARY PER LIBC. Every published image lives in ONE repository and
               # is told apart by its TAG: the command-line tool keeps the unsuffixed tags it has
-              # always had, and the server carries `-serve`. Which one you get is something you
+              # always had, and the operator carries `-operator`. Which one you get is something you
               # have to type, which is the point.
               echo "| Image | Variant | Tag | Platforms |"
               echo "| --- | --- | --- | --- |"
@@ -671,8 +668,8 @@ jobs:
                 printf "| %s | \`docker pull %s\` |\n" "$name" "$ref"
               done
               echo
-              # The leaf key IS the tag suffix - `<triple>` for the tool, `serve-<triple>` for
-              # the server - so one column carries both and nothing here has to re-derive it.
+              # The leaf key IS the tag suffix - `<triple>` for the tool, `operator-<triple>` for
+              # the operator - so one column carries both and nothing here has to re-derive it.
               echo "| Leaf | Tag | Pull by digest |"
               echo "| --- | --- | --- |"
               grep '^leaf ' dist/image-digests.txt | while read -r _ key ref; do
@@ -749,7 +746,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
             echo "| binaries, image tarballs, SBOMs, the two licence documents, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
-            echo "| images, four leaves and two manifest lists | n/a | the two manifest lists | \`cosign\`, all six references |"
+            echo "| images, eight leaves and four manifest lists | n/a | the four manifest lists | \`cosign\`, all twelve references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
             echo
             echo "| Check | Command |"

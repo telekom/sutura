@@ -19,13 +19,15 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 /// non-loopback plaintext host) rather than a compile-time `https://` constant, so the scheme pin
 /// lives in the parse, not in the agent.
 fn agent_from_tls(socket: Duration, tls: ureq::tls::TlsConfig) -> ureq::Agent {
-    agent(|config| {
-        config
-            .http_status_as_error(false)
-            .timeout_global(Some(socket))
-            .max_response_header_size(MAX_HEADER_BYTES)
-            .tls_config(tls)
-    })
+    agent(|config| pinned(config, socket, tls))
+}
+
+fn pinned(config: AgentConfig, socket: Duration, tls: ureq::tls::TlsConfig) -> AgentConfig {
+    config
+        .http_status_as_error(false)
+        .timeout_global(Some(socket))
+        .max_response_header_size(MAX_HEADER_BYTES)
+        .tls_config(tls)
 }
 
 /// `ureq`'s own agent builder, as [`agent`]'s `configure` receives it.
@@ -167,6 +169,52 @@ fn pin_routing_and_redirects(
     next.handle(config.build())
 }
 
+/// Agents that dial one address and check the peer's certificate against the request's host.
+///
+/// For a peer whose certificate names a service rather than the address it is reached at. No proxy:
+/// the address is the route.
+pub struct Pinned {
+    socket: Duration,
+    tls: ureq::tls::TlsConfig,
+}
+
+impl Pinned {
+    #[must_use]
+    pub fn new(bounds: ReadBounds, anchors: sutura_tls::LoadedAnchors) -> Self {
+        Self {
+            socket: Budget::socket(bounds.timeout()),
+            tls: tls::config(Some(anchors), None),
+        }
+    }
+
+    /// An agent that dials `address`, at the request's port.
+    #[must_use]
+    pub fn at(&self, address: std::net::IpAddr) -> ureq::Agent {
+        agent_resolving_through(
+            |config| pinned(config, self.socket, self.tls.clone()).proxy(None),
+            At(address),
+        )
+    }
+}
+
+/// Resolves every host to one address.
+#[derive(Debug)]
+struct At(std::net::IpAddr);
+
+impl ureq::unversioned::resolver::Resolver for At {
+    #[expect(clippy::disallowed_types, reason = "`ureq`'s own resolver trait names its `Config`")]
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        _config: &ureq::config::Config,
+        _timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let mut answer = ureq::unversioned::resolver::Resolver::empty(self);
+        answer.push(std::net::SocketAddr::new(self.0, uri.port_u16().unwrap_or(443)));
+        Ok(answer)
+    }
+}
+
 /// A reader's rotating agent handle and (when a declaration exists) the poll handle that keeps it
 /// current - named because the spelled-out pair is over this workspace's `type_complexity`
 /// threshold.
@@ -214,4 +262,35 @@ pub fn rotating_agent(
     let initial = agent_from_tls(socket, tls::config(Some(initial_anchors), initial_identity));
     let rotator = sutura_tls::Rotator::new(anchors, identity, rebuild, initial);
     Ok((rotator.rotating(), Some(rotator)))
+}
+
+#[cfg(test)]
+#[cfg(feature = "tls-test")]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
+    use super::Pinned;
+    use crate::bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, ReadBounds};
+    use crate::test_support::Scripted;
+    use crate::tls_test_support::{Scratch, TlsFakeServer, declared_anchors, issue_for};
+
+    #[test]
+    fn a_pinned_agent_dials_its_address_and_checks_the_certificate_against_the_request_host() {
+        let issued = issue_for("workers.pool.svc");
+        let scratch = Scratch::new("pinned");
+        let answers = vec![Scripted::ok(&serde_json::json!({})), Scripted::ok(&serde_json::json!({}))];
+        let server = TlsFakeServer::start(&issued, answers);
+        let endpoint = server.endpoint();
+        let port = endpoint.rsplit(':').next().expect("an endpoint has a port");
+        let bounds = ReadBounds::parse(DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES).expect("the defaults parse");
+        let agent = Pinned::new(bounds, declared_anchors(&scratch, "nodes", &issued)).at(IpAddr::V4(Ipv4Addr::LOCALHOST));
+
+        let named = agent.get(format!("https://workers.pool.svc:{port}/metrics")).call();
+        assert_eq!(named.expect("the name on the certificate is trusted").status(), 200);
+        let other = agent
+            .get(format!("https://serving.pool.svc:{port}/metrics"))
+            .call()
+            .expect_err("a name the certificate does not carry was trusted");
+        assert!(other.to_string().contains("not valid for name"), "{other}");
+    }
 }

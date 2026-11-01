@@ -115,11 +115,11 @@ let
   # THE SHIPPED SET. One entry per executable a release publishes, and every consumer reads this
   # list rather than naming a package itself.
   #
-  # **ONE ENTRY, since `github.com/telekom/sutura#685` step 2.** There used to be two: `sutura` and
-  # `sutura-serve`, a split `sutura-serve`'s own module header called unprincipled - the release
-  # derivations "named the binary that existed before `sutura-serve` did, and kept naming it." The
-  # HTTP surface is now `sutura serve`, composed inside `sutura-cli`, so this list is back to the
-  # one executable a release has ever actually needed to ship.
+  # **TWO ENTRIES.** `sutura` is the command-line tool and, as `sutura serve`, the HTTP surface.
+  # `sutura-operator` sizes the worker pool a federated JOIN runs on, and ships the same way:
+  # tarballs, images, SBOMs and signatures at every release triple
+  # (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 15). `sutura` stays
+  # FIRST: `flake.nix`'s `multi-node` check builds `builtins.head` of this list.
   #
   # **FEATURES ARE NOW PART OF THIS RECORD, since `github.com/telekom/sutura#685` step 5 - and it
   # is a reversal, not a discovery.** `docs/adr/0017`'s Eighth amendment decided the published
@@ -206,20 +206,34 @@ let
       # added beside this.
       permit = [ "ring" "ureq" ];
     }
+    {
+      bin = "sutura-operator";
+      package = "sutura-operator";
+      # Prefixed: assets and images are `sutura-oci-operator-<triple>`, tags carry `-operator`.
+      keyPrefix = "operator";
+      entrypoint = "/bin/sutura-operator";
+      # The chart passes `crd` or `run`; `--version` is the default the release smoke-tests.
+      cmd = [ "--version" ];
+      description = "sizes the worker pool a federated JOIN runs on";
+      # Its manifest declares no `[features]`, so there is nothing to probe or switch on.
+      probeFeatures = [ ];
+      allFeatures = [ ];
+      features = [ ];
+      alsoForbidden = [ "tokio-postgres" ];
+      # Its API-server client is `ureq` over rustls, which links `ring`.
+      permit = [ "ring" "ureq" ];
+    }
   ];
 
-  # The image/asset key for one binary at one target. `sutura` keeps the bare triple; a SECOND
-  # shipped binary would be prefixed instead, so `oci-<prefix>-x86_64-unknown-linux-musl` would
-  # name a different build than `sutura`'s own `oci-x86_64-unknown-linux-musl`. Dormant since
-  # `github.com/telekom/sutura#685` step 2 folded the one binary that used to set `keyPrefix` back
-  # into `sutura`, and left generic for the same reason `binaries` above is a list rather than one
-  # hand-written pair of derivations: a third executable is an entry, not a rewrite of this
-  # function.
+  # The image/asset key for one binary at one target. `sutura` keeps the bare triple; any other
+  # binary is prefixed, so `oci-operator-x86_64-unknown-linux-musl` names a different build than
+  # `sutura`'s own `oci-x86_64-unknown-linux-musl`. A further executable is an entry in `binaries`
+  # above, not a rewrite of this function.
   keyFor = b: target: if b.keyPrefix == "" then target else "${b.keyPrefix}-${target}";
 
-  # The `oci` attribute name for a binary's NATIVE image: `oci` for a binary with no prefix, a
-  # prefixed name otherwise. Same rule as `keyFor`, applied where there is no target to append -
-  # and the same dormant-since-#685-step-2 note.
+  # The `oci` attribute name for a binary's NATIVE image: `oci` for a binary with no prefix,
+  # `oci-operator` for the operator. Same rule as `keyFor`, applied where there is no target to
+  # append.
   ociNameFor = b: if b.keyPrefix == "" then "oci" else "oci-${b.keyPrefix}";
 
   # The `--features` cargo takes, or nothing at all. Empty produces an empty string rather than a
@@ -253,13 +267,10 @@ let
     # then and nothing is being un-shared here.
     craneLib.buildPackage (args // inheritedArtifacts (craneLib.buildDepsOnly (args // { doCheck = false; })) // {
       # NAMED AFTER THE EXECUTABLE, so a build log and a store path say which binary this is -
-      # `commonArgs.pname` is `sutura` for the whole workspace, which used to make both shipped
-      # binaries' derivations `sutura-0.1.0` before `github.com/telekom/sutura#685` step 2 left
-      # one. Kept rather than simplified away: a second shipped binary is one entry in `binaries`
-      # above away, and this is what keeps its build log distinguishable when it arrives. On the
-      # final attrset and never on `args`, so the deps derivation stays as unscoped as it can be -
-      # see the measurement above for what sharing with the checks is still available and what the
-      # `ci` profile already ended.
+      # `commonArgs.pname` is `sutura` for the whole workspace, which would make every shipped
+      # binary's derivation `sutura-<version>`. On the final attrset and never on `args`, so the
+      # deps derivation stays as unscoped as it can be - see the measurement above for what sharing
+      # with the checks is still available and what the `ci` profile already ended.
       pname = binary.bin;
       # ONE package. Without this, crane builds the whole workspace and the result held
       # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
@@ -491,8 +502,8 @@ let
   ];
 
   # Every cross-built package, over three dimensions: binary, target, profile variant -
-  # `sutura-<triple><suffix>` today, and a second binary's own `<bin>-<triple><suffix>` cannot
-  # collide with it because no target triple begins with a binary's name.
+  # `<bin>-<triple><suffix>`, and `sutura-operator-<triple>` cannot collide with `sutura`'s
+  # because no target triple begins with a binary's name.
   crossPackages = builtins.listToAttrs (builtins.concatMap
     (b: builtins.concatMap
       (v:
@@ -516,8 +527,8 @@ let
       variants)
     binaries);
 
-  # The unsuffixed native build of each binary, plus its performance sibling: `sutura`,
-  # `sutura-performance`. Both carry `b.features` - the same all-features build the images and
+  # The unsuffixed native build of each binary, plus its performance sibling: `<bin>`,
+  # `<bin>-performance`. Both carry `b.features` - the same all-features build the images and
   # `checks.shipped-features` read, since `github.com/telekom/sutura#685` step 5.
   nativeBinaries = builtins.listToAttrs (builtins.concatMap
     (b: [
@@ -571,7 +582,7 @@ let
   # `crossPackages // ... // featurePackages`, so a probe whose name equalled a shipped package's
   # would SHADOW it: the shipped link step would build a probe while its notice named an
   # artefact. A feature name that happens to equal another binary's `bin` is exactly that
-  # collision - reachable again the day a second binary joins `binaries` above. A `throw` rather
+  # collision - reachable whenever `binaries` above holds more than one entry. A `throw` rather
   # than a naming rule, so the failure names the collision.
   featurePackages =
     let
@@ -594,9 +605,8 @@ let
   # `postgres` and `datahub`, because #685 ships one binary with every feature on and proving only
   # the CLI's two features was not proving that artefact. `sutura`'s own `allFeatures` carries the
   # union since the fold. A binary with an empty `allFeatures` yields no probe rather than an
-  # empty-features build indistinguishable from `release-performance` itself - not reachable
-  # today, since the one remaining binary declares a non-empty list, but the guard costs nothing
-  # to keep.
+  # empty-features build indistinguishable from `release-performance` itself - `sutura-operator`
+  # declares none, so it has no probe.
   #
   # MUSL ONLY. The gnu triples are the easy case #685 defers to a later step.
   #
@@ -685,7 +695,7 @@ let
     binaries);
 
   # The local image per binary, and its performance sibling: `nix build .#oci` and
-  # `.#oci-serve` are what a developer and the release workflow reach for. Containers are Linux,
+  # `.#oci-operator` are what a developer and the release workflow reach for. Containers are Linux,
   # so Darwin selects the matching musl cross build rather than putting a Mach-O binary in an
   # image labelled Linux. On Linux this remains the host build.
   #
@@ -728,10 +738,9 @@ let
     # EVERY shipped binary at EVERY shipped target, and both dimensions are the point. A
     # cross build has its own dependency derivation and its own `cargoExtraArgs`, so "the
     # native package holds one binary" says nothing about the musl one; and `binaries` is a list
-    # rather than a single hand-written pair - it held two entries between #111 and
-    # `github.com/telekom/sutura#685` step 2 - so "the package built one thing" says nothing about
-    # WHICH thing. The price is that this check pulls every cross build in, which is what it
-    # costs for the assertion to be true rather than assumed.
+    # with more than one entry, so "the package built one thing" says nothing about WHICH thing.
+    # The price is that this check pulls every cross build in, which is what it costs for the
+    # assertion to be true rather than assumed.
     #
     # **THE NAME ASSERTION IS THE HALF THAT IS NEW, and it is the cheap guard against the
     # defect #111 was.** `cargoExtraArgs` names a cargo PACKAGE while the image names an
@@ -823,8 +832,9 @@ let
         # list to the record's `features` at PR time (`xtask/src/shipped/adapters.rs`).
         #
         # `datafusion-distributed` for `distributed`, which a worker pool needs. No PR-time rule
-        # holds it to `features`, because it is not an adapter.
-        required = { sutura = [ "axum" "datafusion" "datafusion-distributed" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-exec-oracle" "sutura-exec-cube" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-cube" "sutura-catalog-rdbms" ]; };
+        # holds it to `features`, because it is not an adapter. `k8s-openapi` and `sutura-config` for
+        # the operator: its resource types and its settings.
+        required = { sutura = [ "axum" "datafusion" "datafusion-distributed" "sutura-exec-bigquery" "sutura-exec-postgres" "sutura-exec-duckdb" "sutura-exec-clickhouse" "sutura-exec-oracle" "sutura-exec-cube" "sutura-catalog-datahub" "sutura-catalog-openmetadata" "sutura-catalog-cube" "sutura-catalog-rdbms" ]; sutura-operator = [ "k8s-openapi" "sutura-config" ]; };
         # `ring` and not `rustls`: `rustls` is a name several crates in the closure carry a
         # variant of, while `ring` is the one that compiles C and assembly and is therefore
         # the one the cross builds actually pay for.

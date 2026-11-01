@@ -12,7 +12,7 @@ inputs:
       Space-separated shipped binaries, as `cross-link.yml`'s `BINARIES` holds them, which must
       stay in step with `binaries` in `nix/shipped.nix`.
     required: false
-    default: sutura
+    default: sutura sutura-operator
   result-prefix:
     description: >
       Where the `Link check` step put its symlinks. The binary's own name is appended, so
@@ -40,8 +40,8 @@ runs:
     # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
     # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
     # if this works. That dependency is the reason this check is HERE rather than only there.
-    # At release time the same failure is a red tag - after four cross builds and two manifest
-    # lists have been paid for - and the branch that broke it would already have merged.
+    # At release time the same failure is a red tag - after every cross build and manifest list
+    # has been paid for - and the branch that broke it would already have merged.
     #
     # TWO TOOLS, because they answer two different questions and only the second one is what
     # the release path needs:
@@ -115,10 +115,15 @@ runs:
             exit 1
           fi
           # By name, in both formats. The floor above would pass on a document listing a hundred of
-          # the wrong things; this is the crate the binary cannot ship without.
+          # the wrong things; this is the crate each binary cannot ship without.
+          case "$bin" in
+            sutura) crate=datafusion ;;
+            sutura-operator) crate=k8s-openapi ;;
+            *) echo "::error::${TARGET} ${bin}: names no crate its dependency list must carry"; exit 1 ;;
+          esac
           for sbom in binary.cdx.json binary.spdx.json; do
-            if ! grep -q '"datafusion"' "$sbom"; then
-              echo "::error::${TARGET} ${bin}: ${sbom} does not name datafusion, which this binary links"
+            if ! grep -q "\"${crate}\"" "$sbom"; then
+              echo "::error::${TARGET} ${bin}: ${sbom} does not name ${crate}, which this binary links"
               exit 1
             fi
           done
