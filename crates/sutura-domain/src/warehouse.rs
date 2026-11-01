@@ -892,6 +892,13 @@ pub trait Warehouse {
     /// Whether this adapter accepts a raw statement - `false` by default; see [`crate::raw`], `docs/adr/0013`.
     const ACCEPTS_RAW_STATEMENTS: bool = false;
 
+    /// [`Self::ACCEPTS_RAW_STATEMENTS`] asked of one value, so an enum over several adapters answers
+    /// per variant rather than with the conservative constant.
+    #[must_use]
+    fn accepts_raw_statements(&self) -> bool {
+        Self::ACCEPTS_RAW_STATEMENTS
+    }
+
     /// Runs one literal statement for the raw SQL tool - not what [`execute`](Warehouse::execute) uses; see [`crate::raw`].
     ///
     /// **Carries the same per-request [`Deadline`] as [`execute`](Warehouse::execute)**, opened

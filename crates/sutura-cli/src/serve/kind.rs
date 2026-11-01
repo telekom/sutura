@@ -28,18 +28,13 @@
 //!
 //! **`EXECUTES_LEGS`, `EXECUTES_AUTHORED_SQL`, `ACCEPTS_RAW_STATEMENTS` and `PRICES_DRY_RUN` all
 //! take the trait's own conservative default, and unlike `IMPERSONATION` that is a real, stated
-//! LIMIT rather than an inert one.** `Warehouse::executes_legs` - the one capability this issue is
-//! about - is an INSTANCE method precisely so it can be asked per concrete adapter through this
-//! enum (see [`AnyWarehouse`](kind::AnyWarehouse)'s `impl Warehouse`); the other four are still associated constants
-//! with no instance escape, so a `BigQueryWarehouse`'s real `PRICES_DRY_RUN = true` reads `false`
-//! once erased behind this type, and a mixed-kind deployment cannot get a real dry-run byte
-//! estimate off its BigQuery source. **`ACCEPTS_RAW_STATEMENTS` reading `false` here decides
-//! nothing today**: `sutura_app::raw::run_sql` answers only over a registry of exactly ONE source,
-//! and this enum is only ever built for two or more, so a mixed deployment is refused the raw tool
-//! by that count before this constant is read. A single-kind `postgres` or `duckdb` deployment
-//! never reaches this type - `open_engine` keeps its concrete adapter - and reads the adapter's own
-//! `true`. Widening the raw tool to a mix needs both a way to name its source and the instance
-//! escape `executes_legs` got.
+//! LIMIT rather than an inert one.** `Warehouse::executes_legs` and
+//! `Warehouse::accepts_raw_statements` are INSTANCE methods precisely so they can be asked per
+//! concrete adapter through this enum (see [`AnyWarehouse`](kind::AnyWarehouse)'s `impl Warehouse`);
+//! the other constants have no instance escape, so a `BigQueryWarehouse`'s real
+//! `PRICES_DRY_RUN = true` reads `false` once erased behind this type, and a mixed-kind deployment
+//! cannot get a real dry-run byte estimate off its BigQuery source. The raw tool reads only the
+//! instance method, so a `sql` build of a mixed `duckdb` and `postgres` deployment may list both.
 
 use std::collections::BTreeSet;
 
@@ -264,6 +259,10 @@ impl Warehouse for AnyWarehouse {
     // constant above cannot be per variant. See `Warehouse::executes_legs`'s own doc.
     fn executes_legs(&self) -> bool {
         any!(self, executes_legs)
+    }
+
+    fn accepts_raw_statements(&self) -> bool {
+        any!(self, accepts_raw_statements)
     }
 
     fn dry_run(&self, executable: Executable<'_>, presented: &Presented, deadline: Deadline) -> Result<PreFlight, Self::Error> {

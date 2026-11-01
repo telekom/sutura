@@ -560,7 +560,7 @@ impl Settings {
         refusals.extend(posture::audience_refusal(self.security.inbound()));
         refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(self.run_sql_refusals());
-        refusals.extend(posture::run_sql_federation_refusal(self.tools));
+        refusals.extend(posture::run_sql_source_refusals(&self.tools));
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
         if self.server.agent_surface_enabled() {

@@ -286,17 +286,29 @@ pub enum NotFitToServe {
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
-    /// `tools.run_sql.federation_allowed` is `true` and this binary cannot parse SQL.
+    /// `tools.run_sql.federation_allowed` is `true`, or `tools.run_sql.sources` lists more than one
+    /// source, and this binary cannot parse SQL.
     ///
     /// A build without the `sql` feature links no SQL parser, so it cannot plan the statement it
     /// would have to cut per source; the alternative to refusing is a switch an operator turned on
     /// that silently does nothing. Raised whether or not `tools.run_sql.enabled` is set.
     #[error(
-        "tools.run_sql.federation_allowed is true and this binary was built without the `sql` \
-         feature, so it links no SQL parser. Rebuild with `--features sql`, or set \
-         tools.run_sql.federation_allowed to false"
+        "tools.run_sql.federation_allowed is true or tools.run_sql.sources lists more than one \
+         source, and this binary was built without the `sql` feature, so it links no SQL parser. \
+         Rebuild with `--features sql`, or set tools.run_sql.federation_allowed to false and list \
+         one source"
     )]
     RunSqlFederationNotCompiledIn,
+    /// `tools.run_sql.enabled` is `true` and `tools.run_sql.sources` lists no source.
+    ///
+    /// The tool runs over the sources listed by alias and infers none, so an empty list would be a
+    /// tool with nothing to run on. Whether each listed alias names an opened source that accepts a
+    /// raw statement is the composition root's check, because it needs the opened adapters.
+    #[error(
+        "tools.run_sql.enabled is true and tools.run_sql.sources lists no source. List the source \
+         aliases the raw SQL tool may run over, or set tools.run_sql.enabled to false"
+    )]
+    RunSqlListsNoSource,
     /// The agent surface is on, no inbound identity is declared, and this is not a deployment where
     /// `/mcp` may answer every caller as the deployment.
     ///
@@ -559,8 +571,15 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
 
 /// Reads this crate's own `sql` feature, which `sutura-cli`'s `sql` turns on with the frontend, so
 /// it holds only for a binary composed through that crate.
-pub(super) fn run_sql_federation_refusal(tools: ToolsSettings) -> Option<NotFitToServe> {
-    (tools.run_sql_federation_allowed() && !cfg!(feature = "sql")).then_some(NotFitToServe::RunSqlFederationNotCompiledIn)
+pub(super) fn run_sql_source_refusals(tools: &ToolsSettings) -> impl Iterator<Item = NotFitToServe> {
+    let federates = tools.run_sql_federation_allowed() || tools.run_sql_sources().len() > 1;
+    let unlisted = tools.run_sql_enabled() && tools.run_sql_sources().is_empty();
+    [
+        (federates && !cfg!(feature = "sql")).then_some(NotFitToServe::RunSqlFederationNotCompiledIn),
+        unlisted.then_some(NotFitToServe::RunSqlListsNoSource),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 /// `server.nodes.wait_for_workers_seconds` through `Settings::load`, and its refusal.

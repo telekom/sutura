@@ -1,4 +1,4 @@
-//! `tools.run_sql.federation_allowed: true` against this build's `sql` feature.
+//! `tools.run_sql`'s source list and federation switch against this build's `sql` feature.
 
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
@@ -21,4 +21,16 @@ fn federation_allowed_true_is_refused_only_without_the_sql_feature() {
         };
         assert_eq!(*refusals, vec![NotFitToServe::RunSqlFederationNotCompiledIn]);
     }
+}
+
+#[test]
+fn the_raw_tool_on_over_an_empty_list_is_refused_for_the_list() {
+    let loaded = Settings::load(&Sources::defaults(Environment::Development).with_overlay(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\ntools:\n  run_sql:\n    enabled: true\n    sources: []\n",
+    ));
+    let error = loaded.expect_err("a raw tool over nothing listed does not serve");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::RunSqlListsNoSource]);
 }

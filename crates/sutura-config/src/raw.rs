@@ -844,11 +844,13 @@ pub(crate) struct RawTools {
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawRunSql {
-    /// Off unless an operator writes `true`. There is no partial or per-source form in this PR: the
-    /// tool targets the sole registered source, and a deployment naming which of several it means
-    /// is `sutura_app::single_raw_capable_warehouse`'s own stated future work.
+    /// Off unless an operator writes `true`, and then [`Self::sources`] must list a source.
     #[serde(default)]
     pub(crate) enabled: bool,
+    /// The source aliases the tool runs over. Nothing is inferred: an enabled tool with an empty list
+    /// is a startup refusal, and more than one in a build without the `sql` feature is another.
+    #[serde(default)]
+    pub(crate) sources: Vec<sutura_domain::model::SourceName>,
     /// Whether one statement may name tables in more than one source. Off unless an operator writes
     /// `true`, and `true` in a build without the `sql` feature is a startup refusal.
     #[serde(default)]

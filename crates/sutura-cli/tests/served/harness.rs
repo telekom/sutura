@@ -266,6 +266,53 @@ pub(crate) fn deployment(example: &Path, server: &str, security: &str) -> String
 /// The one data system every other deployment in this file declares.
 pub(crate) const LOCAL_SOURCE: &str = "local";
 
+/// The example's data directory written into one `duckdb` file, a table per CSV, beside the case's
+/// own configuration directory so `Served`'s `Drop` removes it.
+#[cfg(feature = "duckdb")]
+pub(crate) fn example_database(case: &str) -> PathBuf {
+    let dir = derived_beside(&config_path(case));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(&dir).expect("the database directory is created");
+    let tables: Vec<(sutura_domain::model::TableName, PathBuf)> = std::fs::read_dir(example_root().join("data"))
+        .expect("the example data directory is readable")
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "csv"))
+        .map(|path| {
+            let stem = path.file_stem().and_then(|stem| stem.to_str()).expect("a CSV has a name");
+            (
+                sutura_domain::model::TableName::parse(stem).expect("a CSV is named for its table"),
+                path.clone(),
+            )
+        })
+        .collect();
+    let file = dir.join("warehouse.duckdb");
+    sutura_exec_duckdb::write_database(&file, &tables).expect("the example database is written");
+    file
+}
+
+/// [`deployment`] over [`example_database`] as [`LOCAL_SOURCE`], with the raw SQL tool on over it.
+///
+/// `duckdb` rather than the example's `files` source, because `run_sql` refuses to start over a
+/// listed source whose adapter accepts no raw statement, and `files` accepts none.
+#[cfg(feature = "duckdb")]
+pub(crate) fn raw_sql_deployment(case: &str, server: &str, security: &str) -> String {
+    let example = example_root();
+    let source = format!(
+        "  {LOCAL_SOURCE}:\n    kind: \"duckdb\"\n    database_file: \"{}\"\n    posture: \"shared-service-user\"\n",
+        example_database(case).display()
+    );
+    format!(
+        "{}tools:\n  run_sql:\n    enabled: true\n    sources: [\"{LOCAL_SOURCE}\"]\n",
+        settings_over(&example.join("catalog"), &example.join("data"), server, security, &source)
+    )
+}
+
+/// [`raw_sql_deployment`] serving on [`LOOPBACK`] behind [`TOKEN`], as [`settings`] does.
+#[cfg(feature = "duckdb")]
+pub(crate) fn raw_sql_settings(case: &str) -> String {
+    raw_sql_deployment(case, LOOPBACK, &format!("{SINGLE_USER}  access_token: \"{TOKEN}\"\n"))
+}
+
 /// One `sources:` entry, indented for the block.
 ///
 /// A helper rather than a second format string, so a `files` entry's shape is written once and the

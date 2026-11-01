@@ -41,6 +41,7 @@ Related settings:
 | Setting                       | Default | Meaning                                                                                                                                                               |
 | ----------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tools.run_sql.enabled`       | `false` | Turns on the raw SQL tool. With `security.identity: multi-user`, only over an acknowledged shared source: every caller can then read what the shared account can read |
+| `tools.run_sql.sources`       | `[]`    | The aliases of the sources the raw SQL tool runs over. Required when the tool is on. More than one needs the `sql` feature                                            |
 | `SUTURA_POSTGRES_ADBC_DRIVER` | not set | An absolute path to the driver, for a build that links no driver                                                                                                      |
 
 The musl release binaries link the PostgreSQL driver with libpq. Other builds load the driver that

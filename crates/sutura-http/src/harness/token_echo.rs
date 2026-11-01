@@ -427,7 +427,7 @@ fn behind_gateway(issuer: &MockIssuer, published: &PublishedKeySet, carried: Car
         "security:\n{token}  inbound:\n    mode: \"behind-gateway\"\n    \
          transit_header: \"{header}\"\n    transit_issuer: \"{}\"\n    transit_audience: \"{}\"\n    \
          key_set_file: \"{}\"\n    algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n\
-         tools:\n  run_sql:\n    enabled: true\n",
+         tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
         issuer.issuer(),
         issuer.audience(),
         published.path().to_string_lossy(),

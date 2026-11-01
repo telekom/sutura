@@ -6,16 +6,19 @@
 //! because a tool this deployment never turns on should never be a line item in an operator's
 //! decision about a different one.
 
+use sutura_domain::model::SourceName;
+
 /// What this deployment turned on beside the certified tool.
 ///
-/// Infallible to build, like the other settings groups: an unset key is `false`, and there is no
-/// combination of booleans here that is wrong on its own - `tools.run_sql.enabled` is checked
-/// against `security.identity` in `Settings::refusals`, which is a cross-group rule and belongs
-/// there rather than in this type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Infallible to build, like the other settings groups. Which combinations are wrong - an enabled
+/// tool with no listed source, `tools.run_sql.enabled` against `security.identity` - are checked in
+/// `Settings::refusals`, and whether a listed alias names an opened source that accepts a raw
+/// statement is checked by the composition root, which holds the opened adapters.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolsSettings {
-    run_sql_enabled: bool,
-    run_sql_federation_allowed: bool,
+    enabled: bool,
+    federation_allowed: bool,
+    sources: Vec<SourceName>,
 }
 
 impl ToolsSettings {
@@ -23,36 +26,50 @@ impl ToolsSettings {
     #[must_use]
     pub const fn new(run_sql_enabled: bool) -> Self {
         Self {
-            run_sql_enabled,
-            run_sql_federation_allowed: false,
+            enabled: run_sql_enabled,
+            federation_allowed: false,
+            sources: Vec::new(),
         }
     }
 
     #[inline]
     #[must_use]
-    pub const fn with_federation_allowed(self, allowed: bool) -> Self {
+    pub fn with_federation_allowed(self, allowed: bool) -> Self {
         Self {
-            run_sql_federation_allowed: allowed,
+            federation_allowed: allowed,
             ..self
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_sources(self, sources: Vec<SourceName>) -> Self {
+        Self { sources, ..self }
     }
 
     /// Whether `docs/adr/0013`'s raw SQL tool is turned on. Off unless an operator wrote
     /// `tools.run_sql.enabled: true`.
     #[inline]
     #[must_use]
-    pub const fn run_sql_enabled(self) -> bool {
-        self.run_sql_enabled
+    pub const fn run_sql_enabled(&self) -> bool {
+        self.enabled
     }
 
     /// Whether one raw statement may name tables in more than one source. Off unless an operator
-    /// wrote `tools.run_sql.federation_allowed: true`. A build without the `sql` feature refuses
-    /// `true` at startup; a build with it accepts `true`, but no federated path is built yet, so the
-    /// tool still runs over the one open source and refuses a call while more than one is open.
+    /// wrote `tools.run_sql.federation_allowed: true`, and a build without the `sql` feature refuses
+    /// `true` at startup.
     #[inline]
     #[must_use]
-    pub const fn run_sql_federation_allowed(self) -> bool {
-        self.run_sql_federation_allowed
+    pub const fn run_sql_federation_allowed(&self) -> bool {
+        self.federation_allowed
+    }
+
+    /// The source aliases `tools.run_sql.sources` lists, in the order written. Empty unless an
+    /// operator wrote some; an enabled tool with an empty list does not start.
+    #[inline]
+    #[must_use]
+    pub fn run_sql_sources(&self) -> &[SourceName] {
+        &self.sources
     }
 }
 
