@@ -80,7 +80,10 @@ const QUERY: Subject = Subject {
     // node, uncertified against this node's own pinned bundle for any reason - a digest mismatch, an
     // undeclared table, relationship, column or grain, or a source this node will not run a remote leg
     // through at all - collapses to this one closed code, naming the source and nothing else.
-    variants: variants(34),
+    // 35 since `WorkersNotReady` was ADDED: a question that goes across, waited for other nodes as
+    // `server.nodes.wait_for_workers_seconds` declares, and found none ready - the one besides
+    // `SourceUnavailable` a caller may retry.
+    variants: variants(35),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.
@@ -102,8 +105,9 @@ const STARTUP: Subject = Subject {
     // source's last hop. 27: `InboundAudienceIsTheIssuer`, a `direct` audience that is its own
     // authorization server's issuer. 32: `WorkerDeclaresSources`, `WorkerDeclaresCatalogs`,
     // `WorkerWithoutNodeAuthority`, `WorkerWithAgentSurface` and `WorkerWithFlightSurface`, what a
-    // `server.role: worker` configuration may not declare.
-    variants: variants(32),
+    // `server.role: worker` configuration may not declare. 33: `WorkersWaitNotBelowDeadline`, a wait
+    // for other nodes that is not below the request timeout it would be spent inside.
+    variants: variants(33),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

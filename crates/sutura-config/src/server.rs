@@ -8,7 +8,7 @@
 //! test somebody has to remember to write.
 
 use std::net::{IpAddr, SocketAddr};
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -325,6 +325,7 @@ pub struct DeclaredNodes {
     others: Vec<Url>,
     authority: PathBuf,
     across_above: Option<NonZeroU64>,
+    wait_for_workers: Option<NonZeroU32>,
 }
 
 impl DeclaredNodes {
@@ -350,6 +351,12 @@ impl DeclaredNodes {
     #[inline]
     pub const fn across_above(&self) -> Option<NonZeroU64> {
         self.across_above
+    }
+
+    /// Seconds a question that goes across waits for the other nodes it wants, none when undeclared.
+    #[inline]
+    pub const fn wait_for_workers(&self) -> Option<NonZeroU32> {
+        self.wait_for_workers
     }
 }
 
@@ -468,6 +475,7 @@ impl TlsMaterial {
             others: others.iter().map(|other| node_address(other)).collect::<Result<_, _>>()?,
             authority,
             across_above: None,
+            wait_for_workers: None,
         };
         Ok(Self {
             nodes: Some(nodes),
@@ -481,6 +489,16 @@ impl TlsMaterial {
     pub const fn across_above(mut self, bytes: Option<NonZeroU64>) -> Self {
         if let Some(nodes) = self.nodes.as_mut() {
             nodes.across_above = bytes;
+        }
+        self
+    }
+
+    /// The same material, a question that goes across waiting up to `seconds` for the other nodes
+    /// it wants.
+    #[must_use]
+    pub const fn wait_for_workers(mut self, seconds: Option<NonZeroU32>) -> Self {
+        if let Some(nodes) = self.nodes.as_mut() {
+            nodes.wait_for_workers = seconds;
         }
         self
     }

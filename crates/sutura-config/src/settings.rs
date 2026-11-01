@@ -558,6 +558,7 @@ impl Settings {
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(posture::audience_refusal(self.security.inbound()));
+        refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(self.run_sql_refusals());
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
@@ -766,8 +767,7 @@ impl Settings {
                 .any(|host| !host_is_loopback(host.as_str()))
     }
 
-    /// Every `bigquery` source a declared spend ceiling would not bound - see
-    /// [`NotFitToServe::UnpricedSourceUnderSpendCeiling`].
+    /// Every `bigquery` source a declared spend ceiling would not bound - see [`NotFitToServe::UnpricedSourceUnderSpendCeiling`].
     fn spend_refusals(&self) -> Vec<NotFitToServe> {
         if self.spend_budget.is_none() {
             return Vec::new();

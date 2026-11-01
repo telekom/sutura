@@ -256,8 +256,8 @@ const DEADLINE_EXCEEDED: Guide = Guide {
              returns the same refusal - the budget is a configured number, not an outage.",
 };
 
-// Usually the one guide that says wait rather than narrow - every other entry either has a change
-// that helps or has none at all, and most of the time this is the one refusal where the SAME
+// One of the two guides that say wait rather than narrow, `WORKERS_NOT_READY` the other - every
+// other entry either has a change that helps or has none at all, and most of the time the SAME
 // question, unmodified, becomes answerable once the window resets (`docs/adr/0030`). The one
 // exception the remedy below states: a question whose OWN estimate already exceeds the ceiling is
 // refused every window, forever, and waiting is the false remedy there - narrowing is the true one.
@@ -271,6 +271,16 @@ const BUDGET_EXHAUSTED: Guide = Guide {
              again immediately after a fresh window starts, its own estimate is over the ceiling \
              by itself - waiting will never help that case, and narrowing the question is the only \
              remedy.",
+};
+
+// The other guide that says wait rather than narrow: nothing about the question is wrong, and the
+// nodes it needs were still starting. Refused only when none was, so asking again is not a loop.
+const WORKERS_NOT_READY: Guide = Guide {
+    reason: "workers_not_ready",
+    meaning: "the question needed other nodes of this deployment to answer, and none was ready in time",
+    remedy: "Do not narrow the question: wait a few seconds and ask exactly the same question again. \
+             If it is refused the same way repeatedly, report it to a person - this deployment has no \
+             nodes to answer it with.",
 };
 
 const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
@@ -344,9 +354,10 @@ pub(super) const GUIDES: &[&Guide] = &[
     // this deployment enforces, not a passing outage, and the same narrowing remedy.
     &DEADLINE_EXCEEDED,
     // Grouped with the two configured-bound refusals above it rather than with the two an agent
-    // cannot act on at all: there IS a move, and it is unique among every entry here - wait, do
-    // not narrow.
+    // cannot act on at all: there IS a move, and only it and the entry after it have this one -
+    // wait, do not narrow.
     &BUDGET_EXHAUSTED,
+    &WORKERS_NOT_READY,
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
@@ -427,6 +438,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioWithoutSharedDimension { .. } => &CROSS_MODEL_RATIO_WITHOUT_SHARED_DIMENSION,
         RefusalReason::CrossModelRatioLinkAmbiguous { .. } => &CROSS_MODEL_RATIO_LINK_AMBIGUOUS,
         RefusalReason::RemoteLegNotCertified { .. } => &REMOTE_LEG_NOT_CERTIFIED,
+        RefusalReason::WorkersNotReady { .. } => &WORKERS_NOT_READY,
     }
 }
 

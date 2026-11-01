@@ -20,6 +20,12 @@
 //! headless service's is, is the nodes it holds at that moment
 //! (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
 //!
+//! **A question that goes across may wait for other nodes, bounded.** With
+//! `server.nodes.wait_for_workers_seconds` declared, it wants one other node for each share of
+//! `across_above_bytes` (the ceiling when unset) its legs hold beyond this node's, and one at least.
+//! While fewer resolve, it resolves again every 200 ms until the wait ends, then plans across those
+//! that did, and is refused, [`CombineError::WorkersNotReady`], only when none did (Decision 11).
+//!
 //! **Limits, next to the claim.**
 //!
 //! - A leg's size is Arrow's measure of its buffers, which counts a buffer two columns share once
@@ -44,7 +50,14 @@
 //! - A channel, once dialled, is kept for the process's life, one for every address it has dialled,
 //!   so a host whose addresses change keeps one for each it was ever dialled at.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
-//!   plans every question onto the other nodes rather than refusing it.
+//!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
+//!   and no other node resolves, which is refused once the wait ends.
+//! - Only an empty pool is refused, which keeps the refusal's "retry" truthful: a pool already at its
+//!   largest would otherwise turn a question too large for it into a retry that never succeeds. A
+//!   question planned across fewer nodes than it wanted may still be refused for its working set.
+//! - A waiting question holds its serving node's slot, and a thread, for as long as it waits.
+//! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
+//!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
@@ -54,6 +67,7 @@
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
+use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
@@ -84,6 +98,9 @@ use url::{Host, Url};
 use super::CombineError;
 use crate::pool::{self, WorkingSet};
 
+/// How many other nodes a question wants, and the bounded wait for them.
+mod wait;
+
 /// The nodes one combine's stages may run on, this one among them.
 pub struct Nodes {
     /// This node's worker. The stages planned onto this node run in it, and the node serves the
@@ -97,6 +114,8 @@ pub struct Nodes {
     channels: Links,
     /// The leg bytes above which a question is planned across before it is tried on this node.
     across_above: Option<NonZeroU64>,
+    /// How long a question that goes across waits for the other nodes it wants to resolve.
+    wait_for_workers: Option<Duration>,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -126,6 +145,7 @@ impl Nodes {
             others: others.into_iter().collect(),
             channels: Links::of(identity),
             across_above: None,
+            wait_for_workers: None,
         }
     }
 
@@ -135,6 +155,16 @@ impl Nodes {
     pub fn across_above(self, bytes: Option<NonZeroU64>) -> Self {
         Self {
             across_above: bytes,
+            ..self
+        }
+    }
+
+    /// The same nodes, a question that goes across waiting up to `wait` for the other nodes it wants,
+    /// or planned across those resolved at once when that is `None`.
+    #[must_use]
+    pub fn wait_for_workers(self, wait: Option<Duration>) -> Self {
+        Self {
+            wait_for_workers: wait,
             ..self
         }
     }
@@ -168,20 +198,47 @@ impl Nodes {
         Ok(worker.with_runtime_env(environment.into_runtime()))
     }
 
-    /// A session bounded to `working_set` whose stages above a repartition are planned across these
-    /// nodes, each stage one task per node and each task one partition per node.
+    /// [`Self::session`], over the other nodes resolved once as many as a question whose legs hold
+    /// `legs_bytes` under `ceiling_bytes` wants have, or the declared wait ends.
+    ///
+    /// # Errors
+    ///
+    /// [`CombineError::WorkersNotReady`] if no other node had resolved when the wait ended.
+    pub(super) fn session_for(
+        &self,
+        working_set: WorkingSet,
+        legs_bytes: u64,
+        ceiling_bytes: u64,
+    ) -> Result<SessionContext, CombineError> {
+        self.wait_for_workers.map_or_else(
+            || self.session(working_set),
+            |wait| {
+                let wanted = wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes);
+                let ready = wait::ready(wanted, wait, || self.others.iter().flat_map(resolved).collect())?;
+                self.session_over(working_set, ready)
+            },
+        )
+    }
+
+    /// A session over the other nodes resolved now. See [`Self::session_over`].
+    pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
+        self.session_over(working_set, self.others.iter().flat_map(resolved))
+    }
+
+    /// A session bounded to `working_set` whose stages above a repartition are planned across this
+    /// node and `others`, each stage one task per node and each task one partition per node.
     ///
     /// A link charges the batches it holds to its node's pool without asking, so each link may hold
     /// a quarter of the working set shared by the nodes: a task reads one link from every node for
     /// each input, and a join's two inputs then hold half the working set at most, leaving the other
     /// half to its operators. The budget rides with each stage, so the node running it reads it too.
-    pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
+    fn session_over(
+        &self,
+        working_set: WorkingSet,
+        others: impl IntoIterator<Item = Url>,
+    ) -> Result<SessionContext, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
-        let all = Declared(
-            core::iter::once(self.own_url.clone())
-                .chain(self.others.iter().flat_map(resolved))
-                .collect(),
-        );
+        let all = Declared(core::iter::once(self.own_url.clone()).chain(others).collect());
         let count = all.0.len();
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =

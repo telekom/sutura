@@ -114,6 +114,11 @@ Every reason you can be given, and what to do about each:
   the same question again. If the SAME question is refused again immediately after a fresh window
   starts, its own estimate is over the ceiling by itself - waiting will never help that case, and
   narrowing the question is the only remedy.
+- **workers_not_ready** - the question needed other nodes of this deployment to answer, and none was
+  ready in time.
+  Do not narrow the question: wait a few seconds and ask exactly the same question again. If it is
+  refused the same way repeatedly, report it to a person - this deployment has no nodes to answer it
+  with.
 - **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment lets one answer read (the refusal names its limit).
   Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.

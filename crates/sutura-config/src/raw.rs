@@ -415,6 +415,9 @@ pub(crate) struct RawNodes {
     /// The leg bytes above which a question reading several data systems is planned across at once.
     #[serde(default)]
     pub(crate) across_above_bytes: Option<core::num::NonZeroU64>,
+    /// Seconds a question that goes across waits for the other nodes it wants to resolve.
+    #[serde(default)]
+    pub(crate) wait_for_workers_seconds: Option<core::num::NonZeroU32>,
 }
 
 #[derive(serde::Deserialize)]
