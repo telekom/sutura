@@ -2804,8 +2804,8 @@ substituted.</p>
 <p><strong>The SBOM inventories the crate graph. It is read out of the binary, not out of a lock file.</strong>
 The reason is under <a href="#what-the-sbom-covers">What the SBOM covers</a>.</p>
 <h2 id="what-a-release-publishes">What a release publishes<a class="headerlink" href="#what-a-release-publishes" title="Permanent link">&para;</a></h2>
-<p><strong>One binary, <code>sutura</code>, at four target triples.</strong> It also answers certified questions over HTTP, as
-<code>sutura serve</code>:</p>
+<p><strong>Two binaries, <code>sutura</code> and <code>sutura-operator</code>, each at four target triples.</strong> <code>sutura</code> also
+answers certified questions over HTTP, as <code>sutura serve</code>:</p>
 <table>
 <thead>
 <tr>
@@ -2822,10 +2822,16 @@ The reason is under <a href="#what-the-sbom-covers">What the SBOM covers</a>.</p
 <td><code>sutura-&lt;triple&gt;.tar.gz</code></td>
 <td><code>:&lt;version&gt;</code>, <code>:latest</code>, <code>:&lt;version&gt;-musl</code>, <code>:latest-musl</code></td>
 </tr>
+<tr>
+<td><code>sutura-operator</code></td>
+<td>sizes the worker pool a federated JOIN runs on</td>
+<td><code>sutura-operator-&lt;triple&gt;.tar.gz</code></td>
+<td><code>:&lt;version&gt;-operator</code>, <code>:latest-operator</code>, <code>:&lt;version&gt;-operator-musl</code>, <code>:latest-operator-musl</code></td>
+</tr>
 </tbody>
 </table>
-<p><strong>One registry repository</strong>, <code>ghcr.io/telekom/sutura</code>. The unsuffixed tags resolve to this binary.
-You choose the libc with the tag: <code>:latest-musl</code> for the static pair, <code>:latest</code> for glibc.</p>
+<p><strong>One registry repository</strong>, <code>ghcr.io/telekom/sutura</code>. The unsuffixed tags resolve to <code>sutura</code>,
+and the operator's carry <code>-operator</code>. You choose the libc with the tag: <code>:latest-musl</code> for the static pair, <code>:latest</code> for glibc.</p>
 <p><strong>Built with the optional features that <code>nix/shipped.nix</code> lists.</strong> The published binary always
 links the HTTP surface, the caller-token verification, the rate limiter and the generated interface
 description. It also carries every entry of the <code>features</code> list in that file. A deployment uses an
@@ -2841,7 +2847,9 @@ published only when a maintainer dispatches <code>release-performance.yml</code>
 contains the publishing steps of that workflow. A dispatch runs the workflow as the tag holds it.
 It builds the same commit at the <code>release-performance</code> profile: assets
 <code>sutura-&lt;triple&gt;-performance.tar.gz</code>, leaf images <code>:&lt;version&gt;-performance-&lt;triple&gt;</code>, lists
-<code>:&lt;version&gt;-performance</code> and <code>:&lt;version&gt;-performance-musl</code>. The same signing, SBOM and provenance
+<code>:&lt;version&gt;-performance</code> and <code>:&lt;version&gt;-performance-musl</code>, and for the operator
+<code>sutura-operator-&lt;triple&gt;-performance.tar.gz</code>, <code>:&lt;version&gt;-performance-operator-&lt;triple&gt;</code>,
+<code>:&lt;version&gt;-performance-operator</code> and <code>:&lt;version&gt;-performance-operator-musl</code>. The same signing, SBOM and provenance
 sequence runs over it, so the <code>cosign</code> commands below apply unchanged. The bundle-mode
 <code>gh attestation verify</code> below does not. For an optimised asset its identity is
 <code>https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG</code>, and
@@ -2861,19 +2869,19 @@ statement and chart are the ones on <code>v&lt;version&gt;</code>.</p>
 </thead>
 <tbody>
 <tr>
-<td>the four binary tarballs</td>
+<td>the eight binary tarballs</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
 </tr>
 <tr>
-<td>the two musl image tarballs</td>
+<td>the four musl image tarballs</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
 </tr>
 <tr>
-<td>the eight SBOMs</td>
+<td>the sixteen SBOMs</td>
 <td><code>&lt;asset&gt;.sigstore.json</code>, attached to the release</td>
 <td>yes</td>
 <td>n/a</td>
@@ -2897,13 +2905,13 @@ statement and chart are the ones on <code>v&lt;version&gt;</code>.</p>
 <td>n/a</td>
 </tr>
 <tr>
-<td>the four leaf images</td>
+<td>the eight leaf images</td>
 <td>n/a</td>
 <td>no</td>
 <td><code>cosign sign</code>, by digest</td>
 </tr>
 <tr>
-<td>the two manifest lists</td>
+<td>the four manifest lists</td>
 <td>n/a</td>
 <td>yes</td>
 <td><code>cosign sign</code>, by digest</td>
@@ -2922,14 +2930,15 @@ statement and chart are the ones on <code>v&lt;version&gt;</code>.</p>
 </tr>
 <tr>
 <td><code>sutura-provenance.intoto.jsonl</code></td>
-<td>three existing signed attestation bundles</td>
+<td>five existing signed attestation bundles</td>
 <td>not recursively attested</td>
 <td>n/a</td>
 </tr>
 </tbody>
 </table>
-<p>Every count in that table is one binary times four triples, or its consequence. A leaf and the SBOM
-beside it have the same key, <code>&lt;triple&gt;</code> for <code>sutura</code>. <code>image-digests.txt</code> records them under that
+<p>Every count in that table is two binaries times four triples, or its consequence. A leaf and the
+SBOM beside it have the same key, <code>&lt;triple&gt;</code> for <code>sutura</code> and <code>operator-&lt;triple&gt;</code> for
+<code>sutura-operator</code>. <code>image-digests.txt</code> records them under that
 key, so you match an entry there to an asset on the release page by reading.</p>
 <p>Three asymmetries in that table are deliberate. Each has a reason.</p>
 <p><strong>The <code>.sha256</code> sidecars are not signed.</strong> A Sigstore bundle over <code>sutura-&lt;target&gt;.tar.gz</code> already
@@ -2941,7 +2950,7 @@ corrupted, and a bundle tells you who produced it.</p>
 <p><strong>Provenance covers the manifest lists, not the leaves.</strong> A list is what an unqualified
 <code>docker pull</code> resolves and what the release notes tell you to pin. The leaves are what a list points
 at. <code>cosign</code> signs each leaf individually, and to pin one you ask for a single architecture. There
-are two lists, one per libc. Provenance does not cover the chart: <code>cosign sign</code> signs the chart by
+are four lists, one per binary per libc. Provenance does not cover the chart: <code>cosign sign</code> signs the chart by
 digest, and the table shows nothing more.</p>
 <p><strong>The images get <code>cosign</code> and the assets get a bundle.</strong> By default, <code>gh attestation verify</code>
 fetches provenance from GitHub. With <code>--bundle</code>, it reads the exported JSONL instead. Keep that
