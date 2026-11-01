@@ -145,7 +145,7 @@ fn an_engine_encoded_stage_and_its_task_pass_with_their_grant_and_are_refused_wi
             link.coordinator_channel(
                 sent,
                 stage(),
-                Box::pin(stream::empty()),
+                Box::pin(stream::pending()),
                 ExecutionPlanMetricsSet::new(),
                 &context,
             )
