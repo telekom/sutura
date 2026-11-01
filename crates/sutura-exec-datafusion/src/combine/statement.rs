@@ -17,7 +17,8 @@
 //! | a leg's rows are not charged against the working set | the raw port capped them by count; the pool charges what the local part builds over them |
 //! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
-//! | a scalar function builds its value in the deployment's memory, outside the working set | the pool charges only what operators reserve, and a constant `repeat` is folded while planning, before any yield |
+//! | a scalar function builds its value in the deployment's memory, outside the working set, and a large enough one can abort the process | the pool charges only what operators reserve, and a constant `repeat` is folded while planning, before any yield |
+//! | an expression nested deeply enough can exhaust the stack while planning | `datafusion`'s `recursive_protection` is off |
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | only `DuckDB` and `Postgres` sources plan a part | they are the adapters that take raw statements |

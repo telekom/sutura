@@ -205,7 +205,8 @@ there. Planning and that local part stop at the request's deadline. What this do
 - Each part's rows are held in the deployment's memory before the per-part row cap refuses them - up to one row past the
   cap, whatever their width - and are not charged to the memory pool.
 - A scalar function over constants, such as `repeat`, is folded while the statement is planned. Neither the deadline nor
-  the working set stops it.
+  the working set stops it, so a large enough value can abort the process rather than be refused. So can an expression
+  nested deeply enough to exhaust the planner's stack. The shipped build has no `sql` feature.
 - A certified answer that combines legs shares one runtime with the local part, and may wait while it runs.
 
 ## Endpoints
