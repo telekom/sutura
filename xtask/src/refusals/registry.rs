@@ -82,8 +82,9 @@ const QUERY: Subject = Subject {
     // through at all - collapses to this one closed code, naming the source and nothing else.
     // 35 since `WorkersNotReady` was ADDED: a question that goes across, waited for other nodes as
     // `server.nodes.wait_for_workers_seconds` declares, and found none ready - the one besides
-    // `SourceUnavailable` a caller may retry.
-    variants: variants(35),
+    // `SourceUnavailable` a caller may retry. 36 since `NodeLost` was ADDED: a question that went
+    // across lost a node it was planned onto while it ran, and is retryable as well.
+    variants: variants(36),
 };
 
 /// One refused deployment: the settings are not fit to serve and the process does not start.

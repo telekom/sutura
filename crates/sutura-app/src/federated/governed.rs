@@ -4,8 +4,8 @@ use sutura_domain::plan::FederationCombiner;
 use sutura_domain::query::RefusalReason;
 
 /// The refusal `cause` is, taken off the combiner in the order the mono path asks its own adapter:
-/// the ceiling, then no other node ready in time, then a deterministic refusal about what the legs
-/// returned.
+/// the ceiling, then no other node ready in time, then a node lost while the combine ran, then a
+/// deterministic refusal about what the legs returned.
 ///
 /// D19 + A4: a deterministic combine failure - the same plan against the same legs fails again - is
 /// a governance refusal and not a data-system outage, so a caller is never told to retry one. `None`
@@ -24,6 +24,7 @@ where
                 ready: short.ready(),
             })
         })
+        .or_else(|| combiner.node_lost(cause).then_some(RefusalReason::NodeLost))
         .or_else(|| {
             combiner
                 .answer_not_well_formed(cause)
@@ -31,6 +32,9 @@ where
         })
 }
 
+/// A node lost while the combine ran, over a combiner that reads every failure as one.
+#[cfg(test)]
+mod lost;
 /// The order the refusals are read in, over a combiner that reads each as it is told.
 #[cfg(test)]
 mod tests;

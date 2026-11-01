@@ -155,6 +155,7 @@ impl RefusalReason {
             Self::CrossModelRatioLinkAmbiguous { .. } => "cross_model_ratio_link_ambiguous",
             Self::RemoteLegNotCertified { .. } => "remote_leg_not_certified",
             Self::WorkersNotReady { .. } => "workers_not_ready",
+            Self::NodeLost => "node_lost",
         }
     }
 }

@@ -150,6 +150,7 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             source: source("warehouse"),
         },
         RefusalReason::WorkersNotReady { wanted: 2, ready: 0 },
+        RefusalReason::NodeLost,
     ];
     for reason in &all {
         // No wildcard: a variant added to the enum does not compile until it is named here.
@@ -188,7 +189,8 @@ pub fn every_refusal() -> Vec<RefusalReason> {
             | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
             | RefusalReason::CrossModelRatioLinkAmbiguous { .. }
             | RefusalReason::RemoteLegNotCertified { .. }
-            | RefusalReason::WorkersNotReady { .. } => {}
+            | RefusalReason::WorkersNotReady { .. }
+            | RefusalReason::NodeLost => {}
         }
     }
     all

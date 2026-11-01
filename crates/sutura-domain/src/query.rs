@@ -559,6 +559,12 @@ pub enum RefusalReason {
     /// node resolved, so a pool already at its largest plans across what it has rather than turning a
     /// retry into one that never succeeds. Carries counts of other nodes, never their addresses.
     WorkersNotReady { wanted: usize, ready: usize },
+    /// A question planned across other nodes, when one it was planned onto could not be reached
+    /// while it ran.
+    ///
+    /// May be retried: asked again, the question is planned from nothing across the nodes that are
+    /// there then. Carries nothing about the node, never its address.
+    NodeLost,
 }
 
 /// What a tool call produced.

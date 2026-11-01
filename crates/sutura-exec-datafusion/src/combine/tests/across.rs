@@ -31,7 +31,7 @@ use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
-use crate::combine::{DataFusionCombiner, NodeIdentity, Nodes};
+use crate::combine::{CombineError, DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
 
 /// A deployment's node authority.
@@ -309,6 +309,70 @@ fn a_question_one_node_refuses_for_its_working_set_three_nodes_answer_exactly() 
         .to_rows()
         .expect("a combined answer decodes");
     assert_eq!(spread.rows(), answer.rows());
+}
+
+#[test]
+fn a_stage_another_node_cannot_hold_in_its_own_working_set_refuses_the_question_for_its_ceiling() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let sent: [Arc<AtomicUsize>; 2] = Default::default();
+    // This node and the question's ceiling are roomy, so a reservation refused anywhere was refused by
+    // another node's own pool, of one byte.
+    let others: Vec<Url> = sent
+        .iter()
+        .map(|count| {
+            let other = authority.sign();
+            let worker =
+                Nodes::worker(WorkingSet::of_bytes(NonZeroUsize::MIN), authority.identity(&other)).expect("a worker builds");
+            served(&servers, listening(&other, authority.peers()), worker, Arc::clone(count))
+        })
+        .collect();
+    let across = DataFusionCombiner::across(
+        Nodes::declared(own, own_url, others, authority.identity(&node)).across_above(NonZeroU64::new(1)),
+    )
+    .expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let refused = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect_err("a combine with a stage over another node's working set answered");
+    assert_eq!(across.working_set_exhausted(&refused), Some(UNBOUNDED), "{refused:?}");
+    assert!(
+        sent.iter().any(|count| count.load(Ordering::SeqCst) > 0),
+        "no other node was sent a stage, so nothing here measured its pool"
+    );
+}
+
+#[test]
+fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_lost() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let gone = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("a localhost port binds");
+    let lost = Url::parse(&format!("https://{gone}")).expect("a socket address is a URL's authority");
+    let across = DataFusionCombiner::across(
+        Nodes::declared(own, own_url, [lost], authority.identity(&node)).across_above(NonZeroU64::new(1)),
+    )
+    .expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let refused = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect_err("a combine planned onto a node nothing listens on answered");
+    // The engine's own failure is what a lost node is read from, so one still left as that failure
+    // was not read as a lost node at all.
+    assert!(!matches!(refused, CombineError::Execute { .. }), "{refused:?}");
+    assert_eq!(across.working_set_exhausted(&refused), None, "{refused:?}");
+    assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
 }
 
 #[test]

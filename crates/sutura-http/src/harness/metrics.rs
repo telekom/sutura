@@ -123,6 +123,7 @@ sutura_refusals_total{reason="federation_not_executable"} 0
 sutura_refusals_total{reason="grain_not_supported"} 0
 sutura_refusals_total{reason="metric_unknown"} 0
 sutura_refusals_total{reason="no_billing_project"} 0
+sutura_refusals_total{reason="node_lost"} 0
 sutura_refusals_total{reason="plan_needs_too_many_lookup_legs"} 0
 sutura_refusals_total{reason="plan_spans_too_many_sources"} 0
 sutura_refusals_total{reason="plan_tables_share_an_identifier"} 0
@@ -651,6 +652,10 @@ impl FederationCombiner for CombinesTo {
 
     fn workers_not_ready(&self, _error: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
         None
+    }
+
+    fn node_lost(&self, _error: &Self::Error) -> bool {
+        false
     }
 }
 

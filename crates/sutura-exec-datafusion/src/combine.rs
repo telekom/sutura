@@ -297,6 +297,12 @@ pub enum CombineError {
     /// The question wanted other nodes, and none had resolved when the declared wait ended.
     #[error("the combine wanted {wanted} other nodes and {ready} were ready when the wait ended")]
     WorkersNotReady { wanted: usize, ready: usize },
+    /// The question went across, and a node it was planned onto could not be reached over its link.
+    #[error("a node the combine was planned across could not be reached")]
+    NodeLost {
+        #[source]
+        cause: datafusion::error::DataFusionError,
+    },
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -442,7 +448,8 @@ impl DataFusionCombiner {
     /// system, in which case `legs_bytes` is what its legs hold. Then it is planned across the nodes
     /// at once when [`Nodes`] says its legs are too large for one, and otherwise tried on this node
     /// first and planned across only when that is refused for its working set. Planning across may
-    /// first wait for other nodes - see [`Nodes::wait_for_workers`].
+    /// first wait for other nodes - see [`Nodes::wait_for_workers`] - and a node it was planned onto
+    /// that cannot be reached refuses it as [`CombineError::NodeLost`].
     #[cfg_attr(
         not(feature = "distributed"),
         expect(
@@ -467,7 +474,7 @@ impl DataFusionCombiner {
                 }
             }
             let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
-            return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set);
+            return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set).map_err(across::lost);
         }
         run(&bounded_session(working_set)?, working_set)
     }
@@ -703,6 +710,10 @@ impl FederationCombiner for DataFusionCombiner {
         }
     }
 
+    fn node_lost(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::NodeLost { .. })
+    }
+
     #[cfg(feature = "distributed")]
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.nodes.as_ref().map(Nodes::slots_wanted)
@@ -724,7 +735,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So is `WorkersNotReady`, which `workers_not_ready` answers.
+            // `sutura_app` asks first. So are `WorkersNotReady` and `NodeLost`, which `workers_not_ready`
+            // and `node_lost` answer.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -739,7 +751,8 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::DuplicateLabels { .. }
             | CombineError::UnsupportedAggregate { .. }
             | CombineError::LinkTypeNotMapped { .. }
-            | CombineError::WorkersNotReady { .. } => None,
+            | CombineError::WorkersNotReady { .. }
+            | CombineError::NodeLost { .. } => None,
         }
     }
 }

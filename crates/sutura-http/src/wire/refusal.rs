@@ -251,7 +251,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         } => (StatusCode::CONFLICT, link_type_mismatch(relationship, fact, lookup)),
         RefusalReason::FederatedAnswerNotWellFormed { .. } => (StatusCode::CONFLICT, federated_answer_not_well_formed()),
         RefusalReason::PlanTablesShareAnIdentifier { .. } => (StatusCode::CONFLICT, plan_tables_share_an_identifier()),
-        // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
+        // 503, and with `WorkersNotReady` and `NodeLost` a refusal a caller may reasonably retry. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
         // the plan's data system against the adapter this process opened - so today's cause is a
         // deployment wired wrong rather than one that is briefly unwell. The status is still the
@@ -392,14 +392,19 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  not an outage and asking the same leg again returns this same refusal"
             ),
         ),
-        // 503, like `SourceUnavailable`, and the other refusal worth a retry: a pool that is
-        // starting has nodes a moment later. No `Retry-After`, because nothing here knows when.
+        // 503, like `SourceUnavailable`, and as worth a retry: a pool that is starting has nodes a
+        // moment later. No `Retry-After`, because nothing here knows when.
         RefusalReason::WorkersNotReady { wanted, ready } => (
             StatusCode::SERVICE_UNAVAILABLE,
             format!(
                 "this question needed {wanted} other nodes to answer and {ready} were ready in time; asking again \
                  shortly may succeed"
             ),
+        ),
+        // 503 and worth a retry too: asked again, the question is planned across the nodes there then.
+        RefusalReason::NodeLost => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            String::from("a node this question was planned across could not be reached while it ran; asking again may succeed"),
         ),
     };
     (
@@ -518,7 +523,8 @@ pub(crate) const fn retry_after(reason: &RefusalReason) -> Option<u64> {
         | RefusalReason::CrossModelRatioWithoutSharedDimension { .. }
         | RefusalReason::CrossModelRatioLinkAmbiguous { .. }
         | RefusalReason::RemoteLegNotCertified { .. }
-        | RefusalReason::WorkersNotReady { .. } => None,
+        | RefusalReason::WorkersNotReady { .. }
+        | RefusalReason::NodeLost => None,
     }
 }
 
@@ -562,6 +568,8 @@ fn too_much_data(bound: ResultBound) -> String {
 /// The rest of `tests::every_reason`'s fixture list, split into its own file for `cargo xtask
 /// max-lines`'s per-file cap.
 mod link;
+#[cfg(test)]
+mod lost;
 mod payer;
 #[cfg(test)]
 mod second_half;

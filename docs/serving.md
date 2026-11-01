@@ -249,7 +249,7 @@ A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentenc
 | `413`  | `result_too_large`: more rows than the cap, more data than the data system returns at once, or more bytes than a response may hold                                                                                                                                                                                                                        |
 | `422`  | `dimension_not_conformed`, `too_many_metrics`, `duplicate_metric_name`, `grain_not_supported`, `time_range_too_long`, `too_many_dimensions`, `too_many_filters`, `duplicate_dimension`, `cross_model_ratio_without_shared_dimension`, `top_over_uncertified_rows`, `resources_exhausted`, `deadline_exceeded`                                             |
 | `429`  | `budget_exhausted`                                                                                                                                                                                                                                                                                                                                        |
-| `503`  | `source_unavailable`, `workers_not_ready`. These are the refusals worth a retry                                                                                                                                                                                                                                                                           |
+| `503`  | `source_unavailable`, `workers_not_ready`, `node_lost`. These are the refusals worth a retry                                                                                                                                                                                                                                                              |
 
 12 refusal reasons land on `422`. A client should expect a `422` to fail again on an unchanged request.
 
@@ -348,13 +348,21 @@ resolves again every 200 ms until the wait ends, then plans across those that di
 `503 workers_not_ready` only when none did. Unset, a question plans across whatever resolves at once. `0` is refused,
 and so is a wait that is not below `server.request_timeout_seconds`.
 
+A stage another node cannot hold in its own working set is refused there, and the question is refused with
+`resources_exhausted`. A node the question was planned onto that cannot be reached while it runs fails the question, which
+is refused with `503 node_lost`. Asked again, it is planned across the nodes there then.
+
 Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
 restart. A link carries no task grant: a node runs any stage another node of the same authority sends it. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
 that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
 `runtime.max_concurrent_queries` slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
 largest plans across what it has, and a question too large for it is refused for its working set. A resolved address
-counts as a worker, so a host that also names a serving node counts that node.
+counts as a worker, so a host that also names a serving node counts that node. A node is read as lost only when its link
+reports itself unavailable: a connection refused, reset or timed out. Any other failure of a link, and the same failure
+relayed by another node, is an internal error.
+Whether a failed TLS handshake reads as lost is not measured. Nothing re-plans a question onto the nodes that remain, and
+a node lost while it streams an answer is not measured, only one that nothing listens on.
 
 `security.outbound.transport_anchors` (a PEM bundle path, or `system`) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.

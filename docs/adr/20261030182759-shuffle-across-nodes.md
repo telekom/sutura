@@ -61,12 +61,12 @@ caller's question it belongs to?
    certificate cannot pull another question's rows.
 6. **Rows stay in memory and are never stored.** Each node runs its stages under its own
    working-set pool, with the same never-spill policy. A node over its budget refuses, and the
-   question is refused. The engine streams between nodes, and its source, read on 2026-10-30,
+   question is refused with `resources_exhausted`. The engine streams between nodes, and its source, read on 2026-10-30,
    writes no shuffle file. So the rule "no row is stored at A or at B" is meant to hold for every
    node. `check-answer-path-caches` gains the crate that hosts the worker service. That gate finds
    only a map holding an answer-path type, so it does not prove the engine stores nothing.
 7. **A lost node fails the question.** The engine does not retry, and neither does sutura. The
-   caller gets a refusal and may ask again.
+   caller gets `503 node_lost` and may ask again.
 8. **What scales is the combine's working set, not the answer.** The federated row ceiling still
    applies once, at the coordinating node, to the answer.
 9. **A question goes across only when one node is too small for it.** A question that reads one
@@ -110,7 +110,11 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 - **The grant does not recheck the subject's grants at a source.** The rows were read as the
   caller, by the node that read the source. The grant carries the subject so that audit lines on
   every node name it, not to authorize the read again.
-- **One node's failure costs the whole question.** Nothing resumes a stage.
+- **One node's failure costs the whole question.** Nothing resumes a stage, and nothing plans the
+  question again onto the nodes left. A node is read as lost only from the coordinating node's own
+  link to it failing as unavailable. The same failure relayed by another node arrives as text, and
+  stays an internal error, as does any other failed link. A cell measures a node nothing listens
+  on, not one lost while it streams.
 - **The working set is checked per node, not per question.** Several nodes each under budget can
   together hold more than one node's budget. That is the point, and it also means the question's
   total memory is bounded only by the number of nodes.

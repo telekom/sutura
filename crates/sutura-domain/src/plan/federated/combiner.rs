@@ -228,7 +228,7 @@ pub enum ExecuteError<L, C> {
     Leg(L),
     /// The leg results did not stand for the plan's legs: this workspace's own defect.
     Miswired(LegsMiswired),
-    /// The combine failed, which [`FederationCombiner`]'s three predicates classify.
+    /// The combine failed, which [`FederationCombiner`]'s four predicates classify.
     Combine(C),
 }
 
@@ -322,14 +322,14 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// implementation, the working-set ceiling is the whole of what bounds it, and an implementor that
 /// inherited `None` would turn a ceiling an operator configured into the `503` a dead data system
 /// produces - with nothing in a diff to see. So [`Self::working_set_exhausted`],
-/// [`Self::answer_not_well_formed`] and [`Self::workers_not_ready`] have no default body: a second
-/// implementor has to write every arm where a reviewer reads them.
+/// [`Self::answer_not_well_formed`], [`Self::workers_not_ready`] and [`Self::node_lost`] have no
+/// default body: a second implementor has to write every arm where a reviewer reads them.
 ///
 /// [`Self::worker_slots_wanted`] defaults to `None`, which is honest for a combiner that never goes
 /// across. **The limit:** one that does go across and inherits it exports no demand, and the
 /// operator sizes the worker pool to its floor - nothing but review sees that.
 ///
-/// # What the domain may ask about an implementor's error, and why it is three predicates
+/// # What the domain may ask about an implementor's error, and why it is four predicates
 ///
 /// `Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
 /// not grow* from *the plan would not build*. The questions split the same way the query path's
@@ -343,10 +343,13 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 ///   The same plan against the same rows refuses again, which is what makes it a refusal rather
 ///   than a retryable failure.
 /// * [`Self::workers_not_ready`] is the other nodes a combine wanted not being there in time -
-///   [`RefusalReason::WorkersNotReady`](crate::query::RefusalReason::WorkersNotReady), the one of
-///   the three a caller may retry.
+///   [`RefusalReason::WorkersNotReady`](crate::query::RefusalReason::WorkersNotReady), one of the
+///   two a caller may retry.
+/// * [`Self::node_lost`] is a node the combine was planned onto not being reachable once it ran -
+///   [`RefusalReason::NodeLost`](crate::query::RefusalReason::NodeLost), the other a caller may
+///   retry.
 ///
-/// All three are predicates rather than conversions, for the reason
+/// All four are predicates rather than conversions, for the reason
 /// [`Warehouse::working_set_exhausted`](crate::warehouse::Warehouse::working_set_exhausted) gives:
 /// an implementor that could return a [`RefusalReason`](crate::query::RefusalReason) could mint any
 /// of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -377,7 +380,7 @@ pub trait FederationCombiner {
     ///
     /// # Errors
     ///
-    /// [`Self::Error`], which the three predicates below classify.
+    /// [`Self::Error`], which the four predicates below classify.
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
@@ -399,6 +402,11 @@ pub trait FederationCombiner {
     ///
     /// `None` is every other failure. Required rather than defaulted - see the trait's own header.
     fn workers_not_ready(&self, error: &Self::Error) -> Option<WorkersShort>;
+
+    /// Was this failure a node the combine was planned onto that could not be reached?
+    ///
+    /// `false` is every other failure. Required rather than defaulted - see the trait's own header.
+    fn node_lost(&self, error: &Self::Error) -> bool;
 
     /// The other nodes this combiner's questions that go across hold or wait for, if it goes across.
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
@@ -528,6 +536,11 @@ impl FederationCombiner for RefusingCombiner {
     /// Never short of nodes: this fake waits for none.
     fn workers_not_ready(&self, _error: &Self::Error) -> Option<WorkersShort> {
         None
+    }
+
+    /// Never a lost node: this fake goes across none.
+    fn node_lost(&self, _error: &Self::Error) -> bool {
+        false
     }
 }
 

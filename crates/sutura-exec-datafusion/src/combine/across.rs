@@ -56,6 +56,12 @@
 //!   largest would otherwise turn a question too large for it into a retry that never succeeds. A
 //!   question planned across fewer nodes than it wanted may still be refused for its working set.
 //! - A waiting question holds its serving node's slot, and a thread, for as long as it waits.
+//! - A node a question was planned onto whose link the engine reports unavailable - a connection
+//!   refused, reset or timed out - fails that question, which is refused as [`CombineError::NodeLost`]
+//!   and may be asked again. Nothing re-plans it onto the nodes that remain. A link that fails with
+//!   any other status, an HTTP/2 stream reset for any reason but refusing the stream among them,
+//!   leaves as [`CombineError::Execute`]. A cell loses a node by declaring one nothing listens on;
+//!   a node that goes away while it answers is not measured.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -101,6 +107,9 @@ use crate::pool::{self, WorkingSet};
 
 /// How many other nodes a question wants, and the bounded wait for them.
 mod wait;
+
+#[cfg(test)]
+mod lost;
 
 /// The nodes one combine's stages may run on, this one among them.
 pub struct Nodes {
@@ -277,6 +286,23 @@ impl Nodes {
             .build();
         Ok(SessionContext::new_with_state(state))
     }
+}
+
+/// `error` as [`CombineError::NodeLost`] when it failed because a node it ran on could not be reached.
+///
+/// The engine carries a failed call to another node as the call's own status, inside an external
+/// error, so a status in `error`'s chain whose code says the link was unavailable is a lost node.
+pub(super) fn lost(error: CombineError) -> CombineError {
+    match error {
+        CombineError::Execute { cause } if unreachable(&cause) => CombineError::NodeLost { cause },
+        other => other,
+    }
+}
+
+fn unreachable(cause: &DataFusionError) -> bool {
+    core::iter::successors(Some(cause as &(dyn core::error::Error + 'static)), |error| error.source())
+        .filter_map(|error| error.downcast_ref::<tonic::Status>())
+        .any(|status| status.code() == tonic::Code::Unavailable)
 }
 
 /// The nodes `declared` names now: itself when its host is an address, and otherwise one for each

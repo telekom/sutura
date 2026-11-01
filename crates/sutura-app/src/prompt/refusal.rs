@@ -256,11 +256,12 @@ const DEADLINE_EXCEEDED: Guide = Guide {
              returns the same refusal - the budget is a configured number, not an outage.",
 };
 
-// One of the two guides that say wait rather than narrow, `WORKERS_NOT_READY` the other - every
-// other entry either has a change that helps or has none at all, and most of the time the SAME
-// question, unmodified, becomes answerable once the window resets (`docs/adr/0030`). The one
-// exception the remedy below states: a question whose OWN estimate already exceeds the ceiling is
-// refused every window, forever, and waiting is the false remedy there - narrowing is the true one.
+// One of the three guides that say wait rather than narrow, `WORKERS_NOT_READY` and `NODE_LOST` the
+// others - every other entry either has a change that helps or has none at all, and most of the
+// time the SAME question, unmodified, becomes answerable once the window resets (`docs/adr/0030`).
+// The one exception the remedy below states: a question whose OWN estimate already exceeds the
+// ceiling is refused every window, forever, and waiting is the false remedy there - narrowing is
+// the true one.
 const BUDGET_EXHAUSTED: Guide = Guide {
     reason: "budget_exhausted",
     meaning: "the person you are acting for has spent this deployment's per-replica byte ceiling \
@@ -273,14 +274,23 @@ const BUDGET_EXHAUSTED: Guide = Guide {
              remedy.",
 };
 
-// The other guide that says wait rather than narrow: nothing about the question is wrong, and the
-// nodes it needs were still starting. Refused only when none was, so asking again is not a loop.
+// A guide that says wait rather than narrow: nothing about the question is wrong, and the nodes it
+// needs were still starting. Refused only when none was, so asking again is not a loop.
 const WORKERS_NOT_READY: Guide = Guide {
     reason: "workers_not_ready",
     meaning: "the question needed other nodes of this deployment to answer, and none was ready in time",
     remedy: "Do not narrow the question: wait a few seconds and ask exactly the same question again. \
              If it is refused the same way repeatedly, report it to a person - this deployment has no \
              nodes to answer it with.",
+};
+
+// The last guide that says wait rather than narrow: nothing about the question is wrong, and asked
+// again it is planned across the nodes there then.
+const NODE_LOST: Guide = Guide {
+    reason: "node_lost",
+    meaning: "a node of this deployment the question was planned across could not be reached while it ran",
+    remedy: "Do not narrow the question: ask exactly the same question again. If it is refused the same \
+             way repeatedly, report it to a person - a node of this deployment keeps going away.",
 };
 
 const TOP_OVER_UNCERTIFIED_ROWS: Guide = Guide {
@@ -354,10 +364,11 @@ pub(super) const GUIDES: &[&Guide] = &[
     // this deployment enforces, not a passing outage, and the same narrowing remedy.
     &DEADLINE_EXCEEDED,
     // Grouped with the two configured-bound refusals above it rather than with the two an agent
-    // cannot act on at all: there IS a move, and only it and the entry after it have this one -
-    // wait, do not narrow.
+    // cannot act on at all: there IS a move, and only it and the two entries after it have this
+    // one - wait, do not narrow.
     &BUDGET_EXHAUSTED,
     &WORKERS_NOT_READY,
+    &NODE_LOST,
     &PLAN_SPANS_TOO_MANY_SOURCES,
     &QUESTION_NEEDS_TOO_MANY_LEGS,
     &PLAN_NEEDS_TOO_MANY_LOOKUP_LEGS,
@@ -439,6 +450,7 @@ pub(super) const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::CrossModelRatioLinkAmbiguous { .. } => &CROSS_MODEL_RATIO_LINK_AMBIGUOUS,
         RefusalReason::RemoteLegNotCertified { .. } => &REMOTE_LEG_NOT_CERTIFIED,
         RefusalReason::WorkersNotReady { .. } => &WORKERS_NOT_READY,
+        RefusalReason::NodeLost => &NODE_LOST,
     }
 }
 

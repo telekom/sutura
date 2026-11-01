@@ -149,6 +149,10 @@ mod stages {
         fn workers_not_ready(&self, _: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
             None
         }
+
+        fn node_lost(&self, _: &Self::Error) -> bool {
+            false
+        }
     }
 
     impl DrillAcrossCombiner for FailingCombiner {
