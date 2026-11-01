@@ -305,7 +305,7 @@ pub(super) fn parse_plan_ceilings(raw: &RawSettings) -> Result<PlanCeilings, Set
 /// groups, so `Settings::parse` reads as one list of "read this section" calls rather than one
 /// inline and the rest not.
 pub(super) const fn parse_tools(raw: &RawSettings) -> crate::tools::ToolsSettings {
-    crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled)
+    crate::tools::ToolsSettings::new(raw.tools.run_sql.enabled).with_federation_allowed(raw.tools.run_sql.federation_allowed)
 }
 
 pub(super) fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {

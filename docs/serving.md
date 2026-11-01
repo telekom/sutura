@@ -88,7 +88,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                  | Declare `verification_identity`, or remove the anchor                                       |
 | `tools.run_sql.enabled: true`, `security.identity: multi-user`, and no acknowledged shared source               | Acknowledge a shared source, use `single-user`, or leave the tool off                       |
 | A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                | Remove them from `security.outbound`, or serve that source from a deployment without them   |
-| A feature that the build lacks (`tls`, `agent`, or a data system or catalog adapter)                            | The message names the feature. Use a build that has it                                      |
+| A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                     | The message names the feature. Use a build that has it                                      |
 | `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                              | Lower the wait                                                                              |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
@@ -186,6 +186,10 @@ without the scope. When it is on, the caller needs `sutura:sql.run` as well: wit
 the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record. The
 page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
 [DuckDB](integrations/data-systems/duckdb.md).
+
+`tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
+because it links no SQL parser. A build with it starts, and the tool still answers only where the deployment has one
+source.
 
 ## Endpoints
 

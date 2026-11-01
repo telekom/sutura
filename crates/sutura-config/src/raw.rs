@@ -849,6 +849,10 @@ pub(crate) struct RawRunSql {
     /// is `sutura_app::single_raw_capable_warehouse`'s own stated future work.
     #[serde(default)]
     pub(crate) enabled: bool,
+    /// Whether one statement may name tables in more than one source. Off unless an operator writes
+    /// `true`, and `true` in a build without the `sql` feature is a startup refusal.
+    #[serde(default)]
+    pub(crate) federation_allowed: bool,
 }
 
 /// What goes into the agent-facing prompt beyond the bundle and the tool list.

@@ -560,6 +560,7 @@ impl Settings {
         refusals.extend(posture::audience_refusal(self.security.inbound()));
         refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(self.run_sql_refusals());
+        refusals.extend(posture::run_sql_federation_refusal(self.tools));
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
         if self.server.agent_surface_enabled() {
@@ -621,8 +622,7 @@ impl Settings {
     /// typed refusals naming the source to change. Whether the *linked adapter* can carry a per-subject
     /// credential at all is a property of the build, so it is checked in the composition root beside
     /// `open_engine` and not here; and neither half belongs in `verify_and_validate`, which re-runs
-    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot
-    /// change.
+    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot change.
     fn identity_refusals(&self) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         if self.sources.is_empty() {

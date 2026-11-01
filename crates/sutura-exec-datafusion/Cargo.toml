@@ -101,6 +101,11 @@ distributed = [
   "tokio/net",
   "tokio/sync",
 ]
+# DataFusion's SQL frontend and the federation crate's unparser, for `tools.run_sql.federation_allowed`.
+# Default-off, and `just check-default-features` refuses `sqlparser` or `datafusion-sql` in a
+# shipped default build's resolved tree. `datafusion-distributed?/sql` for `parquet`'s reason above:
+# its error codec matches every `DataFusionError` variant, and `datafusion/sql` adds one.
+sql = ["datafusion/sql", "datafusion-federation/sql", "datafusion-distributed?/sql"]
 
 [[test]]
 name = "conformance"

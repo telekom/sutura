@@ -15,13 +15,26 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolsSettings {
     run_sql_enabled: bool,
+    run_sql_federation_allowed: bool,
 }
 
 impl ToolsSettings {
     #[inline]
     #[must_use]
     pub const fn new(run_sql_enabled: bool) -> Self {
-        Self { run_sql_enabled }
+        Self {
+            run_sql_enabled,
+            run_sql_federation_allowed: false,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn with_federation_allowed(self, allowed: bool) -> Self {
+        Self {
+            run_sql_federation_allowed: allowed,
+            ..self
+        }
     }
 
     /// Whether `docs/adr/0013`'s raw SQL tool is turned on. Off unless an operator wrote
@@ -30,6 +43,16 @@ impl ToolsSettings {
     #[must_use]
     pub const fn run_sql_enabled(self) -> bool {
         self.run_sql_enabled
+    }
+
+    /// Whether one raw statement may name tables in more than one source. Off unless an operator
+    /// wrote `tools.run_sql.federation_allowed: true`. A build without the `sql` feature refuses
+    /// `true` at startup; a build with it accepts `true`, but no federated path is built yet, so the
+    /// tool still runs over the one open source and refuses a call while more than one is open.
+    #[inline]
+    #[must_use]
+    pub const fn run_sql_federation_allowed(self) -> bool {
+        self.run_sql_federation_allowed
     }
 }
 

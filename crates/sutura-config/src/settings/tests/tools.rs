@@ -109,3 +109,10 @@ fn the_raw_tool_off_in_multi_user_mode_is_fit_to_serve() {
     let settings = Settings::load(&sources).expect("multi-user with the raw tool off serves");
     assert!(!settings.tools().run_sql_enabled());
 }
+
+#[test]
+fn federation_allowed_false_is_read_and_refuses_nothing() {
+    // The key exists and its off value is the default's: writing it changes nothing, in any build.
+    let refusals = refusals_of(String::from("tools:\n  run_sql:\n    federation_allowed: false\n"));
+    assert!(refusals.is_empty(), "{refusals:?}");
+}

@@ -107,8 +107,9 @@ const STARTUP: Subject = Subject {
     // authorization server's issuer. 32: `WorkerDeclaresSources`, `WorkerDeclaresCatalogs`,
     // `WorkerWithoutNodeAuthority`, `WorkerWithAgentSurface` and `WorkerWithFlightSurface`, what a
     // `server.role: worker` configuration may not declare. 33: `WorkersWaitNotBelowDeadline`, a wait
-    // for other nodes that is not below the request timeout it would be spent inside.
-    variants: variants(33),
+    // for other nodes that is not below the request timeout it would be spent inside. 34:
+    // `RunSqlFederationNotCompiledIn`, `tools.run_sql.federation_allowed` on a build with no SQL parser.
+    variants: variants(34),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

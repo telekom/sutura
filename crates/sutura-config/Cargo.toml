@@ -22,6 +22,9 @@ tls = []
 # oracle` source declaring `plaintext` is refused at parse; without it, the composition root's
 # "not linked" refusal comes first. `sutura-cli`'s own `oracle` feature turns this one on.
 oracle = []
+# Does the binary link DataFusion's SQL frontend? No dependency, for `tls`'s reason. Without it,
+# `tools.run_sql.federation_allowed: true` is a startup refusal. `sutura-cli`'s `sql` turns it on.
+sql = []
 
 [dependencies]
 # The domain, for `Secret` alone. A configured credential is held in the type whose `Debug`

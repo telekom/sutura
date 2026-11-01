@@ -14,6 +14,7 @@ use sutura_domain::model::SourceName;
 use crate::inbound::InboundIdentity;
 use crate::security::DeploymentIdentity;
 use crate::server::{BindAddress, ServerSettings};
+use crate::tools::ToolsSettings;
 
 /// Which of the two reasons a caller-facing credential, or the limiter, was required.
 ///
@@ -285,6 +286,17 @@ pub enum NotFitToServe {
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
+    /// `tools.run_sql.federation_allowed` is `true` and this binary cannot parse SQL.
+    ///
+    /// A build without the `sql` feature links no SQL parser, so it cannot plan the statement it
+    /// would have to cut per source; the alternative to refusing is a switch an operator turned on
+    /// that silently does nothing. Raised whether or not `tools.run_sql.enabled` is set.
+    #[error(
+        "tools.run_sql.federation_allowed is true and this binary was built without the `sql` \
+         feature, so it links no SQL parser. Rebuild with `--features sql`, or set \
+         tools.run_sql.federation_allowed to false"
+    )]
+    RunSqlFederationNotCompiledIn,
     /// The agent surface is on, no inbound identity is declared, and this is not a deployment where
     /// `/mcp` may answer every caller as the deployment.
     ///
@@ -545,6 +557,16 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
     }
 }
 
+/// Reads this crate's own `sql` feature, which `sutura-cli`'s `sql` turns on with the frontend, so
+/// it holds only for a binary composed through that crate.
+pub(super) fn run_sql_federation_refusal(tools: ToolsSettings) -> Option<NotFitToServe> {
+    (tools.run_sql_federation_allowed() && !cfg!(feature = "sql")).then_some(NotFitToServe::RunSqlFederationNotCompiledIn)
+}
+
 /// `server.nodes.wait_for_workers_seconds` through `Settings::load`, and its refusal.
 #[cfg(test)]
 mod tests;
+
+/// `tools.run_sql.federation_allowed` against this build's `sql` feature.
+#[cfg(test)]
+mod run_sql_federation;

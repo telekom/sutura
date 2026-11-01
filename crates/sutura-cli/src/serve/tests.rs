@@ -411,6 +411,9 @@ mod agent;
 #[cfg(not(feature = "flight"))]
 mod flight;
 
+#[cfg(not(feature = "sql"))]
+mod run_sql_federation;
+
 mod nodes;
 
 // The `bigquery`-kind cells: the settings-tree refusal, the no-adapter refusal, and (on a build that
