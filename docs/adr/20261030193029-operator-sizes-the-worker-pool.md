@@ -52,15 +52,16 @@ and what they may hold?
    the `sutura` image. The operator owns the workers. The serving nodes stay with the chart and its
    autoscaler.
 3. **One namespaced resource, `SuturaWorkerPool`.** Its spec names the worker Deployment, the
-   labels of the serving pods whose demand it serves, and four numbers: `min`, `max`, `warm` and
+   serving Deployment whose demand it serves, and four numbers: `min`, `max`, `warm` and
    `idleAfter`. The chart renders the worker Deployment and its headless Service from the values it
    renders the serving nodes from, with the worker role. The operator sets that Deployment's replica
    count and reports what it did in the resource's status.
 4. **The size is demand plus the warm reserve, clamped to `min` and `max`.** Demand is a gauge each
    serving node exports on `/metrics`: the worker slots its cross-node questions hold or are about
-   to ask for. The operator reads it from every serving pod with the metrics token. A sutura pod gets
-   no Kubernetes API permission, so a serving node cannot create a pod. Surplus above the target is
-   removed only after it has been idle for `idleAfter`.
+   to ask for. The operator reads it, with the metrics token, from every ready pod the serving
+   Deployment's selector matches. A sutura pod gets no Kubernetes API permission, so a serving node
+   cannot create a pod. Surplus above the target is removed only after it has been idle for
+   `idleAfter`.
 5. **Idle workers go first.** Each worker exports its stages in flight. Before it lowers the
    replica count, the operator sets `controller.kubernetes.io/pod-deletion-cost` on each worker from
    that count, so the Deployment controller removes the idle ones. A worker asked to stop takes no
@@ -80,9 +81,10 @@ and what they may hold?
    already runs its own consensus. One replica runs. While it is down, workers keep serving and only
    resizing stops, so there is no leader election until a second replica is wanted.
 9. **Least privilege.** The operator's Role is namespaced and creates nothing: it reads its
-   resources and writes their status, updates the scale of the worker Deployment by name, and lists
-   pods and patches their annotations. The metrics token is mounted into its pod, not read through
-   the API. Only the custom resource definition is cluster-scoped, and the chart installs it.
+   resources and writes their status, reads the scale of the serving and worker Deployments and
+   writes the worker one's, by name, and lists pods and patches their annotations. The metrics token
+   is mounted into its pod, not read through the API. Only the custom resource definition is
+   cluster-scoped, and the chart installs it.
 10. **Verified in the k3s VM venue.** The test that already scales the chart also installs the
     operator and one `SuturaWorkerPool`, and checks the warm reserve, scaling on demand from an empty
     pool and back to it, idle-first removal and a refused worker configuration. The operator's paths
