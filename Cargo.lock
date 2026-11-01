@@ -4534,6 +4534,7 @@ dependencies = [
  "rcgen",
  "rmcp",
  "rustls",
+ "secrecy",
  "serde_json",
  "serde_norway",
  "sutura-adbc-postgres",
