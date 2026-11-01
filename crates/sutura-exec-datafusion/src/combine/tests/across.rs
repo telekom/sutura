@@ -23,10 +23,12 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
-use tonic::codegen::http::HeaderMap;
+use tonic::body::Body;
+use tonic::codegen::http::{self, HeaderMap};
 use tonic::service::InterceptorLayer;
 use tonic::transport::Server;
 use tonic::transport::server::Connected;
+use tower::util::MapRequestLayer;
 use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
@@ -206,6 +208,86 @@ fn a_combine_across_three_nodes_answers_what_one_node_answers_and_sends_both_oth
         assert!(
             count.load(Ordering::SeqCst) > 0,
             "the other node {other} was sent no request, so its stage ran here"
+        );
+    }
+}
+
+/// What the calls a node is sent carry: how many it was sent, and how many of them carried no task
+/// grant, or carried a task key to anything but the install of a stage.
+#[derive(Default)]
+struct Carried {
+    calls: AtomicUsize,
+    astray: AtomicUsize,
+}
+
+/// `worker` served over `tls` on a free localhost port, what each call it is sent carries kept in
+/// `carried`.
+fn watched(servers: &tokio::runtime::Runtime, tls: Arc<ServerConfig>, worker: Worker, carried: Arc<Carried>) -> Url {
+    let listener = servers
+        .block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0)))
+        .expect("a localhost port binds");
+    let port = listener.local_addr().expect("a bound port has an address").port();
+    let incoming = stream::unfold((listener, TlsAcceptor::from(tls)), |(listener, acceptor)| async move {
+        let accepted = match listener.accept().await {
+            Ok((tcp, _)) => acceptor.accept(tcp).await.map(Tls),
+            Err(cause) => Err(cause),
+        };
+        Some((accepted, (listener, acceptor)))
+    });
+    let checked = MapRequestLayer::new(move |request: http::Request<Body>| {
+        let installs = request.uri().path() == "/worker.WorkerService/CoordinatorChannel";
+        let headers = request.headers();
+        carried.calls.fetch_add(1, Ordering::SeqCst);
+        if !headers.contains_key("x-sutura-task-grant") || headers.contains_key("x-sutura-task-key") != installs {
+            carried.astray.fetch_add(1, Ordering::SeqCst);
+        }
+        request
+    });
+    servers.spawn(
+        Server::builder()
+            .layer(checked)
+            .add_service(worker.into_worker_server())
+            .serve_with_incoming(incoming),
+    );
+    Url::parse(&format!("https://127.0.0.1:{port}")).expect("a socket address is a URL's authority")
+}
+
+#[test]
+fn every_call_a_combine_across_nodes_makes_carries_its_grant_and_only_an_install_its_key() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let carried: [Arc<Carried>; 2] = Default::default();
+    let others: Vec<Url> = carried
+        .iter()
+        .map(|carried| {
+            let other = authority.sign();
+            let worker = Nodes::worker(roomy(), authority.identity(&other)).expect("a worker builds");
+            watched(&servers, listening(&other, authority.peers()), worker, Arc::clone(carried))
+        })
+        .collect();
+    let declared = Nodes::declared(own, own_url, others, authority.identity(&node)).across_above(NonZeroU64::new(1));
+    let across = DataFusionCombiner::across(declared).expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let answered = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect("this combine answers")
+        .to_rows()
+        .expect("a combined answer decodes");
+    assert_eq!(answered.rows().len(), 2);
+    for (other, carried) in carried.iter().enumerate() {
+        assert!(
+            carried.calls.load(Ordering::SeqCst) > 0,
+            "the other node {other} was sent no request"
+        );
+        assert_eq!(
+            carried.astray.load(Ordering::SeqCst),
+            0,
+            "the other node {other} was sent a call without its grant, or a task key beside anything but an install"
         );
     }
 }

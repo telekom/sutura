@@ -20,12 +20,12 @@
 //!
 //! **Graceful shutdown.** This is the heavier reason. `crate::server` has a *bounded* drain - the
 //! deadline arms only after shutdown is asked for, and the serve future is dropped when it expires -
-//! and it is built on `axum::serve(..).with_graceful_shutdown(..)`. `axum-server` does not compose
-//! with that; it replaces it, with its own `Handle::graceful_shutdown(Some(duration))`. Taking it
-//! would have given the TLS path a second, separately-implemented drain, so a change to the shutdown
-//! semantics would have to be made twice and could be made once. Wrapping the listener instead
-//! leaves `axum::serve`, `drain` and `report` exactly as they are: **one serve path and one drain,
-//! for plaintext and for TLS.**
+//! built around a graceful-shutdown signal shared with every accepted connection (see
+//! `crate::server::run`). `axum-server` does not compose with that; it replaces it, with its own
+//! `Handle::graceful_shutdown(Some(duration))`. Taking it would have given the TLS path a second,
+//! separately-implemented drain, so a change to the shutdown semantics would have to be made twice
+//! and could be made once. Wrapping the listener instead leaves `run`, `drain` and `report` exactly
+//! as they are: **one serve path and one drain, for plaintext and for TLS.**
 //!
 //! What `axum-server` would have brought for free is its `RustlsConfig::reload_from_pem_file`. That
 //! is replaced here by something narrower - see the rotation section - and the narrower version
@@ -628,7 +628,7 @@ mod tests {
 
         let router = axum::Router::new().route("/health", axum::routing::get(|| async { r#"{"status":"ok"}"# }));
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
+            let _outcome = crate::server::run(listener, router, sutura_runtime::Shutdown::new()).await;
         });
 
         let answer = get_over_tls(port, "/health", &pair.certificate).await;
@@ -663,7 +663,7 @@ mod tests {
             ),
         );
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
+            let _outcome = crate::server::run(listener, router, sutura_runtime::Shutdown::new()).await;
         });
 
         let answer = get_over_tls(port, "/peer", &pair.certificate).await;
@@ -824,7 +824,7 @@ mod tests {
         let listener = TlsListener::wrap(tcp, config).expect("the listener wraps");
         let router = axum::Router::new().route("/health", axum::routing::get(|| async { r#"{"status":"ok"}"# }));
         let serving = tokio::spawn(async move {
-            let _outcome = axum::serve(listener, crate::server::connected(router)).await;
+            let _outcome = crate::server::run(listener, router, sutura_runtime::Shutdown::new()).await;
         });
 
         assert!(

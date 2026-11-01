@@ -7,9 +7,8 @@
 //! accepts only a node `server.tls_node_authority` signed.
 //!
 //! **Limits.** The pair and the authority are read once, at boot: the listener's rotation does not
-//! reach a link, so a renewed node certificate is presented on links after a restart. A link carries
-//! no task grant, so this node runs any stage that reads no source which a node of the same
-//! authority sends it.
+//! reach a link, so a renewed node certificate is presented on links after a restart. Each call a
+//! link carries holds its question's task grant; the served worker admits no call without it.
 
 use sutura_config::RuntimeSettings;
 use sutura_config::TlsMaterial;
@@ -41,13 +40,13 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let identity = identity(tls, nodes.authority())?;
     let own = Nodes::worker(crate::sources::working_set(runtime), identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
-    let mount = sutura_http::WorkerMount::new(own.clone().into_worker_server());
     let wait = nodes
         .wait_for_workers()
         .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
     let across = Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity)
         .across_above(nodes.across_above())
         .wait_for_workers(wait);
+    let mount = sutura_http::WorkerMount::new(across.served().into_worker_server());
     let combiner = DataFusionCombiner::across(across)
         .map_err(|cause| format!("{}\ncould not build the federation combiner", super::flatten(cause)))?;
     Ok((combiner, Some(mount)))

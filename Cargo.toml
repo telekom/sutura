@@ -113,7 +113,13 @@ members = [
 # workspace directory joins it, and `--workspace` builds every member whoever depends on it, so
 # Windows and macOS built the Linux-only vendored allocator on its own account. Excluding them also
 # keeps `--workspace` clippy and tests off third-party code.
-exclude = ["vendor/adbc_clickhouse", "vendor/datafusion-proto", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
+exclude = [
+  "vendor/adbc_clickhouse",
+  "vendor/datafusion-distributed",
+  "vendor/datafusion-proto",
+  "vendor/mimalloc_rust",
+  "vendor/rust-oracledb",
+]
 
 [workspace.package]
 version = "0.11.0"
@@ -465,8 +471,8 @@ axum = { version = "0.8", default-features = false, features = [
 # (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
 # `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
 http = "1.5"
-# `TokioIo`, handing that connector's stream to the gRPC client.
-hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "http1", "service"] }
+hyper = { version = "1.11", default-features = false }
 # The middleware abstraction every layer below is written against.
 tower = "0.5"
 # `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.
@@ -908,12 +914,6 @@ codegen-units = 256
 # CARGO_PROFILE_DEV_CODEGEN_BACKEND in the shell (or devenv.local.nix), and
 # devco/rust-toolchain-nightly.toml pins the compiler plus the
 # `rustc-codegen-cranelift-preview` component.
-#
-# This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
-# `codegen-backend = "cranelift"` themselves; it also used to force cranelift as the shell
-# default and gate on a separate stable toolchain. Neither survives: an `[unstable]` table
-# committed here would be read by CI too and break it, and keeping LLVM the default keeps the
-# coverage instrumentation reachable.
 #
 # One consequence, deliberate: a single nightly toolchain and a single target directory - the
 # stable/nightly split, and the per-`/stable` target dir it needed, are gone.

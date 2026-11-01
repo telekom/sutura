@@ -18,6 +18,7 @@ mod tests {
     use std::path::Path;
 
     use sutura_catalog_datahub::test_support::{FakeServer, Scripted};
+    use sutura_config::{Environment, ServerRole, Settings, Sources};
 
     use sutura_domain::model::{SourceName, TableName};
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
@@ -246,5 +247,26 @@ mod tests {
             .collect();
         let shared = |source: &str| (format!("\"{source}\""), String::from("\"shared-service-user\""));
         assert_eq!(legs, BTreeSet::from([shared("billing"), shared("crm")]), "{}", reply.body);
+    }
+
+    /// Each of `examples/federated/conf/distributed/{coordinator,worker-1,worker-2}` loads through
+    /// the same `Settings::load` the composed `sutura serve` calls, offline: no tier, no network, no
+    /// spawned process. This is the cheapest check the docs' "Distributed execution" section has -
+    /// it catches a config that would refuse at boot (an unparseable value, a worker declaring a
+    /// source or catalog, a worker without `server.tls_node_authority`) without ever running the
+    /// three-node setup end to end, which nothing in this repository does.
+    #[test]
+    fn distributed_example_configs_load_offline() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/federated/conf/distributed");
+        for (node, role) in [
+            ("coordinator", ServerRole::Serving),
+            ("worker-1", ServerRole::Worker),
+            ("worker-2", ServerRole::Worker),
+        ] {
+            let dir = root.join(node);
+            let settings = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()))
+                .unwrap_or_else(|cause| panic!("{} did not load offline: {cause}", dir.display()));
+            assert_eq!(settings.server().role(), role, "{}", dir.display());
+        }
     }
 }

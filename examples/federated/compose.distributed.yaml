@@ -1,0 +1,28 @@
+# Opt-in addition for the "Distributed execution" section of docs/examples/federated.md: a
+# throwaway demo CA and one leaf certificate each for the coordinator and two worker nodes, all for
+# 127.0.0.1. Unchanged by default - add this file with `-f compose.distributed.yaml` and the
+# `distributed` profile. The CA key is discarded once the leaves are signed, and everything lands
+# in .local/distributed, which .gitignore already covers: never commit a key or certificate from
+# here, demo or not.
+services:
+  distributed-certs:
+    image: alpine:3.21
+    profiles: ["distributed"]
+    volumes:
+      - ./.local/distributed:/out
+    entrypoint: ["sh", "-ec"]
+    command:
+      - |
+        apk add --no-cache openssl >/dev/null
+        cd /out
+        rm -f ./*.pem ./*.key ./*.srl
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=federated-example-demo-ca -keyout ca.key -out ca.pem
+        for node in coordinator worker-1 worker-2; do
+          openssl req -newkey rsa:2048 -nodes -subj /CN=$$node -keyout $$node.key -out $$node.csr
+          printf 'subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth,clientAuth\n' > $$node.ext
+          openssl x509 -req -in $$node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 1 -extfile $$node.ext -out $$node.pem
+          rm $$node.csr $$node.ext
+        done
+        rm ca.key ca.srl
+        chmod 644 ./*.pem ./*.key
+        echo "wrote a demo CA and 3 node certificates to .local/distributed - demo-only, never reuse them"

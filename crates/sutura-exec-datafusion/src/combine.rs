@@ -95,7 +95,7 @@ mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
 #[cfg(feature = "distributed")]
-pub use across::{NodeIdentity, Nodes, NotAnIdentity};
+pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};

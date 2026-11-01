@@ -44,6 +44,7 @@
 
 mod ceiling;
 mod driver_message;
+pub mod google_trace;
 mod identity;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};

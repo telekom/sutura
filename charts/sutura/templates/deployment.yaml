@@ -33,7 +33,7 @@ spec:
       serviceAccountName: {{ include "sutura.serviceAccountName" . }}
       containers:
         - name: sutura
-          image: "{{ .Values.image.repository }}:{{ include "sutura.imageTag" . }}"
+          image: "{{ include "sutura.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # `sutura serve` - the HTTP surface folded into the one published binary
           # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays

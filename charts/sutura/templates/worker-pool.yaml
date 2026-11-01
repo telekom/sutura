@@ -172,7 +172,7 @@ spec:
       automountServiceAccountToken: true
       containers:
         - name: operator
-          image: "{{ .Values.image.repository }}:{{ include "sutura.operatorImageTag" . }}"
+          image: "{{ include "sutura.operatorImage" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["run"]
           env:
@@ -228,7 +228,7 @@ spec:
       terminationGracePeriodSeconds: {{ add $timeout 10 }}
       containers:
         - name: worker
-          image: "{{ .Values.image.repository }}:{{ include "sutura.imageTag" . }}"
+          image: "{{ include "sutura.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["serve"]
           ports:

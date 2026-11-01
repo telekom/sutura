@@ -1,0 +1,13 @@
+# A worker node for the "Distributed execution" variant of this example. It holds no catalog and
+# no source: it answers only /health, /metrics and the worker transport that the coordinator calls
+# over mutual TLS. `security.identity` is omitted on purpose - it is required only when a
+# deployment declares `sources`, and this one declares none.
+server:
+  role: "worker"
+  host: "127.0.0.1"
+  port: 8444
+  tls_certificate: "/run/sutura/distributed/worker-1.pem"
+  tls_key: "/run/sutura/distributed/worker-1.key"
+  tls_node_authority: "/run/sutura/distributed/ca.pem"
+security:
+  tls_termination: "in-process"

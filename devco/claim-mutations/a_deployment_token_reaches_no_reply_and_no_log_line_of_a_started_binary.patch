@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-http/src/server.rs b/crates/sutura-http/src/server.rs
-index 152234984..5c72784fe 100644
+index 68921560e..675355c60 100644
 --- a/crates/sutura-http/src/server.rs
 +++ b/crates/sutura-http/src/server.rs
-@@ -206,6 +206,12 @@ where
-     Peer: for<'a> Connected<IncomingStream<'a, L>>,
+@@ -240,6 +240,12 @@ where
+     L: PeerInfo,
  {
      let graceful = shutdown.clone();
 +    let router = router.layer(axum::middleware::from_fn(
@@ -12,6 +12,6 @@ index 152234984..5c72784fe 100644
 +            next.run(request).await
 +        },
 +    ));
-     let serving = axum::serve(listener, connected(router)).with_graceful_shutdown(async move {
-         let reason = graceful.requested().await;
-         tracing::debug!(%reason, "the server was asked to stop accepting connections");
+     let outcome = drain(accept(listener, connected(router), graceful), &shutdown).await;
+     report(outcome)
+ }

@@ -302,6 +302,13 @@ fn main() -> ExitCode {
         eprintln!("sutura: {}", commands::render(&refused));
         return ExitCode::FAILURE;
     }
+    // Before any command, so no composition root opens a BigQuery dial with the driver's debug
+    // log on - its Go auth library logs each HTTP request and response unredacted.
+    #[cfg(feature = "bigquery")]
+    if let Err(refused) = sutura_exec_bigquery::adbc::google_trace::refuse() {
+        eprintln!("sutura: {}", commands::render(&refused));
+        return ExitCode::FAILURE;
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     // Every command but `serve` prints a result. `serve` keeps std's hook: with its standard output
     // gone its banner panics, the deployment did not start, and a supervisor must see a failure

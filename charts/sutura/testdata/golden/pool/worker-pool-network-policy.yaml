@@ -1,0 +1,683 @@
+---
+# Source: sutura/templates/networkpolicy.yaml
+# Serving pods keep their public port: this rule is additive, not restrictive, so it changes
+# nothing by itself. It exists so a namespace that later adds its own default-deny NetworkPolicy
+# still serves this port without the chart's intent being tribal knowledge.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sutura
+      app.kubernetes.io/instance: test-release
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+
+---
+# Source: sutura/templates/networkpolicy.yaml
+# Workers answer only this release's serving pods and each other - a combine across nodes dials a
+# sibling worker directly, and a serving pod dials a worker it planned a stage onto. No other
+# namespace or workload needs the node port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-release-workers
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-worker
+      app.kubernetes.io/instance: test-release
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura
+              app.kubernetes.io/instance: test-release
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sutura-worker
+              app.kubernetes.io/instance: test-release
+      ports:
+        - port: 8080
+          protocol: TCP
+
+---
+# Source: sutura/templates/networkpolicy.yaml
+# The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
+# the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
+# whether the cluster resolves the API server by name.
+# STATED LIMIT: the API server's own address is cluster-specific and this chart has no way to name
+# it, so this bounds the port (443, the apiserver's common port, and 6443, its other common one),
+# not the destination - it does not stop the operator reaching some other HTTPS endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-release-operator
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-operator
+      app.kubernetes.io/instance: test-release
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+---
+# Source: sutura/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: test-release-operator
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: false
+
+---
+# Source: sutura/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-release-config
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+data:
+  base.yaml: |
+    security:
+      identity: single-user
+      single_user_because: a test deployment one operator runs with their own credentials
+    server:
+      nodes:
+        others:
+        - https://test-release-workers.default.svc:8080
+        wait_for_workers_seconds: 20
+    telemetry:
+      filter: info
+      format: bunyan
+  production.yaml: |
+    {}
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: suturaworkerpools.sutura.telekom.github.io
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  group: sutura.telekom.github.io
+  names:
+    kind: SuturaWorkerPool
+    plural: suturaworkerpools
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            description: |-
+              What a `SuturaWorkerPool` asks for: the bounds the operator sizes the pool within. Its fields are
+              the schema's; nothing outside this crate builds one until the operator reads it from a cluster.
+            properties:
+              idleAfterSeconds:
+                description: How long a worker above the size demand calls for stays before it is removed, in seconds.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              max:
+                description: The most workers the pool grows to, whatever the demand.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              min:
+                description: The fewest workers the pool keeps, with no demand at all.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              serving:
+                description: The Deployment of serving nodes whose wanted worker slots are the pool's demand.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+              warm:
+                description: Idle workers kept beyond demand, so a leg does not wait for a worker to start.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              workers:
+                description: The Deployment of workers the operator sizes, in the pool's namespace.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+            required:
+            - workers
+            - serving
+            - min
+            - max
+            - warm
+            - idleAfterSeconds
+            title: WorkerPoolSpec
+            type: object
+          status:
+            description: What the operator reports it did.
+            properties:
+              refusal:
+                description: Why the operator refused the spec, when it did.
+                nullable: true
+                type: string
+              replicas:
+                description: The workers the operator last sized the pool to.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+            required:
+            - replicas
+            title: WorkerPoolStatus
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: test-release-operator
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: ["sutura.telekom.github.io"]
+    resources: ["suturaworkerpools"]
+    verbs: ["list"]
+  - apiGroups: ["sutura.telekom.github.io"]
+    resources: ["suturaworkerpools/status"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+  # `patch` sets each pod's deletion cost, so a scale-down removes an idle worker first.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "patch"]
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-release-operator
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: test-release-operator
+subjects:
+  - kind: ServiceAccount
+    name: test-release-operator
+    namespace: default
+
+---
+# Source: sutura/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: sutura
+    app.kubernetes.io/instance: test-release
+
+---
+# Source: sutura/templates/worker-pool.yaml
+# Headless: a serving node resolves every worker's own address from this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-release-workers
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: sutura-worker
+    app.kubernetes.io/instance: test-release
+
+---
+# Source: sutura/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sutura
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sutura
+        app.kubernetes.io/instance: test-release
+    spec:
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: test-release
+      containers:
+        - name: sutura
+          image: "ghcr.io/telekom/sutura:latest-musl"
+          imagePullPolicy: IfNotPresent
+          # `sutura serve` - the HTTP surface folded into the one published binary
+          # (`github.com/telekom/sutura#685` step 2). `nix/oci.nix`'s own `Entrypoint` stays
+          # `/bin/sutura`; only the argument changes.
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: "production"
+            - name: SUTURA_CONFIG_DIR
+              value: /etc/sutura/config
+            # Always off-host from this process's own point of view: the Service targets
+            # the pod, never the loopback-only embedded default.
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: "8080"
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: "true"
+            - name: SUTURA__SECURITY__ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-access-token
+                  key: token
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: "in-process"
+            - name: SUTURA__SERVER__TLS_CERTIFICATE
+              value: /etc/sutura/node/tls.crt
+            - name: SUTURA__SERVER__TLS_KEY
+              value: /etc/sutura/node/tls.key
+            - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+              value: /etc/sutura/node/ca.crt
+            # The Service names every serving pod alike; the pod's own address after `#` is where a worker
+            # answers this one.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: SUTURA__SERVER__NODES__OWN
+              value: "https://test-release.default.svc:8080#$(POD_IP)"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sutura/config
+              readOnly: true
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+          # `/health` is the liveness path (`crates/sutura-http/src/constants.rs`) and there is
+          # deliberately no readiness route - docs/serving.md. The startup probe carries the
+          # generous failure budget: boot re-verifies every anchor before the listener opens,
+          # a round trip per anchor against a networked source.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            {}
+      volumes:
+        - name: config
+          configMap:
+            name: test-release-config
+        - name: node
+          csi:
+            driver: csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              csi.cert-manager.io/issuer-name: sutura-nodes
+              csi.cert-manager.io/issuer-kind: Issuer
+              csi.cert-manager.io/dns-names: test-release.default.svc
+              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+              csi.cert-manager.io/duration: 720h
+              csi.cert-manager.io/fs-group: "65532"
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-operator
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-operator
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sutura-operator
+        app.kubernetes.io/instance: test-release
+    spec:
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: test-release-operator
+      # The operator reads the cluster with its own account's token.
+      automountServiceAccountToken: true
+      containers:
+        - name: operator
+          image: "ghcr.io/telekom/sutura:latest-operator-musl"
+          imagePullPolicy: IfNotPresent
+          args: ["run"]
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: "production"
+            - name: SUTURA__OPERATOR__API_GROUP
+              value: "sutura.telekom.github.io"
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
+            - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+              value: /etc/sutura/node/ca.crt
+          volumeMounts:
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            {}
+      volumes:
+        - name: node
+          csi:
+            driver: csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              csi.cert-manager.io/issuer-name: sutura-nodes
+              csi.cert-manager.io/issuer-kind: Issuer
+              csi.cert-manager.io/dns-names: test-release-operator.default.svc
+              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+              csi.cert-manager.io/duration: 720h
+              csi.cert-manager.io/fs-group: "65532"
+
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-release-workers
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sutura-worker
+      app.kubernetes.io/instance: test-release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sutura-worker
+        app.kubernetes.io/instance: test-release
+    spec:
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: test-release
+      # A stage runs at most as long as the question it serves.
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: worker
+          image: "ghcr.io/telekom/sutura:latest-musl"
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: "production"
+            - name: SUTURA__SERVER__ROLE
+              value: worker
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: "8080"
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: "true"
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sutura-metrics-token
+                  key: token
+            - name: SUTURA__SECURITY__TLS_TERMINATION
+              value: "in-process"
+            - name: SUTURA__SERVER__TLS_CERTIFICATE
+              value: /etc/sutura/node/tls.crt
+            - name: SUTURA__SERVER__TLS_KEY
+              value: /etc/sutura/node/tls.key
+            - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+              value: /etc/sutura/node/ca.crt
+            - name: SUTURA__TELEMETRY__FORMAT
+              value: "bunyan"
+            - name: SUTURA__TELEMETRY__FILTER
+              value: "info"
+            - name: SUTURA__RUNTIME__SHUTDOWN_GRACE_SECONDS
+              value: "30"
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: "2"
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: "1610612736"
+          volumeMounts:
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: node
+          csi:
+            driver: csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              csi.cert-manager.io/issuer-name: sutura-nodes
+              csi.cert-manager.io/issuer-kind: Issuer
+              csi.cert-manager.io/dns-names: test-release-workers.default.svc
+              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+              csi.cert-manager.io/duration: 720h
+              csi.cert-manager.io/fs-group: "65532"
+---
+# Source: sutura/templates/worker-pool.yaml
+apiVersion: sutura.telekom.github.io/v1alpha1
+kind: SuturaWorkerPool
+metadata:
+  name: test-release
+  labels:
+    app.kubernetes.io/name: sutura
+    helm.sh/chart: sutura-0.1.0
+    app.kubernetes.io/instance: test-release
+    app.kubernetes.io/version: "latest"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  workers: test-release-workers
+  serving: test-release
+  min: 0
+  max: 3
+  warm: 0
+  idleAfterSeconds: 300
