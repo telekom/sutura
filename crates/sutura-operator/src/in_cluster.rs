@@ -3,7 +3,13 @@
 //!
 //! A pod's `/metrics` is read over TLS, dialled at the pod's own address and its certificate checked
 //! against `server.tls_node_authority` for the name `<deployment>.<namespace>.svc`: the name every
-//! pod of a Deployment carries, since a certificate issued to a pod cannot name its address.
+//! pod of a Deployment carries, since a certificate issued to a pod cannot name its address. This
+//! check only verifies a server, so the operator holds no node client certificate: its own pod mounts
+//! the CA bundle alone.
+//!
+//! `operator.workers`/`operator.serving` name the only two Deployments this [`Cluster`] ever reads or
+//! writes: a `SuturaWorkerPool` naming any other one is refused in `reconcile::size` before its scale
+//! is read at all.
 //!
 //! **Untested here.** The cells in `reconcile` hold a fake; nothing in this crate's tests reaches an
 //! API server or a pod.
@@ -17,11 +23,11 @@ use k8s_openapi::api::autoscaling::v1::Scale as ScaleObject;
 use k8s_openapi::api::core::v1::Pod;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use serde::de::DeserializeOwned;
-use sutura_config::ApiGroup;
+use sutura_config::{ApiGroup, DeploymentName};
 use sutura_domain::identity::Secret;
 use sutura_http_client::{Pinned, ReadBounds};
 
-use crate::{Cluster, PLURAL, Pods, Pools, Scale, VERSION, WorkerPoolSpec, WorkerPoolStatus};
+use crate::{AllowedDeployments, Cluster, PLURAL, Pods, Pools, Scale, VERSION, WorkerPoolSpec, WorkerPoolStatus};
 
 /// Where the kubelet mounts the pod's service account token, its namespace and the cluster's CA.
 const ACCOUNT: &str = "/var/run/secrets/kubernetes.io/serviceaccount";
@@ -37,6 +43,7 @@ pub struct InCluster<'a> {
     group: &'a ApiGroup,
     metrics_token: Option<&'a Secret>,
     cap: u64,
+    allowed: AllowedDeployments,
 }
 
 /// A ready pod's name, where its `/metrics` is served, and the name its certificate carries.
@@ -53,6 +60,8 @@ impl<'a> InCluster<'a> {
         group: &'a ApiGroup,
         metrics_token: Option<&'a Secret>,
         node_authority: Option<&Path>,
+        workers: Option<&DeploymentName>,
+        serving: Option<&DeploymentName>,
         bounds: ReadBounds,
     ) -> Result<Self, ClusterError> {
         let variable = |name| std::env::var(name).map_err(|_unset| ClusterError::NotInCluster);
@@ -67,6 +76,8 @@ impl<'a> InCluster<'a> {
         let node_authority = node_authority.ok_or(ClusterError::NoNodeAuthority)?;
         let nodes = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(node_authority.to_path_buf()))
             .map_err(ClusterError::NodeAuthority)?;
+        let workers = workers.ok_or(ClusterError::NoWorkersName)?.clone();
+        let serving = serving.ok_or(ClusterError::NoServingName)?.clone();
         Ok(Self {
             api: sutura_http_client::fixed(bounds, Some(anchors)).current(),
             pods: Pinned::new(bounds, nodes),
@@ -76,6 +87,7 @@ impl<'a> InCluster<'a> {
             group,
             metrics_token,
             cap: bounds.max_response_bytes(),
+            allowed: AllowedDeployments::new(workers, serving),
         })
     }
 
@@ -200,6 +212,20 @@ impl Cluster for InCluster<'_> {
         let path = format!("{}/{name}/status", self.pools_path());
         self.patch(&path, &serde_json::json!({ "status": status }))
     }
+
+    fn allowed(&self) -> Option<&AllowedDeployments> {
+        Some(&self.allowed)
+    }
+
+    /// Patches only `status.refusal`, leaving `status.replicas` as whatever the API object already
+    /// holds: a merge patch (`application/merge-patch+json`) omits a field rather than clearing it. A
+    /// pool refused after it was already sized keeps reporting its last `replicas` alongside the new
+    /// `refusal`; a pool refused before its workers were ever read has no `replicas` yet, and the
+    /// definition's status schema does not require one, so its status carries only `refusal`.
+    fn refuse(&mut self, name: &str, why: &str) -> Result<(), ClusterError> {
+        let path = format!("{}/{name}/status", self.pools_path());
+        self.patch(&path, &serde_json::json!({ "status": { "refusal": why } }))
+    }
 }
 
 /// Where `pod`'s `/metrics` is served, when it is ready, has an address and a port named `http`.
@@ -272,6 +298,10 @@ pub enum ClusterError {
     NoNodeAuthority,
     #[error("`server.tls_node_authority` is not a trust anchor bundle")]
     NodeAuthority(#[source] sutura_tls::LoadError),
+    #[error("`operator.workers` is not set: the operator sizes one named Deployment, never whatever a pool names")]
+    NoWorkersName,
+    #[error("`operator.serving` is not set: the operator reads demand from one named Deployment, never whatever a pool names")]
+    NoServingName,
     #[error("`{path}` was not reached")]
     Request {
         path: String,

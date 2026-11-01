@@ -176,13 +176,13 @@ const API_GROUP: Subject = Subject {
     variants: variants(2),
 };
 
-/// One refused worker pool: its `min` above its `max`. One variant, so every file naming it names
-/// them all and is a census - `devco/pool-refusals-unprovoked-allow` says why it is excused.
+/// One refused worker pool: its `min` above its `max`, or its `spec` naming a Deployment other than
+/// the two the operator started with (#1680 finding 4).
 const POOL: Subject = Subject {
     name: "InvalidPool",
     declared_in: "crates/sutura-operator/src/lib.rs",
     allow_file: "devco/pool-refusals-unprovoked-allow",
-    variants: variants(1),
+    variants: variants(3),
 };
 
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s

@@ -70,6 +70,18 @@ The pool needs cert-manager and its CSI driver, and a CA issuer named in `worker
 Every pod gets its own certificate from that issuer and ends TLS itself, so the chart refuses `tls.enabled` or a `security.tlsTermination` other than `in-process`.
 A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
 The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
+The operator's Role may `get` the serving and worker Deployments' `scale` by name and `patch` only the
+worker's, both narrowed to those two names by `resourceNames`, which the API server itself enforces
+(github.com/telekom/sutura#1680 finding 4); it also refuses, in its own reconcile loop, a
+`SuturaWorkerPool` naming any other Deployment before reading either one's scale, a check that keeps
+holding even if the Role is later widened. `list`/`patch` on `pods` cannot be scoped by `resourceNames`
+or a label selector, so that grant reaches every pod in the release's namespace: any field a pod patch
+can reach there, not only `controller.kubernetes.io/pod-deletion-cost`, which is all the operator
+itself ever writes (see the ADR's Limits for what that allows). The operator's own pod mounts only the
+CA bundle from its node certificate (`ca.crt`, via `subPath`) and requests no `client auth` usage: its
+own certificate can verify a scraped pod's server certificate and can never be presented as a client
+one - a property of that certificate, not of the RBAC token above
+(`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Limits).
 
 ### Node issuer
 

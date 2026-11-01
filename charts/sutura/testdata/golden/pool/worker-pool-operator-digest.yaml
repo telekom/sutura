@@ -133,8 +133,6 @@ spec:
                 maximum: 4294967295.0
                 minimum: 0.0
                 type: integer
-            required:
-            - replicas
             title: WorkerPoolStatus
             type: object
         required:
@@ -164,10 +162,22 @@ rules:
   - apiGroups: ["sutura.telekom.github.io"]
     resources: ["suturaworkerpools/status"]
     verbs: ["patch"]
+  # `get` reads both Deployments' replica counts and selectors; `patch` only ever resizes the
+  # workers, named here rather than left open to whatever a `SuturaWorkerPool` names
+  # (the operator refuses a foreign name itself, before either call: `InvalidPool::Foreign*`).
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
-    verbs: ["get", "patch"]
-  # `patch` sets each pod's deletion cost, so a scale-down removes an idle worker first.
+    verbs: ["get"]
+    resourceNames: ["test-release", "test-release-workers"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["patch"]
+    resourceNames: ["test-release-workers"]
+  # `list`/`patch` on pods cannot be named by `resourceNames` or narrowed to a label selector: this
+  # grant lets the operator's token patch any field a pod patch can reach on any pod in the
+  # namespace - including each container's `image`, which restarts it under that pod's own service
+  # account and mounts - not only set `pod-deletion-cost` on an idle worker, which is all this
+  # operator itself ever writes (docs/adr/20261030193029-operator-sizes-the-worker-pool.md, Limits).
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["list", "patch"]
@@ -412,6 +422,10 @@ spec:
               value: "production"
             - name: SUTURA__OPERATOR__API_GROUP
               value: "sutura.telekom.github.io"
+            - name: SUTURA__OPERATOR__WORKERS
+              value: "test-release-workers"
+            - name: SUTURA__OPERATOR__SERVING
+              value: "test-release"
             - name: SUTURA__SECURITY__METRICS_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -420,8 +434,13 @@ spec:
             - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
               value: /etc/sutura/node/ca.crt
           volumeMounts:
+            # Only the CA bundle, not the pair the CSI driver also issues into this volume: the
+            # operator verifies a pod's server certificate and holds no node client identity of its
+            # own (`subPath` selects one file from the volume; the driver still writes the other two,
+            # outside this container's view).
             - name: node
-              mountPath: /etc/sutura/node
+              mountPath: /etc/sutura/node/ca.crt
+              subPath: ca.crt
               readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
@@ -432,6 +451,9 @@ spec:
           resources:
             {}
       volumes:
+        # No `client auth` usage: this covers the operator's own pod and certificate, not its RBAC
+        # token. If this certificate were ever presented as a client one, every node's own TLS gate
+        # refuses it - webpki checks a client certificate's EKU as required-if-present.
         - name: node
           csi:
             driver: csi.cert-manager.io
@@ -440,7 +462,7 @@ spec:
               csi.cert-manager.io/issuer-name: sutura-nodes
               csi.cert-manager.io/issuer-kind: Issuer
               csi.cert-manager.io/dns-names: test-release-operator.default.svc
-              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+              csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth
               csi.cert-manager.io/duration: 720h
               csi.cert-manager.io/fs-group: "65532"
 

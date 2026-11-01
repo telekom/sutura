@@ -88,6 +88,27 @@ and what they may hold?
    writes the worker one's, by name, and lists pods and patches their annotations. The metrics token
    is mounted into its pod, not read through the API. Only the custom resource definition is
    cluster-scoped, and the chart installs it.
+
+   **Amended 2026-11-01** (`github.com/telekom/sutura#1680` finding 4): `deployments/scale`'s `get`
+   rule names both Deployments by `resourceNames` (`<fullname>` and `<fullname>-workers`), and its
+   `patch` rule names only `<fullname>-workers`. The names come from `operator.workers`/
+   `operator.serving`, two settings the chart sets and `sutura-operator run` refuses to start
+   without. Naming the rule does not make the operator trust a `SuturaWorkerPool`'s own `spec`: it
+   is refused, before either Deployment's scale is ever read, if it names anything other than those
+   same two Deployments (`InvalidPool::ForeignWorkers`/`ForeignServing`, reported through the
+   resource's existing `status.refusal` field). A pool refused before it was ever sized has no
+   `status.replicas` yet, so the definition's status schema no longer requires that field - only
+   `required: [spec]` applies to the resource as a whole - and the merge-patch writing `refusal`
+   carries no invented replica count. No schema `default` is added either, which would let the API
+   server invent a size that was never read. A pool refused after it was already sized keeps its
+   last `status.replicas` alongside the new `refusal`, since the patch only ever sets fields it has
+   a value for. The operator also holds only the
+   CA bundle from its node certificate volume (`subPath: ca.crt`) and requests no `client auth` key
+   usage on its own certificate: scraping a pod's `/metrics` only verifies that pod's server
+   certificate against the CA, and the operator never presents one of its own as a client. A
+   serverAuth-only certificate would in any case be refused if it were ever presented as a client
+   one - every node's own TLS gate checks a client certificate's extended key usage as
+   required-if-present. Per-worker certificates (Decision 12) are unaffected.
 10. **Verified in the k3s VM venue.** The test that already scales the chart also installs the
     operator and one `SuturaWorkerPool`, and checks the warm reserve, scaling on demand from an empty
     pool and back to it, idle-first removal and a refused worker configuration. The operator's paths
@@ -119,13 +140,14 @@ and what they may hold?
 
 ## The refusals this adds
 
-| Where        | Refused                                                           | Why         |
-| ------------ | ----------------------------------------------------------------- | ----------- |
-| Worker       | A configuration `sutura-config` refuses, at startup               | Decision 7  |
-| Worker       | A configuration that declares a source or a catalog, at startup   | Decision 7  |
-| Operator     | A `SuturaWorkerPool` whose `min` is above its `max`               | Decision 4  |
-| Operator     | An API group that is not a lowercase DNS subdomain                | Decision 14 |
-| Serving node | A cross-node question whose workers are not ready within its wait | Decision 11 |
+| Where        | Refused                                                                          | Why         |
+| ------------ | -------------------------------------------------------------------------------- | ----------- |
+| Worker       | A configuration `sutura-config` refuses, at startup                              | Decision 7  |
+| Worker       | A configuration that declares a source or a catalog, at startup                  | Decision 7  |
+| Operator     | A `SuturaWorkerPool` whose `min` is above its `max`                              | Decision 4  |
+| Operator     | An API group that is not a lowercase DNS subdomain                               | Decision 14 |
+| Operator     | A `SuturaWorkerPool` naming a Deployment it does not own (2026-11-01, finding 4) | Decision 9  |
+| Serving node | A cross-node question whose workers are not ready within its wait                | Decision 11 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal gets its own cell.
 
@@ -150,8 +172,37 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
   Deployment by hand is not refused. The chart mounts none.
 - **The chart leaves the worker count unset**, so an upgrade keeps the count the operator set. A
   new worker Deployment starts with one worker, removed after `idleAfter` if nothing asks for it.
-- **Pod patches are namespace-wide.** RBAC cannot narrow them to the workers' labels, so the
-  operator may annotate any pod in its namespace.
+- **Pod patches are namespace-wide, and a pod patch reaches more than its deletion cost.** RBAC
+  cannot narrow `list`/`patch` on `pods` by `resourceNames` or a label selector, so the operator's
+  token may list and patch any pod in its namespace, not only the workers'. The operator itself
+  writes only `controller.kubernetes.io/pod-deletion-cost`, but the grant does not stop there: a pod
+  patch can set any metadata (labels, annotations, owner references, finalizers) and, in spec, each
+  container's or init container's `image`, `activeDeadlineSeconds`, add tolerations, and change
+  `terminationGracePeriodSeconds` only from a negative value to `1`. Changing a
+  container's image restarts that container under the pod's own service account and existing
+  volume mounts, which can reach whatever source credential or node certificate that pod already
+  holds; changing its labels can pull it out of its ReplicaSet's or Service's selector, detaching it
+  from traffic or from the controller that would otherwise replace it. **(Amended 2026-11-01,
+  finding 4)** `deployments/scale`, unlike `pods`, *is* narrowed: `get` names the serving and worker
+  Deployments, `patch` names only the worker one, by `resourceNames`, which the API server itself
+  enforces with a 403 - RBAC does not need the operator's cooperation for that. The operator
+  additionally refuses, in its own reconcile loop, a `SuturaWorkerPool` naming any other Deployment:
+  a second, independent check that keeps refusing and reporting through `status.refusal` even if the
+  Role above is later widened to drop `resourceNames`, which `resourceNames` alone cannot do for
+  itself.
+- **The operator's own certificate holds no client identity - its RBAC token is a separate matter.**
+  Mounting only `ca.crt` and requesting no `client auth` usage (above, Decision 9's amendment) means
+  the operator's own pod can verify a scraped pod's server certificate but can never present that
+  certificate as a client one to anything that checks for it; every node's own TLS gate would refuse
+  it there regardless, since webpki checks a client certificate's extended key usage as
+  required-if-present. This covers only the operator's own certificate. It says nothing about its
+  RBAC token, which - through the pod-patch reach described above - can still restart some other
+  pod's container under an image of the attacker's choosing, reaching that other pod's own node
+  certificate indirectly. cert-manager's CSI driver also still issues a full key pair into the
+  operator's own pod volume outside the running container regardless of which usages are requested;
+  `subPath: ca.crt` only limits what the mounted file exposes, and a renewed certificate is not
+  re-read through that `subPath` - acceptable here because the operator reads the authority once, at
+  process start, not on every scrape.
 - **The default group is a name, not a domain anyone checks.** Kubernetes does not ask whoever
   installs a definition to prove control of its group. The definition is cluster-scoped, so two
   releases in one cluster need different groups. Helm is expected to refuse the second install of a

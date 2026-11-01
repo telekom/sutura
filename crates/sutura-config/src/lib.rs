@@ -140,7 +140,9 @@ pub use crate::inbound::{
     TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
-pub use crate::operator::{ApiGroup, InvalidApiGroup, OperatorSettings, OperatorSettingsError};
+pub use crate::operator::{
+    ApiGroup, DeploymentName, InvalidApiGroup, InvalidDeploymentName, OperatorSettings, OperatorSettingsError,
+};
 pub use crate::prompt::{
     CatalogProse, InstructionsFile, InstructionsMaxBytes, InvalidPromptSettings, PromptSettings, UnknownCatalogProse,
 };

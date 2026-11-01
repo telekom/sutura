@@ -8,7 +8,7 @@ mod in_cluster;
 mod reconcile;
 
 pub use in_cluster::{ClusterError, InCluster, Target};
-pub use reconcile::{Cluster, Failed, Pods, Pools, Scale, tick};
+pub use reconcile::{AllowedDeployments, Cluster, Failed, Pods, Pools, Scale, tick};
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -136,6 +136,10 @@ pub fn deletion_cost(in_flight: u64) -> i32 {
 pub enum InvalidPool {
     #[error("`min` is {min} and `max` is {max}: a pool's floor cannot be above its ceiling")]
     MinAboveMax { min: u32, max: u32 },
+    #[error("`{name}` is not the Deployment this operator sizes")]
+    ForeignWorkers { name: String },
+    #[error("`{name}` is not the Deployment this operator reads demand from")]
+    ForeignServing { name: String },
 }
 
 /// The `SuturaWorkerPool` definition under `group`: namespaced, one version, a status subresource.
@@ -156,14 +160,18 @@ pub fn definition(group: &ApiGroup) -> Result<CustomResourceDefinition, serde_js
         }))
         .into_generator();
     let props = |schema: Schema| serde_json::from_value::<JSONSchemaProps>(schema.to_value());
+    // `replicas` is not `required`: a pool refused before it is ever sized (`InvalidPool::Foreign*`)
+    // has a status with only `refusal`, and the API server would reject that merge patch otherwise.
+    // No `default` is added either - the server would apply it and invent a size that was never read.
+    let mut status = props(generator.root_schema_for::<WorkerPoolStatus>())?;
+    if let Some(required) = status.required.as_mut() {
+        required.retain(|field| field != "replicas");
+    }
     let root = JSONSchemaProps {
         type_: Some(String::from("object")),
         properties: Some(BTreeMap::from([
             (String::from("spec"), props(generator.root_schema_for::<WorkerPoolSpec>())?),
-            (
-                String::from("status"),
-                props(generator.root_schema_for::<WorkerPoolStatus>())?,
-            ),
+            (String::from("status"), status),
         ])),
         required: Some(vec![String::from("spec")]),
         ..JSONSchemaProps::default()
