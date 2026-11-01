@@ -1,23 +1,31 @@
-# Two `sutura serve` processes in two NixOS VMs, over the network between them (`telekom/sutura#828`).
-# `query` answers recurring revenue by region; `customers` lives on `source`, so `query` sends that
-# leg over Flight to `source`, which runs it against ClickHouse signed in as the caller. The two
-# nodes declare each other and a leg size of one byte, so `query` plans the combine's stages above a
-# repartition across both rather than on itself first.
+# Two `sutura serve` processes and a `server.role: worker` in three NixOS VMs, over the network
+# between them (`telekom/sutura#828`). `query` answers recurring revenue by region; `customers` lives
+# on `source`, so `query` sends that leg over Flight to `source`, which runs it against ClickHouse
+# signed in as the caller. `query` declares `source` and `spare` as its other nodes and a leg size of
+# one byte, so it plans the combine's stages above a repartition across all three rather than on
+# itself first.
 #
 # What is observed: the federated answer equals the one-source golden for a caller ClickHouse shows
 # every customer, and for a caller its row policy shows only `north`, everything else falls to the
 # outer join's null region - so the leg ran as the caller's own ClickHouse user, two hops from where
 # they asked. Each hop's exchange is read out of the identity provider's journal, and an anonymous
-# question is refused at `query`. After the first question `source` holds a link it dialled to a
-# node's listener and before it none: a node dials one only to read the input of a stage it was sent.
+# question is refused at `query`. After a question `source` holds a link it dialled to a node's
+# listener and before any none: a node dials one only to read the input of a stage it was sent.
+# `spare`, killed while a stage it runs reads its input, fails that question as `node_lost`, a 503;
+# started again, the next question is answered across all three. The wall clock of twenty answers is
+# printed after the conditions it was taken under (`telekom/sutura#140`).
 # `source`'s worker service refuses a call with no client certificate, fails the handshake of one with
 # a certificate another CA signed, and passes a call with `query`'s own certificate on to the engine.
 #
 # What this does not show: nobody signs in - `nix/multi-node-idp.py` is a fake identity provider, one
-# per VM over one key, and the test mints the callers' tokens. One question per caller: nothing here
-# measures load, a slow peer or a node going away. The link shows that a stage ran on `source`, not
-# how much of the combine did. One CA signs both node certificates and is also the node authority.
-# A call with a node's certificate is any node's: nothing checks which task it may run.
+# per VM over one key, and the test mints the callers' tokens. Nothing here measures load. The lost
+# node is killed, so its peers see its connections close: a node that vanishes without closing them,
+# as a lost machine or a partition does, is not measured, and neither is a lost serving node. `spare`'s
+# stage is caught running by its outbound traffic being held 1.5 s, so the link it dialled is up while
+# the stage's input is still on its way. The wall clock is one VM's, under nested virtualisation on a
+# shared CI runner, over a network of VMs on one host. The link shows that a stage ran on `source`, not
+# how much of the combine did. One CA signs every node certificate and is also the node authority. A
+# call with a node's certificate is any node's: nothing checks which task it may run.
 { pkgs, sutura, clickhouse, clickhouseDriver, example, golden }:
 let
   python = pkgs.python3.withPackages (p: [ p.pyjwt p.cryptography ]);
@@ -32,7 +40,7 @@ let
     mkdir "$out" && cd "$out"
     printf '[req]\ndistinguished_name=dn\nx509_extensions=ca\nprompt=no\n[dn]\nCN=multi-node-ca\n[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\nsubjectKeyIdentifier=hash\n' > ca.cnf
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 3650 -config ca.cnf
-    for node in query source; do
+    for node in query source spare; do
       openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout $node.key -out $node.csr -subj /CN=$node
       printf 'subjectAltName=DNS:%s\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' $node > $node.ext
       openssl x509 -req -in $node.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out $node.pem -days 3650 -extfile $node.ext
@@ -81,16 +89,19 @@ let
     telemetry.format = "bunyan";
     catalogs = [{ name = "model"; kind = "markdown"; dir = "${catalog}"; data_dir = "${example}/data"; inherit version; }];
   } // rest));
-  # A node's listener: over TLS, beside its node certificate and authority, and declaring the other.
-  listener = own: other: {
+  # A node's listener over TLS, beside its node certificate and authority.
+  pair = own: {
     host = "0.0.0.0";
     port = 8443;
     tls_certificate = "${material}/${own}.pem";
     tls_key = "${material}/${own}.key";
     tls_node_authority = "${material}/ca.pem";
+  };
+  # The same, declaring the other nodes.
+  listener = own: others: pair own // {
     # The fixtures' legs are a few hundred bytes, which one node holds, so a combine reading both
     # data systems would stay on `query`; one byte sends every such combine across.
-    nodes = { own = "https://${own}:8443"; others = [ "https://${other}:8443" ]; across_above_bytes = 1; };
+    nodes = { own = "https://${own}:8443"; others = map (other: "https://${other}:8443") others; across_above_bytes = 1; };
   };
   offHost = { tls_termination = "in-process"; metrics_token = "multi-node-metrics-token-0000000000"; };
   local = {
@@ -153,7 +164,7 @@ pkgs.testers.runNixOSTest {
     systemd.services.idp = daemon "${idp} idp ${material}/idp.key ${kid} ${material}/client-secret 9100";
     systemd.services.sutura = serve
       (settings {
-        server = listener "query" "source";
+        server = listener "query" [ "source" "spare" ];
         security = offHost // { inbound = inbound "https://query"; outbound.transport_anchors = "${material}/ca.pem"; };
         sources = {
           inherit local;
@@ -176,7 +187,7 @@ pkgs.testers.runNixOSTest {
     };
     systemd.services.sutura = serve
       (settings {
-        server = listener "source" "query" // { flight_surface.enabled = true; };
+        server = listener "source" [ "query" ] // { flight_surface.enabled = true; };
         security = offHost // { inbound = inbound "https://source"; };
         sources = {
           inherit local;
@@ -196,8 +207,22 @@ pkgs.testers.runNixOSTest {
       { SUTURA_CLICKHOUSE_ADBC_DRIVER = clickhouseDriver; };
   };
 
+  # A pool worker: no catalog and no source, the worker transport its one surface.
+  nodes.spare = {
+    networking.firewall.allowedTCPPorts = [ 8443 ];
+    systemd.services.sutura = serve
+      (pkgs.writeTextDir "base.yaml" (builtins.toJSON {
+        server = pair "spare" // { role = "worker"; };
+        security = offHost;
+        telemetry.format = "bunyan";
+        rate_limit.enabled = true;
+      }))
+      { };
+  };
+
   testScript = ''
     import json
+    import statistics
 
     QUESTION = '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
     SERVICE = "-H 'X-ClickHouse-User: sutura' -H 'X-ClickHouse-Key: ${servicePassword}'"
@@ -214,11 +239,13 @@ pkgs.testers.runNixOSTest {
         return {row["region"]: int(row["recurring_revenue"]) for row in rows}
 
 
-    def ask(sub: str) -> dict[str, int]:
+    def asking(sub: str) -> str:
         token = query.succeed(f"${idp} mint ${material}/idp.key ${kid} {sub} https://query sutura:metrics.ask").strip()
-        reply = json.loads(query.succeed(
-            f"curl -sS --cacert ${material}/ca.pem -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query"
-        ))
+        return f"curl -sS --cacert ${material}/ca.pem -H 'Authorization: Bearer {token}' -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query"
+
+
+    def ask(sub: str) -> dict[str, int]:
+        reply = json.loads(query.succeed(asking(sub)))
         assert reply.get("outcome") == "answer", reply
         region, revenue = reply["columns"].index("region"), reply["columns"].index("recurring_revenue")
         return {row[region]: int(row[revenue]) for row in reply["rows"]}
@@ -235,6 +262,8 @@ pkgs.testers.runNixOSTest {
     source.wait_for_unit("idp.service")
     source.succeed("systemctl start sutura")
     query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://source:8443/health", timeout=120)
+    spare.succeed("systemctl start sutura")
+    query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://spare:8443/health", timeout=120)
     query.wait_for_unit("idp.service")
     query.succeed("systemctl start sutura")
     query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://query:8443/health", timeout=120)
@@ -242,9 +271,24 @@ pkgs.testers.runNixOSTest {
     # A connection `source` dialled to a node's listener, its own or `query`'s.
     LINK = "ss -Htn state established dport = :8443 | grep -q ."
     source.fail(LINK)
+    spare.fail(LINK)
+
+    with subtest("a worker killed while a stage it runs reads its input fails the question as node_lost"):
+        # Everything `spare` sends is held 1.5 s, so the stage is still running once its link is up.
+        spare.succeed("tc qdisc add dev eth1 root netem delay 1500ms")
+        query.succeed(f"({asking('analyst_a')} -o /tmp/lost.json -w '%{{http_code}}' > /tmp/lost.status 2> /dev/null < /dev/null &)")
+        spare.wait_until_succeeds(LINK, timeout=60)
+        spare.succeed("systemctl kill --signal=SIGKILL sutura")
+        query.wait_until_succeeds("test -s /tmp/lost.status", timeout=60)
+        status, body = query.succeed("cat /tmp/lost.status"), query.succeed("cat /tmp/lost.json")
+        refused = json.loads(body).get("reason", {}).get("code") if body.startswith("{") else None
+        assert (status, refused) == ("503", "node_lost"), (status, body, query.succeed("journalctl -u sutura -o cat | tail -n 30"))
+
+    spare.succeed("tc qdisc del dev eth1 root", "systemctl start sutura")
+    query.wait_until_succeeds("curl -fsS --cacert ${material}/ca.pem https://spare:8443/health", timeout=120)
 
     expected = golden()
-    with subtest("a caller ClickHouse shows every customer gets the one-source answer"):
+    with subtest("a caller ClickHouse shows every customer gets the one-source answer, the worker started again"):
         assert ask("analyst_a") == expected, expected
 
     with subtest("source ran a stage of the combine, reading its input over a node link"):
@@ -258,6 +302,12 @@ pkgs.testers.runNixOSTest {
         query.succeed("journalctl -u idp | grep -F 'exchange sub=analyst_b audience=https://source'")
         source.succeed("journalctl -u idp | grep -F 'exchange sub=analyst_b audience=clickhouse'")
         source.succeed("journalctl -u checker | grep -F 'admit analyst_b'")
+
+    with subtest("twenty answers across the three nodes are timed, after the conditions they ran under"):
+        conditions = query.succeed("echo \"$(systemd-detect-virt) $(nproc) cores $(free -m | awk '/^Mem:/ {print $2}') MiB load $(cut -d' ' -f1-3 /proc/loadavg)\"").strip()
+        print(f"wall clock conditions: query {conditions}; three nodes, the leg over Flight to source and ClickHouse as the caller")
+        seconds = sorted(float(query.succeed(f"{asking('analyst_a')} -o /dev/null -w '%{{time_total}}'")) for _ in range(20))
+        print(f"wall clock of 20 federated answers (s): min {seconds[0]:.3f} median {statistics.median(seconds):.3f} p90 {seconds[17]:.3f} max {seconds[19]:.3f}")
 
     with subtest("an anonymous question is refused at the node it was asked"):
         status = query.succeed(f"curl -sS -o /dev/null -w '%{{http_code}}' --cacert ${material}/ca.pem -H 'Content-Type: application/json' --data '{QUESTION}' https://query:8443/v1/query")
