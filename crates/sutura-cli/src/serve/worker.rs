@@ -5,9 +5,9 @@
 //! built from the listener's pair and the node authority, served behind the node-certificate gate.
 //! `server.nodes` is not read.
 //!
-//! **Limits.** As on a serving node, the pair and the authority are read once, at boot, and a link
-//! carries no task grant: this node runs any stage that reads no source which a node of the same
-//! authority sends it.
+//! **Limits.** As on a serving node, the pair and the authority are read once, at boot. The worker
+//! admits only a call that carries its question's task grant, under the key the first call of
+//! that question installed: a node of the same authority installs that key.
 
 use sutura_config::{RuntimeSettings, Settings, TlsMaterial};
 use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
@@ -57,7 +57,10 @@ pub(super) fn mount(
     let identity = super::nodes::identity(tls, authority)?;
     let own = sutura_exec_datafusion::Nodes::worker(crate::sources::working_set(runtime), identity)
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
-    Ok(sutura_http::WorkerMount::new(own.into_worker_server()))
+    Ok(sutura_http::WorkerMount::new(
+        own.with_call_authorizer(sutura_exec_datafusion::TaskGrant::default())
+            .into_worker_server(),
+    ))
 }
 
 #[cfg(test)]

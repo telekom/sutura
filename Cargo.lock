@@ -1374,8 +1374,6 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99be6a2157fece40ed9f141105931998e57a2b5669365624243a8104368e0aad"
 dependencies = [
  "arrow-flight",
  "arrow-ipc",
@@ -4695,9 +4693,11 @@ dependencies = [
  "datafusion-federation",
  "flate2",
  "futures-util",
+ "getrandom 0.4.3",
  "h2",
  "hyper-util",
  "rcgen",
+ "ring",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
