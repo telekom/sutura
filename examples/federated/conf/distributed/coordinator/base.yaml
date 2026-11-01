@@ -1,0 +1,55 @@
+# The coordinating node for the "Distributed execution" variant of this example: the same
+# catalog and sources as ../../base.yaml, plus server.nodes declaring two workers. This node both
+# serves the question and plans the combine across the workers it lists in `others`.
+#
+# `across_above_bytes: 1` is not a production value - it is set this low so the example's own
+# small, two-system question actually crosses, which a realistic byte ceiling would not reach.
+# See docs/examples/federated.md's "Distributed execution" section for what this trades away.
+server:
+  host: "127.0.0.1"
+  port: 8443
+  tls_certificate: "/run/sutura/distributed/coordinator.pem"
+  tls_key: "/run/sutura/distributed/coordinator.key"
+  tls_node_authority: "/run/sutura/distributed/ca.pem"
+  nodes:
+    own: "https://127.0.0.1:8443"
+    others:
+      - "https://127.0.0.1:8444"
+      - "https://127.0.0.1:8445"
+    across_above_bytes: 1
+    wait_for_workers_seconds: 5
+security:
+  identity: "single-user"
+  single_user_because: "one operator reads both sources as the deployment's own user"
+  tls_termination: "in-process"
+catalogs:
+  - name: "datahub"
+    kind: "datahub"
+    dir: "/unused-for-datahub"
+    data_dir: "/unused-for-datahub"
+    version: "example"
+    endpoint: "http://127.0.0.1:8081"
+    token_file: "/run/sutura/datahub-token"
+    metric_property: "sutura"
+    platforms:
+      postgres: "billing"
+      clickhouse: "crm"
+sources:
+  billing:
+    kind: "postgres"
+    host: "127.0.0.1"
+    port: 5432
+    database: "federated"
+    user: "sutura"
+    password_file: "/run/sutura/postgres-password"
+    transport_mode: "verified"
+    transport_anchors: "/run/sutura/postgres-ca.pem"
+    posture: "shared-service-user"
+  crm:
+    kind: "clickhouse"
+    host: "127.0.0.1"
+    port: 8123
+    user: "default"
+    password_file: "/run/sutura/clickhouse-password"
+    transport_mode: "plaintext"
+    posture: "shared-service-user"

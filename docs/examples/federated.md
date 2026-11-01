@@ -83,6 +83,103 @@ curl -s -X POST http://127.0.0.1:8080/v1/query \
   -d '{"metrics":["recurring_revenue","active_customers"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
 ```
 
+## Distributed execution
+
+`server.nodes` lets several sutura processes plan one combine together: the node that receives a
+question still answers it, but when the combine is large enough it spreads the work over the
+workers it declares. A question that reads one data system never goes across, even one asking for
+several metrics there - that is one statement at that system. A question over two or more systems,
+like this example's, goes across only once its legs hold more than `server.nodes.across_above_bytes`
+(or a working-set ceiling, if that key is unset). See [Serving](../serving.md#tls) for the full
+`server.nodes` rule; the decision to spread a combine this way, and what it trades away, is
+summarized under Limits below.
+
+This feature merged to `main` after the last tagged release, so `ghcr.io/telekom/sutura:{{
+sutura_version }}-musl` - the image the rest of this page runs - predates it. Until a release ships
+it, build the image from this checkout instead:
+
+```sh
+nix build .#oci
+docker load < result
+```
+
+That produces a local `sutura:latest` image with `server.nodes` and the worker role compiled in.
+
+### Run the coordinator and two workers
+
+Nodes talk mutual TLS: every node's certificate must be signed by the one `tls_node_authority`
+this deployment declares, or a worker call is refused. `conf/distributed/` holds three settings
+directories - `coordinator`, `worker-1`, `worker-2` - and `compose.distributed.yaml` adds a
+one-shot service that writes a throwaway demo CA and one leaf certificate per node to
+`.local/distributed`. It is demo-only: the certificates last one day, `.gitignore` already covers
+`.local/`, and nothing here is fit to reuse.
+
+With `postgres`, `clickhouse` and `datahub` already up from [Run it](#run-it):
+
+```sh
+docker compose -f compose.yaml -f compose.distributed.yaml run --rm distributed-certs
+```
+
+Start both workers, then the coordinator, each in its own terminal from `examples/federated`:
+
+```sh
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "$PWD/conf/distributed/worker-1:/conf:ro" -v "$PWD/.local/distributed:/run/sutura/distributed:ro" \
+  -e SUTURA_CONFIG_DIR=/conf sutura:latest serve
+```
+
+```sh
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "$PWD/conf/distributed/worker-2:/conf:ro" -v "$PWD/.local/distributed:/run/sutura/distributed:ro" \
+  -e SUTURA_CONFIG_DIR=/conf sutura:latest serve
+```
+
+```sh
+docker run --rm --network host --user "$(id -u):$(id -g)" \
+  -v "$PWD/conf/distributed/coordinator:/conf:ro" -v "$PWD/.local:/run/sutura:ro" \
+  -e SUTURA_CONFIG_DIR=/conf sutura:latest serve
+```
+
+The coordinator reads the same secrets as the single-node example from `.local`, plus the demo
+certificates nested under `.local/distributed`. Post the same question, now over TLS:
+
+```sh
+curl -sk -X POST https://127.0.0.1:8443/v1/query \
+  -H 'content-type: application/json' \
+  -d '{"metrics":["recurring_revenue","active_customers"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
+```
+
+The answer is the same JSON as the single-node run - going across changes how the combine was
+computed, not its shape. To see that it actually crossed, watch the coordinator's own metrics while
+the request is in flight, in a third terminal:
+
+```sh
+curl -sk https://127.0.0.1:8443/metrics | grep sutura_worker_slots_wanted
+```
+
+`sutura_worker_slots_wanted` is a gauge the coordinator only moves while a combine is currently
+running across nodes; each worker's own `/metrics` carries `sutura_worker_requests_in_flight`,
+which moves only while that worker is answering a call. Because this example's combine finishes in
+well under a second, catching either gauge away from zero may take a couple of retries - there is
+no log line or answer field for this, by design (see Serving's limits).
+
+### Limits
+
+- The certificates are a demo CA generated fresh by `distributed-certs`, good for one day, with no
+  use beyond this example. All three node certificates carry the same `subjectAltName:IP:127.0.0.1`,
+  so on this loopback setup any one of them would verify for any of the three addresses - only the
+  port tells the nodes apart here. A real deployment's nodes have distinct hostnames, each named in
+  its own certificate.
+- `across_above_bytes: 1` is set far below any realistic ceiling so this example's small legs cross
+  at all; left unset, sutura's own working-set ceiling would keep a combine this size on one node.
+- Decision 5 of the ADR - a per-question task grant - is not built yet. A link today carries no
+  restriction beyond node-certificate identity: any certificate this demo CA signed can ask either
+  worker to run any stage, not just this question's.
+- One lost node costs the whole question (`503 node_lost`); nothing resumes a stage or re-plans
+  onto the nodes that remain.
+- This two-worker setup is not exercised by CI - it is unrun there, and only verified by hand as
+  described above.
+
 ## Related
 
 - [DataHub](../integrations/catalogs/datahub.md): the catalog settings, including `platforms`.
