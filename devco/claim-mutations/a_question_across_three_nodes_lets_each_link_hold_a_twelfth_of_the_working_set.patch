@@ -1,13 +1,13 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
-index 1023efebe..1b91ae003 100644
+index ac32179de..12bad6481 100644
 --- a/crates/sutura-exec-datafusion/src/combine/across.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across.rs
-@@ -185,7 +185,7 @@ impl Nodes {
+@@ -284,7 +284,7 @@ impl Nodes {
          let count = all.0.len();
          let mut links = DistributedConfig::default();
          links.worker_connection_buffer_budget_bytes =
 -            working_set.bytes().checked_div(count.saturating_mul(4)).unwrap_or_default();
 +            working_set.bytes().checked_div(count.saturating_mul(2)).unwrap_or_default();
-         let state = SessionStateBuilder::new()
+         let planned = SessionStateBuilder::new()
              .with_config(SessionConfig::new().with_target_partitions(count))
              .with_distributed_option_extension(links)

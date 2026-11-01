@@ -7,9 +7,10 @@
 //! plaintext deployment, or one with no node authority, never carries that marker, so the mount
 //! refuses every request there rather than serving one.
 //!
-//! **Limits.** The marker says that a node connected, not which one, and nothing yet says which task
-//! it may run. The host check, the rate limiter and the request bound's carve-outs are not applied
-//! here beyond what the outer router layers on every route.
+//! **Limits.** The marker says that a node connected, not which one. Which task it may run is decided
+//! by the task grant in front of the worker the mount serves, not here. The host check, the rate
+//! limiter and the request bound's carve-outs are not applied here beyond what the outer router
+//! layers on every route.
 
 use axum::extract::Request;
 use axum::http::StatusCode;

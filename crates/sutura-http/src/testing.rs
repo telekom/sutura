@@ -913,10 +913,10 @@ pub(crate) const A_QUESTION: &str =
 /// A request with a peer address attached.
 ///
 /// **The peer address is the part that cannot be left out.** The limiter keys on the connection's
-/// address, which `axum::serve` attaches via `into_make_service_with_connect_info`; a `oneshot` has no
-/// connection, so this inserts one. Without it the limiter reports that it cannot extract a key and
-/// limits nothing - which is also the failure mode in production if that call is ever dropped from
-/// [`crate::server::serve`].
+/// address, which `crate::server::run` attaches to each accepted connection's request extensions
+/// (see `crate::server::PeerInfo`); a `oneshot` has no connection, so this inserts one. Without it
+/// the limiter reports that it cannot extract a key and limits nothing - which is also the failure
+/// mode in production if that attachment is ever dropped from [`crate::server::serve`].
 ///
 /// Here rather than in `crate::harness`, which is where it was, because four test modules had grown
 /// four copies of it - and a copy that forgot the peer address would have looked like a passing test

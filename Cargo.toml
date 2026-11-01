@@ -118,7 +118,7 @@ members = [
 # no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
 # also keeps `--workspace` clippy and tests off third-party code, which is the reason this
 # looked like a style choice the first time.
-exclude = ["vendor/adbc_clickhouse", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
+exclude = ["vendor/adbc_clickhouse", "vendor/datafusion-distributed", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.11.0"
@@ -470,8 +470,8 @@ axum = { version = "0.8", default-features = false, features = [
 # (`docs/adr/0023`). No new package: 1.5.0 already resolves through `axum` and `tower-http` in
 # `sutura-http`/`sutura-cli`, and `Cargo.lock` holds exactly one version of it.
 http = "1.5"
-# `TokioIo`, handing that connector's stream to the gRPC client.
-hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "http1", "service"] }
+hyper = { version = "1.11", default-features = false }
 # The middleware abstraction every layer below is written against.
 tower = "0.5"
 # `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.

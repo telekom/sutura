@@ -70,7 +70,7 @@ async fn a_node_the_authority_signed_and_a_caller_with_none_get_in_and_another_a
         }),
     );
     let serving = tokio::spawn(async move {
-        let _outcome = axum::serve(listener, crate::server::connected(router)).await;
+        let _outcome = crate::server::run(listener, router, sutura_runtime::Shutdown::new()).await;
     });
 
     let signed = exchange(port, "/who", ours.presented_to(&pair)).await;

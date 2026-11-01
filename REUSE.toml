@@ -94,6 +94,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Oracle and/or its affiliates"
 SPDX-License-Identifier = "UPL-1.0 OR Apache-2.0"
 
+# The vendored distributed engine, the published 4.0.0 crate plus one local patch `VENDOR.md`
+# records. Apache-2.0; the copyright line is the one in its own `LICENSE.txt`.
+[[annotations]]
+path = "vendor/datafusion-distributed/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
+
 # The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
 # its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
 #

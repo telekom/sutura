@@ -1,0 +1,382 @@
+#[cfg(test)]
+use super::parquet::register_parquet_tables;
+use crate::coordinator::DistributedExec;
+#[cfg(test)]
+use crate::events::{
+    DesiredTaskCountHandlers, ScaleUpLeafNodeHandlers, file_scan_config_desired_task_count,
+    file_scan_config_scale_up_leaf_node,
+};
+use crate::stage::Stage;
+#[cfg(test)]
+use crate::{
+    DesiredTaskCountEvent, DesiredTaskCountEventResponse, DesiredTaskCountHandler,
+    DistributedConfig, DistributedExt, SessionStateBuilderExt, display_plan_ascii,
+    test_utils::in_memory_channel_resolver::InMemoryWorkerResolver,
+};
+use crate::{NetworkBoundaryExt, TaskKey};
+#[cfg(test)]
+use datafusion::{
+    common::Result,
+    execution::{SessionState, context::SessionContext, session_state::SessionStateBuilder},
+    physical_plan::displayable,
+    prelude::SessionConfig,
+};
+use datafusion::{
+    common::{HashMap, HashSet},
+    physical_plan::ExecutionPlan,
+};
+use std::sync::Arc;
+
+/// count_plan_nodes counts the number of execution plan nodes in a plan using BFS traversal.
+/// This does NOT traverse child stages, only the execution plan tree within this stage.
+/// Network boundary nodes are counted but their children (which belong to child stages) are not traversed.
+pub fn count_plan_nodes_up_to_network_boundary(plan: &Arc<dyn ExecutionPlan>) -> usize {
+    let mut count = 0;
+    let mut queue = vec![plan];
+
+    while let Some(plan) = queue.pop() {
+        // Include the network boundary in the count.
+        count += 1;
+
+        // Stop at network boundaries - don't traverse into child stages
+        if plan.as_ref().is_network_boundary() {
+            continue;
+        }
+
+        // Add children to the queue for BFS traversal
+        for child in plan.children() {
+            queue.push(child);
+        }
+    }
+    count
+}
+
+/// Returns
+/// - a map of all stages
+/// - a set of all the task keys (one per task)
+pub fn get_stages_and_task_keys(
+    stage: &DistributedExec,
+) -> (HashMap<usize, &Stage>, HashSet<TaskKey>) {
+    let mut i = 0;
+    let mut queue = find_input_stages(stage);
+    let mut task_keys = HashSet::new();
+    let mut stages_map = HashMap::new();
+
+    while i < queue.len() {
+        let stage = queue[i];
+        stages_map.insert(stage.num(), stage);
+        i += 1;
+
+        // Add each task.
+        for j in 0..stage.task_count() {
+            task_keys.insert(TaskKey {
+                query_id: stage.query_id(),
+                stage_id: stage.num(),
+                task_number: j,
+            });
+        }
+
+        // Add any child stages
+        queue.extend(find_input_stages(stage.local_plan().unwrap().as_ref()));
+    }
+    (stages_map, task_keys)
+}
+
+fn find_input_stages(plan: &dyn ExecutionPlan) -> Vec<&Stage> {
+    let mut result = vec![];
+    for child in plan.children() {
+        if let Some(plan) = child.as_network_boundary() {
+            result.push(plan.input_stage());
+        } else {
+            result.extend(find_input_stages(child.as_ref()));
+        }
+    }
+    result
+}
+
+/// Create a plan from a context and queries
+///
+/// NOTE: some functionality wrapped and available in TestPlanBuilder
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct TestPlan {
+    ctx: SessionContext,
+}
+
+#[cfg(test)]
+impl TestPlan {
+    /// get the physical plan of a query
+    pub async fn physical_plan(&self, query: &str) -> Arc<dyn ExecutionPlan> {
+        let df = self.ctx.sql(query).await.unwrap();
+        df.create_physical_plan().await.unwrap()
+    }
+
+    /// get the physical plan of a query as a string
+    pub async fn physical_plan_as_string(&self, query: &str) -> String {
+        let plan = self.physical_plan(query).await;
+        displayable(plan.as_ref()).indent(true).to_string()
+    }
+
+    pub fn get_ctx(&self) -> &SessionContext {
+        &self.ctx
+    }
+}
+
+/// Ergonomic builder for constructing a [TestPlan] in unit tests.
+///
+/// Wraps [SessionConfig] and [SessionStateBuilder] behind named knobs so tests can
+/// declare *what* they want (workers, broadcast, a task estimator) without managing
+/// the order distributed settings must be applied in. [`TestPlanBuilder::build`]
+/// resolves that order: config, then default features, then the distributed planner
+/// and any [DistributedConfig] modifiers.
+#[cfg(test)]
+pub(crate) struct TestPlanBuilder {
+    target_partitions: Option<usize>,
+    num_workers: Option<usize>,
+    distributed_planner: bool,
+    distributed_cardinality_effect_task_scale_factor: Option<f64>,
+    distributed_file_scan_config_bytes_per_partition: Option<usize>,
+    information_schema: Option<bool>,
+    broadcast_joins: bool,
+    desired_task_count_handler: Option<Arc<dyn DesiredTaskCountHandler>>,
+    distributed_partial_reduce: Option<bool>,
+    distributed_children_isolator_unions: Option<bool>,
+    distributed_max_tasks_per_stage: Option<usize>,
+    prefer_hash_join: Option<bool>,
+    hash_join_single_partition_threshold: Option<usize>,
+    hash_join_single_partition_threshold_rows: Option<usize>,
+}
+
+#[cfg(test)]
+impl TestPlanBuilder {
+    pub fn new() -> Self {
+        Self {
+            target_partitions: None,
+            num_workers: None,
+            distributed_planner: false,
+            distributed_cardinality_effect_task_scale_factor: None,
+            distributed_file_scan_config_bytes_per_partition: Some(1),
+            information_schema: None,
+            broadcast_joins: false,
+            desired_task_count_handler: None,
+            distributed_partial_reduce: None,
+            distributed_children_isolator_unions: None,
+            distributed_max_tasks_per_stage: None,
+            prefer_hash_join: None,
+            hash_join_single_partition_threshold: None,
+            hash_join_single_partition_threshold_rows: None,
+        }
+    }
+
+    pub fn target_partitions(mut self, target_partitions: usize) -> Self {
+        self.target_partitions = Some(target_partitions);
+        self
+    }
+
+    pub fn num_workers(mut self, num_workers: usize) -> Self {
+        self.num_workers = Some(num_workers);
+        self
+    }
+
+    pub fn distributed_planner(mut self, enabled: bool) -> Self {
+        self.distributed_planner = enabled;
+        self
+    }
+
+    pub fn distributed_cardinality_effect_task_scale_factor(mut self, factor: f64) -> Self {
+        self.distributed_cardinality_effect_task_scale_factor = Some(factor);
+        self
+    }
+
+    pub fn distributed_file_scan_config_bytes_per_partition(
+        mut self,
+        bytes_per_partition: usize,
+    ) -> Self {
+        self.distributed_file_scan_config_bytes_per_partition = Some(bytes_per_partition);
+        self
+    }
+
+    pub fn information_schema(mut self, enabled: bool) -> Self {
+        self.information_schema = Some(enabled);
+        self
+    }
+
+    pub fn prefer_hash_joins(mut self, prefer_hash_joins: bool) -> Self {
+        self.prefer_hash_join = Some(prefer_hash_joins);
+        self
+    }
+
+    pub fn hash_join_single_partition_threshold(mut self, v: usize) -> Self {
+        self.hash_join_single_partition_threshold = Some(v);
+        self
+    }
+
+    pub fn hash_join_single_partition_threshold_rows(mut self, v: usize) -> Self {
+        self.hash_join_single_partition_threshold_rows = Some(v);
+        self
+    }
+
+    pub fn broadcast_joins(mut self, enabled: bool) -> Self {
+        self.broadcast_joins = enabled;
+        self
+    }
+
+    pub fn desired_task_count_handler(mut self, handler: impl DesiredTaskCountHandler) -> Self {
+        self.desired_task_count_handler = Some(Arc::new(handler));
+        self
+    }
+
+    pub fn distributed_partial_reduce(mut self, enabled: bool) -> Self {
+        self.distributed_partial_reduce = Some(enabled);
+        self
+    }
+
+    pub fn distributed_children_isolator_unions(mut self, enabled: bool) -> Self {
+        self.distributed_children_isolator_unions = Some(enabled);
+        self
+    }
+
+    pub fn distributed_max_tasks_per_stage(mut self, n: usize) -> Self {
+        self.distributed_max_tasks_per_stage = Some(n);
+        self
+    }
+
+    fn build_config(&self) -> SessionConfig {
+        let mut d_cfg = DistributedConfig {
+            broadcast_joins: self.broadcast_joins,
+            ..Default::default()
+        };
+        // Option fields: Some overrides, None inherits the DistributedConfig default
+        if let Some(x) = self.distributed_children_isolator_unions {
+            d_cfg.children_isolator_unions = x;
+        }
+        if let Some(x) = self.distributed_partial_reduce {
+            d_cfg.partial_reduce = x;
+        }
+        if let Some(n) = self.distributed_file_scan_config_bytes_per_partition {
+            d_cfg.file_scan_config_bytes_per_partition = n;
+        }
+        if let Some(f) = self.distributed_cardinality_effect_task_scale_factor {
+            d_cfg.cardinality_task_count_factor = f; // note: the real field name
+        }
+        if let Some(n) = self.distributed_max_tasks_per_stage {
+            d_cfg.max_tasks_per_stage = n
+        }
+
+        let mut config = SessionConfig::new();
+        config.set_distributed_option_extension(d_cfg);
+        if let Some(n) = self.target_partitions {
+            config = config.with_target_partitions(n);
+        }
+        if let Some(enabled) = self.information_schema {
+            config = config.with_information_schema(enabled);
+        }
+        if let Some(enabled) = self.prefer_hash_join {
+            config.options_mut().optimizer.prefer_hash_join = enabled
+        }
+        if let Some(value) = self.hash_join_single_partition_threshold {
+            config
+                .options_mut()
+                .optimizer
+                .hash_join_single_partition_threshold = value
+        }
+        if let Some(value) = self.hash_join_single_partition_threshold_rows {
+            config
+                .options_mut()
+                .optimizer
+                .hash_join_single_partition_threshold_rows = value
+        }
+        config
+    }
+
+    fn build_state(&self, config: SessionConfig) -> SessionState {
+        let mut state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_config(config);
+        if let Some(n) = self.num_workers {
+            state = state.with_distributed_worker_resolver(InMemoryWorkerResolver::new(n));
+        }
+        if self.distributed_planner {
+            state = state.with_distributed_planner();
+        } else {
+            let cfg = state.config().get_or_insert_default();
+            DesiredTaskCountHandlers::push_builtin(
+                cfg,
+                Arc::new(file_scan_config_desired_task_count),
+            );
+            ScaleUpLeafNodeHandlers::push_builtin(
+                cfg,
+                Arc::new(file_scan_config_scale_up_leaf_node),
+            );
+        }
+        if let Some(handler) = self.desired_task_count_handler.clone() {
+            state = state.with_distributed_desired_task_count_handler(handler);
+        }
+        state.build()
+    }
+
+    pub async fn build(&self) -> TestPlan {
+        let config = self.build_config();
+        let state = self.build_state(config);
+        let ctx = SessionContext::new_with_state(state);
+        register_parquet_tables(&ctx).await.unwrap();
+        TestPlan { ctx }
+    }
+
+    /// sugar around TestPlan to lessen `.await` calls
+    pub async fn physical_plan(&self, query: &str) -> Arc<dyn ExecutionPlan> {
+        // build TestPlan, then get physical_plan
+        self.build().await.physical_plan(query).await
+    }
+
+    /// get the physical plan of a query as a string
+    pub async fn physical_plan_as_string(&self, query: &str) -> String {
+        let plan = self.physical_plan(query).await;
+        displayable(plan.as_ref()).indent(true).to_string()
+    }
+
+    /// get the physical plan of a query as an ascii string
+    pub async fn physical_plan_as_ascii(&self, query: &str, show_metrics: bool) -> String {
+        display_plan_ascii(self.physical_plan(query).await.as_ref(), show_metrics)
+    }
+}
+
+#[cfg(test)]
+impl Default for TestPlanBuilder {
+    fn default() -> Self {
+        Self {
+            target_partitions: Some(4),
+            num_workers: Some(3),
+            distributed_planner: true,
+            distributed_cardinality_effect_task_scale_factor: None,
+            distributed_file_scan_config_bytes_per_partition: Some(1),
+            information_schema: Some(false),
+            broadcast_joins: false,
+            desired_task_count_handler: None,
+            distributed_partial_reduce: None,
+            distributed_children_isolator_unions: None,
+            distributed_max_tasks_per_stage: None,
+            prefer_hash_join: None,
+            hash_join_single_partition_threshold: None,
+            hash_join_single_partition_threshold_rows: None,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn build_side_one_desired_task_count_handler(
+    ev: DesiredTaskCountEvent,
+) -> Option<Result<DesiredTaskCountEventResponse>> {
+    let plan = ev.plan;
+    if !plan.children().is_empty() {
+        return None;
+    }
+    let schema = plan.schema();
+    let has_min_temp = schema.fields().iter().any(|f| f.name() == "MinTemp");
+    let has_max_temp = schema.fields().iter().any(|f| f.name() == "MaxTemp");
+    if has_min_temp && !has_max_temp {
+        Some(Ok(DesiredTaskCountEventResponse::maximum(1)))
+    } else {
+        None
+    }
+}
