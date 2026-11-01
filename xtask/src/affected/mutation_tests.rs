@@ -310,3 +310,20 @@ fn a_non_member_page_is_never_docs_only() {
         );
     }
 }
+
+/// A docs-only diff selects no category leg; a page an area owns, or a non-member's page, is not
+/// docs-only and still runs every category.
+#[test]
+fn a_docs_only_diff_selects_no_category() {
+    let docs = super::tests::selected(&["README.md", "docs/adr/0001-x.md"]);
+    assert!(!docs.core, "a docs-only diff is not core: {docs:?}");
+    assert!(docs.selected.is_empty(), "a docs-only diff selects nothing: {docs:?}");
+    for page in [
+        "crates/sutura-cli/README.md",
+        "docs/serving.md",
+        "vendor/rust-oracledb/doc/arrow.md",
+    ] {
+        let cats = super::tests::selected(&["README.md", page]);
+        assert!(cats.core, "{page} is read by a build or a test: {cats:?}");
+    }
+}

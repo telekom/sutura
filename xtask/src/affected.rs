@@ -15,7 +15,8 @@
 //!
 //! The selection fails OPEN exactly the way [`crate::changes::classify`] does: an empty diff, a git refusal,
 //! an unmapped path or a registry the derive could not read all set `core`, and `core` subsumes
-//! every category. A new adapter arrives by registering it in the registry (or by being a crate);
+//! every category. A path [`crate::changes::is_docs_only`] accepts selects nothing, so a docs-only
+//! diff runs no category leg. A new adapter arrives by registering it in the registry (or by being a crate);
 //! no workflow line is asked to know its name in advance.
 //!
 //! `Cargo.lock` is named by no crate or registry; the `lockfile` submodule attributes its diff to
@@ -232,6 +233,8 @@ fn select(paths: &[String], declared: Option<&BTreeSet<String>>, locks: Option<&
             selected.insert(format!("catalog_{tail}"));
         } else if let Some(category) = declared.and_then(|declared| derived_category(path, declared)) {
             selected.insert(category);
+        } else if crate::changes::is_docs_only(path) {
+            reasons.push(format!("{path} is docs-only - selects no category"));
         } else {
             core = true;
             reasons.push(format!("{path} matches no category - running every category"));

@@ -304,6 +304,13 @@ pub(crate) fn classify(paths: &[String]) -> Classification {
     result
 }
 
+/// Is `path` alone docs-only? [`classify`] answers, so an area row or a non-member prefix keeps a
+/// page out here exactly as it does for a whole diff.
+pub(crate) fn is_docs_only(path: &str) -> bool {
+    let one = classify(&[String::from(path)]);
+    !one.run_all && one.areas.is_empty() && !one.docs_only.is_empty()
+}
+
 /// Pull in every area that depends on one already matched, until it settles. Iterative
 /// rather than recursive so a future cycle in the table cannot blow the stack.
 fn apply_consumers(result: &mut Classification) {
