@@ -47,7 +47,8 @@
 //! banner::announce(&settings);
 //! // 6. The shutdown, shared with the server and with the signal listener. Built with the
 //! //    configured grace period, so the number an operator wrote is the number that bounds
-//! //    stopping.
+//! //    stopping. `listen` registers the handlers when it is called, so it is called inside the
+//! //    runtime and before the listener opens.
 //! let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
 //! tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
 //! // 7. The bound on how many questions execute at once, shared with every transport. One per

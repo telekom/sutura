@@ -3,7 +3,9 @@
 //! Three things have to be true of a shutdown, and each of them is a separate part of this module:
 //!
 //! * **A signal reaches the server.** An orchestrator sends `SIGTERM` and then, some seconds
-//!   later, `SIGKILL`. A process that ignores the first is killed mid-request.
+//!   later, `SIGKILL`. A process that ignores the first is killed mid-request. [`listen`] registers
+//!   the handlers before it returns, so a caller that calls it before opening its listener answers
+//!   no request while a `SIGTERM` would still end the process undrained.
 //! * **In-flight work drains.** `axum` waits for every open connection, which is what makes a
 //!   rolling deployment not drop answers - and which is also how one wedged connection pins the
 //!   process open past the kill deadline. So the drain is *bounded*: see
@@ -18,6 +20,8 @@
 //! and that is what makes this testable: a test triggers the same value a signal would, with no
 //! process-wide side effect and nothing to install.
 
+use core::pin::Pin;
+use core::task::{Context, Poll};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -199,87 +203,130 @@ impl Default for Shutdown {
     }
 }
 
-/// Waits for the first operating-system shutdown signal and triggers `shutdown`.
+/// Registers a handler for each shutdown signal this platform has, now, and returns the future that
+/// triggers `shutdown` on the first of them.
 ///
-/// Spawned as a task by the composition root. It returns once it has triggered, so a caller can
-/// join it; it does not loop, because the first reason wins.
-pub async fn listen(shutdown: Shutdown) {
-    let reason = next_signal().await;
-    shutdown.trigger(reason);
-}
-
-/// The first of the signals this platform can observe.
-async fn next_signal() -> ShutdownReason {
-    tokio::select! {
-        () = interrupt() => ShutdownReason::Interrupt,
-        () = terminate() => ShutdownReason::Terminate,
+/// **A plain `fn` rather than an `async fn`, and that is `github.com/telekom/sutura#1706`.** An
+/// `async fn` runs nothing until its future is first polled, and a spawned task is polled whenever
+/// the scheduler reaches it - which on a multi-thread runtime can be after the listener already
+/// answers. A `SIGTERM` in that window met the default disposition and ended the process with no
+/// drain. Registration here is done before this returns, so a caller that calls it before opening
+/// its listener has no such window. The limit: nothing makes a caller do that, and a signal that
+/// arrives before this is called still meets the default.
+///
+/// A handler that cannot be installed is logged and its signal never wins, rather than the process
+/// refusing to start - the behaviour this had before. A branch that resolved on failure instead
+/// would shut the process down on boot.
+///
+/// # Panics
+///
+/// On Unix, outside a `tokio` runtime whose I/O driver is enabled, because `tokio::signal::unix::signal`
+/// does.
+pub fn listen(shutdown: Shutdown) -> Listening {
+    Listening {
+        shutdown,
+        interrupt: installed(platform::interrupt(), "interrupt"),
+        terminate: installed(platform::terminate(), "terminate"),
     }
 }
 
-/// An interactive interrupt. The one signal every supported platform has.
-async fn interrupt() {
-    if let Err(cause) = tokio::signal::ctrl_c().await {
-        tracing::error!(error = %cause, "the interrupt handler could not be installed");
-        never().await;
+/// The shutdown signals, registered, waiting for the first. Only [`listen`] builds one.
+///
+/// Resolves once it has triggered its [`Shutdown`], so a caller can join it. It does not loop,
+/// because the first reason wins. On Unix a handler stays installed for the life of the process, so
+/// a signal arriving after this resolved - or after it was dropped unpolled - is caught and acted on
+/// by nothing.
+#[derive(Debug)]
+#[must_use = "a registered signal reaches the shutdown only while this is polled"]
+pub struct Listening {
+    shutdown: Shutdown,
+    /// `None` when the handler could not be installed, which `installed` has logged.
+    interrupt: Option<platform::Interrupt>,
+    terminate: Option<platform::Terminate>,
+}
+
+impl Future for Listening {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.get_mut();
+        let reason = if this.interrupt.as_mut().is_some_and(|signal| signal.poll_recv(cx).is_ready()) {
+            ShutdownReason::Interrupt
+        } else if this.terminate.as_mut().is_some_and(|signal| signal.poll_recv(cx).is_ready()) {
+            ShutdownReason::Terminate
+        } else {
+            return Poll::Pending;
+        };
+        this.shutdown.trigger(reason);
+        Poll::Ready(())
     }
 }
 
-/// A termination request, on Unix.
+/// The handler, or the logged reason there is none.
+fn installed<T>(registered: std::io::Result<T>, signal: &'static str) -> Option<T> {
+    registered
+        .inspect_err(|cause| {
+            tracing::error!(error = %cause, signal, "the handler could not be installed; this signal will not start a drain");
+        })
+        .ok()
+}
+
+/// `SIGINT` and `SIGTERM`, each registered by `tokio::signal::unix::signal`, which installs the
+/// handler when it is called. `tokio::signal::ctrl_c` is not used because it is an `async fn`.
 #[cfg(unix)]
-async fn terminate() {
-    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-        Ok(mut signal) => {
-            signal.recv().await;
-        }
-        Err(cause) => {
-            tracing::error!(error = %cause, "the terminate handler could not be installed");
-            never().await;
-        }
+mod platform {
+    use tokio::signal::unix::{Signal, SignalKind, signal};
+
+    pub(super) type Interrupt = Signal;
+    pub(super) type Terminate = Signal;
+
+    pub(super) fn interrupt() -> std::io::Result<Interrupt> {
+        signal(SignalKind::interrupt())
+    }
+
+    pub(super) fn terminate() -> std::io::Result<Terminate> {
+        signal(SignalKind::terminate())
     }
 }
 
-/// A termination request, on Windows.
-///
-/// `ctrl_shutdown` is the closest equivalent: it is what the system sends when it is stopping, and
-/// like `SIGTERM` it arrives with a deadline behind it. `ctrl_close` - the console window being
-/// closed - is the other half, and both are selected over because a deployment may see either.
+/// `ctrl_c` for an interrupt, and for a termination request both `ctrl_shutdown` - what the system
+/// sends when it is stopping, with a deadline behind it like `SIGTERM` - and `ctrl_close`, the
+/// console window being closed, because a deployment may see either. Each constructor registers
+/// when it is called.
 #[cfg(windows)]
-async fn terminate() {
-    let mut shutdown = match tokio::signal::windows::ctrl_shutdown() {
-        Ok(signal) => signal,
-        Err(cause) => {
-            tracing::error!(error = %cause, "the shutdown handler could not be installed");
-            never().await;
-            return;
-        }
-    };
-    let mut close = match tokio::signal::windows::ctrl_close() {
-        Ok(signal) => signal,
-        Err(cause) => {
-            tracing::error!(error = %cause, "the close handler could not be installed");
-            never().await;
-            return;
-        }
-    };
-    tokio::select! {
-        _ = shutdown.recv() => {},
-        _ = close.recv() => {},
+mod platform {
+    use core::task::{Context, Poll};
+
+    use tokio::signal::windows::{CtrlClose, CtrlShutdown, ctrl_close, ctrl_shutdown};
+
+    pub(super) type Interrupt = tokio::signal::windows::CtrlC;
+
+    pub(super) fn interrupt() -> std::io::Result<Interrupt> {
+        tokio::signal::windows::ctrl_c()
     }
-}
 
-/// A termination request, on a platform with neither of the above.
-#[cfg(not(any(unix, windows)))]
-async fn terminate() {
-    never().await;
-}
+    /// Both or neither: either one failing to install means neither is listened to.
+    #[derive(Debug)]
+    pub(super) struct Terminate {
+        shutdown: CtrlShutdown,
+        close: CtrlClose,
+    }
 
-/// A future that never resolves.
-///
-/// The idiom for a `select!` branch that must never win. Compiling the branch out instead would
-/// mean two different `select!` expressions to keep in step, and a handler that failed to install
-/// would otherwise resolve immediately and shut the process down on boot.
-async fn never() {
-    core::future::pending::<()>().await;
+    impl Terminate {
+        pub(super) fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<()>> {
+            match self.shutdown.poll_recv(cx) {
+                Poll::Pending => self.close.poll_recv(cx),
+                delivered @ Poll::Ready(_) => delivered,
+            }
+        }
+    }
+
+    pub(super) fn terminate() -> std::io::Result<Terminate> {
+        Ok(Terminate {
+            shutdown: ctrl_shutdown()?,
+            close: ctrl_close()?,
+        })
+    }
 }
 
 #[cfg(test)]

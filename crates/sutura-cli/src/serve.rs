@@ -634,7 +634,9 @@ async fn serve_until_stopped(
     refresh::drive(catalogs, refreshing, coverage, refresh_every);
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
-    // may never arrive.
+    // may never arrive. `listen` registers the handlers as it is called, so before the listener
+    // below opens - `github.com/telekom/sutura#1706` is what registering on the task's first poll
+    // cost.
     drop(tokio::spawn(shutdown::listen(stopping.clone())));
     // Armed HERE and not where the gate was built, for the reason the TLS renewal watch is: the gate
     // is built before the runtime exists, and a `tokio::spawn` on that side would panic. What it buys
