@@ -836,6 +836,10 @@ jobs:
       # stage does not make it serial. `api-docs` sits here rather than in stage 2 although it
       # needs only `ciArtifacts`: it is the long root, so hoisting it would put every test behind
       # it and buy nothing - see the stage-1 header on the failure it is most often the cause of.
+      # `crap` was the one `rust` root left out, so `CRAP score` built it serially after this
+      # stage: 39-55 s on 22 successful pull-request and merge-queue runs of 2026-11-01. Like
+      # `nextest` it inherits `ciArtifacts`, which stage 2 already realised, so here the two
+      # overlap. Push skips this step, so there `CRAP score` still builds it alone.
       #
       # AN EMPTY SELECTION IS A LEGITIMATE DOCS-ONLY RUN and not a misconfiguration, so it is
       # answered before the array is expanded - `set -u` makes an empty `"${checks[@]}"` an error on
@@ -870,7 +874,7 @@ jobs:
             set -eu
             checks=()
             if [ "$RUST" = "true" ]; then
-              checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest)
+              checks+=(.#checks.x86_64-linux.nextest .#checks.x86_64-linux.doctest .#checks.x86_64-linux.crap)
             fi
             if [ "$TIERS" = "true" ] || [ "$IDENTITY" = "true" ]; then
               checks+=(.#checks.x86_64-linux.keycloak-tier)
