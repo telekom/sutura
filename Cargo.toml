@@ -109,16 +109,11 @@ members = [
   "xtask",
   "dev",
 ]
-# The vendored allocator is EXCLUDED FROM MEMBERSHIP, and that is a correctness fix rather
-# than tidiness. A path dependency inside the workspace directory joins the workspace
-# automatically, and `cargo build --workspace` builds every MEMBER - which is independent of
-# who depends on it. So the `cfg(target_os = "linux")` gate in `crates/sutura-cli/Cargo.toml`
-# governs the dependency EDGE and does nothing about membership: on Windows and macOS
-# `--workspace` was building `libmimalloc-sys` on its own account, and its build script has
-# no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
-# also keeps `--workspace` clippy and tests off third-party code, which is the reason this
-# looked like a style choice the first time.
-exclude = ["vendor/adbc_clickhouse", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
+# Vendored crates are EXCLUDED FROM MEMBERSHIP, a correctness fix: a path dependency inside the
+# workspace directory joins it, and `--workspace` builds every member whoever depends on it, so
+# Windows and macOS built the Linux-only vendored allocator on its own account. Excluding them also
+# keeps `--workspace` clippy and tests off third-party code.
+exclude = ["vendor/adbc_clickhouse", "vendor/datafusion-proto", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
 
 [workspace.package]
 version = "0.11.0"
@@ -886,6 +881,10 @@ missing_assert_message = "allow"
 #   string_add_assign
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
+
+# A peer's Avro scan stage is refused rather than a panic that stops the node, `VENDOR.md`.
+[patch.crates-io]
+datafusion-proto = { path = "vendor/datafusion-proto" }
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
