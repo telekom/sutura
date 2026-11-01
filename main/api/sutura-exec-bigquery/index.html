@@ -2962,7 +2962,10 @@ bounds the scan without bounding the bill. And it is per JOB, so N questions cos
 <p>A driver message with every console job link cut out, so no rendered error says where a job ran,
 and the status the driver gave it.</p>
 <p>The pinned driver appends <code>(Query: &lt;link&gt;)</code> to the message of any error after the job was
-created (<code>go/job_query.go</code>'s <code>readJob</code>), and the link names the project, location and job.</p>
+created (<code>go/job_query.go</code>'s <code>readJob</code>), and the link names the project, location and job. A
+failed subject-token fetch can quote the loopback URL <code>super::subject</code> serves, nonce and all, in
+Go's <code>Get "&lt;url&gt;": ...</code> form; that is cut too, so the nonce reaches no logged cause chain. That
+the driver passes that text through verbatim is read from the Go source, not reproduced.</p>
 <p><strong>The limit:</strong> this seal is rustc's ordinary privacy, not this repo's <code>check-newtype-leaks</code>
 gate - private fields in a child module, so a <code>DriverMessage { .. }</code> in <code>super</code> is <code>E0451</code>.
 Only <code>driver_message.rs</code> itself can skip <code>of</code>.</p>
