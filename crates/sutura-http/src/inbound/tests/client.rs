@@ -50,7 +50,7 @@ fn audited_router(
         dispatch: tracing::Dispatch::new(subscriber),
     };
     let settings = settings_with(&format!(
-        "{}tools:\n  run_sql:\n    enabled: true\n",
+        "{}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
         direct_overlay(issuer, "/unread.json")
     ));
     let gate = gate_over(&declared_inbound(&settings), &issuer.key_set());

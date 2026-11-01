@@ -196,7 +196,13 @@ let
       # `release.yml` and `release-performance.yml`; `just validate` and every pull-request and
       # merge-group job skip it. A change that brings the crate back stays green until a release
       # or a local `just shipped`.
-      alsoForbidden = [ "tokio-postgres" ];
+      #
+      # `sqlparser` and `datafusion-sql` are banned the same way: `sutura-cli`'s `sql` feature, for
+      # `tools.run_sql.federation_allowed`, links both, and the published artefact ships with no SQL
+      # parser. An image that turns `sql` on lifts these two in its own diff. At PR time
+      # `just check-default-features` refuses them at cargo's DEFAULT set, which is not this
+      # `features` list - so a `sql` added here is caught by this check alone, with its limit above.
+      alsoForbidden = [ "tokio-postgres" "sqlparser" "datafusion-sql" ];
       # PER-ARTEFACT ESCAPE from the shared `forbidden` list below - `github.com/telekom/
       # sutura#685` step 4, used at step 5. `features` above now carries `bigquery`, `tls`,
       # `datahub` and `openmetadata`, and each pulls `ring` and `ureq` - so this entry states BY NAME that

@@ -15,7 +15,9 @@ sutura-domain = { workspace = true }
 # the compiler for its last stage because it speaks SQL; this one executes the plan directly, so
 # there is no dialect to render for, no identifier to quote and no placeholder to position.
 datafusion = { workspace = true }
-# The provider a source and a subject give the federation optimizer. Not yet in a cut.
+# The optimizer rule that cuts a `run_sql` statement into one part per source, and the provider each
+# source gives it. Without its `sql`, whose executor would run a part itself: a part here runs through
+# the application's raw port instead.
 datafusion-federation = { workspace = true }
 # The engine `distributed` plans a combine's stages across nodes with, and the type it names a node by.
 # Without its default `sql`, which would turn on `datafusion/sql`, kept out by the workspace's entry.
@@ -31,7 +33,7 @@ url = { workspace = true, optional = true }
 # The links between nodes, each dialled over mutual TLS on the workspace's own rustls over ring, the
 # way `sutura-exec-node` dials, so the gRPC client turns on no TLS feature. Every one is already in the
 # graph through `datafusion-distributed` or the Flight transports; `async-trait` because the engine's
-# channel trait is declared with it.
+# channel trait is declared with it, and so is the federation planner trait `sql` implements.
 async-trait = { version = "0.1", optional = true }
 hyper-util = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
@@ -44,6 +46,9 @@ h2 = { version = "0.4", optional = true }
 # on the ring rustls already runs on. Both are already in the lock.
 getrandom = { version = "0.4", optional = true }
 ring = { version = "0.17", optional = true }
+# Where a `run_sql` statement's planner text goes instead of the caller's answer, which it would leak
+# column names into.
+tracing = { workspace = true, optional = true }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
@@ -101,6 +106,11 @@ distributed = [
   "tokio/net",
   "tokio/sync",
 ]
+# DataFusion's SQL frontend and unparser, for `tools.run_sql` over its listed sources.
+# Default-off, and `just check-default-features` refuses `sqlparser` or `datafusion-sql` in a
+# shipped default build's resolved tree. `datafusion-distributed?/sql` for `parquet`'s reason above:
+# its error codec matches every `DataFusionError` variant, and `datafusion/sql` adds one.
+sql = ["datafusion/sql", "datafusion-distributed?/sql", "dep:async-trait", "dep:tracing"]
 
 [[test]]
 name = "conformance"

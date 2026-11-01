@@ -152,7 +152,7 @@ impl AuditSink for TracingAuditSink {
             // sink, never into a reply. This is the one line in the workspace that does, and the
             // reason it is safe here and nowhere else is that this is a SINK, not a channel back to
             // any caller or any agent's context.
-            RecordedOutcome::RawAnswered { rows, statement } => tracing::info!(
+            RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(
                 subject_established = who.established,
                 subject = who.subject,
                 actors = who.actors,
@@ -166,6 +166,7 @@ impl AuditSink for TracingAuditSink {
                 delegated_as,
                 rows,
                 statement = statement.as_str(),
+                executed_as = executed_as(record),
                 credential_until = executed_until(record),
                 "raw_answered"
             ),

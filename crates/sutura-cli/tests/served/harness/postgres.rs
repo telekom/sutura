@@ -247,5 +247,8 @@ pub(crate) fn settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
 /// about the DEV TIER and not about `docs/adr/0013`'s tool or this deployment's own settings.
 pub(crate) fn raw_sql_settings(case: &str) -> Option<(String, FixtureLoadGuard)> {
     let (base, guard) = settings(case)?;
-    Some((format!("{base}tools:\n  run_sql:\n    enabled: true\n"), guard))
+    Some((
+        format!("{base}tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n"),
+        guard,
+    ))
 }

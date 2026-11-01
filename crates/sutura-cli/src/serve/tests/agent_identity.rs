@@ -262,7 +262,7 @@ impl Warehouse for PricedWarehouse {
 /// `tools.run_sql.enabled`, so a `run_sql` call reaches `Serving::run_sql` rather than the switch.
 fn priced_overlay(issuer: &MockIssuer, key_set_path: &str) -> String {
     format!(
-        "{}\nserver:\n  agent_surface:\n    enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\ntools:\n  run_sql:\n    enabled: true\n",
+        "{}\nserver:\n  agent_surface:\n    enabled: true\ngovernance:\n  per_replica_spend_ceiling:\n    bytes: 1000\n    window_seconds: 3600\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
         direct_overlay(issuer, key_set_path)
     )
 }
@@ -650,8 +650,7 @@ async fn a_served_agent_question_is_counted_in_the_question_series() {
 }
 
 /// One execution slot, a one-second wait for it, and `run_sql` enabled.
-const ONE_SLOT: &str =
-    "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\ntools:\n  run_sql:\n    enabled: true\n";
+const ONE_SLOT: &str = "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n";
 
 /// One execution slot, a five-second wait for it, and a two-second reply deadline: the deadline
 /// fires first, so a question that cannot get the slot outruns it rather than being shed.

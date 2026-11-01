@@ -2,11 +2,9 @@
 //! certified question is answered over the binary's pipes, and the raw tool is absent unless a
 //! deployment turns it on.
 
-use std::path::Path;
-
 use sutura_app::Capability;
 
-use crate::harness::{SOURCE, VERSION, example_settings, recurring_revenue_june, spawn, spawn_configured};
+use crate::harness::{SOURCE, VERSION, recurring_revenue_june, spawn};
 
 /// The committed input schema for one capability, as JSON.
 ///
@@ -20,8 +18,9 @@ use crate::harness::{SOURCE, VERSION, example_settings, recurring_revenue_june, 
 /// a workspace build - so a textual compare would be asserting key order in a served reply,
 /// which is not a property anybody wants. `serde_json::Value`'s equality is map equality at
 /// every depth, which is exactly the claim.
+#[cfg(feature = "duckdb")]
 fn committed_schema(capability: Capability) -> serde_json::Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../sutura-mcp/src/snapshots")
         .join(format!("sutura_mcp__tool__tests__{}_input_schema.snap", capability.id()));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|cause| {
@@ -44,17 +43,18 @@ fn committed_schema(capability: Capability) -> serde_json::Value {
 }
 
 #[test]
+#[cfg(feature = "duckdb")]
 fn the_schemas_the_binary_advertises_are_the_committed_ones() {
     // #117's own words for this branch: *list the tools, call one, and compare the reply against
     // the committed schema snapshots*. The comparison is what makes it a contract rather than a
     // smoke test - `sutura-mcp`'s snapshot test proves the GENERATOR, and this proves that what
     // a client generator reads off the wire is the same document a reviewer accepted.
     //
-    // Spawned with `tools.run_sql.enabled: true` so every capability - the raw tool included -
-    // is on this list; `#129`'s own `the_raw_tool_is_absent_unless_this_deployment_turned_it_on`
-    // is the test that a DEFAULT deployment does not advertise it.
-    let dir = example_settings("mcp-every-tool-advertised", "tools:\n  run_sql:\n    enabled: true\n");
-    let mut agent = spawn_configured(&dir);
+    // Spawned with the raw tool on, over a `duckdb` source, so every capability is on this list;
+    // `#129`'s own `the_raw_tool_is_absent_unless_this_deployment_turned_it_on` is the test that a
+    // DEFAULT deployment does not advertise it.
+    let dir = crate::harness::raw_sql_settings("mcp-every-tool-advertised");
+    let mut agent = crate::harness::spawn_configured(&dir);
     drop(agent.initialize());
     let result = agent.request("tools/list", &serde_json::json!({}));
     let listed = result["tools"].as_array().cloned().unwrap_or_default();
@@ -180,18 +180,20 @@ fn the_raw_tool_is_absent_unless_this_deployment_turned_it_on() {
     assert!(agent.close().success(), "the process did not exit cleanly");
 
     // And turned on, it is listed - the schema test above proves what it is listed AS.
-    let dir = example_settings("mcp-run-sql-enabled-listing", "tools:\n  run_sql:\n    enabled: true\n");
-    let mut agent = spawn_configured(&dir);
-    drop(agent.initialize());
-    let listed = agent.request("tools/list", &serde_json::json!({}));
-    assert!(
-        listed["tools"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|tool| tool["name"].as_str())
-            .any(|name| name == "run_sql"),
-        "{listed}"
-    );
-    assert!(agent.close().success(), "the process did not exit cleanly");
+    #[cfg(feature = "duckdb")]
+    {
+        let mut agent = crate::harness::spawn_configured(&crate::harness::raw_sql_settings("mcp-run-sql-enabled-listing"));
+        drop(agent.initialize());
+        let listed = agent.request("tools/list", &serde_json::json!({}));
+        assert!(
+            listed["tools"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|tool| tool["name"].as_str())
+                .any(|name| name == "run_sql"),
+            "{listed}"
+        );
+        assert!(agent.close().success(), "the process did not exit cleanly");
+    }
 }

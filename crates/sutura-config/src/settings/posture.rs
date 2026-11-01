@@ -10,10 +10,13 @@
 //! struct's private fields.
 
 use sutura_domain::model::SourceName;
+use sutura_domain::source::SourcePosture;
 
 use crate::inbound::InboundIdentity;
 use crate::security::DeploymentIdentity;
 use crate::server::{BindAddress, ServerSettings};
+use crate::sources::SourceRegistry;
+use crate::tools::ToolsSettings;
 
 /// Which of the two reasons a caller-facing credential, or the limiter, was required.
 ///
@@ -268,23 +271,46 @@ pub enum NotFitToServe {
          this deployment's audience. Give the deployment an audience of its own"
     )]
     InboundAudienceIsTheIssuer,
-    /// The raw SQL tool is enabled in `multi-user` mode and no source is an acknowledged
-    /// `shared-service-user`.
+    /// The raw SQL tool is enabled in `multi-user` mode and a source `tools.run_sql.sources` lists
+    /// is not an acknowledged `shared-service-user`.
     ///
-    /// Reads configuration only: whether some source is an acknowledged `shared-service-user`
-    /// source, whose `acknowledged_because` says why every caller may read what that one account
-    /// reads. Whether a raw statement runs is decided per call in the composed binary: it runs only
-    /// when exactly one data system is open and that system accepts raw statements, and otherwise
-    /// the call is refused.
+    /// Reads configuration only: whether each listed alias names a `shared-service-user` source,
+    /// whose `acknowledged_because` says why every caller may read what that one account reads. A
+    /// shared source with no acknowledgement in this mode is [`Self::SharedSourceNotAcknowledged`]
+    /// as well. Whether a listed source's adapter accepts a raw statement is the composed binary's
+    /// startup check.
     #[error(
-        "tools.run_sql.enabled is true, {key} is `multi-user`, and no source is an acknowledged \
-         `shared-service-user`. The raw SQL tool runs only over a shared source whose \
-         `sources.<alias>.acknowledged_because` is set - every caller can then read what the shared \
-         account can read. Set tools.run_sql.enabled to false, acknowledge a shared source, or \
-         declare {key} as single-user with a written reason",
+        "tools.run_sql.enabled is true, {key} is `multi-user`, and a source tools.run_sql.sources \
+         lists is not an acknowledged `shared-service-user`. The raw SQL tool runs only over shared \
+         sources whose `sources.<alias>.acknowledged_because` is set - every caller can then read \
+         what the shared account can read. Set tools.run_sql.enabled to false, list only \
+         acknowledged shared sources, or declare {key} as single-user with a written reason",
         key = DeploymentIdentity::KEY
     )]
     RunSqlEnabledInMultiUserMode,
+    /// `tools.run_sql.federation_allowed` is `true`, or `tools.run_sql.sources` lists more than one
+    /// source, and this binary cannot parse SQL.
+    ///
+    /// A build without the `sql` feature links no SQL parser, so it cannot plan the statement it
+    /// would have to cut per source; the alternative to refusing is a switch an operator turned on
+    /// that silently does nothing. Raised whether or not `tools.run_sql.enabled` is set.
+    #[error(
+        "tools.run_sql.federation_allowed is true or tools.run_sql.sources lists more than one \
+         source, and this binary was built without the `sql` feature, so it links no SQL parser. \
+         Rebuild with `--features sql`, or set tools.run_sql.federation_allowed to false and list \
+         one source"
+    )]
+    RunSqlFederationNotCompiledIn,
+    /// `tools.run_sql.enabled` is `true` and `tools.run_sql.sources` is absent.
+    ///
+    /// The tool runs over the sources listed by alias and infers none, so no list would be a tool
+    /// with nothing to run on; an empty one does not parse. Whether each listed alias names an opened source that accepts a
+    /// raw statement is the composition root's check, because it needs the opened adapters.
+    #[error(
+        "tools.run_sql.enabled is true and tools.run_sql.sources lists no source. List the source \
+         aliases the raw SQL tool may run over, or set tools.run_sql.enabled to false"
+    )]
+    RunSqlListsNoSource,
     /// The agent surface is on, no inbound identity is declared, and this is not a deployment where
     /// `/mcp` may answer every caller as the deployment.
     ///
@@ -545,6 +571,40 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
     }
 }
 
+/// [`NotFitToServe::RunSqlEnabledInMultiUserMode`]: in `multi-user` mode, a listed alias that names
+/// no `shared-service-user` source. An `impersonation-at-source` source counts for nothing here: no
+/// adapter that runs raw text runs it as the caller.
+pub(super) fn run_sql_multi_user_refusal(
+    tools: &ToolsSettings,
+    identity: Option<&DeploymentIdentity>,
+    sources: &SourceRegistry,
+) -> Option<NotFitToServe> {
+    let unshared = tools.run_sql_sources().iter().any(|alias| {
+        !sources
+            .get(alias)
+            .is_some_and(|source| matches!(source.posture(), Some(SourcePosture::SharedServiceUser { .. })))
+    });
+    (tools.run_sql_enabled() && identity == Some(&DeploymentIdentity::SubjectPerRequest) && unshared)
+        .then_some(NotFitToServe::RunSqlEnabledInMultiUserMode)
+}
+
+/// Reads this crate's own `sql` feature, which `sutura-cli`'s `sql` turns on with the frontend, so
+/// it holds only for a binary composed through that crate.
+pub(super) fn run_sql_source_refusals(tools: &ToolsSettings) -> impl Iterator<Item = NotFitToServe> {
+    let federates = tools.run_sql_federation_allowed() || tools.run_sql_sources().len() > 1;
+    let unlisted = tools.run_sql_enabled() && tools.run_sql_sources().is_empty();
+    [
+        (federates && !cfg!(feature = "sql")).then_some(NotFitToServe::RunSqlFederationNotCompiledIn),
+        unlisted.then_some(NotFitToServe::RunSqlListsNoSource),
+    ]
+    .into_iter()
+    .flatten()
+}
+
 /// `server.nodes.wait_for_workers_seconds` through `Settings::load`, and its refusal.
 #[cfg(test)]
 mod tests;
+
+/// `tools.run_sql.federation_allowed` against this build's `sql` feature.
+#[cfg(test)]
+mod run_sql_federation;

@@ -8,7 +8,8 @@ use sutura_domain::model::SourceName;
 
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
-const MULTI_USER_RUN_SQL: &str = "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n";
+const MULTI_USER_RUN_SQL: &str =
+    "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n";
 const LOCAL: &str = "sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n";
 const SHARED: &str = "    posture: \"shared-service-user\"\n";
 const ACKNOWLEDGED: &str = "    acknowledged_because: \"a read-only reporting replica every caller may see\"\n";
@@ -79,7 +80,7 @@ fn the_raw_tool_in_multi_user_mode_over_a_shared_and_an_impersonating_source_is_
 #[test]
 fn the_raw_tool_enabled_in_multi_user_mode_is_not_fit_to_serve() {
     let sources = Sources::defaults(Environment::Development)
-        .with_overlay("security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n");
+        .with_overlay("security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n");
     let error = Settings::load(&sources).expect_err("the raw tool over a shared identity does not serve");
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a posture refusal, got {error:?}");
@@ -95,7 +96,7 @@ fn the_raw_tool_enabled_in_single_user_mode_is_fit_to_serve() {
     // The other half of the same predicate, so the refusal cannot be satisfied by refusing every
     // deployment that turns the tool on - only the mode it names.
     let sources = Sources::defaults(Environment::Development).with_overlay(
-        "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator, their own files\"\ntools:\n  run_sql:\n    enabled: true\n",
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator, their own files\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
     );
     let settings = Settings::load(&sources).expect("single-user with the raw tool on serves");
     assert!(settings.tools().run_sql_enabled());
@@ -108,4 +109,42 @@ fn the_raw_tool_off_in_multi_user_mode_is_fit_to_serve() {
     let sources = Sources::defaults(Environment::Development).with_overlay("security:\n  identity: \"multi-user\"\n");
     let settings = Settings::load(&sources).expect("multi-user with the raw tool off serves");
     assert!(!settings.tools().run_sql_enabled());
+}
+
+#[test]
+fn federation_allowed_false_is_read_and_refuses_nothing() {
+    // The key exists and its off value is the default's: writing it changes nothing, in any build.
+    let refusals = refusals_of(String::from("tools:\n  run_sql:\n    federation_allowed: false\n"));
+    assert!(refusals.is_empty(), "{refusals:?}");
+}
+
+#[test]
+fn the_raw_tool_on_over_no_listed_source_is_not_fit_to_serve() {
+    // Nothing is inferred: an operator who turns the tool on names what it runs over. By rendered
+    // text, so the cell compiles against a tree that lacks the refusal and fails by assertion there.
+    let refusals = refusals_of(String::from(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\ntools:\n  run_sql:\n    enabled: true\n",
+    ));
+    let rendered: Vec<String> = refusals.iter().map(ToString::to_string).collect();
+    assert_eq!(rendered.len(), 1, "{rendered:?}");
+    assert!(
+        rendered
+            .iter()
+            .all(|refusal| refusal.contains("tools.run_sql.sources lists no source")),
+        "{rendered:?}"
+    );
+}
+
+#[test]
+fn the_raw_tool_in_multi_user_mode_over_a_listed_impersonating_source_is_not_fit_to_serve() {
+    // Every listed source answers for itself: an acknowledged shared source does not carry an
+    // `impersonation-at-source` one listed beside it.
+    let listed =
+        "security:\n  identity: \"multi-user\"\ntools:\n  run_sql:\n    enabled: true\n    sources: [\"local\", \"other\"]\n";
+    let other = format!("  other:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/other\"\n{IMPERSONATING}");
+    let refusals = refusals_of(format!("{listed}{LOCAL}{SHARED}{ACKNOWLEDGED}{other}"));
+    assert!(
+        refusals.contains(&NotFitToServe::RunSqlEnabledInMultiUserMode),
+        "{refusals:?}"
+    );
 }

@@ -10,14 +10,14 @@ index 776188fed..c9bfe3ed3 100644
 -                status: axum::http::StatusCode::OK,
 -                body: OutcomeBody::Answer {
 -                    provenance: provenance_body(provenance),
--                    executed_as: legs(provenance),
+-                    executed_as: legs(provenance.executed_as()),
 -                    columns: rows.columns().to_vec(),
 -                    rows: render(rows),
 -                },
 -                retry_after_seconds: None,
 -            },
 +            } => {
-+                let _ = (provenance_body(provenance), legs(provenance), render(rows));
++                let _ = (provenance_body(provenance), legs(provenance.executed_as()), render(rows));
 +                Self::from(&ToolOutcome::Refusal {
 +                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
 +                })

@@ -30,7 +30,7 @@ use crate::wire::{RawMalformedStatement, RawOutcomeBody, RunSqlBody, RunSqlOutco
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "run_sql";
 
-/// Runs one literal SQL statement against this deployment's configured source, or says why it will
+/// Runs one SQL statement over the sources `tools.run_sql.sources` lists, or says why it will
 /// not.
 #[utoipa::path(
     post,
@@ -68,11 +68,11 @@ const TAG: &str = "run_sql";
         ),
         (
             status = 409,
-            description = "REFUSED. `code: more_than_one_source_open` - this deployment opened more \
-                           than one data system and a raw statement runs against exactly one. \
-                           `code: no_source_accepts_raw_statements` - the data system it opened does \
-                           not accept a raw statement. Neither changes by retrying: use the \
-                           certified tools, or ask the operator.",
+            description = "REFUSED. `code: plan_spans_more_than_one_source` - the statement reads \
+                           more than one data system, and this deployment runs a statement against \
+                           one. Nothing reached a data system, and retrying does not change it: \
+                           read one source per statement, use the certified tools, or ask the \
+                           operator.",
             body = RawOutcomeBody
         ),
         (

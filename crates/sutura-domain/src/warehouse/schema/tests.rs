@@ -113,7 +113,16 @@ fn a_federated_model_with_no_column_type_is_refused_by_name_and_a_local_one_is_n
     };
     assert_eq!(model.as_str(), "customers");
     let local = PinnedSchemas::pin(&bundle(orders(), untyped(), "lake"), &dialects()).expect("both models share a source");
-    assert_eq!(local, PinnedSchemas::default());
+    let customers = ModelName::parse("customers").expect("a test model is a model");
+    let orders = ModelName::parse("orders").expect("a test model is a model");
+    assert!(
+        local.of(&orders).is_some(),
+        "a local model on a source with a dialect is pinned"
+    );
+    assert_eq!(
+        local.fell_back(&customers).map(ColumnName::as_str).collect::<Vec<_>>(),
+        ["id"]
+    );
 }
 
 #[test]

@@ -112,6 +112,7 @@ fn a_single_user_loopback_agent_surface_behind_a_declared_tls_terminator_stops_t
 ///
 /// The posture `/v1` already has there. Red on a tree that refused every inbound-less mount.
 #[cfg(feature = "agent")]
+#[cfg(feature = "duckdb")]
 #[test]
 fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_deployment() {
     let deployment = crate::harness::deployment(&example_root(), crate::harness::AGENT_LOOPBACK, crate::harness::SINGLE_USER);
@@ -123,7 +124,11 @@ fn a_single_user_loopback_agent_surface_with_no_inbound_identity_answers_as_the_
     assert_eq!(
         listed(
             "agent-single-user",
-            &format!("{deployment}tools:\n  run_sql:\n    enabled: true\n")
+            &crate::harness::raw_sql_deployment(
+                "agent-single-user",
+                crate::harness::AGENT_LOOPBACK,
+                crate::harness::SINGLE_USER
+            )
         ),
         vec![
             String::from("describe_catalog"),

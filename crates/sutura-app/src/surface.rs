@@ -95,7 +95,7 @@ use crate::noting::NotingBroker;
 use crate::proof::{pin_schemas, validate_with};
 use crate::spend::SpendLedger;
 use crate::warehouses::Warehouses;
-use crate::{ServiceError, Validated, verify_and_validate};
+use crate::{RunSqlScope, ServiceError, Validated, verify_and_validate};
 
 /// The service, as a transport sees it.
 ///
@@ -164,7 +164,7 @@ pub trait Surface: Send + Sync + 'static {
     /// nothing yet stops a data system mid-call with it.
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure>;
 
-    /// Runs one literal statement against this deployment's configured source, or says why it will
+    /// Runs one statement over the sources `tools.run_sql.sources` lists, or says why it will
     /// not - the raw SQL tool, `docs/adr/0013`.
     ///
     /// Same shape as [`Self::answer`] in every way that matters: a refusal comes back inside the
@@ -520,6 +520,7 @@ pub struct LocalService<W, S, B, C> {
     working_set_bytes: u64,
     spend_ledger: SpendLedger,
     ceilings: Ceilings,
+    run_sql: RunSqlScope,
 }
 
 impl<W, S, B, C> LocalService<W, S, B, C>
@@ -601,6 +602,7 @@ where
         let definitions = verify_and_validate(pinned, &warehouses).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
         #[expect(clippy::disallowed_types, reason = "see the field's own note")]
         let definitions = std::sync::RwLock::new(definitions);
+        let run_sql = RunSqlScope::new(warehouses.each().map(|(source, _)| source.clone()).collect(), false);
         Ok(Self {
             definitions,
             warehouses,
@@ -611,6 +613,7 @@ where
             working_set_bytes,
             spend_ledger: SpendLedger::no_budget(),
             ceilings: Ceilings::DEFAULT,
+            run_sql,
         })
     }
 
@@ -635,6 +638,14 @@ where
     #[must_use]
     pub const fn with_ceilings(mut self, ceilings: Ceilings) -> Self {
         self.ceilings = ceilings;
+        self
+    }
+
+    /// Replaces the raw tool's scope, for a composition root that read `tools.run_sql` - every open
+    /// source, not federating, until it does.
+    #[must_use]
+    pub fn with_run_sql(mut self, run_sql: RunSqlScope) -> Self {
+        self.run_sql = run_sql;
         self
     }
 
@@ -771,18 +782,35 @@ where
         statement: &sutura_domain::raw::RawStatement,
         deadline: Deadline,
     ) -> Result<sutura_domain::raw::RawOutcome, SurfaceFailure> {
+        let snapshot = self.snapshot();
         let noting = NotingBroker::over(&self.broker);
-        let answered = crate::run_sql(context, statement, &noting, &self.warehouses, deadline).map_err(|error| match error {
+        let answered = crate::raw::answer_sql(
+            &snapshot,
+            context,
+            statement,
+            &noting,
+            &self.warehouses,
+            &self.combiner,
+            &self.run_sql,
+            self.working_set_bytes,
+            deadline,
+        )
+        .map_err(|error| match error {
             crate::RunSqlError::Broker { cause } => broker_failure(Box::new(cause)),
             crate::RunSqlError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             crate::RunSqlError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-            // Only an adapter that declares `Warehouse::ACCEPTS_RAW_STATEMENTS` and then answers no
-            // raw statement reaches this: `run_sql` has already refused the deployments that are
-            // not one raw-capable source, as a refusal the caller reads. Reported as a wiring defect
-            // rather than panicking, because a port that CAN return this is a port whose contract
-            // says it might.
+            // The composition root refuses at startup a listed source that takes no raw statement,
+            // so only an adapter contradicting its own declaration, or a library caller that skipped
+            // that refusal, reaches these. Reported as a wiring defect rather than panicking,
+            // because a port that CAN return them is a port whose contract says it might.
             crate::RunSqlError::NoAcceptingSource => SurfaceFailure::Miswired {
                 cause: Box::new(crate::RunSqlError::<B::Error>::NoAcceptingSource),
+            },
+            crate::RunSqlError::Unplanned => SurfaceFailure::Miswired {
+                cause: Box::new(crate::RunSqlError::<B::Error>::Unplanned),
+            },
+            crate::RunSqlError::Unlisted => SurfaceFailure::Miswired {
+                cause: Box::new(crate::RunSqlError::<B::Error>::Unlisted),
             },
         });
         // Same ordering as `answer`, every outcome and failure reaching it, so a raw call is recorded

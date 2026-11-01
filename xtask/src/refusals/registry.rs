@@ -107,8 +107,10 @@ const STARTUP: Subject = Subject {
     // authorization server's issuer. 32: `WorkerDeclaresSources`, `WorkerDeclaresCatalogs`,
     // `WorkerWithoutNodeAuthority`, `WorkerWithAgentSurface` and `WorkerWithFlightSurface`, what a
     // `server.role: worker` configuration may not declare. 33: `WorkersWaitNotBelowDeadline`, a wait
-    // for other nodes that is not below the request timeout it would be spent inside.
-    variants: variants(33),
+    // for other nodes that is not below the request timeout it would be spent inside. 34:
+    // `RunSqlFederationNotCompiledIn`, `tools.run_sql.federation_allowed` on a build with no SQL parser.
+    // 35: `RunSqlListsNoSource`, the raw tool on with no source listed for it to run over.
+    variants: variants(35),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
@@ -129,15 +131,15 @@ const VALIDATION: Subject = Subject {
 /// One refused raw statement: `docs/adr/0013`'s tool, off by default, with its own narrower
 /// vocabulary - a row cap, a data-system volume bound, a statement that did not complete, the
 /// data system refusing at the identity/authorization level, and (`telekom/sutura#1144`) the
-/// asker's own per-request deadline running out, a statement over more than one source while
-/// federation is not allowed, and a deployment shape the raw tool does not serve (more than one open
-/// source, or one that takes no raw text). Never `RefusalReason`'s: that vocabulary is keyed to a
-/// compiled plan, and a raw statement has none.
+/// asker's own per-request deadline running out, and a statement over more than one source while
+/// federation is not allowed. A deployment the raw tool does not serve is a startup refusal, not
+/// one of these. Never `RefusalReason`'s: that vocabulary is keyed to a compiled plan, and a raw
+/// statement has none.
 const RAW: Subject = Subject {
     name: "RawRefusalReason",
     declared_in: "crates/sutura-domain/src/raw.rs",
     allow_file: "devco/raw-refusals-unprovoked-allow",
-    variants: variants(8),
+    variants: variants(6),
 };
 
 /// One refused TLS configuration: the certificate and key `sutura_config::TlsMaterial` parsed are

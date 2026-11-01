@@ -71,7 +71,14 @@ impl TryFrom<RunSqlBody> for RawStatement {
 #[serde(tag = "outcome")]
 pub enum RawOutcomeBody {
     #[serde(rename = "raw_rows")]
-    Rows { columns: Vec<String>, rows: Vec<Vec<String>> },
+    Rows {
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        /// Which identity each source a federated statement read ran as, one entry per source - beside
+        /// the rows and never a `provenance`. Absent where the statement went through to one source.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        executed_as: Vec<super::LegBody>,
+    },
     #[serde(rename = "raw_refusal")]
     Refusal {
         #[schema(example = "source_refused")]
@@ -109,11 +116,16 @@ impl RunSqlOutcome {
 impl From<&RawOutcome> for RunSqlOutcome {
     fn from(outcome: &RawOutcome) -> Self {
         match *outcome {
-            RawOutcome::Rows { ref columns, ref rows } => Self {
+            RawOutcome::Rows {
+                ref columns,
+                ref rows,
+                ref executed_as,
+            } => Self {
                 status: StatusCode::OK,
                 body: RawOutcomeBody::Rows {
                     columns: columns.clone(),
                     rows: rows.clone(),
+                    executed_as: executed_as.as_ref().map_or_default(super::legs),
                 },
             },
             RawOutcome::Refusal { ref reason } => {
@@ -153,13 +165,11 @@ const fn refused_status(reason: &RawRefusalReason) -> StatusCode {
         // capability this caller lacks gets, because both say "you may not do this," never "retry".
         RawRefusalReason::SourceRefused => StatusCode::FORBIDDEN,
         // 409, the status `RefusalReason::PlanNeedsTooManyLookupLegs` gets: answerable in principle, and
-        // this deployment is arranged not to combine sources in one statement. The two deployment-
-        // shape refusals share it: the request is well formed and conflicts with how this deployment
-        // is arranged, which is neither a malformed request (400) nor a server fault (500), so the
-        // caller is told to ask the certified tools or the operator, never to retry.
-        RawRefusalReason::PlanSpansMoreThanOneSource
-        | RawRefusalReason::MoreThanOneSourceOpen
-        | RawRefusalReason::NoSourceAcceptsRawStatements => StatusCode::CONFLICT,
+        // this deployment is arranged not to combine sources in one statement. The request is well
+        // formed and conflicts with how this deployment is arranged, which is neither a malformed
+        // request (400) nor a server fault (500), so the caller is told to ask the certified tools or
+        // the operator, never to retry.
+        RawRefusalReason::PlanSpansMoreThanOneSource => StatusCode::CONFLICT,
     }
 }
 
@@ -180,6 +190,7 @@ mod tests {
         let outcome = RunSqlOutcome::from(&RawOutcome::Rows {
             columns: vec![String::from("n")],
             rows: vec![vec![String::from("1")]],
+            executed_as: None,
         });
         assert_eq!(outcome.status(), axum::http::StatusCode::OK);
         let rendered = serde_json::to_string(outcome.body()).expect("a raw body serializes");
@@ -189,13 +200,12 @@ mod tests {
         assert!(!rendered.contains("definition_digest"), "{rendered}");
     }
 
-    /// Six of the eight; `TooManyRows`'s own status is pinned through the real router in
-    /// `crate::harness::run_sql`, and one more has no producer yet, so this file tests six variants
-    /// of `RawRefusalReason` but not all eight. A file naming EVERY variant of an enum is a census and
-    /// supplies no evidence for that enum, so a file naming fewer than all supplies evidence for those
-    /// named.
+    /// Five of the six; `TooManyRows`'s own status is pinned through the real router in
+    /// `crate::harness::run_sql`, so this file tests five variants of `RawRefusalReason` but not all
+    /// six. A file naming EVERY variant of an enum is a census and supplies no evidence for that enum,
+    /// so a file naming fewer than all supplies evidence for those named.
     #[test]
-    fn six_of_the_eight_refusal_reasons_have_a_status() {
+    fn five_of_the_six_refusal_reasons_have_a_status() {
         for (reason, status) in [
             (RawRefusalReason::ResultTooLarge, axum::http::StatusCode::PAYLOAD_TOO_LARGE),
             (
@@ -207,11 +217,7 @@ mod tests {
                 RawRefusalReason::DeadlineExceeded { budget_seconds: 29 },
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY,
             ),
-            (RawRefusalReason::MoreThanOneSourceOpen, axum::http::StatusCode::CONFLICT),
-            (
-                RawRefusalReason::NoSourceAcceptsRawStatements,
-                axum::http::StatusCode::CONFLICT,
-            ),
+            (RawRefusalReason::PlanSpansMoreThanOneSource, axum::http::StatusCode::CONFLICT),
         ] {
             let outcome = RunSqlOutcome::from(&RawOutcome::Refusal { reason });
             assert_eq!(outcome.status(), status, "{outcome:?}");

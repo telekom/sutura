@@ -164,6 +164,10 @@ flight = ["sutura-http/flight"]
 # node opens a link or mounts a worker only when `server.nodes` or `server.role: worker` asks.
 distributed = ["sutura-exec-datafusion/distributed", "sutura-http/worker", "tls"]
 
+# DataFusion's SQL frontend, which `tools.run_sql.federation_allowed: true` needs. Default-off and in
+# no `nix/shipped.nix` feature list: a build with it links a SQL parser, which a default build does not.
+sql = ["sutura-app/sql", "sutura-config/sql", "sutura-exec-datafusion/sql", "sutura-mcp/sql"]
+
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }

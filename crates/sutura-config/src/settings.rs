@@ -22,7 +22,7 @@ use sutura_domain::pinned::InvalidVersion;
 use sutura_domain::plan::{
     Ceilings, FederatedRowCeiling, InvalidFederatedRowCeiling, InvalidPlanCeiling, InvalidRowCeiling, PlanCeilings, RowCeiling,
 };
-use sutura_domain::source::{ImpersonationCapability, SourcePosture, host_is_loopback};
+use sutura_domain::source::{ImpersonationCapability, host_is_loopback};
 
 use crate::api::ApiSettings;
 use crate::catalog::{Catalogs, InvalidCatalogSettings, UnknownCatalogKind};
@@ -40,6 +40,7 @@ use crate::security::{
 use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, ServerRole, ServerSettings, UnknownServerRole};
 use crate::sources::{InvalidSourceRegistry, SourceRegistry};
 use crate::telemetry::{InvalidLogFilter, InvalidServiceName, TelemetrySettings, UnknownLogFormat};
+use crate::tools::InvalidRunSqlSources;
 
 /// The variable that chooses the deployment environment.
 ///
@@ -422,6 +423,11 @@ pub enum SettingsError {
         #[source]
         cause: InvalidPlanCeiling,
     },
+    #[error("`tools.run_sql.sources` is not usable")]
+    RunSqlSources {
+        #[source]
+        cause: InvalidRunSqlSources,
+    },
     /// The values are all well formed and the deployment they describe is one this service will not serve.
     ///
     /// **Every refusal is in the message, not just the first, and not behind a `#[source]`.** A
@@ -514,7 +520,7 @@ impl Settings {
             catalogs: catalogs::parse_catalogs(raw, &sources)?,
             runtime: parse::parse_runtime(raw)?,
             prompt: parse::parse_prompt(raw)?,
-            tools: parse::parse_tools(raw),
+            tools: parse::parse_tools(raw)?,
             spend_budget: parse::parse_spend_budget(raw)?,
             row_ceiling: parse::parse_row_ceiling(raw)?,
             federated_row_ceiling: parse::parse_federated_row_ceiling(raw)?,
@@ -559,7 +565,12 @@ impl Settings {
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(posture::audience_refusal(self.security.inbound()));
         refusals.extend(posture::workers_wait_refusal(&self.server));
-        refusals.extend(self.run_sql_refusals());
+        refusals.extend(posture::run_sql_multi_user_refusal(
+            &self.tools,
+            self.security.identity(),
+            &self.sources,
+        ));
+        refusals.extend(posture::run_sql_source_refusals(&self.tools));
         refusals.extend(self.spend_refusals());
         refusals.extend(self.credential_refusals(off_host));
         if self.server.agent_surface_enabled() {
@@ -621,8 +632,7 @@ impl Settings {
     /// typed refusals naming the source to change. Whether the *linked adapter* can carry a per-subject
     /// credential at all is a property of the build, so it is checked in the composition root beside
     /// `open_engine` and not here; and neither half belongs in `verify_and_validate`, which re-runs
-    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot
-    /// change.
+    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot change.
     fn identity_refusals(&self) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         if self.sources.is_empty() {
@@ -649,26 +659,6 @@ impl Settings {
             }
         }
         refusals
-    }
-
-    /// Whether the raw SQL tool is enabled in `multi-user` mode with no acknowledged
-    /// `shared-service-user` source - see [`NotFitToServe::RunSqlEnabledInMultiUserMode`].
-    ///
-    /// Reads only the parsed tree. Whether the linked adapter accepts a raw statement at all is a
-    /// property of the composed binary, so an `impersonation-at-source` source counts for nothing here
-    /// even where an adapter could one day run raw text as the caller.
-    fn run_sql_refusals(&self) -> Vec<NotFitToServe> {
-        let acknowledged_shared = self
-            .sources
-            .each()
-            .any(|(_, source)| matches!(source.posture(), Some(SourcePosture::SharedServiceUser { .. })));
-        if self.tools.run_sql_enabled()
-            && self.security.identity() == Some(&DeploymentIdentity::SubjectPerRequest)
-            && !acknowledged_shared
-        {
-            return vec![NotFitToServe::RunSqlEnabledInMultiUserMode];
-        }
-        Vec::new()
     }
 
     /// Why this deployment may not serve a mounted `/mcp`, or an empty list - see

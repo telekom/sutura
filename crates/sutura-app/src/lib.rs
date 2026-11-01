@@ -816,7 +816,7 @@ pub(crate) const fn deadline_exceeded(deadline: Deadline) -> RefusalReason {
 // cannot see (`#703` review, finding 1: it compiled clean and the gate printed `ok`). Every item
 // this module needs to expose is re-exported here, so nothing outside this crate loses access.
 mod raw;
-pub use raw::{AnsweredRaw, RunSqlError, RunningRaw, run_sql};
+pub use raw::{AnsweredRaw, RunSqlError, RunSqlScope, RunningRaw, run_sql};
 
 // `telekom/sutura#137` step 3's node-to-node leg - carved out for the same reason `raw` is.
 //

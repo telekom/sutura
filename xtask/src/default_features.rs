@@ -75,7 +75,9 @@
 //! `sutura-domain/test-fakes` and `sutura-http/fixtures` in each shipped root's normal target
 //! dependencies, for every target declared by the cross list and host mapping. The last one is what
 //! lets `ServableSettings` be the guard rather than a convention: with `fixtures` on, a bare
-//! `Arc<Settings>` builds the state. Its limit is the other two's: it resolves the DEFAULT feature
+//! `Arc<Settings>` builds the state. It rejects `sqlparser` and `datafusion-sql` too, so a default
+//! build keeps having no SQL parser: `Cargo.lock` resolves every feature and lists both whether or
+//! not a build links them. Its limit is the other two's: it resolves the DEFAULT feature
 //! set, not the `--features` list a release passes, so a feature turned on only there is not seen.
 //! Build dependencies, proc-macro hosts and dev dependencies are outside that projection. This is
 //! resolved feature selection, not inspection of emitted code or proof of runtime data disclosure.
@@ -469,6 +471,9 @@ fn inspect_features(text: &str, root: &str) -> Result<(), &'static str> {
         if row.package == "sutura-http" && row.features.split(',').any(|feature| feature == "fixtures") {
             return Err("sutura-http/fixtures is enabled in normal target dependencies");
         }
+        if matches!(row.package, "sqlparser" | "datafusion-sql") {
+            return Err("an SQL parser (sqlparser or datafusion-sql) is in the default build's normal target dependencies");
+        }
     }
     if !found_root || !found_domain {
         return Err("Cargo output omitted the selected root or enrolled sutura-domain subject");
@@ -598,6 +603,9 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     eprintln!("  `just check-changed`. What ships is what this compiled.");
     Verdict::Fail
 }
+
+#[cfg(test)]
+mod parser_tests;
 
 #[cfg(test)]
 mod tests {
