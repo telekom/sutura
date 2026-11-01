@@ -554,3 +554,11 @@ The Fourth amendment's "one tokio-postgres client left, the RDBMS catalog reader
 stage 3 of `github.com/telekom/sutura#913` moves that reader onto the shared ADBC connector
 (`sutura-adbc-postgres`), and `tokio-postgres` leaves the workspace. The probe's sink is reached by
 no call in this tree.
+
+## Sixth amendment, 2026-11-01: the provenance count is five again
+
+The Third amendment's three is five once `sutura-operator` ships beside `sutura`
+(`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 15): one call over every
+release asset and one per manifest list, of which there are four, a glibc and a musl pair per
+shipped binary. `cargo xtask collect-provenance` refuses anything but five bundles
+(`xtask/src/release_provenance.rs`).

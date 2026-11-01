@@ -16,14 +16,14 @@
 # binaries carry a driver whose Go runtime starts is not established by anything.
 #
 # WHAT IT PUBLISHES, on `publish=true` from a tag - everything the normal release publishes for
-# the binary, built at this profile, and nothing built and discarded:
+# every shipped binary, built at this profile, and nothing built and discarded:
 #
 # | Kind | Where |
 # | --- | --- |
-# | four tarballs, their `.sha256`, both musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
+# | four tarballs per binary, their `.sha256`, each binary's two musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
 # | a Sigstore bundle per asset, SLSA provenance over all of them | the same prerelease |
-# | four leaves `<version>-performance-<triple>` | the registry, signed, each with its SBOM attested |
-# | lists `<version>-performance` (glibc) and `<version>-performance-musl` | the registry, signed, with provenance |
+# | four leaves per binary, `<version>-performance-<triple>` and `<version>-performance-operator-<triple>` | the registry, signed, each with its SBOM attested |
+# | lists `<version>-performance` (glibc) and `<version>-performance-musl`, and `<version>-performance-operator` and `-operator-musl` | the registry, signed, with provenance |
 #
 # A SEPARATE RELEASE, because the normal one cannot take them: this repository has GitHub's
 # immutable releases enabled, so `v<version>`'s assets froze when it was published and an upload
@@ -55,14 +55,10 @@
 # tag at this profile, and `check-workflows` refuses a release step without `--prerelease
 # --latest=false`.
 #
-# ONE BINARY, `sutura`, and it carries the HTTP surface too as `sutura serve` - since
-# `github.com/telekom/sutura#685` step 2 folded the `sutura-serve` binary this comment used to
-# name into the one this file already builds. Before that fold there was a second binary with its
-# own `-performance` sibling built for free (`packages.sutura-serve-performance`,
-# `packages.oci-serve-performance`) and this file deliberately did not build it, on the reasoning
-# that fat LTO is minutes of compile time for throughput SOMEBODY HAS MEASURED, and nobody had
-# measured the server's. That reasoning has nothing left to apply to: one binary, one measurement
-# question, answered by whichever workload asked for `--features` this build was told to carry.
+# EVERY SHIPPED BINARY, the set `release.yml` publishes: `cargo xtask check-shipped-binaries`
+# holds this `BINARIES` to `nix/shipped.nix` as it holds that one. For `sutura-operator` that is
+# fat-LTO compile time with no throughput question behind it, paid so that an optimised release
+# is the normal release's set at another profile rather than a second set to state and check.
 #
 # REUSED, NOT COPIED: `build-artefacts` (binaries, images, smoke tests, SBOMs) with
 # `profile: performance`, `push-images` (leaves, lists, digest records) and `attest-and-sign` -
@@ -92,7 +88,7 @@ permissions:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
-  BINARIES: sutura
+  BINARIES: sutura sutura-operator
 
 jobs:
   # A 20-minute build should not start because someone clicked the wrong button.
@@ -219,8 +215,8 @@ jobs:
 
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
 
-      # The release's own build sequence at the other profile: binaries, images run as
-      # `sutura serve` on x86_64, and an SBOM per image. Unconditional, so a dry run
+      # The release's own build sequence at the other profile: binaries, images smoke-tested
+      # on x86_64, and an SBOM per image. Unconditional, so a dry run
       # (`publish=false`) builds and runs everything a publish would push.
       - uses: $/.github/actions/build-artefacts
         with:
@@ -373,6 +369,8 @@ jobs:
             echo "| --- | --- | --- |"
             printf "| glibc | \`%s:%s\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             printf "| static musl | \`%s:%s-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| operator, glibc | \`%s:%s-operator\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| operator, static musl | \`%s:%s-operator-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             echo
             echo '```'
             cat dist/image-digests.txt

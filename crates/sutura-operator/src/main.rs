@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! `sutura-operator crd` prints the `SuturaWorkerPool` definition for the configured API group, as
 //! YAML, for the chart to install. `sutura-operator run` sizes every pool in its namespace, every
-//! [`POLL`], until it is stopped.
+//! [`POLL`], until it is stopped. `sutura-operator --version` prints its version.
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
@@ -21,8 +21,12 @@ fn main() -> ExitCode {
     let outcome = match (args.next().as_deref(), args.next()) {
         (Some("crd"), None) => crd().map(|yaml| print!("{yaml}")),
         (Some("run"), None) => run().map(|never| match never {}),
+        (Some("--version"), None) => {
+            println!("sutura-operator {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         _ => {
-            eprintln!("usage: sutura-operator crd | run");
+            eprintln!("usage: sutura-operator crd | run | --version");
             return ExitCode::from(2);
         }
     };

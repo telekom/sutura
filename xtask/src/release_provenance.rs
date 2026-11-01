@@ -16,10 +16,10 @@ use serde_json::Value;
 
 use crate::Verdict;
 
-/// A subject is its full name AND SHA-256 digest: two image lists share one repository name.
+/// A subject is its full name AND SHA-256 digest: every image list shares one repository name.
 type Subject = (String, String);
 
-/// The unique subject set across all three bundles.
+/// The unique subject set across every bundle.
 type Subjects = BTreeSet<Subject>;
 
 /// Collect only after every input validates. A failed or repeated invocation cannot overwrite.
@@ -27,13 +27,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let [checksums, images, output, bundles @ ..] = args else {
         return Verdict::Usage;
     };
-    if bundles.len() != 3 {
-        eprintln!("collect-provenance: expected three bundle paths");
+    // The assets, then a glibc and a musl list for each of `sutura` and `sutura-operator`.
+    if bundles.len() != 5 {
+        eprintln!("collect-provenance: expected five bundle paths");
         return Verdict::Usage;
     }
     match collect(Path::new(checksums), Path::new(images), Path::new(output), bundles) {
         Ok(subjects) => {
-            println!("collect-provenance: wrote three bundles covering {subjects} unique subjects");
+            println!("collect-provenance: wrote five bundles covering {subjects} unique subjects");
             Verdict::Pass
         }
         Err(cause) => {
@@ -184,8 +185,8 @@ fn image_subjects(text: &str) -> Result<Subjects, String> {
             return Err(String::from("invalid or duplicate image subject"));
         }
     }
-    if subjects.len() != 2 {
-        return Err(String::from("expected two unique image-list subjects"));
+    if subjects.len() != 4 {
+        return Err(String::from("expected four unique image-list subjects"));
     }
     Ok(subjects)
 }
@@ -350,7 +351,7 @@ mod tests {
     fn fixture(stem: &str) -> Fixture {
         let tree = crate::scratch_tree::Tree::of(&format!("provenance-{stem}"), &[]);
         let root = tree.root().to_path_buf();
-        let hashes: Vec<_> = (0..4).map(|n| format!("{n:064x}")).collect();
+        let hashes: Vec<_> = (0..6).map(|n| format!("{n:064x}")).collect();
         let assets = bundled(&json!([
             {"name": "runtime.tar.gz", "digest": {"sha256": hashes[0]}},
             {"name": "runtime.tar.gz.sha256", "digest": {"sha256": hashes[1]}}
@@ -363,7 +364,8 @@ mod tests {
              # list = multi-arch manifest list; pin this unless you want one architecture\n\
              # leaf = single-arch image, named by its binary key and rust target triple\n",
         );
-        for (variant, digest) in ["glibc", "musl"].iter().zip(hashes.iter().skip(2)) {
+        let lists = ["glibc", "musl", "operator-glibc", "operator-musl"];
+        for (variant, digest) in lists.iter().zip(hashes.iter().skip(2)) {
             writeln!(images, "list {variant} registry.example.com/test/runtime@sha256:{digest}").expect("write to a String");
             bundles.push(bundled(&json!([{
                 "name": "registry.example.com/test/runtime", "digest": {"sha256": digest}
@@ -420,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn the_registered_collector_preserves_all_three_records_and_refuses_overwrite() {
+    fn the_registered_collector_preserves_every_record_and_refuses_overwrite() {
         let fixture = fixture("clean");
         let staging = fixture.tree.root().join(".sutura-provenance.intoto.jsonl.tmp");
         let first = registered(&fixture.args);
@@ -579,7 +581,7 @@ mod tests {
         for (case, verdict, exists) in observed {
             assert_eq!((verdict, exists), (Verdict::Fail, false), "{case}");
         }
-        assert_eq!((clean, count), (Verdict::Pass, 3));
+        assert_eq!((clean, count), (Verdict::Pass, 5));
     }
 
     /// The four reference shapes the name derivation has to tell apart. The UNTAGGED row is what
@@ -601,7 +603,7 @@ mod tests {
         ] {
             use std::fmt::Write as _;
             let mut text = String::new();
-            for (n, variant) in ["glibc", "musl"].iter().enumerate() {
+            for (n, variant) in ["glibc", "musl", "operator-glibc", "operator-musl"].iter().enumerate() {
                 writeln!(text, "list {variant} {reference}@sha256:{n:064x}").expect("write to String");
             }
             let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{reference}: {cause}"));
@@ -618,8 +620,10 @@ mod tests {
             "# kind name reference@digest\n\
              list glibc registry.example.com/test/runtime@sha256:{:064x}\n\
              list musl registry.example.com/test/runtime@sha256:{:064x}\n\
+             list operator-glibc registry.example.com/test/runtime@sha256:{:064x}\n\
+             list operator-musl registry.example.com/test/runtime@sha256:{:064x}\n\
              chart sutura registry.example.com/test/charts/sutura@sha256:{:064x}\n",
-            0, 1, 2
+            0, 1, 2, 3, 4
         );
         let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{cause}"));
         let names: std::collections::BTreeSet<_> = subjects.iter().map(|(name, _)| name.as_str()).collect();

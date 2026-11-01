@@ -494,20 +494,20 @@
         # WHAT `nix build .#<name>` OFFERS, and every name in it but `xtask` comes from
         # `nix/shipped.nix`'s `binaries` list rather than from a line here:
         #
-        #   * `sutura`                                        - the native release binary
-        #   * `sutura-performance`                            - the same, fat LTO
+        #   * `sutura`, `sutura-operator`                     - the native release binaries
+        #   * `<binary>-performance`                          - the same, fat LTO
         #   * `<binary>-<triple>`, plus `-performance` and `-ci` siblings - the cross matrix
-        #   * `oci`, and its `-performance` sibling           - the local Linux image
-        #   * `oci-<triple>`                                  - one image per shipped artifact
+        #   * `oci`, `oci-operator`, and `-performance` siblings - the local Linux images
+        #   * `oci-<key>`, `<key>` being `<triple>` or `operator-<triple>` - one per shipped artifact
         #   * `<binary>-<feature>-<triple>-ci`                - the feature-on link probes
         #   * `feature-probes-<triple>`                       - which of those exist, as a file
         #   * `<binary>-all-features-<musl-triple>-performance-probe` - #685 step 1: every
         #     optional feature, fat LTO, on musl - not a shipped artefact either
         #
-        # The HTTP surface is `sutura serve`, folded into this one binary by `github.com/telekom/
-        # sutura#685` step 2 - `sutura-serve` used to be a second entry here, published as its own
-        # binary and images, closing #111: before it, every published artefact was the
-        # command-line tool, so nothing a release published could answer a question over HTTP.
+        # The HTTP surface is `sutura serve`, folded into `sutura` by `github.com/telekom/
+        # sutura#685` step 2 - `sutura-serve` used to be a second entry here. `sutura-operator`
+        # is the second entry now, shipped as `sutura` is
+        # (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 15).
         # `docs/serving.md` is where the deployment shape lives. The probes and their manifests
         # are the entries here that are NOT shipped artifacts - see `probeFeatures`.
         packages = crossPackages // shipped.ociImages // shipped.nativeBinaries
