@@ -387,4 +387,94 @@ mod tests {
         let found = super::problems(&root);
         assert!(found.is_empty(), "{found:#?}");
     }
+
+    // THE STORE CACHE'S COLLECTION (#1696), held here because this module's tests compile at base:
+    // the rule is `gc`'s, reached only through `cache_scope::problems`, and these cells are red
+    // against a tree where nothing reads `gc-max-store-size` at all.
+
+    /// The pinned collection knob, as the store step's own line.
+    const KNOB: &str = "        gc-max-store-size: ${{ inputs.scope == 'ci' && '0K' || '' }}\n";
+
+    /// The root step's pinned gate: the `ci` scope on a push to `main`.
+    const ROOTED: &str = "inputs.scope == 'ci' && github.event_name == 'push' && github.ref == 'refs/heads/main'";
+
+    /// One workflow calling the action, so the scan over `.github/workflows` has a file to read.
+    const CALLER: &str =
+        "jobs:\n  ci:\n    steps:\n      - uses: ./.github/actions/nix-store-cache\n        with:\n          scope: ci\n";
+
+    /// A store-cache action whose store step ends with `knob`, plus a gc-root step gated on
+    /// `root_gate` - or none, for `None`.
+    fn store_action(knob: &str, root_gate: Option<&str>) -> String {
+        let roots = root_gate.map_or_else(String::new, |gate| {
+            format!("    - name: Root\n      if: {gate}\n      shell: bash\n      run: sudo ln -sfn \"$p\" /nix/var/nix/gcroots/nix-store-cache/x\n")
+        });
+        format!(
+            "runs:\n  using: composite\n  steps:\n    - id: store\n      uses: nix-community/cache-nix-action@7df9 # v7\n      with:\n        save: ${{{{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}}}\n{knob}{roots}"
+        )
+    }
+
+    /// Every cache rule's answer for a tree holding `action` as the store-cache action and `caller`
+    /// as its one workflow.
+    fn store_cache_problems(tag: &str, action: &str, caller: &str) -> Vec<String> {
+        let tree = crate::scratch_tree::Tree::of(
+            tag,
+            &[
+                (".github/actions/nix-store-cache/action.yml", action.as_bytes()),
+                (".github/workflows/ci.yml", caller.as_bytes()),
+            ],
+        );
+        let ordinary = crate::workflows::contexts::OrdinaryCi::read(tree.root());
+        super::super::problems(tree.root(), ordinary.closure())
+    }
+
+    #[test]
+    fn a_store_collection_knob_other_than_the_pinned_scope_expression_is_refused() {
+        // `10G` collects on every scope, and only the `ci` scope's store has roots.
+        let found = store_cache_problems(
+            "gc-knob",
+            &store_action("        gc-max-store-size: 10G\n", Some(ROOTED)),
+            CALLER,
+        );
+        assert!(found.iter().any(|p| p.contains("`gc-max-store-size` must be")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_store_collection_with_no_gc_root_step_is_refused() {
+        let found = store_cache_problems("gc-unrooted", &store_action(KNOB, None), CALLER);
+        assert!(found.iter().any(|p| p.contains("no step writes under")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_gc_root_step_gated_on_the_main_push_alone_is_refused() {
+        // Without the scope conjunct it roots a `bq` or cross store too - harmless alone, but it is
+        // not the one run the knob collects, and the pin is what keeps the two halves in step.
+        let found = store_cache_problems(
+            "gc-root-gate",
+            &store_action(KNOB, Some("github.event_name == 'push' && github.ref == 'refs/heads/main'")),
+            CALLER,
+        );
+        assert!(found.iter().any(|p| p.contains("the gc-root step is gated on")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_store_collection_key_outside_the_pinned_knob_is_refused() {
+        // An override in the action wins over the pinned knob; a knob in a workflow reaches a
+        // store step nothing roots.
+        let action = store_action(&format!("{KNOB}        gc-max-store-size-linux: 1G\n"), Some(ROOTED));
+        let caller = format!("{CALLER}          gc-max-store-size: 0K\n");
+        let found = store_cache_problems("gc-elsewhere", &action, &caller);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with(".github/actions/nix-store-cache/action.yml:")
+                    && p.contains("`gc-max-store-size-linux` is set outside")),
+            "{found:#?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with(".github/workflows/ci.yml:") && p.contains("`gc-max-store-size` is set outside")),
+            "{found:#?}"
+        );
+    }
 }
