@@ -1562,6 +1562,56 @@ jobs:
             nix run .#xtask -- classify
           fi
 
+  # On a push to `main`, which of the legs below the merge queue already ran green on this same
+  # commit (#1696): one `true`/`false` output per leg, each read by that leg's `if:` and by its
+  # `*_SELECTED` in `ci-aggregate` as `!= 'true'`. On every other event the step skips and the
+  # outputs are `''`, so nothing changes there. The queue fast-forwards `main` to the group commit,
+  # so this push's `GITHUB_SHA` is that run's `head_sha`; a commit id names its tree, this file
+  # included, so the job names agree. Only `success` counts, never `skipped`: a batched group's
+  # last entry selected its own diff, while this push's `before..sha` spans the whole batch. A run
+  # not `completed` with `success`, an API or jq error, or no run leaves `false`, and the leg runs.
+  # No `if:` and no `needs`: a skipped need skips its dependents on every event. If this job
+  # fails, its dependent legs skip while their `*_SELECTED` stays `true`, so `ci-aggregate` is
+  # red. `xtask/src/workflows/aggregate_inputs/queue_validated.rs` pins this job's text and
+  # where its outputs may be read; `e2e-datahub-adbc`, `cross`, `demo-container` and
+  # `kind-smoke` keep their push run and may not read them.
+  queue-validated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      keycloak_served_test: ${{ steps.lookup.outputs.keycloak_served_test }}
+      bigquery_driver_check: ${{ steps.lookup.outputs.bigquery_driver_check }}
+      multi_node: ${{ steps.lookup.outputs.multi_node }}
+      k3s_autoscaling: ${{ steps.lookup.outputs.k3s_autoscaling }}
+      oracle_tier: ${{ steps.lookup.outputs.oracle_tier }}
+      ci_datahub_tier: ${{ steps.lookup.outputs.ci_datahub_tier }}
+      ci_openmetadata_tier: ${{ steps.lookup.outputs.ci_openmetadata_tier }}
+      ci_cube_tier: ${{ steps.lookup.outputs.ci_cube_tier }}
+    steps:
+      - name: Legs the merge queue ran green on this commit
+        id: lookup
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$GITHUB_SHA&per_page=100" \
+            --jq '.workflow_runs[] | select(.event == "merge_group" and .head_sha == $ENV.GITHUB_SHA and .status == "completed" and .conclusion == "success") | .id')" || runs=""
+          passed=""
+          for run in $runs; do
+            jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?filter=latest&per_page=100" \
+              --jq '.jobs[] | select(.head_sha == $ENV.GITHUB_SHA and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
+            passed="$passed"$'\n'"$jobs"
+          done
+          for leg in keycloak-served-test bigquery-driver-check multi-node k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
+            if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
+            echo "$leg: $hit"
+            echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
+          done
+
   # The one cell that needs a REAL identity provider rather than the mock -
   # `crates/sutura-cli/tests/served/keycloak_test.rs`'s `#[ignore]`d
   # `a_real_keycloak_issued_token_is_verified_by_the_composed_binary_and_a_wrong_audience_is_refused`.
@@ -1578,12 +1628,12 @@ jobs:
   # the inbound transport) - accepted rather than deferred, because an `#[ignore]`d cell with no
   # venue proves nothing.
   keycloak-served-test:
-    needs: [identity-classify]
+    needs: [identity-classify, queue-validated]
     # `needs: [identity-classify]`, NOT `[ci]` (#983) - see that job's own header for why the two
     # classifications are independent and why disagreeing between them is safe. No fork/push
     # distinction, unlike `e2e-datahub-adbc`: no secret is read below, so there is nothing this
     # condition needs to withhold from a fork's pull request.
-    if: needs.identity-classify.outputs.identity == 'true'
+    if: needs.identity-classify.outputs.identity == 'true' && needs.queue-validated.outputs.keycloak_served_test != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -1812,8 +1862,8 @@ jobs:
   # release-commit test is `ci`'s own, repeated because this job no longer inherits `ci`'s skip:
   # `release.yml` runs this check against the published build, so a release commit loses nothing.
   bigquery-driver-check:
-    needs: [identity-classify]
-    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.driver_check == 'true' }}
+    needs: [identity-classify, queue-validated]
+    if: ${{ !startsWith(github.event.head_commit.message || '', 'chore(release):') && needs.identity-classify.outputs.driver_check == 'true' && needs.queue-validated.outputs.bigquery_driver_check != 'true' }}
     runs-on: rust-mcp-16core
     timeout-minutes: 45
     permissions:
@@ -2213,8 +2263,8 @@ jobs:
   # needs `/dev/kvm`, which the runner has and does not open to the job's user, so the first step
   # opens it, and nix is told the feature exists.
   multi-node:
-    needs: [ci]
-    if: needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true'
+    needs: [ci, queue-validated]
+    if: (needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2250,8 +2300,8 @@ jobs:
   # say what each observes and what it does not. Gated on the `chart` area of `xtask/src/changes.rs` - the chart, the pinned helm,
   # the image and the test - and held run-or-fail by `ci-aggregate`. `/dev/kvm` as in `multi-node`.
   k3s-autoscaling:
-    needs: [ci]
-    if: needs.ci.outputs.chart == 'true'
+    needs: [ci, queue-validated]
+    if: needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2295,8 +2345,8 @@ jobs:
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   oracle-tier:
-    needs: [ci]
-    if: needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true'
+    needs: [ci, queue-validated]
+    if: (needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true') && needs.queue-validated.outputs.oracle_tier != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2338,8 +2388,8 @@ jobs:
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
   ci-datahub-tier:
-    needs: [ci]
-    if: needs.ci.outputs.catalog_datahub == 'true'
+    needs: [ci, queue-validated]
+    if: needs.ci.outputs.catalog_datahub == 'true' && needs.queue-validated.outputs.ci_datahub_tier != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2377,8 +2427,8 @@ jobs:
   # `checks.*` entry for `ci-datahub-tier`'s reason: it needs a docker socket, and its cells fail on a
   # missing endpoint, which would go fatal on every `just validate`.
   ci-openmetadata-tier:
-    needs: [ci]
-    if: needs.ci.outputs.catalog_openmetadata == 'true'
+    needs: [ci, queue-validated]
+    if: needs.ci.outputs.catalog_openmetadata == 'true' && needs.queue-validated.outputs.ci_openmetadata_tier != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2411,8 +2461,8 @@ jobs:
   # `cube` data system. `ci-openmetadata-tier`'s shape and rules:
   # category-gated on `catalog_cube`, held run-or-fail by `ci-aggregate`, no secret, no event exception.
   ci-cube-tier:
-    needs: [ci]
-    if: needs.ci.outputs.catalog_cube == 'true'
+    needs: [ci, queue-validated]
+    if: needs.ci.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 30
     permissions:
@@ -2512,6 +2562,7 @@ jobs:
       multi-node,
       k3s-autoscaling,
       cross,
+      queue-validated,
     ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
@@ -2520,23 +2571,23 @@ jobs:
         env:
           CI_RESULT: ${{ needs.ci.result }}
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
-          KC_SELECTED: ${{ needs.ci.outputs.identity }}
+          KC_SELECTED: ${{ needs.ci.outputs.identity == 'true' && needs.queue-validated.outputs.keycloak_served_test != 'true' }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
-          BQ_SELECTED: ${{ needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.data_source_postgres == 'true' }}
+          BQ_SELECTED: ${{ (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.data_source_postgres == 'true') && needs.queue-validated.outputs.bigquery_driver_check != 'true' }}
           E2E_RESULT: ${{ needs.e2e-datahub-adbc.result }}
           E2E_REQUIRED: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && (needs.ci.outputs.data_source_bigquery == 'true' || needs.ci.outputs.catalog_datahub == 'true' || needs.ci.outputs.identity == 'true') }}
           ORACLE_RESULT: ${{ needs.oracle-tier.result }}
-          ORACLE_SELECTED: ${{ needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true' }}
+          ORACLE_SELECTED: ${{ (needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true') && needs.queue-validated.outputs.oracle_tier != 'true' }}
           MN_RESULT: ${{ needs.multi-node.result }}
-          MN_SELECTED: ${{ needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true' }}
+          MN_SELECTED: ${{ (needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node != 'true' }}
           K3S_RESULT: ${{ needs.k3s-autoscaling.result }}
-          K3S_SELECTED: ${{ needs.ci.outputs.chart }}
+          K3S_SELECTED: ${{ needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}
-          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub }}
+          DH_SELECTED: ${{ needs.ci.outputs.catalog_datahub == 'true' && needs.queue-validated.outputs.ci_datahub_tier != 'true' }}
           OM_RESULT: ${{ needs.ci-openmetadata-tier.result }}
-          OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata }}
+          OM_SELECTED: ${{ needs.ci.outputs.catalog_openmetadata == 'true' && needs.queue-validated.outputs.ci_openmetadata_tier != 'true' }}
           CUBE_RESULT: ${{ needs.ci-cube-tier.result }}
-          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube }}
+          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube == 'true' && needs.queue-validated.outputs.ci_cube_tier != 'true' }}
           BQC_RESULT: ${{ needs.bigquery-conformance.result }}
           BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}
           CAUS_RESULT: ${{ needs.causality.result }}
@@ -2566,6 +2617,8 @@ jobs:
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"
           fi
+          # Every `*_SELECTED` below reads `false` on a push to `main` for a leg the merge queue ran
+          # green on this same commit - see `queue-validated`.
           # `keycloak-served-test` reads no secret, so it carries no event exception: every event
           # that selects `identity` must run it.
           if [ "$KC_SELECTED" = "true" ]; then
