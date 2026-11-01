@@ -1,7 +1,8 @@
-//! Actual classifier calls over real Git patch parsing; no patch is applied.
+//! Actual classifier calls over real Git patch parsing, and over the pages the real tree's tests read;
+//! no patch is applied.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -232,4 +233,80 @@ fn a_symlinked_mutation_artifact_runs_every_category() {
     std::os::unix::fs::symlink(repo.root.join("elsewhere.patch"), repo.root.join(ARTIFACT)).expect("a symlinked artifact");
     let cats = repo.classify(Some(&repo.base), &[ARTIFACT]);
     assert!(cats.core, "a symlink is not a regular file, whatever it points at: {cats:?}");
+}
+
+/// The existing repository files ending `.md` that one source file's string literals name, each
+/// with the line of its literal.
+fn pages_named(root: &Path, canonical_root: &Path, rel: &str, text: &str) -> Vec<(String, usize)> {
+    let own_crate: PathBuf = rel.split('/').take(2).collect();
+    let mut pages = Vec::new();
+    for literal in crate::serde_parse::scan::string_literals(text) {
+        let body = literal.body.as_str();
+        let is_page = Path::new(body).extension().is_some_and(|ext| ext == "md");
+        if !is_page || !body.contains('/') || body.contains(char::is_whitespace) {
+            continue;
+        }
+        let body = body.strip_prefix('/').unwrap_or(body);
+        for base in [own_crate.as_path(), Path::new("")] {
+            let resolved = root.join(base).join(body).canonicalize().ok().filter(|path| path.is_file());
+            if let Some(page) = resolved.and_then(|path| crate::repo::relative(canonical_root, &path)) {
+                pages.push((page, literal.line));
+            }
+        }
+    }
+    pages
+}
+
+/// A page a Rust test reads is that test's implementation, so a diff touching only the page must
+/// still run the Rust tests: every page a literal under `crates/` names classifies into `rust`.
+///
+/// A literal counts when it ends `.md`, holds a `/` and no whitespace; one leading `/` is dropped
+/// (the `concat!(env!("CARGO_MANIFEST_DIR"), "/../../…")` form), and it is resolved against its
+/// own crate's directory and against the repository root. **The limit:** a path built at runtime
+/// (a name joined onto a computed root), a literal with whitespace, a bare file name, and a page
+/// read by anything other than a Rust literal resolve to nothing here and escape the census.
+#[test]
+fn every_page_a_crate_literal_names_classifies_as_rust() {
+    let root = crate::repo::root().expect("the repository root");
+    let canonical_root = root.canonicalize().expect("the repository root resolves");
+    let mut named = BTreeSet::new();
+    let mut escaped = Vec::new();
+    let census = crate::repo::collect_files(&root, &root.join("crates"), &["rs"]);
+    let inspected = census.inspect(
+        &["crates/sutura-cli/tests/documented.rs"],
+        |rel| rel.starts_with("crates/"),
+        |rel, bytes| {
+            for (page, line) in pages_named(&root, &canonical_root, rel, &String::from_utf8_lossy(bytes)) {
+                if !crate::changes::classify(std::slice::from_ref(&page)).needs("rust") {
+                    escaped.push(format!("{page}, named at {rel}:{line}"));
+                }
+                named.insert(page);
+            }
+        },
+    );
+    if let Err(refusal) = inspected {
+        panic!("{}", refusal.describe());
+    }
+    assert!(
+        named.contains("docs/getting-started.md") && named.contains("docs/serving-behind-a-gateway.md"),
+        "the census resolves a root-relative and a crate-relative literal: {named:?}"
+    );
+    assert!(
+        escaped.is_empty(),
+        "a page a test reads classifies outside `rust`, so a diff to it alone runs no Rust test: {escaped:#?}"
+    );
+}
+
+/// rust-oracledb's `guide` module compiles nineteen of its own pages into the crate, and no
+/// `crates/` literal names them, so a non-member's page fails open rather than docs-only.
+#[test]
+fn a_non_member_page_is_never_docs_only() {
+    for page in ["vendor/rust-oracledb/doc/arrow.md", "fuzz/README.md"] {
+        let classified = crate::changes::classify(&[String::from(page)]);
+        assert!(classified.docs_only.is_empty(), "{page} is not docs-only: {classified:?}");
+        assert!(
+            classified.run_all && classified.needs("rust"),
+            "{page} runs everything: {classified:?}"
+        );
+    }
 }

@@ -99,6 +99,11 @@ const AREAS: &[Area] = &[
             "clippy.toml",
             "rust-toolchain.toml",
             ".cargo/**",
+            // Read by Rust tests; the census in `affected/mutation_tests.rs` refuses a missing one.
+            "docs/getting-started.md",
+            "docs/examples/single-player.md",
+            "docs/serving.md",
+            "docs/serving-behind-a-gateway.md",
         ],
         consumers: &["build"],
     },
@@ -281,7 +286,8 @@ pub(crate) fn classify(paths: &[String]) -> Classification {
             continue;
         }
 
-        if DOCS_ONLY.iter().any(|p| repo::matches(p, path)) {
+        // A vendored crate can compile its `.md` into itself (rust-oracledb's `guide`), so never here.
+        if !is_non_member(path) && DOCS_ONLY.iter().any(|p| repo::matches(p, path)) {
             result.docs_only.push(path.clone());
             continue;
         }
