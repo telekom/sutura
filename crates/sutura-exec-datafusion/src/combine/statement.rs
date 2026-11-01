@@ -19,7 +19,7 @@
 //! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
 //! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
-//! | an expression nested deeply enough can exhaust the stack while planning | `datafusion`'s `recursive_protection` is off |
+//! | a statement of more than `MOST_OPERATORS` operator tokens is refused, however shallow it is | the count is taken over the text, before any tree is built, because `recursive_protection` grows the stack for the parser, planner and optimizer but not for an expression's `Display`, `Clone` or `Drop` |
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | only `DuckDB` and `Postgres` sources plan a part | they are the adapters that take raw statements |
@@ -47,6 +47,9 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::keywords::Keyword;
+use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{Dialect, DuckDBDialect, PostgreSqlDialect};
 use datafusion_federation::{
@@ -396,8 +399,40 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
         .collect()
 }
 
-/// `statement`'s optimized plan, refused unless it is one query.
+/// The most tokens a statement may spend on anything but a name, a literal or a parenthesis. A chain
+/// such as `1 + 1 + ..` nests one level per operator without passing the parser's depth limit, and
+/// `datafusion` displays, clones and drops an expression by a recursion `recursive_protection` does
+/// not reach, so the text is held to what can only build a shallow tree. The number is a judgement:
+/// a cell measures that a chain just under it plans on a test thread's stack in the test profile,
+/// whose dependencies are optimised further than a shipped build's. A long statement of many
+/// keywords, commas or qualified names is refused though it is shallow.
+const MOST_OPERATORS: usize = 1024;
+
+/// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
 async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<LogicalPlan> {
+    let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
+        .tokenize()
+        .map_err(|cause| plan_datafusion_err!("{cause}"))?;
+    let operators = tokens
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token,
+                Token::Whitespace(_)
+                    | Token::LParen
+                    | Token::RParen
+                    | Token::Number(..)
+                    | Token::SingleQuotedString(_)
+                    | Token::Word(Word {
+                        keyword: Keyword::NoKeyword,
+                        ..
+                    })
+            )
+        })
+        .count();
+    if operators > MOST_OPERATORS {
+        return plan_err!("the statement has {operators} operators, more than {MOST_OPERATORS}");
+    }
     let options = SQLOptions::new()
         .with_allow_ddl(false)
         .with_allow_dml(false)
