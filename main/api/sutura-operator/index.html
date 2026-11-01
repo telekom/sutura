@@ -2678,6 +2678,105 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-clustererror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use ClusterError
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-incluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use InCluster
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Target
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-cluster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Cluster
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-failed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Failed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-pods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Pods
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-pools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Pools
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Scale
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-tick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use tick
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#constant-kind" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2728,20 +2827,20 @@
 <p>The public API of <code>sutura-operator</code>, rendered from rustdoc JSON.</p>
 <p>The worker-pool operator's core (the architecture decision): a
 pool's bounds, the size they call for, and the <code>SuturaWorkerPool</code> definition the chart installs.</p>
-<p>Nothing here talks to a cluster.</p>
+<p><code>tick</code> sizes every pool through a <code>Cluster</code>; <code>InCluster</code> is the one that talks to a cluster.</p>
 <h2 id="struct-workerpoolspec"><code>struct WorkerPoolSpec</code><a class="headerlink" href="#struct-workerpoolspec" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkerPoolSpec</span>
 </span></code></pre></div>
 <p>What a <code>SuturaWorkerPool</code> asks for: the bounds the operator sizes the pool within. Its fields are
 the schema's; nothing outside this crate builds one until the operator reads it from a cluster.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
-<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>JsonSchema</code>, <code>PartialEq</code></p>
+<p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>JsonSchema</code>, <code>PartialEq</code></p>
 <h2 id="struct-workerpoolstatus"><code>struct WorkerPoolStatus</code><a class="headerlink" href="#struct-workerpoolstatus" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkerPoolStatus</span>
 </span></code></pre></div>
 <p>What the operator reports it did.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
-<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>JsonSchema</code>, <code>PartialEq</code></p>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>JsonSchema</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h2 id="struct-pool"><code>struct Pool</code><a class="headerlink" href="#struct-pool" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Pool</span>
 </span></code></pre></div>
@@ -2793,6 +2892,27 @@ the sooner the Deployment controller removes it.</p>
 <p>The schema is derived from <code>WorkerPoolSpec</code> and <code>WorkerPoolStatus</code>. An integer <code>format</code> the
 API server does not know, as <code>uint32</code> is, is stripped there with a warning; it is removed here, and
 a <code>uint32</code>'s ceiling is written as its <code>maximum</code> so the API server refuses what the type cannot hold.</p>
+<h2 id="use-clustererror"><code>use ClusterError</code><a class="headerlink" href="#use-clustererror" title="Permanent link">&para;</a></h2>
+<p>Why the operator could not read or write the cluster.</p>
+<h2 id="use-incluster"><code>use InCluster</code><a class="headerlink" href="#use-incluster" title="Permanent link">&para;</a></h2>
+<p>The cluster, reached from inside one of its pods.</p>
+<h2 id="use-target"><code>use Target</code><a class="headerlink" href="#use-target" title="Permanent link">&para;</a></h2>
+<p>A ready pod's name and where its <code>/metrics</code> is served.</p>
+<h2 id="use-cluster"><code>use Cluster</code><a class="headerlink" href="#use-cluster" title="Permanent link">&para;</a></h2>
+<p>What the operator reads from and writes to the cluster it runs in.</p>
+<h2 id="use-failed"><code>use Failed</code><a class="headerlink" href="#use-failed" title="Permanent link">&para;</a></h2>
+<p>Each pool <code>C</code> failed for, with why; or why <code>C</code> could not list the pools at all.</p>
+<h2 id="use-pods"><code>use Pods</code><a class="headerlink" href="#use-pods" title="Permanent link">&para;</a></h2>
+<p>The ready pods a selector matches, or why <code>C</code> could not list them.</p>
+<h2 id="use-pools"><code>use Pools</code><a class="headerlink" href="#use-pools" title="Permanent link">&para;</a></h2>
+<p>Each pool by name, as <code>Cluster::pools</code> lists them.</p>
+<h2 id="use-scale"><code>use Scale</code><a class="headerlink" href="#use-scale" title="Permanent link">&para;</a></h2>
+<p>A Deployment's <code>scale</code> subresource: its replica count and the selector of its pods.</p>
+<h2 id="use-tick"><code>use tick</code><a class="headerlink" href="#use-tick" title="Permanent link">&para;</a></h2>
+<p>Sizes and reports every pool at <code>now</code>.</p>
+<p>Returns each pool the cluster failed for with its error: one pool's failure leaves the others
+sized. <code>surplus</code> carries each pool's <code>Surplus</code> from one pass to the next and keeps only the
+pools this pass found.</p>
 <h2 id="constant-kind"><code>constant KIND</code><a class="headerlink" href="#constant-kind" title="Permanent link">&para;</a></h2>
 <p>The resource's kind.</p>
 <h2 id="constant-version"><code>constant VERSION</code><a class="headerlink" href="#constant-version" title="Permanent link">&para;</a></h2>
