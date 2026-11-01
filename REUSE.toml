@@ -102,6 +102,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2025 The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
 
+# The vendored plan decoder, the published 55.1.0 crate plus one local patch `VENDOR.md` records.
+# Apache-2.0; the copyright line is the one in its own `NOTICE.txt`.
+[[annotations]]
+path = "vendor/datafusion-proto/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2019-2026 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
+
 # The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
 # its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
 #

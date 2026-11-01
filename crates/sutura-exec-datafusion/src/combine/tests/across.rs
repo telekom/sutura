@@ -569,6 +569,38 @@ fn a_node_refuses_a_stage_that_reads_a_source() {
     );
 }
 
+#[test]
+fn a_node_refuses_a_stage_it_cannot_decode_rather_than_stopping() {
+    let authority = Authority::generate();
+    let worker = Nodes::worker(roomy(), authority.identity(&authority.sign())).expect("a worker builds");
+    // An encoded plan node holding an empty Avro scan, field 17. No node is built with an Avro reader,
+    // and its decoder panicked on one, which `panic = "abort"` turns into a stopped process.
+    #[expect(
+        clippy::default_trait_access,
+        reason = "the question id is a `uuid`, which this crate does not name; the decoder reads no id"
+    )]
+    let stage = SetPlanRequest {
+        task_key: TaskKey {
+            query_id: Default::default(),
+            stage_id: 1,
+            task_number: 0,
+        },
+        task_count: 1,
+        plan: MaybeEncoded::Encoded(vec![0x8a, 0x01, 0x00]),
+        work_unit_feed_declarations: vec![],
+        target_worker_url: Url::parse("https://127.0.0.1:1").expect("an address is a URL"),
+        query_start_time_ns: 0,
+    };
+    let refused = servers()
+        .block_on(worker.coordinator_channel(HeaderMap::new(), stage, Box::pin(stream::empty())))
+        .err()
+        .expect("a node ran a stage it cannot decode");
+    assert!(
+        matches!(refused.find_root(), DataFusionError::NotImplemented(arm) if arm.contains("Avro")),
+        "{refused}"
+    );
+}
+
 /// A served TLS connection, as the gRPC server takes one: its own crate's `Connected` for a TLS
 /// stream sits behind a feature this workspace leaves off.
 struct Tls(tokio_rustls::server::TlsStream<tokio::net::TcpStream>);

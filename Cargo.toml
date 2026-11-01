@@ -109,16 +109,17 @@ members = [
   "xtask",
   "dev",
 ]
-# The vendored allocator is EXCLUDED FROM MEMBERSHIP, and that is a correctness fix rather
-# than tidiness. A path dependency inside the workspace directory joins the workspace
-# automatically, and `cargo build --workspace` builds every MEMBER - which is independent of
-# who depends on it. So the `cfg(target_os = "linux")` gate in `crates/sutura-cli/Cargo.toml`
-# governs the dependency EDGE and does nothing about membership: on Windows and macOS
-# `--workspace` was building `libmimalloc-sys` on its own account, and its build script has
-# no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
-# also keeps `--workspace` clippy and tests off third-party code, which is the reason this
-# looked like a style choice the first time.
-exclude = ["vendor/adbc_clickhouse", "vendor/datafusion-distributed", "vendor/mimalloc_rust", "vendor/rust-oracledb"]
+# Vendored crates are EXCLUDED FROM MEMBERSHIP, a correctness fix: a path dependency inside the
+# workspace directory joins it, and `--workspace` builds every member whoever depends on it, so
+# Windows and macOS built the Linux-only vendored allocator on its own account. Excluding them also
+# keeps `--workspace` clippy and tests off third-party code.
+exclude = [
+  "vendor/adbc_clickhouse",
+  "vendor/datafusion-distributed",
+  "vendor/datafusion-proto",
+  "vendor/mimalloc_rust",
+  "vendor/rust-oracledb",
+]
 
 [workspace.package]
 version = "0.11.0"
@@ -887,6 +888,10 @@ missing_assert_message = "allow"
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
 
+# A peer's Avro scan stage is refused rather than a panic that stops the node, `VENDOR.md`.
+[patch.crates-io]
+datafusion-proto = { path = "vendor/datafusion-proto" }
+
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
 # they are compiled once and executed many times, so paying for them is free.
@@ -909,12 +914,6 @@ codegen-units = 256
 # CARGO_PROFILE_DEV_CODEGEN_BACKEND in the shell (or devenv.local.nix), and
 # devco/rust-toolchain-nightly.toml pins the compiler plus the
 # `rustc-codegen-cranelift-preview` component.
-#
-# This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
-# `codegen-backend = "cranelift"` themselves; it also used to force cranelift as the shell
-# default and gate on a separate stable toolchain. Neither survives: an `[unstable]` table
-# committed here would be read by CI too and break it, and keeping LLVM the default keeps the
-# coverage instrumentation reachable.
 #
 # One consequence, deliberate: a single nightly toolchain and a single target directory - the
 # stable/nightly split, and the per-`/stable` target dir it needed, are gone.
