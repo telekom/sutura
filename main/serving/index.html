@@ -3145,6 +3145,10 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>A feature that the build lacks (<code>tls</code>, <code>agent</code>, or a data system or catalog adapter)</td>
 <td>The message names the feature. Use a build that has it</td>
 </tr>
+<tr>
+<td><code>server.nodes.wait_for_workers_seconds</code> not below <code>server.request_timeout_seconds</code></td>
+<td>Lower the wait</td>
+</tr>
 </tbody>
 </table>
 <p>Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
@@ -3448,7 +3452,7 @@ definition version and digest that it came from:</p>
 </tr>
 <tr>
 <td><code>503</code></td>
-<td><code>source_unavailable</code>. This is the one refusal that is worth a retry</td>
+<td><code>source_unavailable</code>, <code>workers_not_ready</code>. These are the refusals worth a retry</td>
 </tr>
 </tbody>
 </table>
@@ -3580,6 +3584,7 @@ build refuses the key at startup rather than combining on one node.</p>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">own</span><span class="p">:</span><span class="w"> </span><span class="s">"https://node-a.example.com:8443"</span>
 </span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">others</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"https://node-b.example.com:8443"</span><span class="p p-Indicator">]</span>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">across_above_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">wait_for_workers_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 </span></code></pre></div>
 <p><code>own</code> is this node's address as the others reach it. Every address is an https URL, and the key is refused without
 <code>server.tls_node_authority</code>. The pair is this node's identity twice: the listener presents it, and so does every link
@@ -3592,10 +3597,18 @@ host. A host that resolves to nothing is no node, as an empty pool is, so a miss
 <p>A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than <code>across_above_bytes</code>, or more than its working-set ceiling when the key is unset. Otherwise this node combines
 it, and goes across only when that combine runs out of its ceiling. <code>0</code> is refused.</p>
+<p><code>wait_for_workers_seconds</code> lets a question that goes across wait for the other nodes it wants: one for each
+<code>across_above_bytes</code> (or ceiling) that its legs hold beyond this node's share, and at least one. While fewer resolve, it
+resolves again every 200 ms until the wait ends, then plans across those that did. It is refused with
+<code>503 workers_not_ready</code> only when none did. Unset, a question plans across whatever resolves at once. <code>0</code> is refused,
+and so is a wait that is not below <code>server.request_timeout_seconds</code>.</p>
 <p>Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
 restart. A link carries no task grant: a node runs any stage another node of the same authority sends it. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
-that ran out on this node is started again across, and the work it did here is lost.</p>
+that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
+<code>runtime.max_concurrent_queries</code> slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
+largest plans across what it has, and a question too large for it is refused for its working set. A resolved address
+counts as a worker, so a host that also names a serving node counts that node.</p>
 <p><code>security.outbound.transport_anchors</code> (a PEM bundle path, or <code>system</code>) sets the trust anchors for the DataHub and
 OpenMetadata readers. These are re-read on the same interval. The old material stays in use when a new one does not load.</p>
 <h3 id="a-worker-node">A worker node<a class="headerlink" href="#a-worker-node" title="Permanent link">&para;</a></h3>
