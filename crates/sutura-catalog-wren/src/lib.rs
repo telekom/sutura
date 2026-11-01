@@ -172,6 +172,4 @@ fn write_report(destination: &Path, converted: &convert::Converted) -> Result<()
 }
 
 #[cfg(test)]
-mod manifest_bound;
-#[cfg(test)]
 mod tests;

@@ -73,3 +73,33 @@ fn an_unwritable_destination_is_a_write_error_naming_the_path() {
         "an unwritable destination is Write naming the path, got {err:?}"
     );
 }
+
+fn refused_kind(source: &std::path::Path) -> Option<std::io::ErrorKind> {
+    match import(source, &source.join("out")) {
+        Err(ImportError::Read { source, .. }) => Some(source.kind()),
+        _ => None,
+    }
+}
+
+/// A manifest past the 16 MiB bound is refused as too large, never read whole and handed to the parser.
+#[test]
+fn a_manifest_past_the_bound_is_refused_unread() {
+    let source = scratch("large");
+    std::fs::File::create(source.join("manifest.json"))
+        .and_then(|created| created.set_len(16 * 1024 * 1024 + 1))
+        .expect("the manifest is sized");
+    let refused = refused_kind(&source);
+    drop(std::fs::remove_dir_all(&source));
+    assert_eq!(refused, Some(std::io::ErrorKind::FileTooLarge));
+}
+
+/// A manifest path that is not a regular file is refused before it is opened, so a FIFO cannot
+/// block the import.
+#[test]
+fn a_manifest_that_is_not_a_regular_file_is_refused_before_it_is_opened() {
+    let source = scratch("directory");
+    std::fs::create_dir_all(source.join("manifest.json")).expect("a directory where the manifest goes");
+    let refused = refused_kind(&source);
+    drop(std::fs::remove_dir_all(&source));
+    assert_eq!(refused, Some(std::io::ErrorKind::InvalidInput));
+}
