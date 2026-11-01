@@ -81,6 +81,8 @@ let
       "$out/v1.29.0-standalone-strict/role-rbac-v1.json"
     cp ${schemaFile "v1.29.0-standalone-strict" "rolebinding-rbac-v1.json" "sha256-OtrN2eki+QgPu95j5BJrXcRm2PUmH/mzJ8pv4khqmEE="} \
       "$out/v1.29.0-standalone-strict/rolebinding-rbac-v1.json"
+    cp ${schemaFile "v1.29.0-standalone-strict" "networkpolicy-networking-v1.json" "sha256-1SIIgb6IifeaBH6ZAvmEAX0pH42MJrDRMsDzyUtahx0="} \
+      "$out/v1.29.0-standalone-strict/networkpolicy-networking-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "configmap-v1.json" "sha256-4Ord69Z3wIqgkrLaImTYasT8NO7RErn6wpRbPwDB6bE="} \
       "$out/v1.31.0-standalone-strict/configmap-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "deployment-apps-v1.json" "sha256-PjAI9mpfaM7jmESFrBiS2+3H8HKzqHBkEWurKUh06Z4="} \
@@ -95,6 +97,8 @@ let
       "$out/v1.31.0-standalone-strict/role-rbac-v1.json"
     cp ${schemaFile "v1.31.0-standalone-strict" "rolebinding-rbac-v1.json" "sha256-h6tiDQrd3NKAO5I1f84oVK91IybfjFQIp1iKrpizAx0="} \
       "$out/v1.31.0-standalone-strict/rolebinding-rbac-v1.json"
+    cp ${schemaFile "v1.31.0-standalone-strict" "networkpolicy-networking-v1.json" "sha256-aPZsqmyyiEHnq2srHPWsVghdUHMKOBPlON2SBFKbWwQ="} \
+      "$out/v1.31.0-standalone-strict/networkpolicy-networking-v1.json"
   '';
 in
 {

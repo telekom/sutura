@@ -46,6 +46,11 @@ Any other `image.variant` fails the render.
 An upgrade from a chart that ran the glibc image changes the image: set `image.variant: glibc` to keep it.
 `image.performance: true` adds `-performance` before the variant suffix.
 `image.tag` sets the tag as it is.
+Set `image.digest` to pin the exact image instead of a tag (github.com/telekom/sutura#1680
+finding 7), as `sha256:` followed by 64 lower-case hex digits; the chart then renders
+`image.repository@digest` and ignores `image.tag`, `image.variant` and `image.performance`. Any
+other `image.digest` fails the render. `workerPool.operator.image.digest` pins the operator's image
+the same way, independent of the app image's own tag or digest.
 
 ## Logs
 
@@ -78,6 +83,20 @@ sign for every namespace in the cluster. **Stated limit:** the chart cannot chec
 elsewhere - it refuses only the `ClusterIssuer` case it can see from the values file. It also does
 not check the certificate's Subject Alternative Name at the TLS layer; that check, if added, belongs
 in the server (`crates/sutura-http/src/tls/authority.rs`), not in this chart.
+
+## Network policy
+
+`networkPolicy.enabled: true` adds `NetworkPolicy` objects for the serving, worker and operator
+pods (github.com/telekom/sutura#1680 finding 6): workers accept their port only from this
+release's serving pods and each other, the operator's egress is limited to DNS and the Kubernetes
+API's common ports, and serving pods get an additive policy that keeps their port reachable even if
+the namespace later adds a default-deny policy.
+**Off by default** - the chart cannot tell whether the cluster's CNI enforces `NetworkPolicy`, or
+whether something outside the chart's view (a service mesh, a cross-namespace ingress controller, a
+scrape target) already depends on reachability these rules would remove. Judge against the
+cluster's own network setup before turning it on; it does not restrict a serving pod's own egress,
+or a worker's egress to a data source or a sibling worker, because this chart cannot know a data
+source's address.
 
 ## Configure
 

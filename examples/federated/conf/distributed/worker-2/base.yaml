@@ -1,0 +1,10 @@
+# The second worker node. Same shape as ../worker-1/base.yaml, its own port and certificate.
+server:
+  role: "worker"
+  host: "127.0.0.1"
+  port: 8445
+  tls_certificate: "/run/sutura/distributed/worker-2.pem"
+  tls_key: "/run/sutura/distributed/worker-2.key"
+  tls_node_authority: "/run/sutura/distributed/ca.pem"
+security:
+  tls_termination: "in-process"
