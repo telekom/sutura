@@ -1847,6 +1847,8 @@ dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
  "governor",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "parking_lot 0.13.0",
  "serde",
