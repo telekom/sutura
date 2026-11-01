@@ -4,9 +4,10 @@
 //!
 //! The session is the call's own and registers only the question's tables, which are the caller's
 //! models on listed sources, each typed by its pinned schema. `datafusion-federation`'s rule finds
-//! the largest sub-plans one source answers, and [`Cutter`] makes each one a leaf. [`answer`]
-//! unparses every leaf in its source's dialect before the one `open` over every source the plan
-//! names, runs each through [`StatementLegs`], and plans the leaf over the rows that came back. The
+//! the largest sub-plans one source answers, and `Cutter` makes each one a leaf.
+//! [`answer`](crate::combine::statement::answer) unparses every leaf in its source's dialect before
+//! the one `open` over every source the plan names, runs each through
+//! [`StatementLegs`](sutura_domain::plan::StatementLegs), and plans the leaf over the rows that came back. The
 //! engine holds no runner and no credential. A plan one source answers whole is that source's
 //! statement, and its rows are the answer. Planning and the local part stop at the request's
 //! deadline, which the legs check before each one runs, and the session holds no table function.
