@@ -399,7 +399,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 38] = [
+    const REFUSALS: [(&str, Binary); 39] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -509,6 +509,7 @@ mod tests {
             "identity-undeclared-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
+        ("image-digest-malformed", Binary::Derivation),
         ("image-variant-capitalised", Binary::Derivation),
         ("image-variant-padded", Binary::Derivation),
         ("image-variant-unknown", Binary::Derivation),
