@@ -375,3 +375,6 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
         assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
     }
 }
+
+#[cfg(test)]
+mod bounds;
