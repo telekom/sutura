@@ -1,0 +1,23 @@
+# NetworkPolicy on with the worker pool: all three policies render - serving, workers, operator.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+  max: 3
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+networkPolicy:
+  enabled: true
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
