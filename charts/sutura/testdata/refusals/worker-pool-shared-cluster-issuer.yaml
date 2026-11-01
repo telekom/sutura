@@ -1,0 +1,13 @@
+# The worker pool with a ClusterIssuer and no acknowledgement: any certificate it signs, cluster-wide,
+# would be treated as a node.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+    kind: ClusterIssuer
