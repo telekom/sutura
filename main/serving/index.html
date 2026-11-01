@@ -3010,7 +3010,7 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare <code>sidecar</code>, <code>ingress</code> or <code>in-process</code> (<a href="#tls">TLS</a>)</td>
 </tr>
 <tr>
-<td>No <code>security.access_token</code> and no <code>security.inbound</code>, in production or off-host</td>
+<td>No <code>security.access_token</code> and no <code>security.inbound</code> on a serving node, in production or off-host</td>
 <td>Set one of them</td>
 </tr>
 <tr>
@@ -3624,8 +3624,9 @@ the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the d
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
 </span></code></pre></div>
-<p>Limits: a worker in production or off-host still needs <code>security.access_token</code> or <code>security.inbound</code>, and <code>security.metrics_token</code>,
-although no route on it reads the deployment token. A catalog counts only when a file or a variable declares it.
+<p>A worker is asked for no <code>security.access_token</code> or <code>security.inbound</code>, because no route on it reads either. In
+production or off-host it still needs <code>security.metrics_token</code> and <code>rate_limit.enabled</code>.</p>
+<p>Limit: a catalog counts only when a file or a variable declares it.
 <code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
 alone. The worker carries the limits of the node links above.</p>
 <h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
