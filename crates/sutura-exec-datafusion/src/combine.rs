@@ -94,6 +94,9 @@ mod merge;
 mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
+/// A `run_sql` statement cut into one part per listed source, each run through the raw port.
+#[cfg(feature = "sql")]
+mod statement;
 #[cfg(feature = "distributed")]
 pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant};
 pub use provider::SourceProvider;
@@ -754,6 +757,18 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::WorkersNotReady { .. }
             | CombineError::NodeLost { .. } => None,
         }
+    }
+
+    #[cfg(feature = "sql")]
+    fn answer_statement<L>(
+        &self,
+        question: sutura_domain::plan::StatementQuestion<'_>,
+        legs: &mut L,
+    ) -> sutura_domain::plan::StatementAnswer<L::Stop>
+    where
+        L: sutura_domain::plan::StatementLegs,
+    {
+        Some(statement::answer(self, question, legs))
     }
 }
 
