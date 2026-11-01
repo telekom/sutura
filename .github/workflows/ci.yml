@@ -196,6 +196,7 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # SKIPPED ON THE RELEASE COMMIT, and the jobs below `needs: [ci]` so they skip with it -
     # `bigquery-driver-check` too, which no longer needs `ci` and repeats this test in its own `if:`.
+    # `bigquery-conformance` no longer needs `ci` either and never runs on a push (#1696).
     # version-bump.yml pushes `chore(release): vX.Y.Z` to `main` under a GitHub App installation
     # token, because the `main` ruleset requires a pull request and GITHUB_TOKEN cannot be given
     # a bypass without bypassing every workflow here. An App token's push DOES start workflow
@@ -1459,7 +1460,8 @@ jobs:
   # reason: that leg needs nothing from `ci` but the flag, and waiting for `ci` put its whole run -
   # ~7.3 min, measured as the merge queue's critical path after `ci` over the 2026-09-25 runs -
   # behind `ci`'s. `ci-aggregate` reads the flag off `ci`, as it does `identity`, so the argument
-  # above holds for it unchanged.
+  # above holds for it unchanged. `bigquery-conformance` starts off it too (#1696), on the same
+  # terms: its `BQC_REQUIRED` reads `ci`'s flag, pinned in `xtask/src/workflows/aggregate_inputs.rs`.
   #
   # `rust` AND `postgres_driver` ARE PUBLISHED HERE FOR `causality`, `postgres-linked-driver`
   # (#1280) and `shipped-features` (#1696), the `ci` steps that became jobs, on the same terms:
@@ -1679,14 +1681,22 @@ jobs:
   # `nix run .#bigquery-conformance` runs every `bigquery` cell of `sutura-app`'s golden and
   # differential targets, and the two-fact differential, under the one shared CI identity - no
   # impersonation claim.
-  # Push, merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
+  # Merge queue and same-repository pull requests; a fork or Dependabot cannot receive the
   # bq-test credential, and there the row skips under its named exemption as everywhere else.
   # Run-or-fail through `ci-aggregate` on a same-repository pull request and in the merge queue when
   # `data_source_bigquery` is selected, and outside the ruleset itself. One run's corpus cell timed
   # out undiagnosed (37152629712), so how it behaves under load is unproven.
+  # NOT ON A PUSH (#1696): `ci-aggregate` never required it there, and each push run held the
+  # dataset's group ~6 min ahead of the queue entries that do require it.
+  # STARTS OFF `identity-classify`, NOT `ci` (#1696): it reads nothing of `ci`'s but the category
+  # flag, so waiting for `ci` put its group wait and its run behind `ci`'s. `BQC_REQUIRED` still
+  # reads `ci`'s flag, so a disagreement fails closed: `ci` selects and this does not is a required
+  # skip, RED; the reverse is an unrequired run whose failure is RED too. The cost: it now runs
+  # when `ci` fails, and for a pull-request push a later push supersedes, because this group never
+  # cancels.
   bigquery-conformance:
-    needs: [ci]
-    if: (github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'
+    needs: [identity-classify]
+    if: (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.identity-classify.outputs.data_source_bigquery == 'true'
     runs-on: rust-mcp-16core
     timeout-minutes: 60
     permissions:
@@ -2595,6 +2605,9 @@ jobs:
           # merge queue when `data_source_bigquery` is selected, because its cells leave offline causality
           # under `Live-Cell:` and these runs are their only evidence. A fork or Dependabot receives no
           # bq-test credential, so there the job skips and its cells skip under their named exemption.
+          # The job starts off `identity-classify`'s flag and never on a push; `BQC_REQUIRED` reads
+          # `ci`'s, so where the two disagree a required skip is RED and an unrequired run must still
+          # succeed (#1696).
           if [ "$BQC_REQUIRED" = "true" ]; then
             if [ "$BQC_RESULT" != "success" ]; then
               fail "bigquery-conformance must run for the selected category and event but reported '$BQC_RESULT'"

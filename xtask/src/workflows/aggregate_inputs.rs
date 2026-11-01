@@ -35,13 +35,13 @@
 //! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
 //! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
 //!
-//! Three env inputs are pinned to their exact normalised condition, not only their source job: an
+//! Four env inputs are pinned to their exact normalised condition, not only their source job: an
 //! equivalent rewrite is refused until the table is edited, which fails closed. That pin holds
 //! the TEXT, not that the condition is the right one - and it does not hold that
-//! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED` agree with the moved job's own `if:` (those read
-//! `identity-classify`, these read `ci`; a disagreement fails closed in one direction and runs an
-//! unrequested gate in the other). `E2E_REQUIRED`, `BQC_REQUIRED` and every `*_SELECTED` input
-//! predate this and stay review-only.
+//! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED`/`BQC_REQUIRED` agree with their job's own `if:`
+//! (those read `identity-classify`, these read `ci`; a disagreement fails closed in one direction
+//! and runs an unrequested gate in the other). `E2E_REQUIRED` and every `*_SELECTED` input predate
+//! this and stay review-only.
 
 use std::path::Path;
 
@@ -82,9 +82,9 @@ const REQUIRED: &[(&str, &str)] = &[
     ("CROSS_RESULT", "cross"),
 ];
 
-/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the moved
-/// jobs (#1280, #1696) are required under. Exact text, so a neutralised copy (`false && ..`) is
-/// refused.
+/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the jobs
+/// that start off `identity-classify` (#1280, #1696) are required under. Exact text, so a
+/// neutralised copy (`false && ..`) is refused.
 const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "CAUS_REQUIRED",
@@ -97,6 +97,10 @@ const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "SHIP_REQUIRED",
         "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
+    ),
+    (
+        "BQC_REQUIRED",
+        "(github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'",
     ),
 ];
 
@@ -494,7 +498,7 @@ mod tests {
             "          CUBE_RESULT: ${{ needs.ci-cube-tier.result }}",
             "          CUBE_SELECTED: ${{ needs.ci.outputs.catalog_cube }}",
             "          BQC_RESULT: ${{ needs.bigquery-conformance.result }}",
-            "          BQC_REQUIRED: ${{ github.event_name == 'merge_group' && needs.ci.outputs.data_source_bigquery == 'true' }}",
+            "          BQC_REQUIRED: ${{ (github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true' }}",
             "          CAUS_RESULT: ${{ needs.causality.result }}",
             "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
             "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
@@ -618,7 +622,7 @@ mod tests {
 
     #[test]
     fn a_neutralised_moved_job_condition_fails() {
-        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED"] {
+        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED", "BQC_REQUIRED"] {
             let env = real_env().replace(&format!("{key}: ${{{{"), &format!("{key}: ${{{{ false &&"));
             let workflow = aggregate_workflow(&env);
             let problems = check(&workflow);
