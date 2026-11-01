@@ -45,6 +45,8 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use sutura_domain::plan::WorkerSlotsWanted;
+
 /// A monotonic counter, shared by `Arc` between a handle and the registry.
 #[derive(Debug, Clone, Default)]
 pub struct Counter(Arc<AtomicU64>);
@@ -196,6 +198,11 @@ enum Series {
         name: &'static str,
         value: Gauge,
     },
+    /// A gauge whose handle is the domain's own count.
+    SlotsWanted {
+        name: &'static str,
+        value: WorkerSlotsWanted,
+    },
     /// A counter with one closed label set.
     LabeledCounter {
         name: &'static str,
@@ -228,6 +235,10 @@ impl Series {
             Self::Gauge { name, value } => {
                 writeln!(out, "# TYPE {name} gauge")?;
                 writeln!(out, "{name} {}", value.value())
+            }
+            Self::SlotsWanted { name, value } => {
+                writeln!(out, "# TYPE {name} gauge")?;
+                writeln!(out, "{name} {}", value.count())
             }
             Self::LabeledCounter { name, label, values } => {
                 writeln!(out, "# TYPE {name} counter")?;
@@ -302,6 +313,11 @@ impl RegistryBuilder {
             value: gauge.clone(),
         });
         gauge
+    }
+
+    /// Registers a gauge read from `wanted`, which its combiner moves.
+    pub fn slots_wanted(&mut self, name: &'static str, wanted: WorkerSlotsWanted) {
+        self.series.push(Series::SlotsWanted { name, value: wanted });
     }
 
     /// Registers a labeled counter (closed literal keys) and returns the handle.
