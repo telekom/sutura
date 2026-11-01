@@ -5,6 +5,7 @@
 //! Nothing here talks to a cluster.
 
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::{
     CustomResourceDefinition, CustomResourceDefinitionNames, CustomResourceDefinitionSpec, CustomResourceDefinitionVersion,
@@ -47,12 +48,13 @@ pub struct WorkerPoolStatus {
     refusal: Option<String>,
 }
 
-/// A pool's bounds, its floor at most its ceiling.
+/// A pool's bounds, its floor at most its ceiling, and how long a surplus stays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pool {
     min: u32,
     max: u32,
     warm: u32,
+    idle_after: Duration,
 }
 
 impl Pool {
@@ -68,6 +70,7 @@ impl Pool {
             min: spec.min,
             max: spec.max,
             warm: spec.warm,
+            idle_after: Duration::from_secs(spec.idle_after_seconds as u64),
         })
     }
 
@@ -75,6 +78,42 @@ impl Pool {
     pub fn size(self, demand: u32) -> u32 {
         demand.saturating_add(self.warm).clamp(self.min, self.max)
     }
+
+    /// The workers to run at `now` with `running` up: [`Self::size`] at once when that is at least
+    /// `running`, and only once the pool has stayed above it for `idleAfter` when it is less.
+    pub fn replicas(self, running: u32, demand: u32, surplus: &mut Surplus, now: Instant) -> u32 {
+        let size = self.size(demand);
+        if size >= running {
+            *surplus = Surplus::default();
+            return size;
+        }
+        let since = *surplus.0.get_or_insert(now);
+        if now.saturating_duration_since(since) < self.idle_after {
+            return running;
+        }
+        *surplus = Surplus::default();
+        size
+    }
+}
+
+/// Since when a pool has run more workers than its demand calls for.
+///
+/// Held in the operator's memory, not in the resource: an operator that restarts waits `idleAfter`
+/// again before it shrinks, which keeps workers longer and never removes one sooner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Surplus(Option<Instant>);
+
+/// The value of the unlabelled series `name` in a Prometheus text exposition, where it has one.
+pub fn gauge(exposition: &str, name: &str) -> Option<u64> {
+    exposition
+        .lines()
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix(' ')?.parse().ok())
+}
+
+/// The `controller.kubernetes.io/pod-deletion-cost` for a worker with `in_flight` calls: the fewer,
+/// the sooner the Deployment controller removes it.
+pub fn deletion_cost(in_flight: u64) -> i32 {
+    i32::try_from(in_flight).unwrap_or(i32::MAX)
 }
 
 /// Why a spec's bounds are not a [`Pool`].
@@ -152,7 +191,9 @@ mod tests {
 
     use sutura_config::ApiGroup;
 
-    use super::{InvalidPool, Pool, WorkerPoolSpec, definition};
+    use std::time::{Duration, Instant};
+
+    use super::{InvalidPool, Pool, Surplus, WorkerPoolSpec, definition, deletion_cost, gauge};
 
     fn spec(min: u32, max: u32, warm: u32) -> WorkerPoolSpec {
         WorkerPoolSpec {
@@ -175,6 +216,52 @@ mod tests {
         assert_eq!(sized, [2, 5, 10, 10, 10]);
         let floor = Pool::parse(&spec(4, 10, 0)).expect("4 is at most 10");
         assert_eq!(floor.size(1), 4, "below its floor a pool is its floor");
+    }
+
+    #[test]
+    fn a_pool_grows_at_once_and_shrinks_only_once_it_has_stayed_above_its_size_for_idle_after() {
+        let pool = Pool::parse(&spec(0, 10, 0)).expect("0 is at most 10");
+        let start = Instant::now();
+        let at = |seconds: u64| start + Duration::from_secs(seconds);
+        let mut surplus = Surplus::default();
+
+        assert_eq!(
+            pool.replicas(2, 6, &mut surplus, at(0)),
+            6,
+            "a pool grows as soon as demand asks"
+        );
+        assert_eq!(pool.replicas(6, 1, &mut surplus, at(0)), 6, "a surplus stays while it is new");
+        assert_eq!(pool.replicas(6, 2, &mut surplus, at(299)), 6, "a surplus stays for idleAfter");
+        assert_eq!(
+            pool.replicas(6, 2, &mut surplus, at(300)),
+            2,
+            "a surplus idle for idleAfter goes"
+        );
+
+        assert_eq!(pool.replicas(2, 1, &mut surplus, at(400)), 2);
+        assert_eq!(
+            pool.replicas(2, 3, &mut surplus, at(500)),
+            3,
+            "demand above the pool ends its surplus"
+        );
+        assert_eq!(
+            pool.replicas(3, 1, &mut surplus, at(799)),
+            3,
+            "a surplus that ended starts its wait again"
+        );
+    }
+
+    #[test]
+    fn a_gauge_is_read_from_its_own_unlabelled_line_and_its_cost_saturates() {
+        let exposition = "# TYPE wanted_total counter\nwanted_total 9\n# TYPE wanted gauge\nwanted 3\n";
+        assert_eq!(gauge(exposition, "wanted"), Some(3));
+        assert_eq!(gauge(exposition, "absent"), None, "a series not exported is no value");
+        assert_eq!(gauge("wanted many\n", "wanted"), None, "a value that is no count is no value");
+        assert_eq!(
+            [0, 7, u64::MAX].map(deletion_cost),
+            [0, 7, i32::MAX],
+            "a worker busier than a cost holds is the costliest"
+        );
     }
 
     #[test]
