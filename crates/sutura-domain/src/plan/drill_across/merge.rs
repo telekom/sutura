@@ -1,7 +1,7 @@
 //! The port that joins a drill-across plan's arms: what runs above every adapter, after every leg.
 //!
 //! A supertrait of [`FederationCombiner`] rather than one more method on it, so the implementor's
-//! error and its two classifying predicates are the ones the two-leg combine already answers with. A
+//! error and its classifying predicates are the ones the two-leg combine already answers with. A
 //! combiner that joins arms is a combiner; one that does not still combines two legs.
 //!
 //! The domain names no engine here either: the batches are Arrow, the join is the implementor's.
@@ -47,7 +47,7 @@ pub trait DrillAcrossCombiner: FederationCombiner {
     ///
     /// # Errors
     ///
-    /// [`FederationCombiner::Error`], which its two predicates classify.
+    /// [`FederationCombiner::Error`], which its predicates classify.
     fn merge(&self, plan: &DrillAcrossPlan, arms: &[ArmLegs<'_>], working_set_bytes: u64) -> Result<ResultBatches, Self::Error>;
 
     /// Runs every leg of `plan` through `runner`, then [`Self::merge`]s their results.

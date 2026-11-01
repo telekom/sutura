@@ -58,8 +58,8 @@ A refusal is a RESULT, not an error - and it comes back with an explicit status 
 `POST /v1/query` answers 403, 404, 409, 413, 422 or 503 with `outcome: refusal` when a question is \
 one the caller may not have. Every one of those carries a stable `code` and a sentence saying what \
 to change. Repeating an unchanged question will not change the answer; the refusals worth \
-retrying are 503 `source_unavailable` and 503 `workers_not_ready`. 200 means the question was ANSWERED \
-and nothing else does.
+retrying are 503 `source_unavailable`, 503 `workers_not_ready` and 503 `node_lost`. 200 means the \
+question was ANSWERED and nothing else does.
 
 WHO IS ASKING, and what it does not buy. A deployment may be configured to verify your own token - \
 signature, issuer, expiry, and an audience matching its own resource identifier - in which case a \

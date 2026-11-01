@@ -119,6 +119,10 @@ Every reason you can be given, and what to do about each:
   Do not narrow the question: wait a few seconds and ask exactly the same question again. If it is
   refused the same way repeatedly, report it to a person - this deployment has no nodes to answer it
   with.
+- **node_lost** - a node of this deployment the question was planned across could not be reached
+  while it ran.
+  Do not narrow the question: ask exactly the same question again. If it is refused the same way
+  repeatedly, report it to a person - a node of this deployment keeps going away.
 - **plan_spans_too_many_sources** - answering would need to read from more data systems than this
   deployment lets one answer read (the refusal names its limit).
   Ask for fewer metrics at a time, or for fewer dimensions that live in other data systems.

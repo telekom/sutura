@@ -3,7 +3,7 @@
 //! **This module used to hold both halves and now holds one.** `FederatedFailure` - thirteen
 //! variants describing how `FederatedPlan::combine`'s own row walk could fail - is gone with the
 //! function: `docs/adr/0039` step 3 replaced the combine with a `DataFusion` plan in an adapter, so
-//! the failure vocabulary belongs to that implementor's own error type and the port's two
+//! the failure vocabulary belongs to that implementor's own error type and the port's
 //! predicates are what the domain may ask about it
 //! ([`FederationCombiner`](super::FederationCombiner)).
 //!

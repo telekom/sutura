@@ -105,6 +105,10 @@ impl FederationCombiner for Misuses {
         self.0.workers_not_ready(error)
     }
 
+    fn node_lost(&self, error: &Self::Error) -> bool {
+        self.0.node_lost(error)
+    }
+
     fn execute<R>(&self, cut: Cut<'_>, runner: &R, _working_set_bytes: u64) -> Executed<R, Self>
     where
         R: LegRunner + Sync,

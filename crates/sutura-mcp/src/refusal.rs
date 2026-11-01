@@ -245,11 +245,14 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "this node does not certify or does not run a remote leg through `{source}`. Nothing you \
              can change in the question helps; report it to the person you are acting for."
         ),
-        // The one besides `SourceUnavailable` an agent may simply ask again: the question is fine,
-        // and the nodes it needs were still starting.
+        // With `SourceUnavailable` and `NodeLost`, one an agent may simply ask again: the question is
+        // fine, and the nodes it needs were still starting.
         RefusalReason::WorkersNotReady { wanted, ready } => format!(
             "this question needed {wanted} other nodes to answer and {ready} were ready in time. \
              Nothing in the question is wrong; asking again shortly may succeed."
+        ),
+        RefusalReason::NodeLost => String::from(
+            "a node this question was planned across could not be reached while it ran; ask the same question again.",
         ),
     };
     (code, detail)

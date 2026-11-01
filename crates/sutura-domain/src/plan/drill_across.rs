@@ -876,10 +876,8 @@ mod tests {
             merges: Cell<usize>,
             ceiling: Cell<u64>,
         }
-
         impl FederationCombiner for Recording {
             type Error = NothingCombined;
-
             fn combine(&self, _: &super::FederatedPlan, _: Legs<'_>, _: u64) -> Result<ResultBatches, Self::Error> {
                 Err(NothingCombined)
             }
@@ -892,8 +890,10 @@ mod tests {
             fn workers_not_ready(&self, _: &Self::Error) -> Option<crate::plan::WorkersShort> {
                 None
             }
+            fn node_lost(&self, _: &Self::Error) -> bool {
+                false
+            }
         }
-
         impl DrillAcrossCombiner for Recording {
             fn merge(
                 &self,

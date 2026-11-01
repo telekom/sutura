@@ -33,6 +33,10 @@ impl FederationCombiner for Reads {
     fn workers_not_ready(&self, _error: &Self::Error) -> Option<WorkersShort> {
         self.short
     }
+
+    fn node_lost(&self, _error: &Self::Error) -> bool {
+        false
+    }
 }
 
 #[test]

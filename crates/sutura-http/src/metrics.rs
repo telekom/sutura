@@ -110,6 +110,7 @@ const REFUSAL_REASONS: &[Label] = &[
     label("grain_not_supported"),
     label("metric_unknown"),
     label("no_billing_project"),
+    label("node_lost"),
     label("plan_needs_too_many_lookup_legs"),
     label("plan_spans_too_many_sources"),
     label("plan_tables_share_an_identifier"),

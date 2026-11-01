@@ -31,7 +31,7 @@ use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
-use crate::combine::{DataFusionCombiner, NodeIdentity, Nodes};
+use crate::combine::{CombineError, DataFusionCombiner, NodeIdentity, Nodes};
 use crate::pool::WorkingSet;
 
 /// A deployment's node authority.
@@ -345,6 +345,34 @@ fn a_stage_another_node_cannot_hold_in_its_own_working_set_refuses_the_question_
         sent.iter().any(|count| count.load(Ordering::SeqCst) > 0),
         "no other node was sent a stage, so nothing here measured its pool"
     );
+}
+
+#[test]
+fn a_question_planned_onto_a_node_nothing_listens_on_is_refused_as_that_node_lost() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = served(&servers, listening(&node, authority.peers()), own.clone(), Arc::default());
+    let gone = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("a localhost port binds");
+    let lost = Url::parse(&format!("https://{gone}")).expect("a socket address is a URL's authority");
+    let across = DataFusionCombiner::across(
+        Nodes::declared(own, own_url, [lost], authority.identity(&node)).across_above(NonZeroU64::new(1)),
+    )
+    .expect("a combiner builds");
+
+    let plan = sum_plan(true);
+    let results = legs(&plan);
+    let refused = across
+        .combine(&plan, assigned(&plan, &results), UNBOUNDED)
+        .expect_err("a combine planned onto a node nothing listens on answered");
+    // The engine's own failure is what a lost node is read from, so one still left as that failure
+    // was not read as a lost node at all.
+    assert!(!matches!(refused, CombineError::Execute { .. }), "{refused:?}");
+    assert_eq!(across.working_set_exhausted(&refused), None, "{refused:?}");
+    assert_eq!(across.workers_not_ready(&refused), None, "{refused:?}");
 }
 
 #[test]
