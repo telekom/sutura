@@ -8,6 +8,7 @@ use std::net::TcpStream;
 
 use sutura_domain::identity::Secret;
 
+use super::super::{AdbcError, DriverMessage};
 use super::{SECRET_HEADER, SubjectSource, UnusablePool, WorkloadPool};
 
 /// The pool every cell below federates against.
@@ -92,6 +93,21 @@ fn credentials(document: &serde_json::Value) -> (String, String) {
         String::from(source["url"].as_str().expect("the source names a URL")),
         String::from(source["headers"][SECRET_HEADER].as_str().expect("the source names a secret")),
     )
+}
+
+#[test]
+fn a_failed_fetch_quoting_the_source_url_reaches_no_rendered_driver_error() {
+    let held = SubjectSource::bind(&Secret::new("an.assertion.value")).expect("loopback is bindable");
+    let (url, _secret) = credentials(&document(&held));
+    let nonce = url.rsplit('/').next().expect("the URL ends in its nonce");
+    // Go's `url.Error` form, which the token provider's fetch failure is wrapped in.
+    let failed = adbc_core::error::Error::with_message_and_status(
+        format!("fetching the subject token: Get \"{url}\": EOF"),
+        adbc_core::error::Status::Unknown,
+    );
+    let rendered = AdbcError::Adbc(DriverMessage::of(&failed)).to_string();
+    assert!(!rendered.contains(nonce), "{rendered}");
+    assert!(rendered.contains("Get \"[a loopback link]\": EOF"), "{rendered}");
 }
 
 #[test]
