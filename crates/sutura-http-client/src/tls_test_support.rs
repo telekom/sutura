@@ -33,7 +33,8 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 use crate::test_support::Scripted;
 
-/// A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`).
+/// A self-signed leaf whose SAN names the IP literal the reader dials (`127.0.0.1`), or the name
+/// [`issue_for`] was given.
 ///
 /// Freshly generated per call. `security.outbound` verification is by dial, so the SAN must match
 /// the dialed address - a DNS-name-only cert would not verify against `https://127.0.0.1:<port>`.
@@ -54,8 +55,13 @@ impl Issued {
 pub fn issue() -> Issued {
     // `CertificateParams::new` reads a string SAN as an IP when it parses as one, so "127.0.0.1"
     // becomes `SanType::IpAddress` - the SAN rustls checks an IP dial against.
-    let params =
-        rcgen::CertificateParams::new([String::from("127.0.0.1")]).expect("an IP subject alternative name parameterizes");
+    issue_for("127.0.0.1")
+}
+
+/// A self-signed leaf whose one SAN is `name`.
+#[must_use]
+pub fn issue_for(name: &str) -> Issued {
+    let params = rcgen::CertificateParams::new([name.to_owned()]).expect("a subject alternative name parameterizes");
     let key = rcgen::KeyPair::generate().expect("a key pair generates");
     let certificate = params.self_signed(&key).expect("a self-signed leaf signs");
     Issued { certificate, key }

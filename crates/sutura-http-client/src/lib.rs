@@ -33,7 +33,8 @@
 //! [`fixed`] and [`rotating_agent`] are the two ways a reader gets an outbound `ureq::Agent`: fixed
 //! at construction over an already-loaded anchor bundle, or rebuilt on every
 //! [`sutura_tls::POLL_INTERVAL`] poll from a `security.outbound` declaration
-//! (`github.com/telekom/sutura#125`). Both fold through `tls::config`, the one place a loaded
+//! (`github.com/telekom/sutura#125`). [`Pinned`] is a third, for a peer dialled at an address its
+//! certificate does not name. All three fold through `tls::config`, the one place a loaded
 //! [`sutura_tls::LoadedAnchors`]/[`sutura_tls::LoadedIdentity`] becomes `ureq::tls::TlsConfig` -
 //! `sutura-tls` itself may never depend on `ureq` (`xtask/src/boundaries/edges.rs`'s
 //! `sutura-tls -> ring` forbidden edge is what that would reintroduce), so the fold lives here
@@ -56,7 +57,7 @@ pub mod test_support;
 #[cfg(feature = "tls-test")]
 pub mod tls_test_support;
 
-pub use agent::{AgentConfig, OutboundAgent, RotatingAgent, agent, agent_resolving_through, fixed, rotating_agent};
+pub use agent::{AgentConfig, OutboundAgent, Pinned, RotatingAgent, agent, agent_resolving_through, fixed, rotating_agent};
 pub use bounds::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, InvalidReadBounds, ReadBounds};
 pub use budget::Budget;
 pub use endpoint::{Endpoint, InvalidEndpoint, ShownEndpoint};

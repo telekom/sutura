@@ -53,7 +53,12 @@ fn crd() -> Result<String, Failure> {
 fn run() -> Result<Infallible, Failure> {
     let settings = settings()?;
     let bounds = ReadBounds::parse(DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES)?;
-    let mut cluster = InCluster::from_pod(settings.api_group(), settings.metrics_token(), bounds)?;
+    let mut cluster = InCluster::from_pod(
+        settings.api_group(),
+        settings.metrics_token(),
+        settings.node_authority(),
+        bounds,
+    )?;
     let mut surplus = BTreeMap::new();
     loop {
         for (pool, why) in sutura_operator::tick(&mut cluster, &mut surplus, Instant::now())? {
