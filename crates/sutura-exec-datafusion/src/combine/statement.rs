@@ -408,3 +408,8 @@ fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S
     tracing::info!(%cause, "run_sql: {why}");
     StatementStopped::NotPlanned
 }
+
+/// Declared here rather than in `combine::tests`, because this file is new: the base run removes it,
+/// and with it every cell below, instead of compiling cells over a port it does not have.
+#[cfg(test)]
+mod tests;

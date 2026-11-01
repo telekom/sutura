@@ -532,3 +532,8 @@ mod tests {
         assert_eq!(budget_seconds, test_deadline().budget().seconds());
     }
 }
+
+/// `answer_sql` over a combiner that runs the statement at every listed source. Declared here rather
+/// than in `tests.rs`, so the base run, which restores this file, does not compile it.
+#[cfg(test)]
+mod legs;

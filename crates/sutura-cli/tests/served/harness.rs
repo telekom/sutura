@@ -84,7 +84,10 @@ pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // reader through THIS re-export (`two_source.rs` calls it directly, not through `harness::`), and
 // a default build without that feature never instantiates that module - `-D unused-imports` on a
 // default-features build is what caught the re-export doing nothing there.
-#[cfg(all(feature = "node", feature = "flight", feature = "tls"))]
+#[cfg(any(
+    all(feature = "node", feature = "flight", feature = "tls"),
+    all(feature = "duckdb", feature = "postgres")
+))]
 pub(crate) use two_source::catalog_spanning_two_sources;
 #[cfg(feature = "postgres")]
 pub(crate) use two_source::derived_catalog;
@@ -273,6 +276,12 @@ pub(crate) fn example_database(case: &str) -> PathBuf {
     let dir = derived_beside(&config_path(case));
     drop(std::fs::remove_dir_all(&dir));
     std::fs::create_dir_all(&dir).expect("the database directory is created");
+    example_database_in(&dir)
+}
+
+/// [`example_database`] written into `dir`, which already exists and is not cleared.
+#[cfg(feature = "duckdb")]
+pub(crate) fn example_database_in(dir: &Path) -> PathBuf {
     let tables: Vec<(sutura_domain::model::TableName, PathBuf)> = std::fs::read_dir(example_root().join("data"))
         .expect("the example data directory is readable")
         .map(|entry| entry.expect("a directory entry").path())

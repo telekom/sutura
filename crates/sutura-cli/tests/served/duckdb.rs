@@ -62,3 +62,8 @@ mod tests {
         assert_eq!(raw(SEGMENTS).json()["rows"], body["rows"]);
     }
 }
+
+// `tools.run_sql.sources` and `federation_allowed` on the served binary, declared here because
+// `served.rs` is at its line cap. `#[path]` resolves beside this file.
+#[path = "run_sql_federation.rs"]
+mod run_sql_federation;
