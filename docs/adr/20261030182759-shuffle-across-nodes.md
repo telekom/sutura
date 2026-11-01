@@ -1,13 +1,14 @@
 ---
 title: One question's combine runs across nodes, and a stream between them carries a node identity and a task grant
-description: How a federated question whose combine is too big for one node spreads over several (#828). datafusion-distributed runs the combine's stages on several nodes, with no coordinator service. Only a node that reads a source holds the caller's credential. A stream in the middle of the combine is authenticated by mutual TLS between nodes, plus a grant from the coordinating node that names the question, the stage and the caller.
+description: How a federated question whose combine is too big for one node spreads over several (#828). datafusion-distributed runs the combine's stages on several nodes, with no coordinator service. Only a node that reads a source holds the caller's credential. A stream in the middle of the combine is authenticated by mutual TLS between nodes, plus a grant under a key the coordinating node draws for that question.
 ---
 
 # One question's combine runs across nodes, and a stream between them carries a node identity and a task grant
 
 Status: **accepted**, 2026-10-31, scoped to a question whose join or aggregation needs more than
 one node. The owner chose the engine family, the stream identity and when a question goes across,
-the answers below. Decision 5, the task grant, is deferred. This record decides; it proves nothing.
+the answers below, and on 2026-11-01 the key that signs a task grant (Decision 5). This record
+decides; it proves nothing.
 
 ## The question
 
@@ -52,13 +53,23 @@ caller's question it belongs to?
    from the deployment's own authority: nix-generated in the VM venue, cert-manager in the k3s
    venue. A call to the engine's worker service without a client certificate is refused. The
    listener's other routes keep accepting callers that present none.
-5. **Each stream also carries a task grant.** The coordinating node signs it. It names the question,
-   the stage, the partition, the caller's verified `SubjectKey`, and an expiry no later than the
-   question's deadline. The receiving node checks the grant on every call, in a layer in front of
-   the worker service. That handler discards request metadata, so the check cannot sit inside it.
-   A call is refused when its grant does not verify, has expired, or names another task. The grant
-   grants no source access. It ties a stream to one question, so that a node with a valid
-   certificate cannot pull another question's rows.
+5. **Each stream also carries a task grant, keyed per question.** The coordinating node draws a
+   random 32-byte key for each question it plans across, and sends it only to that question's stage
+   nodes, in a header of the call that installs their stage. The grant is an HMAC-SHA256 under that
+   key, so a node that holds the key checks it without the key riding on the call. The grant rides
+   in a header of every call, and a stage node re-attaches the one it was sent to the calls it makes
+   to other stage nodes, which carry no key. A layer in front of the worker service checks it,
+   because that service discards request metadata. The layer reads the engine's query id from the
+   call's first message, which is all it decodes. The first key installed for a query id is the one
+   that query keeps, and a later one must equal it. The coordinating node runs its own stages
+   in-process, past its layer, so it installs its question's key itself, from the query id the
+   engine stamps on the stages when it plans them. A node keeps a key for as long as the engine
+   keeps that question's state, which is until ten minutes pass without a call. A call is refused
+   when it carries no grant, its grant does not verify under that key, or its query id has no key.
+   The key and the grant are never logged. The grant grants no source access. It ties a stream to
+   one question, so that a node with a valid certificate cannot pull a question it was not sent. A
+   cell pins the field numbers the layer reads, so an engine upgrade that moves them is red. sutura
+   proposes an authorization hook upstream, which would replace the layer.
 6. **Rows stay in memory and are never stored.** Each node runs its stages under its own
    working-set pool, with the same never-spill policy. A node over its budget refuses, and the
    question is refused with `resources_exhausted`. The engine streams between nodes, and its source, read on 2026-10-30,
@@ -81,20 +92,19 @@ caller's question it belongs to?
 
 ## Open, with a proposal
 
-| Question                                        | Proposal                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Which key signs a grant?                        | The coordinating node's certificate key, verified against the deployment's authority. A key shared by the cluster would let any node mint a grant. Every node holds such a key too, so any node of the authority mints a grant as well: the grant adds an expiry and an audit line, and restricts nothing, unless only coordinating nodes hold a signing authority of their own. Deferred by the owner on 2026-10-31 |
-| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates                                                                                                                                                                                                                      |
+| Question                                        | Proposal                                                                                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates |
 
 ## The refusals this adds
 
-| Where          | Refused                                                                       | Why        |
-| -------------- | ----------------------------------------------------------------------------- | ---------- |
-| Receiving node | A stage it is sent with a leaf that reads a source                            | Decision 3 |
-| Receiving node | A worker call with no client certificate, or one the authority did not sign   | Decision 4 |
-| Receiving node | A worker call whose grant does not verify, has expired, or names another task | Decision 5 |
-| Any node       | A stage over that node's working-set budget                                   | Decision 6 |
-| Coordinator    | A question that lost a node mid-run                                           | Decision 7 |
+| Where          | Refused                                                                           | Why        |
+| -------------- | --------------------------------------------------------------------------------- | ---------- |
+| Receiving node | A stage it is sent with a leaf that reads a source                                | Decision 3 |
+| Receiving node | A worker call with no client certificate, or one the authority did not sign       | Decision 4 |
+| Receiving node | A worker call with no grant, or one that does not verify under its question's key | Decision 5 |
+| Any node       | A stage over that node's working-set budget                                       | Decision 6 |
+| Coordinator    | A question that lost a node mid-run                                               | Decision 7 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, which reads only enrolled enums. A
 refusal with one mode is a struct, which that gate does not read. Each refusal gets its own cell.
@@ -107,6 +117,18 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 - **A node in the middle of the combine sees that question's rows.** The grant stops a node from
   pulling a stream for a question it was not given. It does not hide the rows of the question the
   node was given. A node with the authority's certificate is trusted with what it is sent.
+- **The grant does not expire on its own.** The combine is handed no deadline, so a grant is good
+  for as long as its node keeps the question's key.
+- **The grant does not name the caller.** The combine is handed no subject, so a grant says which
+  question a stream belongs to, not on whose behalf it runs.
+- **The grant binds a question, not a stage or a partition.** Every stage node of a question holds
+  its key, so it can sign a grant for any stage or partition of that question.
+- **Any node of the authority can open a question of its own.** It draws its own key, so the grant
+  does not stop a certified node from sending another node a plan. A plan that node cannot decode
+  safely is a separate defect (#1680).
+- **The first key wins.** A stage node that installs a question's query id at another node, under
+  a key of its own, before the coordinating node does, fails that question: the coordinating
+  node's own call there is refused. That node is already trusted with the question's rows.
 - **The grant does not recheck the subject's grants at a source.** The rows were read as the
   caller, by the node that read the source. The grant carries the subject so that audit lines on
   every node name it, not to authorize the read again.
