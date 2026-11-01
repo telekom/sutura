@@ -8,7 +8,10 @@
 //!
 //! **Limits.** The pair and the authority are read once, at boot: the listener's rotation does not
 //! reach a link, so a renewed node certificate is presented on links after a restart. Each call a
-//! link carries holds its question's task grant; the served worker admits no call without it.
+//! link carries holds its question's task grant; the served worker admits no call without it. A
+//! message whose length prefix declares more bytes than this node's working set is refused before
+//! it is buffered or the grant is asked: the bound is per message, so concurrent streams each reach
+//! it, and the replies a link reads are not bounded here.
 
 use sutura_config::RuntimeSettings;
 use sutura_config::TlsMaterial;
@@ -38,7 +41,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
         return Ok((crate::catalog::one_node_combiner()?, None));
     };
     let identity = identity(tls, nodes.authority())?;
-    let own = Nodes::worker(crate::sources::working_set(runtime), identity.clone())
+    let working_set = crate::sources::working_set(runtime);
+    let own = Nodes::worker(working_set, identity.clone())
         .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     let wait = nodes
         .wait_for_workers()
@@ -46,7 +50,12 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let across = Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity)
         .across_above(nodes.across_above())
         .wait_for_workers(wait);
-    let mount = sutura_http::WorkerMount::new(across.served().into_worker_server());
+    let mount = sutura_http::WorkerMount::new(
+        across
+            .served()
+            .into_worker_server()
+            .max_decoding_message_size(working_set.bytes()),
+    );
     let combiner = DataFusionCombiner::across(across)
         .map_err(|cause| format!("{}\ncould not build the federation combiner", super::flatten(cause)))?;
     Ok((combiner, Some(mount)))
