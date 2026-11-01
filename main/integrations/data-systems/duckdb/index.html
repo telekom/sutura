@@ -2711,6 +2711,11 @@ and this key:</p>
 <td>Turns on the raw SQL tool. With <code>security.identity: multi-user</code>, only over an acknowledged shared source: every caller can then read what the shared account can read</td>
 </tr>
 <tr>
+<td><code>tools.run_sql.sources</code></td>
+<td><code>[]</code></td>
+<td>The aliases of the sources the raw SQL tool runs over. Required when the tool is on. More than one needs the <code>sql</code> feature</td>
+</tr>
+<tr>
 <td><code>runtime.working_set_max_bytes</code></td>
 <td><code>1073741824</code></td>
 <td>The memory budget for one result</td>
@@ -2741,6 +2746,7 @@ answered; cast it, as in <code>SELECT NULL::INTEGER</code>.</p>
 </span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="nt">tools</span><span class="p">:</span>
 </span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">run_sql</span><span class="p">:</span>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">sources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"local"</span><span class="p p-Indicator">]</span>
 </span></code></pre></div>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
 <p>This data system supports <code>shared-service-user</code> only: DuckDB runs inside the sutura process, so no per-caller identity reaches the source.</p>

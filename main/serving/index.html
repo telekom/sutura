@@ -3134,15 +3134,19 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare <code>verification_identity</code>, or remove the anchor</td>
 </tr>
 <tr>
-<td><code>tools.run_sql.enabled: true</code>, <code>security.identity: multi-user</code>, and no acknowledged shared source</td>
-<td>Acknowledge a shared source, use <code>single-user</code>, or leave the tool off</td>
+<td><code>tools.run_sql.enabled: true</code>, <code>security.identity: multi-user</code>, and a listed source not an acknowledged shared one</td>
+<td>List only acknowledged shared sources, use <code>single-user</code>, or leave the tool off</td>
+</tr>
+<tr>
+<td><code>tools.run_sql.enabled: true</code> and no <code>tools.run_sql.sources</code>, or a listed alias with no source or no raw statements</td>
+<td>List the sources the tool runs over, each one whose adapter runs a raw statement</td>
 </tr>
 <tr>
 <td>A <code>security.outbound</code> trust-anchor bundle or client identity, and a source with <code>kind: bigquery</code></td>
 <td>Remove them from <code>security.outbound</code>, or serve that source from a deployment without them</td>
 </tr>
 <tr>
-<td>A feature that the build lacks (<code>tls</code>, <code>agent</code>, or a data system or catalog adapter)</td>
+<td>A feature that the build lacks (<code>tls</code>, <code>agent</code>, <code>sql</code>, or a data system or catalog adapter)</td>
 <td>The message names the feature. Use a build that has it</td>
 </tr>
 <tr>
@@ -3331,10 +3335,31 @@ call to <code>/v1/sql/run</code> gets <code>403</code> with <code>code: tool_not
 <code>run_sql</code> call over <code>/mcp</code> or <code>sutura mcp</code> gets the JSON-RPC error <code>-32601</code> with the message <code>`run_sql` is not enabled
 on this deployment. The operator turns it on with `tools.run_sql.enabled`.</code>. This holds for every caller, with or
 without the scope. When it is on, the caller needs <code>sutura:sql.run</code> as well: without it, <code>/v1/sql/run</code> gets <code>403</code> with
-<code>code: insufficient_scope</code>, and <code>/mcp</code> gets <code>-32601</code> with a message that names the scope. The tool answers only where
-the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record. The
-page of the data system says what bounds a statement: <a href="../integrations/data-systems/postgres/">Postgres</a>,
+<code>code: insufficient_scope</code>, and <code>/mcp</code> gets <code>-32601</code> with a message that names the scope. <code>tools.run_sql.sources</code> lists,
+by alias, the sources the tool runs over. Nothing is inferred: an empty list, or one naming an alias twice, does not parse;
+with the tool on, no list is a startup refusal, and so is an alias that no source declares or whose adapter runs no raw
+statement. A build without the <code>sql</code> feature passes the statement, unparsed, to the one listed source, and answers only
+where the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record.
+The page of the data system says what bounds a statement: <a href="../integrations/data-systems/postgres/">Postgres</a>,
 <a href="../integrations/data-systems/duckdb/">DuckDB</a>.</p>
+<p><code>tools.run_sql.federation_allowed</code> is <code>false</code> by default. A build without the <code>sql</code> feature refuses to start with <code>true</code>,
+or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
+on or off, over the tables that the catalog declares on the listed sources and the caller's view holds. It cuts the plan
+into one part for each source that the statement reads, and runs each part at its source under that source's posture.
+Anything but one query over such tables is refused with <code>statement_failed</code>, and that includes <code>select 1</code>. With the switch
+off, a statement that reads more than one source is refused with <code>plan_spans_more_than_one_source</code>. With it on, the join or
+aggregate over the parts runs in this deployment, and the answer names each source that it read and the posture that ran
+there. Planning and that local part stop at the request's deadline. What this does not bound:</p>
+<ul>
+<li>The local part runs in the deployment's memory, within the combiner's working set. It stops at the deadline only at its
+  next batch, so one batch, or the final pass of a sort, runs to its end.</li>
+<li>Each part's rows are held in the deployment's memory before the per-part row cap refuses them - up to one row past the
+  cap, whatever their width - and are not charged to the memory pool.</li>
+<li>A scalar function over constants, such as <code>repeat</code>, is folded while the statement is planned. Neither the deadline nor
+  the working set stops it, so a large enough value can abort the process rather than be refused. So can an expression
+  nested deeply enough to exhaust the planner's stack. The shipped build has no <code>sql</code> feature.</li>
+<li>A certified answer that combines legs shares one runtime with the local part, and may wait while it runs.</li>
+</ul>
 <h2 id="endpoints">Endpoints<a class="headerlink" href="#endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

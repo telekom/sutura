@@ -2767,6 +2767,11 @@ accepted as loopback. <code>verified</code> and <code>mutual</code> need <code>h
 <td>Turns on the raw SQL tool. With <code>security.identity: multi-user</code>, only over an acknowledged shared source: every caller can then read what the shared account can read</td>
 </tr>
 <tr>
+<td><code>tools.run_sql.sources</code></td>
+<td><code>[]</code></td>
+<td>The aliases of the sources the raw SQL tool runs over. Required when the tool is on. More than one needs the <code>sql</code> feature</td>
+</tr>
+<tr>
 <td><code>SUTURA_POSTGRES_ADBC_DRIVER</code></td>
 <td>not set</td>
 <td>An absolute path to the driver, for a build that links no driver</td>
