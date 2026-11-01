@@ -521,10 +521,12 @@ fn fitted(rows: &RawRows, schema: &SchemaRef) -> Planned<Vec<RecordBatch>> {
         .collect()
 }
 
-/// The engine's words name columns, so they go to the log and the caller reads only that the
-/// statement did not plan.
+/// The caller reads only that the statement did not plan, and the log at info only which step
+/// stopped it. The engine's words can name a column or quote a value a leg read, so they are written
+/// at debug, which a deployment that logs at debug still writes.
 fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
-    tracing::info!(%cause, "run_sql: {why}");
+    tracing::info!("run_sql: {why}");
+    tracing::debug!(%cause, "run_sql: {why}");
     StatementStopped::NotPlanned
 }
 
