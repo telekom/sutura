@@ -85,7 +85,7 @@ use sutura_domain::audit::{AuditSink, CallRecord};
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::{Ceilings, DrillAcrossCombiner};
+use sutura_domain::plan::{Ceilings, DrillAcrossCombiner, WorkerSlotsWanted};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -251,6 +251,12 @@ pub trait Surface: Send + Sync + 'static {
     /// ADR-0015 Decision 5 types a metric label as `&'static str`, so a `Subject`'s own
     /// identifier cannot become one here either.
     fn spent_bytes_total(&self) -> Option<u64>;
+
+    /// The other nodes this service's questions that go across hold or wait for, if its combiner
+    /// goes across. See [`sutura_domain::plan::FederationCombiner::worker_slots_wanted`].
+    fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
+        None
+    }
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -852,6 +858,10 @@ where
 
     fn spent_bytes_total(&self) -> Option<u64> {
         self.spend_ledger.spent_bytes_total()
+    }
+
+    fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
+        self.combiner.worker_slots_wanted()
     }
 }
 

@@ -90,6 +90,7 @@ use datafusion_distributed::{
     WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
+use sutura_domain::plan::{SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -116,6 +117,8 @@ pub struct Nodes {
     across_above: Option<NonZeroU64>,
     /// How long a question that goes across waits for the other nodes it wants to resolve.
     wait_for_workers: Option<Duration>,
+    /// The other nodes the questions going across now want, summed.
+    slots_wanted: WorkerSlotsWanted,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -146,6 +149,7 @@ impl Nodes {
             channels: Links::of(identity),
             across_above: None,
             wait_for_workers: None,
+            slots_wanted: WorkerSlotsWanted::default(),
         }
     }
 
@@ -173,6 +177,18 @@ impl Nodes {
     /// planned across these nodes before it is tried on this one.
     pub(super) fn first_across(&self, legs_bytes: u64, ceiling_bytes: u64) -> bool {
         legs_bytes > self.across_above.map_or(ceiling_bytes, NonZeroU64::get)
+    }
+
+    /// The other nodes the questions going across now want, summed.
+    pub(super) const fn slots_wanted(&self) -> &WorkerSlotsWanted {
+        &self.slots_wanted
+    }
+
+    /// The other nodes a question whose legs hold `legs_bytes` under `ceiling_bytes` wants, counted
+    /// in [`Self::slots_wanted`] until the hold is dropped.
+    pub(super) fn hold(&self, legs_bytes: u64, ceiling_bytes: u64) -> SlotsHeld<'_> {
+        self.slots_wanted
+            .hold(wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes))
     }
 
     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill

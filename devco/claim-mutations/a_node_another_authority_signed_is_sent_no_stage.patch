@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
-index 29596f176..8fe0efcdf 100644
+index 58fb20cb3..a924298d5 100644
 --- a/crates/sutura-exec-datafusion/src/combine/across.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across.rs
-@@ -129,7 +129,7 @@ impl Nodes {
+@@ -176,7 +176,7 @@ impl Nodes {
      /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
      /// planned across these nodes before it is tried on this one.
      pub(super) fn first_across(&self, legs_bytes: u64, ceiling_bytes: u64) -> bool {
@@ -10,4 +10,4 @@ index 29596f176..8fe0efcdf 100644
 +        legs_bytes > self.across_above.map_or(ceiling_bytes, NonZeroU64::get).max(u64::MAX)
      }
  
-     /// The worker a node serves: its stages reserve against a pool of `working_set` and spill
+     /// The other nodes the questions going across now want, summed.

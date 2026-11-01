@@ -81,6 +81,10 @@ impl Surface for Serving {
     fn spent_bytes_total(&self) -> Option<u64> {
         self.surface.spent_bytes_total()
     }
+
+    fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
+        self.surface.worker_slots_wanted()
+    }
 }
 
 impl Serving {

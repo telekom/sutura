@@ -507,6 +507,10 @@ impl ServiceState {
             counter
         });
         let spend_headroom = spend_headroom.zip(spend_bytes_total);
+        // Registered only where the combiner goes across: the demand the worker pool is sized from.
+        if let Some(wanted) = surface.worker_slots_wanted() {
+            builder.slots_wanted("sutura_worker_slots_wanted", wanted.clone());
+        }
         let registry = Arc::new(builder.build());
         Self {
             surface,

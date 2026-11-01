@@ -36,6 +36,9 @@
 //! [`FederationCombiner::execute`], which orders its results as [`FederatedPlan::legs`] does, and by
 //! nothing for a caller that builds [`Legs`] itself.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, LookupLeg};
 use crate::plan::leg::LegPlan;
 use crate::warehouse::ResultBatches;
@@ -260,6 +263,46 @@ impl WorkersShort {
     }
 }
 
+/// The other nodes this node's questions that go across hold or wait for, summed over them.
+///
+/// The demand `docs/adr/20261030193029-operator-sizes-the-worker-pool.md` sizes the worker pool from:
+/// a serving node exports it on `/metrics`, and a scrape reads it without making the service work.
+/// A clone shares the count.
+#[derive(Debug, Clone, Default)]
+pub struct WorkerSlotsWanted(Arc<AtomicU64>);
+
+impl WorkerSlotsWanted {
+    /// `slots` more wanted until the returned hold is dropped.
+    pub fn hold(&self, slots: usize) -> SlotsHeld<'_> {
+        let slots = u64::try_from(slots).unwrap_or(u64::MAX);
+        self.0.fetch_add(slots, Ordering::Relaxed);
+        SlotsHeld { wanted: self, slots }
+    }
+
+    /// The slots wanted now.
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Slots counted in a [`WorkerSlotsWanted`] while this lives.
+///
+/// The add and the subtract are the same number, so the count returns to where it was even if a sum
+/// of holds wrapped in between.
+#[derive(Debug)]
+#[must_use = "the slots are wanted only while the hold lives"]
+pub struct SlotsHeld<'w> {
+    wanted: &'w WorkerSlotsWanted,
+    slots: u64,
+}
+
+impl Drop for SlotsHeld<'_> {
+    fn drop(&mut self) {
+        self.wanted.0.fetch_sub(self.slots, Ordering::Relaxed);
+    }
+}
+
 /// What [`FederationCombiner::execute`] and `DrillAcrossCombiner::execute_across` return, named so
 /// their signatures are not a `type_complexity` finding.
 pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::Error, <C as FederationCombiner>::Error>>;
@@ -272,7 +315,7 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// An adapter never calls another adapter and this does not change that: the combine is called from
 /// the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 ///
-/// # Every method but the cut's two is required, and that is the mechanism
+/// # Every method but the cut's two and the demand is required, and that is the mechanism
 ///
 /// [`Warehouse`](crate::warehouse::Warehouse) defaults its four classifying predicates, because an
 /// adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -281,6 +324,10 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// produces - with nothing in a diff to see. So [`Self::working_set_exhausted`],
 /// [`Self::answer_not_well_formed`] and [`Self::workers_not_ready`] have no default body: a second
 /// implementor has to write every arm where a reviewer reads them.
+///
+/// [`Self::worker_slots_wanted`] defaults to `None`, which is honest for a combiner that never goes
+/// across. **The limit:** one that does go across and inherits it exports no demand, and the
+/// operator sizes the worker pool to its floor - nothing but review sees that.
 ///
 /// # What the domain may ask about an implementor's error, and why it is three predicates
 ///
@@ -352,6 +399,11 @@ pub trait FederationCombiner {
     ///
     /// `None` is every other failure. Required rather than defaulted - see the trait's own header.
     fn workers_not_ready(&self, error: &Self::Error) -> Option<WorkersShort>;
+
+    /// The other nodes this combiner's questions that go across hold or wait for, if it goes across.
+    fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
+        None
+    }
 
     /// The cut of `plan`: the legs that run at their sources. Executes nothing.
     ///
@@ -478,6 +530,9 @@ impl FederationCombiner for RefusingCombiner {
         None
     }
 }
+
+#[cfg(test)]
+mod wanted;
 
 #[cfg(test)]
 mod tests {
