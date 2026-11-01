@@ -40,3 +40,7 @@ curl -s -X POST http://127.0.0.1:8080/v1/query \
   -H 'content-type: application/json' \
   -d '{"metrics":["recurring_revenue","active_customers"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["segment"]}'
 ```
+
+`compose.distributed.yaml` and `conf/distributed/` add an opt-in coordinator-plus-two-workers
+variant of this same question. See the "Distributed execution" section of
+[`docs/examples/federated.md`](../../docs/examples/federated.md).
