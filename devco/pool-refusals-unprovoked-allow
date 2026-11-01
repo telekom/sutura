@@ -1,0 +1,5 @@
+# InvalidPool variants without test-name or snapshot-word evidence.
+# Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
+# Dates are shape-checked; stale and unknown entries fail.
+# Name coverage is not proof of provocation or execution in a venue.
+MinAboveMax 2026-10-31 provoked by a_pool_whose_min_is_above_its_max_is_refused, which cannot count: the enum has one variant, so every file naming it names them all and is a census; ends when a second variant joins the enum

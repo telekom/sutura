@@ -109,6 +109,7 @@ pub mod environment;
 pub mod governance;
 pub mod inbound;
 pub mod limits;
+pub mod operator;
 pub mod prompt;
 pub mod proxy;
 pub mod runtime;
@@ -139,6 +140,7 @@ pub use crate::inbound::{
     TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
+pub use crate::operator::{ApiGroup, InvalidApiGroup, OperatorSettings, OperatorSettingsError};
 pub use crate::prompt::{
     CatalogProse, InstructionsFile, InstructionsMaxBytes, InvalidPromptSettings, PromptSettings, UnknownCatalogProse,
 };

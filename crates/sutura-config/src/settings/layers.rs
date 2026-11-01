@@ -194,7 +194,7 @@ type Layered = (RawSettings, ConfigLayers);
 /// variable layer has no path either - so neither can appear in the list, and a deployment configured
 /// entirely by `SUTURA__*` variables reports no layers. That is the honest answer to "which files",
 /// not a claim that nothing overrode the defaults.
-pub(super) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
+pub(crate) fn read(sources: &Sources) -> Result<Layered, SettingsLoadError> {
     let mut builder = config::Config::builder().add_source(config::File::from_str(DEFAULTS, config::FileFormat::Yaml));
     let mut layers = Vec::new();
 

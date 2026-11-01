@@ -61,7 +61,7 @@ pub const VARIABLE_PREFIX: &str = "SUTURA";
 /// The separator between nested key segments in a configuration variable name.
 pub const VARIABLE_SEPARATOR: &str = "__";
 
-use layers::read;
+pub(crate) use layers::read;
 pub use layers::{ConfigLayers, SettingsLoadError};
 pub use posture::{NotFitToServe, TokenRequiredBy};
 
