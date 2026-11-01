@@ -850,9 +850,9 @@ jobs:
       # have been false on exactly the run that most needs it.
       #
       # **AND THIS BRANCH HAS EXECUTED IN NO VENUE.** The docs-only probe measured for #639 slice I
-      # still selected both service tiers, because a docs-only diff flips the CATEGORY axis to
-      # `core`; reaching an empty selection needs `rust`, both tier conditions and `api` all false
-      # at once. So it is reasoned and linted, not observed - cite it as such.
+      # still selected both service tiers, because a docs-only diff then flipped the CATEGORY axis
+      # to `core`; it now selects no category, so a docs-only diff outside every area reaches this
+      # branch. Until such a run is cited it is reasoned and linted, not observed - cite it as such.
       - name: Realise the test graph in one invocation
         if: github.event_name != 'push'
         continue-on-error: true
