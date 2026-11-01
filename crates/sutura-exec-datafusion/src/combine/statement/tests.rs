@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use datafusion::arrow::array::{Int64Array, RecordBatch, StringArray};
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -14,6 +15,7 @@ use sutura_domain::plan::{
     FederationCombiner as _, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
 };
 use sutura_domain::raw::RawStatement;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::schema::TypeDialect;
 use sutura_domain::warehouse::{Accumulating, RawRows, ResultBudget};
 use tokio::runtime::Runtime;
@@ -146,11 +148,37 @@ impl StatementLegs for Engines {
     }
 }
 
+/// A deadline opened `ago` with `budget` to spend.
+fn opened(ago: Duration, budget: Duration) -> Deadline {
+    Deadline::opened_at(
+        Instant::now()
+            .checked_sub(ago)
+            .expect("the monotonic clock reaches back that far"),
+        Budget::parse(budget).expect("a test budget is not zero"),
+    )
+}
+
 fn asked(statement: &str, federation_allowed: bool, working_set_bytes: u64, legs: &mut Engines) -> StatementAnswer<SourceName> {
+    asked_by(
+        statement,
+        federation_allowed,
+        working_set_bytes,
+        opened(Duration::ZERO, Duration::from_secs(60)),
+        legs,
+    )
+}
+
+fn asked_by(
+    statement: &str,
+    federation_allowed: bool,
+    working_set_bytes: u64,
+    deadline: Deadline,
+    legs: &mut Engines,
+) -> StatementAnswer<SourceName> {
     let statement = RawStatement::parse(statement).expect("a test statement is a statement");
     let tables = tables();
     DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-        StatementQuestion::new(&statement, &tables, federation_allowed, working_set_bytes),
+        StatementQuestion::new(&statement, &tables, federation_allowed, working_set_bytes, deadline),
         legs,
     )
 }
@@ -236,4 +264,114 @@ fn a_local_part_over_the_working_set_is_an_answer_too_large() {
     let mut legs = Engines::new(None);
     let answer = asked(AREAS, true, 1, &mut legs);
     assert!(matches!(answer, Some(Err(StatementStopped::AnswerTooLarge))), "{answer:?}");
+}
+
+/// The session holds no table function, so a statement generates no rows of its own, with or
+/// without federation.
+#[test]
+fn a_table_function_does_not_exist_in_the_session() {
+    for statement in [
+        "select count(*) from dim_region, generate_series(1, 3)",
+        "select count(*) from dim_region, range(1, 3)",
+    ] {
+        for federation_allowed in [false, true] {
+            let mut legs = Engines::new(None);
+            let answer = asked(statement, federation_allowed, UNBOUNDED, &mut legs);
+            assert!(
+                matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+                "{statement}: {answer:?}"
+            );
+            assert!(legs.opened.is_empty(), "{statement} opened {:?}", legs.opened);
+        }
+    }
+}
+
+/// A budget spent before the call refuses it before it plans, and nothing is opened.
+#[test]
+fn a_spent_budget_stops_the_statement_before_it_plans() {
+    let mut legs = Engines::new(None);
+    let answer = asked_by(
+        AREAS,
+        true,
+        UNBOUNDED,
+        opened(Duration::from_secs(10), Duration::from_secs(1)),
+        &mut legs,
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::DeadlineExceeded))), "{answer:?}");
+    assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
+}
+
+/// A local part with more rows than the budget can sum stops at the deadline instead of running to
+/// its end: twelve pairs of a four-row and a three-row table cross joined, every one of them read.
+#[test]
+fn a_local_part_past_the_deadline_stops_at_it() {
+    let pairs = 0..12;
+    let statement = format!(
+        "select sum({}), max({}) from {}",
+        pairs
+            .clone()
+            .map(|pair| format!("c{pair}.customer_id"))
+            .collect::<Vec<_>>()
+            .join(" + "),
+        pairs
+            .clone()
+            .map(|pair| format!("r{pair}.region"))
+            .collect::<Vec<_>>()
+            .join(" || "),
+        pairs
+            .map(|pair| format!("dim_customer c{pair}, dim_region r{pair}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    let mut legs = Engines::new(None);
+    let started = Instant::now();
+    let answer = asked_by(
+        &statement,
+        true,
+        UNBOUNDED,
+        opened(Duration::ZERO, Duration::from_secs(2)),
+        &mut legs,
+    );
+    assert!(matches!(answer, Some(Err(StatementStopped::DeadlineExceeded))), "{answer:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "stopped long after the deadline: {:?}",
+        started.elapsed()
+    );
+    assert!(!legs.ran.is_empty(), "the legs ran before the local part did");
+}
+
+/// A correlated `EXISTS` in a filter is cut like a join: refused without federation, a part of its
+/// own with it.
+#[test]
+fn a_correlated_exists_over_a_second_source_is_a_part_of_its_own() {
+    let statement = "select region from dim_region r where exists \
+                     (select 1 from dim_customer c where c.region = r.region and c.customer_id > 2) order by region";
+    let mut legs = Engines::new(None);
+    let refused = asked(statement, false, UNBOUNDED, &mut legs);
+    assert!(
+        matches!(refused, Some(Err(StatementStopped::SpansMoreThanOneSource))),
+        "{refused:?}"
+    );
+    let answer = asked(statement, true, UNBOUNDED, &mut legs);
+    let Some(Ok(rows)) = answer else {
+        panic!("an exists over two answering sources is answered: {answer:?}");
+    };
+    assert_eq!(rows, legs.as_one(statement));
+    legs.ran.sort();
+    assert_eq!(legs.ran, [named("crm"), named("geo")]);
+}
+
+/// An `EXISTS` the planner leaves in a projection hides its table from the cut, so the part holding
+/// it reads two sources and is refused rather than sent whole to one of them.
+#[test]
+fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
+    let statement = "select region, exists (select 1 from dim_customer c where c.region = r.region) as served \
+                     from dim_region r";
+    for federation_allowed in [false, true] {
+        let mut legs = Engines::new(None);
+        let answer = asked(statement, federation_allowed, UNBOUNDED, &mut legs);
+        assert!(matches!(answer, Some(Err(StatementStopped::NotPlanned))), "{answer:?}");
+        assert!(legs.opened.is_empty(), "nothing was opened: {:?}", legs.opened);
+    }
 }

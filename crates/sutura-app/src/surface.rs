@@ -164,7 +164,7 @@ pub trait Surface: Send + Sync + 'static {
     /// nothing yet stops a data system mid-call with it.
     fn answer(&self, context: &RequestContext, query: &Query, deadline: Deadline) -> Result<ToolOutcome, SurfaceFailure>;
 
-    /// Runs one literal statement against this deployment's configured source, or says why it will
+    /// Runs one statement over the sources `tools.run_sql.sources` lists, or says why it will
     /// not - the raw SQL tool, `docs/adr/0013`.
     ///
     /// Same shape as [`Self::answer`] in every way that matters: a refusal comes back inside the
@@ -808,6 +808,9 @@ where
             },
             crate::RunSqlError::Unplanned => SurfaceFailure::Miswired {
                 cause: Box::new(crate::RunSqlError::<B::Error>::Unplanned),
+            },
+            crate::RunSqlError::Unlisted => SurfaceFailure::Miswired {
+                cause: Box::new(crate::RunSqlError::<B::Error>::Unlisted),
             },
         });
         // Same ordering as `answer`, every outcome and failure reaching it, so a raw call is recorded

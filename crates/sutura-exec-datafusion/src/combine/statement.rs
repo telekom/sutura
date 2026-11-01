@@ -8,37 +8,45 @@
 //! unparses every leaf in its source's dialect before the one `open` over every source the plan
 //! names, runs each through [`StatementLegs`], and plans the leaf over the rows that came back. The
 //! engine holds no runner and no credential. A plan one source answers whole is that source's
-//! statement, and its rows are the answer.
+//! statement, and its rows are the answer. Planning and the local part stop at the request's
+//! deadline, which the legs check before each one runs, and the session holds no table function.
 //!
 //! | Limit | Why |
 //! | --- | --- |
 //! | `compute_context` is `None`, not per subject | the session is one call's, over one caller's tables, so no two subjects' scans meet in it |
 //! | a leg's rows are not charged against the working set | the raw port capped them by count; the pool charges what the local part builds over them |
-//! | no deadline covers planning or the local part | the legs check the deadline before each one runs |
+//! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
+//! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
+//! | a scalar function builds its value in the deployment's memory, outside the working set | the pool charges only what operators reserve, and a constant `repeat` is folded while planning, before any yield |
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
-//! | `ClickHouse` and `Oracle` plan no part | the unparser has no dialect for either |
+//! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
+//! | only `DuckDB` and `Postgres` sources plan a part | they are the adapters that take raw statements |
 //! | a statement that reads no table is refused | there is no source to run it at under the caller |
 //! | unquoted identifiers are lowercased | the engine's own normalization, before the source sees the text |
 //! | the cut runs after every default rule | `SessionStateBuilder::with_optimizer_rule` appends |
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::compute::{CastOptions, cast_with_options};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::catalog::Session;
-use datafusion::common::tree_node::{Transformed, TreeNodeRecursion};
+use datafusion::common::tree_node::{Transformed, TreeNode as _, TreeNodeRecursion};
 use datafusion::common::{plan_datafusion_err, plan_err};
+use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::logical_expr::{Extension, LogicalPlan, Projection, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
 use datafusion::sql::unparser::Unparser;
-use datafusion::sql::unparser::dialect::{BigQueryDialect, Dialect, DuckDBDialect, PostgreSqlDialect};
+use datafusion::sql::unparser::dialect::{Dialect, DuckDBDialect, PostgreSqlDialect};
 use datafusion_federation::{
     FederatedPlanNode, FederatedQueryPlanner, FederatedTableProviderAdaptor, FederatedTableSource, FederationOptimizerRule,
     FederationPlanner, FederationProvider, get_table_source,
@@ -48,7 +56,9 @@ use sutura_domain::plan::{StatementLegs, StatementQuestion, StatementStopped, St
 use sutura_domain::raw::RawStatement;
 use sutura_domain::warehouse::RawRows;
 use sutura_domain::warehouse::arrow::of_rows;
+use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::schema::TypeDialect;
+use tokio::runtime::Runtime;
 
 use super::{CombineError, DataFusionCombiner, collected, working_set_of};
 use crate::pool::{self, WorkingSet};
@@ -62,8 +72,8 @@ where
     let working_set = working_set_of(question.working_set_bytes());
     let fetched = Arc::new(Fetched::default());
     let context = session(question.tables(), &fetched, working_set).map_err(|cause| unplanned("no session", &cause))?;
-    let plan = runtime
-        .block_on(planned(&context, question.statement()))
+    let plan = within(runtime, question.deadline(), planned(&context, question.statement()))
+        .ok_or(StatementStopped::DeadlineExceeded)?
         .map_err(|cause| unplanned("the statement did not plan", &cause))?;
     let parts = parts(&plan, question.tables()).map_err(|cause| unplanned("the plan did not cut", &cause))?;
     let sources: BTreeSet<SourceName> = parts.iter().map(|part| part.source.clone()).collect();
@@ -90,13 +100,14 @@ where
     if fetched.0.set(leaves).is_err() {
         return Err(StatementStopped::NotPlanned);
     }
-    let local = runtime.block_on(async {
+    let local = within(runtime, question.deadline(), async {
         let frame = context
             .execute_logical_plan(plan)
             .await
             .map_err(|cause| CombineError::Execute { cause })?;
         collected(frame, question.working_set_bytes(), working_set).await
-    });
+    })
+    .ok_or(StatementStopped::DeadlineExceeded)?;
     let answered = match local {
         Ok(answered) => answered,
         Err(CombineError::Exhausted { .. }) => return Err(StatementStopped::AnswerTooLarge),
@@ -111,6 +122,39 @@ where
 
 /// The statement's rows, or why it got none.
 type Answered<S> = Result<RawRows, StatementStopped<S>>;
+
+/// `work` on `runtime` until it ends or `deadline` passes: `None` past it, `work` not started when
+/// the budget is already spent.
+fn within<F>(runtime: &Runtime, deadline: Deadline, work: F) -> Option<F::Output>
+where
+    F: Future,
+{
+    let left = deadline.remaining_at(Instant::now())?;
+    runtime.block_on(async { tokio::time::timeout(left, work).await.ok() })
+}
+
+/// Wraps every node, not only the leaves the default rule wraps, so each batch any operator yields
+/// spends the task's budget and the deadline's timer is polled between them.
+#[derive(Debug)]
+struct Yielding;
+
+impl PhysicalOptimizerRule for Yielding {
+    fn optimize(&self, plan: Arc<dyn ExecutionPlan>, _: &ConfigOptions) -> Planned<Arc<dyn ExecutionPlan>> {
+        plan.transform_up(|node| {
+            let wrapped: Arc<dyn ExecutionPlan> = Arc::new(CooperativeExec::new(node));
+            Ok(Transformed::yes(wrapped))
+        })
+        .map(|wrapped| wrapped.data)
+    }
+
+    fn name(&self) -> &'static str {
+        "sutura_statement_yielding"
+    }
+
+    fn schema_check(&self) -> bool {
+        true
+    }
+}
 
 /// Each part's plan beside the rows its leg came back with.
 type Leaves = Vec<(LogicalPlan, Vec<RecordBatch>)>;
@@ -245,22 +289,29 @@ fn parts(plan: &LogicalPlan, tables: &[StatementTable]) -> Planned<Vec<Part>> {
     Ok(parts)
 }
 
+/// The one source `part` reads, subqueries included. The rule does not look inside an `EXISTS`, so
+/// a part can hold a second source's table, and such a part is refused rather than sent to either.
 fn source_of(part: &LogicalPlan) -> Planned<String> {
-    let mut name = None;
+    let mut names = BTreeSet::new();
     part.apply_with_subqueries(|node| {
         if let LogicalPlan::TableScan(scan) = node
             && let Some(table) = get_table_source(&scan.source)?
         {
-            name = Some(table.federation_provider().name().to_owned());
-            return Ok(TreeNodeRecursion::Stop);
+            names.insert(table.federation_provider().name().to_owned());
         }
         Ok(TreeNodeRecursion::Continue)
     })?;
-    name.ok_or_else(|| plan_datafusion_err!("a part of the plan reads no table"))
+    let mut names = names.into_iter();
+    match (names.next(), names.next()) {
+        (Some(name), None) => Ok(name),
+        (None, _) => plan_err!("a part of the plan reads no table"),
+        (Some(_), Some(_)) => plan_err!("a part of the plan reads more than one source"),
+    }
 }
 
 /// The call's session: `tables` registered at their paths, the cut installed, the working set as
-/// its pool. No information schema, so a caller lists nothing.
+/// its pool. No information schema, so a caller lists nothing, and no table function, so a caller
+/// generates no rows.
 fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: WorkingSet) -> Planned<SessionContext> {
     let state = SessionStateBuilder::new()
         .with_config(SessionConfig::new().with_default_catalog_and_schema("", ""))
@@ -270,7 +321,9 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
                 .into_runtime(),
         )
         .with_default_features()
+        .with_table_function_list(Vec::new())
         .with_optimizer_rule(Arc::new(FederationOptimizerRule::default()))
+        .with_physical_optimizer_rule(Arc::new(Yielding))
         .with_query_planner(Arc::new(FederatedQueryPlanner::new()))
         .build();
     let context = SessionContext::new_with_state(state);
@@ -360,8 +413,9 @@ fn unparsed(plan: &LogicalPlan, dialect: TypeDialect) -> Planned<String> {
     match dialect {
         TypeDialect::DuckDb => text(&DuckDBDialect::new()),
         TypeDialect::Postgres => text(&PostgreSqlDialect {}),
-        TypeDialect::BigQuery => text(&BigQueryDialect::new()),
-        TypeDialect::ClickHouse | TypeDialect::Oracle => plan_err!("the unparser has no dialect for this source"),
+        TypeDialect::BigQuery | TypeDialect::ClickHouse | TypeDialect::Oracle => {
+            plan_err!("only a source that takes raw statements has a part")
+        }
     }
 }
 

@@ -14,6 +14,7 @@ use arrow_schema::SchemaRef;
 use crate::model::{QualifiedTable, SourceName};
 use crate::raw::RawStatement;
 use crate::warehouse::RawRows;
+use crate::warehouse::deadline::Deadline;
 use crate::warehouse::schema::TypeDialect;
 
 /// One table a statement may read: a model's table on a listed source, typed by its pinned schema.
@@ -69,22 +70,26 @@ pub struct StatementQuestion<'a> {
     tables: &'a [StatementTable],
     federation_allowed: bool,
     working_set_bytes: u64,
+    deadline: Deadline,
 }
 
 impl<'a> StatementQuestion<'a> {
-    /// `statement` over `tables`, the local part of its plan under `working_set_bytes`.
+    /// `statement` over `tables`, the local part of its plan under `working_set_bytes`, planning and
+    /// the local part both stopped at `deadline`.
     #[must_use]
     pub const fn new(
         statement: &'a RawStatement,
         tables: &'a [StatementTable],
         federation_allowed: bool,
         working_set_bytes: u64,
+        deadline: Deadline,
     ) -> Self {
         Self {
             statement,
             tables,
             federation_allowed,
             working_set_bytes,
+            deadline,
         }
     }
 
@@ -111,6 +116,12 @@ impl<'a> StatementQuestion<'a> {
     #[must_use]
     pub const fn working_set_bytes(&self) -> u64 {
         self.working_set_bytes
+    }
+
+    /// The request's deadline, which planning and the local part stop at as each leg does.
+    #[must_use]
+    pub const fn deadline(&self) -> Deadline {
+        self.deadline
     }
 }
 
@@ -146,6 +157,8 @@ pub enum StatementStopped<S> {
     NotPlanned,
     /// The local part of the plan outgrew the working set.
     AnswerTooLarge,
+    /// Planning or the local part of the plan ran past the request's deadline.
+    DeadlineExceeded,
 }
 
 /// The combiner's answer to a statement: `None` where it plans none.

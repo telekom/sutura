@@ -16,9 +16,12 @@ use crate::tests::{asked_by_a_person, shared, test_deadline};
 use crate::tests_support::{CountingBroker, RawCapableWarehouse, bundle_over};
 use crate::verify_and_validate;
 
-/// Plans every statement over its sources, in order, and answers with the last leg's rows. Over no
-/// source it plans nothing.
-struct EverySource(Vec<SourceName>);
+/// Plans every statement over `planned`, in order, and answers with the last leg's rows. Over no
+/// source it plans nothing; `late`, it stops at the deadline before any leg.
+struct EverySource {
+    planned: Vec<SourceName>,
+    late: bool,
+}
 
 impl FederationCombiner for EverySource {
     type Error = core::fmt::Error;
@@ -47,15 +50,18 @@ impl FederationCombiner for EverySource {
     where
         L: StatementLegs,
     {
-        if self.0.is_empty() {
+        if self.planned.is_empty() {
             return None;
         }
-        if self.0.len() > 1 && !question.federation_allowed() {
+        if self.late {
+            return Some(Err(StatementStopped::DeadlineExceeded));
+        }
+        if self.planned.len() > 1 && !question.federation_allowed() {
             return Some(Err(StatementStopped::SpansMoreThanOneSource));
         }
         let mut last = None;
-        let ran = legs.open(&self.0.iter().cloned().collect()).and_then(|()| {
-            for source in &self.0 {
+        let ran = legs.open(&self.planned.iter().cloned().collect()).and_then(|()| {
+            for source in &self.planned {
                 last = Some(legs.run(source, question.statement())?);
             }
             Ok(())
@@ -71,11 +77,31 @@ fn named(source: &str) -> SourceName {
     SourceName::parse(source).expect("a test source is a source")
 }
 
-/// `select n from t` through `answer_sql`, over one shared-posture source per `(name, rows)`, every
-/// one of them listed, planned by [`EverySource`] over `planned`: the answer, and how many mints it took.
+fn named_each(sources: &[&str]) -> Vec<SourceName> {
+    sources.iter().map(|&source| named(source)).collect()
+}
+
+/// [`listing`] with every open source listed and a combiner that plans in time.
 fn answered(
     open: &[(&str, usize)],
     planned: &[&str],
+    federation_allowed: bool,
+    deadline: Deadline,
+) -> (RunningRaw<CountingBroker>, usize) {
+    let listed: Vec<_> = open.iter().map(|&(source, _)| source).collect();
+    let combiner = EverySource {
+        planned: named_each(planned),
+        late: false,
+    };
+    listing(open, &listed, &combiner, federation_allowed, deadline)
+}
+
+/// `select n from t` through `answer_sql`, over one shared-posture source per `(name, rows)`, those
+/// in `listed` listed, planned by `combiner`: the answer, and how many mints it took.
+fn listing(
+    open: &[(&str, usize)],
+    listed: &[&str],
+    combiner: &EverySource,
     federation_allowed: bool,
     deadline: Deadline,
 ) -> (RunningRaw<CountingBroker>, usize) {
@@ -87,17 +113,16 @@ fn answered(
         .try_fold(Warehouses::of(first), Warehouses::and)
         .expect("the test sources are distinct");
     let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
-    let scope = RunSqlScope::new(open.iter().map(|&(source, _)| named(source)).collect(), federation_allowed);
+    let scope = RunSqlScope::new(named_each(listed), federation_allowed);
     let broker = CountingBroker::default();
     let statement = RawStatement::parse("select n from t").expect("a test statement is a statement");
-    let combiner = EverySource(planned.iter().map(|&source| named(source)).collect());
     let ran = answer_sql(
         &pinned,
         &asked_by_a_person(),
         &statement,
         &broker,
         &warehouses,
-        &combiner,
+        combiner,
         &scope,
         1 << 20,
         deadline,
@@ -185,4 +210,37 @@ fn two_listed_sources_and_no_plan_is_a_wiring_failure() {
     let (ran, asked) = answered(&[("local", 1), ("other", 1)], &[], true, test_deadline());
     assert!(matches!(ran, Err(RunSqlError::Unplanned)), "{ran:?}");
     assert_eq!(asked, 0, "nothing is minted for a statement nothing planned");
+}
+
+/// A combiner stopped at the deadline is the deadline refusal with the request's budget, and nothing
+/// is minted for it.
+#[test]
+fn a_statement_the_combiner_stopped_at_the_deadline_is_a_deadline_refusal() {
+    let combiner = EverySource {
+        planned: named_each(&["local"]),
+        late: true,
+    };
+    let (ran, asked) = listing(&[("local", 1)], &["local"], &combiner, true, test_deadline());
+    assert_eq!(
+        refused(ran),
+        RawRefusalReason::DeadlineExceeded {
+            budget_seconds: test_deadline().budget().seconds()
+        }
+    );
+    assert_eq!(
+        asked, 0,
+        "nothing is minted for a statement that ran out of time while planning"
+    );
+}
+
+/// A plan with a leg at an open source the tool does not list fails before anything is minted.
+#[test]
+fn a_leg_at_an_unlisted_source_fails_before_any_mint() {
+    let combiner = EverySource {
+        planned: named_each(&["local", "other"]),
+        late: false,
+    };
+    let (ran, asked) = listing(&[("local", 1), ("other", 1)], &["local"], &combiner, true, test_deadline());
+    assert!(matches!(ran, Err(RunSqlError::Unlisted)), "{ran:?}");
+    assert_eq!(asked, 0, "nothing is minted for a source the tool does not run over");
 }

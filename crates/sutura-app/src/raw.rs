@@ -65,6 +65,12 @@ pub enum RunSqlError<M> {
     /// startup, and the combiner of a build with it plans every statement.
     #[error("the raw tool runs over more than one source and nothing planned the statement across them")]
     Unplanned,
+    /// The combiner planned a leg at a source `tools.run_sql.sources` does not list. Refused before
+    /// anything is minted for it.
+    ///
+    /// **A wiring defect.** The combiner is handed only the tables of listed sources.
+    #[error("the raw tool planned a leg at a source it does not run over")]
+    Unlisted,
 }
 
 /// What running a raw statement produced, or why it could not.
@@ -160,7 +166,7 @@ where
     let (Some((source, _)), None) = (open.next(), open.next()) else {
         return Err(RunSqlError::Unplanned);
     };
-    let mut legs = RawLegs::new(context, broker, warehouses, deadline);
+    let mut legs = RawLegs::new(context, broker, warehouses, core::slice::from_ref(source), deadline);
     let outcome = pass_through(&mut legs, statement, source)?;
     Ok(legs.answered(outcome))
 }
@@ -189,14 +195,17 @@ where
     C: FederationCombiner,
 {
     let tables = tables(pinned, context, warehouses, &scope.sources);
-    let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes);
-    let mut legs = RawLegs::new(context, broker, warehouses, deadline);
+    let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes, deadline);
+    let mut legs = RawLegs::new(context, broker, warehouses, &scope.sources, deadline);
     let outcome = match combiner.answer_statement(question, &mut legs) {
         Some(Ok(rows)) => Ok(answer(rows, legs.executed_as.take().filter(|_| scope.federation_allowed))),
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
         Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
         Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
+        Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
+            budget_seconds: deadline.budget().seconds(),
+        })),
         None => match scope.sources.as_slice() {
             [source] => pass_through(&mut legs, statement, source),
             _ => Err(RunSqlError::Unplanned),
@@ -292,17 +301,25 @@ pub(crate) struct RawLegs<'a, W, B> {
     context: &'a RequestContext,
     broker: &'a B,
     warehouses: &'a Warehouses<W>,
+    listed: &'a [SourceName],
     deadline: Deadline,
     credentials: Option<BoundToTheRequest>,
     executed_as: Option<ExecutedAs>,
 }
 
 impl<'a, W, B> RawLegs<'a, W, B> {
-    const fn new(context: &'a RequestContext, broker: &'a B, warehouses: &'a Warehouses<W>, deadline: Deadline) -> Self {
+    const fn new(
+        context: &'a RequestContext,
+        broker: &'a B,
+        warehouses: &'a Warehouses<W>,
+        listed: &'a [SourceName],
+        deadline: Deadline,
+    ) -> Self {
         Self {
             context,
             broker,
             warehouses,
+            listed,
             deadline,
             credentials: None,
             executed_as: None,
@@ -326,6 +343,9 @@ where
     type Stop = LegStop<B::Error>;
 
     fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        if !sources.iter().all(|source| self.listed.contains(source)) {
+            return Err(LegStop::Failed(RunSqlError::Unlisted));
+        }
         let mut each = sources.iter().cloned();
         let Some(first) = each.next() else {
             return Ok(());
@@ -352,6 +372,9 @@ where
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        if !self.listed.contains(source) {
+            return Err(LegStop::Failed(RunSqlError::Unlisted));
+        }
         let (Some(warehouse), Some(credentials)) = (self.warehouses.get(source), self.credentials.as_ref()) else {
             return Err(LegStop::Failed(RunSqlError::Unplanned));
         };
