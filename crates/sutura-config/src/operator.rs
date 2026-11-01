@@ -2,9 +2,12 @@
 //!
 //! The operator reads the same layered sources as `sutura serve`, so one directory and one set of
 //! `SUTURA__*` variables configure both. The whole tree is still read, and an unknown key anywhere
-//! still refuses; only this section and `security.metrics_token` are parsed, so a tree that
+//! still refuses; only this section, `security.metrics_token` and `server.tls_node_authority` are
+//! parsed, so a tree that
 //! [`crate::NotFitToServe`] refuses - no access token, an off-host bind - still configures the
 //! operator.
+
+use std::path::{Path, PathBuf};
 
 use sutura_domain::identity::Secret;
 
@@ -16,6 +19,7 @@ use crate::settings::{SettingsLoadError, Sources, read};
 pub struct OperatorSettings {
     api_group: ApiGroup,
     metrics_token: Option<Secret>,
+    node_authority: Option<PathBuf>,
 }
 
 impl OperatorSettings {
@@ -30,9 +34,14 @@ impl OperatorSettings {
                 Some(Secret::new(value))
             }
         };
+        let node_authority = match raw.server.tls_node_authority.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(path) => Some(PathBuf::from(path)),
+        };
         Ok(Self {
             api_group,
             metrics_token,
+            node_authority,
         })
     }
 
@@ -47,6 +56,12 @@ impl OperatorSettings {
     #[inline]
     pub const fn metrics_token(&self) -> Option<&Secret> {
         self.metrics_token.as_ref()
+    }
+
+    /// `server.tls_node_authority`, which each pod's certificate is checked against.
+    #[inline]
+    pub fn node_authority(&self) -> Option<&Path> {
+        self.node_authority.as_deref()
     }
 }
 

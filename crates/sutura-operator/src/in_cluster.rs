@@ -1,11 +1,16 @@
 //! The [`Cluster`] the operator's own pod runs in: the Kubernetes API, as the pod's service account,
-//! and each pod's `/metrics` over `http` to its port named `http`, with `security.metrics_token`.
+//! and each pod's `/metrics` on its port named `http`, with `security.metrics_token`.
+//!
+//! A pod's `/metrics` is read over TLS, dialled at the pod's own address and its certificate checked
+//! against `server.tls_node_authority` for the name `<deployment>.<namespace>.svc`: the name every
+//! pod of a Deployment carries, since a certificate issued to a pod cannot name its address.
 //!
 //! **Untested here.** The cells in `reconcile` hold a fake; nothing in this crate's tests reaches an
 //! API server or a pod.
 
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use k8s_openapi::api::autoscaling::v1::Scale as ScaleObject;
@@ -14,7 +19,7 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use serde::de::DeserializeOwned;
 use sutura_config::ApiGroup;
 use sutura_domain::identity::Secret;
-use sutura_http_client::ReadBounds;
+use sutura_http_client::{Pinned, ReadBounds};
 
 use crate::{Cluster, PLURAL, Pods, Pools, Scale, VERSION, WorkerPoolSpec, WorkerPoolStatus};
 
@@ -24,7 +29,9 @@ const ACCOUNT: &str = "/var/run/secrets/kubernetes.io/serviceaccount";
 /// The cluster, reached from inside one of its pods.
 pub struct InCluster<'a> {
     api: Arc<ureq::Agent>,
-    pods: Arc<ureq::Agent>,
+    pods: Pinned,
+    /// Each Deployment read, by its selector.
+    deployments: BTreeMap<String, String>,
     base: String,
     namespace: String,
     group: &'a ApiGroup,
@@ -32,16 +39,22 @@ pub struct InCluster<'a> {
     cap: u64,
 }
 
-/// A ready pod's name and where its `/metrics` is served.
+/// A ready pod's name, where its `/metrics` is served, and the name its certificate carries.
 pub struct Target {
     name: String,
     address: SocketAddr,
+    server: String,
 }
 
 impl<'a> InCluster<'a> {
-    /// The cluster this process's pod runs in, trusting the CA its service account mounts, each
-    /// request bounded by `bounds`.
-    pub fn from_pod(group: &'a ApiGroup, metrics_token: Option<&'a Secret>, bounds: ReadBounds) -> Result<Self, ClusterError> {
+    /// The cluster this process's pod runs in, trusting the CA its service account mounts for the
+    /// API and `node_authority` for each pod, each request bounded by `bounds`.
+    pub fn from_pod(
+        group: &'a ApiGroup,
+        metrics_token: Option<&'a Secret>,
+        node_authority: Option<&Path>,
+        bounds: ReadBounds,
+    ) -> Result<Self, ClusterError> {
         let variable = |name| std::env::var(name).map_err(|_unset| ClusterError::NotInCluster);
         let host: IpAddr = variable("KUBERNETES_SERVICE_HOST")?
             .parse()
@@ -51,9 +64,13 @@ impl<'a> InCluster<'a> {
             .map_err(|_not_a_port| ClusterError::NotInCluster)?;
         let anchors = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(PathBuf::from(format!("{ACCOUNT}/ca.crt"))))
             .map_err(ClusterError::Anchors)?;
+        let node_authority = node_authority.ok_or(ClusterError::NoNodeAuthority)?;
+        let nodes = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(node_authority.to_path_buf()))
+            .map_err(ClusterError::NodeAuthority)?;
         Ok(Self {
             api: sutura_http_client::fixed(bounds, Some(anchors)).current(),
-            pods: sutura_http_client::fixed(bounds, None).current(),
+            pods: Pinned::new(bounds, nodes),
+            deployments: BTreeMap::new(),
             base: format!("https://{}", SocketAddr::new(host, port)),
             namespace: account("namespace")?,
             group,
@@ -141,19 +158,26 @@ impl Cluster for InCluster<'_> {
         let scale: ScaleObject = self.get(&self.scale_path(name), None)?;
         let replicas = scale.spec.and_then(|spec| spec.replicas).unwrap_or(0);
         let selector = scale.status.and_then(|status| status.selector).unwrap_or_default();
-        Scale::new(u32::try_from(replicas).unwrap_or(0), selector)
-            .ok_or_else(|| ClusterError::NoSelector { name: name.to_owned() })
+        let scale = Scale::new(u32::try_from(replicas).unwrap_or(0), selector)
+            .ok_or_else(|| ClusterError::NoSelector { name: name.to_owned() })?;
+        self.deployments.insert(scale.selector().to_owned(), name.to_owned());
+        Ok(scale)
     }
 
     fn pods(&mut self, selector: &str) -> Pods<Self> {
+        let deployment = self.deployments.get(selector).ok_or_else(|| ClusterError::Unread {
+            selector: selector.to_owned(),
+        })?;
+        let server = format!("{deployment}.{}.svc", self.namespace);
         let path = format!("/api/v1/namespaces/{}/pods", self.namespace);
         let list: Items<Pod> = self.get(&path, Some(selector))?;
-        Ok(list.items.iter().filter_map(target).collect())
+        Ok(list.items.iter().filter_map(|pod| target(pod, &server)).collect())
     }
 
     fn scrape(&mut self, pod: &Target) -> Result<String, ClusterError> {
         let path = format!("{}/metrics", pod.name);
-        let mut request = self.pods.get(format!("http://{}/metrics", pod.address));
+        let agent = self.pods.at(pod.address.ip());
+        let mut request = agent.get(format!("https://{}:{}/metrics", pod.server, pod.address.port()));
         if let Some(token) = self.metrics_token {
             request = request.header("authorization", metrics_bearer(token));
         }
@@ -179,7 +203,7 @@ impl Cluster for InCluster<'_> {
 }
 
 /// Where `pod`'s `/metrics` is served, when it is ready, has an address and a port named `http`.
-fn target(pod: &Pod) -> Option<Target> {
+fn target(pod: &Pod, server: &str) -> Option<Target> {
     let status = pod.status.as_ref()?;
     let ready = status
         .conditions
@@ -198,6 +222,7 @@ fn target(pod: &Pod) -> Option<Target> {
     ready.then(|| Target {
         name,
         address: SocketAddr::new(ip, port),
+        server: server.to_owned(),
     })
 }
 
@@ -243,6 +268,10 @@ pub enum ClusterError {
     },
     #[error("the service account's `ca.crt` is not a trust anchor bundle")]
     Anchors(#[source] sutura_tls::LoadError),
+    #[error("`server.tls_node_authority` is not set: each pod's `/metrics` is read over TLS")]
+    NoNodeAuthority,
+    #[error("`server.tls_node_authority` is not a trust anchor bundle")]
+    NodeAuthority(#[source] sutura_tls::LoadError),
     #[error("`{path}` was not reached")]
     Request {
         path: String,
@@ -259,4 +288,6 @@ pub enum ClusterError {
     },
     #[error("the Deployment `{name}` has no selector, and an empty one would select every pod")]
     NoSelector { name: String },
+    #[error("no Deployment read has the selector `{selector}`, so its pods' certificate name is not known")]
+    Unread { selector: String },
 }
