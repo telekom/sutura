@@ -5049,20 +5049,29 @@ is dropped and the process goes on to exit.</p>
 unbounded, so a long-lived connection is not a deadline. And after it, the worst case is the
 grace period rather than forever - see <code>Shutdown::grace_period</code>.</p>
 <h1 id="why-the-peer-address-is-threaded-through">Why the peer address is threaded through<a class="headerlink" href="#why-the-peer-address-is-threaded-through" title="Permanent link">&para;</a></h1>
-<p><code>into_make_service_with_connect_info</code> is not optional: the rate limiter keys on the connection's
-peer address, and without the connect info there is no address to key on - the limiter would
-answer every request with "cannot extract key" and limit nothing. That is the failure mode where
-a limiter appears configured and is not.</p>
-<p>The same read says whether the client is a node. <code>Peer</code> is taken from each accepted connection,
-and <code>connected</code> splits it into the <code>ConnectInfo&lt;SocketAddr&gt;</code> the limiter keys on and, when the
-client presented a certificate the node authority signed, <code>NodeCertified</code>. Only the TLS
-listener's stream can report one, and a request's extensions are never read off the wire, so a
-client cannot claim it. It says that a node connected, not which one.</p>
+<p>Threading it through is not optional: the rate limiter keys on the connection's peer address, and
+without it there is no address to key on - the limiter would answer every request with "cannot
+extract key" and limit nothing. That is the failure mode where a limiter appears configured and
+is not.</p>
+<p>The same read says whether the client is a node. <code>Peer</code> is taken from each accepted connection
+by <code>PeerInfo</code> and <code>connected</code> splits it into the <code>ConnectInfo&lt;SocketAddr&gt;</code> the limiter keys on
+and, when the client presented a certificate the node authority signed, <code>NodeCertified</code>. Only
+the TLS listener's stream can report one, and a request's extensions are never read off the wire,
+so a client cannot claim it. It says that a node connected, not which one.</p>
+<h1 id="serving-connections-by-hand">Serving connections by hand<a class="headerlink" href="#serving-connections-by-hand" title="Permanent link">&para;</a></h1>
+<p><code>axum::serve</code> builds its <code>hyper</code> connection as <code>hyper_util::server::conn::auto::Builder::new</code>
+with no timer, so <code>hyper</code>'s own default header-read timeout never applies - a client that opens a
+connection and trickles a request head one byte at a time, or never finishes it, holds the
+connection (and, pre-shutdown, blocks nothing else, but accumulates) until something else closes
+it. <code>run</code> serves each accepted connection itself instead, so it can set that timer and bound it.
+<code>axum::serve::IncomingStream</code>, which <code>Connected</code> is normally keyed on, has no public constructor,
+which is why <code>Peer</code> is read directly off the accepted <code>Io</code> through <code>PeerInfo</code> rather than
+through <code>axum</code>'s own connect-info machinery.</p>
 <h1 id="plaintext-and-tls-are-one-serve-path">Plaintext and TLS are one serve path<a class="headerlink" href="#plaintext-and-tls-are-one-serve-path" title="Permanent link">&para;</a></h1>
 <p><code>serve</code> and <code>serve_tls</code> differ in the listener they build and in nothing else. Both hand it
-to <code>run</code>, which is where <code>axum::serve</code>, the graceful-shutdown future and the bounded drain above
-live - so the drain semantics are defined once and cannot drift between the two. That was the
-deciding argument for wrapping the listener rather than taking <code>axum-server</code>, which brings its
+to <code>run</code>, which is where connection serving, the graceful-shutdown future and the bounded drain
+above live - so the drain semantics are defined once and cannot drift between the two. That was
+the deciding argument for wrapping the listener rather than taking <code>axum-server</code>, which brings its
 own separately-implemented shutdown; <code>crate::tls</code> records the comparison in full.</p>
 <p><code>serve_tls</code> exists only under the <code>tls</code> feature. With the feature off there is no TLS listener in
 the build <strong>and</strong> <code>sutura_config::Settings::refusals</code> will not let a process start that was asked
@@ -5422,12 +5431,12 @@ build or need a vendored C OpenSSL per target. rustls needs no system library.</
 itself, <code>hyper-util</code>, <code>rustls-pemfile</code> and <code>arc-swap</code> on top of the same rustls.</p>
 <p><strong>Graceful shutdown.</strong> This is the heavier reason. <code>crate::server</code> has a <em>bounded</em> drain - the
 deadline arms only after shutdown is asked for, and the serve future is dropped when it expires -
-and it is built on <code>axum::serve(..).with_graceful_shutdown(..)</code>. <code>axum-server</code> does not compose
-with that; it replaces it, with its own <code>Handle::graceful_shutdown(Some(duration))</code>. Taking it
-would have given the TLS path a second, separately-implemented drain, so a change to the shutdown
-semantics would have to be made twice and could be made once. Wrapping the listener instead
-leaves <code>axum::serve</code>, <code>drain</code> and <code>report</code> exactly as they are: <strong>one serve path and one drain,
-for plaintext and for TLS.</strong></p>
+built around a graceful-shutdown signal shared with every accepted connection (see
+<code>crate::server::run</code>). <code>axum-server</code> does not compose with that; it replaces it, with its own
+<code>Handle::graceful_shutdown(Some(duration))</code>. Taking it would have given the TLS path a second,
+separately-implemented drain, so a change to the shutdown semantics would have to be made twice
+and could be made once. Wrapping the listener instead leaves <code>run</code>, <code>drain</code> and <code>report</code> exactly
+as they are: <strong>one serve path and one drain, for plaintext and for TLS.</strong></p>
 <p>What <code>axum-server</code> would have brought for free is its <code>RustlsConfig::reload_from_pem_file</code>. That
 is replaced here by something narrower - see the rotation section - and the narrower version
 refuses a pair that does not match, which upstream's does not.</p>
@@ -5618,7 +5627,7 @@ documentation for why the handshake is not done here.</p>
 a plaintext connection on this socket by accident: after this call there is no other handle
 to it.</p>
 <h5 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h5>
-<p><code>Debug</code>, <code>Listener</code></p>
+<p><code>Debug</code>, <code>Listener</code>, <code>PeerInfo</code></p>
 <h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
 <p>The shapes on the wire, and the conversions to and from the domain.</p>
 <h1 id="why-these-exist-rather-than-serializing-the-domain-types">Why these exist rather than serializing the domain types<a class="headerlink" href="#why-these-exist-rather-than-serializing-the-domain-types" title="Permanent link">&para;</a></h1>
