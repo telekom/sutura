@@ -4695,6 +4695,7 @@ dependencies = [
  "datafusion-federation",
  "flate2",
  "futures-util",
+ "h2",
  "hyper-util",
  "rcgen",
  "sutura-conformance",

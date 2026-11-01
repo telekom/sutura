@@ -5,13 +5,16 @@ description: How the nodes that run a cross-node combine come and go on Kubernet
 
 # An operator sizes the pool of nodes that run a combine's stages
 
-Status: **proposed**, 2026-10-30. The owner chose an operator, the venue, the certificate
+Status: **accepted**, 2026-11-01. The owner chose an operator, the venue, the certificate
 authorities, the pool shape, what a question does while workers are short, a chart switch with a
 pool that may be empty, and on 2026-10-31 the resource's API group and how the operator ships: the
-answers below. The rest is proposed here. Decisions 1, 3, 7 and 9 were amended on 2026-11-01: the
-chart renders the workers, and the operator only sizes them. Built so far: the definition the chart
-installs, the pool's size, the worker's startup refusals and the bounded wait. The operator talks to
-no cluster yet. This record decides; it proves nothing.
+answers below. Decisions 1, 3, 7 and 9 were amended on 2026-11-01: the chart renders the workers,
+and the operator only sizes them. Every decision is built: the operator and the pool's size (#1660,
+#1665, #1667), the bounded wait (#1662), both gauges (#1663, #1664), the scrape over node TLS
+(#1670), the chart switch (#1672) and the release (#1669). The k3s VM test (#1673) starts with no
+worker, answers a one-system question with none, starts one for a federated question whose stage
+reads over a node link, and returns to none when idle. It does not run a warm reserve, idle-first
+removal or a refused worker configuration in the cluster. This record decides; it proves nothing.
 
 ## The question
 
@@ -186,7 +189,7 @@ A new refusal enum is enrolled in `check-refusal-coverage`, and each refusal get
 
 - A new binary crate, its image, and its `cargo-deny` review. The release workflow ships a second
   binary at every triple.
-- Two gauges that do not exist yet: worker slots wanted on a serving node, stages in flight on a
+- Two gauges: worker slots wanted on a serving node, stages in flight on a
   worker.
 - A worker role in `sutura-config`, so that a worker's configuration is refused at startup if it
   declares a source. The operator does not check it again.

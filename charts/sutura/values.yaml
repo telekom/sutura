@@ -112,10 +112,17 @@ workerPool:
   # Seconds an idle worker above demand stays before it is removed.
   idleAfterSeconds: 300
   # cert-manager issuer that signs every node's certificate. Its CA certificate is the node
-  # authority, so it must be a CA issuer.
+  # authority, so it must be a CA issuer. Any certificate this issuer signs is a node
+  # (github.com/telekom/sutura#1680 finding 5) - dedicate it to this release, never share it with
+  # workloads this release does not run.
   issuer:
     name: ""
     kind: Issuer
+    # A ClusterIssuer is reachable from every namespace, so any workload in the cluster can ask it
+    # for a certificate and be treated as a node. The chart refuses `kind: ClusterIssuer` unless this
+    # is set. Setting it does not make a shared issuer safe - it only records that the operator chose
+    # it anyway.
+    acknowledgeSharedIssuer: false
   # Lifetime of a node certificate. A process reads its certificate once, at start, so a pod that runs
   # longer than this presents an expired one until it restarts.
   certificateDuration: 720h
