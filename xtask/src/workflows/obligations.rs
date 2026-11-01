@@ -763,4 +763,104 @@ mod tests {
             Vec::<String>::new()
         );
     }
+
+    // ---- the push skip of a leg the merge queue ran green (#1696) ----
+
+    /// Each edit weakens the `queue-validated` skip: a kept leg reading or needing it, a job
+    /// reporting a leg's name, a dropped or loosened condition in the lookup, a leg or `*_SELECTED`
+    /// reading another leg's output or none. Red against base, which has no rule refusing a kept leg
+    /// that reads the output - the first edit applies there and nothing names the rule; green with
+    /// the change.
+    #[test]
+    fn every_weakening_of_the_queue_validated_skip_is_refused() {
+        /// What the edit weakens, the text it replaces, the text it writes.
+        type Edit = (&'static str, &'static str, &'static str);
+        const EDITS: &[Edit] = &[
+            (
+                "kind-smoke reads an output",
+                "  kind-smoke:\n    needs: [ci]\n    if: github.event_name == 'pull_request' || github.event_name == 'push'\n",
+                "  kind-smoke:\n    needs: [ci, queue-validated]\n    if: (github.event_name == 'pull_request' || github.event_name == 'push') && needs.queue-validated.outputs.multi_node != 'true'\n",
+            ),
+            (
+                "cross needs the job",
+                "  cross:\n    needs: [ci]\n",
+                "  cross:\n    needs: [ci, queue-validated]\n",
+            ),
+            (
+                "a job reports a leg's name",
+                "  kind-smoke:\n    needs: [ci]\n",
+                "  kind-smoke:\n    name: oracle-tier\n    needs: [ci]\n",
+            ),
+            (
+                "a job-level `if:`",
+                "  queue-validated:\n    runs-on: ubuntu-latest\n",
+                "  queue-validated:\n    if: github.event_name == 'push'\n    runs-on: ubuntu-latest\n",
+            ),
+            (
+                "a `needs`",
+                "  queue-validated:\n    runs-on: ubuntu-latest\n",
+                "  queue-validated:\n    needs: [ci]\n    runs-on: ubuntu-latest\n",
+            ),
+            (
+                "the push-to-main gate",
+                "        id: lookup\n        if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n",
+                "        id: lookup\n",
+            ),
+            ("the run's event", r#"select(.event == "merge_group" and "#, "select("),
+            (
+                "the run's commit",
+                r#""merge_group" and .head_sha == $sha and "#,
+                r#""merge_group" and "#,
+            ),
+            (
+                "the run's status",
+                r#"and .status == "completed" and .conclusion == "success") | .id"#,
+                r#"and .conclusion == "success") | .id"#,
+            ),
+            (
+                "the run's conclusion",
+                r#"and .status == "completed" and .conclusion == "success") | .id"#,
+                r#"and .status == "completed") | .id"#,
+            ),
+            ("the latest attempt", "jobs?filter=latest&per_page=100", "jobs?per_page=100"),
+            ("the job's commit", "select(.head_sha == $sha and .status", "select(.status"),
+            (
+                "a skipped job counts",
+                r#".conclusion == "success") | .name"#,
+                r#".conclusion != "failure") | .name"#,
+            ),
+            (
+                "oracle-tier reads another leg's output",
+                "needs.queue-validated.outputs.oracle_tier != 'true'\n",
+                "needs.queue-validated.outputs.multi_node != 'true'\n",
+            ),
+            (
+                "ci-cube-tier loses its conjunct",
+                " && needs.queue-validated.outputs.ci_cube_tier != 'true'\n",
+                "\n",
+            ),
+            (
+                "K3S_SELECTED loses its conjunct",
+                "K3S_SELECTED: ${{ needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}\n",
+                "K3S_SELECTED: ${{ needs.ci.outputs.chart }}\n",
+            ),
+        ];
+        let root = crate::repo::root().expect("repository root");
+        let problems = super::super::aggregate_inputs::problems(&root);
+        assert!(problems.is_empty(), "the committed ci.yml: {problems:?}");
+        let ci = std::fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read ci.yml");
+        for (n, (what, old, new)) in EDITS.iter().enumerate() {
+            assert_eq!(ci.matches(old).count(), 1, "{what}: the anchor is in ci.yml exactly once");
+            let edited = ci.replacen(old, new, 1);
+            let tree = crate::scratch_tree::Tree::of(
+                &format!("queue-validated-{n}"),
+                &[(".github/workflows/ci.yml", edited.as_bytes())],
+            );
+            let found = super::super::aggregate_inputs::problems(tree.root());
+            assert!(
+                found.iter().any(|p| p.contains("queue-validated rule")),
+                "{what} passed: {found:?}"
+            );
+        }
+    }
 }
