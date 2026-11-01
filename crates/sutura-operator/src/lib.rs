@@ -2,7 +2,13 @@
 //! The worker-pool operator's core (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`): a
 //! pool's bounds, the size they call for, and the `SuturaWorkerPool` definition the chart installs.
 //!
-//! Nothing here talks to a cluster.
+//! [`tick`] sizes every pool through a [`Cluster`]; [`InCluster`] is the one that talks to a cluster.
+
+mod in_cluster;
+mod reconcile;
+
+pub use in_cluster::{ClusterError, InCluster, Target};
+pub use reconcile::{Cluster, Failed, Pods, Pools, Scale, tick};
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -23,11 +29,20 @@ pub const KIND: &str = "SuturaWorkerPool";
 pub const VERSION: &str = "v1alpha1";
 const PLURAL: &str = "suturaworkerpools";
 
+/// What a Deployment's name is: a lowercase RFC 1123 subdomain, so a name is one path segment.
+const DEPLOYMENT_NAME: &str = r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$";
+
 /// What a `SuturaWorkerPool` asks for: the bounds the operator sizes the pool within. Its fields are
 /// the schema's; nothing outside this crate builds one until the operator reads it from a cluster.
-#[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, JsonSchema, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerPoolSpec {
+    /// The Deployment of workers the operator sizes, in the pool's namespace.
+    #[schemars(length(max = 253), regex(pattern = DEPLOYMENT_NAME))]
+    workers: String,
+    /// The Deployment of serving nodes whose wanted worker slots are the pool's demand.
+    #[schemars(length(max = 253), regex(pattern = DEPLOYMENT_NAME))]
+    serving: String,
     /// The fewest workers the pool keeps, with no demand at all.
     min: u32,
     /// The most workers the pool grows to, whatever the demand.
@@ -39,7 +54,7 @@ pub struct WorkerPoolSpec {
 }
 
 /// What the operator reports it did.
-#[derive(Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, JsonSchema, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerPoolStatus {
     /// The workers the operator last sized the pool to.
@@ -197,6 +212,8 @@ mod tests {
 
     fn spec(min: u32, max: u32, warm: u32) -> WorkerPoolSpec {
         WorkerPoolSpec {
+            workers: String::from("workers"),
+            serving: String::from("serving"),
             min,
             max,
             warm,
@@ -292,7 +309,12 @@ mod tests {
         let spec = &root.properties.as_ref().expect("properties")["spec"];
         assert_eq!(
             spec.required.iter().flatten().map(String::as_str).collect::<BTreeSet<_>>(),
-            BTreeSet::from(["idleAfterSeconds", "max", "min", "warm"])
+            BTreeSet::from(["idleAfterSeconds", "max", "min", "serving", "warm", "workers"])
+        );
+        let workers = &spec.properties.as_ref().expect("properties")["workers"];
+        assert_eq!(
+            (workers.max_length, workers.pattern.as_deref()),
+            (Some(253), Some(super::DEPLOYMENT_NAME))
         );
         let bound = &spec.properties.as_ref().expect("properties")["idleAfterSeconds"];
         assert_eq!(

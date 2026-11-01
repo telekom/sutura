@@ -2,15 +2,20 @@
 //!
 //! The operator reads the same layered sources as `sutura serve`, so one directory and one set of
 //! `SUTURA__*` variables configure both. The whole tree is still read, and an unknown key anywhere
-//! still refuses; only this section is parsed, so a tree that [`crate::NotFitToServe`] refuses -
-//! no token, an off-host bind - still configures the operator.
+//! still refuses; only this section and `security.metrics_token` are parsed, so a tree that
+//! [`crate::NotFitToServe`] refuses - no access token, an off-host bind - still configures the
+//! operator.
 
+use sutura_domain::identity::Secret;
+
+use crate::security::{AccessToken, InvalidAccessToken};
 use crate::settings::{SettingsLoadError, Sources, read};
 
 /// What `sutura-operator` starts with.
 #[derive(Debug)]
 pub struct OperatorSettings {
     api_group: ApiGroup,
+    metrics_token: Option<Secret>,
 }
 
 impl OperatorSettings {
@@ -18,13 +23,30 @@ impl OperatorSettings {
     pub fn load(sources: &Sources) -> Result<Self, OperatorSettingsError> {
         let (raw, _layers) = read(sources)?;
         let api_group = ApiGroup::parse(&raw.operator.api_group).map_err(|cause| OperatorSettingsError::ApiGroup { cause })?;
-        Ok(Self { api_group })
+        let metrics_token = match raw.security.metrics_token.as_deref() {
+            None | Some("") => None,
+            Some(value) => {
+                AccessToken::parse(value).map_err(|cause| OperatorSettingsError::MetricsToken { cause })?;
+                Some(Secret::new(value))
+            }
+        };
+        Ok(Self {
+            api_group,
+            metrics_token,
+        })
     }
 
     /// `operator.api_group`.
     #[inline]
     pub const fn api_group(&self) -> &ApiGroup {
         &self.api_group
+    }
+
+    /// `security.metrics_token`, which the operator presents to each pod's `/metrics` as `serve`
+    /// requires it there.
+    #[inline]
+    pub const fn metrics_token(&self) -> Option<&Secret> {
+        self.metrics_token.as_ref()
     }
 }
 
@@ -37,6 +59,11 @@ pub enum OperatorSettingsError {
     ApiGroup {
         #[source]
         cause: InvalidApiGroup,
+    },
+    #[error("`security.metrics_token` is not usable as a token")]
+    MetricsToken {
+        #[source]
+        cause: InvalidAccessToken,
     },
 }
 
