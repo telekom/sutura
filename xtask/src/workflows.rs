@@ -277,10 +277,11 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         // refusal that walked four files from one that walked one. So the walked set is printed
         // too, which is the property `the_committed_tree_reaches_past_ci_yml` asserts.
         println!(
-            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} ci-aggregate env input(s) held to their committed source job, {} of them to their exact condition, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
+            "xtask check-workflows: ok - {} reference(s) in {files} workflow(s), action(s) and script(s), all declared, every gating job classified, every badge held by what it claims and its publication shaped as the API will accept, the Actions cache restored on every event and written only from a push to main and no store outside this repository named in either spelling, no codegen-backend env variable set in CI, every reader of the image-record file anchored on its record kind, {} step obligation(s) held to the `if:` each needs rather than to a position, {} release-skip obligation(s) held on the jobs that repeat the clause, {} job condition(s) held to their exact text, {} ci-aggregate env input(s) held to their committed source job, {} of them to their exact condition, no release output in the {} file(s) ordinary CI runs or in cachix-push.yml (read directly): {}",
             references.len(),
             obligations::held(),
             obligations::release_skip_held(),
+            obligations::pinned_job_if_held(),
             aggregate_inputs::held(),
             aggregate_inputs::pinned(),
             walked.len(),
@@ -363,14 +364,14 @@ fn check_gates(
         eprintln!("header of xtask/src/workflows/obligations.rs, beside the limit it does not reach.");
         return Some(Verdict::Fail);
     }
-    // THE RELEASE-COMMIT SKIP on `bigquery-driver-check` and `ci`. The job repeats the release-skip
-    // test in its own `if:` (it no longer `needs: [ci]`), and nothing read that `if:` - so dropping
-    // the clause stayed green while a release push re-ran the 45-min leg. The committed table in
-    // `obligations` pins the clause as a conjunct on each named job's `if:`.
+    // THE RELEASE-COMMIT SKIP on `bigquery-driver-check` and `ci`: nothing read the job's own `if:`,
+    // so dropping the clause stayed green while a release push re-ran the 45-min leg. `obligations`
+    // pins the clause as a conjunct on each RELEASE_SKIP job's `if:`, and a PINNED_JOB_IF job's
+    // whole `if:` as exact text.
     if let Some(failed) = refuse(
-        &obligations::release_skip_problems(root),
-        "release-skip obligation(s) broken",
-        "see RELEASE_SKIP in xtask/src/workflows/obligations.rs for what it pins and what it does not",
+        &obligations::job_if_problems(root),
+        "job `if:` obligation(s) broken",
+        "see RELEASE_SKIP and PINNED_JOB_IF in xtask/src/workflows/obligations.rs for what each pins and what it does not",
     ) {
         return Some(failed);
     }

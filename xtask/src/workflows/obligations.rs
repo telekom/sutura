@@ -271,20 +271,52 @@ pub(super) const fn release_skip_held() -> usize {
     RELEASE_SKIP.len()
 }
 
-/// Every release-skip obligation this rule finds broken, empty when all hold.
+/// Jobs whose whole `if:` is pinned as exact normalized text, so any rewrite - equivalent or not -
+/// fails closed until the row is edited.
+///
+/// `bigquery-conformance` starts off `identity-classify` only because it no longer runs on a push
+/// (#1696): the owner coupled the two, and a push arm would run it on the release commit, which
+/// `identity-classify` does not skip. Limit: this holds the text, not what the text selects.
+const PINNED_JOB_IF: &[(&str, &str)] = &[(
+    "bigquery-conformance",
+    "(github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.identity-classify.outputs.data_source_bigquery == 'true'",
+)];
+
+/// How many job conditions are pinned to exact text, for the success line.
+pub(super) const fn pinned_job_if_held() -> usize {
+    PINNED_JOB_IF.len()
+}
+
+/// The pinned-condition rule itself, over the text, so a test can put a tree in front of it.
+fn pinned_job_if_check(text: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    PINNED_JOB_IF
+        .iter()
+        .filter_map(|&(job, pinned)| match job_if(&lines, job) {
+            Some(gate) if gate == pinned => None,
+            Some(gate) => Some(format!("ci.yml `{job}` is gated on `{gate}`, not the pinned `{pinned}`")),
+            None => Some(format!(
+                "ci.yml declares no `if:` on `{job}`, so its pinned condition `{pinned}` is gone"
+            )),
+        })
+        .collect()
+}
+
+/// Every [`RELEASE_SKIP`] and [`PINNED_JOB_IF`] obligation this rule finds broken, empty when all
+/// hold.
 ///
 /// Fails CLOSED on an unreadable file and on a job with no `if:` - the same convention as
 /// [`problems`]: a reassuring pass over an absent clause is the failure mode this scan is most
 /// prone to, and a job that dropped its `if:` is indistinguishable from one that was renamed.
-pub(super) fn release_skip_problems(root: &Path) -> Vec<String> {
+pub(super) fn job_if_problems(root: &Path) -> Vec<String> {
     let path = root.join(".github/workflows/ci.yml");
     let Ok(text) = std::fs::read_to_string(&path) else {
         return vec![format!(
-            "{} could not be read, so no release-skip obligation is held",
+            "{} could not be read, so no job `if:` obligation is held",
             path.display()
         )];
     };
-    release_skip_check(&text)
+    [release_skip_check(&text), pinned_job_if_check(&text)].concat()
 }
 
 /// The release-skip rule itself, over the text, so a test can put a tree in front of it.
@@ -365,7 +397,10 @@ const JOB_INDENT: usize = 2;
 mod tests {
     use core::fmt::Write as _;
 
-    use super::{PR_TITLE_EVENT_TYPES, RELEASE_SKIP, RELEASE_SKIP_CLAUSE, REQUIRED, check, pr_title_check, release_skip_check};
+    use super::{
+        PINNED_JOB_IF, PR_TITLE_EVENT_TYPES, RELEASE_SKIP, RELEASE_SKIP_CLAUSE, REQUIRED, check, pinned_job_if_check,
+        pr_title_check, release_skip_check,
+    };
 
     /// A `ci.yml` shaped like the real one, with each named step given `gate` as its condition.
     ///
@@ -699,5 +734,33 @@ mod tests {
             Some(RELEASE_SKIP_CLAUSE),
         );
         assert_eq!(release_skip_check(&text), Vec::<String>::new());
+    }
+
+    // ---- pinned job conditions (job-level `if:`) ----
+
+    fn bigquery_conformance_tree(gate: Option<&str>) -> String {
+        let mut text = String::from("jobs:\n  bigquery-conformance:\n");
+        if let Some(gate) = gate {
+            writeln!(text, "    if: {gate}").expect("writing into a String cannot fail");
+        }
+        text.push_str("    runs-on: ubuntu-latest\n    steps:\n      - run: true\n");
+        text
+    }
+
+    /// The push arm and `needs.ci` the job carried before #1696. Red against base, which has no
+    /// such rule and exactly this `if:`; green with the change.
+    #[test]
+    fn a_push_arm_on_bigquery_conformance_is_refused() {
+        let base = "(github.event_name == 'push' || github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]')) && needs.ci.outputs.data_source_bigquery == 'true'";
+        let found = pinned_job_if_check(&bigquery_conformance_tree(Some(base)));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("bigquery-conformance"), "{found:?}");
+        let found = pinned_job_if_check(&bigquery_conformance_tree(None));
+        assert!(found.len() == 1 && found[0].contains("declares no `if:`"), "{found:?}");
+        let (_, pinned) = PINNED_JOB_IF[0];
+        assert_eq!(
+            pinned_job_if_check(&bigquery_conformance_tree(Some(pinned))),
+            Vec::<String>::new()
+        );
     }
 }
