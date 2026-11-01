@@ -87,8 +87,6 @@ spec:
                 maximum: 4294967295.0
                 minimum: 0.0
                 type: integer
-            required:
-            - replicas
             title: WorkerPoolStatus
             type: object
         required:
@@ -120,10 +118,22 @@ rules:
   - apiGroups: [{{ .Values.workerPool.apiGroup | quote }}]
     resources: ["suturaworkerpools/status"]
     verbs: ["patch"]
+  # `get` reads both Deployments' replica counts and selectors; `patch` only ever resizes the
+  # workers, named here rather than left open to whatever a `SuturaWorkerPool` names
+  # (the operator refuses a foreign name itself, before either call: `InvalidPool::Foreign*`).
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
-    verbs: ["get", "patch"]
-  # `patch` sets each pod's deletion cost, so a scale-down removes an idle worker first.
+    verbs: ["get"]
+    resourceNames: [{{ $fullname | quote }}, {{ printf "%s-workers" $fullname | quote }}]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["patch"]
+    resourceNames: [{{ printf "%s-workers" $fullname | quote }}]
+  # `list`/`patch` on pods cannot be named by `resourceNames` or narrowed to a label selector: this
+  # grant lets the operator's token patch any field a pod patch can reach on any pod in the
+  # namespace - including each container's `image`, which restarts it under that pod's own service
+  # account and mounts - not only set `pod-deletion-cost` on an idle worker, which is all this
+  # operator itself ever writes (docs/adr/20261030193029-operator-sizes-the-worker-pool.md, Limits).
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["list", "patch"]
@@ -180,6 +190,10 @@ spec:
               value: {{ .Values.environment | quote }}
             - name: SUTURA__OPERATOR__API_GROUP
               value: {{ .Values.workerPool.apiGroup | quote }}
+            - name: SUTURA__OPERATOR__WORKERS
+              value: {{ printf "%s-workers" $fullname | quote }}
+            - name: SUTURA__OPERATOR__SERVING
+              value: {{ $fullname | quote }}
             - name: SUTURA__SECURITY__METRICS_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -188,15 +202,23 @@ spec:
             - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
               value: /etc/sutura/node/ca.crt
           volumeMounts:
+            # Only the CA bundle, not the pair the CSI driver also issues into this volume: the
+            # operator verifies a pod's server certificate and holds no node client identity of its
+            # own (`subPath` selects one file from the volume; the driver still writes the other two,
+            # outside this container's view).
             - name: node
-              mountPath: /etc/sutura/node
+              mountPath: /etc/sutura/node/ca.crt
+              subPath: ca.crt
               readOnly: true
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.workerPool.operator.resources | nindent 12 }}
       volumes:
-        {{- include "sutura.nodeCertificate" (dict "root" . "name" (printf "%s-operator" $fullname)) | nindent 8 }}
+        # No `client auth` usage: this covers the operator's own pod and certificate, not its RBAC
+        # token. If this certificate were ever presented as a client one, every node's own TLS gate
+        # refuses it - webpki checks a client certificate's EKU as required-if-present.
+        {{- include "sutura.nodeCertificate" (dict "root" . "name" (printf "%s-operator" $fullname) "usages" "digital signature,key encipherment,server auth") | nindent 8 }}
 ---
 apiVersion: apps/v1
 kind: Deployment

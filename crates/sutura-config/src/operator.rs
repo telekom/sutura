@@ -20,6 +20,8 @@ pub struct OperatorSettings {
     api_group: ApiGroup,
     metrics_token: Option<Secret>,
     node_authority: Option<PathBuf>,
+    workers: Option<DeploymentName>,
+    serving: Option<DeploymentName>,
 }
 
 impl OperatorSettings {
@@ -38,10 +40,20 @@ impl OperatorSettings {
             None | Some("") => None,
             Some(path) => Some(PathBuf::from(path)),
         };
+        let workers = match raw.operator.workers.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(name) => Some(DeploymentName::parse(name).map_err(|cause| OperatorSettingsError::Workers { cause })?),
+        };
+        let serving = match raw.operator.serving.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(name) => Some(DeploymentName::parse(name).map_err(|cause| OperatorSettingsError::Serving { cause })?),
+        };
         Ok(Self {
             api_group,
             metrics_token,
             node_authority,
+            workers,
+            serving,
         })
     }
 
@@ -63,6 +75,20 @@ impl OperatorSettings {
     pub fn node_authority(&self) -> Option<&Path> {
         self.node_authority.as_deref()
     }
+
+    /// `operator.workers`, the only Deployment the operator may scale. Unset is not validated here:
+    /// `sutura-operator run` refuses to start without it (`ClusterError::NoWorkersName`).
+    #[inline]
+    pub const fn workers(&self) -> Option<&DeploymentName> {
+        self.workers.as_ref()
+    }
+
+    /// `operator.serving`, the only Deployment the operator may read demand from. Unset is not
+    /// validated here: `sutura-operator run` refuses to start without it (`ClusterError::NoServingName`).
+    #[inline]
+    pub const fn serving(&self) -> Option<&DeploymentName> {
+        self.serving.as_ref()
+    }
 }
 
 /// Why the operator's settings did not load.
@@ -79,6 +105,16 @@ pub enum OperatorSettingsError {
     MetricsToken {
         #[source]
         cause: InvalidAccessToken,
+    },
+    #[error("`operator.workers` is not a Deployment name")]
+    Workers {
+        #[source]
+        cause: InvalidDeploymentName,
+    },
+    #[error("`operator.serving` is not a Deployment name")]
+    Serving {
+        #[source]
+        cause: InvalidDeploymentName,
     },
 }
 
@@ -134,6 +170,41 @@ pub enum InvalidApiGroup {
     NoDot { group: String },
 }
 
+/// A Deployment's name.
+///
+/// As `SuturaWorkerPool.spec.workers`/`.serving` require: a lowercase RFC 1123 subdomain of at most
+/// 253 characters, the same form `DEPLOYMENT_NAME` checks in `sutura-operator` (duplicated here
+/// rather than shared, since `sutura-config` does not depend on that crate).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeploymentName(String);
+
+impl DeploymentName {
+    const MAX_LEN: usize = 253;
+
+    /// Parses `raw`, refusing what the API server's schema would refuse for its form.
+    pub fn parse(raw: &str) -> Result<Self, InvalidDeploymentName> {
+        if raw.len() > Self::MAX_LEN || !raw.split('.').all(is_label) {
+            return Err(InvalidDeploymentName::NotSubdomain { name: raw.to_owned() });
+        }
+        Ok(Self(raw.to_owned()))
+    }
+
+    #[inline]
+    pub const fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+/// Why a string is not a [`DeploymentName`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidDeploymentName {
+    #[error(
+        "`{name}` is not a lowercase DNS subdomain: dot-separated labels of `a-z`, `0-9` and `-`, each \
+         beginning and ending with a letter or digit, 253 characters at most"
+    )]
+    NotSubdomain { name: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ApiGroup, InvalidApiGroup};
@@ -152,3 +223,9 @@ mod tests {
 /// Apart from `tests`, so neither file names every `InvalidApiGroup` variant (`check-refusal-coverage`).
 #[cfg(test)]
 mod at_load;
+
+/// `operator.workers`/`.serving` coverage, kept out of `at_load` so reverting this file (`DeploymentName`,
+/// `OperatorSettingsError::Workers`/`::Serving`) at causality's base run orphans it rather than leaving it
+/// held at a shape the base tree cannot build.
+#[cfg(test)]
+mod deployment_names;

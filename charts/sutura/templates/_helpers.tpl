@@ -238,7 +238,9 @@ TLS in the pod from its node certificate, which also makes the node identity.
 
 {{/*
 A pod's node certificate from cert-manager's CSI driver, for the service name in `name`. The driver
-issues it as the pod starts and renews it in place; sutura reads it once, at start.
+issues it as the pod starts and renews it in place; sutura reads it once, at start. `.usages`
+overrides the default key usages, for a caller that mounts only the CA bundle and never presents
+the pair as a client certificate.
 */}}
 {{- define "sutura.nodeCertificate" -}}
 - name: node
@@ -249,7 +251,7 @@ issues it as the pod starts and renews it in place; sutura reads it once, at sta
       csi.cert-manager.io/issuer-name: {{ .root.Values.workerPool.issuer.name }}
       csi.cert-manager.io/issuer-kind: {{ .root.Values.workerPool.issuer.kind }}
       csi.cert-manager.io/dns-names: {{ printf "%s.%s.svc" .name .root.Release.Namespace }}
-      csi.cert-manager.io/key-usages: digital signature,key encipherment,server auth,client auth
+      csi.cert-manager.io/key-usages: {{ .usages | default "digital signature,key encipherment,server auth,client auth" }}
       csi.cert-manager.io/duration: {{ .root.Values.workerPool.certificateDuration }}
       csi.cert-manager.io/fs-group: {{ include "sutura.nodeGroup" .root | quote }}
 {{- end -}}

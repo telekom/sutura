@@ -384,6 +384,97 @@ mod tests {
         assert_eq!(settings.server().role(), ServerRole::Worker);
     }
 
+    /// The worker pool render's parsed documents, loaded once per call rather than cached.
+    fn pool_docs() -> Vec<Value> {
+        let golden = testdata().join("golden/pool/worker-pool.yaml");
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
+        documents(&text)
+    }
+
+    fn named<'a>(docs: &'a [Value], kind: &str, name: &str) -> &'a Value {
+        docs.iter()
+            .find(|doc| doc["kind"].as_str() == Some(kind) && doc["metadata"]["name"].as_str() == Some(name))
+            .unwrap_or_else(|| panic!("a {kind} named {name}"))
+    }
+
+    /// `github.com/telekom/sutura#1680` finding 4: the operator's Role may only `get` the serving
+    /// Deployment's scale, and may `get` or `patch` the workers' - never an unnamed Deployment, which
+    /// would let it read or resize whatever a `SuturaWorkerPool` names rather than what the chart
+    /// itself deployed. `pods` cannot be scoped by `resourceNames`, so it stays unnamed on purpose
+    /// (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Limits).
+    #[test]
+    fn the_operator_roles_scale_rules_name_only_its_two_deployments() {
+        let docs = pool_docs();
+        let role = named(&docs, "Role", "test-release-operator");
+        let rules = role["rules"].as_sequence().expect("the Role has rules");
+        let scale_rules: Vec<&Value> = rules
+            .iter()
+            .filter(|rule| {
+                rule["resources"]
+                    .as_sequence()
+                    .is_some_and(|r| r.iter().any(|v| v.as_str() == Some("deployments/scale")))
+            })
+            .collect();
+        for rule in &scale_rules {
+            let names: Vec<&str> = rule["resourceNames"]
+                .as_sequence()
+                .unwrap_or_else(|| panic!("a deployments/scale rule with resourceNames: {rule:?}"))
+                .iter()
+                .map(|v| v.as_str().expect("a resource name"))
+                .collect();
+            let is_patch = rule["verbs"]
+                .as_sequence()
+                .expect("verbs")
+                .iter()
+                .any(|v| v.as_str().expect("a verb") == "patch");
+            if is_patch {
+                assert_eq!(names, vec!["test-release-workers"], "only the workers' scale is ever patched");
+            } else {
+                assert_eq!(
+                    names,
+                    vec!["test-release", "test-release-workers"],
+                    "only the two Deployments the chart named are ever read"
+                );
+            }
+        }
+        assert!(
+            scale_rules.len() >= 2,
+            "a get rule and a patch rule, at least: {scale_rules:?}"
+        );
+    }
+
+    /// `github.com/telekom/sutura#1680` finding 4: the operator pod mounts only the CA bundle from
+    /// its node certificate volume, never the pair cert-manager also issues into it - the operator
+    /// verifies a server certificate and holds no client identity of its own.
+    #[test]
+    fn the_operators_node_mount_is_the_ca_bundle_only() {
+        let docs = pool_docs();
+        let deployment = named(&docs, "Deployment", "test-release-operator");
+        let mounts = deployment["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
+            .as_sequence()
+            .expect("the operator container has volumeMounts");
+        let node_mount = mounts
+            .iter()
+            .find(|mount| mount["name"].as_str() == Some("node"))
+            .expect("a volumeMount named node");
+        assert_eq!(node_mount["subPath"].as_str(), Some("ca.crt"));
+        assert_eq!(node_mount["mountPath"].as_str(), Some("/etc/sutura/node/ca.crt"));
+        let volumes = deployment["spec"]["template"]["spec"]["volumes"]
+            .as_sequence()
+            .expect("the operator pod has volumes");
+        let node_volume = volumes
+            .iter()
+            .find(|volume| volume["name"].as_str() == Some("node"))
+            .expect("a volume named node");
+        let usages = node_volume["csi"]["volumeAttributes"]["csi.cert-manager.io/key-usages"]
+            .as_str()
+            .expect("the node volume declares key usages");
+        assert!(
+            !usages.contains("client auth"),
+            "the operator's own certificate carries no client auth usage: {usages}"
+        );
+    }
+
     /// How the binary stands to one chart refusal case.
     enum Binary {
         /// The binary refuses the same configuration, by a refusal this accepts.

@@ -3,7 +3,38 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use crate::{Pool, Surplus, WorkerPoolSpec, WorkerPoolStatus, deletion_cost, gauge};
+use sutura_config::DeploymentName;
+
+use crate::{InvalidPool, Pool, Surplus, WorkerPoolSpec, WorkerPoolStatus, deletion_cost, gauge};
+
+/// The two Deployments a `Cluster` may read and write: the ones the chart named when the operator
+/// started. A pool naming any other Deployment is refused before its name is ever read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AllowedDeployments {
+    workers: DeploymentName,
+    serving: DeploymentName,
+}
+
+impl AllowedDeployments {
+    pub const fn new(workers: DeploymentName, serving: DeploymentName) -> Self {
+        Self { workers, serving }
+    }
+
+    /// Refuses `spec` if it names a Deployment other than the ones this operator owns.
+    fn check(&self, spec: &WorkerPoolSpec) -> Result<(), InvalidPool> {
+        if spec.workers != self.workers.as_str() {
+            return Err(InvalidPool::ForeignWorkers {
+                name: spec.workers.clone(),
+            });
+        }
+        if spec.serving != self.serving.as_str() {
+            return Err(InvalidPool::ForeignServing {
+                name: spec.serving.clone(),
+            });
+        }
+        Ok(())
+    }
+}
 
 /// The worker slots a serving node wants, summed over the serving pods into a pool's demand.
 const SLOTS_WANTED: &str = "sutura_worker_slots_wanted";
@@ -37,6 +68,25 @@ pub trait Cluster {
     fn resize(&mut self, name: &str, replicas: u32) -> Result<(), Self::Error>;
     /// Writes the pool `name`'s status.
     fn report(&mut self, name: &str, status: &WorkerPoolStatus) -> Result<(), Self::Error>;
+
+    /// The Deployments a pool may name, or `None` for no restriction (the default). **Limit:** a
+    /// `Cluster` that does not override this is unrestricted - [`InCluster`](crate::InCluster), the
+    /// only production `Cluster`, always does, and its constructor refuses to build without both
+    /// names. The control that does not depend on this method at all is the Role's own
+    /// `resourceNames` on `deployments/scale`.
+    fn allowed(&self) -> Option<&AllowedDeployments> {
+        None
+    }
+
+    /// Reports that pool `name` refuses `why`, with no Deployment read and no replica count known.
+    ///
+    /// The default does nothing: it is reached only when [`Cluster::allowed`] restricts names, so a
+    /// `Cluster` that does not override it is never asked to refuse. [`InCluster`](crate::InCluster)
+    /// overrides both, writing only `status.refusal` so an existing `status.replicas` is left as the
+    /// last size the operator actually read, rather than a number invented for a pool it never scaled.
+    fn refuse(&mut self, _name: &str, _why: &str) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 /// A Deployment's `scale` subresource: its replica count and the selector of its pods.
@@ -89,6 +139,9 @@ fn size<C>(cluster: &mut C, name: &str, spec: &WorkerPoolSpec, since: &mut Surpl
 where
     C: Cluster,
 {
+    if let Some(refusal) = cluster.allowed().and_then(|allowed| allowed.check(spec).err()) {
+        return cluster.refuse(name, &refusal.to_string());
+    }
     let workers = cluster.scale(&spec.workers)?;
     let pool = match Pool::parse(spec) {
         Ok(pool) => pool,
@@ -121,3 +174,7 @@ where
 
 #[cfg(test)]
 mod tests;
+
+/// Apart from `tests`, so neither file names every `InvalidPool` variant (`check-refusal-coverage`).
+#[cfg(test)]
+mod foreign;

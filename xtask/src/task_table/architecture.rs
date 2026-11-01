@@ -294,18 +294,21 @@ pub(crate) const TASKS: &[Task] = &[
                     "crates/sutura-config/src/operator.rs",
                     "pub enum InvalidApiGroup {\n    G0,\n    G1,\n}\n",
                 ),
-                ("crates/sutura-operator/src/lib.rs", "pub enum InvalidPool {\n    P0,\n}\n"),
+                (
+                    "crates/sutura-operator/src/lib.rs",
+                    "pub enum InvalidPool {\n    P0,\n    P1,\n    P2,\n}\n",
+                ),
                 (
                     "devco/pool-refusals-unprovoked-allow",
-                    "P0 2026-10-31 a one-variant enum has no file that is not a census\n",
+                    "# no entries: all three variants have test-name or snapshot evidence\n",
                 ),
                 (
                     "crates/example/tests/first.snap",
-                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2 D0 D1 G0\n",
+                    "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2 D0 D1 G0 P0\n",
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 R34 R35 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 S29 S30 S31 S32 S33 S34 V4 V5 V6 V7 W3 W4 W5 T3 T4 T5 T7 D2 D3 G1\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 R34 R35 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 S29 S30 S31 S32 S33 S34 V4 V5 V6 V7 W3 W4 W5 T3 T4 T5 T7 D2 D3 G1 P1 P2\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),

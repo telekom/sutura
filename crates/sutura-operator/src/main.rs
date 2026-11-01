@@ -61,6 +61,8 @@ fn run() -> Result<Infallible, Failure> {
         settings.api_group(),
         settings.metrics_token(),
         settings.node_authority(),
+        settings.workers(),
+        settings.serving(),
         bounds,
     )?;
     let mut surplus = BTreeMap::new();
