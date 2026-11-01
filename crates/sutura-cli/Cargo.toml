@@ -158,8 +158,9 @@ agent = ["sutura-mcp/http", "sutura-http/agent"]
 flight = ["sutura-http/flight"]
 
 # A combine planned across the nodes `server.nodes` declares, each link mutual TLS under
-# `server.tls_node_authority`, and this node's worker mounted on the same listener. Default-off:
-# no published binary should open node links it was not built for.
+# `server.tls_node_authority`, and this node's worker mounted on the same listener. Default-off for
+# a source build, and in `nix/shipped.nix`'s `features`, so every release can serve a worker pool. A
+# node opens a link or mounts a worker only when `server.nodes` or `server.role: worker` asks.
 distributed = ["sutura-exec-datafusion/distributed", "sutura-http/worker", "tls"]
 
 [dependencies]

@@ -313,8 +313,8 @@ presents one the bundle's authority did not sign fails the handshake. A client t
 the node routes below. The bundle is read once at startup; replacing it needs a restart. Setting it without the pair is
 a startup refusal.
 
-`server.nodes` plans a federated combine across nodes. It needs a binary built with `--features distributed`; any other
-build refuses the key at startup rather than combining on one node.
+`server.nodes` plans a federated combine across nodes. It needs a binary built with `--features distributed`, which every release is; any
+other build refuses the key at startup rather than combining on one node.
 
 ```yaml
 server:
@@ -364,7 +364,7 @@ OpenMetadata readers. These are re-read on the same interval. The old material s
 `server.role: worker` runs a node that holds no data. It opens no catalog and no source, and does not read
 `server.nodes`. It serves `/health`, `/metrics` behind its token, and the worker transport to clients whose certificate
 the node authority signed. `/v1`, `/mcp`, Flight and the documentation answer `404`. It needs a binary built with
-`--features distributed`; any other build refuses the role at startup.
+`--features distributed`, which every release is; any other build refuses the role at startup.
 
 ```yaml
 server:
