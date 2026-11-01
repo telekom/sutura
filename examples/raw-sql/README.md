@@ -64,11 +64,14 @@ sources:
 tools:
   run_sql:
     enabled: true
+    sources: ["local"]
 ```
 
-**`tools.run_sql.enabled` is off unless a deployment writes this line.** There is no environment
-default and no feature flag beyond the `postgres` build feature the source itself already needs -
-turning the tool on is a diff an operator makes and a reviewer sees.
+**`tools.run_sql.enabled` is off unless a deployment writes these lines.** `sources` names, by
+alias, the sources the tool runs over: nothing is inferred, and an empty list or an alias whose
+adapter accepts no raw statement is a startup refusal. There is no environment default and no
+feature flag beyond the `postgres` build feature the source itself already needs - turning the tool
+on is a diff an operator makes and a reviewer sees.
 
 ## The role, and the limit next to the claim
 

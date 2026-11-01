@@ -332,9 +332,9 @@ polyglot-sql = { version = "0.13.5", default-features = false, features = [
 #     stays off because nothing reads one; enabling it would need the same argument made again.
 #     Compressed PARQUET was never on this line - Parquet carries its codecs inside the file and the
 #     `parquet` feature's own codecs read them - so `compression` buys the plain-text half only.
-#   * `sql` is OFF on purpose, and it is the strongest statement in this manifest: that adapter
-#     never parses SQL, so the parser is not compiled into the binary at all. Not calling it would
-#     have been a convention; not having it is a property.
+#   * `sql` is OFF here on purpose: a default build never parses SQL, so no parser is compiled in -
+#     a property, not a convention. `sutura-cli`'s default-off `sql` adds it for `run_sql`
+#     federation, and `just check-default-features` holds the default build to having none.
 #
 # What is ON: `parquet`, for the Parquet attach affordance; `datetime_expressions`, for the date
 # truncation every plan needs for its time bucket; and `compression`, for a compressed CSV or NDJSON

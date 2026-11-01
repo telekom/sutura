@@ -15,8 +15,8 @@ use sutura_dev::issuer::{PublishedKeySet, Token};
 use super::{over, settings};
 use crate::constants::OPENAPI_JSON_PATH;
 use crate::testing::{
-    Probed, RawDeadlineProbe, WarehouseThatFailsToExecute, an_issuer, broker, bundle, call, declared_inbound, direct_overlay,
-    fake_warehouse, request, serving, settings_with, source, unanchored_bundle, warehouse_pretending_to_be,
+    Probed, RawDeadlineProbe, an_issuer, broker, bundle, call, declared_inbound, direct_overlay, fake_warehouse, request,
+    serving, settings_with, source, unanchored_bundle,
 };
 
 fn run_sql_body(statement: &str) -> String {
@@ -59,7 +59,11 @@ async fn a_caller_without_the_sql_scope_is_told_of_the_switch_while_it_is_off() 
 /// With the switch on, the scope is the reason, and the refusal names it.
 #[tokio::test]
 async fn a_caller_without_the_sql_scope_is_told_of_the_scope_while_the_switch_is_on() {
-    let (status, body) = run_sql_asked_without_its_scope("run-sql-on", "tools:\n  run_sql:\n    enabled: true\n").await;
+    let (status, body) = run_sql_asked_without_its_scope(
+        "run-sql-on",
+        "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+    )
+    .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert!(body.contains(r#""code":"insufficient_scope""#), "{body}");
     assert!(body.contains(Capability::RunSql.scope()), "{body}");
@@ -89,7 +93,10 @@ async fn a_deployment_that_turns_run_sql_on_answers_it() {
     let app = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let (status, body) = call(
         &app,
@@ -113,7 +120,10 @@ async fn a_result_over_the_row_cap_is_a_413_through_the_real_router() {
     let app = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let (status, body) = call(
         &app,
@@ -133,7 +143,10 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     let app = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let (status, body) = call(
         &app,
@@ -145,47 +158,6 @@ async fn a_statement_the_data_system_refuses_is_a_403_carrying_the_domain_shape(
     assert!(body.contains(r#""code":"source_refused""#), "{body}");
 }
 
-/// `POST /v1/sql/run` on a deployment with the switch on, over `warehouses`, answered as a client
-/// error the caller can act on: a `409` refusal in the raw vocabulary, never a `500`.
-async fn run_sql_refused_as_a_conflict<W>(warehouses: sutura_app::Warehouses<W>, code: &str, advice: &str)
-where
-    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
-    W::Error: Send + Sync,
-{
-    let app = over(
-        unanchored_bundle(),
-        warehouses,
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
-    );
-    let (status, body) = call(
-        &app,
-        request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1"))),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT, "{body}");
-    assert!(body.contains(r#""outcome":"raw_refusal""#), "{body}");
-    assert!(body.contains(&format!(r#""code":"{code}""#)), "{body}");
-    assert!(body.contains(advice), "{body}");
-}
-
-#[tokio::test]
-async fn run_sql_over_two_open_sources_is_a_409_naming_the_cause_rather_than_a_500() {
-    let both = fake_warehouse()
-        .merge(warehouse_pretending_to_be("other"))
-        .expect("two distinct sources open together");
-    run_sql_refused_as_a_conflict(both, "more_than_one_source_open", "certified tools").await;
-}
-
-#[tokio::test]
-async fn run_sql_over_one_source_that_takes_no_raw_statement_is_a_409_naming_the_cause_rather_than_a_500() {
-    run_sql_refused_as_a_conflict(
-        WarehouseThatFailsToExecute::new(source()),
-        "no_source_accepts_raw_statements",
-        "tools.run_sql.enabled",
-    )
-    .await;
-}
-
 #[tokio::test]
 async fn an_empty_statement_is_a_400_not_a_question_through_the_real_router() {
     // Refused by `RawStatement`'s own parse before admission, so no data system is reached: the
@@ -193,7 +165,10 @@ async fn an_empty_statement_is_a_400_not_a_question_through_the_real_router() {
     let app = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let (status, body) = call(&app, request("POST", "/v1/sql/run", None, Body::from(run_sql_body("")))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
@@ -219,7 +194,10 @@ async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it
     let on = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let (status, body) = call(&on, request("GET", OPENAPI_JSON_PATH, None, Body::empty())).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -245,7 +223,7 @@ async fn the_served_document_omits_run_sql_when_the_switch_is_off_and_carries_it
 async fn a_raw_statements_deadline_opens_before_it_waits_for_a_slot() {
     const QUEUED: std::time::Duration = std::time::Duration::from_secs(1);
     const MARGIN: std::time::Duration = std::time::Duration::from_millis(500);
-    let overlay = "tools:\n  run_sql:\n    enabled: true\nruntime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 30\nserver:\n  request_timeout_seconds: 5\n";
+    let overlay = "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\nruntime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 30\nserver:\n  request_timeout_seconds: 5\n";
     let budget = settings(Environment::Development, overlay)
         .server()
         .request_timeout()
@@ -296,7 +274,10 @@ async fn a_bill_to_header_on_a_raw_statement_is_refused_never_dropped() {
     let app = over(
         bundle(),
         fake_warehouse(),
-        settings(Environment::Development, "tools:\n  run_sql:\n    enabled: true\n"),
+        settings(
+            Environment::Development,
+            "tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]\n",
+        ),
     );
     let mut sent = request("POST", "/v1/sql/run", None, Body::from(run_sql_body("select 1")));
     drop(

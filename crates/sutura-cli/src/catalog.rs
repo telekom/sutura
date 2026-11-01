@@ -213,6 +213,9 @@ where
     B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
+    if settings.tools().run_sql_enabled() {
+        raw_capable(&engines, settings.tools().run_sql_sources())?;
+    }
     let working_set_bytes = settings.runtime().working_set().bytes().get() as u64;
     let spend_ledger = sutura_app::SpendLedger::new(
         settings
@@ -281,8 +284,42 @@ where
             working_set_bytes,
         ),
     }
-    .map(|service| service.with_spend_ledger(spend_ledger).with_ceilings(settings.ceilings()));
+    .map(|service| {
+        let run_sql = sutura_app::RunSqlScope::new(
+            settings.tools().run_sql_sources().to_vec(),
+            settings.tools().run_sql_federation_allowed(),
+        );
+        service
+            .with_spend_ledger(spend_ledger)
+            .with_ceilings(settings.ceilings())
+            .with_run_sql(run_sql)
+    });
     service.map_err(|cause| flatten(&cause))
+}
+
+/// Refuses a `tools.run_sql.sources` alias this process opened no source for, or whose adapter
+/// accepts no raw statement. Asked of each opened adapter, so an erased mix answers per variant.
+fn raw_capable<W>(engines: &sutura_app::Warehouses<W>, listed: &[sutura_domain::model::SourceName]) -> Result<(), String>
+where
+    W: sutura_domain::warehouse::Warehouse,
+{
+    for alias in listed {
+        match engines.get(alias) {
+            None => {
+                return Err(format!(
+                    "tools.run_sql.sources lists `{alias}`, and no source of that alias is open"
+                ));
+            }
+            Some(engine) if !engine.accepts_raw_statements() => {
+                return Err(format!(
+                    "tools.run_sql.sources lists `{alias}`, whose adapter accepts no raw statement. List \
+                     a source that does, or set tools.run_sql.enabled to false"
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
 }
 
 /// One kind's worth of catalogs, loaded and composed - the body `load` used to be, generic now

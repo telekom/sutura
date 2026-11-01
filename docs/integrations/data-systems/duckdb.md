@@ -29,6 +29,7 @@ Related settings:
 | Setting                         | Default      | Meaning                                                                                                                                                               |
 | ------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tools.run_sql.enabled`         | `false`      | Turns on the raw SQL tool. With `security.identity: multi-user`, only over an acknowledged shared source: every caller can then read what the shared account can read |
+| `tools.run_sql.sources`         | `[]`         | The aliases of the sources the raw SQL tool runs over. Required when the tool is on. More than one needs the `sql` feature                                            |
 | `runtime.working_set_max_bytes` | `1073741824` | The memory budget for one result                                                                                                                                      |
 | `SUTURA_DUCKDB_ADBC_DRIVER`     | not set      | An absolute path to `libduckdb`, for a build that links no driver                                                                                                     |
 
@@ -55,6 +56,7 @@ sources:
 tools:
   run_sql:
     enabled: true
+    sources: ["local"]
 ```
 
 ## Identity

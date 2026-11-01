@@ -325,9 +325,10 @@ mod tests {
         );
     }
 
-    /// A configuration directory declaring nothing but the raw tool's own switch.
+    /// A configuration directory declaring nothing but the raw tool's own switch and the alias it
+    /// lists, which an enabled tool must name.
     ///
-    /// No `sources:` at all, deliberately: `prompt` never opens a source - it loads the catalog
+    /// No `sources:` block, deliberately: `prompt` never opens a source - it loads the catalog
     /// directly from the positional directory - and `Settings::identity_refusals` requires
     /// `security.identity` only once a source is declared. So this is the smallest settings tree
     /// that can turn `tools.run_sql.enabled` on or off with nothing else for `Settings::load` to
@@ -335,8 +336,11 @@ mod tests {
     fn config_declaring_run_sql(enabled: bool, into: &Path) -> PathBuf {
         let dir = into.join("conf");
         std::fs::create_dir_all(&dir).expect("a configuration directory is creatable");
-        std::fs::write(dir.join("base.yaml"), format!("tools:\n  run_sql:\n    enabled: {enabled}\n"))
-            .expect("a settings file is writable");
+        std::fs::write(
+            dir.join("base.yaml"),
+            format!("tools:\n  run_sql:\n    enabled: {enabled}\n    sources: [\"local\"]\n"),
+        )
+        .expect("a settings file is writable");
         dir
     }
 

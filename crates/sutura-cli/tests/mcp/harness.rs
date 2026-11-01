@@ -110,9 +110,43 @@ pub(super) struct Agent {
 /// bound or a prompt setting: it arrives the way an operator's own `base.yaml` would layer
 /// them.
 pub(super) fn example_settings(case: &str, overlay: &str) -> PathBuf {
+    let data = example_root().join("data");
+    declaring(
+        case,
+        &format!("kind: \"files\"\n    data_dir: \"{}\"", data.display()),
+        overlay,
+    )
+}
+
+/// [`example_settings`] with its source a `duckdb` file written from the example's data, and the raw
+/// SQL tool on over it: `run_sql` does not start over a `files` source, which accepts no raw statement.
+#[cfg(feature = "duckdb")]
+pub(super) fn raw_sql_settings(case: &str) -> PathBuf {
+    let tables: Vec<(sutura_domain::model::TableName, PathBuf)> = std::fs::read_dir(example_root().join("data"))
+        .expect("the example data directory is readable")
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "csv"))
+        .map(|path| {
+            let stem = path.file_stem().and_then(|stem| stem.to_str()).expect("a CSV has a name");
+            (
+                sutura_domain::model::TableName::parse(stem).expect("a CSV is named for its table"),
+                path.clone(),
+            )
+        })
+        .collect();
+    let file = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{case}-{}.duckdb", std::process::id()));
+    drop(std::fs::remove_file(&file));
+    sutura_exec_duckdb::write_database(&file, &tables).expect("the example database is written");
+    declaring(
+        case,
+        &format!("kind: \"duckdb\"\n    database_file: \"{}\"", file.display()),
+        &format!("tools:\n  run_sql:\n    enabled: true\n    sources: [\"{SOURCE}\"]\n"),
+    )
+}
+
+/// The example's catalog over one source named [`SOURCE`], whose kind-specific lines `source` holds.
+fn declaring(case: &str, source: &str, overlay: &str) -> PathBuf {
     let example = example_root();
-    let catalog = example.join("catalog");
-    let data = example.join("data");
     settings_tree(
         case,
         &format!(
@@ -126,13 +160,11 @@ pub(super) fn example_settings(case: &str, overlay: &str) -> PathBuf {
                  version: \"{VERSION}\"\n\
              sources:\n  \
                {SOURCE}:\n    \
-                 kind: \"files\"\n    \
-                 data_dir: \"{}\"\n    \
+                 {source}\n    \
                  posture: \"shared-service-user\"\n\
              {overlay}",
-            catalog.display(),
-            data.display(),
-            data.display(),
+            example.join("catalog").display(),
+            example.join("data").display(),
         ),
     )
 }

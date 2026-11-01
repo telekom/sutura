@@ -61,7 +61,10 @@ an agent a long list of things to try.
 **The one deliberate exception.** Where a deployment turned on the off-by-default `run_sql` tool,
 the document DOES say something about SQL. It adds one paragraph under "The operations you have".
 The paragraph frames the tool as ungoverned. The tool runs under the deployment's own role, never
-the caller's, and its result carries no provenance of the kind a `query` answer carries. The
+the caller's, and its result carries no provenance of the kind a `query` answer carries. In a build
+with the `sql` feature, the paragraph says instead that the statement is planned and cut into one
+part for each listed source it reads, that each part runs at its source under that source's posture,
+and that the answer names each source it read where one statement may read more than one. The
 document never frames the tool as certified, in either direction. "What this surface has no field
 for" gains one sentence that points at this exception rather than staying silent about it. Silence
 would leave the document internally inconsistent: it would say "there is no way in" and separately

@@ -171,6 +171,13 @@ ci.yml:pr-cache
 # by `bigquery-driver-check`, never by `ci-aggregate`.
 ci.yml:identity-classify
 
+# On a push to `main`, which legs the merge queue already ran green on the same commit (#1696).
+# It carries no `if:` and reports on every event `ci.yml` runs on; its one step does work only on
+# a push to `main` and reads no secret beyond the run's own `actions: read` token. Not required
+# itself: a red run skips the legs it feeds while their `*_SELECTED` stays `true`, so
+# `ci-aggregate` goes red whenever one of them is selected; with none selected it decides nothing.
+ci.yml:queue-validated
+
 # The provisioned-Keycloak leg-1 venue: `if: needs.identity-classify.outputs.identity == 'true'`
 # (#983 moved it off `needs.ci.outputs.identity`, see `ci.yml:identity-classify` above), so it
 # reports nothing at all on a pull request whose diff does not touch the `identity` category - the

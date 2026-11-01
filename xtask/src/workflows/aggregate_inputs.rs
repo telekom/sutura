@@ -41,7 +41,10 @@
 //! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED`/`BQC_REQUIRED` agree with their job's own `if:`
 //! (those read `identity-classify`, these read `ci`; a disagreement fails closed in one direction
 //! and runs an unrequested gate in the other). `E2E_REQUIRED` and every `*_SELECTED` input predate
-//! this and stay review-only.
+//! this and stay review-only, except that a `*_SELECTED` of a leg a push to `main` may skip also
+//! reads `queue-validated` and must end in that job's conjunct - [`queue_validated`] holds it.
+
+mod queue_validated;
 
 use std::path::Path;
 
@@ -169,6 +172,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     };
     let mut out = check(&text);
     out.extend(unaggregated(&text));
+    out.extend(queue_validated::check(&text));
     out
 }
 
@@ -294,7 +298,7 @@ fn check(text: &str) -> Vec<String> {
             continue;
         }
         for job in &input.jobs {
-            if job != expected {
+            if job != expected && !(job == queue_validated::JOB && queue_validated::reads(&input.key)) {
                 out.push(format!(
                     "ci.yml:{}  {AGGREGATE} env `{}` reads `needs.{job}` - \
                      the committed table requires `needs.{expected}`",

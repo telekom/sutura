@@ -1,9 +1,9 @@
-//! The Arrow schema of the tables a bundle federates, pinned beside the bundle.
+//! The Arrow schema of a bundle's tables, pinned beside the bundle.
 //!
 //! A catalog's column `data_type` is text, and [`TypeDialect`] reads it as an Arrow type in the
 //! spelling of the data system the model's source is. [`PinnedSchemas`](crate::warehouse::schema::PinnedSchemas) holds what the catalog
-//! declared for each federated model, and nothing else: no data source is read for it, at the load
-//! or at a refresh. A column whose type the dialect does not list, or that the catalog gives no
+//! declared for each model whose source has a dialect, and nothing else: no data source is read for
+//! it, at the load or at a refresh. A column whose type the dialect does not list, or that the catalog gives no
 //! type, is a `Utf8` column and is recorded as having fallen back.
 
 mod types;
@@ -40,7 +40,7 @@ impl core::fmt::Display for SchemaDigest {
     }
 }
 
-/// The Arrow schema of each federated model, from the columns its catalog declared.
+/// The Arrow schema of each model whose source has a dialect, from the columns its catalog declared.
 ///
 /// Built from the bundle of the same load, and held in one snapshot with it. The key of that
 /// snapshot is the bundle's `DefinitionDigest` and this set's [`SchemaDigest`]. The digest covers
@@ -53,13 +53,14 @@ pub struct PinnedSchemas {
 }
 
 impl PinnedSchemas {
-    /// Pins the catalog's columns of each federated model: one whose relationship joins it to a
-    /// model on another source. A model whose source has no entry in `dialects` is not pinned.
+    /// Pins the catalog's columns of each model whose source has an entry in `dialects`.
     ///
     /// # Errors
     ///
-    /// [`NotValidated::FederatedModelUntyped`] for the first model of a pinned source that declares
-    /// no column type at all. That is a missing declaration, and not a type to fall back from.
+    /// [`NotValidated::FederatedModelUntyped`] for the first federated model - one a relationship
+    /// joins to a model on another source - that declares no column type at all. That is a missing
+    /// declaration, and not a type to fall back from. A model no relationship federates is pinned
+    /// with every column fallen back, and is no table of the SQL tool.
     pub fn pin(definitions: &Definitions, dialects: &BTreeMap<SourceName, TypeDialect>) -> Result<Self, NotValidated> {
         let federated: BTreeSet<&ModelName> = definitions
             .relationships()
@@ -73,11 +74,11 @@ impl PinnedSchemas {
             .collect();
         let mut models = BTreeMap::new();
         let mut fell_back = BTreeMap::new();
-        for model in definitions.models().values().filter(|model| federated.contains(model.name())) {
+        for model in definitions.models().values() {
             let Some(dialect) = dialects.get(model.source()) else {
                 continue;
             };
-            if model.columns().all(|column| column.data_type().is_none()) {
+            if federated.contains(model.name()) && model.columns().all(|column| column.data_type().is_none()) {
                 return Err(NotValidated::FederatedModelUntyped {
                     model: model.name().clone(),
                 });
@@ -107,7 +108,7 @@ impl PinnedSchemas {
         })
     }
 
-    /// The pinned schema of one model, `None` where it is not federated or its source has no dialect.
+    /// The pinned schema of one model, `None` where its source has no dialect.
     #[must_use]
     pub fn of(&self, model: &ModelName) -> Option<&SchemaRef> {
         self.models.get(model)
@@ -125,7 +126,7 @@ impl PinnedSchemas {
     }
 }
 
-/// The set of a deployment with no federated model on a source that declares a dialect.
+/// The set of a deployment with no model on a source that declares a dialect.
 impl Default for PinnedSchemas {
     fn default() -> Self {
         let (models, fell_back) = (BTreeMap::new(), BTreeMap::new());

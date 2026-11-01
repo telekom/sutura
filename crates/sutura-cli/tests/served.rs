@@ -238,7 +238,7 @@ mod tests {
     use crate::harness::reading::Reading;
     use crate::harness::{
         LOCAL_SOURCE, LOOKUP_SOURCE, RECORD, RESOURCE, TOKEN, VERSION, accepted_by, an_issuer, example_root, position, question,
-        recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings, settings_declaring_inbound,
+        recurring_revenue_by_region, recurring_revenue_june, refused_to_start, settings_declaring_inbound,
         settings_spanning_two_sources, start, start_configured, v1, written,
     };
     #[cfg(feature = "postgres")]
@@ -496,8 +496,8 @@ mod tests {
         let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/raw-sql/README.md"))
             .expect("examples/raw-sql/README.md is readable");
         assert!(
-            readme.contains("tools:\n  run_sql:\n    enabled: true"),
-            "the README no longer shows the settings key that turns the tool on"
+            readme.contains("tools:\n  run_sql:\n    enabled: true\n    sources: [\"local\"]"),
+            "the README no longer shows the settings keys that turn the tool on over its source"
         );
         assert!(
             readme.contains("select segment, count(*) as customers from dim_customer group by segment order by segment"),
@@ -765,6 +765,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "duckdb")]
     fn the_served_document_names_every_governed_route() {
         // The generated document as SERVED. `sutura_http::openapi`'s own tests read `document()`
         // in-process, which proves the generator; this reads the bytes a caller gets from the
@@ -775,11 +776,9 @@ mod tests {
         // governed and MISSING from the document fails here rather than at whoever generated a
         // client from it.
         //
-        // `tools.run_sql.enabled: true`: `#666`'s review, finding 2 - an off deployment does not
-        // document `/sql/run` at all (the same absence `tools/list` gives it), so `governed()`'s
-        // static table and the served document can only agree here with the switch on.
-        let with_run_sql = format!("{}tools:\n  run_sql:\n    enabled: true\n", settings(&example_root()));
-        let served = start_configured("document", &with_run_sql);
+        // The raw tool on, over a `duckdb` source: `#666`'s review, finding 2 - an off deployment does
+        // not document `/sql/run`, so `governed()` and the served document agree only with it on.
+        let served = start_configured("document", &crate::harness::raw_sql_settings("document"));
         let reply = served.get(sutura_http::constants::OPENAPI_JSON_PATH, Some(TOKEN));
         assert_eq!(reply.status, 200, "{}", reply.body);
         let document = reply.json();

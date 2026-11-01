@@ -194,8 +194,8 @@ where
     Ok(Validated(Arc::new(pinned), Arc::new(schemas)))
 }
 
-/// Pins the catalog's columns of the bundle's federated models, in the type spelling of each source's
-/// adapter: the load's and each refresh's one pass, with no data system asked.
+/// Pins the catalog's columns of the bundle's models, in the type spelling of each source's adapter:
+/// the load's and each refresh's one pass, with no data system asked.
 pub(crate) fn pin_schemas<W>(pinned: &PinnedDefinitions, warehouses: &Warehouses<W>) -> Result<PinnedSchemas, NotValidated>
 where
     W: Warehouse,
