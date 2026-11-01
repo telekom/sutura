@@ -55,7 +55,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | Configuration                                                                                                   | What to do                                                                                  |
 | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | A bind address that other hosts can reach, and no `security.tls_termination`                                    | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
-| No `security.access_token` and no `security.inbound`, in production or off-host                                 | Set one of them                                                                             |
+| No `security.access_token` and no `security.inbound` on a serving node, in production or off-host               | Set one of them                                                                             |
 | `security.access_token` together with `security.inbound.mode: direct`                                           | Remove one: both use `Authorization: Bearer`                                                |
 | `security.access_token` together with `behind-gateway` and `transit_header: authorization`                      | Remove one: both use `Authorization: Bearer`                                                |
 | `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                            | Set `security.metrics_token`                                                                |
@@ -376,8 +376,10 @@ security:
   tls_termination: "in-process"
 ```
 
-Limits: a worker in production or off-host still needs `security.access_token` or `security.inbound`, and `security.metrics_token`,
-although no route on it reads the deployment token. A catalog counts only when a file or a variable declares it.
+A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
+production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
+
+Limit: a catalog counts only when a file or a variable declares it.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
 
