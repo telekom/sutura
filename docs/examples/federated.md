@@ -177,8 +177,8 @@ no log line or answer field for this, by design (see Serving's limits).
   worker to run any stage, not just this question's.
 - One lost node costs the whole question (`503 node_lost`); nothing resumes a stage or re-plans
   onto the nodes that remain.
-- This two-worker setup is not exercised by CI - it is unrun there, and only verified by hand as
-  described above.
+- This two-worker setup has not been run end to end by anyone or anything - not CI, not by hand.
+  The steps above are untested instructions, not a verified procedure.
 
 ## Related
 
