@@ -1198,3 +1198,55 @@ shape. The Rust producer selects the code from the domain's closed vocabulary; t
 its shape rather than keeping a second vocabulary. These counts distinguish resource refusals from
 other reasons on this synthetic corpus. They do not make it representative or prove that an elastic
 engine can recover a refusal.
+
+## Twelfth amendment, 2026-11-01: a networked federated answer's wall clock is measured, and it leaves the deadline alone
+
+The sixth and ninth amendments measured the federated answer in process and said the networked
+answer was still unmeasured and needed a live venue. The multi-node VM check (`nix/multi-node.nix`)
+is that venue for one question.
+
+**Conditions, stated before the numbers.**
+
+- Tree: `d6f8c841f`, the head of #1678, merged as `a4bcaf4f3`. The `multi-node` job of
+  [run 41291879310](https://github.com/telekom/sutura/actions/runs/41291879310/job/124817473623) on
+  the hosted `rust-mcp-16core` runner, image `ubuntu-26.04`.
+- Three NixOS VMs on that runner, connected by its virtual network. The node that was asked printed
+  `kvm 2 cores 1970 MiB load 0.00 0.00 0.00` right before the timed answers. That is the guest's own
+  load average. It says nothing about the runner or the other two VMs.
+- The question: `recurring_revenue` by month over `region`, June 2026, asked as `analyst_a`.
+  - `customers` lives on `source`, so the asked node sends that leg over Flight to `source`.
+  - `source` runs the leg against ClickHouse as the caller's own ClickHouse user, after two token
+    exchanges.
+  - The asked node's other leg reads fixture files.
+  - A leg size of one byte sends the combine's stages across all three nodes.
+- Every answer is warm: earlier subtests asked the same question, and `spare` had been killed and
+  started again before them.
+- Each answer is one `curl` from the asked node to its own listener with a new TLS connection, timed
+  by `%{time_total}`. The caller's token is minted before the timer starts.
+
+| Answers | min     | median  | p90     | max     | median as a share of the 29 s budget |
+| ------- | ------- | ------- | ------- | ------- | ------------------------------------ |
+| 20      | 0.402 s | 0.443 s | 0.478 s | 0.489 s | 1.53%                                |
+
+The p90 is the 18th of the 20 sorted answers. The slowest answer is 1.69% of the budget. The 29
+seconds is the third amendment's.
+
+**What it decides.** Nothing moves. Two token exchanges, a Flight leg to another VM and a combine
+spread over three VMs take this question about 170 times as long as the in-process bench
+takes its widest question. That is still about one part in sixty-five of the budget, so **the
+30-second default is not binding here either.** This is not a like-for-like ratio: the question,
+the host and the tree all differ from the sixth amendment's, so the factor shows an order of
+magnitude and nothing finer.
+
+**What it does not decide.**
+
+- **One question, one adapter.** Only ClickHouse is the remote source here, and the question is
+  narrow. Wall clock per corpus question and per adapter, which #140 asks for, is still unmeasured.
+- **One VM host.** The three VMs share one runner. Real network latency between machines is not
+  measured, and neither is load.
+- **No sign-in.** The callers' tokens come from a fake identity provider in each VM. A real
+  provider's exchange latency is not measured.
+- **Before the task grant.** The tree runs no per-call task grant (Decision 5 of
+  [the shuffle record](20261030182759-shuffle-across-nodes.md)), so its cost is not in these figures.
+- **Held by a reader.** The VM check prints these figures, and nothing fails if they move. This
+  paragraph restates them, and nobody holds the restatement.
