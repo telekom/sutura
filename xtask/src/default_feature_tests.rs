@@ -57,8 +57,8 @@
 //! exactly the hole that was invisible before.
 //!
 //! **The profile is DERIVED from the target directory, not passed as a flag.** CI reaches this
-//! through a flake app that unpacks the dependency closure `checks.nextest` built minutes earlier in
-//! the same job; cargo keys artifacts per profile, so compiling there at anything but the profile
+//! through a flake app that unpacks the dependency closure `checks.nextest` builds on (`.#deps`);
+//! cargo keys artifacts per profile, so compiling there at anything but the profile
 //! those artifacts were built at reuses none of them - it rebuilds the whole closure, passes, and
 //! nobody attributes the minutes to it. A flag would be one more thing to get wrong in a place where
 //! being wrong is silent - `check-warm-start` holds that same seam for the flake apps, and its own
@@ -212,11 +212,11 @@ mod tests {
     /// The workflow the CI lane lives in.
     const WORKFLOW: &str = ".github/workflows/ci.yml";
 
-    /// The job it has to be in, which is the one required context.
-    const JOB: &str = "ci";
+    /// The job it has to be in. `ci-aggregate` holds it run-or-fail, which is what makes it gate.
+    const JOB: &str = "shipped-features";
 
-    /// The condition every rust step in that job is gated on.
-    const CLASSIFIED: &str = "steps.classify.outputs.rust == 'true'";
+    /// The selection that job runs under: the `rust` area, as the step in `ci` read it.
+    const CLASSIFIED: &str = "needs.identity-classify.outputs.rust == 'true'";
 
     /// A directory that looks like the one the warm start filled.
     fn stamped() -> PathBuf {
@@ -277,7 +277,7 @@ mod tests {
     fn both_lanes_still_invoke_this_gate() {
         // "A test pass belongs in the same place or it is a second thing to keep wired" -
         // `github.com/telekom/sutura#264`'s own words about this gate. Two lanes, so two readers:
-        // the developer's `just gates` and the required CI job. `check-workflows` holds the other
+        // the developer's `just gates` and the CI job. `check-workflows` holds the other
         // direction, that the app this names is declared.
         //
         // NEITHER READER IS `contains` OVER RAW TEXT, and that is this test rather than a detail
@@ -299,22 +299,25 @@ mod tests {
             "`just {RECIPE}` no longer runs {TASK} on a line that is not a comment"
         );
         let workflow = std::fs::read_to_string(root.join(WORKFLOW)).expect("ci.yml");
-        let step = crate::workflows::step::app_step(&workflow, JOB, APP)
+        crate::workflows::step::app_step(&workflow, JOB, APP)
             .unwrap_or_else(|| panic!("a live `nix run .#{APP}` step inside {WORKFLOW}'s `{JOB}` job"));
-        let declared = step.join("\n");
-        // Two ways the step stays in the file and stops being a gate. Both cheap to read once the
-        // step's own lines are in hand, and neither reachable from a whole-file scan.
+        // Two ways the step stays in the file and stops being a gate, read over the whole job
+        // because a job-level `continue-on-error` reports `success` to `ci-aggregate` as well.
+        let job = crate::workflows::step::job(&workflow, JOB).unwrap_or_default();
+        let live = || job.iter().filter(|line| !line.trim_start().starts_with('#'));
         assert!(
-            !declared.contains("continue-on-error"),
-            "the {APP} step tolerates its own failure, so the CI half reports rather than gates:\n{declared}"
+            !live().any(|line| line.contains("continue-on-error")),
+            "`{JOB}` tolerates a failure, so the CI half reports rather than gates:\n{}",
+            job.join("\n")
         );
         assert!(
-            declared.contains(CLASSIFIED),
-            "the {APP} step is not gated on `{CLASSIFIED}`, which is the condition the rust steps around it use:\n{declared}"
+            live().any(|line| line.starts_with("    if:") && line.contains(CLASSIFIED)),
+            "`{JOB}` is not selected by `{CLASSIFIED}`, the condition the step had in `ci`"
         );
-        // WHAT IS STILL NOT HELD HERE. That `{JOB}` is a REQUIRED context is a branch-ruleset
-        // setting no file in this tree states, and whether the classification FIRES for a change
-        // under `xtask/` is `check-changed`'s question - it fails open, which is the safe
-        // direction and not a proof.
+        // WHAT IS STILL NOT HELD HERE. That `{JOB}` gates at all rests on `ci-aggregate` needing it
+        // and reading its result against `ci`'s own `rust` - `check-workflows` holds both - and on
+        // the ruleset requiring `ci-aggregate`, a setting no file in this tree states. Whether the
+        // classification FIRES for a change under `xtask/` is `check-changed`'s question - it fails
+        // open, which is the safe direction and not a proof.
     }
 }

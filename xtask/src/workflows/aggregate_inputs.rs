@@ -35,10 +35,10 @@
 //! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
 //! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
 //!
-//! Two env inputs are pinned to their exact normalised condition, not only their source job: an
+//! Three env inputs are pinned to their exact normalised condition, not only their source job: an
 //! equivalent rewrite is refused until the table is edited, which fails closed. That pin holds
 //! the TEXT, not that the condition is the right one - and it does not hold that
-//! `CAUS_REQUIRED`/`PGD_REQUIRED` agree with the moved job's own `if:` (those read
+//! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED` agree with the moved job's own `if:` (those read
 //! `identity-classify`, these read `ci`; a disagreement fails closed in one direction and runs an
 //! unrequested gate in the other). `E2E_REQUIRED`, `BQC_REQUIRED` and every `*_SELECTED` input
 //! predate this and stay review-only.
@@ -77,11 +77,14 @@ const REQUIRED: &[(&str, &str)] = &[
     ("CAUS_REQUIRED", "ci"),
     ("PGD_RESULT", "postgres-linked-driver"),
     ("PGD_REQUIRED", "ci"),
+    ("SHIP_RESULT", "shipped-features"),
+    ("SHIP_REQUIRED", "ci"),
     ("CROSS_RESULT", "cross"),
 ];
 
-/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the two
-/// moved jobs (#1280) are required under. Exact text, so a neutralised copy (`false && ..`) is refused.
+/// Env inputs whose whole condition is pinned, not only the job it reads: the selection the moved
+/// jobs (#1280, #1696) are required under. Exact text, so a neutralised copy (`false && ..`) is
+/// refused.
 const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "CAUS_REQUIRED",
@@ -90,6 +93,10 @@ const EXPRESSIONS: &[(&str, &str)] = &[
     (
         "PGD_REQUIRED",
         "(needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push'",
+    ),
+    (
+        "SHIP_REQUIRED",
+        "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
     ),
 ];
 
@@ -492,6 +499,8 @@ mod tests {
             "          CAUS_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
             "          PGD_RESULT: ${{ needs.postgres-linked-driver.result }}",
             "          PGD_REQUIRED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true') && github.event_name != 'push' }}",
+            "          SHIP_RESULT: ${{ needs.shipped-features.result }}",
+            "          SHIP_REQUIRED: ${{ needs.ci.outputs.rust == 'true' && github.event_name != 'push' }}",
             "          CROSS_RESULT: ${{ needs.cross.result }}",
         ]
         .join("\n")
@@ -609,7 +618,7 @@ mod tests {
 
     #[test]
     fn a_neutralised_moved_job_condition_fails() {
-        for key in ["CAUS_REQUIRED", "PGD_REQUIRED"] {
+        for key in ["CAUS_REQUIRED", "PGD_REQUIRED", "SHIP_REQUIRED"] {
             let env = real_env().replace(&format!("{key}: ${{{{"), &format!("{key}: ${{{{ false &&"));
             let workflow = aggregate_workflow(&env);
             let problems = check(&workflow);
