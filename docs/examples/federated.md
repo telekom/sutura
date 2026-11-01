@@ -172,9 +172,11 @@ no log line or answer field for this, by design (see Serving's limits).
   its own certificate.
 - `across_above_bytes: 1` is set far below any realistic ceiling so this example's small legs cross
   at all; left unset, sutura's own working-set ceiling would keep a combine this size on one node.
-- Decision 5 of the ADR - a per-question task grant - is not built yet. A link today carries no
-  restriction beyond node-certificate identity: any certificate this demo CA signed can ask either
-  worker to run any stage, not just this question's.
+- A worker runs a task only for a call carrying the grant of the question it belongs to (Decision 5
+  of the ADR), so a node sent no stage of a question reads none of its output. Who may install a
+  stage is still node-certificate identity alone: any certificate this demo CA signed can install a
+  stage of its own on either worker, and one that learns a question's id before that question
+  reaches a worker can have it refused there - a refusal, not a read.
 - One lost node costs the whole question (`503 node_lost`); nothing resumes a stage or re-plans
   onto the nodes that remain.
 - This two-worker setup has not been run end to end by anyone or anything - not CI, not by hand.
