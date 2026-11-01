@@ -38,7 +38,7 @@ let
     # Named after the executable it holds, so `docker load` reports which of the two shipped
     # binaries arrived rather than reporting `sutura` for both. The release workflow retags
     # every loaded tarball before pushing it, and that retag is what the digest is recorded
-    # from - so this name is what a local `nix build .#oci-serve` shows a developer.
+    # from - so this name is what a local `nix build .#oci-operator` shows a developer.
     name = bin;
     tag = "latest";
     inherit architecture;

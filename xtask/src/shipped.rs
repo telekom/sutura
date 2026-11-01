@@ -834,8 +834,8 @@ mod tests {
                 ".github/actions/embedded-dependency-list/action.yml:15",
                 ".github/actions/push-images/action.yml:13",
                 ".github/workflows/cross-link.yml:120",
-                ".github/workflows/release-performance.yml:95",
-                ".github/workflows/release.yml:87",
+                ".github/workflows/release-performance.yml:91",
+                ".github/workflows/release.yml:85",
             ],
             "the set of files spelling the shipped set literally has changed"
         );
@@ -845,16 +845,16 @@ mod tests {
         assert_eq!(
             references,
             [
-                ".github/actions/build-artefacts/action.yml:87 -> inputs.binaries",
-                ".github/actions/build-artefacts/action.yml:146 -> inputs.binaries",
-                ".github/actions/build-artefacts/action.yml:257 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:85 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:144 -> inputs.binaries",
+                ".github/actions/build-artefacts/action.yml:267 -> inputs.binaries",
                 ".github/actions/embedded-dependency-list/action.yml:83 -> inputs.binaries",
                 ".github/actions/push-images/action.yml:84 -> inputs.binaries",
                 ".github/workflows/cross-link.yml:271 -> env.BINARIES",
-                ".github/workflows/release-performance.yml:228 -> env.BINARIES",
-                ".github/workflows/release-performance.yml:319 -> env.BINARIES",
-                ".github/workflows/release.yml:325 -> env.BINARIES",
-                ".github/workflows/release.yml:508 -> env.BINARIES",
+                ".github/workflows/release-performance.yml:224 -> env.BINARIES",
+                ".github/workflows/release-performance.yml:315 -> env.BINARIES",
+                ".github/workflows/release.yml:323 -> env.BINARIES",
+                ".github/workflows/release.yml:506 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
         );

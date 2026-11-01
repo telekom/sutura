@@ -10,7 +10,7 @@ inputs:
   binaries:
     description: Space-separated shipped binaries, as `release.yml`'s `BINARIES` holds them.
     required: false
-    default: sutura
+    default: sutura sutura-operator
   profile:
     description: >
       `release` or `performance`, the profile `build-artefacts` was given. `performance` puts
@@ -39,26 +39,26 @@ runs:
     #
     # ONE IMAGE PER SHIPPED BINARY PER TARGET, tagged with the binary's key and the RUST
     # TRIPLE, so an image and a tarball from the same run are traceable to each other. Four
-    # leaf tags - `<version>-<triple>` - one per target, all for `sutura`: `github.com/
-    # telekom/sutura#111` shipped a second binary, `sutura-serve`, with its own
-    # `<version>-serve-<triple>` set, and `github.com/telekom/sutura#685` step 2 folded it back
-    # into this one, so the second set is gone rather than merely unused.
+    # leaf tags per binary, one per target: `<version>-<triple>` for `sutura` and
+    # `<version>-operator-<triple>` for `sutura-operator`.
     #
     # THE PROFILE is a tag infix, not a second repository: `performance` pushes
     # `<version>-performance-<triple>` leaves and `<version>-performance` /
     # `<version>-performance-musl` lists, and records each leaf under its asset key
-    # (`<triple>-performance`), which is the stem of the SBOM `attest-and-sign` attaches to it.
+    # (`<triple>-performance`, `operator-<triple>-performance`), which is the stem of the SBOM
+    # `attest-and-sign` attaches to it.
     # `latest` moves only for `release`: an optimised image is opted into by name.
     #
-    # **ONE REGISTRY REPOSITORY** - the deciding cost, back when there were two binaries, was
+    # **ONE REGISTRY REPOSITORY** for both binaries, told apart by tag. The deciding cost is
     # operational rather than aesthetic: a second GHCR package needs its visibility and its
     # per-repository write grant configured by hand, outside this file, before anything can push
     # to it - so a release would fail on a setting no reviewer of this diff can see. One
     # repository keeps ONE provenance `subject-name`, one `docker login`, and one place a
-    # reader looks - unaffected by the fold, since it was never about a binary count.
+    # reader looks.
     #
-    # TWO MANIFEST LISTS, each spanning linux/amd64 and linux/arm64: `:<version>` / `:latest`
-    # for glibc, `:<version>-musl` / `:latest-musl` for the static pair.
+    # TWO MANIFEST LISTS PER BINARY, each spanning linux/amd64 and linux/arm64: `:<version>` /
+    # `:latest` for glibc, `:<version>-musl` / `:latest-musl` for the static pair, with
+    # `-operator` after the version or `latest` for the operator's.
     #
     # `release.yml` used to say a manifest list was "its own change" and point `:<version>` and
     # `:latest` at the x86_64 glibc image with a plain `docker tag`. It was its own
@@ -120,7 +120,7 @@ runs:
           if [ "$bin" = sutura ]; then base="$target"; else base="${bin#sutura-}-${target}"; fi
           key="${base}${psfx}"
           # Each stream script names its image after the binary it holds, so a tarball arrives
-          # as `sutura:latest`; retag before the next iteration takes the name away. Loading
+          # as `<bin>:latest`; retag before the next iteration takes the name away. Loading
           # and pushing never EXECUTES the image - the smoke tests ran in `build`, under a
           # token that cannot write to a registry.
           docker load -i "images/sutura-oci-${key}.tar.gz"
@@ -131,7 +131,7 @@ runs:
           # This was `docker inspect --format '{{index .RepoDigests 0}}'`, and it recorded
           # `unknown` for one of the four targets in the v0.1.0 release while the push
           # itself had succeeded and printed a digest. `RepoDigests` is per-image-ID, and
-          # every tarball here loads under the same `sutura:latest` name, so the tag-to-ID
+          # every target's tarball loads under the same `<bin>:latest` name, so the tag-to-ID
           # mapping is rewritten on each iteration - the field is unreliable exactly when
           # several images share one repository. `docker push` prints the digest it
           # registered, which needs no bookkeeping to survive.
@@ -162,8 +162,8 @@ runs:
         lists=""
         for bin in $BINARIES; do
           # `sfx` is the tag suffix and `nm` the name `image-digests.txt` records the list
-          # under - empty and empty for the tool, `-serve` and `serve-` for the server. The
-          # attest action reads that name, and `docs/verifying-a-release.md` documents it.
+          # under - empty and empty for the tool, `-operator` and `operator-` for the operator.
+          # The attest action reads that name, and `docs/verifying-a-release.md` documents it.
           if [ "$bin" = sutura ]; then sfx=""; nm=""; else sfx="-${bin#sutura-}"; nm="${bin#sutura-}-"; fi
           at="${IMAGE}:${tag}${psfx}${sfx}"
           glibc=(-t "$at")

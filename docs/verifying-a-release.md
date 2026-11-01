@@ -16,15 +16,16 @@ The reason is under [What the SBOM covers](#what-the-sbom-covers).
 
 ## What a release publishes
 
-**One binary, `sutura`, at four target triples.** It also answers certified questions over HTTP, as
-`sutura serve`:
+**Two binaries, `sutura` and `sutura-operator`, each at four target triples.** `sutura` also
+answers certified questions over HTTP, as `sutura serve`:
 
-| Binary   | What it is                                                                                                                                                           | Asset                    | Image tag                                                  |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------- |
-| `sutura` | the command-line tool (`doctor`, `catalog`, `describe`, `prompt`, `compile`, `query`) and, as `sutura serve`, the service that answers certified questions over HTTP | `sutura-<triple>.tar.gz` | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl` |
+| Binary            | What it is                                                                                                                                                           | Asset                             | Image tag                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `sutura`          | the command-line tool (`doctor`, `catalog`, `describe`, `prompt`, `compile`, `query`) and, as `sutura serve`, the service that answers certified questions over HTTP | `sutura-<triple>.tar.gz`          | `:<version>`, `:latest`, `:<version>-musl`, `:latest-musl`                                     |
+| `sutura-operator` | sizes the worker pool a federated JOIN runs on                                                                                                                       | `sutura-operator-<triple>.tar.gz` | `:<version>-operator`, `:latest-operator`, `:<version>-operator-musl`, `:latest-operator-musl` |
 
-**One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags resolve to this binary.
-You choose the libc with the tag: `:latest-musl` for the static pair, `:latest` for glibc.
+**One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags resolve to `sutura`,
+and the operator's carry `-operator`. You choose the libc with the tag: `:latest-musl` for the static pair, `:latest` for glibc.
 
 **Built with the optional features that `nix/shipped.nix` lists.** The published binary always
 links the HTTP surface, the caller-token verification, the rate limiter and the generated interface
@@ -43,7 +44,9 @@ published only when a maintainer dispatches `release-performance.yml` on a relea
 contains the publishing steps of that workflow. A dispatch runs the workflow as the tag holds it.
 It builds the same commit at the `release-performance` profile: assets
 `sutura-<triple>-performance.tar.gz`, leaf images `:<version>-performance-<triple>`, lists
-`:<version>-performance` and `:<version>-performance-musl`. The same signing, SBOM and provenance
+`:<version>-performance` and `:<version>-performance-musl`, and for the operator
+`sutura-operator-<triple>-performance.tar.gz`, `:<version>-performance-operator-<triple>`,
+`:<version>-performance-operator` and `:<version>-performance-operator-musl`. The same signing, SBOM and provenance
 sequence runs over it, so the `cosign` commands below apply unchanged. The bundle-mode
 `gh attestation verify` below does not. For an optimised asset its identity is
 `https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
@@ -57,20 +60,21 @@ statement and chart are the ones on `v<version>`.
 
 | Artefact                         | Sigstore bundle                                  | SLSA provenance          | Registry signature               |
 | -------------------------------- | ------------------------------------------------ | ------------------------ | -------------------------------- |
-| the four binary tarballs         | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the two musl image tarballs      | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the eight SBOMs                  | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the eight binary tarballs        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the four musl image tarballs     | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the sixteen SBOMs                | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the two licence documents        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | `image-digests.txt`              | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
-| the four leaf images             | n/a                                              | no                       | `cosign sign`, by digest         |
-| the two manifest lists           | n/a                                              | yes                      | `cosign sign`, by digest         |
+| the eight leaf images            | n/a                                              | no                       | `cosign sign`, by digest         |
+| the four manifest lists          | n/a                                              | yes                      | `cosign sign`, by digest         |
 | the chart                        | n/a                                              | no                       | `cosign sign`, by digest         |
 | each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
-| `sutura-provenance.intoto.jsonl` | three existing signed attestation bundles        | not recursively attested | n/a                              |
+| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles         | not recursively attested | n/a                              |
 
-Every count in that table is one binary times four triples, or its consequence. A leaf and the SBOM
-beside it have the same key, `<triple>` for `sutura`. `image-digests.txt` records them under that
+Every count in that table is two binaries times four triples, or its consequence. A leaf and the
+SBOM beside it have the same key, `<triple>` for `sutura` and `operator-<triple>` for
+`sutura-operator`. `image-digests.txt` records them under that
 key, so you match an entry there to an asset on the release page by reading.
 
 Three asymmetries in that table are deliberate. Each has a reason.
@@ -85,7 +89,7 @@ corrupted, and a bundle tells you who produced it.
 **Provenance covers the manifest lists, not the leaves.** A list is what an unqualified
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
 at. `cosign` signs each leaf individually, and to pin one you ask for a single architecture. There
-are two lists, one per libc. Provenance does not cover the chart: `cosign sign` signs the chart by
+are four lists, one per binary per libc. Provenance does not cover the chart: `cosign sign` signs the chart by
 digest, and the table shows nothing more.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`

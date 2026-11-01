@@ -11,11 +11,11 @@ inputs:
       writes it. `leaf` is one architecture, `list` is a manifest list. Read rather than derived,
       so a reference added to the push step is signed without a second list agreeing to it.
 
-      A `leaf`'s NAME is its asset key - `<triple>` for `sutura` - which is also the stem of the
-      SBOM beside it, so nothing here has to know how many binaries ship. A second shipped
-      binary would be prefixed instead, the same rule `keyFor` in `nix/shipped.nix` uses. A
-      `list`'s name is `glibc` or `musl` on the same rule, and `list-names` below is what says
-      which of them must be present.
+      A `leaf`'s NAME is its asset key - `<triple>` for `sutura`, `operator-<triple>` for
+      `sutura-operator` - which is also the stem of the SBOM beside it, so nothing here has to
+      know how many binaries ship; `keyFor` in `nix/shipped.nix` is the rule. A `list`'s name is
+      `glibc`, `musl`, `operator-glibc` or `operator-musl` on the same rule, and `list-names`
+      below is what says which of them must be present.
     required: false
     default: dist/image-digests.txt
   assets-dir:
@@ -30,10 +30,9 @@ inputs:
       with no match exits non-zero and `set -eu` aborts the step; so this is the check for the
       case where the file is present, well formed, and short.
 
-      One shipped binary at four triples is four. Was eight before `github.com/telekom/
-      sutura#685` step 2 folded a second shipped binary, `sutura-serve`, into this one.
+      Two shipped binaries at four triples is eight.
     required: false
-    default: "4"
+    default: "8"
   list-names:
     description: >
       The `list` names that must be present, space separated, in the order the provenance steps
@@ -42,7 +41,7 @@ inputs:
       cannot open a matrix, so each list needs its own step - which means each needs its own
       output, which means the names have to be known here rather than counted.
     required: false
-    default: glibc musl
+    default: glibc musl operator-glibc operator-musl
   registry:
     description: Registry to authenticate against for the image signatures and attestations.
     required: false
@@ -255,8 +254,8 @@ runs:
     # SLSA PROVENANCE for everything the release page carries, in ONE call.
     #
     # `subject-checksums` and not `subject-path`: the action accepts a `sha256sum`-format file and
-    # takes each line as a subject, so forty-odd assets - eight tarballs and their sidecars, sixteen
-    # SBOMs, four image tarballs and their sidecars, and `image-digests.txt` - are one invocation
+    # takes each line as a subject, so every asset - binary tarballs and their sidecars, SBOMs,
+    # image tarballs and their sidecars, and `image-digests.txt` - is one invocation
     # instead of a glob per shape. The file is written from within the assets directory so the names it carries are the
     # basenames a consumer downloads, which is what the attestation is looked up by.
     #
@@ -293,10 +292,8 @@ runs:
       with:
         subject-checksums: subjects.sha256
 
-    # And provenance for the TWO MANIFEST LISTS - the references the notes tell a consumer to pin,
-    # and the only ones an unqualified `docker pull` can resolve. Was four, one pair per shipped
-    # binary, before `github.com/telekom/sutura#685` step 2 folded the second binary,
-    # `sutura-serve`, into this one.
+    # And provenance for the FOUR MANIFEST LISTS, one pair per shipped binary - the references the
+    # notes tell a consumer to pin, and the only ones a `docker pull` by tag can resolve.
     #
     # `subject-digest` rather than a path, because there is no local file whose hash is an image's
     # digest: a manifest digest is the sha256 of the index bytes the registry holds.
@@ -310,12 +307,12 @@ runs:
     # It would also need registry credentials, which means staying logged in across a step this
     # file does not control.
     #
-    # TWO STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
-    # opened in the middle of a job. Written out means the two lists are visibly two things
-    # rather than two iterations of something. That is also the reason `list-names` exists as an
+    # ONE STEP PER LIST rather than a loop: the action takes one digest per call, and a matrix
+    # cannot be opened in the middle of a job. Written out means the lists are visibly four things
+    # rather than four iterations of something. That is also the reason `list-names` exists as an
     # input and is only counted in the signing step - the assertion belongs where the loop can act
-    # on it, and these steps are the hardcoded consequence of there being names at all: a third
-    # name is a third step, not a rewrite of the shape.
+    # on it, and these steps are the hardcoded consequence of there being names at all: a fifth
+    # name is a fifth step, not a rewrite of the shape.
     #
     # An output name cannot hold a `-` and be read back as `steps.lists.outputs.some-name` in
     # every expression context, so the key is the name with `-` folded to `_`. The digests file
@@ -336,11 +333,11 @@ runs:
             *) echo "::error::no list digest recorded for ${variant}: got '${ref}'"; exit 1 ;;
           esac
           # The REPOSITORY the digest belongs to, read out of the same line rather than taken
-          # from an input: with one repository today every list reports the same string, and
+          # from an input: with one repository every list reports the same string, and
           # reading it here is what makes a second one a change to the push step alone.
           #
           # WITHOUT THE TAG. `subject-name` is what `gh attestation verify oci://...` looks the
-          # attestation up by, and a name carrying `:0.2.0-serve` would attest a tag rather than
+          # attestation up by, and a name carrying `:0.2.0-operator` would attest a tag rather than
           # a repository - so the reference is stripped at the `@` and then at the tag's `:`.
           # `%:*` is the shortest suffix from the LAST colon. MEASURED, because the claim that
           # used to stand here - that it leaves a `host:port` prefix intact - is true only when a
@@ -371,10 +368,17 @@ runs:
         subject-name: ${{ steps.lists.outputs.musl_name }}
         subject-digest: ${{ steps.lists.outputs.musl }}
 
-    # `sutura-serve` used to have its own two lists here, and was what closed #111: before it, no
-    # published artefact could answer a question over HTTP. `github.com/telekom/sutura#685`
-    # step 2 folded that binary into `sutura serve`, so its provenance is the same `glibc`/`musl`
-    # lists above rather than a second pair.
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: operator_glibc_provenance
+      with:
+        subject-name: ${{ steps.lists.outputs.operator_glibc_name }}
+        subject-digest: ${{ steps.lists.outputs.operator_glibc }}
+
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      id: operator_musl_provenance
+      with:
+        subject-name: ${{ steps.lists.outputs.operator_musl_name }}
+        subject-digest: ${{ steps.lists.outputs.operator_musl }}
 
     - name: Collect the provenance bundles
       shell: bash
@@ -384,7 +388,10 @@ runs:
         ASSET_BUNDLE: ${{ steps.asset_provenance.outputs.bundle-path }}
         GLIBC_BUNDLE: ${{ steps.glibc_provenance.outputs.bundle-path }}
         MUSL_BUNDLE: ${{ steps.musl_provenance.outputs.bundle-path }}
+        OPERATOR_GLIBC_BUNDLE: ${{ steps.operator_glibc_provenance.outputs.bundle-path }}
+        OPERATOR_MUSL_BUNDLE: ${{ steps.operator_musl_provenance.outputs.bundle-path }}
       run: |
         set -eu
         nix run .#xtask -- collect-provenance subjects.sha256 "$IMAGE_DIGESTS" \
-          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" "$MUSL_BUNDLE"
+          "$ASSETS/sutura-provenance.intoto.jsonl" "$ASSET_BUNDLE" "$GLIBC_BUNDLE" "$MUSL_BUNDLE" \
+          "$OPERATOR_GLIBC_BUNDLE" "$OPERATOR_MUSL_BUNDLE"

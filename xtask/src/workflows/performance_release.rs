@@ -7,7 +7,7 @@
 //! | Rule | Why |
 //! | --- | --- |
 //! | `build` runs `build-artefacts` with `profile: performance` | the tarballs, images and SBOMs of every matrix cell; `cross_link` holds the cells to the full four |
-//! | `publish` runs `push-images` with `profile: performance` | four leaves and both manifest lists, and never `latest` |
+//! | `publish` runs `push-images` with `profile: performance` | every leaf and manifest list, and never `latest` |
 //! | `publish` runs `attest-and-sign` before the step whose `gh release create` attaches `dist/*` | every attached file has a bundle and provenance before the release exists |
 //! | that `gh release create` line carries `--prerelease` and `--latest=false` | without both, the optimised build becomes the repository's Latest release, which `docs/getting-started.md` downloads from |
 //! | no `gh release upload`, anywhere in the file | an upload onto a published release is `HTTP 422` under immutable releases; one `gh release create` carrying every asset is the only path |
@@ -102,7 +102,7 @@ fn judge(text: &str) -> Vec<String> {
     {
         found.push(format!(
             "{WORKFLOW}: job `publish` does not run `push-images` with `profile: \
-             performance`, so the four leaves and both `-performance` manifest lists are not pushed"
+             performance`, so no `-performance` leaf or manifest list is pushed"
         ));
     }
     let signed = publish.iter().position(|step| calls(step, "attest-and-sign"));

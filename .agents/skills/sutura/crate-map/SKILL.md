@@ -234,8 +234,8 @@ the settings vocabulary.
 
 ## What a release publishes
 
-`nix/shipped.nix`'s `binaries` list, built with cargo's **default** features - so no TLS and no
-networked adapter in any published artefact.
+`nix/shipped.nix`'s `binaries` list - `sutura`, then `sutura-operator` - each built with exactly
+the `features` its record names, at four triples, as a tarball and an image.
 
 Three gates hold it, answering three different questions. Worth reading as a set, because two were
 added after a review found the first could be believed to cover more than it does:
