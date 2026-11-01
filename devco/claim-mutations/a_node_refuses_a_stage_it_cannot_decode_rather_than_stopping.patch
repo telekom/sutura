@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto/src/physical_plan/mod.rs b/vendor/datafusion-proto/src/physical_plan/mod.rs
+index afe3fa16f..d15efc400 100644
+--- a/vendor/datafusion-proto/src/physical_plan/mod.rs
++++ b/vendor/datafusion-proto/src/physical_plan/mod.rs
+@@ -1103,7 +1103,7 @@ pub trait PhysicalPlanNodeExt: Sized {
+                     AvroSource::try_from_proto(self.node(), &decode_ctx)
+                 }
+                 #[cfg(not(feature = "avro"))]
+-                not_impl_err!(
++                internal_err!(
+                     "Unable to process a Avro PhysicalPlan when the `avro` feature is not enabled"
+                 )
+             }

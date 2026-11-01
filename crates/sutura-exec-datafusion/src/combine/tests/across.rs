@@ -595,7 +595,10 @@ fn a_node_refuses_a_stage_it_cannot_decode_rather_than_stopping() {
         .block_on(worker.coordinator_channel(HeaderMap::new(), stage, Box::pin(stream::empty())))
         .err()
         .expect("a node ran a stage it cannot decode");
-    assert!(matches!(refused.find_root(), DataFusionError::NotImplemented(_)), "{refused}");
+    assert!(
+        matches!(refused.find_root(), DataFusionError::NotImplemented(arm) if arm.contains("Avro")),
+        "{refused}"
+    );
 }
 
 /// A served TLS connection, as the gRPC server takes one: its own crate's `Connected` for a TLS
