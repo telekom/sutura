@@ -209,6 +209,7 @@ pkgs.testers.runNixOSTest {
 
   # A pool worker: no catalog and no source, the worker transport its one surface.
   nodes.spare = {
+    virtualisation.memorySize = 2048;
     networking.firewall.allowedTCPPorts = [ 8443 ];
     systemd.services.sutura = serve
       (pkgs.writeTextDir "base.yaml" (builtins.toJSON {
