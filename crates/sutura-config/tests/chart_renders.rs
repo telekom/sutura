@@ -28,6 +28,9 @@
 //! * **`extraEnv`**, beyond the names the chart refuses (one the binary reads under `security`, or as a
 //!   variable the chart sets) and what a golden's values file happens to set: no guard reads another
 //!   `SUTURA__*` variable, a source's posture included.
+//! * **The worker pool's operator.** It reads no `Settings`, so only the pool's serving pod and its
+//!   worker are loaded here. The pool's refusals fire outside the posture guard, so each is declared
+//!   `Binary::NeverReads`.
 //! * **A binary without `tls`.** Gated on the feature: the chart's `tls.enabled` render assumes a
 //!   binary that can terminate TLS, and every venue that runs this crate's tests enables it.
 
@@ -41,7 +44,8 @@ mod tests {
     use serde::Deserialize as _;
     use serde_norway::Value;
     use sutura_config::{
-        Environment, InvalidAccessToken, InvalidInboundValue, NotFitToServe, Settings, SettingsError, Sources, UnknownEnvironment,
+        Environment, InvalidAccessToken, InvalidInboundValue, NotFitToServe, ServerRole, Settings, SettingsError, Sources,
+        TlsMaterial, UnknownEnvironment,
     };
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
@@ -302,6 +306,84 @@ mod tests {
         );
     }
 
+    /// What the worker pool render's Deployment `deployment` hands its process, `$(POD_IP)` resolved
+    /// as the kubelet would and the variable it reads from the pod itself left out.
+    fn pool_inputs(docs: &[Value], deployment: &str) -> Inputs {
+        let env = docs
+            .iter()
+            .find(|doc| doc["kind"].as_str() == Some("Deployment") && doc["metadata"]["name"].as_str() == Some(deployment))
+            .and_then(|doc| doc["spec"]["template"]["spec"]["containers"][0]["env"].as_sequence())
+            .unwrap_or_else(|| panic!("a Deployment {deployment} with an env list"));
+        let mut environment = None;
+        let mut directory = None;
+        let mut variables = BTreeMap::new();
+        for entry in env {
+            let variable = entry["name"].as_str().expect("an env name");
+            let value = match entry["value"].as_str() {
+                Some(value) => value.replace("$(POD_IP)", "10.0.0.5"),
+                None if entry["valueFrom"]["secretKeyRef"].is_mapping() => {
+                    format!("{deployment}-{variable}-placeholder-secret-value")
+                }
+                None if entry["valueFrom"]["fieldRef"].is_mapping() => continue,
+                None => panic!("{deployment}: {variable} has no value, secretKeyRef or fieldRef"),
+            };
+            match variable {
+                "SUTURA_ENVIRONMENT" => environment = Some(value),
+                "SUTURA_CONFIG_DIR" => directory = Some(settings_directory(deployment, of_kind(docs, "ConfigMap"))),
+                _ => {
+                    variables.insert(String::from(variable), value);
+                }
+            }
+        }
+        Inputs {
+            environment: environment.unwrap_or_else(|| panic!("{deployment}: no SUTURA_ENVIRONMENT")),
+            directory,
+            variables,
+        }
+    }
+
+    /// The settings the worker pool render's Deployment `deployment` loads.
+    fn pool_settings(deployment: &str) -> Settings {
+        let golden = testdata().join("golden/pool/worker-pool.yaml");
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
+        let Inputs {
+            environment,
+            directory,
+            variables,
+        } = pool_inputs(&documents(&text), deployment);
+        let environment = Environment::parse(&environment).unwrap_or_else(|error| panic!("{deployment}: {error}"));
+        let sources = Sources::defaults(environment).with_variables(variables);
+        let loaded = match &directory {
+            Some(dir) => Settings::load(&sources.with_directory(dir.clone())),
+            None => Settings::load(&sources),
+        };
+        if let Some(dir) = directory {
+            std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
+        }
+        loaded.unwrap_or_else(|error| panic!("the binary refuses {deployment}: {:?}", error.reason()))
+    }
+
+    #[test]
+    fn the_worker_pools_serving_pod_starts_and_names_the_workers() {
+        let settings = pool_settings("test-release");
+        assert!(serve_refusals(&settings).is_empty(), "{:?}", serve_refusals(&settings));
+        let nodes = settings
+            .server()
+            .tls()
+            .and_then(TlsMaterial::nodes)
+            .expect("the serving pod declares nodes");
+        assert_eq!(
+            nodes.others().iter().map(url::Url::as_str).collect::<Vec<_>>(),
+            ["https://test-release-workers.default.svc:8080/"]
+        );
+    }
+
+    #[test]
+    fn the_worker_pools_worker_starts_as_a_worker() {
+        let settings = pool_settings("test-release-workers");
+        assert_eq!(settings.server().role(), ServerRole::Worker);
+    }
+
     /// How the binary stands to one chart refusal case.
     enum Binary {
         /// The binary refuses the same configuration, by a refusal this accepts.
@@ -317,7 +399,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 35] = [
+    const REFUSALS: [(&str, Binary); 38] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -467,6 +549,18 @@ mod tests {
         (
             "multi-user-without-inbound",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
+        ),
+        (
+            "worker-pool-issuer-missing",
+            Binary::NeverReads("the cert-manager issuer every node's certificate comes from"),
+        ),
+        (
+            "worker-pool-tls-enabled",
+            Binary::NeverReads("a second certificate, which the pool's node certificate would replace"),
+        ),
+        (
+            "worker-pool-tls-terminated-elsewhere",
+            Binary::NeverReads("a TLS termination the pool's own in-process TLS would replace"),
         ),
     ];
 

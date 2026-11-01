@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/worker-pool.yaml:9:4): workerPool.enabled requires workerPool.issuer.name: every node's certificate comes from that cert-manager issuer, and its CA certificate is the node authority
+
+Use --debug flag to render out invalid YAML

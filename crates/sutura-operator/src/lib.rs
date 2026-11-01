@@ -208,6 +208,8 @@ mod tests {
 
     use std::time::{Duration, Instant};
 
+    use serde::Deserialize as _;
+
     use super::{InvalidPool, Pool, Surplus, WorkerPoolSpec, definition, deletion_cost, gauge};
 
     fn spec(min: u32, max: u32, warm: u32) -> WorkerPoolSpec {
@@ -320,6 +322,26 @@ mod tests {
         assert_eq!(
             (bound.format.as_deref(), bound.minimum, bound.maximum),
             (None, Some(0.0), Some(f64::from(u32::MAX)))
+        );
+    }
+
+    /// The chart renders the definition rather than running `sutura-operator crd`, so its copy is
+    /// held equal to this one.
+    #[test]
+    fn the_charts_definition_is_the_operators() {
+        let golden =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../charts/sutura/testdata/golden/pool/worker-pool.yaml");
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
+        let rendered = serde_norway::Deserializer::from_str(&text)
+            .map(|doc| serde_json::Value::deserialize(doc).expect("a YAML document"))
+            .find(|doc| doc["kind"] == "CustomResourceDefinition")
+            .expect("the chart renders the definition");
+        let group = ApiGroup::parse("sutura.telekom.github.io").expect("the chart's default group");
+        let generated = definition(&group).expect("the derived schema is a definition's schema");
+        assert_eq!(rendered["metadata"]["name"].as_str(), generated.metadata.name.as_deref());
+        assert_eq!(
+            rendered["spec"],
+            serde_json::to_value(&generated.spec).expect("a definition is JSON")
         );
     }
 }

@@ -94,6 +94,45 @@ rateLimit:
 # CPU and memory limits and requests for the container.
 resources: {}
 
+# Workers that a question reading several data systems is planned across, sized by `sutura-operator`
+# between `min` and `max`. Off renders no worker, operator or SuturaWorkerPool definition. On, the
+# serving pods terminate TLS themselves with a certificate from cert-manager's CSI driver, which must be
+# installed, and the release installs a cluster-wide CustomResourceDefinition. A question reading one
+# data system never goes across.
+workerPool:
+  enabled: false
+  # API group of the SuturaWorkerPool definition.
+  apiGroup: sutura.telekom.github.io
+  # Fewest workers, with no demand at all. 0 keeps none until a question wants one.
+  min: 0
+  # Most workers, whatever the demand.
+  max: 4
+  # Idle workers kept beyond demand, so a question does not wait for one to start.
+  warm: 0
+  # Seconds an idle worker above demand stays before it is removed.
+  idleAfterSeconds: 300
+  # cert-manager issuer that signs every node's certificate. Its CA certificate is the node
+  # authority, so it must be a CA issuer.
+  issuer:
+    name: ""
+    kind: Issuer
+  # Lifetime of a node certificate. A process reads its certificate once, at start, so a pod that runs
+  # longer than this presents an expired one until it restarts.
+  certificateDuration: 720h
+  # Leg bytes above which a question reading several data systems goes across. Empty: the question's
+  # own working set ceiling.
+  acrossAboveBytes: ""
+  # Seconds a question that goes across waits for a worker. Empty: no wait, and a question with no
+  # worker is refused. Must be below server.request_timeout_seconds.
+  waitForWorkersSeconds: 20
+  # CPU and memory limits and requests for each worker.
+  resources: {}
+  operator:
+    image:
+      # Empty means the app version with `-operator`, then `-musl` when image.variant is musl.
+      tag: ""
+    resources: {}
+
 # Engine thread and memory settings for the runtime.
 runtime:
   # Number of engine worker threads. Empty derives from the CPU limit.

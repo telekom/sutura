@@ -55,6 +55,17 @@ The chart writes both to `base.yaml`.
 A `telemetry` key in `config.base` or `config.environment` overrides them.
 The chart does not check either value: sutura refuses to start with a bad one.
 
+## Worker pool
+
+`workerPool.enabled: true` adds workers for questions that read several data systems.
+A question that reads one data system never uses them.
+`sutura-operator` sizes the workers between `workerPool.min` and `workerPool.max`, from the worker slots the serving pods want.
+With `min: 0` no worker runs until a question wants one.
+The pool needs cert-manager and its CSI driver, and a CA issuer named in `workerPool.issuer`.
+Every pod gets its own certificate from that issuer and ends TLS itself, so the chart refuses `tls.enabled` or a `security.tlsTermination` other than `in-process`.
+A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
+The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
+
 ## Configure
 
 Set every option in `values.yaml`.

@@ -1,0 +1,10 @@
+# The worker pool with no cert-manager issuer: no node could get a certificate, so no node could
+# answer another.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true

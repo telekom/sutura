@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/worker-pool.yaml:9:4): workerPool.enabled ends TLS in each pod with its node certificate: set tls.enabled to false and security.tlsTermination to empty or in-process
+
+Use --debug flag to render out invalid YAML

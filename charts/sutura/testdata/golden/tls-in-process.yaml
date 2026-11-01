@@ -143,12 +143,14 @@ spec:
             httpGet:
               path: /health
               port: http
+              scheme: HTTPS
             failureThreshold: 30
             periodSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: http
+              scheme: HTTPS
             periodSeconds: 10
             failureThreshold: 3
           securityContext:

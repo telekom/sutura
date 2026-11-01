@@ -1,0 +1,13 @@
+# The worker pool with TLS declared ended at an ingress: every pod ends TLS itself with its node
+# certificate, so the declaration would be false.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+  tlsTermination: ingress
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes

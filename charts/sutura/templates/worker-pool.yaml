@@ -1,0 +1,340 @@
+{{/*
+The worker pool: workers that a question reading several data systems is planned across, the
+operator that sizes them from the serving and worker pods' in-flight gauges, and the pool it reads.
+The definition is `sutura-operator crd`'s, with the group templated; a test in that crate holds the
+two equal. The pool itself is a hook, because the API server knows its kind only once the definition
+is installed.
+*/}}
+{{- if .Values.workerPool.enabled }}
+{{- include "sutura.requireWorkerPool" . }}
+{{- $fullname := include "sutura.fullname" . }}
+{{- $name := include "sutura.name" . }}
+{{- $base := .Values.config.base | default dict }}
+{{- $env := .Values.config.environment | default dict }}
+{{- $timeout := dig "server" "request_timeout_seconds" (dig "server" "request_timeout_seconds" 30 $base) $env | int }}
+{{- $workerValues := dict "Values" (dict "runtime" (dict) "resources" .Values.workerPool.resources) }}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: suturaworkerpools.{{ .Values.workerPool.apiGroup }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  group: {{ .Values.workerPool.apiGroup }}
+  names:
+    kind: SuturaWorkerPool
+    plural: suturaworkerpools
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            description: |-
+              What a `SuturaWorkerPool` asks for: the bounds the operator sizes the pool within. Its fields are
+              the schema's; nothing outside this crate builds one until the operator reads it from a cluster.
+            properties:
+              idleAfterSeconds:
+                description: How long a worker above the size demand calls for stays before it is removed, in seconds.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              max:
+                description: The most workers the pool grows to, whatever the demand.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              min:
+                description: The fewest workers the pool keeps, with no demand at all.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              serving:
+                description: The Deployment of serving nodes whose wanted worker slots are the pool's demand.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+              warm:
+                description: Idle workers kept beyond demand, so a leg does not wait for a worker to start.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+              workers:
+                description: The Deployment of workers the operator sizes, in the pool's namespace.
+                maxLength: 253
+                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                type: string
+            required:
+            - workers
+            - serving
+            - min
+            - max
+            - warm
+            - idleAfterSeconds
+            title: WorkerPoolSpec
+            type: object
+          status:
+            description: What the operator reports it did.
+            properties:
+              refusal:
+                description: Why the operator refused the spec, when it did.
+                nullable: true
+                type: string
+              replicas:
+                description: The workers the operator last sized the pool to.
+                maximum: 4294967295.0
+                minimum: 0.0
+                type: integer
+            required:
+            - replicas
+            title: WorkerPoolStatus
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [{{ .Values.workerPool.apiGroup | quote }}]
+    resources: ["suturaworkerpools"]
+    verbs: ["list"]
+  - apiGroups: [{{ .Values.workerPool.apiGroup | quote }}]
+    resources: ["suturaworkerpools/status"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+  # `patch` sets each pod's deletion cost, so a scale-down removes an idle worker first.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $fullname }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fullname }}-operator
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-operator
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-operator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ $fullname }}-operator
+      # The operator reads the cluster with its own account's token.
+      automountServiceAccountToken: true
+      containers:
+        - name: operator
+          image: "{{ .Values.image.repository }}:{{ include "sutura.operatorImageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["run"]
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            - name: SUTURA__OPERATOR__API_GROUP
+              value: {{ .Values.workerPool.apiGroup | quote }}
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.metricsToken.secretName }}
+                  key: {{ .Values.security.metricsToken.secretKey }}
+            - name: SUTURA__SERVER__TLS_NODE_AUTHORITY
+              value: /etc/sutura/node/ca.crt
+          volumeMounts:
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.workerPool.operator.resources | nindent 12 }}
+      volumes:
+        {{- include "sutura.nodeCertificate" (dict "root" . "name" (printf "%s-operator" $fullname)) | nindent 8 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-workers
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  # The operator owns the count from here on: an upgrade that leaves `min` alone leaves it.
+  replicas: {{ .Values.workerPool.min }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "sutura.serviceAccountName" . }}
+      # A stage runs at most as long as the question it serves.
+      terminationGracePeriodSeconds: {{ add $timeout 10 }}
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ include "sutura.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            - name: SUTURA__SERVER__ROLE
+              value: worker
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: {{ .Values.service.port | quote }}
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: {{ .Values.rateLimit.enabled | quote }}
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.security.metricsToken.secretName }}
+                  key: {{ .Values.security.metricsToken.secretKey }}
+            {{- include "sutura.nodeTls" . | nindent 12 }}
+            - name: SUTURA__TELEMETRY__FORMAT
+              value: {{ .Values.telemetry.format | quote }}
+            - name: SUTURA__TELEMETRY__FILTER
+              value: {{ .Values.telemetry.filter | quote }}
+            - name: SUTURA__RUNTIME__SHUTDOWN_GRACE_SECONDS
+              value: {{ $timeout | quote }}
+            {{- with include "sutura.engineWorkerThreads" $workerValues }}
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with include "sutura.workingSetMaxBytes" $workerValues }}
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: {{ . | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.workerPool.resources | nindent 12 }}
+      volumes:
+        {{- include "sutura.nodeCertificate" (dict "root" . "name" (printf "%s-workers" $fullname)) | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Headless: a serving node resolves every worker's own address from this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-workers
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ $name }}-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: {{ .Values.workerPool.apiGroup }}/v1alpha1
+kind: SuturaWorkerPool
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  workers: {{ $fullname }}-workers
+  serving: {{ $fullname }}
+  min: {{ .Values.workerPool.min }}
+  max: {{ .Values.workerPool.max }}
+  warm: {{ .Values.workerPool.warm }}
+  idleAfterSeconds: {{ .Values.workerPool.idleAfterSeconds }}
+{{- end -}}

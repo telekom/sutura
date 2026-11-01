@@ -1,0 +1,23 @@
+# The worker pool on: the serving pod ends TLS itself with a node certificate from cert-manager's CSI
+# driver and names the workers' Service as its other node, and the release adds the operator, the
+# workers, their headless Service and the SuturaWorkerPool the operator sizes them from.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+  max: 3
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
