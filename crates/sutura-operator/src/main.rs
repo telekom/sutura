@@ -1,23 +1,33 @@
 #![forbid(unsafe_code)]
 //! `sutura-operator crd` prints the `SuturaWorkerPool` definition for the configured API group, as
-//! YAML, for the chart to install.
+//! YAML, for the chart to install. `sutura-operator run` sizes every pool in its namespace, every
+//! [`POLL`], until it is stopped.
 
+use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 use sutura_config::{OperatorSettings, Sources, config_dir_from_process, environment_from_process};
+use sutura_http_client::{DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_TIMEOUT_SECONDS, ReadBounds};
+use sutura_operator::InCluster;
+
+/// How often every pool is sized.
+const POLL: Duration = Duration::from_secs(15);
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
-    if !matches!((args.next().as_deref(), args.next()), (Some("crd"), None)) {
-        eprintln!("usage: sutura-operator crd");
-        return ExitCode::from(2);
-    }
-    match crd() {
-        Ok(yaml) => {
-            print!("{yaml}");
-            ExitCode::SUCCESS
+    let outcome = match (args.next().as_deref(), args.next()) {
+        (Some("crd"), None) => crd().map(|yaml| print!("{yaml}")),
+        (Some("run"), None) => run().map(|never| match never {}),
+        _ => {
+            eprintln!("usage: sutura-operator crd | run");
+            return ExitCode::from(2);
         }
+    };
+    match outcome {
+        Ok(()) => ExitCode::SUCCESS,
         Err(why) => {
             eprintln!("sutura-operator: {}", render(why.as_ref()));
             ExitCode::FAILURE
@@ -25,13 +35,32 @@ fn main() -> ExitCode {
     }
 }
 
-/// Whatever stopped the definition rendering: a setting, or the schema.
+/// Whatever stopped the operator: a setting, the schema, or the cluster's pools not being listed.
 type Failure = Box<dyn Error>;
 
-fn crd() -> Result<String, Failure> {
+fn settings() -> Result<OperatorSettings, Failure> {
     let sources = Sources::from_process_environment(environment_from_process()?, config_dir_from_process());
-    let settings = OperatorSettings::load(&sources)?;
+    Ok(OperatorSettings::load(&sources)?)
+}
+
+fn crd() -> Result<String, Failure> {
+    let settings = settings()?;
     Ok(serde_norway::to_string(&sutura_operator::definition(settings.api_group())?)?)
+}
+
+/// Sizes every pool each [`POLL`]. A pool the cluster fails for is logged and tried again next
+/// pass; the pools not being listed at all stops the operator, so its pod restarts.
+fn run() -> Result<Infallible, Failure> {
+    let settings = settings()?;
+    let bounds = ReadBounds::parse(DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_RESPONSE_BYTES)?;
+    let mut cluster = InCluster::from_pod(settings.api_group(), settings.metrics_token(), bounds)?;
+    let mut surplus = BTreeMap::new();
+    loop {
+        for (pool, why) in sutura_operator::tick(&mut cluster, &mut surplus, Instant::now())? {
+            eprintln!("sutura-operator: pool `{pool}`: {}", render(&why));
+        }
+        std::thread::sleep(POLL);
+    }
 }
 
 /// `error` and each of its causes, one per line.

@@ -38,3 +38,13 @@ fn an_api_group_that_is_not_a_lowercase_subdomain_is_refused_at_load() {
         );
     }
 }
+
+#[test]
+fn a_metrics_token_serve_would_refuse_is_refused_at_load() {
+    let refused =
+        OperatorSettings::load(&Sources::defaults(Environment::Production).with_overlay("security:\n  metrics_token: short\n"));
+    assert!(
+        refused.is_err_and(|why| why.to_string().contains("metrics_token")),
+        "the operator presents the token it loads"
+    );
+}
