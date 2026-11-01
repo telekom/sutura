@@ -52,6 +52,53 @@ fn declared_nodes_serve_this_nodes_worker() {
     assert!(worker.is_some(), "declared nodes mounted no worker for the others to reach");
 }
 
+/// The demand the worker pool is sized from, exported by a served node that declares others before
+/// any question has gone across.
+#[cfg(feature = "distributed")]
+#[test]
+fn a_node_declaring_others_exports_the_worker_slots_it_wants() {
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player");
+    let overlay = format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"the test deployment reads its own fixture \
+         files\"\ncatalogs:\n  - name: \"model\"\n    kind: \"markdown\"\n    dir: \"{catalog}\"\n    data_dir: \
+         \"{data}\"\n    version: \"test\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"{data}\"\n    \
+         posture: \"shared-service-user\"\n",
+        catalog = example.join("catalog").display(),
+        data = example.join("data").display(),
+    );
+    let settings = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+    )
+    .expect("the overlay loads");
+    let catalogs = crate::catalog::open_catalog(settings.catalogs(), None).expect("the example catalog opens");
+    let pinned = crate::catalog::load(&catalogs).expect("the example catalog loads");
+    let opened = super::super::open_engine(
+        &pinned,
+        settings.sources(),
+        settings.runtime(),
+        settings.server().request_timeout(),
+        None,
+    );
+    let Ok(super::super::OpenedSources::Files(files)) = opened else {
+        panic!("the example opens the file engine");
+    };
+    let (certificate, key) = written("wanted");
+    let path = |path: &std::path::Path| path.display().to_string();
+    let tls = declaring(&path(&certificate), &path(&key), &path(&certificate));
+    let built = super::super::nodes::combiner(Some(&tls), runtime());
+    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
+    let (combiner, _) = built.expect("a signed node with its authority plans across the declared nodes");
+    let service = super::super::compose::shared_identity_service(&catalogs, files.engines, combiner, None, &settings)
+        .expect("the example serves");
+    let admission = sutura_runtime::Admission::from_settings(settings.runtime());
+    let state = sutura_http::ServiceState::new(service, std::sync::Arc::new(settings), admission);
+    let rendered = state.registry().render();
+    assert!(
+        rendered.contains("\nsutura_worker_slots_wanted 0\n"),
+        "a node declaring others exports no demand for the worker pool: {rendered}"
+    );
+}
+
 #[cfg(feature = "distributed")]
 #[test]
 fn an_unreadable_node_authority_is_refused_naming_it() {

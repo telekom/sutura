@@ -466,6 +466,7 @@ impl DataFusionCombiner {
                     answered => return answered,
                 }
             }
+            let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
             return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set);
         }
         run(&bounded_session(working_set)?, working_set)
@@ -700,6 +701,11 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::WorkersNotReady { wanted, ready } => Some(WorkersShort::new(wanted, ready)),
             _ => None,
         }
+    }
+
+    #[cfg(feature = "distributed")]
+    fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
+        self.nodes.as_ref().map(Nodes::slots_wanted)
     }
 
     /// **Exhaustive with no wildcard arm**, so a variant added to [`CombineError`] has to say which
