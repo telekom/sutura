@@ -43,6 +43,9 @@ use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, Loo
 use crate::plan::leg::LegPlan;
 use crate::warehouse::ResultBatches;
 
+mod statement;
+pub use statement::{StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+
 /// One leg's result, tagged with the side the [`LegPlan`] it was executed from named.
 ///
 /// **The tag is parsed, not passed.** [`Self::of`] takes the plan and reads the side off the
@@ -484,6 +487,16 @@ pub trait FederationCombiner {
         let results: Vec<LegResult> = core::iter::once(fact).chain(second_fact).chain(looked_up).collect();
         let legs = Legs::assign(plan, &results).map_err(ExecuteError::Miswired)?;
         self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
+    }
+
+    /// Plans the SQL tool's statement over `question`'s tables, runs each source's part through
+    /// `legs`, and joins what came back. `None` is a combiner that plans no statement, and the tool
+    /// then runs the statement as it was sent, at its one listed source.
+    fn answer_statement<L>(&self, _question: StatementQuestion<'_>, _legs: &mut L) -> StatementAnswer<L::Stop>
+    where
+        L: StatementLegs,
+    {
+        None
     }
 }
 

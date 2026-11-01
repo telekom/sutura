@@ -51,6 +51,7 @@ pub(crate) fn open_duckdb(
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "duckdb"))]
 mod tests {
     use crate::serve::open_engine;
     use crate::serve::tests::{bundle_over, default_timeout, one_worker, registry};
@@ -82,60 +83,6 @@ mod tests {
         assert!(
             error.contains("--features duckdb"),
             "the refusal must say what to build: {error}"
-        );
-    }
-
-    /// **Two `duckdb` sources are one kind, so they are never erased into `AnyWarehouse`** and both
-    /// answer `ACCEPTS_RAW_STATEMENTS = true`. What refuses the raw tool is `run_sql`'s one-source
-    /// count alone; without it the caller's statement would run on whichever source came first.
-    #[test]
-    #[cfg(feature = "duckdb")]
-    fn two_duckdb_sources_are_refused_the_raw_tool_rather_than_one_picked() {
-        use std::time::{Duration, Instant};
-
-        use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
-        use sutura_domain::model::TableName;
-        use sutura_domain::raw::RawStatement;
-        use sutura_domain::warehouse::deadline::{Budget, Deadline};
-
-        let dir = std::env::temp_dir().join(format!("sutura-cli-two-duckdb-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&dir));
-        std::fs::create_dir_all(&dir).expect("the scratch directory is created");
-        let csv = dir.join("t.csv");
-        std::fs::write(&csv, "id\n1\n").expect("the table's CSV is written");
-        let mut entries = String::new();
-        for alias in ["first", "second"] {
-            let file = dir.join(format!("{alias}.duckdb"));
-            sutura_exec_duckdb::write_database(&file, &[(TableName::parse("t").expect("t is a table"), csv.clone())])
-                .expect("the fixture database is written");
-            entries.push_str(&duckdb_entry(alias, &file.display().to_string()));
-        }
-        let declared = registry(&entries);
-        let opened = open_engine(
-            &bundle_over(&[("first_t", "first", "t"), ("second_t", "second", "t")]),
-            &declared,
-            one_worker(),
-            default_timeout(),
-            None,
-        );
-        let engines = match opened {
-            Ok(crate::serve::OpenedSources::Duckdb(engines)) => engines,
-            Ok(_) => panic!("two duckdb sources open as one kind, not as a mix"),
-            Err(error) => panic!("two duckdb sources must open: {error}"),
-        };
-        let answered = sutura_app::run_sql(
-            &RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself)),
-            &RawStatement::parse("SELECT 1").expect("a test statement is a statement"),
-            &sutura_config::StaticCredentialBroker::from_registry(&declared),
-            &engines,
-            Deadline::opened_at(Instant::now(), Budget::parse(Duration::from_secs(30)).expect("a budget")),
-        );
-        drop(std::fs::remove_dir_all(&dir));
-        let outcome = answered.expect("two raw-capable sources are refused the tool, not failed");
-        assert_eq!(
-            outcome.outcome().refusal().map(sutura_domain::raw::RawRefusalReason::code),
-            Some("more_than_one_source_open"),
-            "two raw-capable sources must have no raw tool, got {outcome:?}"
         );
     }
 }

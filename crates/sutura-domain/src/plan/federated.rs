@@ -74,8 +74,8 @@ use crate::query::{Top, TopBy, TopDirection};
 use crate::warehouse::{MalformedRowSet, RowSet, Value};
 
 pub use combiner::{
-    Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsMiswired, SlotsHeld, WorkerSlotsWanted,
-    WorkersShort,
+    Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsMiswired, SlotsHeld, StatementAnswer,
+    StatementLegs, StatementQuestion, StatementStopped, StatementTable, WorkerSlotsWanted, WorkersShort,
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use combiner::{NothingCombined, RefusingCombiner};

@@ -1,30 +1,36 @@
 //! `docs/adr/0013`'s raw SQL tool: the port-facing execution path, split out of `lib.rs` because
 //! that file hit the thousand-line limit `cargo xtask max-lines` enforces.
 //!
-//! One function beside the types it needs: [`run_sql`] mirrors [`crate::answer`]'s credential
-//! handling exactly and differs only on the way out, where every execution failure becomes a
-//! refusal rather than a [`RunSqlError`] - see that function's own documentation for why.
+//! [`run_sql`] passes a statement through to the one open source. `answer_sql` is the tool a
+//! surface serves: the combiner plans the statement over the tables of the sources `tools.run_sql`
+//! lists, each source's part a leg through [`Warehouse::execute_raw`], and the statement passes
+//! through only where the combiner plans none. Every execution failure becomes a refusal rather
+//! than a [`RunSqlError`] - see [`run_sql`] for why.
 
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Instant;
 
 use sutura_domain::identity::{
     Agreed, BoundToTheRequest, CredentialBroker, Expiry, PresentedDisagreesWithPosture, RequestContext, SourceSet,
 };
 use sutura_domain::model::SourceName;
-use sutura_domain::raw::{RawOutcome, RawRefusalReason};
-use sutura_domain::warehouse::Warehouse;
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::plan::{FederationCombiner, MAX_ROWS, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
+use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement};
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::{RawRows, Value, Warehouse};
 
 use crate::warehouses::Warehouses;
-use crate::{exceeds_row_cap, now_in_unix_seconds};
+use crate::{Validated, exceeds_row_cap, now_in_unix_seconds, scoped_for};
 
 /// Why running a raw statement did not produce an outcome.
 ///
 /// **Deliberately not [`ServiceError`](crate::ServiceError).** That type's `Compile` and
 /// `Federated` arms describe the compiler and the splitter, neither of which this path touches - a
-/// raw statement is unparsed text, end to end. What is left is the credential half
-/// [`answer`](crate::answer) also has, plus one arm of its own for an adapter that declares it
-/// accepts raw text and then answers none.
+/// raw statement is the caller's text, end to end. What is left is the credential half
+/// [`answer`](crate::answer) also has, plus two wiring defects of its own.
 #[derive(Debug, thiserror::Error)]
 pub enum RunSqlError<M> {
     /// The credential broker did not answer.
@@ -45,14 +51,20 @@ pub enum RunSqlError<M> {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
-    /// An adapter declared [`Warehouse::ACCEPTS_RAW_STATEMENTS`] and then answered no raw statement.
+    /// A source's adapter took no raw statement: it declares it accepts none, or it declared
+    /// [`Warehouse::accepts_raw_statements`] and then answered none.
     ///
-    /// **A wiring defect, not a caller-facing refusal.** [`run_sql`] has already refused, as a
-    /// [`RawRefusalReason`], every deployment whose one open
-    /// source does not declare it, so reaching this arm means an adapter contradicts its own
-    /// declaration.
-    #[error("a data system that declares it accepts a raw statement answered none")]
+    /// **A wiring defect, not a caller-facing refusal.** The composition root refuses at startup a
+    /// `tools.run_sql.sources` alias whose adapter accepts no raw statement, so reaching this arm
+    /// means a library caller skipped that, or an adapter contradicts its own declaration.
+    #[error("a data system the raw tool runs over answered no raw statement")]
     NoAcceptingSource,
+    /// The tool's sources are not exactly one, and the combiner planned the statement over none.
+    ///
+    /// **A wiring defect.** A build without the `sql` feature refuses more than one listed source at
+    /// startup, and the combiner of a build with it plans every statement.
+    #[error("the raw tool runs over more than one source and nothing planned the statement across them")]
+    Unplanned,
 }
 
 /// What running a raw statement produced, or why it could not.
@@ -68,20 +80,6 @@ pub struct AnsweredRaw {
 }
 
 impl AnsweredRaw {
-    const fn declined_before_minting(outcome: sutura_domain::raw::RawOutcome) -> Self {
-        Self {
-            outcome,
-            executed_until: None,
-        }
-    }
-
-    const fn under(credentials: &BoundToTheRequest, outcome: sutura_domain::raw::RawOutcome) -> Self {
-        Self {
-            outcome,
-            executed_until: Some(credentials.not_after()),
-        }
-    }
-
     #[inline]
     #[must_use]
     pub const fn outcome(&self) -> &sutura_domain::raw::RawOutcome {
@@ -101,19 +99,32 @@ impl AnsweredRaw {
     }
 }
 
-/// Runs one literal statement against the deployment's configured source, or says why it will not.
+/// Which sources the raw tool runs over, and whether one statement may read more than one of them:
+/// `tools.run_sql.sources` and `tools.run_sql.federation_allowed`.
+#[derive(Debug, Clone)]
+pub struct RunSqlScope {
+    sources: Vec<SourceName>,
+    federation_allowed: bool,
+}
+
+impl RunSqlScope {
+    /// The tool over `sources`, planning a statement across them only where `federation_allowed`.
+    #[must_use]
+    pub const fn new(sources: Vec<SourceName>, federation_allowed: bool) -> Self {
+        Self {
+            sources,
+            federation_allowed,
+        }
+    }
+}
+
+/// Passes one literal statement through to the deployment's one open source, or says why it will not.
 ///
-/// # PR1's scope, stated as a limit rather than left implicit
+/// More than one open source is [`RunSqlError::Unplanned`], never narrowed: which of several sources
+/// the tool runs over is `tools.run_sql.sources`, which a surface reads, and a statement planned
+/// across them is the combiner's.
 ///
-/// **This targets the sole registered data system, and refuses with
-/// `RawRefusalReason::MoreThanOneSourceOpen` where more than one is open, or
-/// `RawRefusalReason::NoSourceAcceptsRawStatements` where the one open does not accept raw text.**
-/// `docs/adr/0013`'s showcase is one Postgres source; a deployment naming which of several sources
-/// the raw tool may run over is future work, not a decision this function makes by omission - a
-/// second source is refused rather than guessed at. Both are answers to the caller, declined before
-/// the broker is asked, so each is audited and neither is a [`RunSqlError`].
-///
-/// # Otherwise, this mirrors [`answer`](crate::answer)'s credential handling exactly
+/// # This mirrors [`answer`](crate::answer)'s credential handling exactly
 ///
 /// Mint once, check the grant agrees with the request, check the presented leg agrees with the
 /// adapter's declared posture - the same three findings behind the same one guard, for the same
@@ -130,13 +141,13 @@ impl AnsweredRaw {
 ///
 /// # The deadline is opened by the transport, before this call - `crate::answer`'s own shape
 ///
-/// `deadline` is checked once here, before the port is ever called (`telekom/sutura#1144`): a
-/// budget already spent refuses the statement before it reaches the data system at all, the same
-/// pre-call check `crate::answer` makes before `Warehouse::execute`. What an adapter does with the
-/// deadline once it is handed to [`Warehouse::execute_raw`] is the adapter's own business.
+/// `deadline` is checked before each leg reaches the port (`telekom/sutura#1144`): a budget already
+/// spent refuses the statement before it reaches the data system at all, the same pre-call check
+/// `crate::answer` makes before `Warehouse::execute`. What an adapter does with the deadline once it
+/// is handed to [`Warehouse::execute_raw`] is the adapter's own business.
 pub fn run_sql<W, B>(
     context: &RequestContext,
-    statement: &sutura_domain::raw::RawStatement,
+    statement: &RawStatement,
     broker: &B,
     warehouses: &Warehouses<W>,
     deadline: Deadline,
@@ -145,110 +156,253 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    let (source, warehouse) = match single_raw_capable_warehouse(warehouses) {
-        Ok(sole) => sole,
-        Err(reason) => return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal { reason })),
+    let mut open = warehouses.each();
+    let (Some((source, _)), None) = (open.next(), open.next()) else {
+        return Err(RunSqlError::Unplanned);
     };
-    let requested = SourceSet::of(source.clone());
-    let minted = broker
-        .mint(context, &requested)
-        .map_err(|cause| RunSqlError::Broker { cause })?;
-    let credentials = match minted
-        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
-        .map_err(|cause| RunSqlError::Credentials { cause })?
-    {
-        // No credential for this subject at this source. Unreachable through the only adapter wired
-        // for this path today - `sutura_exec_postgres::adbc::AdbcPostgres` runs under one shared credential every
-        // subject shares - and there is deliberately no `RawRefusalReason` variant for it yet: the
-        // vocabulary is closed over what this PR's one adapter can provoke, and a future
-        // per-subject-credential raw adapter is what would earn a dedicated one. Until `run_sql`
-        // gets `federation_allowed`, one variant has no producer: no adapter provokes
-        // `PlanSpansMoreThanOneSource` yet. An address outside a source's `address_domains` is the
-        // same refusal here: the raw vocabulary has no variant for it.
-        Agreed::Refused { .. } | Agreed::AddressOutsideDomains { .. } => {
-            return Ok(AnsweredRaw::declined_before_minting(RawOutcome::Refusal {
-                reason: RawRefusalReason::SourceRefused,
-            }));
-        }
-        Agreed::Granted { credentials } => credentials,
-    };
-    let presented = credentials
-        .presented_for(source)
-        .map_err(|cause| RunSqlError::Credentials { cause })?;
-    presented
-        .agrees_with(warehouse.posture(), source)
-        .map_err(|cause| RunSqlError::Posture { cause })?;
-    // Checked before the call is made and never re-derived - the same shape `crate::answer`'s own
-    // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the statement
-    // is refused before the data system is asked at all.
-    if deadline.remaining_at(Instant::now()).is_none() {
-        return Ok(AnsweredRaw::under(
-            &credentials,
-            RawOutcome::Refusal {
-                reason: RawRefusalReason::DeadlineExceeded {
-                    budget_seconds: deadline.budget().seconds(),
-                },
-            },
-        ));
-    }
-    let Some(executed) = warehouse.execute_raw(statement, presented, deadline) else {
+    let mut legs = RawLegs::new(context, broker, warehouses, deadline);
+    let outcome = pass_through(&mut legs, statement, source)?;
+    Ok(legs.answered(outcome))
+}
+
+/// The raw tool a surface serves: `statement` planned by `combiner` over the tables of the sources
+/// `scope` lists that this caller's view holds, or passed through to the one source `scope` lists
+/// where the combiner plans none.
+///
+/// `executed_as` names each source a planned answer read only where `scope.federation_allowed`;
+/// with it off a planned answer read one source, and the outcome carries none, as a passed-through
+/// one does.
+pub(crate) fn answer_sql<W, B, C>(
+    pinned: &Validated<PinnedDefinitions>,
+    context: &RequestContext,
+    statement: &RawStatement,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+    combiner: &C,
+    scope: &RunSqlScope,
+    working_set_bytes: u64,
+    deadline: Deadline,
+) -> RunningRaw<B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let tables = tables(pinned, context, warehouses, &scope.sources);
+    let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes);
+    let mut legs = RawLegs::new(context, broker, warehouses, deadline);
+    let outcome = match combiner.answer_statement(question, &mut legs) {
+        Some(Ok(rows)) => Ok(answer(rows, legs.executed_as.take().filter(|_| scope.federation_allowed))),
+        Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
+        Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
+        Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
+        Some(Err(StatementStopped::AnswerTooLarge)) => Ok(refusal(RawRefusalReason::ResultTooLarge)),
+        None => match scope.sources.as_slice() {
+            [source] => pass_through(&mut legs, statement, source),
+            _ => Err(RunSqlError::Unplanned),
+        },
+    }?;
+    Ok(legs.answered(outcome))
+}
+
+/// Every table this caller may read: each model its scoped view lists on a listed source, with the
+/// columns the pinned schema set holds for it. A model with a column of no mapped type is no table,
+/// and neither is one at a source with no dialect.
+fn tables<W>(
+    pinned: &Validated<PinnedDefinitions>,
+    context: &RequestContext,
+    warehouses: &Warehouses<W>,
+    listed: &[SourceName],
+) -> Vec<StatementTable>
+where
+    W: Warehouse,
+{
+    let schemas = pinned.schemas();
+    scoped_for(pinned.get(), context)
+        .models()
+        .filter(|model| listed.contains(model.source()) && schemas.fell_back(model.name()).next().is_none())
+        .filter_map(|model| {
+            let dialect = warehouses.get(model.source())?.type_dialect()?;
+            let schema = schemas.of(model.name())?;
+            Some(StatementTable::new(
+                model.source().clone(),
+                model.table().clone(),
+                dialect,
+                Arc::clone(schema),
+            ))
+        })
+        .collect()
+}
+
+/// `statement` through to `source` as written, as one leg.
+fn pass_through<W, B>(legs: &mut RawLegs<'_, W, B>, statement: &RawStatement, source: &SourceName) -> Settled<B::Error>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    // Before the broker is asked: an adapter that takes no raw text has no credential to be minted.
+    if !legs.warehouses.get(source).is_some_and(W::accepts_raw_statements) {
         return Err(RunSqlError::NoAcceptingSource);
-    };
-    let raw_rows = match executed {
-        Ok(raw_rows) => raw_rows,
-        Err(cause) => {
-            let reason = if warehouse.result_did_not_fit(&cause) {
+    }
+    let ran = legs
+        .open(&BTreeSet::from([source.clone()]))
+        .and_then(|()| legs.run(source, statement));
+    settled(ran.map(|rows| answer(rows, None)))
+}
+
+/// An outcome the caller reads, or a failure that is not the statement's.
+type Settled<M> = Result<RawOutcome, RunSqlError<M>>;
+
+/// Why a leg ended the call: a refusal the caller reads, or a failure that is not the statement's.
+#[derive(Debug)]
+pub(crate) enum LegStop<M> {
+    Refused(RawRefusalReason),
+    Failed(RunSqlError<M>),
+}
+
+/// A leg's refusal is the caller's answer; any other stop is this call's failure.
+fn settled<M>(ran: Result<RawOutcome, LegStop<M>>) -> Settled<M> {
+    match ran {
+        Ok(outcome) => Ok(outcome),
+        Err(LegStop::Refused(reason)) => Ok(refusal(reason)),
+        Err(LegStop::Failed(failure)) => Err(failure),
+    }
+}
+
+const fn refusal(reason: RawRefusalReason) -> RawOutcome {
+    RawOutcome::Refusal { reason }
+}
+
+/// Rows as the caller reads them, or `TooManyRows` over the cap.
+fn answer(rows: RawRows, executed_as: Option<ExecutedAs>) -> RawOutcome {
+    if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
+        return refusal(RawRefusalReason::TooManyRows { limit: MAX_ROWS });
+    }
+    let (columns, values) = rows.into_parts();
+    let rows = values.iter().map(|row| row.iter().map(Value::render).collect()).collect();
+    RawOutcome::Rows {
+        columns,
+        rows,
+        executed_as,
+    }
+}
+
+/// The legs of one statement, run through the raw port under one mint.
+pub(crate) struct RawLegs<'a, W, B> {
+    context: &'a RequestContext,
+    broker: &'a B,
+    warehouses: &'a Warehouses<W>,
+    deadline: Deadline,
+    credentials: Option<BoundToTheRequest>,
+    executed_as: Option<ExecutedAs>,
+}
+
+impl<'a, W, B> RawLegs<'a, W, B> {
+    const fn new(context: &'a RequestContext, broker: &'a B, warehouses: &'a Warehouses<W>, deadline: Deadline) -> Self {
+        Self {
+            context,
+            broker,
+            warehouses,
+            deadline,
+            credentials: None,
+            executed_as: None,
+        }
+    }
+
+    /// `outcome`, with the expiry of the credentials it ran under: `None` where nothing was minted.
+    fn answered(&self, outcome: RawOutcome) -> AnsweredRaw {
+        AnsweredRaw {
+            outcome,
+            executed_until: self.credentials.as_ref().map(BoundToTheRequest::not_after),
+        }
+    }
+}
+
+impl<W, B> StatementLegs for RawLegs<'_, W, B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    type Stop = LegStop<B::Error>;
+
+    fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
+        let mut each = sources.iter().cloned();
+        let Some(first) = each.next() else {
+            return Ok(());
+        };
+        let requested = each.fold(SourceSet::of(first), SourceSet::and);
+        let minted = self
+            .broker
+            .mint(self.context, &requested)
+            .map_err(|cause| LegStop::Failed(RunSqlError::Broker { cause }))?;
+        let credentials = match minted
+            .agreeing_with(self.context.chain().subject(), &requested, now_in_unix_seconds())
+            .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?
+        {
+            // No credential for this subject at a source, or an address outside its
+            // `address_domains`: the raw vocabulary has one variant for both.
+            Agreed::Refused { .. } | Agreed::AddressOutsideDomains { .. } => {
+                return Err(LegStop::Refused(RawRefusalReason::SourceRefused));
+            }
+            Agreed::Granted { credentials } => credentials,
+        };
+        self.credentials = Some(credentials);
+        self.executed_as = executed_as(self.warehouses, sources);
+        Ok(())
+    }
+
+    fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
+        let (Some(warehouse), Some(credentials)) = (self.warehouses.get(source), self.credentials.as_ref()) else {
+            return Err(LegStop::Failed(RunSqlError::Unplanned));
+        };
+        let presented = credentials
+            .presented_for(source)
+            .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?;
+        presented
+            .agrees_with(warehouse.posture(), source)
+            .map_err(|cause| LegStop::Failed(RunSqlError::Posture { cause }))?;
+        let budget_seconds = self.deadline.budget().seconds();
+        // Checked before each leg is run and never re-derived - the same shape `crate::answer`'s own
+        // pre-`execute` check takes (`docs/adr/0029`): a budget already spent here means the leg
+        // is refused before the data system is asked at all.
+        if self.deadline.remaining_at(Instant::now()).is_none() {
+            return Err(LegStop::Refused(RawRefusalReason::DeadlineExceeded { budget_seconds }));
+        }
+        let Some(executed) = warehouse.execute_raw(statement, presented, self.deadline) else {
+            return Err(LegStop::Failed(RunSqlError::NoAcceptingSource));
+        };
+        let rows = executed.map_err(|cause| {
+            LegStop::Refused(if warehouse.result_did_not_fit(&cause) {
                 RawRefusalReason::ResultTooLarge
             } else if warehouse.deadline_exceeded(&cause) {
-                RawRefusalReason::DeadlineExceeded {
-                    budget_seconds: deadline.budget().seconds(),
-                }
+                RawRefusalReason::DeadlineExceeded { budget_seconds }
             } else if warehouse.source_refused(&cause) {
                 RawRefusalReason::SourceRefused
             } else {
                 RawRefusalReason::StatementFailed
-            };
-            return Ok(AnsweredRaw::under(&credentials, RawOutcome::Refusal { reason }));
+            })
+        })?;
+        if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
+            return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
         }
-    };
-    if exceeds_row_cap(raw_rows.rows().len(), sutura_domain::plan::MAX_ROWS) {
-        return Ok(AnsweredRaw::under(
-            &credentials,
-            RawOutcome::Refusal {
-                reason: RawRefusalReason::TooManyRows {
-                    limit: sutura_domain::plan::MAX_ROWS,
-                },
-            },
-        ));
+        Ok(rows)
     }
-    let (columns, values) = raw_rows.into_parts();
-    let rows = values
-        .iter()
-        .map(|row| row.iter().map(sutura_domain::warehouse::Value::render).collect())
-        .collect();
-    Ok(AnsweredRaw::under(&credentials, RawOutcome::Rows { columns, rows }))
 }
 
-/// What [`single_raw_capable_warehouse`] finds: the one source and its adapter, or why there is none.
-type TheSoleRawSource<'a, W> = Result<(&'a SourceName, &'a W), RawRefusalReason>;
-
-/// The one data system this deployment opened, if it is exactly one and accepts raw text, or the
-/// refusal that says which is not the case.
-///
-/// **More than one open source is refused, never narrowed**: a deployment with two has no way, in
-/// this PR, to say which one the raw tool means, and guessing would run a caller's statement against
-/// a source they did not name.
-fn single_raw_capable_warehouse<W>(warehouses: &Warehouses<W>) -> TheSoleRawSource<'_, W>
+/// One entry for each of `sources`, with the posture its adapter holds. A set holds no source twice,
+/// so [`ExecutedAs::and`] refuses none.
+fn executed_as<W>(warehouses: &Warehouses<W>, sources: &BTreeSet<SourceName>) -> Option<ExecutedAs>
 where
     W: Warehouse,
 {
-    if warehouses.count() != 1 {
-        return Err(RawRefusalReason::MoreThanOneSourceOpen);
-    }
-    if !W::ACCEPTS_RAW_STATEMENTS {
-        return Err(RawRefusalReason::NoSourceAcceptsRawStatements);
-    }
-    warehouses.each().next().ok_or(RawRefusalReason::NoSourceAcceptsRawStatements)
+    let mut each = sources
+        .iter()
+        .filter_map(|source| warehouses.get(source).map(|warehouse| (source, warehouse.posture())));
+    let (first, posture) = each.next()?;
+    each.try_fold(ExecutedAs::of(first.clone(), posture.clone()), |record, (source, posture)| {
+        record.and(source.clone(), posture.clone())
+    })
+    .ok()
 }
 
 #[cfg(test)]

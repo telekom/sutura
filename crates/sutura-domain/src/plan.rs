@@ -55,7 +55,8 @@ pub use crate::plan::drill_across::{
 pub use crate::plan::federated::{
     AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
     InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, LookupLeg, LookupLegs, LookupLegsError,
-    QuotedColumnType, SlotsHeld, WorkerSlotsWanted, WorkersShort, labels,
+    QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
+    WorkerSlotsWanted, WorkersShort, labels,
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use crate::plan::federated::{NothingCombined, RefusingCombiner};

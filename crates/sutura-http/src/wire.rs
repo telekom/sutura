@@ -23,6 +23,7 @@
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::RowSet;
 
 /// Why a body is not a question.
@@ -397,7 +398,7 @@ impl From<&ToolOutcome> for Outcome {
                 status: axum::http::StatusCode::OK,
                 body: OutcomeBody::Answer {
                     provenance: provenance_body(provenance),
-                    executed_as: legs(provenance),
+                    executed_as: legs(provenance.executed_as()),
                     columns: rows.columns().to_vec(),
                     rows: render(rows),
                 },
@@ -475,11 +476,10 @@ pub(crate) fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
 /// Which identity each leg of one answer ran as.
 ///
 /// One entry per source the answer actually read, in source order, which for a mono-source answer is
-/// one. Read off the `Provenance` the domain built from the adapter that executed - not from
+/// one. Read off the record the domain built from the adapters that executed - not from
 /// configuration.
-fn legs(provenance: &Provenance) -> Vec<LegBody> {
-    provenance
-        .executed_as()
+fn legs(executed_as: &ExecutedAs) -> Vec<LegBody> {
+    executed_as
         .legs()
         .map(|(source, posture)| LegBody {
             source: String::from(source.as_str()),

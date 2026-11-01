@@ -8,12 +8,12 @@ index 031941e97..3b35984e5 100644
                  ref rows,
 -            } => Self::Answer {
 -                provenance: provenance_content(provenance),
--                executed_as: legs(provenance),
+-                executed_as: legs(provenance.executed_as()),
 -                columns: rows.columns().to_vec(),
 -                rows: render(rows),
 -            },
 +            } => {
-+                let _ = (provenance_content(provenance), legs(provenance), render(rows));
++                let _ = (provenance_content(provenance), legs(provenance.executed_as()), render(rows));
 +                Self::from(&ToolOutcome::Refusal {
 +                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
 +                })

@@ -56,6 +56,7 @@
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{MAX_METRICS, Query, ToolOutcome};
 use sutura_domain::question::RawFilter;
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::RowSet;
 
 use crate::refusal;
@@ -321,7 +322,7 @@ impl From<&ToolOutcome> for OutcomeContent {
                 ref rows,
             } => Self::Answer {
                 provenance: provenance_content(provenance),
-                executed_as: legs(provenance),
+                executed_as: legs(provenance.executed_as()),
                 columns: rows.columns().to_vec(),
                 rows: render(rows),
             },
@@ -443,10 +444,9 @@ fn bundle_content(pinned: &PinnedDefinitions) -> ProvenanceContent {
 
 /// Which identity each leg of one answer ran as, in source order.
 ///
-/// Read off the `Provenance` the domain built from the adapter that executed - not from configuration.
-fn legs(provenance: &Provenance) -> Vec<LegContent> {
-    provenance
-        .executed_as()
+/// Read off the record the domain built from the adapters that executed - not from configuration.
+fn legs(executed_as: &ExecutedAs) -> Vec<LegContent> {
+    executed_as
         .legs()
         .map(|(source, posture)| LegContent {
             source: String::from(source.as_str()),

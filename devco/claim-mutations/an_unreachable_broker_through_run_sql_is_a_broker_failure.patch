@@ -1,13 +1,13 @@
 diff --git a/crates/sutura-app/src/raw.rs b/crates/sutura-app/src/raw.rs
-index 4583aefae..2e44627c6 100644
+index 8c128526f..7da488027 100644
 --- a/crates/sutura-app/src/raw.rs
 +++ b/crates/sutura-app/src/raw.rs
-@@ -140,7 +140,7 @@ where
-     let requested = SourceSet::of(source.clone());
-     let minted = broker
-         .mint(context, &requested)
--        .map_err(|cause| RunSqlError::Broker { cause })?;
-+        .map_err(|_cause| RunSqlError::NoAcceptingSource)?;
-     let credentials = match minted
-         .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
-         .map_err(|cause| RunSqlError::Credentials { cause })?
+@@ -333,7 +333,7 @@ where
+         let minted = self
+             .broker
+             .mint(self.context, &requested)
+-            .map_err(|cause| LegStop::Failed(RunSqlError::Broker { cause }))?;
++            .map_err(|_cause| LegStop::Failed(RunSqlError::NoAcceptingSource))?;
+         let credentials = match minted
+             .agreeing_with(self.context.chain().subject(), &requested, now_in_unix_seconds())
+             .map_err(|cause| LegStop::Failed(RunSqlError::Credentials { cause }))?

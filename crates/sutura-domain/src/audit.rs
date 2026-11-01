@@ -145,8 +145,13 @@ pub enum RecordedOutcome<'a> {
     /// A raw statement executed. `docs/adr/0013`'s ramp section is explicit that this record is what
     /// makes an ungoverned answer a written demand signal rather than a hole - so unlike
     /// [`Self::Answered`], the statement text rides on the record. It is never returned to the
-    /// caller: [`CallRecord::statement`] is this module's only accessor for it.
-    RawAnswered { rows: usize, statement: &'a RawStatement },
+    /// caller: [`CallRecord::statement`] is this module's only accessor for it. `executed_as` is the
+    /// outcome's own, present only where the statement was federated.
+    RawAnswered {
+        rows: usize,
+        statement: &'a RawStatement,
+        executed_as: Option<&'a ExecutedAs>,
+    },
     /// A raw statement was refused, before or after it reached the data system. The statement rides
     /// here too, for the same reason: a refused raw call is exactly the demand signal the ramp
     /// section wants recorded, and the SQL that would have answered it is the point.
@@ -224,9 +229,14 @@ impl<'a> CallRecord<'a> {
         executed_until: Option<Expiry>,
     ) -> Self {
         let recorded = match *outcome {
-            RawOutcome::Rows { ref rows, .. } => RecordedOutcome::RawAnswered {
+            RawOutcome::Rows {
+                ref rows,
+                ref executed_as,
+                ..
+            } => RecordedOutcome::RawAnswered {
                 rows: rows.len(),
                 statement,
+                executed_as: executed_as.as_ref(),
             },
             RawOutcome::Refusal { ref reason } => RecordedOutcome::RawRefused { reason, statement },
         };
@@ -342,13 +352,13 @@ impl<'a> CallRecord<'a> {
     pub const fn executed_as(&self) -> Option<&ExecutedAs> {
         match self.outcome {
             RecordedOutcome::Answered { provenance, .. } => Some(provenance.executed_as()),
-            // Neither raw arm carries a `Provenance` - that is `docs/adr/0013`'s whole load-bearing
-            // property read from the other side: there is no identity label to report here because
-            // there is no field to have carried one.
+            // A federated raw statement's own record, outside any `Provenance`: neither raw arm
+            // carries one - that is `docs/adr/0013`'s whole load-bearing property read from the other
+            // side.
+            RecordedOutcome::RawAnswered { executed_as, .. } => executed_as,
             // Nor does `RemoteLegOutcome` - it is this module's third no-`Provenance` type, for
             // `RemoteLegOutcome`'s own reason: the serving node's pin is not this record's own.
             RecordedOutcome::Refused { .. }
-            | RecordedOutcome::RawAnswered { .. }
             | RecordedOutcome::RawRefused { .. }
             | RecordedOutcome::RemoteLegAnswered { .. }
             | RecordedOutcome::RemoteLegRefused { .. }
@@ -514,6 +524,7 @@ mod tests {
         let rows = RawOutcome::Rows {
             columns: vec![String::from("n")],
             rows: vec![vec![String::from("1")]],
+            executed_as: None,
         };
         let refused = RawOutcome::Refusal {
             reason: RawRefusalReason::StatementFailed,

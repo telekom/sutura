@@ -26,6 +26,8 @@
 
 use core::fmt;
 
+use crate::source::ExecutedAs;
+
 /// The largest raw statement this deployment will parse, in bytes.
 ///
 /// Bound at the edge, before anything does work proportional to it - the same argument
@@ -156,24 +158,12 @@ pub enum RawRefusalReason {
     /// [`crate::query::RefusalReason::DeadlineExceeded`]'s own reason: a number an operator
     /// configured, safe in a log, not how long the statement ran.
     DeadlineExceeded { budget_seconds: u64 },
-    /// The statement reads tables of more than one source, and this deployment does not combine
-    /// sources in one statement.
+    /// The statement reads tables of more than one source, and `tools.run_sql.federation_allowed`
+    /// is off.
     ///
     /// Refused before any leg exists, so nothing reached a data system. Carries no source name: the
     /// caller already holds its own tool's source list.
     PlanSpansMoreThanOneSource,
-    /// This deployment opened more than one data system, and the raw tool runs a statement against
-    /// exactly one.
-    ///
-    /// Refused before a credential is minted, so nothing reached a data system. A deployment with two
-    /// open sources has no way to say which one the statement means, and guessing would run the
-    /// caller's text against a source they did not name.
-    MoreThanOneSourceOpen,
-    /// The one data system this deployment opened does not accept a raw statement.
-    ///
-    /// Refused before a credential is minted. The adapter, not the caller, decides this, so asking
-    /// again changes nothing.
-    NoSourceAcceptsRawStatements,
 }
 
 impl RawRefusalReason {
@@ -192,8 +182,6 @@ impl RawRefusalReason {
             Self::SourceRefused => "source_refused",
             Self::DeadlineExceeded { .. } => "deadline_exceeded",
             Self::PlanSpansMoreThanOneSource => "plan_spans_more_than_one_source",
-            Self::MoreThanOneSourceOpen => "more_than_one_source_open",
-            Self::NoSourceAcceptsRawStatements => "no_source_accepts_raw_statements",
         }
     }
 }
@@ -219,16 +207,6 @@ impl fmt::Display for RawRefusalReason {
                 f,
                 "the statement reads from more than one data system, and this deployment runs a statement against one"
             ),
-            Self::MoreThanOneSourceOpen => write!(
-                f,
-                "this deployment opened more than one data system, and a raw statement runs against exactly one; \
-                 use the certified tools, or ask the operator to open a single source"
-            ),
-            Self::NoSourceAcceptsRawStatements => write!(
-                f,
-                "the data system this deployment opened does not accept a raw statement; \
-                 use the certified tools, or ask the operator to turn off `tools.run_sql.enabled`"
-            ),
         }
     }
 }
@@ -253,7 +231,15 @@ pub enum RawOutcome {
     /// value as text - but there is no `RowSet` here and no shared constructor with one: the raw path
     /// builds this straight from the driver's own columns, so nothing about the certified answer's
     /// row-set type can leak a field this variant does not declare.
-    Rows { columns: Vec<String>, rows: Vec<Vec<String>> },
+    ///
+    /// `executed_as` is one entry for each source a federated statement read, and `None` for a
+    /// statement `tools.run_sql.federation_allowed` did not federate. It is not a `Provenance`: it
+    /// discloses who each leg ran as, and certifies nothing.
+    Rows {
+        columns: Vec<String>,
+        rows: Vec<Vec<String>>,
+        executed_as: Option<ExecutedAs>,
+    },
     /// The statement was refused, before or after it reached the data system.
     Refusal { reason: RawRefusalReason },
 }
@@ -291,6 +277,7 @@ impl RawOutcome {
 ///     provenance: (),
 ///     columns: Vec::new(),
 ///     rows: Vec::new(),
+///     executed_as: None,
 /// };
 /// ```
 ///
@@ -303,6 +290,7 @@ impl RawOutcome {
 /// let _ = RawOutcome::Rows {
 ///     columns: Vec::new(),
 ///     rows: Vec::new(),
+///     executed_as: None,
 /// };
 /// ```
 mod compile_fail_has_no_provenance {}
@@ -340,6 +328,7 @@ mod tests {
         let raw = RawOutcome::Rows {
             columns: vec![String::from("n")],
             rows: vec![vec![String::from("1")]],
+            executed_as: None,
         };
         let value = serde_json::to_value(&raw).expect("a raw outcome serializes");
         let rendered = serde_json::to_string(&value).expect("a raw outcome round-trips through JSON text");
@@ -363,6 +352,7 @@ mod tests {
         let rows = RawOutcome::Rows {
             columns: Vec::new(),
             rows: vec![vec![]],
+            executed_as: None,
         };
         assert_eq!(rows.refusal(), None);
     }
@@ -376,8 +366,6 @@ mod tests {
             RawRefusalReason::SourceRefused,
             RawRefusalReason::DeadlineExceeded { budget_seconds: 30 },
             RawRefusalReason::PlanSpansMoreThanOneSource,
-            RawRefusalReason::MoreThanOneSourceOpen,
-            RawRefusalReason::NoSourceAcceptsRawStatements,
         ] {
             assert_ne!(reason.code(), "");
             assert_ne!(reason.to_string(), "");
@@ -393,11 +381,6 @@ mod tests {
         assert_eq!(
             RawRefusalReason::PlanSpansMoreThanOneSource.code(),
             "plan_spans_more_than_one_source"
-        );
-        assert_eq!(RawRefusalReason::MoreThanOneSourceOpen.code(), "more_than_one_source_open");
-        assert_eq!(
-            RawRefusalReason::NoSourceAcceptsRawStatements.code(),
-            "no_source_accepts_raw_statements"
         );
     }
 }

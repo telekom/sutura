@@ -284,7 +284,16 @@ where
             working_set_bytes,
         ),
     }
-    .map(|service| service.with_spend_ledger(spend_ledger).with_ceilings(settings.ceilings()));
+    .map(|service| {
+        let run_sql = sutura_app::RunSqlScope::new(
+            settings.tools().run_sql_sources().to_vec(),
+            settings.tools().run_sql_federation_allowed(),
+        );
+        service
+            .with_spend_ledger(spend_ledger)
+            .with_ceilings(settings.ceilings())
+            .with_run_sql(run_sql)
+    });
     service.map_err(|cause| flatten(&cause))
 }
 

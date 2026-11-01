@@ -2,11 +2,9 @@
 //! certified question is answered over the binary's pipes, and the raw tool is absent unless a
 //! deployment turns it on.
 
-use std::path::Path;
-
 use sutura_app::Capability;
 
-use crate::harness::{SOURCE, VERSION, recurring_revenue_june, spawn, spawn_configured};
+use crate::harness::{SOURCE, VERSION, recurring_revenue_june, spawn};
 
 /// The committed input schema for one capability, as JSON.
 ///
@@ -20,8 +18,9 @@ use crate::harness::{SOURCE, VERSION, recurring_revenue_june, spawn, spawn_confi
 /// a workspace build - so a textual compare would be asserting key order in a served reply,
 /// which is not a property anybody wants. `serde_json::Value`'s equality is map equality at
 /// every depth, which is exactly the claim.
+#[cfg(feature = "duckdb")]
 fn committed_schema(capability: Capability) -> serde_json::Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../sutura-mcp/src/snapshots")
         .join(format!("sutura_mcp__tool__tests__{}_input_schema.snap", capability.id()));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|cause| {
@@ -55,7 +54,7 @@ fn the_schemas_the_binary_advertises_are_the_committed_ones() {
     // `#129`'s own `the_raw_tool_is_absent_unless_this_deployment_turned_it_on` is the test that a
     // DEFAULT deployment does not advertise it.
     let dir = crate::harness::raw_sql_settings("mcp-every-tool-advertised");
-    let mut agent = spawn_configured(&dir);
+    let mut agent = crate::harness::spawn_configured(&dir);
     drop(agent.initialize());
     let result = agent.request("tools/list", &serde_json::json!({}));
     let listed = result["tools"].as_array().cloned().unwrap_or_default();
@@ -183,7 +182,7 @@ fn the_raw_tool_is_absent_unless_this_deployment_turned_it_on() {
     // And turned on, it is listed - the schema test above proves what it is listed AS.
     #[cfg(feature = "duckdb")]
     {
-        let mut agent = spawn_configured(&crate::harness::raw_sql_settings("mcp-run-sql-enabled-listing"));
+        let mut agent = crate::harness::spawn_configured(&crate::harness::raw_sql_settings("mcp-run-sql-enabled-listing"));
         drop(agent.initialize());
         let listed = agent.request("tools/list", &serde_json::json!({}));
         assert!(
