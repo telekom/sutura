@@ -827,8 +827,7 @@ mod tests {
         use super::{Arm, DrillAcrossPlan, joined, joined_over_two_facts, local};
         use crate::plan::federated::{ExecuteError, FederationCombiner, LegRunner, Legs};
         use crate::plan::{ArmLegs, DrillAcrossCombiner, LegPlan, NothingCombined, RefusingCombiner};
-        use crate::warehouse::ResultBatches;
-        use crate::warehouse::arrow::of_rows;
+        use crate::warehouse::{ResultBatches, arrow::of_rows};
 
         fn batches() -> ResultBatches {
             of_rows(&[String::from("x")], &[]).expect("an empty result of one column is well formed")
@@ -884,12 +883,13 @@ mod tests {
             fn combine(&self, _: &super::FederatedPlan, _: Legs<'_>, _: u64) -> Result<ResultBatches, Self::Error> {
                 Err(NothingCombined)
             }
-
             fn working_set_exhausted(&self, _: &Self::Error) -> Option<u64> {
                 None
             }
-
             fn answer_not_well_formed(&self, _: &Self::Error) -> Option<crate::plan::FederatedAnswerRefusal> {
+                None
+            }
+            fn workers_not_ready(&self, _: &Self::Error) -> Option<crate::plan::WorkersShort> {
                 None
             }
         }

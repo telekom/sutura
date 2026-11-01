@@ -101,6 +101,10 @@ impl FederationCombiner for Misuses {
         self.0.answer_not_well_formed(error)
     }
 
+    fn workers_not_ready(&self, error: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
+        self.0.workers_not_ready(error)
+    }
+
     fn execute<R>(&self, cut: Cut<'_>, runner: &R, _working_set_bytes: u64) -> Executed<R, Self>
     where
         R: LegRunner + Sync,

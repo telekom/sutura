@@ -75,7 +75,7 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 // `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
 use futures_util::StreamExt as _;
 use sutura_domain::model::{Aggregate, SourceName};
-use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs};
+use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs, WorkersShort};
 use sutura_domain::query::MAX_LOOKUP_LEGS;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
@@ -157,7 +157,7 @@ const EXACT_SUM_PRECISION: u8 = 76;
 
 /// Why a combine could not be assembled.
 ///
-/// Split the way the port's two predicates read it: the caller-facing arms are deterministic
+/// Split the way the port's predicates read it: the caller-facing arms are deterministic
 /// refusals about the DATA the legs returned, and the rest are this workspace's own wiring or the
 /// engine's. Every arm carries an Arrow type or a label where it carries anything at all - a
 /// driver's metadata and a label the splitter assigned - and never a cell.
@@ -294,6 +294,9 @@ pub enum CombineError {
     /// The measure is not a finite number.
     #[error("the combined answer's measure is not a finite number")]
     NonFinite,
+    /// The question wanted other nodes, and none had resolved when the declared wait ended.
+    #[error("the combine wanted {wanted} other nodes and {ready} were ready when the wait ended")]
+    WorkersNotReady { wanted: usize, ready: usize },
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -438,7 +441,8 @@ impl DataFusionCombiner {
     /// On this node, unless [`Self::across`] declared nodes and the question reads more than one data
     /// system, in which case `legs_bytes` is what its legs hold. Then it is planned across the nodes
     /// at once when [`Nodes`] says its legs are too large for one, and otherwise tried on this node
-    /// first and planned across only when that is refused for its working set.
+    /// first and planned across only when that is refused for its working set. Planning across may
+    /// first wait for other nodes - see [`Nodes::wait_for_workers`].
     #[cfg_attr(
         not(feature = "distributed"),
         expect(
@@ -462,7 +466,7 @@ impl DataFusionCombiner {
                     answered => return answered,
                 }
             }
-            return run(&nodes.session(working_set)?, working_set);
+            return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set);
         }
         run(&bounded_session(working_set)?, working_set)
     }
@@ -691,6 +695,13 @@ impl FederationCombiner for DataFusionCombiner {
         }
     }
 
+    fn workers_not_ready(&self, error: &Self::Error) -> Option<WorkersShort> {
+        match *error {
+            CombineError::WorkersNotReady { wanted, ready } => Some(WorkersShort::new(wanted, ready)),
+            _ => None,
+        }
+    }
+
     /// **Exhaustive with no wildcard arm**, so a variant added to [`CombineError`] has to say which
     /// side of the split it is on before this compiles. The direction the mistake would fall in is
     /// the one that tells a caller to retry a refusal that returns the same answer.
@@ -707,7 +718,7 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first.
+            // `sutura_app` asks first. So is `WorkersNotReady`, which `workers_not_ready` answers.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -721,7 +732,8 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::MissingColumn { .. }
             | CombineError::DuplicateLabels { .. }
             | CombineError::UnsupportedAggregate { .. }
-            | CombineError::LinkTypeNotMapped { .. } => None,
+            | CombineError::LinkTypeNotMapped { .. }
+            | CombineError::WorkersNotReady { .. } => None,
         }
     }
 }
