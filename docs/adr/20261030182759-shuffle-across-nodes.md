@@ -1,13 +1,19 @@
 ---
 title: One question's combine runs across nodes, and a stream between them carries a node identity and a task grant
-description: How a federated question whose combine is too big for one node spreads over several (#828). datafusion-distributed runs the combine's stages on several nodes, with no coordinator service. Only a node that reads a source holds the caller's credential. A stream in the middle of the combine is authenticated by mutual TLS between nodes, plus a grant from the coordinating node that names the question, the stage and the caller.
+description: How a federated question whose combine is too big for one node spreads over several (#828). datafusion-distributed runs the combine's stages on several nodes, with no coordinator service. Only a node that reads a source holds the caller's credential. A stream in the middle of the combine is authenticated by mutual TLS between nodes, plus a grant under a key drawn for that one question, naming the question and the caller.
 ---
 
 # One question's combine runs across nodes, and a stream between them carries a node identity and a task grant
 
 Status: **accepted**, 2026-10-31, scoped to a question whose join or aggregation needs more than
 one node. The owner chose the engine family, the stream identity and when a question goes across,
-the answers below. Decision 5, the task grant, is deferred. This record decides; it proves nothing.
+the answers below, and on 2026-11-01 how a task grant is keyed and checked: *Amendment, 2026-11-01*
+at the end. Built: the stages planned across the declared nodes (#1641, #1646), a worker transport
+only a node with a certificate may call (#1642, #1643, #1644), the receiving node's refusal of a
+stage that reads a source (#1647), the size rule (#1654), a lost node as `node_lost` (#1674), and the
+in-process differential over three nodes (#1650). The multi-node VM test plans a combine across both
+nodes and refuses a worker call from a non-node (#1648, #1651). Decision 5, the task grant, is not
+built. This record decides; it proves nothing.
 
 ## The question
 
@@ -58,7 +64,8 @@ caller's question it belongs to?
    the worker service. That handler discards request metadata, so the check cannot sit inside it.
    A call is refused when its grant does not verify, has expired, or names another task. The grant
    grants no source access. It ties a stream to one question, so that a node with a valid
-   certificate cannot pull another question's rows.
+   certificate cannot pull another question's rows. *Amended 2026-11-01: the grant is keyed per
+   question and names the question, not the stage or the partition.*
 6. **Rows stay in memory and are never stored.** Each node runs its stages under its own
    working-set pool, with the same never-spill policy. A node over its budget refuses, and the
    question is refused with `resources_exhausted`. The engine streams between nodes, and its source, read on 2026-10-30,
@@ -81,20 +88,19 @@ caller's question it belongs to?
 
 ## Open, with a proposal
 
-| Question                                        | Proposal                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Which key signs a grant?                        | The coordinating node's certificate key, verified against the deployment's authority. A key shared by the cluster would let any node mint a grant. Every node holds such a key too, so any node of the authority mints a grant as well: the grant adds an expiry and an audit line, and restricts nothing, unless only coordinating nodes hold a signing authority of their own. Deferred by the owner on 2026-10-31 |
-| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates                                                                                                                                                                                                                      |
+| Question                                        | Proposal                                                                                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Which crate hosts the worker service and codec? | `sutura-exec-datafusion`, behind a default-off `distributed` feature. The engine plans the combine's own session, and the crate-boundary gate refuses an edge between two `sutura-exec-` crates |
 
 ## The refusals this adds
 
-| Where          | Refused                                                                       | Why        |
-| -------------- | ----------------------------------------------------------------------------- | ---------- |
-| Receiving node | A stage it is sent with a leaf that reads a source                            | Decision 3 |
-| Receiving node | A worker call with no client certificate, or one the authority did not sign   | Decision 4 |
-| Receiving node | A worker call whose grant does not verify, has expired, or names another task | Decision 5 |
-| Any node       | A stage over that node's working-set budget                                   | Decision 6 |
-| Coordinator    | A question that lost a node mid-run                                           | Decision 7 |
+| Where          | Refused                                                                           | Why        |
+| -------------- | --------------------------------------------------------------------------------- | ---------- |
+| Receiving node | A stage it is sent with a leaf that reads a source                                | Decision 3 |
+| Receiving node | A worker call with no client certificate, or one the authority did not sign       | Decision 4 |
+| Receiving node | A worker call whose grant does not verify, has expired, or names another question | Decision 5 |
+| Any node       | A stage over that node's working-set budget                                       | Decision 6 |
+| Coordinator    | A question that lost a node mid-run                                               | Decision 7 |
 
 A new refusal enum is enrolled in `check-refusal-coverage`, which reads only enrolled enums. A
 refusal with one mode is a struct, which that gate does not read. Each refusal gets its own cell.
@@ -161,3 +167,37 @@ refusal with one mode is a struct, which that gate does not read. Each refusal g
 - A node certificate per node in both venues, and a client-certificate path on the listener.
 - The `Cargo.toml` entry for the engine states why `sql` is off, as the `datafusion-federation`
   entry does.
+
+## Amendment, 2026-11-01: a grant is keyed per question
+
+The owner decided which key makes a grant, and where it is checked.
+
+- **A key per question.** When the coordinating node plans a question across nodes, it draws a
+  random 256-bit key. It sends the key only to the nodes it gives one of that question's stages, in a
+  request header on the engine's coordinator call, over the nodes' mutual TLS link. A grant is an
+  HMAC-SHA256 under that key over the question's id, the caller's `SubjectKey` and an expiry no later
+  than the question's deadline. A node outside the question never holds the key, so it can neither
+  make a grant for that question nor present one. The key is never written to a log; the question's
+  id may be.
+- **The grant names the question, not the stage or the partition.** Every node that holds the key
+  can make a grant for any stage of that question, so naming a stage would restrict nothing.
+- **No node's certificate key makes a grant.** Every node holds one from the same authority, so a
+  grant signed with it would let any node grant any task. A second authority held only by serving
+  nodes was not taken. It costs a second issuer in each venue and its rotation, and adds only that a
+  node in a question cannot pull that question's other partitions.
+- **The check is a layer in front of the worker service, on both calls.** The engine's handler drops
+  a row pull's request headers, and its wire types are private. So the layer reads the task from the
+  first message of the coordinator call and of the row pull, and checks the grant in the headers
+  against it. It refuses either call when the grant does not verify, has expired or names another
+  question. A cell pins the field numbers the layer reads, so an engine upgrade that moves them fails
+  that cell instead of passing the check unread.
+- **A hook upstream.** sutura proposes that the engine hand an authorization hook the task and the
+  request headers before it runs a call. If the engine adds one, the layer's own decoding is deleted.
+
+Limits:
+
+- **A node inside a question can pull any of that question's partitions.** It already receives some
+  of that question's rows.
+- **The layer depends on the engine's wire layout.** The pinned field numbers hold one engine
+  version. The cell that pins them is what an upgrade has to pass.
+- **Nothing is built.** The refusal table's grant row says what the layer will refuse.
