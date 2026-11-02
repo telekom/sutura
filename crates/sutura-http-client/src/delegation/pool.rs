@@ -59,10 +59,11 @@ impl PoolExchange for GoogleSts {
             ("subject_token", assertion.expose_secret()),
             ("scope", BIGQUERY_SCOPE),
         ];
-        let (status, text) = super::post(&self.agent, &self.endpoint, self.bounds, &form).map_err(|unsent| match unsent {
-            Unsent::Unreachable(cause) => PoolExchangeFailed::Unreachable { cause: Box::new(cause) },
-            Unsent::TooLarge(cap) => PoolExchangeFailed::TooLarge { cap },
-        })?;
+        let (status, text) =
+            super::post(&self.agent, &self.endpoint, self.bounds, None, &form).map_err(|unsent| match unsent {
+                Unsent::Unreachable(cause) => PoolExchangeFailed::Unreachable { cause: Box::new(cause) },
+                Unsent::TooLarge(cap) => PoolExchangeFailed::TooLarge { cap },
+            })?;
         #[expect(
             clippy::disallowed_methods,
             reason = "the answer is read here and nowhere else; no error built from it carries the token"
