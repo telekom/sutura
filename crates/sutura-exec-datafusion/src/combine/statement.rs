@@ -4,8 +4,8 @@
 //!
 //! The session is the call's own and registers only the question's tables, which are the caller's
 //! models on listed sources, each typed by its pinned schema. `datafusion-federation`'s rule finds
-//! the largest sub-plans one source answers, and `Cutter` makes each one a leaf. A plan that is only
-//! a scan, which that rule leaves uncut, `ScanOnly` hands to the same cut.
+//! the largest sub-plans one source answers, and `Cutter` makes each one a leaf; the vendored copy
+//! (`VENDOR.md`) also sends a plan that is only a scan, at the root, to the same cut.
 //! [`answer`](crate::combine::statement::answer) unparses every leaf in its source's dialect before
 //! the one `open` over every source the plan names, runs each through
 //! [`StatementLegs`](sutura_domain::plan::StatementLegs), and plans the leaf over the rows that came back. The
@@ -243,29 +243,6 @@ impl OptimizerRule for Cutter {
     }
 }
 
-/// The plan `FederationOptimizerRule` leaves uncut: a scan at the root, which it reads as a leaf
-/// rather than as the largest sub-plan of its one source. The optimizer leaves only the scan when a
-/// statement selects bare columns of one table and every filter folds to true. Such a scan goes to
-/// its source's cut, as the rule sends any other root over one source.
-#[derive(Debug)]
-struct ScanOnly;
-
-impl OptimizerRule for ScanOnly {
-    fn name(&self) -> &'static str {
-        "sutura_statement_scan_only"
-    }
-
-    fn rewrite(&self, plan: LogicalPlan, config: &dyn OptimizerConfig) -> Planned<Transformed<LogicalPlan>> {
-        let LogicalPlan::TableScan(scan) = &plan else {
-            return Ok(Transformed::no(plan));
-        };
-        let Some(cut) = get_table_source(&scan.source)?.and_then(|table| table.federation_provider().optimizer()) else {
-            return Ok(Transformed::no(plan));
-        };
-        cut.optimize(plan, config, |_, _| {}).map(Transformed::yes)
-    }
-}
-
 /// A sub-plan one source answers.
 struct Part {
     plan: LogicalPlan,
@@ -353,7 +330,6 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
         .with_scalar_functions(admitted())
         .with_table_function_list(Vec::new())
         .with_optimizer_rule(Arc::new(FederationOptimizerRule::default()))
-        .with_optimizer_rule(Arc::new(ScanOnly))
         .with_physical_optimizer_rule(Arc::new(Yielding))
         .with_query_planner(Arc::new(FederatedQueryPlanner::new()))
         .build();
