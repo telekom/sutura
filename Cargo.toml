@@ -224,6 +224,10 @@ arrow-flight = { version = "59", default-features = false }
 # `sutura-flight`'s server and `sutura-exec-node`'s client, no TLS feature (the client brings its
 # own rustls). `arrow-flight` already builds it with these features: the graph keeps one `tonic`.
 tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
+# `sutura-flight` DEV-dependencies, already in the graph under `arrow-flight`: its peer-IPC cells build
+# a malformed message with `arrow-ipc`'s FlatBuffers builders, and name `lz4`/`zstd` for the codecs.
+arrow-ipc = { version = "59", default-features = false, features = ["lz4", "zstd"] }
+flatbuffers = { version = "25", default-features = false }
 # `i256`, for the wide-decimal rows of the interior's value-mapping table. A DEV-dependency of
 # `sutura-domain` only: `arrow-array` re-exports the type privately, so a test constructing a
 # `Decimal256Array` has to name the crate that owns it. Already in the graph as `arrow-array`'s own

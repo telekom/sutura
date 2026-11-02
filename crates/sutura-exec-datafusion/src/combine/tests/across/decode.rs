@@ -254,3 +254,86 @@ fn a_node_refuses_a_schema_whose_union_field_has_too_many_children() {
         "{refused}"
     );
 }
+
+/// Cell E (arrow-rs#10959's `compression.rs` hunks): a `ListValue`'s IPC-compressed data buffer
+/// whose own declared uncompressed-length prefix understates the bytes the decompressor actually
+/// produces by one. The length prefix is otherwise honest (unlike cell F's implausible bomb), so
+/// this exercises the registry 59.2.0 mismatch check itself rather than an allocation bound.
+///
+/// Corrupted field: the LZ4 frame's 8-byte little-endian uncompressed-length prefix, decremented by
+/// one below the length the frame actually decompresses to.
+/// Registry 59.2.0 behaviour: `arrow-ipc-59.2.0/src/compression.rs`'s `decompress_lz4` decompresses
+/// successfully, then its own `if ret.len() != decompressed_size` check returns
+/// `Err(ArrowError::IpcError("Expected compressed length of {decompressed_size} got {}"))`- this
+/// cell's planned fragment names the future fix's own wording instead, so it is red against that
+/// check's current text and green once the fix lands.
+#[test]
+#[expect(
+    clippy::little_endian_bytes,
+    reason = "Arrow IPC's wire format mandates little-endian explicitly, which this cell reads and rewrites"
+)]
+fn a_node_refuses_a_list_value_whose_compressed_length_prefix_is_short() {
+    // A highly compressible column (4096 repeated zeros) so the writer actually emits a real LZ4
+    // frame rather than the `LENGTH_NO_COMPRESSED_DATA = -1` "stored uncompressed" sentinel it
+    // falls back to when compression does not shrink the input.
+    let arrow_schema = datafusion::arrow::datatypes::Schema::new(vec![datafusion::arrow::datatypes::Field::new(
+        "col0",
+        datafusion::arrow::datatypes::DataType::Int64,
+        false,
+    )]);
+    let batch = datafusion::arrow::record_batch::RecordBatch::try_new(
+        std::sync::Arc::new(arrow_schema.clone()),
+        vec![std::sync::Arc::new(datafusion::arrow::array::Int64Array::from(vec![
+            0i64;
+            4096
+        ]))],
+    )
+    .expect("a one-column Int64 batch builds");
+    let proto_schema: Schema = (&arrow_schema).try_into().expect("an arrow schema encodes to proto");
+    let ipc_generator = datafusion::arrow::ipc::writer::IpcDataGenerator {};
+    let mut dictionary_tracker = datafusion::arrow::ipc::writer::DictionaryTracker::new(false);
+    let write_options = datafusion::arrow::ipc::writer::IpcWriteOptions::default()
+        .try_with_compression(Some(datafusion::arrow::ipc::CompressionType::LZ4_FRAME))
+        .expect("LZ4 compression is a valid IPC write option");
+    let (_, encoded) = ipc_generator
+        .encode(
+            &batch,
+            &mut dictionary_tracker,
+            &write_options,
+            &mut datafusion::arrow::ipc::writer::IpcWriteContext::default(),
+        )
+        .expect("a record batch encodes to IPC");
+
+    let mut arrow_data = encoded.arrow_data.clone();
+    let message = datafusion::arrow::ipc::root_as_message(&encoded.ipc_message)
+        .expect("the hand-produced header is a valid flatbuffer message");
+    let record_batch_header = message
+        .header_as_record_batch()
+        .expect("a RecordBatch message carries a RecordBatch header");
+    let buffers = record_batch_header
+        .buffers()
+        .expect("a one-column RecordBatch declares its buffers");
+    let data_buffer = buffers.get(1);
+    let offset = usize::try_from(data_buffer.offset()).expect("a test buffer offset fits in usize");
+    let prefix = &mut arrow_data[offset..offset + 8];
+    let declared = i64::from_le_bytes(prefix.try_into().expect("an 8-byte slice"));
+    assert!(
+        declared > 0,
+        "the writer's own LZ4 frame must carry a positive declared length, got {declared}"
+    );
+    prefix.copy_from_slice(&(declared - 1).to_le_bytes());
+
+    let value = ScalarValue {
+        value: Some(ScalarValueKind::ListValue(ScalarNestedValue {
+            ipc_message: encoded.ipc_message,
+            arrow_data,
+            schema: Some(proto_schema),
+            dictionaries: vec![],
+        })),
+    };
+    let refused = refused(&filter_literal(value));
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Plan(message) if message.contains("exceeds advertised size")),
+        "{refused}"
+    );
+}
