@@ -202,14 +202,9 @@ runs:
           exit 1
         fi
         roots="$RUNNER_TEMP/nix-store-cache-roots"
-        nix eval --json --impure --expr '
-          let
-            flake = builtins.getFlake "git+file://${toString ./.}";
-            system = builtins.currentSystem;
-          in
-          map (check: check.drvPath) (builtins.attrValues flake.checks.${system})
-          ++ builtins.concatMap (app: builtins.attrNames (builtins.getContext app.program)) (builtins.attrValues flake.apps.${system})
-        ' | jq -r '.[]' > "$roots"
+        system="$(nix config show system)"
+        nix eval --json ".#checks.$system" --apply 'checks: map (check: check.drvPath) (builtins.attrValues checks)' | jq -r '.[]' > "$roots"
+        nix eval --json ".#apps.$system" --apply 'apps: builtins.concatMap (app: builtins.attrNames (builtins.getContext app.program)) (builtins.attrValues apps)' | jq -r '.[]' >> "$roots"
         nix flake archive --dry-run --json | jq -r '.. | .path? // empty' >> "$roots"
         sudo mkdir -p /nix/var/nix/gcroots/nix-store-cache
         while read -r path; do
