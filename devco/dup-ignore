@@ -85,3 +85,4 @@ vendor/arrow-ipc/src/gen/SparseTensor.rs:1629 == vendor/arrow-ipc/src/gen/Tensor
 vendor/arrow-ipc/src/gen/SparseTensor.rs:2119 == vendor/arrow-ipc/src/gen/Tensor.rs:1073 : the vendored arrow-ipc's own generated flatbuffers code, kept as the published crate has it so it can go back to upstream; VENDOR.md
 vendor/arrow-ipc/src/writer.rs:2928 == vendor/arrow-ipc/src/writer.rs:2969 : the vendored arrow-ipc's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
 vendor/arrow-ipc/src/writer.rs:4563 == vendor/arrow-ipc/src/writer.rs:4618 : the vendored arrow-ipc's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md
+vendor/datafusion-federation/src/schema_cast/lists_cast.rs:20 == vendor/datafusion-federation/src/schema_cast/lists_cast.rs:78 : the vendored federation crate's own code, kept as the published crate has it so it can go back to upstream; VENDOR.md

@@ -33,9 +33,6 @@ use arrow_flight::{
 use futures_util::{Stream, StreamExt as _, stream::BoxStream};
 use sutura_domain::plan::LegWire;
 
-/// The protocol's descriptor kind: a typed leg is carried as command bytes, never as a path.
-const COMMAND_DESCRIPTOR: i32 = 1;
-
 /// Why a typed leg could not become a Flight descriptor.
 #[derive(Debug, thiserror::Error)]
 pub enum DescriptorError {
@@ -49,11 +46,7 @@ pub enum DescriptorError {
 /// The receiver must deserialize these bytes into [`LegWire`] and certify them against its own
 /// pinned definitions. No parameter value or credential belongs in the descriptor.
 pub fn descriptor(leg: &LegWire) -> Result<FlightDescriptor, DescriptorError> {
-    Ok(FlightDescriptor {
-        r#type: COMMAND_DESCRIPTOR,
-        cmd: serde_json::to_vec(leg)?.into(),
-        path: Vec::new(),
-    })
+    Ok(FlightDescriptor::new_cmd(serde_json::to_vec(leg)?))
 }
 
 /// Build the input stream for one `DoExchange` call.

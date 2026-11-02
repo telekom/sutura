@@ -886,13 +886,13 @@ missing_assert_message = "allow"
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
 
-# A peer's malformed stage is refused rather than a panic that stops the node, `VENDOR.md`.
+# Every entry below is a vendored crate reached by its registry name; `VENDOR.md` carries each one's reason.
 [patch.crates-io]
 datafusion-proto = { path = "vendor/datafusion-proto" }
 datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
 arrow-ipc = { path = "vendor/arrow-ipc" }
-
+datafusion-federation = { path = "vendor/datafusion-federation" }
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
 # they are compiled once and executed many times, so paying for them is free.
