@@ -17,7 +17,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{FederationCombiner, MAX_ROWS, StatementLegs, StatementQuestion, StatementStopped, StatementTable};
-use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement};
+use sutura_domain::raw::{RawOutcome, RawRefusalReason, RawStatement, RunSqlSources};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::{RawRows, Value, Warehouse};
@@ -109,16 +109,23 @@ impl AnsweredRaw {
 /// `tools.run_sql.sources` and `tools.run_sql.federation_allowed`.
 #[derive(Debug, Clone)]
 pub struct RunSqlScope {
-    sources: Vec<SourceName>,
+    /// `None` is every open source, the scope a surface runs until a composition root lists one.
+    sources: Option<RunSqlSources>,
     federation_allowed: bool,
 }
 
 impl RunSqlScope {
+    /// Every open source, federating none.
+    pub(crate) const EVERY_OPEN_SOURCE: Self = Self {
+        sources: None,
+        federation_allowed: false,
+    };
+
     /// The tool over `sources`, planning a statement across them only where `federation_allowed`.
     #[must_use]
-    pub const fn new(sources: Vec<SourceName>, federation_allowed: bool) -> Self {
+    pub const fn new(sources: RunSqlSources, federation_allowed: bool) -> Self {
         Self {
-            sources,
+            sources: Some(sources),
             federation_allowed,
         }
     }
@@ -162,11 +169,10 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    let mut open = warehouses.each();
-    let (Some((source, _)), None) = (open.next(), open.next()) else {
+    let Some(source) = only(None, warehouses) else {
         return Err(RunSqlError::Unplanned);
     };
-    let mut legs = RawLegs::new(context, broker, warehouses, core::slice::from_ref(source), deadline);
+    let mut legs = RawLegs::new(context, broker, warehouses, None, deadline);
     let outcome = pass_through(&mut legs, statement, source)?;
     Ok(legs.answered(outcome))
 }
@@ -194,9 +200,10 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
-    let tables = tables(pinned, context, warehouses, &scope.sources);
+    let listed = scope.sources.as_ref().map(RunSqlSources::as_slice);
+    let tables = tables(pinned, context, warehouses, listed);
     let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes, deadline);
-    let mut legs = RawLegs::new(context, broker, warehouses, &scope.sources, deadline);
+    let mut legs = RawLegs::new(context, broker, warehouses, listed, deadline);
     let outcome = match combiner.answer_statement(question, &mut legs) {
         Some(Ok(rows)) => Ok(answer(rows, legs.executed_as.take().filter(|_| scope.federation_allowed))),
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
@@ -206,22 +213,40 @@ where
         Some(Err(StatementStopped::DeadlineExceeded)) => Ok(refusal(RawRefusalReason::DeadlineExceeded {
             budget_seconds: deadline.budget().seconds(),
         })),
-        None => match scope.sources.as_slice() {
-            [source] => pass_through(&mut legs, statement, source),
-            _ => Err(RunSqlError::Unplanned),
-        },
+        None => only(listed, warehouses).map_or_else(
+            || Err(RunSqlError::Unplanned),
+            |source| pass_through(&mut legs, statement, source),
+        ),
     }?;
     Ok(legs.answered(outcome))
 }
 
-/// Every table this caller may read: each model its scoped view lists on a listed source, with the
-/// columns the pinned schema set holds for it. A model with a column of no mapped type is no table,
-/// and neither is one at a source with no dialect.
+/// The one source `listed` names, or with no list the one open source.
+fn only<'a, W>(listed: Option<&'a [SourceName]>, warehouses: &'a Warehouses<W>) -> Option<&'a SourceName>
+where
+    W: Warehouse,
+{
+    match listed {
+        Some([source]) => Some(source),
+        Some(_) => None,
+        None => {
+            let mut open = warehouses.each();
+            match (open.next(), open.next()) {
+                (Some((source, _)), None) => Some(source),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// Every table this caller may read: each model its scoped view lists on a listed source - with no
+/// list, on an open one - with the columns the pinned schema set holds for it. A model with a column
+/// of no mapped type is no table, and neither is one at a source with no dialect.
 fn tables<W>(
     pinned: &Validated<PinnedDefinitions>,
     context: &RequestContext,
     warehouses: &Warehouses<W>,
-    listed: &[SourceName],
+    listed: Option<&[SourceName]>,
 ) -> Vec<StatementTable>
 where
     W: Warehouse,
@@ -229,7 +254,9 @@ where
     let schemas = pinned.schemas();
     scoped_for(pinned.get(), context)
         .models()
-        .filter(|model| listed.contains(model.source()) && schemas.fell_back(model.name()).next().is_none())
+        .filter(|model| {
+            listed.is_none_or(|listed| listed.contains(model.source())) && schemas.fell_back(model.name()).next().is_none()
+        })
         .filter_map(|model| {
             let dialect = warehouses.get(model.source())?.type_dialect()?;
             let schema = schemas.of(model.name())?;
@@ -301,7 +328,8 @@ pub(crate) struct RawLegs<'a, W, B> {
     context: &'a RequestContext,
     broker: &'a B,
     warehouses: &'a Warehouses<W>,
-    listed: &'a [SourceName],
+    /// `None` lists every open source.
+    listed: Option<&'a [SourceName]>,
     deadline: Deadline,
     credentials: Option<BoundToTheRequest>,
     executed_as: Option<ExecutedAs>,
@@ -312,7 +340,7 @@ impl<'a, W, B> RawLegs<'a, W, B> {
         context: &'a RequestContext,
         broker: &'a B,
         warehouses: &'a Warehouses<W>,
-        listed: &'a [SourceName],
+        listed: Option<&'a [SourceName]>,
         deadline: Deadline,
     ) -> Self {
         Self {
@@ -333,6 +361,15 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             executed_until: self.credentials.as_ref().map(BoundToTheRequest::not_after),
         }
     }
+
+    /// Whether the tool runs over `source`.
+    fn lists(&self, source: &SourceName) -> bool
+    where
+        W: Warehouse,
+    {
+        self.listed
+            .map_or_else(|| self.warehouses.get(source).is_some(), |listed| listed.contains(source))
+    }
 }
 
 impl<W, B> StatementLegs for RawLegs<'_, W, B>
@@ -343,7 +380,7 @@ where
     type Stop = LegStop<B::Error>;
 
     fn open(&mut self, sources: &BTreeSet<SourceName>) -> Result<(), Self::Stop> {
-        if !sources.iter().all(|source| self.listed.contains(source)) {
+        if !sources.iter().all(|source| self.lists(source)) {
             return Err(LegStop::Failed(RunSqlError::Unlisted));
         }
         let mut each = sources.iter().cloned();
@@ -372,7 +409,7 @@ where
     }
 
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
-        if !self.listed.contains(source) {
+        if !self.lists(source) {
             return Err(LegStop::Failed(RunSqlError::Unlisted));
         }
         let (Some(warehouse), Some(credentials)) = (self.warehouses.get(source), self.credentials.as_ref()) else {

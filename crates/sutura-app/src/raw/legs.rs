@@ -113,7 +113,7 @@ fn listing(
         .try_fold(Warehouses::of(first), Warehouses::and)
         .expect("the test sources are distinct");
     let pinned = verify_and_validate(bundle_over(&[]), &warehouses).expect("a bundle with no models validates");
-    let scope = RunSqlScope::new(named_each(listed), federation_allowed);
+    let scope = RunSqlScope::new(crate::tests_support::run_sql_sources(named_each(listed)), federation_allowed);
     let broker = CountingBroker::default();
     let statement = RawStatement::parse("select n from t").expect("a test statement is a statement");
     let ran = answer_sql(

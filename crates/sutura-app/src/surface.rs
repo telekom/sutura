@@ -602,7 +602,6 @@ where
         let definitions = verify_and_validate(pinned, &warehouses).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
         #[expect(clippy::disallowed_types, reason = "see the field's own note")]
         let definitions = std::sync::RwLock::new(definitions);
-        let run_sql = RunSqlScope::new(warehouses.each().map(|(source, _)| source.clone()).collect(), false);
         Ok(Self {
             definitions,
             warehouses,
@@ -613,7 +612,7 @@ where
             working_set_bytes,
             spend_ledger: SpendLedger::no_budget(),
             ceilings: Ceilings::DEFAULT,
-            run_sql,
+            run_sql: RunSqlScope::EVERY_OPEN_SOURCE,
         })
     }
 
