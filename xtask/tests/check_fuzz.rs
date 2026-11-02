@@ -133,6 +133,25 @@ fn a_fuzz_lock_pin_the_root_lock_does_not_hold_is_refused() {
     );
 }
 
+/// A pin both locks share by name and version must also resolve from the same source: otherwise
+/// `fuzz/` decodes with the registry crate the root `[patch.crates-io]` replaces, and the fuzzer
+/// measures a decoder no binary ships.
+#[test]
+fn a_fuzz_lock_resolving_a_root_patched_crate_from_the_registry_is_refused() {
+    let root_lock = "[[package]]\nname = \"datafusion-proto\"\nversion = \"55.1.0\"\n";
+    let fuzz_lock = "[[package]]\nname = \"datafusion-proto\"\nversion = \"55.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+    let output = observe("source-drift", "std", root_lock, fuzz_lock);
+    let stderr = String::from_utf8(output.stderr.clone()).expect("gate diagnostics");
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains(
+            "fuzz/Cargo.lock resolves datafusion-proto 55.1.0 from registry+https://github.com/rust-lang/crates.io-index, \
+             but Cargo.lock resolves it from a path"
+        ),
+        "the refusal must name the package, the fuzz lock and the root lock: {stderr}"
+    );
+}
+
 /// The driver lock's `cargo deny` is required at every site, refused by the real binary - so the
 /// call that folds `deny_wiring::driver_gaps` into the gate is held, not only the unit cells over it.
 #[test]

@@ -10,17 +10,22 @@
 #     harness measures under is the one declared below rather than one inherited by accident.
 #   * a second `Cargo.lock`. `cargo xtask check-fuzz` fails if it is missing, because a fuzz run
 #     against an unlocked graph is not reproducible - but `cargo deny` reads the ROOT lock only, so
-#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the seven direct
-#     dependencies below, five are first-party path dependencies and the two third-party ones are
-#     `libfuzzer-sys` and `serde_json`. The BigQuery adapter's Arrow/ADBC graph - excluded
-#     transitively - `ureq`, `ring` and `base64` - is advisory-unchecked here for the same reason,
-#     the cost of fuzzing the real reply decode that ships behind that feature.
+#     NOTHING HERE IS ADVISORY-CHECKED. Stated as the limit it is; of the fourteen direct
+#     dependencies below, seven are first-party path dependencies (six crates plus the vendored,
+#     path-pinned `datafusion-distributed`) and the rest are third-party: `libfuzzer-sys`,
+#     `serde_json`, `arrow-flight`, `futures-util`, `prost`, `datafusion` and `datafusion-proto`.
+#     The BigQuery adapter's Arrow/ADBC graph - excluded transitively - `ureq`, `ring` and `base64`
+#     - is advisory-unchecked here for the same reason, the cost of fuzzing the real reply decode
+#     that ships behind that feature.
 #
 # WHY THESE TARGETS. The issue #146 sweep measured that nothing generates input
 # against the parsers a caller, a catalog author or an operator's key-set file reaches. `panic =
 # "abort"` is on every shipped profile, so a panic inside a third-party parser is the process dying
 # rather than an error a caller sees - and clippy at `-D warnings` (which denies `unwrap_used`,
 # `expect_used`, `panic`, `indexing_slicing`) does not reach inside those third-party parsers.
+# `peer_stage` and `leg_frames` (issue #1680) widen this to the two decodes a NODE runs, not a
+# caller: a worker's own protobuf plan decode and a remote leg's Flight frame decode, both over
+# bytes the local node did not write.
 #
 #   * `sql_expression`     - `sutura_sql::expression::compile`, the boundary that turns an authored
 #     SQL fragment into a checked AST. It runs `polyglot-sql`'s parser over the fragment text - a
@@ -48,6 +53,28 @@
 #     so certification is reachable past the first metric lookup for both leg kinds - *A new
 #     parser at a trust boundary*, `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`'s
 #     own reason to fuzz it. The bound parameters are fixed per leg kind, so nothing fuzzes them.
+#   * `peer_stage`         - a worker's own decode of a coordinator-sent stage: `DistributedCodec`
+#     over `datafusion_proto::bytes::physical_plan_from_bytes_with_proto_converter`, rebuilt from
+#     the public parts `decode_execution_plan`
+#     (`vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs`) composes over
+#     `request.plan`, in the same order, before anything in the plan executes. The worker registers
+#     no user codec or function (`crates/sutura-exec-datafusion/src/combine/across.rs`,
+#     `grant.rs`), so this harness builds the session the same minimal way - but a codec or function
+#     a later version of the worker's session registers is not followed here, and nothing checks
+#     that this harness's session stays in step with the worker's. It does not drive execution past
+#     the decode: `SamplerExec::kick_off_first_sampler` dials out, which this target must not do.
+#   * `leg_frames`         - `sutura_flight::receive_request`, the remote leg's `DoExchange` frame
+#     decode the receiving node runs over bytes the sending node wrote. The first frame's
+#     descriptor is overwritten with one built from a fixed, valid leg before the call, so the
+#     fuzzed bytes reach past the descriptor check rather than being refused there every run. The
+#     harness itself splits the input into zero or more length-delimited `FlightData` messages (the
+#     framing one `DoExchange` stream carries), then polls `receive_request` once over a synchronous
+#     `stream::iter` - every `.await` point in it resolves immediately against that stream, so one
+#     poll either completes the call or the harness's own assertion catches a future that started
+#     waiting on nothing. **The limit.** It does not fuzz the descriptor checks or the `LegWire`
+#     parse (`leg_wire` fuzzes that), and it does not drive a peer's REPLY decode
+#     (`crates/sutura-exec-node/src/call.rs`, which shares the IPC reader) - no release ships
+#     `flight` today.
 #
 #   A former target, over the wire transport's `jobs.query` reply decode, was removed with the
 #   wire transport (`AdbcBigQuery` replaced it; ADBC has its own decode path).
@@ -55,11 +82,13 @@
 # NOT A COMPILE GATE ON `pull_request`, and that is a limit stated rather than a gap closed by
 # this file. `cargo xtask check-fuzz` (the hygiene-sweep gate, on every pull request) verifies this
 # manifest's WIRING - a `[[bin]]` entry, a seed directory, a matrix line - and compiles nothing; the
-# only things that ever compile these six targets are a release-tag or manual-dispatch run of
+# only things that ever compile these eight targets are a release-tag or manual-dispatch run of
 # `.github/workflows/fuzz.yml` and a developer's `just ship-check` over a diff in the fuzzed tree. No
 # commit hook replays them. So a change to first-party API surface these targets bind to -
 # `LocalCatalog::new`/`root`/`load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`,
-# `LegWire::parse`, and the sibling targets' own signatures - that breaks a target merges green on
+# `LegWire::parse`, `DistributedCodec::new_combined_with_user`,
+# `physical_plan_from_bytes_with_proto_converter`, `receive_request`, `sutura_flight::descriptor`,
+# and the sibling targets' own signatures - that breaks a target merges green on
 # `ci` and is found at the next tag or manual dispatch, unless its author ran `ship-check`.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo
@@ -104,7 +133,30 @@ sutura-http = { path = "../crates/sutura-http" }
 sutura-sql = { path = "../crates/sutura-sql" }
 sutura-config = { path = "../crates/sutura-config" }
 sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
+sutura-flight = { path = "../crates/sutura-flight" }
 serde_json = "1"
+arrow-flight = { version = "=59.2.0", default-features = false }
+futures-util = "0.3"
+prost = { version = "=0.14.4", default-features = false }
+datafusion = { version = "=55.1.0", default-features = false, features = [
+  "parquet",
+  "datetime_expressions",
+  "compression",
+] }
+datafusion-distributed = { path = "../vendor/datafusion-distributed", version = "=4.0.0", default-features = false, features = [
+  "grpc",
+  "parquet",
+] }
+datafusion-proto = { version = "=55.1.0", default-features = false }
+
+# Vendored exactly as the root `[patch.crates-io]` resolves them, less `datafusion-federation` -
+# `source_gaps` (`xtask/src/fuzz/lock_drift.rs`) refuses a mismatch, and `cargo tree -i <crate>`
+# under `fuzz/Cargo.lock` is what decided this is the subset the fuzz graph actually resolves.
+[patch.crates-io]
+datafusion-proto = { path = "../vendor/datafusion-proto" }
+datafusion-proto-common = { path = "../vendor/datafusion-proto-common" }
+datafusion-physical-plan = { path = "../vendor/datafusion-physical-plan" }
+arrow-ipc = { path = "../vendor/arrow-ipc" }
 
 # `panic = "abort"`, matching every shipped profile in the root manifest - which is the whole
 # argument this directory exists for. A harness that unwound where the deployment aborts would be
@@ -159,6 +211,20 @@ bench = false
 [[bin]]
 name = "leg_wire"
 path = "fuzz_targets/leg_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "peer_stage"
+path = "fuzz_targets/peer_stage.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "leg_frames"
+path = "fuzz_targets/leg_frames.rs"
 test = false
 doc = false
 bench = false
