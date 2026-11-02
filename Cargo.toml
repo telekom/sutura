@@ -885,6 +885,7 @@ missing_assert_message = "allow"
 # A peer's malformed stage is refused rather than a panic that stops the node, `VENDOR.md`.
 [patch.crates-io]
 datafusion-proto = { path = "vendor/datafusion-proto" }
+datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
 
 # ------------------------------------------------------------- profiles ----

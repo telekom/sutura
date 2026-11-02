@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8198d713a..f05eff23e 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -321,7 +321,7 @@ impl TryFrom<&protobuf::arrow_type::ArrowTypeEnum> for DataType {
+                 // Default to index based type ids if not explicitly provided
+                 let union_fields = if union.type_ids.is_empty() {
+                     UnionFields::try_from_fields(union_fields).map_err(|e| {
+-                        DataFusionError::from(e).context("Deserializing Union DataType")
++                        DataFusionError::from(e).context("Deserializing a nested DataType")
+                     })?
+                 } else {
+                     let type_ids = union.type_ids.iter().map(|i| *i as i8);

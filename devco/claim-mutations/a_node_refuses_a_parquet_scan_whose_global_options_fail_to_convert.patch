@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8198d713a..e92285863 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -1148,7 +1148,7 @@ impl TryFrom<&protobuf::ParquetOptions> for ParquetOptions {
+             data_pagesize_limit: value.data_pagesize_limit as usize,
+             write_batch_size: value.write_batch_size as usize,
+             writer_version: value.writer_version.parse().map_err(|e| {
+-                DataFusionError::Internal(format!("Failed to parse writer_version: {e}"))
++                DataFusionError::Internal(format!("Failed to parse value: {e}"))
+             })?,
+             compression: value.compression_opt.clone().map(|opt| match opt {
+                 protobuf::parquet_options::CompressionOpt::Compression(v) => Some(v),
