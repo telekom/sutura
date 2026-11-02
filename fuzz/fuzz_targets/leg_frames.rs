@@ -4,11 +4,12 @@
 //! one `DoExchange` stream carries) and run through `sutura_flight::receive_request`,
 //! `crates/sutura-flight/src/receive.rs`'s own untrusted-input boundary.
 //!
-//! The first frame's descriptor is replaced with a fixed, valid one before the call: a fuzzed
-//! descriptor always carries no command at all (`FlightData`'s default), which `receive_request`
-//! refuses at the very first check (`ReceiveError::Descriptor`) before the arrow-IPC reader or
-//! `compression.rs` run at all. Overwriting it with a descriptor built from a real `LegWire` lets
-//! the fuzzed bytes - the frame count, the IPC body, the compression - reach past that gate.
+//! The first frame's descriptor is replaced with a fixed, valid one before the call: fuzzed bytes
+//! almost never decode into a `FlightData` whose descriptor also deserializes as a `LegWire`, so
+//! without the overwrite `receive_request` would refuse nearly every input at the very first check
+//! (`ReceiveError::Descriptor`) before the arrow-IPC reader or `compression.rs` ever ran. Overwriting
+//! it with a descriptor built from a real `LegWire` lets the fuzzed bytes - the frame count, the
+//! IPC body, the compression - reach past that gate.
 //!
 //! A message this harness cannot parse, or a length prefix past the remaining bytes, ends the
 //! frame split early rather than panicking: the target measures `receive_request`'s refusal

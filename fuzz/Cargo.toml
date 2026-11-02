@@ -54,19 +54,27 @@
 #     parser at a trust boundary*, `docs/adr/20261017032054-leg-transport-between-sutura-nodes.md`'s
 #     own reason to fuzz it. The bound parameters are fixed per leg kind, so nothing fuzzes them.
 #   * `peer_stage`         - a worker's own decode of a coordinator-sent stage: `DistributedCodec`
-#     over `datafusion_proto::bytes::physical_plan_from_bytes_with_proto_converter`, the exact call
-#     `datafusion-distributed`'s worker channel runs on `request.plan` before anything in the plan
-#     executes (`vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs`). The worker
-#     registers no user codec or function (`crates/sutura-exec-datafusion/src/combine/across.rs`,
-#     `grant.rs`), so this harness builds the session the same minimal way. It does not drive
-#     execution past the decode: `SamplerExec::kick_off_first_sampler` dials out, which this target
-#     must not do.
+#     over `datafusion_proto::bytes::physical_plan_from_bytes_with_proto_converter`, rebuilt from
+#     the public parts `decode_execution_plan`
+#     (`vendor/datafusion-distributed/src/worker/impl_coordinator_channel.rs`) composes over
+#     `request.plan`, in the same order, before anything in the plan executes. The worker registers
+#     no user codec or function (`crates/sutura-exec-datafusion/src/combine/across.rs`,
+#     `grant.rs`), so this harness builds the session the same minimal way - but a codec or function
+#     a later version of the worker's session registers is not followed here, and nothing checks
+#     that this harness's session stays in step with the worker's. It does not drive execution past
+#     the decode: `SamplerExec::kick_off_first_sampler` dials out, which this target must not do.
 #   * `leg_frames`         - `sutura_flight::receive_request`, the remote leg's `DoExchange` frame
-#     decode a Node B server runs over bytes a Node A client sent. The harness itself splits the
-#     input into zero or more length-delimited `FlightData` messages (the framing one `DoExchange`
-#     stream carries), then polls `receive_request` once over a synchronous `stream::iter` - every
-#     `.await` point in it resolves immediately against that stream, so one poll either completes
-#     the call or the harness's own assertion catches a future that started waiting on nothing.
+#     decode the receiving node runs over bytes the sending node wrote. The first frame's
+#     descriptor is overwritten with one built from a fixed, valid leg before the call, so the
+#     fuzzed bytes reach past the descriptor check rather than being refused there every run. The
+#     harness itself splits the input into zero or more length-delimited `FlightData` messages (the
+#     framing one `DoExchange` stream carries), then polls `receive_request` once over a synchronous
+#     `stream::iter` - every `.await` point in it resolves immediately against that stream, so one
+#     poll either completes the call or the harness's own assertion catches a future that started
+#     waiting on nothing. **The limit.** It does not fuzz the descriptor checks or the `LegWire`
+#     parse (`leg_wire` fuzzes that), and it does not drive a peer's REPLY decode
+#     (`crates/sutura-exec-node/src/call.rs`, which shares the IPC reader) - no release ships
+#     `flight` today.
 #
 #   A former target, over the wire transport's `jobs.query` reply decode, was removed with the
 #   wire transport (`AdbcBigQuery` replaced it; ADBC has its own decode path).
@@ -74,11 +82,13 @@
 # NOT A COMPILE GATE ON `pull_request`, and that is a limit stated rather than a gap closed by
 # this file. `cargo xtask check-fuzz` (the hygiene-sweep gate, on every pull request) verifies this
 # manifest's WIRING - a `[[bin]]` entry, a seed directory, a matrix line - and compiles nothing; the
-# only things that ever compile these six targets are a release-tag or manual-dispatch run of
+# only things that ever compile these eight targets are a release-tag or manual-dispatch run of
 # `.github/workflows/fuzz.yml` and a developer's `just ship-check` over a diff in the fuzzed tree. No
 # commit hook replays them. So a change to first-party API surface these targets bind to -
 # `LocalCatalog::new`/`root`/`load`, `PinnedDefinitions::digest`, `KeySet::parse`/`count`/`ids`,
-# `LegWire::parse`, and the sibling targets' own signatures - that breaks a target merges green on
+# `LegWire::parse`, `DistributedCodec::new_combined_with_user`,
+# `physical_plan_from_bytes_with_proto_converter`, `receive_request`, `sutura_flight::descriptor`,
+# and the sibling targets' own signatures - that breaks a target merges green on
 # `ci` and is found at the next tag or manual dispatch, unless its author ran `ship-check`.
 
 # An empty table, which is what makes this directory a workspace root of its own. Without it cargo

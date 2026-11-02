@@ -119,12 +119,18 @@ pub(crate) const SURFACES: &[Surface] = &[
         //
         // The limit: it runs only where `ship-check` does, and a push that skips `ship-check` is
         // not fuzzed. No pull request or merge-queue run replays the seeds; `fuzz.yml` does, on a
-        // release tag and a manual dispatch.
+        // release tag and a manual dispatch. `check-fuzz` derives only the `sutura_*` crates a
+        // target imports, so these vendor paths are held by review, not by a gate.
         label: "fuzzed tree",
         paths: &[
             "fuzz/**",
             "nix/fuzz.nix",
             "nix/run-fuzz.sh",
+            "vendor/datafusion-proto/**",
+            "vendor/datafusion-proto-common/**",
+            "vendor/datafusion-physical-plan/**",
+            "vendor/datafusion-distributed/**",
+            "vendor/arrow-ipc/**",
             "crates/sutura-domain/src/query.rs",
             "crates/sutura-domain/src/query/methods.rs",
             "crates/sutura-domain/src/model/**",
