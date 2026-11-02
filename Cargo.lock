@@ -4975,7 +4975,6 @@ name = "sutura-http-client"
 version = "0.17.0"
 dependencies = [
  "base64 0.23.1",
- "parking_lot 0.13.0",
  "rcgen",
  "rustls",
  "serde",

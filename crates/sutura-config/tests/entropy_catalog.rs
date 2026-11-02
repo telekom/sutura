@@ -38,8 +38,9 @@ catalogs:
 
     const DUCKDB: &str = "
     bindings:
-      - type: duckdb
-        database: warehouse
+      - match:
+          type: duckdb
+          database: warehouse
         source: analytics";
 
     fn load(catalog: &str) -> Result<Settings, SettingsLoadError> {
@@ -49,6 +50,19 @@ catalogs:
     fn refusal(catalog: &str) -> String {
         let refused = load(catalog).expect_err("the entry is refused");
         format!("{:?}", refused.reason())
+    }
+
+    /// One `bindings:` entry: `fields` under `match:`, one `name: value` each.
+    fn binding(fields: &[&str], source: &str) -> String {
+        format!(
+            "\n      - match:\n          {}\n        source: {source}",
+            fields.join("\n          ")
+        )
+    }
+
+    /// An API-key entry binding each of `entries`.
+    fn bound(entries: &[String]) -> String {
+        format!("{HEAD}{API_KEY}\n    bindings:{}", entries.concat())
     }
 
     #[test]
@@ -61,35 +75,42 @@ catalogs:
         assert_eq!(catalog.dir(), None);
         let held = format!("{catalog:?}");
         assert!(held.contains(r#"ApiKey { file: "/run/secrets/entropy-api-key" }"#), "{held}");
-        assert!(held.contains(r#"Duckdb { database: "warehouse", schema: None }"#), "{held}");
+        assert!(held.contains(r#"kind: FieldValue("duckdb")"#), "{held}");
+        assert!(held.contains(r#"FieldName("database"): FieldValue("warehouse")"#), "{held}");
     }
+
+    const OIDC: &str = "
+    oidc:
+      token_endpoint: https://login.example.com/oauth2/token
+      client_id: sutura
+      client_secret_file: /run/secrets/entropy-client";
 
     #[test]
     fn an_entropy_catalog_signing_in_by_oidc_binds_a_postgres_server() {
         let settings = load(&format!(
-            "{HEAD}
-    oidc:
-      token_endpoint: https://marketplace.example.com/oauth2/token
-      client_id: sutura
-      client_secret_file: /run/secrets/entropy-client
-      client_auth: post
-      scope: mcp:read
+            "{HEAD}{OIDC}
+      scope: catalog.read
     bindings:
-      - type: postgresql
-        host: db.example.com
-        port: 5432
-        database: sutura
-        schema: sales
+      - match:
+          type: postgres
+          host: db.example.com
+          port: 5432
         source: pg"
         ))
         .expect("an oidc entry loads");
         let held = format!("{:?}", settings.catalogs().each().next().expect("one catalog"));
-        assert!(held.contains("client_auth: Post"), "{held}");
-        assert!(held.contains(r#"scope: Some("mcp:read")"#), "{held}");
         assert!(
-            held.contains(r#"Postgres { host: "db.example.com", port: 5432, database: "sutura", schema: "sales" }"#),
+            held.contains(r#"token_endpoint: "https://login.example.com/oauth2/token""#),
             "{held}"
         );
+        assert!(held.contains(r#"scope: Some("catalog.read")"#), "{held}");
+        assert!(held.contains(r#"FieldName("port"): FieldValue("5432")"#), "{held}");
+    }
+
+    #[test]
+    fn an_oidc_client_authenticates_by_http_basic_alone() {
+        let refused = refusal(&format!("{HEAD}{OIDC}\n      client_auth: post{DUCKDB}"));
+        assert!(refused.contains("unknown field `client_auth`"), "{refused}");
     }
 
     #[test]
@@ -131,66 +152,64 @@ catalogs:
     }
 
     #[test]
-    fn a_binding_names_a_bindable_server_and_a_declared_source_of_its_kind() {
-        let binding = |keys: &[&str]| format!("{HEAD}{API_KEY}\n    bindings:\n      - {}", keys.join("\n        "));
+    fn a_binding_matches_a_type_and_a_field_and_names_a_declared_source() {
         let cases = [
+            (binding(&["database: warehouse"], "analytics"), "NoType"),
+            (binding(&["type: duckdb"], "analytics"), "NoField"),
             (
-                binding(&["type: cloudsql", "database: warehouse", "source: analytics"]),
-                "UnsupportedType",
+                binding(&["type: duckdb", r#"database: """#], "analytics"),
+                r#"Blank { field: "database" }"#,
             ),
-            (
-                binding(&["type: duckdb", "source: analytics"]),
-                r#"MissingKey { system: "duckdb", key: "database" }"#,
-            ),
-            (
-                binding(&[
-                    "type: duckdb",
-                    "database: warehouse",
-                    "host: db.example.com",
-                    "source: analytics",
-                ]),
-                r#"NotAKey { system: "duckdb", key: "host" }"#,
-            ),
-            (
-                binding(&["type: duckdb", "database: warehouse", "source: nowhere"]),
-                "UnknownSource",
-            ),
-            (
-                binding(&[
-                    "type: bigquery",
-                    "project: example-project",
-                    "dataset: sales",
-                    "source: analytics",
-                ]),
-                r#"declared: "duckdb", system: "bigquery""#,
-            ),
-            (
-                binding(&[
-                    "type: postgres",
-                    "host: db.example.com",
-                    "port: 5432",
-                    "database: other",
-                    "schema: sales",
-                    "source: pg",
-                ]),
-                r#"written: "other", dialed: "sutura""#,
-            ),
+            (binding(&["type: duckdb", "database: warehouse"], "nowhere"), "UnknownSource"),
         ];
-        for (catalog, expected) in cases {
-            let refused = refusal(&catalog);
+        for (entry, expected) in cases {
+            let refused = refusal(&bound(&[entry]));
             assert!(refused.contains("Binding { position: 0"), "{refused}");
             assert!(refused.contains(expected), "{expected} not in {refused}");
         }
     }
 
     #[test]
-    fn two_bindings_of_one_server_are_refused_whatever_the_postgres_spelling() {
-        let server =
-            "host: db.example.com\n        port: 5432\n        database: sutura\n        schema: sales\n        source: pg";
-        let refused = refusal(&format!(
-            "{HEAD}{API_KEY}\n    bindings:\n      - type: postgres\n        {server}\n      - type: postgresql\n        {server}"
-        ));
-        assert!(refused.contains("DuplicateBinding { first: 0, second: 1 }"), "{refused}");
+    fn bindings_that_could_match_one_server_are_refused() {
+        type Pair = [&'static [&'static str]; 2];
+        const HOST: &str = "host: db.example.com";
+        let overlapping: [Pair; 3] = [
+            [&["type: postgres", HOST], &["type: postgres", HOST]],
+            [&["type: postgres", HOST], &["type: postgres", HOST, "database: sutura"]],
+            [&["type: postgres", "database: sutura"], &["type: postgres", "schema: sales"]],
+        ];
+        for [first, second] in overlapping {
+            let refused = refusal(&bound(&[binding(first, "pg"), binding(second, "analytics")]));
+            assert!(refused.contains("OverlappingBindings { first: 0, second: 1 }"), "{refused}");
+        }
+        let apart: [Pair; 2] = [
+            [
+                &["type: postgres", HOST, "schema: sales"],
+                &["type: postgres", HOST, "schema: finance"],
+            ],
+            [&["type: postgres", HOST], &["type: postgresql", HOST]],
+        ];
+        for [first, second] in apart {
+            load(&bound(&[binding(first, "pg"), binding(second, "analytics")]))
+                .expect("another type or a field with different values keeps two bindings apart");
+        }
+    }
+
+    #[test]
+    fn a_server_type_sutura_does_not_name_binds_by_its_fields() {
+        let entry = binding(
+            &[
+                "type: snowflake",
+                "account: example-account",
+                "database: FULFILLMENT_DB",
+                "schema: SHELF_WARMERS",
+            ],
+            "analytics",
+        );
+        let settings = load(&bound(&[entry])).expect("any type binds by its fields");
+        let held = format!("{:?}", settings.catalogs().each().next().expect("one catalog"));
+        assert!(held.contains(r#"kind: FieldValue("snowflake")"#), "{held}");
+        assert!(held.contains(r#"FieldName("schema"): FieldValue("SHELF_WARMERS")"#), "{held}");
     }
 
     #[test]
