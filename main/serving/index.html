@@ -2973,7 +2973,7 @@ variables, in that order. <a href="../configuration/">Configuration</a> lists th
 <tr>
 <td><code>server.role</code></td>
 <td><code>serving</code></td>
-<td><code>serving</code>, or <code>worker</code> for a node that holds no data (<a href="#a-worker-node">a worker node</a>)</td>
+<td><code>serving</code>, <code>worker</code> for a node that holds no data, or <code>reading-worker</code> (<a href="#a-worker-node">a worker node</a>)</td>
 </tr>
 <tr>
 <td><code>security.access_token</code></td>
@@ -3094,16 +3094,24 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Remove the catalogs</td>
 </tr>
 <tr>
-<td><code>server.role: worker</code> and no <code>server.tls_node_authority</code></td>
+<td><code>server.role: worker</code> or <code>reading-worker</code> and no <code>server.tls_node_authority</code></td>
 <td>Set it (<a href="#a-worker-node">a worker node</a>)</td>
 </tr>
 <tr>
-<td><code>server.role: worker</code> and <code>server.agent_surface.enabled</code></td>
+<td><code>server.role: worker</code> or <code>reading-worker</code> and <code>server.agent_surface.enabled</code></td>
 <td>Remove the switch</td>
 </tr>
 <tr>
-<td><code>server.role: worker</code> and <code>server.flight_surface.enabled</code></td>
+<td><code>server.role: worker</code> or <code>reading-worker</code> and <code>server.flight_surface.enabled</code></td>
 <td>Remove the switch</td>
+</tr>
+<tr>
+<td><code>server.role: reading-worker</code> and no <code>sources</code> entry</td>
+<td>Declare the sources it reads, or use <code>worker</code></td>
+</tr>
+<tr>
+<td><code>server.role: reading-worker</code> and no <code>catalogs</code> in a file or a variable</td>
+<td>Declare the catalog</td>
 </tr>
 <tr>
 <td><code>server.port: 0</code> in production</td>
@@ -3658,6 +3666,11 @@ the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the d
 </span></code></pre></div>
 <p>A worker is asked for no <code>security.access_token</code> or <code>security.inbound</code>, because no route on it reads either. In
 production or off-host it still needs <code>security.metrics_token</code> and <code>rate_limit.enabled</code>.</p>
+<p><code>server.role: reading-worker</code> is the worker that is to read a split leg's partitions. It is configured as above, and
+it declares the sources it reads and a catalog in a file or a variable, so it needs <code>security.identity</code> like any node
+with a source. <strong>It reads nothing yet:</strong> it opens neither the sources nor the catalog, and it serves the same worker
+transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
+chart's worker pool runs <code>worker</code>.</p>
 <p>Limit: a catalog counts only when a file or a variable declares it.
 <code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
 alone. The worker carries the limits of the node links above.</p>

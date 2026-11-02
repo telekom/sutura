@@ -3252,9 +3252,17 @@ re-argued at a second call site with an <code>expect</code> standing in for the 
 <h2 id="use-serverrole"><code>use ServerRole</code><a class="headerlink" href="#use-serverrole" title="Permanent link">&para;</a></h2>
 <p>What a node is for.</p>
 <p><code>Serving</code> is everything <code>sutura serve</code> did before there was a choice: it answers callers, reads
-sources and coordinates its questions. A <code>Worker</code> runs combine stages for the serving nodes and
-nothing else, so it opens no catalog and no source; <code>Settings::refusals</code> refuses a worker
-configuration that declares either.</p>
+sources and coordinates its questions. The two worker roles run stages for the serving nodes
+and answer no caller.</p>
+<ul>
+<li><code>Worker</code>, spelled <code>worker</code>, only combines. <code>Settings::refusals</code> refuses one whose
+  configuration declares a source or a catalog, so it holds no source credential.</li>
+<li><code>ReadingWorker</code>, spelled <code>reading-worker</code>, declares the sources it reads and the catalog it
+  certifies a leg against, and <code>Settings::refusals</code> refuses one that declares no source or no
+  catalog. <strong>The role is the boot-time half only:</strong> the process opens neither, and its worker is
+  a combining worker's, which refuses every stage whose leaf reads a source. Reading a partition
+  needs a task grant that names it, and the grant does not carry one.</li>
+</ul>
 <h2 id="use-serversettings"><code>use ServerSettings</code><a class="headerlink" href="#use-serversettings" title="Permanent link">&para;</a></h2>
 <p>Everything about the socket, the two per-request bounds, and the TLS material if there is any.</p>
 <p><strong>Not <code>Copy</code>, and that is the TLS paths.</strong> Every accessor borrows or returns a <code>Copy</code> value, and
@@ -6442,9 +6450,17 @@ that pair a bind address with an environment, a token and a TLS declaration - li
 <h3 id="use-serverrole_1"><code>use ServerRole</code><a class="headerlink" href="#use-serverrole_1" title="Permanent link">&para;</a></h3>
 <p>What a node is for.</p>
 <p><code>Serving</code> is everything <code>sutura serve</code> did before there was a choice: it answers callers, reads
-sources and coordinates its questions. A <code>Worker</code> runs combine stages for the serving nodes and
-nothing else, so it opens no catalog and no source; <code>Settings::refusals</code> refuses a worker
-configuration that declares either.</p>
+sources and coordinates its questions. The two worker roles run stages for the serving nodes
+and answer no caller.</p>
+<ul>
+<li><code>Worker</code>, spelled <code>worker</code>, only combines. <code>Settings::refusals</code> refuses one whose
+  configuration declares a source or a catalog, so it holds no source credential.</li>
+<li><code>ReadingWorker</code>, spelled <code>reading-worker</code>, declares the sources it reads and the catalog it
+  certifies a leg against, and <code>Settings::refusals</code> refuses one that declares no source or no
+  catalog. <strong>The role is the boot-time half only:</strong> the process opens neither, and its worker is
+  a combining worker's, which refuses every stage whose leaf reads a source. Reading a partition
+  needs a task grant that names it, and the grant does not carry one.</li>
+</ul>
 <h3 id="use-unknownserverrole_1"><code>use UnknownServerRole</code><a class="headerlink" href="#use-unknownserverrole_1" title="Permanent link">&para;</a></h3>
 <p>The string named no role.</p>
 <h2 id="module-sources">Module <code>sources</code><a class="headerlink" href="#module-sources" title="Permanent link">&para;</a></h2>
