@@ -759,3 +759,7 @@ mod physical_nodes;
 /// than refuse, `telekom/sutura#1680`.
 #[cfg(test)]
 mod decode;
+
+/// A stage another node refused over the federated row ceiling, relayed across its link.
+#[cfg(test)]
+mod relayed;
