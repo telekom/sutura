@@ -364,10 +364,14 @@ jobs:
           # their scope is independently verified, so this repository cannot claim that every store
           # contains only its own CI output. Residual limit: a value assembled from pieces, or one arriving via
           # another action's input, passes unseen.
+          #
+          # `keep-outputs` is for the store cache's collection before a `main` save: a rooted
+          # derivation keeps what it built only with it - see `.github/actions/nix-store-cache`.
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+            keep-outputs = true
 
       # HALF (a): the pull-request path also trusts the PR's OWN additive cache. THE ONLY INSTALLER
       # THAT ACTUALLY RUNS ON `pull_request` NOW (#980) - the step above is gated off this event, so

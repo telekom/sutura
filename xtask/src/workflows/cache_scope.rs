@@ -69,6 +69,10 @@ mod installers;
 mod realise;
 mod retired;
 
+// DOES THE COLLECTION BEFORE A `main` SAVE KEEP WHAT THE ENTRY CARRIES (#1696)? The knob and the
+// step that roots the flake's outputs are held together there; its own file for the line cap.
+mod gc;
+
 /// The main-push condition, token for token.
 ///
 /// Pinned rather than matched loosely, for `crate::workflows::step`'s reason: a `contains` check
@@ -137,6 +141,7 @@ pub(super) fn problems(root: &Path, closure: &Closure) -> Vec<String> {
     let files: Vec<(&str, &str)> = closure.inspected().iter().map(|file| (file.label(), file.text())).collect();
     let mut out = judge(&files);
     out.extend(installers::problems(root));
+    out.extend(gc::problems(root));
     out.extend(retired::problems(root));
     out
 }

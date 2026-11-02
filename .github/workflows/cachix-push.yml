@@ -102,10 +102,12 @@ jobs:
       - uses: $/.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
+          # `keep-outputs` is for the store cache's collection before a `main` save, as in `ci.yml`.
           extra_nix_config: |
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+            keep-outputs = true
 
       # The same scope the `ci` job uses, and on a dependency-generation change THIS job is the one
       # that writes it - measured 2026-09-11, not the other way round as this comment used to say.

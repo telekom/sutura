@@ -387,4 +387,150 @@ mod tests {
         let found = super::problems(&root);
         assert!(found.is_empty(), "{found:#?}");
     }
+
+    // THE STORE CACHE'S COLLECTION (#1696), held here because this module's tests compile at base:
+    // the rule is `gc`'s, reached only through `cache_scope::problems`, and these cells are red
+    // against a tree where nothing reads `gc-max-store-size` at all.
+
+    /// The pinned collection knob, as the store step's own line.
+    const KNOB: &str = "        gc-max-store-size: ${{ inputs.scope == 'ci' && '0K' || '' }}\n";
+
+    /// The root step's pinned gate: the `ci` scope on a push to `main`.
+    const ROOTED: &str = "inputs.scope == 'ci' && github.event_name == 'push' && github.ref == 'refs/heads/main'";
+
+    /// One workflow calling the action, so the scan over `.github/workflows` has a file to read.
+    const CALLER: &str =
+        "jobs:\n  ci:\n    steps:\n      - uses: ./.github/actions/nix-store-cache\n        with:\n          scope: ci\n";
+
+    /// A store-cache action whose store step ends with `knob`, plus a gc-root step gated on
+    /// `root_gate` - or none, for `None`.
+    fn store_action(knob: &str, root_gate: Option<&str>) -> String {
+        let roots = root_gate.map_or_else(String::new, |gate| {
+            format!("    - name: Root\n      if: {gate}\n      shell: bash\n      run: sudo ln -sfn \"$p\" /nix/var/nix/gcroots/nix-store-cache/x\n")
+        });
+        format!(
+            "runs:\n  using: composite\n  steps:\n    - id: store\n      uses: nix-community/cache-nix-action@7df9 # v7\n      with:\n        save: ${{{{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}}}\n{knob}{roots}"
+        )
+    }
+
+    /// Every cache rule's answer for a tree holding `action` as the store-cache action and `caller`
+    /// as its one workflow.
+    fn store_cache_problems(tag: &str, action: &str, caller: &str) -> Vec<String> {
+        let tree = crate::scratch_tree::Tree::of(
+            tag,
+            &[
+                (".github/actions/nix-store-cache/action.yml", action.as_bytes()),
+                (".github/workflows/ci.yml", caller.as_bytes()),
+            ],
+        );
+        let ordinary = crate::workflows::contexts::OrdinaryCi::read(tree.root());
+        super::super::problems(tree.root(), ordinary.closure())
+    }
+
+    #[test]
+    fn a_store_collection_knob_other_than_the_pinned_scope_expression_is_refused() {
+        // `10G` collects on every scope, and only the `ci` scope's store has roots.
+        let found = store_cache_problems(
+            "gc-knob",
+            &store_action("        gc-max-store-size: 10G\n", Some(ROOTED)),
+            CALLER,
+        );
+        assert!(found.iter().any(|p| p.contains("`gc-max-store-size` must be")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_store_collection_with_no_gc_root_step_is_refused() {
+        let found = store_cache_problems("gc-unrooted", &store_action(KNOB, None), CALLER);
+        assert!(found.iter().any(|p| p.contains("no step writes under")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_gc_root_step_gated_on_the_main_push_alone_is_refused() {
+        // Without the scope conjunct it roots a `bq` or cross store too - harmless alone, but it is
+        // not the one run the knob collects, and the pin is what keeps the two halves in step.
+        let found = store_cache_problems(
+            "gc-root-gate",
+            &store_action(KNOB, Some("github.event_name == 'push' && github.ref == 'refs/heads/main'")),
+            CALLER,
+        );
+        assert!(found.iter().any(|p| p.contains("the gc-root step is gated on")), "{found:#?}");
+    }
+
+    #[test]
+    fn a_store_collection_key_outside_the_pinned_knob_is_refused() {
+        // An override in the action wins over the pinned knob; a knob in a workflow reaches a
+        // store step nothing roots.
+        let action = store_action(&format!("{KNOB}        gc-max-store-size-linux: 1G\n"), Some(ROOTED));
+        let caller = format!("{CALLER}          gc-max-store-size: 0K\n");
+        let found = store_cache_problems("gc-elsewhere", &action, &caller);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with(".github/actions/nix-store-cache/action.yml:")
+                    && p.contains("`gc-max-store-size-linux` is set outside")),
+            "{found:#?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.starts_with(".github/workflows/ci.yml:") && p.contains("`gc-max-store-size` is set outside")),
+            "{found:#?}"
+        );
+    }
+
+    #[test]
+    fn a_ci_scope_writer_whose_push_installer_lacks_keep_outputs_is_refused() {
+        // `ci` writes the `ci` store on `push`, so its push installer must keep outputs. Its
+        // PR-only installer, the `causality` job gated off `push` and a dispatch-only workflow are
+        // not asked to.
+        let store = "      - uses: ./.github/actions/nix-store-cache\n        with:\n          scope: ci\n";
+        let ci = |job: &str, push: &str| {
+            format!(
+                "on:\n  push:\n\njobs:\n  {job}:\n    steps:\n{push}{}{store}  causality:\n    if: github.event_name != 'push'\n    steps:\n{}{store}",
+                installer(Some("github.event_name == 'pull_request'")),
+                installer(None)
+            )
+        };
+        let claim = format!(
+            "on:\n  workflow_dispatch:\njobs:\n  claim:\n    steps:\n{}{store}",
+            installer(None)
+        );
+        let action = store_action(KNOB, Some(ROOTED));
+        let unkept = |tag: &str, job: &str, push: &str| -> Vec<String> {
+            let workflow = ci(job, push);
+            let tree = crate::scratch_tree::Tree::of(
+                tag,
+                &[
+                    (".github/actions/nix-store-cache/action.yml", action.as_bytes()),
+                    (".github/workflows/ci.yml", workflow.as_bytes()),
+                    (".github/workflows/claim.yml", claim.as_bytes()),
+                ],
+            );
+            let ordinary = crate::workflows::contexts::OrdinaryCi::read(tree.root());
+            super::super::problems(tree.root(), ordinary.closure())
+                .into_iter()
+                .filter(|p| p.contains("keep-outputs = true"))
+                .collect()
+        };
+
+        // Line 7 of `ci.yml`, below a blank line as in `cachix-push.yml`: the `!= 'pull_request'`
+        // installer, the one the writer runs on `push`.
+        // Again with the job named `push`, as `cachix-push.yml`'s is: its header must not be read
+        // as the `on:` block's `push:` trigger.
+        let push = installer(Some("github.event_name != 'pull_request'"));
+        for job in ["ci", "push"] {
+            let found = unkept(&format!("gc-unkept-{job}"), job, &push);
+            assert_eq!(found.len(), 1, "{found:#?}");
+            assert!(
+                found
+                    .iter()
+                    .all(|p| p.starts_with(".github/workflows/ci.yml:7 ") && p.contains(&format!("job `{job}`"))),
+                "{found:#?}"
+            );
+        }
+
+        let kept = push.replace("fallback = true\n", "fallback = true\n            keep-outputs = true\n");
+        let found = unkept("gc-kept", "ci", &kept);
+        assert!(found.is_empty(), "{found:#?}");
+    }
 }

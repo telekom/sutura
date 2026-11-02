@@ -30,12 +30,21 @@
 # 3.27 GB over 459 paths. Disk is not the reason these runners report 1657 G available. The double
 # import is.
 #
-# THE ENTRY SIZE IS THE ONE THING THIS CANNOT KNOW BEFORE A `main` PUSH, and the limit belongs here
-# rather than beside a claim: GitHub refuses a single cache entry over 10 GB, and the store this
-# saves has never been weighed. `gc-max-store-size` is deliberately NOT set - `nix store gc` would
-# collect the dependency closure, because a `nix build` step overwrites `./result` and the check
-# outputs are therefore not GC roots, so bounding the entry that way would throw away exactly what
-# is worth saving. If a save is refused, the summary line below says so on every `main` push.
+# THE ENTRY IS COLLECTED BEFORE IT IS SAVED, on the `ci` scope, down to a root set the FLAKE
+# declares - every derivation behind this system's `checks` and `apps`, plus the flake's own inputs -
+# so no list here can drift from what CI builds. GitHub refuses a single entry over 10 GB, and what
+# a run leaves in the store is otherwise saved whole, older generations included. Collected with no
+# roots, `nix store gc` would take the dependency closure first: a `nix build` overwrites `./result`,
+# so nothing a run built is a root. `keep-outputs` is what keeps it here - `.#deps` is an input
+# derivation of the rooted checks, and a rooted derivation keeps its outputs only with that set.
+# `cargo xtask check-workflows` holds the knob, the root step and `keep-outputs = true` on every
+# installer a `ci`-scope writer runs on `push` together.
+#
+# LIMITS. The workspace's own check outputs move with the commit and are rooted too, so the entry
+# over-retains one push's worth of them. Another scope (`bq`, a target triple) collects nothing.
+# The collection's duration and the entry's size are UNMEASURED until the first `main` push that
+# misses the key: the post step logs the store size before and after, and the cache list shows the
+# entry. That gate reads text, so `keep-outputs` set any other way passes it unseen.
 #
 # THE SECOND CARRIER IS NOT THIS ACTION, and the two are different kinds of carrier. `docs/adr/0026`
 # retired a third-party binary cache that this file used to name as its fallback - that wiring was
@@ -118,6 +127,10 @@ runs:
         # that can save is red rather than merely discouraged. Purging is NOT enabled here:
         # `cache-prune.yml` owns deletion, and two deleters would race for the same ids.
         save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        # THE COLLECTION, ON THE `ci` SCOPE ONLY. `0K` makes the post step free everything the root
+        # step below did not root; `''` is the action's "do not collect", for every scope nothing
+        # roots. It runs only where `save:` does, and not on an exact primary-key hit.
+        gc-max-store-size: ${{ inputs.scope == 'ci' && '0K' || '' }}
 
     # THE WITNESS, AND ITS SHAPE IS THE POINT: IT REPORTS AND NEVER FAILS.
     #
@@ -172,3 +185,29 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
         printf 'nix-store-cache(%s): %s; %s; %s path(s) present after restore\n' \
           "$SCOPE" "$restore" "$write" "$carried"
+
+    # THE ROOT SET FOR THAT COLLECTION, and the flake declares it: every derivation behind this
+    # system's `checks` and `apps` (a program's derivation read off its string context), plus every
+    # path `nix flake archive` names. On exactly the run whose post step collects, and after the
+    # witness above so its count is still what the cache carried. Without `keep-outputs` a rooted
+    # derivation would not keep what it built, so the step refuses, the backstop behind the gate on
+    # the installers - and a failed step skips the post step, the collection and the save together.
+    - name: Root what the flake declares
+      if: inputs.scope == 'ci' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "$(nix config show keep-outputs)" != true ]; then
+          echo "::error::keep-outputs is off, so the collection before the save would drop what the rooted derivations built"
+          exit 1
+        fi
+        roots="$RUNNER_TEMP/nix-store-cache-roots"
+        system="$(nix config show system)"
+        nix eval --json ".#checks.$system" --apply 'checks: map (check: check.drvPath) (builtins.attrValues checks)' | jq -r '.[]' > "$roots"
+        nix eval --json ".#apps.$system" --apply 'apps: builtins.concatMap (app: builtins.attrNames (builtins.getContext app.program)) (builtins.attrValues apps)' | jq -r '.[]' >> "$roots"
+        nix flake archive --dry-run --json | jq -r '.. | .path? // empty' >> "$roots"
+        sudo mkdir -p /nix/var/nix/gcroots/nix-store-cache
+        while read -r path; do
+          sudo ln -sfn "$path" "/nix/var/nix/gcroots/nix-store-cache/${path##*/}"
+        done < "$roots"
+        echo "nix-store-cache(ci): rooted $(sort -u "$roots" | wc -l | tr -d ' ') store path(s) for the collection before the save"
