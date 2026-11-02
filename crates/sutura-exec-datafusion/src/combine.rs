@@ -306,6 +306,13 @@ pub enum CombineError {
         #[source]
         cause: datafusion::error::DataFusionError,
     },
+    /// The question went across, and a node it was planned onto refused a stage for rows past the
+    /// federated row ceiling.
+    ///
+    /// Carries nothing: the refusal is read off a code a peer sent, so what a caller is told about it
+    /// is this node's own configuration and never the peer's text or numbers.
+    #[error("a node the combine was planned across refused a stage over the federated row ceiling")]
+    RowsOverCeiling,
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -452,7 +459,8 @@ impl DataFusionCombiner {
     /// at once when [`Nodes`] says its legs are too large for one, and otherwise tried on this node
     /// first and planned across only when that is refused for its working set. Planning across may
     /// first wait for other nodes - see [`Nodes::wait_for_workers`] - and a node it was planned onto
-    /// that cannot be reached refuses it as [`CombineError::NodeLost`].
+    /// that cannot be reached refuses it as [`CombineError::NodeLost`], one that refused a stage for
+    /// rows past the federated row ceiling as [`CombineError::RowsOverCeiling`].
     #[cfg_attr(
         not(feature = "distributed"),
         expect(
@@ -477,7 +485,8 @@ impl DataFusionCombiner {
                 }
             }
             let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
-            return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set).map_err(across::lost);
+            return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set)
+                .map_err(|error| across::relayed(across::lost(error)));
         }
         run(&bounded_session(working_set)?, working_set)
     }
@@ -717,6 +726,10 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::NodeLost { .. })
     }
 
+    fn rows_over_ceiling(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::RowsOverCeiling)
+    }
+
     #[cfg(feature = "distributed")]
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.nodes.as_ref().map(Nodes::slots_wanted)
@@ -738,8 +751,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady` and `NodeLost`, which `workers_not_ready`
-            // and `node_lost` answer.
+            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost` and `RowsOverCeiling`, which
+            // `workers_not_ready`, `node_lost` and `rows_over_ceiling` answer.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -755,7 +768,8 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::UnsupportedAggregate { .. }
             | CombineError::LinkTypeNotMapped { .. }
             | CombineError::WorkersNotReady { .. }
-            | CombineError::NodeLost { .. } => None,
+            | CombineError::NodeLost { .. }
+            | CombineError::RowsOverCeiling => None,
         }
     }
 

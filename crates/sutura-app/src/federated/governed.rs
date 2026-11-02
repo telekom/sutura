@@ -1,7 +1,7 @@
 //! The governance refusal a combine failure is, when it is one.
 
-use sutura_domain::plan::FederationCombiner;
-use sutura_domain::query::RefusalReason;
+use sutura_domain::plan::{FederatedRowCeiling, FederationCombiner};
+use sutura_domain::query::{RefusalReason, ResultBound};
 
 /// The refusal `cause` is, taken off the combiner in the order the mono path asks its own adapter:
 /// the ceiling, then no other node ready in time, then a node lost while the combine ran, then a
@@ -32,9 +32,25 @@ where
         })
 }
 
+/// [`refusal`], then a stage another node refused over the federated row ceiling, answered with
+/// `ceiling` - this node's own - and never a number the combiner read off that node.
+pub(super) fn refusal_within<C>(combiner: &C, cause: &C::Error, ceiling: FederatedRowCeiling) -> Option<RefusalReason>
+where
+    C: FederationCombiner,
+{
+    refusal(combiner, cause).or_else(|| {
+        combiner.rows_over_ceiling(cause).then_some(RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: ceiling.get() },
+        })
+    })
+}
+
 /// A node lost while the combine ran, over a combiner that reads every failure as one.
 #[cfg(test)]
 mod lost;
+/// A stage another node refused over the federated row ceiling, answered with this node's own.
+#[cfg(test)]
+mod rows;
 /// The order the refusals are read in, over a combiner that reads each as it is told.
 #[cfg(test)]
 mod tests;
