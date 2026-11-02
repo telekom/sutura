@@ -370,3 +370,5 @@ a_refusal_keeps_the_registered_error_code_and_never_the_secret # its module is c
 a_held_token_is_redacted_under_debug # its module is client_credentials/tests.rs under delegation/client_credentials.rs, both new here; the base run reverts delegation.rs, so neither is compiled there
 a_token_answer_over_the_cap_is_too_large # its module is client_credentials/tests.rs under delegation/client_credentials.rs, both new here; the base run reverts delegation.rs, so neither is compiled there
 an_endpoint_nobody_listens_on_is_unreachable # its module is client_credentials/tests.rs under delegation/client_credentials.rs, both new here; the base run reverts delegation.rs, so neither is compiled there
+a_declared_scope_is_sent_with_the_grant # its module is client_credentials/tests.rs under delegation/client_credentials.rs, both new here; the base run reverts delegation.rs, so neither is compiled there
+a_scope_outside_the_rfc_token_syntax_is_unusable # its module is client_credentials/tests.rs under delegation/client_credentials.rs, both new here; the base run reverts delegation.rs, so neither is compiled there

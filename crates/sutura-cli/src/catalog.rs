@@ -132,6 +132,9 @@ pub(crate) fn open_catalog(
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
         sutura_config::CatalogKind::Cube => open_cube_catalogs(catalogs, outbound),
+        sutura_config::CatalogKind::Entropy => Err(String::from(
+            "catalog.kind: entropy is declarable, and no build links its reader yet",
+        )),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {

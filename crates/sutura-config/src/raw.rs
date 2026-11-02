@@ -768,6 +768,54 @@ pub(crate) struct RawCatalog {
     /// catalog read has no caller to run as.
     #[serde(default)]
     pub(crate) connection: Option<RawCatalogConnection>,
+    /// `catalog.kind: entropy` only, like the two keys below it: the API key FILE, never the key.
+    /// `parse_catalogs` refuses each on any other kind.
+    #[serde(default)]
+    pub(crate) api_key_file: Option<String>,
+    /// The client credentials grant, in place of an API key.
+    #[serde(default)]
+    pub(crate) oidc: Option<RawEntropyOidc>,
+    /// Each contract server the catalog may name, and the declared source serving it.
+    #[serde(default)]
+    pub(crate) bindings: Option<Vec<RawEntropyBinding>>,
+}
+
+/// An entropy catalog's `oidc:` block, as read.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawEntropyOidc {
+    pub(crate) token_endpoint: String,
+    pub(crate) client_id: String,
+    /// A path read at boot, never the secret itself.
+    pub(crate) client_secret_file: String,
+    #[serde(default)]
+    pub(crate) client_auth: crate::catalog::EntropyClientAuth,
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
+}
+
+/// One `bindings:` entry, as read: a contract server's `type`, the keys that identify it, and the
+/// declared source serving it.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawEntropyBinding {
+    #[serde(rename = "type")]
+    pub(crate) server_type: String,
+    pub(crate) source: String,
+    #[serde(default)]
+    pub(crate) project: Option<String>,
+    #[serde(default)]
+    pub(crate) dataset: Option<String>,
+    #[serde(default)]
+    pub(crate) host: Option<String>,
+    #[serde(default)]
+    pub(crate) port: Option<core::num::NonZeroU16>,
+    #[serde(default)]
+    pub(crate) database: Option<String>,
+    #[serde(default)]
+    pub(crate) schema: Option<String>,
+    #[serde(default)]
+    pub(crate) service_name: Option<String>,
 }
 
 /// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for

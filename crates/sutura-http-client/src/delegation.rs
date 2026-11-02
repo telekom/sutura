@@ -349,7 +349,7 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
 mod client_credentials;
 mod linked;
 mod pool;
-pub use client_credentials::{ClientAuth, ClientCredentials, ClientCredentialsFailed};
+pub use client_credentials::{ClientAuth, ClientCredentials, ClientCredentialsFailed, Scope, UnusableScope};
 pub use linked::BrokeredLogin;
 pub use pool::{GOOGLE_STS, GoogleSts};
 

@@ -10,7 +10,9 @@ use std::path::PathBuf;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, DataHubPlatform, InvalidCatalogSettings, RdbmsSettings};
+use crate::catalog::{
+    CatalogKind, CatalogSettings, Catalogs, DataHubPlatform, EntropySettings, InvalidCatalogSettings, RdbmsSettings,
+};
 use crate::raw::{RawCatalog, RawSettings};
 use crate::sources::SourceRegistry;
 
@@ -53,6 +55,21 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         if kind != CatalogKind::Rdbms {
             refuse_rdbms_keys(&settings, raw_catalog)?;
         }
+        if kind != CatalogKind::Entropy {
+            let written = [
+                ("api_key_file", raw_catalog.api_key_file.is_some()),
+                ("oidc", raw_catalog.oidc.is_some()),
+                ("bindings", raw_catalog.bindings.is_some()),
+            ];
+            if let Some((key, _)) = written.into_iter().find(|&(_, written)| written) {
+                return Err(SettingsError::Catalog {
+                    cause: InvalidCatalogSettings::EntropyKeyOnOtherKind {
+                        name: settings.name().clone(),
+                        key,
+                    },
+                });
+            }
+        }
         if kind != CatalogKind::Datahub && raw_catalog.platforms.is_some() {
             return Err(SettingsError::Catalog {
                 cause: InvalidCatalogSettings::PlatformsOnOtherKind {
@@ -85,6 +102,21 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                     // for being an unusable bound if the deployment WROTE a zero.
                     .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
                     .with_datahub_platforms(platforms)
+            }
+            CatalogKind::Entropy => {
+                let refuse = |cause| SettingsError::Catalog {
+                    cause: InvalidCatalogSettings::Entropy {
+                        name: settings.name().clone(),
+                        cause,
+                    },
+                };
+                let entropy = EntropySettings::parse(raw_catalog, sources).map_err(refuse)?;
+                let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
+                let metric_property = raw_catalog.metric_property.clone().unwrap_or_default();
+                settings
+                    .with_entropy(endpoint, metric_property, entropy)
+                    .map_err(|cause| SettingsError::Catalog { cause })?
+                    .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
             CatalogKind::Openmetadata | CatalogKind::Cube => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();

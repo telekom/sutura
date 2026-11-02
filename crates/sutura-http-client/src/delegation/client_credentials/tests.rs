@@ -6,7 +6,7 @@ use std::net::TcpListener;
 
 use sutura_domain::identity::Secret;
 
-use super::{ClientAuth, ClientCredentials, ClientCredentialsFailed, answered};
+use super::{ClientAuth, ClientCredentials, ClientCredentialsFailed, Scope, UnusableScope, answered};
 use crate::ReadBounds;
 use crate::delegation::{ExchangeClient, TokenEndpoint};
 use crate::test_support::{CapturedAuthorizations, CapturedRequest, FakeServer, Scripted};
@@ -82,6 +82,27 @@ fn post_auth_sends_the_client_in_the_body_and_no_header() {
             "grant_type=client_credentials"
         ]
     );
+}
+
+#[test]
+fn a_declared_scope_is_sent_with_the_grant() {
+    let server = FakeServer::start(vec![Scripted::ok(&answer(ISSUED, 3600))]);
+    let scope = Scope::parse("mcp:read catalog").expect("two printable tokens are a scope");
+    let grant = granting(&server.endpoint(), ClientAuth::Basic, 64 * 1024).with_scope(scope);
+    drop(grant.bearer().expect("a well-formed answer is a token"));
+    let requests = server.finish();
+    let [request] = requests.as_slice() else {
+        panic!("expected exactly one request, got {requests:?}");
+    };
+    assert_eq!(fields(request), ["grant_type=client_credentials", "scope=mcp%3Aread+catalog"]);
+}
+
+#[test]
+fn a_scope_outside_the_rfc_token_syntax_is_unusable() {
+    for raw in ["", " mcp", "mcp ", "mcp  read", "mcp\tread", "a\"b", "a\\b", "caf\u{e9}"] {
+        assert_eq!(Scope::parse(raw), Err(UnusableScope), "{raw:?}");
+    }
+    assert_ne!(Scope::parse("mcp:read"), Err(UnusableScope));
 }
 
 #[test]
