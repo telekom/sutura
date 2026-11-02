@@ -4277,9 +4277,9 @@ composition root refuses a posture the linked adapter cannot deliver.</p>
 <p>The broker a served deployment with an impersonating source answers through: a verified subject
 in, that subject's own credential (or the declared principal a switching source becomes) out.</p>
 <p><strong>A federating source is presented the asker's own verified assertion and nothing beside it</strong>
-(<code>DeclaredPrincipalBroker::federating</code>). The <code>BigQuery</code> adapter puts it behind a
-workload-identity credential document, Google's token service exchanges it for a federated token
-of the pool's <code>principal://.../subject/&lt;sub&gt;</code>, and the data system's own grants and row policies
+(<code>DeclaredPrincipalBroker::federating</code>). The <code>BigQuery</code> adapter exchanges it at Google's token
+service for a federated token of the pool's <code>principal://.../subject/&lt;sub&gt;</code>, which verifies the
+assertion, and the data system's own grants and row policies
 on that principal decide what the caller reads (the architecture decision's option 3). There is no
 subject map and no account to become: a caller with no grant is
 refused by the data system, never answered as anybody else.</p>
@@ -4289,8 +4289,8 @@ through it without linking another adapter.</p>
 <p><strong>Why this is the only declared broker.</strong> It used to sit beside an EXCHANGING one, whose two HTTP
 hops went away with the <code>wire</code> transport (the architecture decision's eighth amendment). What the ADBC
 transport needs is narrower: not a token to exchange, but the asking subject's OWN assertion for
-the driver to federate against the pool this source declares. No socket and no cache - Google's
-token service performs the exchange - but an EXPIRY, because credential material ages out.</p>
+the adapter to exchange at the pool this source declares. No cache - the adapter asks Google's
+token service per question - but an EXPIRY, because credential material ages out.</p>
 <p><strong>A switching source is the second thing it presents</strong> (<code>DeclaredPrincipalBroker::switching</code>):
 no map - the leg carries the caller's own verified subject as <code>Presented::SubjectPrincipal</code>,
 for a source that authenticates the deployment and switches per statement - <code>ClickHouse</code>'s
@@ -6675,12 +6675,11 @@ convenience, and nothing needs to clone a startup refusal.</p>
 <p><strong>Corrected: <code>audience</code> is load-bearing again.</strong> A round of this record said it "is read by
   no transport in this build", which was true while the shipped mechanism was a principal
   switch on the deployment's own credentials - and stopped being true when workload-identity
-  federation replaced it. The pool's own exchange needs the audience, and Google's library
-  refuses an empty one outright.</p>
+  federation replaced it. The pool's own exchange needs the audience.</p>
 <p>Of the keys in the block, <code>audience</code> is read. There is no <code>impersonate</code> key: the federated
   token is the caller's own pool principal, and the data system's grants on it decide what the
-  caller may read. There is no <code>scope</code> key either: the credential document has no <code>scopes</code>
-  member, so one would reach nothing.
+  caller may read. There is no <code>scope</code> key either: the exchange asks for the <code>BigQuery</code>
+  client's own scope, so one would reach nothing.
 - <code>CallerIdentityModesConflict</code> - More than one caller-identity block on one source: a source runs its callers one way.
 - <code>IdentityModeNotForKind</code> - A <code>google_login</code> or <code>domain_delegation</code> block on a source that is not <code>bigquery</code>, which nothing would read.
 - <code>DomainDelegation</code> - The declared <code>domain_delegation</code> block is not usable.
@@ -7398,19 +7397,17 @@ on this side: an operator who means a loopback TCP dial writes <code>127.0.0.1</
 <h3 id="module-workload_identity">Module <code>workload_identity</code><a class="headerlink" href="#module-workload_identity" title="Permanent link">&para;</a></h3>
 <p>The token-exchange setup one <code>impersonation-at-source</code> source declares.
 The Workload Identity Federation setup one <code>impersonation-at-source</code> source declares.</p>
-<p><strong>This process performs no exchange with the pool.</strong> <code>audience</code> names the pool a subject's own
-assertion is federated against, and the federating is Google's token service's, driven by the
-driver from the <code>external_account</code> document <code>sutura_exec_bigquery</code>'s ADBC transport builds. The
-one exchange this process can run is a declared
-<code>crate::sources::workload_identity::DelegationDeclared</code>, at the caller's own identity provider,
-before that. A source that
-executes as the asking subject has to say <em>which</em> pool receives that assertion, and that is the
-source's declaration rather than this process's guess. See the architecture decision and the architecture decision's
-sixth amendment.</p>
-<p><strong>What each declared value actually reaches.</strong> <code>audience</code> is sent. There is no <code>scope</code> key:
-the credential document has no <code>scopes</code> member, and the driver's own scope option selects the
-DELETED principal-switch mechanism rather than this one, so a declared scope would reach
-nothing and is refused as an unknown key. There is no <code>impersonate</code> key either: the federated
+<p><strong>This process asks for the pool's token; Google's token service verifies the assertion.</strong>
+<code>audience</code> names the pool a subject's own assertion is federated against: the composition root's
+exchanger sends it to Google's token service, which answers an access token for the subject's
+pool principal, and <code>sutura_exec_bigquery</code>'s ADBC transport hands the driver that token. A
+declared <code>crate::sources::workload_identity::DelegationDeclared</code> runs before that, at the
+caller's own identity provider. A source that executes as the asking subject has to say <em>which</em>
+pool receives that assertion, and that is the source's declaration rather than this process's
+guess. See the architecture decision and the architecture decision.</p>
+<p><strong>What each declared value actually reaches.</strong> <code>audience</code> is sent. There is no <code>scope</code> key: the
+exchange asks for the <code>BigQuery</code> client's own scope, so a declared scope would reach nothing and
+is refused as an unknown key. There is no <code>impersonate</code> key either: the federated
 token IS the caller's own pool principal, and the data system's grants on that principal decide
 what the caller may read (the architecture decision's option 3).
 <code>expected_issuer</code>/<code>expected_audience</code> are REFUSED at boot by

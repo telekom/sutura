@@ -5048,12 +5048,34 @@ registered shape (<code>[a-z_]</code>, at most 64 bytes), which no JWT can be.</
 <h3 id="use-linkedlogin"><code>use LinkedLogin</code><a class="headerlink" href="#use-linkedlogin" title="Permanent link">&para;</a></h3>
 <p>The port: the token the identity provider stored for the caller's linked external account.</p>
 <p>Synchronous for the reason <code>DelegationExchange</code> is.</p>
+<h3 id="use-poolexchange"><code>use PoolExchange</code><a class="headerlink" href="#use-poolexchange" title="Permanent link">&para;</a></h3>
+<p>The port: one RFC 8693 exchange at Google's token service, of the caller's own assertion for an
+access token of the caller's own pool principal.</p>
+<p><strong>Not a <code>DelegationExchange</code></strong>: that one reads the issued token's <code>aud</code>, and Google's access
+token is opaque. An implementor checks the answer's shape - token type, a positive lifetime, a
+non-empty token - and never decodes the token; Google's token service is what verifies the
+assertion against the pool. Synchronous for the reason <code>DelegationExchange</code> is.</p>
+<h3 id="use-poolexchangefailed"><code>use PoolExchangeFailed</code><a class="headerlink" href="#use-poolexchangefailed" title="Permanent link">&para;</a></h3>
+<p>Why a pool exchange produced no usable access token.</p>
+<p><strong>No variant carries token material or the token service's free text</strong>, for the reason
+<code>DelegationFailed</code> gives: the <code>error</code> code survives only in its registered shape.</p>
 <h3 id="use-requestedaudience"><code>use RequestedAudience</code><a class="headerlink" href="#use-requestedaudience" title="Permanent link">&para;</a></h3>
 <p>The audience the exchanged token must carry: the pool provider's client ID.</p>
 <p><strong>Stored exactly as written</strong>, as <code>ResourceIdentifier</code> is: an identity provider matches it byte for byte
 against a client it knows, so a normalised spelling would ask for a different audience.</p>
 <h3 id="use-unusableaudience"><code>use UnusableAudience</code><a class="headerlink" href="#use-unusableaudience" title="Permanent link">&para;</a></h3>
 <p>Why a declared requested audience is not one an exchange can ask for.</p>
+<h3 id="use-unusablepool"><code>use UnusablePool</code><a class="headerlink" href="#use-unusablepool" title="Permanent link">&para;</a></h3>
+<p>Why a declared pool is not one an exchange can ask for.</p>
+<h3 id="use-workloadpool"><code>use WorkloadPool</code><a class="headerlink" href="#use-workloadpool" title="Permanent link">&para;</a></h3>
+<p>The workload identity pool one impersonating source federates its callers at.</p>
+<p><strong>Parsed at composition, so an unusable declaration fails to start</strong>, and checked here as well
+as in the settings tree because it reaches a request body a <code>PoolExchange</code> builds. The
+accepted set excludes every character that could end a form field or a URL, so a declaration
+cannot reshape the request it lands in.</p>
+<p><strong>One field, and a scope is not it.</strong> The scope an exchange asks for is the data system
+client's own, a constant of the <code>PoolExchange</code> implementor; there is no <code>workload_identity.scope</code>
+key, so a declared value nothing sends cannot read as a control that is in place.</p>
 <h3 id="use-actor"><code>use Actor</code><a class="headerlink" href="#use-actor" title="Permanent link">&para;</a></h3>
 <p>The identifier of something that acted for the subject: an agent, or an agent's agent.</p>
 <p>One link of the second position. Never on its own - an actor exists inside an <code>ActorChain</code>,

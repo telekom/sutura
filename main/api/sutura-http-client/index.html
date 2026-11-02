@@ -2743,6 +2743,10 @@ token for any subject whose inbound token they also hold. <code>Debug</code> pri
 <p><code>Debug</code>, <code>DelegationExchange</code></p>
 <h3 id="use-brokeredlogin"><code>use BrokeredLogin</code><a class="headerlink" href="#use-brokeredlogin" title="Permanent link">&para;</a></h3>
 <p><code>LinkedLogin</code> over HTTP, at a <code>/realms/&lt;realm&gt;/broker/&lt;alias&gt;/token</code> endpoint.</p>
+<h3 id="use-google_sts"><code>use GOOGLE_STS</code><a class="headerlink" href="#use-google_sts" title="Permanent link">&para;</a></h3>
+<p>Google's token service, the provider's default for the <code>googleapis.com</code> universe.</p>
+<h3 id="use-googlests"><code>use GoogleSts</code><a class="headerlink" href="#use-googlests" title="Permanent link">&para;</a></h3>
+<p><code>PoolExchange</code> over HTTP, at <code>GOOGLE_STS</code> or a stand-in for it.</p>
 <h2 id="module-test_support">Module <code>test_support</code><a class="headerlink" href="#module-test_support" title="Permanent link">&para;</a></h2>
 <p>A real local HTTP server - "ports get fakes, not mocked HTTP".</p>
 <p><code>pub</code> behind this crate's <code>test</code> feature so a reader's own tests AND a composition root's
