@@ -1,13 +1,13 @@
 diff --git a/vendor/arrow-ipc/src/reader.rs b/vendor/arrow-ipc/src/reader.rs
-index 126a521e2..097953142 100644
+index 126a521e2..0e3c52b84 100644
 --- a/vendor/arrow-ipc/src/reader.rs
 +++ b/vendor/arrow-ipc/src/reader.rs
-@@ -420,7 +420,7 @@ impl RecordBatchDecoder<'_> {
-             if !skip_validation {
-                 // Check before constructing the BooleanBuffer, which would otherwise panic.
+@@ -422,7 +422,7 @@ impl RecordBatchDecoder<'_> {
                  let needed_len = len.div_ceil(8);
--                if null_buffer.len() < needed_len {
-+                if false && null_buffer.len() < needed_len {
+                 if null_buffer.len() < needed_len {
                      return Err(ArrowError::InvalidArgumentError(format!(
-                         "null_bit_buffer size too small. got {} needed {}",
+-                        "null_bit_buffer size too small. got {} needed {}",
++                        "validity buffer too short. got {} needed {}",
                          null_buffer.len(),
+                         needed_len
+                     )));
