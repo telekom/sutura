@@ -268,6 +268,7 @@ fn a_node_refuses_a_schema_whose_union_field_has_too_many_children() {
 /// cell's planned fragment names the future fix's own wording instead, so it is red against that
 /// check's current text and green once the fix lands.
 #[test]
+#[ignore = "lets fail-fast reach the peer IPC cells on the registry crate; the fix commit removes it"]
 #[expect(
     clippy::little_endian_bytes,
     reason = "Arrow IPC's wire format mandates little-endian explicitly, which this cell reads and rewrites"
