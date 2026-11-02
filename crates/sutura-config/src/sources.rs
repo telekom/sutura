@@ -512,13 +512,12 @@ pub enum InvalidSourceRegistry {
     /// **Corrected: `audience` is load-bearing again.** A round of this record said it "is read by
     /// no transport in this build", which was true while the shipped mechanism was a principal
     /// switch on the deployment's own credentials - and stopped being true when workload-identity
-    /// federation replaced it. The pool's own exchange needs the audience, and Google's library
-    /// refuses an empty one outright.
+    /// federation replaced it. The pool's own exchange needs the audience.
     ///
     /// Of the keys in the block, `audience` is read. There is no `impersonate` key: the federated
     /// token is the caller's own pool principal, and the data system's grants on it decide what the
-    /// caller may read. There is no `scope` key either: the credential document has no `scopes`
-    /// member, so one would reach nothing.
+    /// caller may read. There is no `scope` key either: the exchange asks for the `BigQuery`
+    /// client's own scope, so one would reach nothing.
     #[error(
         "`sources.{alias}` is `impersonation-at-source` and declares no caller-identity block - write \
          `workload_identity`, or on a `bigquery` source `google_login` or `domain_delegation`"

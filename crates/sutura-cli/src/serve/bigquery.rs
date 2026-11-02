@@ -161,24 +161,26 @@ fn build_bigquery(
     // refuses a `workload_identity` block on a shared entry and refuses its absence on an
     // impersonating one, so the presence of the block IS the posture and there is no third state.
     //
-    // **`audience` is load-bearing again.** It was read by nothing for three rounds, while the
-    // shipped mechanism was a principal switch on the deployment's own credential; the pool's
-    // exchange needs it, and `externalaccount::Options::validate` refuses an empty one - so an
-    // unusable declaration fails here, before a listener is bound, rather than on the first
-    // impersonated question.
+    // **`audience` is load-bearing.** This process exchanges the subject's assertion at Google's
+    // token service for that pool (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`),
+    // and `WorkloadPool::parse` refuses a value that is not a provider resource - so an unusable
+    // declaration fails here, before a listener is bound, rather than on the first impersonated
+    // question. The exchanger is composed only for a pool source; one built without it refuses
+    // every subject as uncovered.
     //
-    // **There is no `scope`.** The pinned driver has nowhere to put one - `WorkloadPool` carries the
-    // measurement - so `sutura_config` refuses the key by name rather than carry a value that
-    // reaches nothing. A value carried here and dropped later would be the shape this whole change
-    // exists to remove.
+    // **There is no `scope`.** The exchange asks for the `BigQuery` client's own scope, so
+    // `sutura_config` refuses the key by name rather than carry a value that reaches nothing.
     let impersonation = impersonation_of(source, configured)?;
-    Ok(sutura_exec_bigquery::BigQueryWarehouse::over_adbc(
+    let pooled = matches!(impersonation, sutura_exec_bigquery::adbc::Impersonation::ThroughPool(_));
+    let mut transport = sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed);
+    if pooled {
+        transport = transport.exchanging_through(Box::new(super::broker::pool_exchange(outbound)?));
+    }
+    Ok(sutura_exec_bigquery::BigQueryWarehouse::new(
         source.clone(),
         identity.posture().clone(),
         billing,
-        driver,
-        impersonation,
-        max_bytes_billed,
+        transport,
     ))
 }
 

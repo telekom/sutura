@@ -21,9 +21,9 @@
 //!
 //! Two declared postures, XOR, decided at composition and never per request: a `shared-service-user`
 //! source runs on the deployment's own application default credentials and impersonates nothing, and
-//! an `impersonation-at-source` source federates the asking subject's own assertion against the pool
-//! it declares. `identity` is where that decision lives and is asserted, and `subject` is where the
-//! federation's mechanism and its exposure are written down.
+//! an `impersonation-at-source` source exchanges the asking subject's own assertion at the pool it
+//! declares, through an injected [`PoolExchange`], for the access token the driver is handed.
+//! `identity` is where that decision lives and is asserted.
 //!
 //! **A subject at a source with no pool is REFUSED** rather than answered as the deployment - the
 //! one thing this transport must never do. The one exception is opt-in per source: a
@@ -62,6 +62,7 @@ use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
 use arrow_array::RecordBatchReader as _;
 
+use sutura_domain::identity::{PoolExchange, PoolExchangeFailed};
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
 use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport, ProjectId};
@@ -189,28 +190,14 @@ pub enum AdbcError {
         #[source]
         cause: arrow_schema::ArrowError,
     },
-    /// The loopback source a subject's assertion is served over could not be opened.
+    /// Google's token service issued no usable access token for the asking subject at its pool.
     ///
-    /// Its own variant rather than an [`Self::Adbc`], because nothing has been sent and the failure
-    /// is this process's own: a host with no usable loopback interface cannot serve an impersonated
-    /// question, and saying that is better than a driver failing to fetch a token for reasons of
-    /// its own.
-    #[error("the loopback source for the asking subject's assertion could not be opened")]
-    SubjectSource {
+    /// Its own variant rather than an [`Self::Adbc`], because nothing has reached the driver: the
+    /// exchange runs before the `.so` is loaded, so a failed one opens no connection.
+    #[error("the pool exchange for the asking subject failed")]
+    PoolExchange {
         #[source]
-        cause: std::io::Error,
-    },
-    /// The operating system would not supply the randomness this request's two secrets need.
-    ///
-    /// **A refusal and not a fallback**, and `subject::unguessable`'s own doc carries why: every
-    /// constant available here would be written into the same document the driver reads, so the
-    /// fetch would authenticate against a value any local process could guess.
-    #[error("this host would not supply the randomness a subject's loopback source needs: {cause}")]
-    NoRandomness {
-        /// Carried by value rather than as a `#[source]`: `getrandom::Error` is an opaque code with
-        /// a `Display` and no `Error` impl, so there is no chain to walk - and inventing a wrapper
-        /// for it would add a name that tells a reader nothing the message does not.
-        cause: getrandom::Error,
+        cause: PoolExchangeFailed,
     },
 }
 
@@ -313,13 +300,8 @@ fn load(at: &DriverLocation) -> Result<ManagedDriver, AdbcError> {
     sutura_adbc::linked_driver().map_err(|e| AdbcError::Load(DriverMessage::of(&e)))
 }
 
-/// A driver handle, a prepared statement, and the loopback source they may still fetch from.
-///
-/// **The third element is the lifetime fix rather than a convenience.** `externalaccount`'s token
-/// provider is CACHED, so the driver fetches the subject token lazily - after `connect` returns -
-/// and may fetch again if the credential expires mid-query. Returning the source makes `run` its
-/// owner, so the endpoint closes when the job ends and not before.
-type Connected = (ManagedDriver, ManagedStatement, Option<subject::SubjectSource>);
+/// A driver handle and the statement prepared on it.
+type Connected = (ManagedDriver, ManagedStatement);
 
 /// The project id [`AdbcBigQuery::probe`] hands the driver, which reaches no request.
 ///
@@ -381,9 +363,9 @@ const JOB_TIMEOUT_OPTION: &str = "bigquery.query.job_timeout";
 
 /// A `BigQuery` endpoint over ADBC.
 ///
-/// **Three owned values and nothing else, which is load-bearing rather than tidy.** There is no
-/// connection here, no database handle and no token: [`Self::connect`] builds all three per job from
-/// that job's own request and drops them with it. That is what keeps one subject's principal off
+/// **Owned declarations and an injected exchange, which is load-bearing rather than tidy.** There is
+/// no connection here, no database handle and no token: [`Self::connect`] builds all three per job
+/// from that job's own request and drops them with it. That is what keeps one subject's principal off
 /// another subject's query - not a check, but the absence of anything two jobs could share.
 ///
 /// **The limit beside it:** nothing in the type system forbids a future field from holding a
@@ -403,6 +385,9 @@ pub struct AdbcBigQuery {
     /// of the SOURCE the deployment declared, so no request decides it and no request can omit it.
     /// Parsed at composition, so a value that is not a ceiling fails before a listener is bound.
     max_bytes_billed: BytesBilledCeiling,
+    /// What a [`Impersonation::ThroughPool`] source exchanges a subject's assertion through. `None`
+    /// refuses every subject at such a source, never runs one as the deployment.
+    exchange: Option<Box<dyn PoolExchange>>,
 }
 
 impl AdbcBigQuery {
@@ -424,7 +409,15 @@ impl AdbcBigQuery {
             driver,
             impersonation,
             max_bytes_billed,
+            exchange: None,
         }
+    }
+
+    /// This transport, exchanging a subject's assertion at its declared pool through `exchange`.
+    #[must_use]
+    pub fn exchanging_through(mut self, exchange: Box<dyn PoolExchange>) -> Self {
+        self.exchange = Some(exchange);
+        self
     }
 
     /// Does this artefact's driver load and initialise at all?
@@ -477,7 +470,7 @@ impl AdbcBigQuery {
         // WHO first. `identity_options` is empty for a shared leg and refuses a bearer; a refused
         // identity must not reach `load`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
-        let authentication = identity::authenticate(request.identity(), &self.impersonation)?;
+        let authentication = identity::authenticate(request.identity(), &self.impersonation, self.exchange.as_deref())?;
         // The values, as the one batch this driver binds from - assembled before the `.so` is
         // loaded for the identity's reason: a request this transport cannot assemble must not open a
         // connection. `None` where a call carries no values, which is every boot-path call and a
@@ -490,7 +483,7 @@ impl AdbcBigQuery {
         let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
-        Ok((driver, stmt, authentication.source))
+        Ok((driver, stmt))
     }
 }
 
@@ -607,11 +600,10 @@ fn worker_vanished() -> AdbcError {
 /// **`keep_alive` exists for a reason that has nothing to do with cancellation.** The worker thread
 /// this function spawns may still be running after this function itself has returned
 /// [`AdbcError::DeadlineElapsed`] to ITS OWN caller - that is the whole point of not waiting for it.
-/// `AdbcBigQuery::run`'s driver handle and its subject-token loopback source have to stay alive for
-/// as long as the clone of `stmt` the worker holds might still call into them, which can outlast
-/// this function's own return; moving them into the SAME closure, held until it ends, is what
-/// stops a driver being unloaded - or a loopback source being closed - out from under a call still
-/// in flight against it.
+/// `AdbcBigQuery::run`'s driver handle has to stay alive for as long as the clone of `stmt` the
+/// worker holds might still call into it, which can outlast this function's own return; moving it
+/// into the SAME closure, held until it ends, is what stops a driver being unloaded out from under
+/// a call still in flight against it.
 fn run_to_deadline<S>(
     mut stmt: S,
     keep_alive: impl Send + 'static,
@@ -654,8 +646,8 @@ impl JobTransport for AdbcBigQuery {
     type Error = AdbcError;
 
     fn run(&self, request: &JobRequest<'_>) -> Result<ResultBatches, Self::Error> {
-        let (driver, stmt, source) = self.connect(request)?;
-        run_to_deadline(stmt, (driver, source), request.deadline(), Instant::now())
+        let (driver, stmt) = self.connect(request)?;
+        run_to_deadline(stmt, driver, request.deadline(), Instant::now())
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<DryRunEstimate, Self::Error> {
@@ -690,10 +682,21 @@ impl JobTransport for AdbcBigQuery {
     }
 
     /// `true` for a driver call `BigQuery` refused for the identity it ran as - a caller whose own
-    /// principal holds no grant on what the question reads. It reaches that caller as
-    /// `source_refused` and never as a `503` that invites a retry.
+    /// principal holds no grant on what the question reads - and for a pool exchange Google's token
+    /// service refused the caller's assertion at. Either reaches that caller as `source_refused` and
+    /// never as a `503` that invites a retry.
+    ///
+    /// **The exchange's refusal is read off RFC 6749 section 5.2 and RFC 8693, not measured**: a
+    /// `401` or `403`, or an `invalid_grant` code. Any other refusal - an unreachable service, a
+    /// malformed answer - stays an outage.
     fn job_was_refused(&self, error: &Self::Error) -> bool {
-        matches!(*error, AdbcError::Adbc(ref message) if message.refused_the_identity())
+        match *error {
+            AdbcError::Adbc(ref message) => message.refused_the_identity(),
+            AdbcError::PoolExchange {
+                cause: PoolExchangeFailed::Refused { status, ref error },
+            } => matches!(status, 401 | 403) || error.as_deref() == Some("invalid_grant"),
+            _ => false,
+        }
     }
 
     /// `true` for the TWO CEILINGS alone, which are the failures here that are a result not fitting.
@@ -729,8 +732,7 @@ impl JobTransport for AdbcBigQuery {
             | AdbcError::DeadlineSpent
             | AdbcError::DeadlineElapsed
             | AdbcError::Parameters { .. }
-            | AdbcError::SubjectSource { .. }
-            | AdbcError::NoRandomness { .. } => false,
+            | AdbcError::PoolExchange { .. } => false,
         }
     }
 
@@ -786,7 +788,7 @@ impl JobTransport for AdbcBigQuery {
 
     #[cfg(feature = "fixtures")]
     fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
-        let (_driver, mut statement, _source) = self.connect(request)?;
+        let (_driver, mut statement) = self.connect(request)?;
         #[expect(
             clippy::disallowed_methods,
             reason = "the default-off `fixtures` loader's two statements: `CREATE OR REPLACE TABLE`, rendered from a committed CSV's cells, and `drop_table`'s `DROP TABLE IF EXISTS`, rendered from a parsed `TableName`"
@@ -800,5 +802,7 @@ impl JobTransport for AdbcBigQuery {
 
 #[cfg(test)]
 mod batch_cells;
+#[cfg(test)]
+mod pool_cells;
 #[cfg(test)]
 mod tests;

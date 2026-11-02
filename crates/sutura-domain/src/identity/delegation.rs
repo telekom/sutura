@@ -4,8 +4,8 @@
 //! In `direct` the inbound token's `aud` is this deployment's own resource identifier, which leg 1
 //! requires, and the pool provider requires its own. One token cannot carry both, so the caller's
 //! identity provider is asked - RFC 8693, subject token = the inbound token - for a token whose audience is the
-//! pool provider's. The inbound token then serves leg 1 only, and the exchanged one is what the
-//! credential document hands Google's token service.
+//! pool provider's. The inbound token then serves leg 1 only, and the exchanged one is what a
+//! [`PoolExchange`] presents to Google's token service.
 //!
 //! **Nothing here caches.** One exchange per source per request, and the result lives in that
 //! request's [`LegCredentials`](crate::identity::LegCredentials) and nowhere else, so two subjects cannot
@@ -103,7 +103,7 @@ pub struct Delegated {
 }
 
 impl Delegated {
-    /// What an implementor of [`DelegationExchange`] returns after validating the identity provider's answer.
+    /// What an implementor of [`DelegationExchange`] or [`PoolExchange`] returns after validating the answer.
     #[must_use]
     pub const fn new(token: Secret, not_after_unix_seconds: u64) -> Self {
         Self {
@@ -305,6 +305,138 @@ impl Delegation {
         }
         Ok(held)
     }
+}
+
+/// The workload identity pool one impersonating source federates its callers at.
+///
+/// **Parsed at composition, so an unusable declaration fails to start**, and checked here as well
+/// as in the settings tree because it reaches a request body a [`PoolExchange`] builds. The
+/// accepted set excludes every character that could end a form field or a URL, so a declaration
+/// cannot reshape the request it lands in.
+///
+/// **One field, and a scope is not it.** The scope an exchange asks for is the data system
+/// client's own, a constant of the [`PoolExchange`] implementor; there is no `workload_identity.scope`
+/// key, so a declared value nothing sends cannot read as a control that is in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkloadPool {
+    audience: String,
+}
+
+/// Why a declared pool is not one an exchange can ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum UnusablePool {
+    /// There was nothing there.
+    #[error("the workload identity audience this source declares is empty")]
+    Empty,
+    /// Longer than the value's own bound.
+    #[error(
+        "the workload identity audience this source declares is {found} characters and at most \
+         {most} are usable"
+    )]
+    TooLong {
+        /// How long it was.
+        found: usize,
+        /// The bound.
+        most: usize,
+    },
+    /// A character outside the accepted set, at a position.
+    #[error("the workload identity audience this source declares carries an unusable character at {at}")]
+    Character {
+        /// Where, so an operator can find it without the refusal quoting it.
+        at: usize,
+    },
+}
+
+impl WorkloadPool {
+    /// A provider resource is bounded the way the endpoint documents it.
+    const MOST_AUDIENCE: usize = 256;
+
+    /// Parses the audience one impersonating source declares.
+    ///
+    /// # Errors
+    ///
+    /// [`UnusablePool`], which carries a position and never the text.
+    pub fn parse(audience: &str) -> Result<Self, UnusablePool> {
+        let trimmed = audience.trim();
+        if trimmed.is_empty() {
+            return Err(UnusablePool::Empty);
+        }
+        let found = trimmed.chars().count();
+        if found > Self::MOST_AUDIENCE {
+            return Err(UnusablePool::TooLong {
+                found,
+                most: Self::MOST_AUDIENCE,
+            });
+        }
+        if let Some(at) = trimmed.char_indices().find_map(|(at, c)| {
+            (!matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '/' | ':' | '.' | '-' | '_' | '%')).then_some(at)
+        }) {
+            return Err(UnusablePool::Character { at });
+        }
+        Ok(Self {
+            audience: String::from(trimmed),
+        })
+    }
+
+    /// The pool provider resource a subject token is exchanged against.
+    #[inline]
+    #[must_use]
+    pub fn audience(&self) -> &str {
+        &self.audience
+    }
+}
+
+/// Why a pool exchange produced no usable access token.
+///
+/// **No variant carries token material or the token service's free text**, for the reason
+/// [`DelegationFailed`] gives: the `error` code survives only in its registered shape.
+#[derive(Debug, thiserror::Error)]
+pub enum PoolExchangeFailed {
+    /// The token service could not be reached or its answer not read.
+    #[error("Google's token service could not be reached")]
+    Unreachable {
+        #[source]
+        cause: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// The token service answered with a non-success status.
+    #[error("Google's token service refused the pool exchange ({status}, {})", error.as_deref().unwrap_or("no error code"))]
+    Refused {
+        /// The HTTP status.
+        status: u16,
+        /// The RFC 6749 `error` code, when it had the registered shape.
+        error: Option<String>,
+    },
+    /// The answer was larger than the deployment's cap.
+    #[error("Google's token service's answer is over the {cap}-byte cap")]
+    TooLarge {
+        /// The cap.
+        cap: u64,
+    },
+    /// The answer lacked a field this exchange needs, or carried one in an unusable shape.
+    #[error("Google's token service's answer is malformed: {what}")]
+    Malformed {
+        /// Which part, named by the implementor rather than quoted from the answer.
+        what: &'static str,
+    },
+    /// The token service issued something other than a bearer access token.
+    #[error("Google's token service issued something other than a bearer access token")]
+    WrongTokenType,
+}
+
+/// The port: one RFC 8693 exchange at Google's token service, of the caller's own assertion for an
+/// access token of the caller's own pool principal.
+///
+/// **Not a [`DelegationExchange`]**: that one reads the issued token's `aud`, and Google's access
+/// token is opaque. An implementor checks the answer's shape - token type, a positive lifetime, a
+/// non-empty token - and never decodes the token; Google's token service is what verifies the
+/// assertion against the pool. Synchronous for the reason [`DelegationExchange`] is.
+pub trait PoolExchange: core::fmt::Debug + Send + Sync {
+    /// Exchanges `assertion` - the caller's own, after any declared delegation - at `pool`.
+    ///
+    /// # Errors
+    ///
+    /// [`PoolExchangeFailed`]: nothing usable came back, and no data system connection is opened.
+    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool) -> Result<Delegated, PoolExchangeFailed>;
 }
 
 #[cfg(test)]

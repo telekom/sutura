@@ -1,19 +1,17 @@
 //! The Workload Identity Federation setup one `impersonation-at-source` source declares.
 //!
-//! **This process performs no exchange with the pool.** `audience` names the pool a subject's own
-//! assertion is federated against, and the federating is Google's token service's, driven by the
-//! driver from the `external_account` document `sutura_exec_bigquery`'s ADBC transport builds. The
-//! one exchange this process can run is a declared
-//! [`crate::sources::workload_identity::DelegationDeclared`], at the caller's own identity provider,
-//! before that. A source that
-//! executes as the asking subject has to say *which* pool receives that assertion, and that is the
-//! source's declaration rather than this process's guess. See `docs/adr/0008` and `docs/adr/0018`'s
-//! sixth amendment.
+//! **This process asks for the pool's token; Google's token service verifies the assertion.**
+//! `audience` names the pool a subject's own assertion is federated against: the composition root's
+//! exchanger sends it to Google's token service, which answers an access token for the subject's
+//! pool principal, and `sutura_exec_bigquery`'s ADBC transport hands the driver that token. A
+//! declared [`crate::sources::workload_identity::DelegationDeclared`] runs before that, at the
+//! caller's own identity provider. A source that executes as the asking subject has to say *which*
+//! pool receives that assertion, and that is the source's declaration rather than this process's
+//! guess. See `docs/adr/0008` and `docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`.
 //!
-//! **What each declared value actually reaches.** `audience` is sent. There is no `scope` key:
-//! the credential document has no `scopes` member, and the driver's own scope option selects the
-//! DELETED principal-switch mechanism rather than this one, so a declared scope would reach
-//! nothing and is refused as an unknown key. There is no `impersonate` key either: the federated
+//! **What each declared value actually reaches.** `audience` is sent. There is no `scope` key: the
+//! exchange asks for the `BigQuery` client's own scope, so a declared scope would reach nothing and
+//! is refused as an unknown key. There is no `impersonate` key either: the federated
 //! token IS the caller's own pool principal, and the data system's grants on that principal decide
 //! what the caller may read (`docs/adr/0032`'s option 3).
 //! `expected_issuer`/`expected_audience` are REFUSED at boot by

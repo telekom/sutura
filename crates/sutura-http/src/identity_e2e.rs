@@ -22,8 +22,8 @@
 //! joined leg 1's verified bytes to `sutura_exec_bigquery`'s exchanging broker over a fake
 //! `StsExchange`; that broker had no reachable implementor and is gone with its tree, so the cells
 //! proved a property of a fake. The same byte join on the path that SHIPS is held inside the
-//! adapter, where the asker's assertion is served to the driver verbatim
-//! (`crates/sutura-exec-bigquery/src/adbc/subject.rs`).
+//! adapter, where the asker's assertion is handed to the pool exchange verbatim
+//! (`crates/sutura-exec-bigquery/src/adbc/pool_cells.rs`).
 //!
 //! # What none of it is
 //!

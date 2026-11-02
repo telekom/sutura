@@ -265,7 +265,7 @@ pub(crate) fn run() -> Result<(), String> {
     // The credential broker is the fourth port and the one that decides what a question executes
     // as, and which one this root attaches is decided per ARM below: an impersonating source can
     // only be served by `sutura_config::DeclaredPrincipalBroker`, which presents the asking
-    // subject's own verified assertion for the driver to federate, and only a `bigquery` build links
+    // subject's own verified assertion for the adapter to exchange at the pool, and only a `bigquery` build links
     // one. **The EXCHANGING broker this line used to name is deleted** (`docs/adr/0018`, eighth
     // amendment): its HTTP hops went with the `wire` transport. Every other shape goes through `shared_identity_service`, whose doc carries the
     // argument once rather than four times - **and in every arm, a subject with no credential at a

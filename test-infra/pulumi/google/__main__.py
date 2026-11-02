@@ -155,13 +155,13 @@ gcp_provider = gcp.Provider(
 # into the credential, which is the same class of trust the provider key is.
 #
 # `sts.googleapis.com` is what leg 2 needs and a fresh project does not have: the Security Token
-# Service is what federates a subject's own assertion against the pool, driven by the BigQuery
-# driver from the `external_account` credential document the adapter builds. Without it enabled, a
-# fresh `up` provisions pools and bindings and then every federation answers `SERVICE_DISABLED`.
+# Service is what federates a subject's own assertion against the pool, called by the BigQuery
+# adapter's pool exchange. Without it enabled, a fresh `up` provisions pools and bindings and then
+# every federation answers `SERVICE_DISABLED`.
 #
-# `iamcredentials.googleapis.com` is not enabled: the credential document carries no
-# `service_account_impersonation_url`, so the federated credential IS the pool principal and no
-# service account is impersonated.
+# `iamcredentials.googleapis.com` is not enabled: the pool exchange asks for no service-account
+# impersonation hop, so the federated credential IS the pool principal and no service account is
+# impersonated.
 _usage = gcp.projects.Service(
     "api-serviceusage.googleapis.com",
     project=project,

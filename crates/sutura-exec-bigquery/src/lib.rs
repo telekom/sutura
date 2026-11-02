@@ -54,11 +54,10 @@
 //! construction rather than by this paragraph: what the data system authenticates is the asking
 //! subject's own credential, in the form the source's caller-identity block declares.
 //!
-//! - `workload_identity`: [`adbc`] hands the driver a workload-identity credential document naming
-//!   a loopback source for the subject's **own verified assertion**, so Google's token service
-//!   verifies it against the pool the source declares and the question executes as whatever
-//!   principal that pool resolves the subject to. `adbc`'s own `subject` module carries the
-//!   mechanism and its exposure.
+//! - `workload_identity`: [`adbc`] exchanges the subject's **own verified assertion** at Google's
+//!   token service (an injected [`sutura_domain::identity::PoolExchange`]), which verifies it, and
+//!   hands the driver the access token, so the question executes as the pool's principal for the
+//!   subject. The answer is shape-checked only and never refreshed: a job outliving it fails.
 //! - `google_login`: the driver gets the Google access token the identity provider stored when the
 //!   caller linked a Google account. The data system authenticates that token, so the question
 //!   executes as the Google account the caller linked.
@@ -625,8 +624,9 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
     ///
     /// `impersonation` is whether this source impersonates and how - through the pool of the
     /// source's declared `workload_identity.audience`, with the subject's own Google access token
-    /// for `google_login`, or [`adbc::Impersonation::Disabled`] for a shared one. Taken here rather than read per request because it is a property of the source, and a
-    /// pool the driver would refuse then fails before a listener is bound.
+    /// for `google_login`, or [`adbc::Impersonation::Disabled`] for a shared one, as a property of
+    /// the source. A pool source also needs [`adbc::AdbcBigQuery::exchanging_through`], which this
+    /// constructor does not take: without it every subject there is refused as uncovered.
     ///
     /// `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
     /// every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
@@ -660,9 +660,9 @@ where
     /// **The variant's own name is what this mechanism is, which it was not for two rounds.** The
     /// asking subject's own credential is what reaches the data system: [`Self::job_identity`]
     /// maps [`Presented::SubjectToken`] onto [`JobIdentity::AsSubject`], and [`adbc`] either
-    /// federates the verified assertion through an `external_account` credential document so
-    /// Google's token service verifies it, or, for a `google_login` source, sends the Google access
-    /// token the identity provider stored for the subject's linked account. A per-subject
+    /// exchanges the verified assertion at Google's token service, which verifies it, and sends the
+    /// access token, or, for a `google_login` source, sends the Google access token the identity
+    /// provider stored for the subject's linked account. A per-subject
     /// credential, presented per subject - so `PerSubjectCredential` is the accurate value and not
     /// merely the only workable one.
     ///

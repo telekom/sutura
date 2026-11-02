@@ -95,11 +95,11 @@ pub enum JobIdentity<'job> {
     /// source, the Google access token the identity provider stored for the account it linked.
     ///
     /// **The subject's own credential and not a stand-in for it**, which is the whole of leg 2.
-    /// Through a pool, [`crate::adbc`] puts the assertion behind a workload-identity credential
-    /// document, so Google's own token service verifies it and returns a federated token for the
-    /// declared pool's `principal://.../subject/<sub>`. For `google_login`, it hands the driver the
-    /// stored token as the job's access token, with no credential document and no pool, so the
-    /// principal is the linked Google account. `BigQuery` evaluates its grants and row policies
+    /// Through a pool, [`crate::adbc`] exchanges the assertion at Google's own token service, which
+    /// verifies it and returns a federated token for the declared pool's
+    /// `principal://.../subject/<sub>`, and hands the driver that token. For `google_login`, it
+    /// hands the driver the stored token as the job's access token, with no exchange and no pool, so
+    /// the principal is the linked Google account. `BigQuery` evaluates its grants and row policies
     /// against that principal. Nothing on either path runs the question under the deployment's
     /// identity, and there is no second hop to another account.
     AsSubject {

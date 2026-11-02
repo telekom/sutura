@@ -2,9 +2,9 @@
 //! in, that subject's own credential (or the declared principal a switching source becomes) out.
 //!
 //! **A federating source is presented the asker's own verified assertion and nothing beside it**
-//! ([`DeclaredPrincipalBroker::federating`]). The `BigQuery` adapter puts it behind a
-//! workload-identity credential document, Google's token service exchanges it for a federated token
-//! of the pool's `principal://.../subject/<sub>`, and the data system's own grants and row policies
+//! ([`DeclaredPrincipalBroker::federating`]). The `BigQuery` adapter exchanges it at Google's token
+//! service for a federated token of the pool's `principal://.../subject/<sub>`, which verifies the
+//! assertion, and the data system's own grants and row policies
 //! on that principal decide what the caller reads (`docs/adr/0032`'s option 3). There is no
 //! subject map and no account to become: a caller with no grant is
 //! refused by the data system, never answered as anybody else.
@@ -16,8 +16,8 @@
 //! **Why this is the only declared broker.** It used to sit beside an EXCHANGING one, whose two HTTP
 //! hops went away with the `wire` transport (`docs/adr/0018`'s eighth amendment). What the ADBC
 //! transport needs is narrower: not a token to exchange, but the asking subject's OWN assertion for
-//! the driver to federate against the pool this source declares. No socket and no cache - Google's
-//! token service performs the exchange - but an EXPIRY, because credential material ages out.
+//! the adapter to exchange at the pool this source declares. No cache - the adapter asks Google's
+//! token service per question - but an EXPIRY, because credential material ages out.
 //!
 //! **A switching source is the second thing it presents** ([`DeclaredPrincipalBroker::switching`]):
 //! no map - the leg carries the caller's own verified subject as [`Presented::SubjectPrincipal`],

@@ -218,8 +218,8 @@ fn a_bigquery_credential_file_is_refused_as_an_unknown_key() {
 
 #[test]
 fn a_workload_identity_scope_is_refused_as_an_unknown_key() {
-    // The scope was required, parsed and sent by nothing: the credential document has no `scopes`
-    // member. A config that still writes it is refused by name.
+    // The scope was required, parsed and sent by nothing: the pool exchange asks for the `BigQuery`
+    // client's own scope. A config that still writes it is refused by name.
     let sources = Sources::defaults(Environment::Development).with_overlay(
         "security:\n  identity: \"multi-user\"\nsources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/d\"\n    \
          posture: \"impersonation-at-source\"\n    workload_identity:\n      audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso\"\n      \

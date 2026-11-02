@@ -45,9 +45,10 @@
 //! # What a green run here does and does not establish
 //!
 //! Establishes: two distinct subjects resolve to two distinct `BigQuery` principals through the
-//! ADBC path, the deployment's own identity is neither of them, and - since the credential each
-//! question runs under is built from that subject's own assertion - Google's token service accepted
-//! that assertion against the declared pool. A run here is what turns leg 2 from wired into proven.
+//! ADBC path, the deployment's own identity is neither of them, and - since the access token each
+//! question runs under is what this process got for that subject's own assertion - Google's token
+//! service accepted that assertion against the declared pool. A run here is what turns the venue
+//! from wired into proven.
 //!
 //! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
 //! two principals' grants.
@@ -61,8 +62,8 @@
 //! which holds the pool provider to the pool's audience only. **The limit:** the fake is not an
 //! identity provider, so this venue does not observe a real RFC 8693 exchange.
 //!
-//! **What it asserts: two subjects, two principals, neither the deployment's.** The credential
-//! document names no second hop, so `SESSION_USER()` is each subject's own federated principal.
+//! **What it asserts: two subjects, two principals, neither the deployment's.** The pool exchange
+//! asks for no second hop, so `SESSION_USER()` is each subject's own federated principal.
 //! Its exact spelling is Google's, so the cell compares the two answers with each other and with
 //! the deployment's own, and names no expected string.
 
@@ -109,16 +110,24 @@ mod declared_principal {
         sutura_exec_bigquery::adbc::BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a usable ceiling")
     }
 
-    /// The adapter, opened `impersonation-at-source` over the real driver at the real project.
+    /// The adapter, opened `impersonation-at-source` over the real driver at the real project, with
+    /// the exchange at Google's token service `sutura serve` composes for a pool source.
     fn opened() -> BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery> {
+        use sutura_http_client::delegation::{GOOGLE_STS, GoogleSts, TokenEndpoint};
+
         let pool = WorkloadPool::parse(&live_env("SUTURA_BQ_AUDIENCE")).expect("the declared pool audience is usable");
-        BigQueryWarehouse::over_adbc(
+        let bounds = sutura_http_client::ReadBounds::parse(10, 64 * 1024).expect("the exchange's read bounds are usable");
+        let exchange = GoogleSts::new(
+            TokenEndpoint::parse(GOOGLE_STS).expect("Google's token service is an endpoint"),
+            sutura_http_client::fixed(bounds, None),
+            bounds,
+        );
+        BigQueryWarehouse::new(
             source(),
             SourcePosture::ImpersonationAtSource,
             JobBilling::CallerRun { caller_may_name: false },
-            driver(),
-            Impersonation::ThroughPool(pool),
-            ceiling(),
+            sutura_exec_bigquery::adbc::AdbcBigQuery::new(driver(), Impersonation::ThroughPool(pool), ceiling())
+                .exchanging_through(Box::new(exchange)),
         )
     }
 
@@ -180,8 +189,8 @@ mod declared_principal {
     /// **`SubjectToken` and not `SubjectPrincipal`**, which is not a spelling choice: this adapter
     /// refuses the principal shape (`BigQueryError::NoPrincipalSwitch`), so a cell that built one
     /// would fail at the seam and never reach a dataset. The assertion is the caller's own verified
-    /// document, and the transport puts it behind a workload-identity credential document for the
-    /// driver to federate.
+    /// document, and the transport exchanges it at Google's token service for the declared pool and
+    /// hands the driver the access token.
     fn executed_as(assertion: &str) -> String {
         let warehouse = opened();
         let presented = Presented::SubjectToken {

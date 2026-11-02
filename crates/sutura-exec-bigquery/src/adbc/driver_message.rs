@@ -1,5 +1,5 @@
-//! A driver's error text with the console job link and the loopback subject-token URL cut out, in
-//! its own module so that `DriverMessage::of` is the only way `super` can build one.
+//! A driver's error text with the console job link cut out, in its own module so that
+//! `DriverMessage::of` is the only way `super` can build one.
 
 use adbc_core::error::{Error as CoreError, Status};
 
@@ -7,10 +7,10 @@ use adbc_core::error::{Error as CoreError, Status};
 /// and the status the driver gave it.
 ///
 /// The pinned driver appends `(Query: <link>)` to the message of any error after the job was
-/// created (`go/job_query.go`'s `readJob`), and the link names the project, location and job. A
-/// failed subject-token fetch can quote the loopback URL `super::subject` serves, nonce and all, in
-/// Go's `Get "<url>": ...` form; that is cut too, so the nonce reaches no logged cause chain. That
-/// the driver passes that text through verbatim is read from the Go source, not reproduced.
+/// created (`go/job_query.go`'s `readJob`), and the link names the project, location and job. That
+/// the driver passes that text through verbatim is read from the Go source, not reproduced. The
+/// console link is the only URL cut: no loopback source is served to the driver any more, so no
+/// driver error can quote one.
 ///
 /// **The limit:** this seal is rustc's ordinary privacy, not this repo's `check-newtype-leaks`
 /// gate - private fields in a child module, so a `DriverMessage { .. }` in `super` is `E0451`.
@@ -46,8 +46,7 @@ impl std::fmt::Display for DriverMessage {
     }
 }
 fn unlinked(message: &str) -> String {
-    let message = cut(message, "https://console.cloud.google.com/", "[a job link]");
-    cut(&message, "http://127.0.0.1:", "[a loopback link]")
+    cut(message, "https://console.cloud.google.com/", "[a job link]")
 }
 /// `message` with each `link` and the rest of its URL replaced by `label`.
 fn cut(message: &str, link: &str, label: &str) -> String {

@@ -159,34 +159,50 @@ impl OverHttp {
         self
     }
 
-    /// Posts `form` and reads the answer, bounded, into a [`Secret`]: an identity provider's answer
-    /// can carry tokens beside the one asked for.
     fn send(&self, form: &[(&str, &str)]) -> Result<Answer, DelegationFailed> {
-        let unreachable = |cause: ureq::Error| DelegationFailed::Unreachable { cause: Box::new(cause) };
-        let mut response = self
-            .agent
-            .current()
-            .post(self.endpoint.as_str())
-            .config()
-            .timeout_global(Some(Budget::socket(self.bounds.timeout())))
-            .build()
-            .send_form(form.iter().copied())
-            .map_err(unreachable)?;
-        let cap = self.bounds.max_response_bytes();
-        let text = Secret::new(
-            response
-                .body_mut()
-                .with_config()
-                .limit(cap.saturating_add(cap.max(1024)))
-                .read_to_string()
-                .map_err(unreachable)?,
-        );
-        #[expect(clippy::disallowed_methods, reason = "only the length is read")]
-        if text.expose_secret().len() as u64 > cap {
-            return Err(DelegationFailed::TooLarge { cap });
-        }
-        Ok((response.status().as_u16(), text))
+        post(&self.agent, &self.endpoint, self.bounds, form).map_err(|unsent| match unsent {
+            Unsent::Unreachable(cause) => DelegationFailed::Unreachable { cause: Box::new(cause) },
+            Unsent::TooLarge(cap) => DelegationFailed::TooLarge { cap },
+        })
     }
+}
+
+/// Why [`post`] has no answer to check.
+enum Unsent {
+    Unreachable(ureq::Error),
+    TooLarge(u64),
+}
+
+/// Posts `form` and reads the answer, bounded, into a [`Secret`]: a token endpoint's answer can
+/// carry tokens beside the one asked for.
+fn post(
+    agent: &sutura_tls::Rotating<ureq::Agent>,
+    endpoint: &TokenEndpoint,
+    bounds: ReadBounds,
+    form: &[(&str, &str)],
+) -> Result<Answer, Unsent> {
+    let mut response = agent
+        .current()
+        .post(endpoint.as_str())
+        .config()
+        .timeout_global(Some(Budget::socket(bounds.timeout())))
+        .build()
+        .send_form(form.iter().copied())
+        .map_err(Unsent::Unreachable)?;
+    let cap = bounds.max_response_bytes();
+    let text = Secret::new(
+        response
+            .body_mut()
+            .with_config()
+            .limit(cap.saturating_add(cap.max(1024)))
+            .read_to_string()
+            .map_err(Unsent::Unreachable)?,
+    );
+    #[expect(clippy::disallowed_methods, reason = "only the length is read")]
+    if text.expose_secret().len() as u64 > cap {
+        return Err(Unsent::TooLarge(cap));
+    }
+    Ok((response.status().as_u16(), text))
 }
 
 impl DelegationExchange for OverHttp {
@@ -254,10 +270,16 @@ fn refusal(status: u16, body: Option<&serde_json::Value>) -> DelegationFailed {
     }
     DelegationFailed::Refused {
         status,
-        error: error
-            .filter(|code| code.len() <= 64 && code.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_'))
-            .map(String::from),
+        error: registered(error),
     }
+}
+
+/// The RFC 6749 `error` code, kept only in its registered shape - `[a-z_]`, at most 64 bytes - which
+/// no token can be.
+fn registered(error: Option<&str>) -> Option<String> {
+    error
+        .filter(|code| code.len() <= 64 && code.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_'))
+        .map(String::from)
 }
 
 /// Validates the identity provider's answer at `now`. Pure, so every refusal has a cell without a socket.
@@ -316,7 +338,9 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
 }
 
 mod linked;
+mod pool;
 pub use linked::BrokeredLogin;
+pub use pool::{GOOGLE_STS, GoogleSts};
 
 #[cfg(test)]
 mod tests;
