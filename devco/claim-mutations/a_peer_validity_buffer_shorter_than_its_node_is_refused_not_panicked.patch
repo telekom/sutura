@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/reader.rs b/vendor/arrow-ipc/src/reader.rs
+index 126a521e2..be1db1822 100644
+--- a/vendor/arrow-ipc/src/reader.rs
++++ b/vendor/arrow-ipc/src/reader.rs
+@@ -101,7 +101,7 @@ fn checked_null_buffer(node: &FieldNode, buffer: &Buffer) -> Result<Option<Buffe
+     let needed_len = (node.length() as usize).div_ceil(8);
+     if buffer.len() < needed_len {
+         return Err(ArrowError::InvalidArgumentError(format!(
+-            "null_bit_buffer size too small. got {} needed {needed_len}",
++            "validity buffer too short. got {} needed {needed_len}",
+             buffer.len()
+         )));
+     }
