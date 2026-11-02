@@ -120,8 +120,8 @@ The **subject** is the identity that the data system sees: the person, not the s
 A leg runs in one of two ways:
 
 - **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery,
-  the caller's verified token is exchanged for the service account that the operator declares for
-  that subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  the leg runs as the caller's own principal in a workload identity pool, or, with domain-wide
+  delegation, as the Google account with the caller's verified email. On ClickHouse, sutura signs in as one declared user and runs each statement as the
   ClickHouse user that the operator declares for that subject (`EXECUTE AS`).
 - **shared-service-user** (files, Postgres, Oracle). The leg runs as the deployment's own identity
   for that source. An operator declares this in the configuration.
