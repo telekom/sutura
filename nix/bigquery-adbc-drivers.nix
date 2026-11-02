@@ -29,7 +29,10 @@ let
   # for a caller's own credential: a bare access token, and a subject for domain-wide delegation.
   # `bigquery-adbc-job-labels.patch` adds a statement option that sets the query job's labels.
   # `bigquery-adbc-jobs-query.patch` adds a database option that starts every query with
-  # jobs.query, which a `bigquery.readonly` token may call. All four recorded in VENDOR.md.
+  # jobs.query, which a `bigquery.readonly` token may call.
+  # `bigquery-adbc-partitions.patch` implements `ExecutePartitions`/`ReadPartition`, both
+  # unconditionally `NotImplemented` upstream, so a query's result can be read back as several
+  # Storage Read API streams. All five recorded in VENDOR.md.
   patchedGoSrc = pkgs.runCommand "adbc-driver-bigquery-go-src-relaxed" { } ''
     cp -rL ${bigqueryAdbcGoSource} $out
     chmod -R u+w $out
@@ -38,6 +41,7 @@ let
     patch -p1 -d $out < ${./bigquery-adbc-caller-credentials.patch}
     patch -p1 -d $out < ${./bigquery-adbc-job-labels.patch}
     patch -p1 -d $out < ${./bigquery-adbc-jobs-query.patch}
+    patch -p1 -d $out < ${./bigquery-adbc-partitions.patch}
   '';
   driver = { triple, crossPkgs }:
     {
