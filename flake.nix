@@ -1485,7 +1485,7 @@
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-tpch-refusal-rate" ''
             set -euo pipefail
-            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${duckdb.package}/bin:${pkgs.python3}/bin:$PATH"
+            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${pkgs.python3.withPackages (p: [ p.duckdb ])}/bin:$PATH"
             export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
             export SUTURA_DUCKDB_ADBC_DRIVER="${duckdbHostDriver}"
             # `nix/with-tier.sh`'s Postgres arm without its ClickHouse one, which this corpus never reads.

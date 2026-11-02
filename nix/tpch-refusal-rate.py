@@ -30,6 +30,8 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
+import duckdb
+
 DIMENSION_TABLES = {
     "customer": ["c_custkey", "c_nationkey", "c_mktsegment"],
     "part": ["p_partkey", "p_mfgr", "p_brand", "p_type", "p_container"],
@@ -91,20 +93,22 @@ CLIENT_SECONDS = 300
 def generate(work: Path, scale: int) -> Path:
     lake = work / "lake.duckdb"
     lake.unlink(missing_ok=True)
-    script = ["INSTALL tpch;", "LOAD tpch;", f"CALL dbgen(sf = {scale});"]
+    # The Python package's release build, not the Nix CLI: the CLI names itself by a git describe
+    # for which no `tpch` extension is published, so `dbgen` cannot load there.
+    script = ["INSTALL tpch", "LOAD tpch", f"CALL dbgen(sf = {scale})"]
     script += [
-        f"ALTER TABLE {table} ALTER {column} SET DATA TYPE BIGINT;"
+        f"ALTER TABLE {table} ALTER {column} SET DATA TYPE BIGINT"
         for table, column in CROSS_KEYS
     ]
     for table, columns in DIMENSION_TABLES.items():
         script.append(
-            f"COPY (SELECT {', '.join(columns)} FROM {table}) TO '{work / table}.csv' (HEADER);"
+            f"COPY (SELECT {', '.join(columns)} FROM {table}) TO '{work / table}.csv' (HEADER)"
         )
-        script.append(f"DROP TABLE {table};")
-    script += ["DROP TABLE partsupp;", "CHECKPOINT;"]
-    subprocess.run(
-        ["duckdb", "-bail", str(lake)], input="\n".join(script), text=True, check=True
-    )
+        script.append(f"DROP TABLE {table}")
+    script += ["DROP TABLE partsupp", "CHECKPOINT"]
+    with duckdb.connect(str(lake)) as connection:
+        for statement in script:
+            connection.execute(statement)
     return lake
 
 
