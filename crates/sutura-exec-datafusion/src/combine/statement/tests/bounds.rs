@@ -46,7 +46,7 @@ fn a_replacement_that_multiplies_its_input_is_not_planned() {
 
 #[test]
 fn an_encoding_that_doubles_per_nesting_is_not_planned() {
-    refused(&["select encode(region, 'hex') from dim_region"]);
+    refused(&["select concat(region, encode('ab', 'hex')) from dim_region"]);
 }
 
 #[test]
