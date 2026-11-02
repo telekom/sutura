@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/convert.rs b/vendor/arrow-ipc/src/convert.rs
+index 111ef8ea8..b1909bc7f 100644
+--- a/vendor/arrow-ipc/src/convert.rs
++++ b/vendor/arrow-ipc/src/convert.rs
+@@ -390,7 +390,7 @@ pub(crate) fn get_data_type(
+             let byte_width = fsb.byteWidth();
+             if byte_width < 0 {
+                 return Err(ArrowError::ParseError(format!(
+-                    "FixedSizeBinary byte width must be non-negative, got {byte_width}"
++                    "FixedSizeBinary byte width is invalid, got {byte_width}"
+                 )));
+             }
+             DataType::FixedSizeBinary(byte_width)

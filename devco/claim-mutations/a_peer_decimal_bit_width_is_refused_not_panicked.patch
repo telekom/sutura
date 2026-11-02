@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/convert.rs b/vendor/arrow-ipc/src/convert.rs
+index 111ef8ea8..10e844f5f 100644
+--- a/vendor/arrow-ipc/src/convert.rs
++++ b/vendor/arrow-ipc/src/convert.rs
+@@ -560,7 +560,7 @@ pub(crate) fn get_data_type(
+                 256 => DataType::Decimal256(precision, scale),
+                 _ => {
+                     return Err(ArrowError::ParseError(format!(
+-                        "Unexpected decimal bit width {bit_width}"
++                        "Unexpected decimal bit width"
+                     )));
+                 }
+             }

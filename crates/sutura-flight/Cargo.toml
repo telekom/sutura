@@ -33,6 +33,8 @@ tracing = { workspace = true, optional = true }
 workspace = true
 
 [dev-dependencies]
+arrow-ipc = { workspace = true }
+flatbuffers = { workspace = true }
 parking_lot = { workspace = true }
 sutura-config = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }

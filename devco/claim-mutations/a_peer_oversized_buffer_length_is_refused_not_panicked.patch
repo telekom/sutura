@@ -1,0 +1,19 @@
+diff --git a/vendor/arrow-ipc/src/reader.rs b/vendor/arrow-ipc/src/reader.rs
+index 4f6ffce1d..f031223a8 100644
+--- a/vendor/arrow-ipc/src/reader.rs
++++ b/vendor/arrow-ipc/src/reader.rs
+@@ -78,12 +78,12 @@ fn read_buffer(
+ fn try_slice_with_length(a_data: &Buffer, offset: usize, length: usize) -> Result<Buffer, ArrowError> {
+     let end = offset.checked_add(length).ok_or_else(|| {
+         ArrowError::IpcError(format!(
+-            "buffer length exceeds the record batch body: offset {offset} length {length} overflows"
++            "buffer length is invalid for the record batch body: offset {offset} length {length} overflows"
+         ))
+     })?;
+     if end > a_data.len() {
+         return Err(ArrowError::IpcError(format!(
+-            "buffer length exceeds the record batch body: offset {offset} length {length} body length {}",
++            "buffer length is invalid for the record batch body: offset {offset} length {length} body length {}",
+             a_data.len()
+         )));
+     }

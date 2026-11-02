@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/compression.rs b/vendor/arrow-ipc/src/compression.rs
+index 4a8ca76ab..c9a192b52 100644
+--- a/vendor/arrow-ipc/src/compression.rs
++++ b/vendor/arrow-ipc/src/compression.rs
+@@ -282,7 +282,7 @@ impl CompressionCodec {
+     ) -> Result<Vec<u8>, ArrowError> {
+         let (ratio, codec_name) = match self {
+             CompressionCodec::Lz4Frame => (LZ4_MAX_EXPANSION_RATIO, "lz4"),
+-            CompressionCodec::Zstd(_) => (ZSTD_MAX_EXPANSION_RATIO, "zstd"),
++            CompressionCodec::Zstd(_) => (ZSTD_MAX_EXPANSION_RATIO, "ZSTD"),
+         };
+         // Refuse a size the input cannot produce before allocating for it.
+         if decompressed_size > input.len().saturating_mul(ratio) {

@@ -1,0 +1,13 @@
+diff --git a/vendor/arrow-ipc/src/compression.rs b/vendor/arrow-ipc/src/compression.rs
+index 4a8ca76ab..b1b40512d 100644
+--- a/vendor/arrow-ipc/src/compression.rs
++++ b/vendor/arrow-ipc/src/compression.rs
+@@ -337,7 +337,7 @@ fn decompress_lz4(input: &[u8], decompressed_size: usize) -> Result<Vec<u8>, Arr
+     // Probe without growing `output` to reject data exceeding the advertised size.
+     if decoder.read(&mut [0])? != 0 {
+         return Err(ArrowError::IpcError(format!(
+-            "LZ4 decompressed buffer exceeds advertised size of {decompressed_size}"
++            "LZ4 decompressed buffer does not match the declared size of {decompressed_size}"
+         )));
+     }
+     Ok(output)

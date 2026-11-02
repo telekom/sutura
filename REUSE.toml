@@ -127,6 +127,14 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2019-2026 The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
 
+# The vendored IPC codec, the published 59.2.0 crate plus local patches `VENDOR.md` records.
+# Apache-2.0; the copyright line is the one in its own `NOTICE.txt`.
+[[annotations]]
+path = "vendor/arrow-ipc/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2016-2026 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
+
 # The vendored federation optimizer rule, the published 0.5.7 crate plus one local patch
 # `VENDOR.md` records. Apache-2.0 per its own `Cargo.toml`; the published crate and its upstream
 # repository carry an unfilled Apache-2.0 template with no copyright holder named, so the

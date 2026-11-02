@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8c861cdd7..613b34179 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -465,7 +465,7 @@ impl TryFrom<&protobuf::ScalarValue> for ScalarValue {
+                     })?;
+                     try_fb_to_schema(ipc_schema).map_err(|e| {
+                         Error::General(format!(
+-                            "Invalid IPC schema while deserializing nested ScalarValue: {e}"
++                            "Bad IPC schema while deserializing nested ScalarValue: {e}"
+                         ))
+                     })?
+                 };
