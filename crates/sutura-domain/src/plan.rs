@@ -37,11 +37,15 @@ pub mod key;
 pub mod label;
 pub mod leg;
 pub mod remote;
+mod split;
 pub mod stacked;
 pub mod tables;
 
 #[cfg(test)]
 mod anchor_tests;
+
+#[cfg(test)]
+mod split_tests;
 
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
@@ -66,6 +70,7 @@ pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
+pub use crate::plan::split::{EstimatedRows, SplitDecision, SplitRefusal, decide};
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 

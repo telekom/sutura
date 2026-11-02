@@ -22,14 +22,23 @@
 //!   by union.
 //! - Nothing here reads partitions concurrently, and whether the server answers a range with a TID
 //!   range scan is its planner's choice, not observed by any cell.
+//!
+//! [`AdbcPostgres::split_by_estimate`] decides whether to split at all over that same export:
+//! `pg_class.relpages`/`reltuples` and the session's page size, turned into
+//! [`sutura_domain::plan::SplitDecision`] by `sutura_domain::plan::decide`. **One export serves
+//! both the decision and the cut it leads to** - a [`sutura_domain::plan::SplitDecision::Split`]
+//! cuts [`SplitLeg`] from the very snapshot the estimate was read from, never a second one. Calling
+//! it from `sutura-exec-datafusion`'s combine or a reading worker still needs the grant growth, the
+//! source token and the re-certification slices that follow this one - `github.com/telekom/sutura#828`.
 
-use core::num::NonZeroUsize;
+use core::num::{NonZeroU64, NonZeroUsize};
 
 use adbc_driver_manager::ManagedConnection;
 use sutura_adbc::parameter_batch;
 use sutura_domain::identity::Presented;
-use sutura_domain::plan::LegPlan;
+use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, SplitRefusal, decide};
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches, RowSet, Value};
 use sutura_sql::GeneratedQuery;
 use sutura_sql::generate::generate_leg_pages;
@@ -54,6 +63,73 @@ pub struct Partition<'split> {
     query: &'split GeneratedQuery,
 }
 
+/// [`AdbcPostgres::split_by_estimate`]'s outcome: [`decide`]'s verdict, carrying the one snapshot
+/// the estimate was read from - over to [`SplitLeg`] for a [`SplitDecision::Split`], never a second
+/// export of its own.
+pub enum Planned<'adapter> {
+    /// At or under the threshold, or no usable estimate: `leg`'s own statement, read whole exactly
+    /// as [`Warehouse::execute`](sutura_domain::warehouse::Warehouse::execute) would. The exporting
+    /// connection this read is over is dropped here - nothing past this point needs its snapshot.
+    Whole,
+    /// Over the threshold: `leg` cut under the very snapshot its estimate was read from.
+    Split(SplitLeg<'adapter>),
+    /// Over the threshold, but even the most partitions allowed still leave one over the bound.
+    Refused(SplitRefusal),
+}
+
+/// `leg`'s root, read once over [`session::export`]'s round trip: the snapshot id (`None` for a
+/// root that is not a plain table, one the catalog holds no pages for, or a snapshot id the server
+/// returned in a form [`SnapshotId`] does not admit) and [`PAGES`](session)'s row - pages, rows and
+/// the session's page size, each `0` where there was no row to trust. [`open`] and
+/// [`split_by_estimate`] both read this the same one round trip their own way.
+struct Exported {
+    exporting: ManagedConnection,
+    snapshot: Option<SnapshotId>,
+    relpages: u32,
+    reltuples: u64,
+    block_size: u64,
+}
+
+fn export(adapter: &AdbcPostgres, leg: &LegPlan, deadline: Deadline) -> Result<Exported, PostgresError> {
+    let relation = parameter_batch(&[ParamValue::Text(regclass(leg))]).map_err(AdbcError::Parameters)?;
+    let mut exporting = adapter.connection()?;
+    let exported = session::export(&mut exporting, relation, adapter.statement_timeout_ceiling_ms, deadline)?;
+    let (snapshot, pages) = (numeric::rows(&exported.snapshot)?, numeric::rows(&exported.pages)?);
+    let snapshot = match first(&snapshot) {
+        Some(Value::Text(id)) => SnapshotId::parse(id),
+        _ => None,
+    };
+    let row = pages.rows().first();
+    let relpages = match row.and_then(|row| row.first()) {
+        Some(&Value::Integer(pages)) if snapshot.is_some() => u32::try_from(pages).unwrap_or(0),
+        _ => 0,
+    };
+    let (reltuples, block_size) = if snapshot.is_some() {
+        (
+            u64::try_from(column(row, 1).max(0)).unwrap_or(0),
+            u64::try_from(column(row, 2).max(0)).unwrap_or(0),
+        )
+    } else {
+        (0, 0)
+    };
+    Ok(Exported {
+        exporting,
+        snapshot,
+        relpages,
+        reltuples,
+        block_size,
+    })
+}
+
+/// `row`'s column `index`, or `0` for a missing row, a short row, or anything but an integer -
+/// [`PAGES`](session) selects three integers and nothing else ever reaches this.
+fn column(row: Option<&Vec<Value>>, index: usize) -> i64 {
+    match row.and_then(|row| row.get(index)) {
+        Some(&Value::Integer(value)) => value,
+        _ => 0,
+    }
+}
+
 /// [`AdbcPostgres::split_leg`].
 pub(super) fn open<'adapter>(
     adapter: &'adapter AdbcPostgres,
@@ -65,19 +141,20 @@ pub(super) fn open<'adapter>(
     crate::deliverable(&adapter.source, &adapter.posture, presented)?;
     let whole = generate_leg_pages(leg, 0, None).map_err(|cause| PostgresError::Render { cause })?;
     refuse_if_spent(deadline)?;
-    let relation = parameter_batch(&[ParamValue::Text(regclass(leg))]).map_err(AdbcError::Parameters)?;
-    let mut exporting = adapter.connection()?;
-    let exported = session::export(&mut exporting, relation, adapter.statement_timeout_ceiling_ms, deadline)?;
-    let (snapshot, pages) = (numeric::rows(&exported.snapshot)?, numeric::rows(&exported.pages)?);
-    let snapshot = match first(&snapshot) {
-        Some(Value::Text(id)) => SnapshotId::parse(id),
-        _ => None,
-    };
-    let pages = match first(&pages) {
-        Some(&Value::Integer(pages)) if snapshot.is_some() => u32::try_from(pages).unwrap_or(0),
-        _ => 0,
-    };
-    let ranges = cut(pages, partitions);
+    let exported = export(adapter, leg, deadline)?;
+    cut_under(adapter, leg, whole, exported, partitions)
+}
+
+/// `leg` cut into `partitions` page ranges under `exported`'s snapshot - `whole`, the leg's own
+/// statement, where the cut leaves one range.
+fn cut_under<'adapter>(
+    adapter: &'adapter AdbcPostgres,
+    leg: &LegPlan,
+    whole: GeneratedQuery,
+    exported: Exported,
+    partitions: NonZeroUsize,
+) -> Result<SplitLeg<'adapter>, PostgresError> {
+    let ranges = cut(exported.relpages, partitions);
     let partitions = if ranges.len() == 1 {
         vec![whole]
     } else {
@@ -89,10 +166,41 @@ pub(super) fn open<'adapter>(
     };
     Ok(SplitLeg {
         adapter,
-        snapshot,
+        snapshot: exported.snapshot,
         partitions,
-        _exporting: exporting,
+        _exporting: exported.exporting,
     })
+}
+
+/// [`AdbcPostgres::split_by_estimate`]: [`decide`] over the one export [`open`] would otherwise cut
+/// under its own, so a [`SplitDecision::Split`] here cuts [`SplitLeg`] from that very snapshot
+/// rather than exporting a second one.
+///
+/// # Errors
+///
+/// What `Warehouse::execute` refuses before it sends a statement - a presented identity this
+/// source does not serve, a spent deadline, a leg whose root does not quote - and the exporting
+/// connection's driver or server failure.
+pub(super) fn split_by_estimate<'adapter>(
+    adapter: &'adapter AdbcPostgres,
+    leg: &LegPlan,
+    presented: &Presented,
+    deadline: Deadline,
+    above_bytes: NonZeroU64,
+    per_stream_bound: NonZeroUsize,
+    ready_workers: NonZeroUsize,
+) -> Result<Planned<'adapter>, PostgresError> {
+    crate::deliverable(&adapter.source, &adapter.posture, presented)?;
+    let whole = generate_leg_pages(leg, 0, None).map_err(|cause| PostgresError::Render { cause })?;
+    refuse_if_spent(deadline)?;
+    let exported = export(adapter, leg, deadline)?;
+    let bytes = EstimatedBytes::parse(u64::from(exported.relpages).saturating_mul(exported.block_size));
+    let rows = EstimatedRows::parse(exported.reltuples);
+    match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
+        SplitDecision::Whole => Ok(Planned::Whole),
+        SplitDecision::Refused(refusal) => Ok(Planned::Refused(refusal)),
+        SplitDecision::Split(partitions) => cut_under(adapter, leg, whole, exported, partitions).map(Planned::Split),
+    }
 }
 
 impl SplitLeg<'_> {
