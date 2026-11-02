@@ -15,7 +15,8 @@ use arrow_flight::{FlightData, decode::FlightRecordBatchStream, error::FlightErr
 use arrow_ipc::{
     BodyCompression, BodyCompressionArgs, BodyCompressionMethod, Buffer, CompressionType, Decimal, DecimalArgs, Endianness,
     Field, FieldArgs, FieldNode, FixedSizeBinary, FixedSizeBinaryArgs, Message, MessageArgs, MessageHeader, MetadataVersion,
-    Null, NullArgs, RecordBatch as IpcRecordBatch, RecordBatchArgs, Schema, SchemaArgs, Type, Union, UnionArgs,
+    Null, NullArgs, RecordBatch as IpcRecordBatch, RecordBatchArgs, Schema, SchemaArgs, Struct_, Struct_Args, Type, Union,
+    UnionArgs,
 };
 use flatbuffers::FlatBufferBuilder;
 use futures_util::{TryStreamExt as _, stream};
@@ -369,6 +370,96 @@ mod tests {
         let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a zstd decompression bomb is refused");
         assert!(
             matches!(&error, FlightError::DecodeError(message) if message.contains("decompressed size exceeds the zstd expansion bound")),
+            "{error}"
+        );
+    }
+
+    /// A `RecordBatch` frame whose nodes and buffers are all the peer's, unlike
+    /// [`record_batch_frame`]'s single node that declares no nulls.
+    fn raw_record_batch_frame(length: i64, nodes: &[FieldNode], buffers: &[Buffer], data_body: Vec<u8>) -> FlightData {
+        let mut fbb = FlatBufferBuilder::new();
+        let nodes = fbb.create_vector(nodes);
+        let buffers = fbb.create_vector(buffers);
+        let record_batch = IpcRecordBatch::create(
+            &mut fbb,
+            &RecordBatchArgs {
+                length,
+                nodes: Some(nodes),
+                buffers: Some(buffers),
+                compression: None,
+                variadicBufferCounts: None,
+            },
+        );
+        let body_length = i64::try_from(data_body.len()).expect("a test body fits in i64");
+        let message = Message::create(
+            &mut fbb,
+            &MessageArgs {
+                version: MetadataVersion::V5,
+                header_type: MessageHeader::RecordBatch,
+                header: Some(record_batch.as_union_value()),
+                bodyLength: body_length,
+                custom_metadata: None,
+            },
+        );
+        fbb.finish(message, None);
+        frame(fbb.finished_data().to_vec(), data_body)
+    }
+
+    /// Cell G: `apache/arrow-rs#11044`'s validity-buffer check, adapted into the IPC reader because
+    /// `arrow-data` is not vendored. The `leg_frames` fuzz target found this shape.
+    ///
+    /// Corrupted field: the `Int64` column's node declares length `-3` and one null against a
+    /// one-byte validity buffer.
+    /// Registry 59.2.0 panic: `arrow-data-59.2.0/src/data.rs`'s `ArrayDataBuilder::build` calls
+    /// `BooleanBuffer::new(buffer, offset, len)` before it validates anything, and
+    /// `arrow-buffer-59.2.0/src/buffer/boolean.rs:128`'s `assert!` fires ("buffer not large enough").
+    #[test]
+    fn a_peer_validity_buffer_shorter_than_its_node_is_refused_not_panicked() {
+        let schema_frame = legitimate_schema_frame();
+        let bad_batch = raw_record_batch_frame(
+            3,
+            &[FieldNode::new(-3, 1)],
+            &[Buffer::new(0, 1), Buffer::new(8, 8)],
+            vec![0u8; 16],
+        );
+
+        let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a short validity buffer is refused");
+        assert!(
+            matches!(&error, FlightError::DecodeError(message) if message.contains("null_bit_buffer size too small")),
+            "{error}"
+        );
+    }
+
+    /// Cell H: `apache/arrow-rs#11658`, backported as is. The struct arm builds its own
+    /// `BooleanBuffer` outside `ArrayDataBuilder::build`, so cell G's check does not cover it.
+    ///
+    /// Corrupted field: a childless struct column whose node declares 64 rows and one null against
+    /// a one-byte validity buffer.
+    /// Registry 59.2.0 panic: `arrow-ipc-59.2.0/src/reader.rs`'s `create_struct_array` calls
+    /// `BooleanBuffer::new(null_buffer, 0, len)` unchecked, and `boolean.rs:128`'s `assert!` fires.
+    #[test]
+    fn a_peer_struct_validity_buffer_shorter_than_its_node_is_refused_not_panicked() {
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("poison");
+        let struct_type = Struct_::create(&mut fbb, &Struct_Args {});
+        let field = Field::create(
+            &mut fbb,
+            &FieldArgs {
+                name: Some(name),
+                nullable: true,
+                type_type: Type::Struct_,
+                type_: Some(struct_type.as_union_value()),
+                dictionary: None,
+                children: None,
+                custom_metadata: None,
+            },
+        );
+        let schema_frame = finish_schema_message(&mut fbb, field);
+        let bad_batch = raw_record_batch_frame(64, &[FieldNode::new(64, 1)], &[Buffer::new(0, 1)], vec![0u8; 8]);
+
+        let error = run(decode_all(vec![schema_frame, bad_batch])).expect_err("a short struct validity buffer is refused");
+        assert!(
+            matches!(&error, FlightError::DecodeError(message) if message.contains("null_bit_buffer size too small")),
             "{error}"
         );
     }

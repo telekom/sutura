@@ -89,6 +89,24 @@ fn try_slice_with_length(a_data: &Buffer, offset: usize, length: usize) -> Resul
     }
     Ok(a_data.slice_with_length(offset, length))
 }
+
+/// `node`'s validity buffer, or `None` when it declares no nulls. A buffer holding fewer bits than
+/// `node`'s length is refused here instead of reaching `BooleanBuffer::new`'s assert inside
+/// `ArrayDataBuilder::build`. Adapted from `apache/arrow-rs#11044`, which moved this check into
+/// `build` itself: `arrow-data` is not vendored, so it covers only this file's builders.
+fn checked_null_buffer(node: &FieldNode, buffer: &Buffer) -> Result<Option<Buffer>, ArrowError> {
+    if node.null_count() <= 0 {
+        return Ok(None);
+    }
+    let needed_len = (node.length() as usize).div_ceil(8);
+    if buffer.len() < needed_len {
+        return Err(ArrowError::InvalidArgumentError(format!(
+            "null_bit_buffer size too small. got {} needed {needed_len}",
+            buffer.len()
+        )));
+    }
+    Ok(Some(buffer.clone()))
+}
 impl RecordBatchDecoder<'_> {
     /// Coordinates reading arrays based on data types.
     ///
@@ -293,7 +311,7 @@ impl RecordBatchDecoder<'_> {
         buffers: &[Buffer],
     ) -> Result<ArrayRef, ArrowError> {
         let length = field_node.length() as usize;
-        let null_buffer = (field_node.null_count() > 0).then_some(buffers[0].clone());
+        let null_buffer = checked_null_buffer(field_node, &buffers[0])?;
         let mut builder = match data_type {
             Utf8 | Binary | LargeBinary | LargeUtf8 => {
                 // read 3 buffers: null buffer (optional), offsets buffer and data buffer
@@ -340,7 +358,7 @@ impl RecordBatchDecoder<'_> {
         buffers: &[Buffer],
         child_array: ArrayRef,
     ) -> Result<ArrayRef, ArrowError> {
-        let null_buffer = (field_node.null_count() > 0).then_some(buffers[0].clone());
+        let null_buffer = checked_null_buffer(field_node, &buffers[0])?;
         let length = field_node.length() as usize;
         let child_data = child_array.into_data();
         let mut builder = match data_type {
@@ -372,7 +390,7 @@ impl RecordBatchDecoder<'_> {
     ) -> Result<ArrayRef, ArrowError> {
         assert!(matches!(data_type, ListView(_) | LargeListView(_)));
 
-        let null_buffer = (field_node.null_count() > 0).then_some(buffers[0].clone());
+        let null_buffer = checked_null_buffer(field_node, &buffers[0])?;
         let length = field_node.length() as usize;
         let child_data = child_array.into_data();
 
@@ -399,6 +417,17 @@ impl RecordBatchDecoder<'_> {
         let skip_validation = self.skip_validation.get();
 
         let nulls = if null_count > 0 {
+            if !skip_validation {
+                // Check before constructing the BooleanBuffer, which would otherwise panic.
+                let needed_len = len.div_ceil(8);
+                if null_buffer.len() < needed_len {
+                    return Err(ArrowError::InvalidArgumentError(format!(
+                        "null_bit_buffer size too small. got {} needed {}",
+                        null_buffer.len(),
+                        needed_len
+                    )));
+                }
+            }
             let validity_buffer = BooleanBuffer::new(null_buffer, 0, len);
             let null_buffer = if skip_validation {
                 // safety: flag can only be set via unsafe code
@@ -447,7 +476,7 @@ impl RecordBatchDecoder<'_> {
         value_array: ArrayRef,
     ) -> Result<ArrayRef, ArrowError> {
         if let Dictionary(_, _) = *data_type {
-            let null_buffer = (field_node.null_count() > 0).then_some(buffers[0].clone());
+            let null_buffer = checked_null_buffer(field_node, &buffers[0])?;
             let builder = ArrayData::builder(data_type.clone())
                 .len(field_node.length() as usize)
                 .add_buffer(buffers[1].clone())
