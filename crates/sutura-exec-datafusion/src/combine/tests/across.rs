@@ -754,3 +754,8 @@ fn a_node_declared_by_a_host_is_dialled_where_it_resolves_and_one_resolving_nowh
 /// A peer's Explain or Unnest stage missing a field the decoder used to unwrap, `telekom/sutura#1680`.
 #[cfg(test)]
 mod physical_nodes;
+
+/// A peer's scalar, constraint, parquet option or schema bytes the decoder used to panic on rather
+/// than refuse, `telekom/sutura#1680`.
+#[cfg(test)]
+mod decode;

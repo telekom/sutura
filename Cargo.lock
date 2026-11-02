@@ -4719,6 +4719,7 @@ dependencies = [
  "datafusion-distributed",
  "datafusion-federation",
  "datafusion-proto",
+ "datafusion-proto-common",
  "flate2",
  "futures-util",
  "getrandom 0.4.3",
