@@ -411,8 +411,12 @@ pub enum NotFitToServe {
     /// are both dead ends of their own: `ExecuteUpdate` takes the DML-affected-rows branch of the
     /// SAME Go function whenever `executeUpdate = true`, ahead of the dry-run branch
     /// (`go/job_query.go:200-205`), so it can never reach the estimate either; and
-    /// `ExecutePartitions` is unconditionally `NotImplemented` for this driver
-    /// (`go/statement.go:945-950`). No statement option surfaces it as a value to read back either -
+    /// `ExecutePartitions` is a dead end of its own kind now that `nix/bigquery-adbc-partitions.patch`
+    /// implements it: it runs the query and partitions a real destination table, but refuses a
+    /// `bigquery.query.dry_run` statement outright rather than returning a partition list or an
+    /// estimate (`go/partitions.go`'s dry-run check in `ExecutePartitions`), so the one case that
+    /// carries a byte estimate is exactly the case this path does not reach. No statement option
+    /// surfaces it as a value to read back either -
     /// `GetOptionInt` echoes only configuration this crate itself set (`go/statement.go:185-205`),
     /// and the driver's OTHER statistics surface, `ConnectionGetStatistics`
     /// (`go/connection_statistics.go`), reports a TABLE's stored bytes, never a query's estimated
