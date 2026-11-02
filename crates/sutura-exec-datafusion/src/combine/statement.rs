@@ -403,9 +403,10 @@ fn admitted() -> Vec<Arc<ScalarUDF>> {
 /// such as `1 + 1 + ..` nests one level per operator without passing the parser's depth limit, and
 /// `datafusion` displays, clones and drops an expression by a recursion `recursive_protection` does
 /// not reach, so the text is held to what can only build a shallow tree. The number is a judgement:
-/// a cell measures that a chain just under it plans on a test thread's stack in the test profile,
-/// whose dependencies are optimised further than a shipped build's. A long statement of many
-/// keywords, commas or qualified names is refused though it is shallow.
+/// a cell measures that a constant chain just under it plans on a test thread's stack in the test
+/// profile, whose dependencies are optimised further than a shipped build's. The constant folds while
+/// planning; a chain over a column, which a part's text carries to its source, is not measured. A
+/// long statement of many keywords, commas or qualified names is refused though it is shallow.
 const MOST_OPERATORS: usize = 1024;
 
 /// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].

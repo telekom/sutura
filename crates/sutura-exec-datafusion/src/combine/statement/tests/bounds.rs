@@ -3,16 +3,12 @@
 //! planning, before any source opens; each is asked over one source, where it would otherwise run
 //! whole.
 
-use std::sync::Arc;
+use std::collections::BTreeSet;
 
-use datafusion::error::Result as Planned;
-use datafusion::prelude::SQLOptions;
-use sutura_domain::plan::StatementStopped;
+use sutura_domain::model::SourceName;
+use sutura_domain::plan::{StatementAnswer, StatementStopped};
 
-use super::logged::recorded;
-use super::{Engines, UNBOUNDED, asked, tables};
-use crate::combine::statement::{Fetched, part_of, parts, session};
-use crate::combine::working_set_of;
+use super::{Engines, UNBOUNDED, asked};
 
 /// Each of `statements` refused before any source opens, where a call to `upper`, which the session
 /// keeps, answers.
@@ -61,79 +57,56 @@ fn a_type_spelled_by_a_string_is_not_planned() {
     ]);
 }
 
+/// `refused`'s kept statement filtered by a constant chain of `terms` additions, which folds to true
+/// while planning, so neither the part's text nor a source carries it. `upper` keeps a projection
+/// over the scan: with a bare column the optimizer leaves only the scan, which the federation rule
+/// does not cut into a part.
 fn chained(terms: usize) -> String {
-    format!("select region from dim_region where 0 < 1{}", "+1".repeat(terms))
+    format!("select upper(region) from dim_region where 0 < 1{}", "+1".repeat(terms))
 }
 
-/// The start of `text`: an engine's words can quote the whole chain.
-fn clipped(text: &str) -> &str {
-    text.get(..4096).unwrap_or(text)
-}
+/// Room for a chain just past the bound to plan with `recursive_protection` off, as on the base
+/// tree: about 60 KiB a level. Not measured, so a chain that exhausts it aborts the cell instead.
+const DEEP: usize = 64 << 20;
 
-/// Temporary, while the bound is measured: how far a chain of `terms` gets on this thread's stack
-/// with the operator count skipped. Each stage is written to stderr before it starts, so an abort
-/// names the stage it stopped in.
-fn without_the_count(terms: usize) -> Planned<()> {
-    let tables = tables();
-    let context = session(&tables, &Arc::new(Fetched::default()), working_set_of(UNBOUNDED))?;
-    let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-    eprintln!("{terms} terms without the count: planning");
-    let plan = runtime.block_on(async {
-        context
-            .sql_with_options(&chained(terms), SQLOptions::new())
-            .await?
-            .into_optimized_plan()
-    })?;
-    eprintln!("{terms} terms without the count: displaying");
-    eprintln!(
-        "{terms} terms without the count: displayed {} bytes, cutting",
-        plan.to_string().len()
-    );
-    let whole = part_of(&plan).is_some();
-    for part in parts(&plan, &tables)? {
-        eprintln!("{terms} terms without the count: unparsing a part");
-        eprintln!(
-            "{terms} terms without the count: unparsed {} bytes",
-            part.statement(whole)?.as_str().len()
-        );
-    }
-    eprintln!("{terms} terms without the count: dropping");
-    drop(plan);
-    eprintln!("{terms} terms without the count: dropped");
-    Ok(())
+/// The sources each `open` named.
+type Opened = Vec<BTreeSet<SourceName>>;
+
+/// `chained(terms)`'s answer and the sources opened for it, asked on a thread of [`DEEP`] bytes.
+fn asked_deep(terms: usize) -> (StatementAnswer<SourceName>, Opened) {
+    std::thread::Builder::new()
+        .stack_size(DEEP)
+        .spawn(move || {
+            let mut legs = Engines::new(None);
+            (asked(&chained(terms), false, UNBOUNDED, &mut legs), legs.opened)
+        })
+        .expect("a test thread spawns")
+        .join()
+        .expect("asking does not panic")
 }
 
 /// A chain of `+` nests one level per operator without passing the parser's depth limit. One just
-/// under the bound plans and answers on this thread's stack; one past it, and one long enough to
-/// exhaust that stack without the bound, are refused before any source opens. While the bound is
-/// measured, each chain under it is written to stderr with its answer and what it logged.
+/// past the bound is refused before any source opens; it is asked on a deep stack, so without the
+/// count it plans and the cell fails on its answer rather than aborting. Then, on this thread's own
+/// stack, a chain near the longest the byte bound admits, which exhausted that stack while planning
+/// when it was measured without the count, is refused, and one just under the bound plans and
+/// answers.
 #[test]
 fn an_expression_chained_past_the_bound_is_not_planned() {
-    let under: Vec<_> = [10, 50, 100, 500, 1_000]
-        .into_iter()
-        .map(|terms| {
-            let mut legs = Engines::new(None);
-            let (answer, written) = recorded(|| asked(&chained(terms), false, UNBOUNDED, &mut legs));
-            let written: Vec<_> = written
-                .into_iter()
-                .map(|(level, fields)| format!("{level} {}", clipped(&fields)))
-                .collect();
-            (terms, answer, legs.ran, written)
-        })
-        .collect();
-    eprintln!("{under:#?}");
-    let unbounded = without_the_count(30_000).map_err(|cause| clipped(&cause.to_string()).to_owned());
+    let (answer, opened) = asked_deep(1_100);
     assert!(
-        under.iter().all(|(_, answer, ..)| matches!(answer, Some(Ok(_)))),
-        "a chain under the bound answers: {under:#?}\n30000 terms without the count: {unbounded:?}"
+        matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+        "1100 terms: {answer:?}"
     );
-    for terms in [1_100, 30_000] {
-        let mut legs = Engines::new(None);
-        let answer = asked(&chained(terms), false, UNBOUNDED, &mut legs);
-        assert!(
-            matches!(answer, Some(Err(StatementStopped::NotPlanned))),
-            "{terms} terms: {answer:?}"
-        );
-        assert!(legs.opened.is_empty(), "{terms} terms opened {:?}", legs.opened);
-    }
+    assert!(opened.is_empty(), "1100 terms opened {opened:?}");
+    let mut legs = Engines::new(None);
+    let answer = asked(&chained(30_000), false, UNBOUNDED, &mut legs);
+    assert!(
+        matches!(answer, Some(Err(StatementStopped::NotPlanned))),
+        "30000 terms: {answer:?}"
+    );
+    assert!(legs.opened.is_empty(), "30000 terms opened {:?}", legs.opened);
+    let mut legs = Engines::new(None);
+    let answer = asked(&chained(1_000), false, UNBOUNDED, &mut legs);
+    assert!(matches!(answer, Some(Ok(_))), "a chain under the bound answers: {answer:?}");
 }
