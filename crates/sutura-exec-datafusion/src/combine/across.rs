@@ -69,8 +69,8 @@
 //!   TCP; the multi-node VM check kills one while it answers.
 //! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
 //!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
-//!   in an Arrow or an external error crosses its next link as text and stays a failure, and no
-//!   stage raises one yet.
+//!   in an Arrow or an external error crosses its next link as text and stays a failure. One stage
+//!   raises it: a final-stage task past the worker's row ceiling.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -85,9 +85,10 @@
 //!   whatever the working set, and decoding a body under the cap into Arrow is not bounded here
 //!   (#1680 1(c)).
 //! - A worker fails a task of a question's final stage whose rows pass the whole federated row
-//!   ceiling, [`Nodes::row_ceiling`], as [`WorkerRefusal`] (Decision 4). The caller sees the engine's
-//!   failure of the combine, not a typed refusal, and the check is per task: the planning node's
-//!   exact count stays the one that refuses every answer over the ceiling.
+//!   ceiling, [`Nodes::row_ceiling`], as [`WorkerRefusal`] under that code (Decision 4), which the
+//!   planning node answers as [`CombineError::RowsOverCeiling`]. The check is per task, so tasks that
+//!   each stay under the ceiling can sum past it: the planning node's exact count stays the one that
+//!   refuses every answer over the ceiling.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;

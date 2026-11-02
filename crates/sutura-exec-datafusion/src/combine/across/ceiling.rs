@@ -18,9 +18,11 @@
 //!   stage supplies its question's key, so it could raise or drop the ceiling under a grant covering
 //!   it as well, as it could install a stage with no check at all. That loosens only this early
 //!   check.
-//! - A worker's refusal reaches the caller as the engine's failure of the combine, an internal error,
-//!   and not as the typed refusal the planning node's own count gives. A typed code in the link's
-//!   failure status is an open question of the decision, not built.
+//! - A worker's refusal crosses the link under the code the planning node reads back as its own
+//!   refusal for rows past the ceiling, `CombineError::RowsOverCeiling`. That refusal has no fields,
+//!   so the caller is told this node's ceiling, not the one the stage carried. A node that wraps the
+//!   code in an Arrow or an external error passes it on as text, and the caller then sees the
+//!   engine's failure of the combine.
 //! - Tasks run in one process off one decoded stage share one count. That refuses no question the
 //!   planning node's count answers, since their rows are disjoint pieces of the combined set.
 
@@ -126,9 +128,9 @@ impl ExecutionPlan for CeilingExec {
             let batch = batch?;
             let these = u64::try_from(batch.num_rows()).unwrap_or(u64::MAX);
             if rows.fetch_add(these, Ordering::Relaxed).saturating_add(these) > u64::from(ceiling.get()) {
-                return Err(DataFusionError::External(Box::new(WorkerRefusal::TaskOverCeiling {
-                    ceiling,
-                })));
+                return Err(super::relay::over_ceiling(DataFusionError::External(Box::new(
+                    WorkerRefusal::TaskOverCeiling { ceiling },
+                ))));
             }
             Ok(batch)
         });
