@@ -380,3 +380,5 @@ fn an_exists_in_a_projection_over_a_second_source_is_not_planned() {
 mod bounds;
 #[cfg(test)]
 mod logged;
+#[cfg(test)]
+mod scan_only;
