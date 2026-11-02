@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8198d713a..1e5cfc10e 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -971,7 +971,7 @@ impl TryFrom<&protobuf::Constraint> for Constraint {
+                 ))
+             }
+             None => Err(Error::General(
+-                "constraint_mode not set deserializing Constraint".to_string(),
++                "constraint not set".to_string(),
+             )
+             .into()),
+         }

@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8198d713a..3fa353924 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -1338,7 +1338,7 @@ fn vec_to_array<T, const N: usize>(v: Vec<T>, kind: &str) -> Result<[T; N], Erro
+     let len = v.len();
+     v.try_into().map_err(|_| {
+         Error::General(format!(
+-            "Expected a Vec of length {N} for {kind} but it was {len}"
++                "Expected a Vec of length {N} but it was {len}"
+         ))
+     })
+ }

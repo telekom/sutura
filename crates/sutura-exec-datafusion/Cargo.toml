@@ -83,9 +83,13 @@ tonic = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 # The node authorities those nodes' certificates are signed by.
 rcgen = { workspace = true }
-# The generated protobuf shapes `combine::tests::across::physical_nodes` encodes a malformed Explain
-# or Unnest stage from. Already in the graph through `datafusion-distributed`'s decode route.
+# The generated protobuf shapes `combine::tests::across::physical_nodes` and `::decode` encode a
+# malformed Explain, Unnest, Filter, CsvScan, ParquetScan or Empty stage from. Already in the graph
+# through `datafusion-distributed`'s decode route.
 datafusion-proto = { version = "55.1.0", default-features = false }
+# The `Constraint`, `TableParquetOptions` and `Union` shapes `::decode` needs, which
+# `datafusion-proto`'s own re-export does not carry. Already in the graph through `datafusion-proto`.
+datafusion-proto-common = { version = "55.1.0", default-features = false }
 # `Message::encode_to_vec` for the bytes above. Already in the graph through `datafusion-proto`.
 prost = { version = "0.14", default-features = false }
 

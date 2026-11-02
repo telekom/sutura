@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-proto-common/src/from_proto/mod.rs b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+index 8198d713a..148b58638 100644
+--- a/vendor/datafusion-proto-common/src/from_proto/mod.rs
++++ b/vendor/datafusion-proto-common/src/from_proto/mod.rs
+@@ -526,7 +526,7 @@ impl TryFrom<&protobuf::ScalarValue> for ScalarValue {
+                         arr.as_list_opt::<i32>()
+                             .ok_or_else(|| {
+                                 Error::General(
+-                                    "ListValue did not decode to a list array".to_string(),
++                                    "did not decode to a list array".to_string(),
+                                 )
+                             })?
+                             .to_owned()
