@@ -891,6 +891,7 @@ missing_assert_message = "allow"
 datafusion-proto = { path = "vendor/datafusion-proto" }
 datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
+arrow-ipc = { path = "vendor/arrow-ipc" }
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
