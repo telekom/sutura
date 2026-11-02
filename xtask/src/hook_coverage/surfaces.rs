@@ -146,6 +146,8 @@ pub(crate) const SURFACES: &[Surface] = &[
             "crates/sutura-catalog-local/**",
             "crates/sutura-sql/**",
             "crates/sutura-semantic/**",
+            "crates/sutura-flight/src/lib.rs",
+            "crates/sutura-flight/src/receive.rs",
         ],
         hooks: &[],
         reached_by: "fuzz-smoke",
