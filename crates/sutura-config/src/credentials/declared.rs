@@ -48,6 +48,10 @@
 //! lint, hook or gate here reads a live policy, and the driver's token fetch is lazy, so a pool that
 //! refuses the assertion or a principal with no grant surfaces on the FIRST QUESTION by that
 //! subject, never at boot.
+//!
+//! An authenticating source is built and unobserved: no run has shown an Oracle database resolving
+//! the returned token to the asker (`docs/where-identity-is-proven.md`), so Oracle is supported as
+//! `shared-service-user` only, for now.
 
 use std::collections::BTreeMap;
 

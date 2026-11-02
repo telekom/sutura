@@ -208,9 +208,8 @@ The data system is a database.
 
     <span class="sutura-badge">Data system</span>
     <span class="sutura-badge">shared-service-user</span>
-    <span class="sutura-badge">secure-impersonation</span>
 
-    Run questions over an Oracle Database as one declared user, or as each caller with their own token.
+    Run questions over an Oracle Database as one declared user. Running as each caller with their own token is built and not verified.
 
     [:octicons-arrow-right-24: Oracle](data-systems/oracle.md)
 
@@ -254,14 +253,14 @@ The data system reads files.
 
 ### Identity mode of each data system
 
-| Data system                                      | Identity mode                                                    |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
-| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                                       |
-| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                                       |
-| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation                   |
-| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                                       |
-| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` and secure-impersonation (EXECUTE AS)      |
-| [Oracle](data-systems/oracle.md)                 | `shared-service-user` and secure-impersonation (OAuth 2.0 token) |
+| Data system                                      | Identity mode                                                                                |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| [DataFusion (files)](data-systems/datafusion.md) | `shared-service-user` only                                                                   |
+| [DuckDB](data-systems/duckdb.md)                 | `shared-service-user` only                                                                   |
+| [BigQuery](data-systems/bigquery.md)             | `shared-service-user` and secure-impersonation                                               |
+| [PostgreSQL](data-systems/postgres.md)           | `shared-service-user` only                                                                   |
+| [ClickHouse](data-systems/clickhouse.md)         | `shared-service-user` and secure-impersonation (EXECUTE AS)                                  |
+| [Oracle](data-systems/oracle.md)                 | `shared-service-user` only. Secure-impersonation (OAuth 2.0 token) is built and not verified |
 
 ## Identity
 

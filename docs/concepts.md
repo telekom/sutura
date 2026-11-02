@@ -119,14 +119,17 @@ The **subject** is the identity that the data system sees: the person, not the s
 
 A leg runs in one of two ways:
 
-- **secure-impersonation** (BigQuery, ClickHouse, Oracle). The leg runs as the subject. On BigQuery,
-  the caller's verified token is exchanged for the service account that the operator declares for
-  that subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
-  ClickHouse user that the operator declares for that subject (`EXECUTE AS`). On Oracle, sutura
-  opens a session with the caller's verified token, and the database runs the query as the database
-  user that it maps the token to.
-- **shared-service-user** (files, Postgres). The leg runs as the deployment's own identity for
-  that source. An operator declares this in the configuration.
+- **secure-impersonation** (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery,
+  the leg runs as the caller's own principal in a workload identity pool, or, with domain-wide
+  delegation, as the Google account with the caller's verified email. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (`EXECUTE AS`).
+- **shared-service-user** (files, Postgres, Oracle). The leg runs as the deployment's own identity
+  for that source. An operator declares this in the configuration.
+
+Oracle is supported as `shared-service-user` only, for now. sutura also accepts
+`impersonation-at-source` on Oracle: it opens a session with the caller's verified token, for the
+database to run the query as the database user that it maps the token to. That path is built and
+not verified, because no run has shown an Oracle database executing a query as the caller.
 
 Where the deployment declares `security.inbound`, who is asking comes from the caller's own token.
 A deployment behind only the bearer token has no per-caller identity, because that token

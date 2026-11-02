@@ -4,10 +4,15 @@
 //!
 //! **Two postures.** A `shared-service-user` source answers every question on one connection under
 //! the deployment's declared user. An `impersonation-at-source` source opens a session of its own
-//! for each question, with the asker's own verified token ([`TokenSessions`]), so the database
-//! authenticates the asker and runs the statement as the user it maps that token to. The boot
+//! for each question, with the asker's own verified token ([`TokenSessions`]), for the database to
+//! authenticate the asker and run the statement as the user it maps that token to. The boot
 //! connection under the declared user stays, for the boot path's own probes only
 //! ([`Warehouse::verify_anchor`], [`Warehouse::declared_key`]); a question never runs on it.
+//!
+//! **Only the first posture is supported for now.** No run has shown a database honouring the
+//! token: `crates/sutura-exec-oracle/tests/dial.rs` records it at a fake listener, and no venue
+//! provisions an Oracle that accepts one (`docs/where-identity-is-proven.md`). The settings still
+//! accept the second.
 //!
 //! **Synchronous.** `oracledb::Connection`'s own
 //! methods (`execute`, `query`, `set_call_timeout`) are plain blocking `fn`s over a

@@ -58,9 +58,11 @@ sutura separates two parts of identity:
 
 - **Leg 1: sutura knows who asks.** sutura verifies the caller's token before it answers, on HTTP and on MCP
   (`security.inbound`). [Inbound identity](integrations/identity.md) has the settings.
-- **Leg 2: the data system runs the query as the caller.** BigQuery, ClickHouse and Oracle do this
+- **Leg 2: the data system runs the query as the caller.** BigQuery and ClickHouse do this
   (secure-impersonation). sutura refuses a caller that the source does not declare. Every other data system runs each
-  query as one identity that the operator declares for that source (`shared-service-user`). Cube with
+  query as one identity that the operator declares for that source (`shared-service-user`). That includes Oracle for
+  now: its path that opens each query's session with the caller's token is built, and no run has shown an Oracle
+  database honouring that token. Cube with
   `impersonation-at-source` receives each caller's own token and applies its access policy from the claims of that token. Its
   warehouse query runs with the database identity in Cube's own driver settings, not with the caller's
   identity.
