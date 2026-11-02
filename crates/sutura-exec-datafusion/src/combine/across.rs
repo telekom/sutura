@@ -71,12 +71,13 @@
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
 //! - A link's buffer is bounded by its budget plus one message, of at most the working set of the
-//!   node or question reading it - the client's own gRPC decode is capped there, so a peer's length
-//!   prefix cannot size this node's buffer past that. Two questions on one node each hold their own
-//!   links' share, and a worker holds the budget the stage it runs carries, which the node that
-//!   planned it set. What this does NOT bound: a message under the cap is still buffered whole
-//!   before it is read, and decoding a body under the cap into Arrow is not bounded here (#1680
-//!   1(c)).
+//!   node or question reading it or `LEAST_REPLY`, whichever is larger - the client's own gRPC
+//!   decode is capped there, so a peer's length prefix cannot size this node's buffer past that.
+//!   Two questions on one node each hold their own links' share, and a worker holds the budget the
+//!   stage it runs carries, which the node that planned it set. What this does NOT bound: a message
+//!   under the cap is still buffered whole before it is read, so a reply of `LEAST_REPLY` is held
+//!   whatever the working set, and decoding a body under the cap into Arrow is not bounded here
+//!   (#1680 1(c)).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -556,9 +557,13 @@ impl Links {
     }
 }
 
-/// [`Links`] whose clients decode a peer's reply up to a working set's bytes. The only
-/// [`ChannelResolver`] over them, reached through [`Links::bounded`], so a caller names the working
-/// set a reply is capped at; a [`WorkingSet`] near `usize::MAX` is still no cap in practice.
+/// The cap under a working set smaller than it. A peer's refusal is itself a reply, so a pool too
+/// small to decode one would turn the pool's own typed refusal into a decode error naming no pool.
+const LEAST_REPLY: usize = 64 * 1024;
+
+/// [`Links`] whose clients decode a peer's reply up to a working set's bytes or [`LEAST_REPLY`].
+/// The only [`ChannelResolver`] over them, reached through [`Links::bounded`], so a caller names the
+/// working set a reply is capped at; a [`WorkingSet`] near `usize::MAX` is still no cap in practice.
 #[derive(Clone)]
 struct Bounded {
     links: Links,
@@ -572,6 +577,9 @@ impl ChannelResolver for Bounded {
             Entry::Occupied(kept) => kept.get().clone(),
             Entry::Vacant(unseen) => unseen.insert(self.links.dial(url)?).clone(),
         };
-        Ok(create_worker_client_with_decode_limit(channel, self.working_set.bytes()))
+        Ok(create_worker_client_with_decode_limit(
+            channel,
+            self.working_set.bytes().max(LEAST_REPLY),
+        ))
     }
 }
