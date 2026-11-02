@@ -56,12 +56,12 @@ pub(super) fn nodes_refused_if_declared(tls: Option<&sutura_config::TlsMaterial>
     Ok(())
 }
 
-/// A build without the `distributed` feature: `server.role: worker` is a startup refusal, not a node
-/// that serves nothing. `crate::serve::tests::nodes` holds it.
+/// A build without the `distributed` feature: `server.role: worker` or `reading-worker` is a startup
+/// refusal, not a node that serves nothing. `crate::serve::tests::nodes` holds it.
 #[cfg(not(feature = "distributed"))]
 pub(super) fn worker_refused(_settings: &Settings) -> Result<(), String> {
     Err(String::from(
-        "server.role is worker and this binary was built without the `distributed` feature, so it \
-         has no worker to serve. Rebuild with `--features distributed`, or set server.role to serving.",
+        "server.role is worker or reading-worker and this binary was built without the `distributed` \
+         feature, so it has no worker to serve. Rebuild with `--features distributed`, or set server.role to serving.",
     ))
 }

@@ -109,8 +109,10 @@ const STARTUP: Subject = Subject {
     // `server.role: worker` configuration may not declare. 33: `WorkersWaitNotBelowDeadline`, a wait
     // for other nodes that is not below the request timeout it would be spent inside. 34:
     // `RunSqlFederationNotCompiledIn`, `tools.run_sql.federation_allowed` on a build with no SQL parser.
-    // 35: `RunSqlListsNoSource`, the raw tool on with no source listed for it to run over.
-    variants: variants(35),
+    // 35: `RunSqlListsNoSource`, the raw tool on with no source listed for it to run over. 37:
+    // `ReadingWorkerWithoutSources` and `ReadingWorkerWithoutCatalog`, a `server.role:
+    // reading-worker` configuration that declares no source or no catalog.
+    variants: variants(37),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

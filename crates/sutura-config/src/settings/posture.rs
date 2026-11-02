@@ -495,20 +495,44 @@ pub enum NotFitToServe {
          catalog and opens none. Remove the `catalogs` list"
     )]
     WorkerDeclaresCatalogs,
-    /// A worker with no node authority would accept a combine stage from a caller that presented no
-    /// node certificate.
+    /// A worker of either role with no node authority would accept a stage from a caller that
+    /// presented no node certificate.
     #[error(
-        "server.role is `worker` and server.tls_node_authority is not set. A worker serves only the \
-         serving nodes, which it knows by their certificates. Set server.tls_certificate, \
-         server.tls_key and server.tls_node_authority"
+        "server.role is `worker` or `reading-worker` and server.tls_node_authority is not set. A \
+         worker serves only the serving nodes, which it knows by their certificates. Set \
+         server.tls_certificate, server.tls_key and server.tls_node_authority"
     )]
     WorkerWithoutNodeAuthority,
-    /// A worker would mount `/mcp`, which reads the catalog and the sources a worker has none of.
-    #[error("server.role is `worker` and server.agent_surface.enabled is true. A worker mounts no `/mcp`. Turn it off")]
+    /// A worker of either role would mount `/mcp`, a caller-facing route no worker serves.
+    #[error(
+        "server.role is `worker` or `reading-worker` and server.agent_surface.enabled is true. A worker \
+         mounts no `/mcp`. Turn it off"
+    )]
     WorkerWithAgentSurface,
-    /// A worker would mount the Flight surface, which runs a leg against a source a worker has none of.
-    #[error("server.role is `worker` and server.flight_surface.enabled is true. A worker runs no leg. Turn it off")]
+    /// A worker of either role would mount the Flight surface, which serves a remote leg to another
+    /// deployment's node. No worker serves one.
+    #[error(
+        "server.role is `worker` or `reading-worker` and server.flight_surface.enabled is true. A \
+         worker serves no remote leg. Turn it off"
+    )]
     WorkerWithFlightSurface,
+    /// A reading worker declares no source, so it has nothing a partition could be read from.
+    #[error(
+        "server.role is `reading-worker` and no source is declared. A reading worker reads a split \
+         leg's partitions from the sources it declares. Declare them, or set server.role to `worker`"
+    )]
+    ReadingWorkerWithoutSources,
+    /// A reading worker's configuration files or variables write no `catalogs`. The embedded
+    /// defaults' catalog is not counted: every configuration carries it, and it is not the
+    /// deployment's.
+    ///
+    /// The catalog is the one a reading worker re-certifies a leg against before it reads. That
+    /// check is not built: this refusal makes the declaration present, and nothing opens it yet.
+    #[error(
+        "server.role is `reading-worker` and `catalogs` is not declared in a file or a variable. A \
+         reading worker certifies a leg against its own catalog before it reads. Declare the catalog"
+    )]
+    ReadingWorkerWithoutCatalog,
     /// A question would wait for other nodes as long as the request it serves may take, or longer,
     /// so the wait would end in the deadline rather than in planning across the nodes that did start.
     #[error(

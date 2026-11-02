@@ -36,7 +36,8 @@
 
 server:
   # `serving` answers callers and reads sources. `worker` runs the serving nodes' combine stages
-  # only, declares no source or catalog of its own, and needs `tls_node_authority` - see
+  # only, declares no source or catalog of its own, and needs `tls_node_authority`.
+  # `reading-worker` declares the sources it reads and a catalog, and reads nothing yet - see
   # `docs/serving.md`.
   role: "serving"
   # Loopback. See above: this is a security default, not a convenience one.

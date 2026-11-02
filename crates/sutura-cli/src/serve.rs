@@ -193,9 +193,11 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_config::config_dir_from_process(),
     ))
     .map_err(flatten)?;
-    // A worker holds no catalog and no source, so nothing below is its boot.
-    if settings.server().role() == sutura_config::ServerRole::Worker {
-        return run_worker(&settings);
+    // Neither worker role opens a catalog or a source, so nothing below is its boot. A
+    // `reading-worker`'s are parsed and checked by `Settings::load` and opened by nothing yet.
+    match settings.server().role() {
+        sutura_config::ServerRole::Serving => {}
+        sutura_config::ServerRole::Worker | sutura_config::ServerRole::ReadingWorker => return run_worker(&settings),
     }
 
     // A deployment that asked for the agent surface on a build without the transport must refuse

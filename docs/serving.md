@@ -26,16 +26,16 @@ container, loopback is the container, so use `--network host`, or bind `0.0.0.0`
 sutura reads its settings from the built-in defaults, `<dir>/base.yaml`, `<dir>/<environment>.yaml` and environment
 variables, in that order. [Configuration](configuration.md) lists the layers and the groups.
 
-| Setting                          | Default     | Meaning                                                                                   |
-| -------------------------------- | ----------- | ----------------------------------------------------------------------------------------- |
-| `server.host`                    | `127.0.0.1` | An IP address of either family, never a hostname                                          |
-| `server.port`                    | `8080`      | The listening port                                                                        |
-| `server.request_timeout_seconds` | `30`        | The longest wait of a caller. At most 300                                                 |
-| `server.max_body_bytes`          | `65536`     | The largest request body. At most 1 MiB                                                   |
-| `server.allowed_hosts`           | none        | Host names, with no port, that `/v1/*`, `/docs`, `/openapi.json` and `/mcp` answer        |
-| `server.role`                    | `serving`   | `serving`, or `worker` for a node that holds no data ([a worker node](#a-worker-node))    |
-| `security.access_token`          | none        | The deployment token: an RFC 6750 `b64token` of at least 32 characters                    |
-| `security.metrics_token`         | none        | The token of `GET /metrics`, with the same form. It must differ from the deployment token |
+| Setting                          | Default     | Meaning                                                                                                  |
+| -------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------- |
+| `server.host`                    | `127.0.0.1` | An IP address of either family, never a hostname                                                         |
+| `server.port`                    | `8080`      | The listening port                                                                                       |
+| `server.request_timeout_seconds` | `30`        | The longest wait of a caller. At most 300                                                                |
+| `server.max_body_bytes`          | `65536`     | The largest request body. At most 1 MiB                                                                  |
+| `server.allowed_hosts`           | none        | Host names, with no port, that `/v1/*`, `/docs`, `/openapi.json` and `/mcp` answer                       |
+| `server.role`                    | `serving`   | `serving`, `worker` for a node that holds no data, or `reading-worker` ([a worker node](#a-worker-node)) |
+| `security.access_token`          | none        | The deployment token: an RFC 6750 `b64token` of at least 32 characters                                   |
+| `security.metrics_token`         | none        | The token of `GET /metrics`, with the same form. It must differ from the deployment token                |
 
 Each data system and each catalog has its own settings. See the [integrations](integrations/index.md).
 
@@ -76,9 +76,11 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `rate_limit.enabled: false`, in production or off-host                                                              | Set `rate_limit.enabled: true`                                                              |
 | `server.role: worker` and a `sources` entry                                                                         | Remove the sources. A worker reads none                                                     |
 | `server.role: worker` and `catalogs` in a file or a variable                                                        | Remove the catalogs                                                                         |
-| `server.role: worker` and no `server.tls_node_authority`                                                            | Set it ([a worker node](#a-worker-node))                                                    |
-| `server.role: worker` and `server.agent_surface.enabled`                                                            | Remove the switch                                                                           |
-| `server.role: worker` and `server.flight_surface.enabled`                                                           | Remove the switch                                                                           |
+| `server.role: worker` or `reading-worker` and no `server.tls_node_authority`                                        | Set it ([a worker node](#a-worker-node))                                                    |
+| `server.role: worker` or `reading-worker` and `server.agent_surface.enabled`                                        | Remove the switch                                                                           |
+| `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                       | Remove the switch                                                                           |
+| `server.role: reading-worker` and no `sources` entry                                                                | Declare the sources it reads, or use `worker`                                               |
+| `server.role: reading-worker` and no `catalogs` in a file or a variable                                             | Declare the catalog                                                                         |
 | `server.port: 0` in production                                                                                      | Set a port                                                                                  |
 | An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                    | Fix the name                                                                                |
 | A configured source and no `security.identity`                                                                      | Write `single-user` or `multi-user`                                                         |
@@ -408,6 +410,12 @@ security:
 
 A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
 production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
+
+`server.role: reading-worker` is the worker that is to read a split leg's partitions. It is configured as above, and
+it declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node
+with a source. **It reads nothing yet:** it opens neither the sources nor the catalog, and it serves the same worker
+transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
+chart's worker pool runs `worker`.
 
 Limit: a catalog counts only when a file or a variable declares it.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
