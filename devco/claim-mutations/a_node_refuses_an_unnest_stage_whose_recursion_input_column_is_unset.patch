@@ -1,0 +1,23 @@
+diff --git a/vendor/datafusion-physical-plan/src/unnest.rs b/vendor/datafusion-physical-plan/src/unnest.rs
+index ef1cf8742..9f4aca653 100644
+--- a/vendor/datafusion-physical-plan/src/unnest.rs
++++ b/vendor/datafusion-physical-plan/src/unnest.rs
+@@ -470,14 +470,14 @@ impl UnnestExec {
+                 .recursions
+                 .iter()
+                 .map(|recursion| {
+-                    let input_column = recursion.input_column.as_ref().ok_or_else(|| {
++                    let output_column = recursion.output_column.as_ref().ok_or_else(|| {
+                         datafusion_common::internal_datafusion_err!(
+-                            "UnnestExec is missing required field 'input_column' of an 'options.recursions' entry"
++                            "UnnestExec is missing required field 'output_column' of an 'options.recursions' entry"
+                         )
+                     })?;
+-                    let output_column = recursion.output_column.as_ref().ok_or_else(|| {
++                    let input_column = recursion.input_column.as_ref().ok_or_else(|| {
+                         datafusion_common::internal_datafusion_err!(
+-                            "UnnestExec is missing required field 'output_column' of an 'options.recursions' entry"
++                            "UnnestExec is missing required field 'input_column' of an 'options.recursions' entry"
+                         )
+                     })?;
+                     Ok(datafusion_common::RecursionUnnestOption {
