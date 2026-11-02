@@ -26,7 +26,7 @@ pub enum AdbcError {
     /// read by the clock where the stream carries no SQLSTATE.
     #[error("the source stopped the statement at its timeout")]
     TimedOut(#[source] arrow_schema::ArrowError),
-    #[error("the ADBC result stream did not match its announced schema")]
+    #[error("the ADBC result stream was refused while it was read")]
     Unannounced(#[source] UnannouncedBatch),
     #[error("the plan's values could not be assembled for binding")]
     Parameters(#[source] arrow_schema::ArrowError),

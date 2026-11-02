@@ -27,7 +27,7 @@ use adbc_core::options::{OptionConnection, OptionValue};
 use adbc_core::{Connection, Statement as _};
 use arrow_array::{RecordBatch, RecordBatchReader};
 use sutura_domain::warehouse::deadline::Deadline;
-use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget};
+use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
 use super::AdbcError;
 use crate::deadline::deadline_statement_timeout_ms;
@@ -166,6 +166,25 @@ pub(super) fn deadline_exceeded(error: &AdbcError) -> bool {
         | AdbcError::Unannounced(_)
         | AdbcError::Parameters(_)
         | AdbcError::Unreadable(_) => false,
+    }
+}
+
+/// Whether `error` is a stream refused at [`MOST_RESULT_ROWS`] or [`MOST_RESULT_BYTES`] - a result
+/// that did not fit, which no retry answers. A stream refused for its shape is not one, and every
+/// variant is named so a new one is a compile error here rather than a silent `false`.
+pub(super) const fn result_did_not_fit(error: &AdbcError) -> bool {
+    match *error {
+        AdbcError::Unannounced(ref cause) => match *cause {
+            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => true,
+            UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => false,
+        },
+        AdbcError::Load(_)
+        | AdbcError::Adbc(_)
+        | AdbcError::Batch(_)
+        | AdbcError::TimedOut(_)
+        | AdbcError::Parameters(_)
+        | AdbcError::Unreadable(_)
+        | AdbcError::DeadlineSpent => false,
     }
 }
 
