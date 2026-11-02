@@ -196,7 +196,7 @@ The two rows are that split and not a duplication.
 | **Whether a real provider will mint an ID token whose `aud` is a third party's client id** | no | **no - and a mock answers _yes_ by construction, which is worse than no test** | no | **yes - a password grant with `scope=openid` mints an ID token whose `aud` carries a third-party audience (`nix/keycloak-tier.nix`'s `id-token-audience` mapper), read off the realm file the tier wrote; password grant, RFC-2606 placeholder audience, not browser-delegated** | **yes** - the same cell, restated here because *only here* was this column's answer while the tier beside it already said `yes`: a contradiction inside one row, corrected rather than left to a reader to spot. What a hosted tenant would add is a browser-delegated grant and a vendor's own `aud`/`azp` shape, not this claim | - | - |
 | Whether a statement we generate is accepted by a real data system | - | - | **yes** | - | - | - | - |
 | Whether a token exchange endpoint accepts what we send it | no - a loopback fake accepts by construction. What it does pin is what we SEND: the RFC 8693 form `delegation::http::OverHttp` posts, captured by `the_request_is_an_rfc_8693_exchange_of_the_callers_token_for_the_requested_audience`, and the form `GoogleSts` posts to Google's token service, captured by `the_exchange_asks_for_an_access_token_at_the_pool_for_the_callers_assertion_and_the_bigquery_scope` | - | - | **wired** - a real IdP's standard token exchange of each subject's own token for the pool audience (#1208); the IdP half only, no pool is reachable from the tier | - | - | - |
-| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **wired** - the adapter run recorded below resolved each subject to its own pool principal through the loopback credential source the driver fetched from; that path is deleted, and the in-process exchange that replaced it has no observed run. No served human caller is measured | - |
+| **Whether a deployment holding ONE workload identity can obtain, per subject, a credential the data system resolves to a DIFFERENT principal** | no | no | no - the adapter is `NoPlaceForASubject`, so there is no per-subject credential to obtain | - | no | **yes** - the adapter run recorded below resolves each subject to its own pool principal through the in-process exchange; no served human caller is measured | - |
 | **Whether two subjects read two different row sets** | no | no | no - one database role is one identity | - | no | no - it reads one identity per question and no rows at all; the row half needs the served surface | - |
 | **Whether a data system applies the row grant of the principal whose bearer a leg presented, so two principals read two different row sets** | no | no | no - the connection presents a password or a certificate, never a subject's bearer | - | no | no - the standing cells read `SESSION_USER()` and no rows. The stack grants each workload-pool principal directly; the manual row-policy probe below is supplementary evidence, not this venue or a served surface | - |
 | **Whether the shipped Postgres source executes as the asking subject** | no - the adapter declares `ImpersonationCapability::NoPlaceForASubject` and `deliverable_by` holds a declared posture against it at boot in both composition roots, so a deployment that asked for impersonation there does not start and no venue has anything to prove | no | no - the same boot refusal applies before this venue is ever reached | - | no | no - a different adapter, refused at boot before any venue | - |
@@ -205,7 +205,7 @@ The two rows are that split and not a duplication.
 | Whether a real source's chain is VERIFIED, so anchors that do not name its issuer refuse the connection | - | - | **only here** | - | - | - | - |
 | Whether a source accepts the client certificate this DEPLOYMENT presents, and refuses a client that presents none | - | - | **only here** | - | - | - | - |
 | **A served binary executes as a verified human caller through the declared per-source map** | - | - | - | - | - | no - it asks the adapter directly, so nothing here goes through a served binary | - |
-| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **wired** - both standing cells passed in the adapter run recorded below, which measured the deleted loopback credential source; the in-process exchange has no observed run, and the assertions are test fixtures, not human sign-in | - |
+| **Whether two distinct subjects resolve to two distinct `BigQuery` principals through the ADBC path** | no - a fake transport records the principal the adapter forwarded and nothing about what a dataset does with it | no | no | no | no | **yes** - both standing cells passed in the observed adapter run recorded below; the assertions are test fixtures, not human sign-in | - |
 ## The fake at the port
 
 `AGENTS.md`'s *Conventions* says why: *ports get fakes, not mocked HTTP - that is what lets the whole
@@ -515,21 +515,22 @@ that record, not uniqueness - the uniqueness this venue relies on is `sub_a != s
 
 ## A declared principal at a real dataset
 
-**wired**: no run of the path this tree ships has been observed. The pool exchange moved into this
-process (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`): the adapter now asks
-Google's token service for the subject's token and hands the driver that token. The run below
-measured the driver fetching the assertion from a loopback credential source and exchanging it
-itself. That source is deleted, so the run is a record of a path that is gone and not evidence for
-this one. A dispatch of `.github/workflows/bigquery-declared-principal.yml` on this tree is what
-moves the cells back.
-
-**The run of the deleted path:** 2026-10-11,
-[run 38116387739](https://github.com/telekom/sutura/actions/runs/38116387739), at
-`321e65661f3a37b596758dbe90242f2f159ea9dc`. Both cells passed:
-`each_subject_executes_as_its_own_principal_at_the_declared_pool` and
-`the_deployments_own_identity_is_neither_subjects_principal`.
+**yes**: observed on 2026-11-02 in
+[run 41431036477](https://github.com/telekom/sutura/actions/runs/41431036477), at
+`95adb5fcb1ebc6c2b358bc764d27d6ff00ca3a58`, the in-process pool exchange
+(`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`): the adapter asks Google's token
+service for the subject's token and hands the driver that token. All three cells passed:
+`each_subject_executes_as_its_own_principal_at_the_declared_pool`,
+`the_deployments_own_identity_is_neither_subjects_principal` and
+`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool`.
 `.github/workflows/bigquery-declared-principal.yml` is on demand against `bq-test`; absent
 configuration fails rather than skips.
+
+**The run of a deleted path:** 2026-10-11,
+[run 38116387739](https://github.com/telekom/sutura/actions/runs/38116387739), at
+`321e65661f3a37b596758dbe90242f2f159ea9dc`, passed the first two cells while the driver fetched
+the assertion from a loopback credential source and exchanged it itself. That source is deleted,
+so that run is no evidence for the path above.
 
 The [first run](https://github.com/telekom/sutura/actions/runs/38116177572) failed with
 `403 accessDenied`, naming the missing `bigquery.jobs.create` permission. The deployed fixture still
@@ -551,12 +552,12 @@ insert and was removed afterwards. The probe adds no automated row-isolation cov
 shared control credential. No service account is impersonated by the federated query; this run
 proves direct WIF resource access, not a human provider's sign-in or delegation exchange.
 
-**After that run, the cells changed.** Each subject now starts from an inbound token minted for
-another audience, and a fake at the delegation port answers it with that subject's pool-audience
-assertion, as a `direct` deployment requires by default. A third cell,
-`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool`, expects the pool to refuse
-the inbound token with no hop. No run of the changed cells is recorded here. The fake is not an
-identity provider, so no venue observes a real exchange at the pool.
+**Between the two runs, the cells changed.** Each subject now starts from an inbound token minted
+for another audience, and a fake at the delegation port answers it with that subject's
+pool-audience assertion, as a `direct` deployment requires by default. The third cell expects the
+pool to refuse the inbound token with no hop. The 2026-11-02 run measured the changed cells. The
+fake is not an identity provider, so no venue observes a real delegation exchange in front of the
+pool.
 
 **What only this venue can answer.** Whether two distinct verified subjects resolve to two distinct
 `BigQuery` principals at the data system - **and whether Google accepts the assertion at all**,
@@ -621,7 +622,7 @@ is which is the whole reason this row survives as a separate one.
 
 **This venue runs nowhere, and there is no standing cell in it - and it is now the SECOND half of
 leg 2 rather than the whole of it.** The `SESSION_USER()` half moved to *A declared principal at a
-real dataset* above, whose one observed adapter run measured a path since deleted; what is left here is the half that needs a served binary: a
+real dataset* above, whose adapter run is observed; what is left here is the half that needs a served binary: a
 verified human caller asking through `/v1/*`, and the rows two principals' own grants give them. No
 job invokes it and no green run has been observed. The ignored cell that used to stand here is not
 named, because a citation of a test this workspace no longer contains is a citation of nothing and
@@ -658,8 +659,8 @@ driver's library asked for when it performed the exchange.
 deployment's own - builds the driver for the runner's triple, and runs the cells named in *A
 declared principal at a real dataset* above. What a dispatcher has to supply is the environment:
 two keys that mint each subject's id_token, the pool's audience, `SUTURA_BQ_DATASET`, and a stack
-whose grants name each subject's pool principal. The run above passed both adapter cells over the
-deleted loopback path; this served venue remains `not built`.
+whose grants name each subject's pool principal. The 2026-11-02 run above passed all three adapter
+cells; this served venue remains `not built`.
 
 **Why this half is still `not built`, and it is a measurement rather than a backlog entry.** Over
 the served surface a caller's capabilities come from the `scope` claim of the token leg 1 verified,

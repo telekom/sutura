@@ -76,7 +76,7 @@ verified assertion is federated through the declared pool, and the federated tok
 subject's own pool principal. That federation IS an RFC 8693 token exchange, at Google's STS -
 performed by sutura's `GoogleSts`, which hands the driver only the access token, with no
 service-account impersonation after it; no RFC 8707 `resource` is sent, and the driver never
-refreshes the token. An anonymous caller is refused, never run as the deployment. The adapter venue that would show it is `wired` with no observed run. The bullets
+refreshes the token. An anonymous caller is refused, never run as the deployment. The adapter venue observed it on fixture assertions, not on a served human caller. The bullets
 below are the design every other leg is still held to.
 
 - A broker mints a credential per request, from the request's own context. There is no service

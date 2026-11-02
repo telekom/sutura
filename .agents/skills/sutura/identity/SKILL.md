@@ -11,7 +11,7 @@ End-to-end impersonation is the point of the product: a query executes as the su
 | | State | What that means |
 | --- | --- | --- |
 | **Leg 1** - knowing who is asking | **Built** | A deployment declaring `security.inbound` verifies a caller's own token from a signature |
-| **Leg 2** - a source executing as them | **Built at the BigQuery adapter and awaiting this change's run; served human caller unproven** | On BigQuery this process exchanges every verified caller's own assertion at Google's token service for the declared pool and hands the driver the token that comes back, which IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool` and `the_deployments_own_identity_is_neither_subjects_principal` passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`, but over the deleted loopback credential source the driver exchanged through, so the venue is `wired` until the in-process exchange has a run; service-account keys mint fixture assertions, so even that run was direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
+| **Leg 2** - a source executing as them | **Observed at the BigQuery adapter; served human caller unproven** | On BigQuery this process exchanges every verified caller's own assertion at Google's token service for the declared pool and hands the driver the token that comes back, which IS that subject's pool principal (`principal://.../subject/<sub>`) - no service-account impersonation hop, no subject map. BigQuery's grants on that principal, and the pool's attribute conditions, decide who reaches data. `each_subject_executes_as_its_own_principal_at_the_declared_pool`, `the_deployments_own_identity_is_neither_subjects_principal` and `an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` passed on 2026-11-02 in `github.com/telekom/sutura/actions/runs/41431036477`, over the in-process exchange with a fake standing in for the delegation hop; service-account keys mint fixture assertions, so this is direct WIF access and not human sign-in. The served venue remains not built. On ClickHouse the same broker names the declared user each statement switches to (`EXECUTE AS`), and on Oracle it exchanges the asker's assertion through the declared hops, then opens that question's own session with the returned token; neither has a venue row. Every other source still executes as one identity |
 
 So a deployment can name the subject in every audit record, record which posture each leg ran under,
 and **still read every row as one identity.** `docs/adr/0014` and `docs/adr/0010` both warn about
@@ -274,8 +274,8 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
   no grant fails at BigQuery on their FIRST QUESTION (`source_refused`), never at boot - a REST
   `403` access denial reads as `Unauthorized` in the pinned driver's `go/util.go`, held by its
   `TestErrToAdbcErrMapsRestForbidden` in the driver build's check phase on runnable targets.
-  The adapter run below showed Google accepting fixture federation over the deleted loopback path;
-  it does not show the in-process exchange or a served human caller.
+  The adapter run below showed Google accepting the in-process exchange of fixture assertions;
+  it does not show a served human caller.
 - **`sutura serve` attaches `DeclaredPrincipalBroker`** (`crates/sutura-cli/src/serve/broker.rs`) to
   a served `bigquery` source with a declared `workload_identity`, so an impersonating source is no
   longer refused by name - it is opened. The `sutura` command (`mcp`/`query`) still refuses by name,
@@ -297,12 +297,10 @@ A broker that could not be **reached** is not a refusal: that is `SurfaceFailure
 **What leg 2 rests on:** two cells in
 `crates/sutura-exec-bigquery/tests/declared_principal.rs`,
 `each_subject_executes_as_its_own_principal_at_the_declared_pool` and
-`the_deployments_own_identity_is_neither_subjects_principal`, are awaiting this change's run. They
-passed on 2026-10-11 in `github.com/telekom/sutura/actions/runs/38116387739`, at `321e65661`, but
-that run measured the driver exchanging through the loopback credential source, which is deleted;
-it also predates the delegation-hop fake and
-`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool`.
-`docs/where-identity-is-proven.md` records the adapter venue as `wired` and its limits: fixture
+`the_deployments_own_identity_is_neither_subjects_principal`, passed with
+`an_inbound_token_presented_without_the_hop_is_refused_at_the_pool` on 2026-11-02 in
+`github.com/telekom/sutura/actions/runs/41431036477`, at `95adb5fcb`, over the in-process exchange and
+the delegation-hop fake. `docs/where-identity-is-proven.md` records that run and its limits: fixture
 assertions minted from service-account keys, no served human caller, and no row read by the
 standing cells. Its supplementary Google API probe observed disjoint row filters and a refusal
 for an ungranted pool principal; that probe is not automated coverage.

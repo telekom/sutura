@@ -7,7 +7,7 @@ description: sutura exchanges a caller's assertion at Google's token service its
 
 Status: **accepted**, 2026-11-02. This is the owner's decision. Built: an `impersonation-at-source`
 `bigquery` source with a `workload_identity` pool exchanges each subject's assertion in this process.
-No hosted run has measured it yet, so `docs/where-identity-is-proven.md` records the venue as `wired`.
+`docs/where-identity-is-proven.md` records the adapter venue's run of it.
 
 ## The question
 
@@ -89,5 +89,6 @@ call. Now sutura initiates it.
 - **The exchanger can be missing.** A `ThroughPool` transport built without one refuses every
   subject as uncovered rather than running the question as the deployment. No type forbids building
   it that way.
-- **The venue is unmeasured.** Run `38116387739` measured the deleted loopback path, so the BigQuery
-  identity venue is `wired` until this path has a run of its own.
+- **The venue's earlier run is void.** The run that first measured the BigQuery identity venue
+  measured the deleted loopback path, so this path had to earn a run of its own before the venue
+  could be cited again.
