@@ -125,9 +125,41 @@ fn an_unknown_server_role_is_refused_naming_the_roles() {
     };
     assert_eq!(
         cause.to_string(),
-        "`workers` is not a server role - use one of: serving, worker"
+        "`workers` is not a server role - use one of: serving, worker, reading-worker"
     );
     assert_eq!(ServerRole::parse(" Worker "), Ok(ServerRole::Worker));
+}
+
+#[test]
+fn a_reading_worker_that_declares_its_sources_and_a_catalog_is_fit_and_a_combining_one_is_not() {
+    let declared = "  identity: \"single-user\"\n  single_user_because: \"one operator\"\nsources:\n  local:\n    \
+                    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    posture: \"shared-service-user\"\ncatalogs:\n  \
+                    - name: model\n    kind: markdown\n    dir: catalog\n    data_dir: data\n    version: test-1\n";
+    let combining = worker(AUTHORITY, declared);
+    let dir = std::env::temp_dir().join(format!("sutura-config-reading-worker-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+    std::fs::write(dir.join("base.yaml"), &combining).expect("a scratch file is writable");
+    let as_combining = refusals(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
+    std::fs::write(
+        dir.join("base.yaml"),
+        combining.replace("role: \"worker\"", "role: \"reading-worker\""),
+    )
+    .expect("a scratch file is writable");
+    let as_reading = refusals(&Sources::defaults(Environment::Development).with_directory(dir.clone()));
+    drop(std::fs::remove_dir_all(&dir));
+    assert_eq!(
+        as_combining,
+        vec![
+            NotFitToServe::WorkerDeclaresSources { count: 1 },
+            NotFitToServe::WorkerDeclaresCatalogs,
+        ]
+    );
+    assert_eq!(
+        as_reading,
+        Vec::new(),
+        "the same sources and catalog under `reading-worker` load"
+    );
 }
 
 #[test]

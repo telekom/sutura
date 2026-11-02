@@ -87,8 +87,8 @@ and what they may hold?
    read the worker configuration. The serving nodes' configuration stays the chart's.
 
    **Superseded in part 2026-11-02** (`docs/adr/20261102082308-workers-read-sources.md`): this
-   cannot hold for a worker that reads a split leg's partition. Whether it holds for a worker that
-   only combines is open there.
+   cannot hold for a worker that reads a split leg's partition, which declares the sources it reads
+   and a catalog. A worker that only combines keeps it, as decided there.
 8. **No consensus.** The operator is a reconciler whose state lives in the Kubernetes API, which
    already runs its own consensus. One replica runs. While it is down, workers keep serving and only
    resizing stops, so there is no leader election until a second replica is wanted.

@@ -1,13 +1,17 @@
-//! A `server.role: worker` node: no catalog, no source, and the worker transport as its one surface.
+//! A `server.role: worker` or `reading-worker` node: no catalog or source opened, and the worker
+//! transport as its one surface.
 //!
-//! `Settings::load` has refused a worker that declares a source or a catalog, names no
-//! `server.tls_node_authority`, or enables `/mcp` or Flight, so what is left is this node's worker,
-//! built from the listener's pair and the node authority, served behind the node-certificate gate.
-//! `server.nodes` is not read.
+//! `Settings::load` has refused a `worker` that declares a source or a catalog, a `reading-worker`
+//! that declares no source or no catalog, and either role naming no `server.tls_node_authority` or
+//! enabling `/mcp` or Flight, so what is left is this node's worker, built from the listener's pair
+//! and the node authority, served behind the node-certificate gate. `server.nodes` is not read.
 //!
 //! **Limits.** As on a serving node, the pair and the authority are read once, at boot. The worker
 //! admits only a call that carries its question's task grant, under the key the first call of
-//! that question installed: a node of the same authority installs that key.
+//! that question installed: a node of the same authority installs that key. **A `reading-worker`
+//! reads nothing yet.** It serves the same worker as a `worker`, which refuses every stage whose
+//! leaf reads a source, and it opens neither the sources nor the catalog it declares: reading a
+//! partition needs a task grant that names it, which the grant does not carry.
 
 use sutura_config::{RuntimeSettings, Settings, TlsMaterial};
 use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
@@ -24,14 +28,14 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
         .tls()
         .and_then(|tls| tls.node_authority().map(|authority| (tls, authority)))
     else {
-        return Err(String::from("server.role is worker and server.tls_node_authority is not set"));
+        return Err(String::from("a worker needs server.tls_node_authority, and it is not set"));
     };
     let mount = mount(tls, authority, settings.runtime())?;
     telemetry::install(settings.telemetry()).map_err(super::flatten)?;
     sutura_runtime::install_panic_hook();
     banner::announce(settings);
     let router = sutura_http::worker_router(settings, &mount).map_err(super::flatten)?;
-    tracing::info!("serving as a worker: no catalog, no source, no /v1, /mcp or Flight");
+    tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
     let address = settings.server().bind().socket();
     let material = settings.server().tls().cloned();
     let runtime = tokio::runtime::Builder::new_multi_thread()

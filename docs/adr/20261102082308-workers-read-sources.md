@@ -5,8 +5,9 @@ description: A federated leg on PostgreSQL or BigQuery is split into partitions 
 
 # Workers read a split leg's partitions themselves, and each fails on its own limits
 
-Status: **accepted**, 2026-11-02. This is the owner's decision. Nothing is built: no leg is split,
-no worker reads a source, and the task grant carries none of the fields Decision 5 adds. A row
+Status: **accepted**, 2026-11-02. This is the owner's decision, and so is each row of "Decided
+with the design" below, accepted by the owner the same day. Nothing is built: no leg is split, no
+worker reads a source, and the task grant carries none of the fields Decision 5 adds. A row
 marked *inferred* was neither read in this repository nor run here. This record decides and proves
 nothing.
 
@@ -48,8 +49,8 @@ answers as the design that follows from them, not asked as its own question.
    reads its partition and feeds the rows to the combine's next stage on that node, so no node
    holds the whole leg. A leg on any other data system, and a remote leg, is still read whole where
    shuffle Decision 3 reads it. A stage that reads no source still holds no credential, and its
-   worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is open
-   below.
+   worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is
+   decided below.
 2. **The result-stream bound is per stream.** Each partition's stream is bounded at 1,000,000 rows
    and 256 MiB while it is read, as a leg's stream is today. A leg of N partitions can carry N times
    that. No constant is raised, and none becomes a setting. SF10's `customer` and `part` lookup
@@ -110,17 +111,18 @@ answers as the design that follows from them, not asked as its own question.
 | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shuffle, Decision 3: only a node that reads a source holds the caller's credential, and a worker refuses a stage with a source leaf | Superseded for source-reading stages. A worker reads a split leg's partition under a grant that names it, holding the service user's credential (W1) or a token for the caller's principal (W2). Still holds: a stage that reads no source holds no credential and refuses a source leaf, and a leg that is not split is read where Decision 3 reads it |
 | Shuffle, Decision 8: the ceiling applies once, at the coordinating node                                                             | The exact total still does. A final-stage worker also fails early (Decision 4)                                                                                                                                                                                                                                                                          |
-| Shuffle, Decision 9: the size rule measures the legs the receiving node holds                                                       | A split leg is never held at one node, so the rule has nothing to measure for it. Open below                                                                                                                                                                                                                                                            |
-| Shuffle, Limits: the grant does not expire, does not name the caller, and binds a question and not a partition                      | A source-reading grant carries an expiry, a caller key and a partition. A grant for a stage that reads no source is unchanged. The grant is still an HMAC under a key every stage node of the question holds                                                                                                                                            |
+| Shuffle, Decision 9: the size rule measures the legs the receiving node holds                                                       | A split leg is never held at one node, so the rule has nothing to measure for it. Whether to split is decided by the source's own estimate before reading, against the same threshold (below)                                                                                                                                                           |
+| Shuffle, Limits: the grant does not expire, does not name the caller, and binds a question and not a partition                      | A source-reading grant carries an expiry, a caller key and a partition. A source-reading grant is signed under a key per reading task, sent only to the worker that reads it (below). A grant for a stage that reads no source is unchanged: an HMAC under a key every stage node of the question holds                                                 |
 | Operator, Q6 and Decision 2: a worker has no source, no catalog and no source credential                                            | A worker that reads a partition holds the catalog it re-certifies against, and the service user's credential (W1) or a forwarded source token (W2). Still holds: a worker has no caller-facing route, and a stage that reads no source holds no credential                                                                                              |
-| Operator, Decision 7: a worker refuses a configuration that declares a source or a catalog                                          | It cannot hold for a worker that reads. Whether it holds for a worker that only combines is open below                                                                                                                                                                                                                                                  |
+| Operator, Decision 7: a worker refuses a configuration that declares a source or a catalog                                          | It cannot hold for a worker that reads. A reading worker declares the sources it reads and a catalog. A worker that only combines keeps the refusal (below)                                                                                                                                                                                             |
 | Leg transport, Decision 3: the receiving node certifies a remote leg                                                                | Each reading worker runs the same check before it reads                                                                                                                                                                                                                                                                                                 |
 
-## Open, with a proposal
+## Decided with the design
 
-None of these is an owner decision.
+Each row was posted as a proposal and accepted by the owner as a decision on 2026-11-02. Its text
+is the proposal's.
 
-| Question                                                               | Proposal                                                                                                                                                                                                                                              |
+| Question                                                               | Decision                                                                                                                                                                                                                                              |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | One worker pool, or a reading role beside a combining one?             | Two roles of one binary. A reading worker declares the sources it reads and a catalog. A combining worker keeps operator Decision 7's refusal, so a node that only combines holds no credential, as a stage that reads no source holds none           |
 | Which legs are split?                                                  | A lookup leg, and a fact leg whose partial groups are grouped again on the leg's own keys after a repartition, before they join anything. A fact leg's partial groups from two partitions joined to another fact leg would double a value             |
@@ -166,8 +168,8 @@ refusal gets its own cell.
   read-only scope is inferred, not verified here.
 - **A partition grant binds a partition only against a node without the question's key.** The grant
   is an HMAC under a per-question key that every stage node of the question holds. Such a node can
-  sign a grant for another partition, or another source, of that question until the open proposal
-  above is built.
+  sign a grant for another partition, or another source, of that question until the key per
+  reading task decided above is built.
 - **A W2 worker re-certifies the leg, not the stream.** The job ran at the coordinating node, so the
   worker checks the leg it is told the stream holds and cannot check what the stream holds.
 - **The early ceiling check is partial.** It fails a worker only on its own partition. Several
@@ -215,6 +217,6 @@ refusal gets its own cell.
   its cells run only in the BigQuery venue.
 - A grant module that carries the fields of Decision 5, and a check that refuses a grant without
   them.
-- The worker role in `sutura-config` and the chart's worker values change with the pool-shape
-  answer above.
+- The worker role in `sutura-config` gains a reading role beside the combining one, and the
+  chart's worker values change with it.
 - W2 waits for a partitioned read of a job's result.
