@@ -1442,7 +1442,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "num-traits",
- "parking_lot 0.12.5",
+ "parking_lot 0.13.0",
  "pin-project-lite",
  "serde_json",
  "tokio",

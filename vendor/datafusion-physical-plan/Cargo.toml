@@ -151,7 +151,7 @@ version = "^0.4"
 version = "0.2"
 
 [dependencies.parking_lot]
-version = "0.12"
+version = "0.13"
 
 [dependencies.pin-project-lite]
 version = "^0.2.7"
