@@ -78,7 +78,7 @@ optional = true
 version = "0.1.89"
 
 [dependencies.bincode]
-version = "1"
+version = "3"
 
 [dependencies.bytes]
 version = "1.11"
