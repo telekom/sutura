@@ -338,6 +338,16 @@ impl Warehouse for AdbcPostgres {
             _ => false,
         }
     }
+
+    /// `true` for a stream refused at this transport's row ceiling or byte budget, which a federation
+    /// leg without a `LIMIT` reaches on a large source: the port's default `false` answered it as a
+    /// retryable `503` that returns the same stream. A stream refused for its shape stays `false`.
+    ///
+    /// The limit: both ceilings are read as the stream arrives, so a result refused here was never
+    /// measured whole - the caller learns it did not fit, not by how much.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, PostgresError::Adbc { ref cause } if session::result_did_not_fit(cause))
+    }
 }
 
 #[cfg(test)]
