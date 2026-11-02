@@ -19,10 +19,16 @@
 //! groups without `group-by` (`patch-level`, `arrow`, `utoipa`) also span both directories in one
 //! PR - read from dependabot-core's source, the limit being that no grouped PR covering two
 //! directories is observed yet.
+//!
+//! **Source, not only version.** A `[patch.crates-io]` path entry or a path dependency resolves
+//! with no `source =` line; the unpatched registry crate resolves with one. Two locks can agree on
+//! name and version while one holds the patched crate and the other the registry one it replaces -
+//! [`source_gaps`] refuses that pairing. The limit: it compares resolved sources only, so it cannot
+//! see a feature selection that differs from the shipped one.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{LOCK, pins};
+use super::{LOCK, pins, unquote};
 use crate::workflows::sources::in_scope_text;
 
 /// The root workspace's lock, the one the shipped graph resolves against.
@@ -50,13 +56,76 @@ pub(super) fn gaps(root_lock: &str, fuzz_lock: &str) -> Vec<String> {
         .collect()
 }
 
+/// A pinned package's `(name, version, source)` - `source` is `None` for a path dependency or a
+/// `[patch.crates-io]` entry, which resolve with no `source = ` line.
+type SourcedPin<'a> = (&'a str, &'a str, Option<&'a str>);
+
+/// [`SourcedPin`] keyed by `(name, version)`, for an O(1) lookup of the source the other lock
+/// resolved the same name and version from.
+type SourceByNameVersion<'a> = BTreeMap<(&'a str, &'a str), Option<&'a str>>;
+
+/// Every `[[package]]` stanza in `lock`, as a [`SourcedPin`]. Stanza-scoped, unlike [`pins`]'s
+/// single-pass scan, so a `source` line is never attributed to the wrong package regardless of
+/// key order within the stanza.
+fn pins_with_source(lock: &str) -> Vec<SourcedPin<'_>> {
+    lock.split("[[package]]")
+        .filter_map(|stanza| {
+            let mut name = None;
+            let mut version = None;
+            let mut source = None;
+            for line in stanza.lines() {
+                if let Some(value) = line.strip_prefix("name = ") {
+                    name = unquote(value);
+                } else if let Some(value) = line.strip_prefix("version = ") {
+                    version = unquote(value);
+                } else if let Some(value) = line.strip_prefix("source = ") {
+                    source = unquote(value);
+                }
+            }
+            Some((name?, version?, source))
+        })
+        .collect()
+}
+
+/// `source` formatted for a failure line - a path dependency or a `[patch.crates-io]` entry
+/// resolves with no `source = ` line, so `None` reads as "a path".
+fn describe_source(source: Option<&str>) -> &str {
+    source.unwrap_or("a path")
+}
+
+/// Every package both [`ROOT_LOCK`] and [`LOCK`] pin at the SAME name and version but resolve
+/// from different sources - a path against a registry, a registry against a path, or a git source
+/// against anything else. A different version at the same name is [`gaps`]'s job, not this one's.
+pub(super) fn source_gaps(root_lock: &str, fuzz_lock: &str) -> Vec<String> {
+    let root: SourceByNameVersion<'_> = pins_with_source(root_lock)
+        .into_iter()
+        .map(|(name, version, source)| ((name, version), source))
+        .collect();
+    pins_with_source(fuzz_lock)
+        .into_iter()
+        .filter_map(|(name, version, fuzz_source)| {
+            let root_source = *root.get(&(name, version))?;
+            (root_source != fuzz_source).then(|| {
+                format!(
+                    "{LOCK} resolves {name} {version} from {}, but {ROOT_LOCK} resolves it from {} - mirror the root's \
+                     `[patch.crates-io]` entry, or its path dependency, for {name} in fuzz/Cargo.toml",
+                    describe_source(fuzz_source),
+                    describe_source(root_source),
+                )
+            })
+        })
+        .collect()
+}
+
 /// Reads [`ROOT_LOCK`] under `root` and compares it to `fuzz_lock`.
 ///
 /// An absent or unreadable root lock is an `Err`: it would read as no pins, share nothing and pass.
 pub(super) fn gaps_in(root: &std::path::Path, fuzz_lock: &str) -> Result<Vec<String>, String> {
     let path = root.join(ROOT_LOCK);
     let text = in_scope_text(&path)?.ok_or_else(|| format!("{}: not found", path.display()))?;
-    Ok(gaps(&text, fuzz_lock))
+    let mut found = gaps(&text, fuzz_lock);
+    found.extend(source_gaps(&text, fuzz_lock));
+    Ok(found)
 }
 
 #[cfg(test)]
