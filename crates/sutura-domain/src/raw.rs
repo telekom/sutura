@@ -25,7 +25,9 @@
 //! echoed" a property of the type rather than a discipline at every call site.
 
 use core::fmt;
+use std::collections::BTreeSet;
 
+use crate::model::SourceName;
 use crate::source::ExecutedAs;
 
 /// The largest raw statement this deployment will parse, in bytes.
@@ -98,6 +100,42 @@ impl RawStatement {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// The source aliases `tools.run_sql.sources` lists: at least one, none twice, in the order written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunSqlSources(Vec<SourceName>);
+
+impl RunSqlSources {
+    /// The list, or [`InvalidRunSqlSources`] for an empty one or an alias written twice.
+    pub fn parse(aliases: Vec<SourceName>) -> Result<Self, InvalidRunSqlSources> {
+        if aliases.is_empty() {
+            return Err(InvalidRunSqlSources::Empty);
+        }
+        let mut seen = BTreeSet::new();
+        if let Some(alias) = aliases.iter().find(|alias| !seen.insert(*alias)) {
+            return Err(InvalidRunSqlSources::Repeated { alias: alias.clone() });
+        }
+        Ok(Self(aliases))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn as_slice(&self) -> &[SourceName] {
+        &self.0
+    }
+}
+
+/// Why `tools.run_sql.sources` is no list of sources.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidRunSqlSources {
+    #[error(
+        "tools.run_sql.sources lists no source. List the source aliases the raw SQL tool may run over, \
+         or remove the key"
+    )]
+    Empty,
+    #[error("tools.run_sql.sources lists `{alias}` more than once. List each source once")]
+    Repeated { alias: SourceName },
 }
 
 /// Why a raw statement was refused, or its execution did not produce rows a caller may see.

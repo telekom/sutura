@@ -6,45 +6,8 @@
 //! because a tool this deployment never turns on should never be a line item in an operator's
 //! decision about a different one.
 
-use std::collections::BTreeSet;
-
 use sutura_domain::model::SourceName;
-
-/// The source aliases `tools.run_sql.sources` lists: at least one, none twice, in the order written.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunSqlSources(Vec<SourceName>);
-
-impl RunSqlSources {
-    /// The list, or [`InvalidRunSqlSources`] for an empty one or an alias written twice.
-    pub fn parse(aliases: Vec<SourceName>) -> Result<Self, InvalidRunSqlSources> {
-        if aliases.is_empty() {
-            return Err(InvalidRunSqlSources::Empty);
-        }
-        let mut seen = BTreeSet::new();
-        if let Some(alias) = aliases.iter().find(|alias| !seen.insert(*alias)) {
-            return Err(InvalidRunSqlSources::Repeated { alias: alias.clone() });
-        }
-        Ok(Self(aliases))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn as_slice(&self) -> &[SourceName] {
-        &self.0
-    }
-}
-
-/// Why `tools.run_sql.sources` is no list of sources.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidRunSqlSources {
-    #[error(
-        "tools.run_sql.sources lists no source. List the source aliases the raw SQL tool may run over, \
-         or remove the key"
-    )]
-    Empty,
-    #[error("tools.run_sql.sources lists `{alias}` more than once. List each source once")]
-    Repeated { alias: SourceName },
-}
+pub use sutura_domain::raw::{InvalidRunSqlSources, RunSqlSources};
 
 /// What this deployment turned on beside the certified tool.
 ///
@@ -108,6 +71,13 @@ impl ToolsSettings {
     #[must_use]
     pub fn run_sql_sources(&self) -> &[SourceName] {
         self.sources.as_ref().map_or_default(RunSqlSources::as_slice)
+    }
+
+    /// The parsed `tools.run_sql.sources` list, or `None` where the key is absent.
+    #[inline]
+    #[must_use]
+    pub const fn run_sql_listed(&self) -> Option<&RunSqlSources> {
+        self.sources.as_ref()
     }
 }
 

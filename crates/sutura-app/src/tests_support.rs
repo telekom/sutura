@@ -16,6 +16,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::Executable;
+use sutura_domain::raw::RunSqlSources;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::cardinality::{DeclaredKey, KeyCounts, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
@@ -745,6 +746,11 @@ pub(crate) fn shared_posture() -> SourcePosture {
     SourcePosture::SharedServiceUser {
         declared: acknowledged(),
     }
+}
+
+/// `sources` as the raw tool's own list.
+pub(crate) fn run_sql_sources(sources: Vec<SourceName>) -> RunSqlSources {
+    RunSqlSources::parse(sources).expect("a test lists each source once")
 }
 
 /// The deployment's own identity for a source, carrying the witness above.
