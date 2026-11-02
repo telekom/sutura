@@ -14,15 +14,16 @@
 //!   protocol, which runs every statement of a multi-statement string; `execute` asks for a result
 //!   stream and goes through `PQprepare`, where the server refuses a second statement at `Parse`.
 //!   So `session`'s `Setting::apply` is the one shipped `execute_update` here, its text is fixed
-//!   literals and a [`NonZeroU32`](core::num::NonZeroU32) (the `fixtures` loader is the other, in no
-//!   release), and `clippy.toml` bans every other call
-//!   in the workspace - except one written inside an existing `disallowed_methods` expectation's
-//!   scope, which that expectation covers too (the ban's own entry states it).
+//!   literals, a [`NonZeroU32`](core::num::NonZeroU32) and a snapshot id held to hex digits and
+//!   hyphens (the `fixtures` loader is the other, in no release), and `clippy.toml` bans every other
+//!   call in the workspace - except one written inside an existing `disallowed_methods`
+//!   expectation's scope, which that expectation covers too (the ban's own entry states it).
 //! - **The per-request deadline is `SET LOCAL statement_timeout`** in the transaction the driver
 //!   opens when autocommit is switched off, clamped to the ceiling
-//!   (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, else 15 s), and always rolled back. A statement the server cancelled for it
-//!   (`57014`), or a stream that failed once that timeout had run out, is the deadline to
-//!   `Warehouse::deadline_exceeded`.
+//!   (`SUTURA_DEV_STATEMENT_TIMEOUT_MS` in a `fixtures` build, else 15 s), and rolled back - all but
+//!   a split leg's exporting transaction, which [`SplitLeg`](crate::adbc::SplitLeg) holds open. A
+//!   statement the server cancelled for it (`57014`), or a stream that failed once that timeout had
+//!   run out, is the deadline to `Warehouse::deadline_exceeded`.
 //! - **The channel is the declared one.** [`Conninfo`](crate::adbc::Conninfo) builds the libpq
 //!   connection string from the declaration and classifies every libpq keyword, pinning each one the
 //!   environment could weaken; its own header carries what it refuses and what it cannot pin.
@@ -53,8 +54,10 @@
 
 mod numeric;
 mod session;
+mod split;
 
 use adbc_driver_manager::ManagedConnection;
+pub use split::{Partition, SplitLeg};
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{
     AdbcError, Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, MOUNTED_DRIVER, NoDriver,
@@ -107,6 +110,24 @@ impl AdbcPostgres {
             conninfo,
             statement_timeout_ceiling_ms: crate::statement_timeout_ms()?,
         })
+    }
+
+    /// `leg` as at most `partitions` ranges of its root table, under one exported snapshot -
+    /// fewer when the table has fewer pages, and one for any root `split`'s header reads whole.
+    ///
+    /// # Errors
+    ///
+    /// What `Warehouse::execute` refuses before it sends a statement - a presented identity this
+    /// source does not serve, a spent deadline, a leg that does not render - and the exporting
+    /// connection's driver or server failure.
+    pub fn split_leg(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        partitions: core::num::NonZeroUsize,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> Result<SplitLeg<'_>, PostgresError> {
+        split::open(self, leg, partitions, presented, deadline)
     }
 
     fn connection(&self) -> Result<ManagedConnection, AdbcError> {

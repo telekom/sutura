@@ -1,9 +1,9 @@
 //! What one connection is asked, for each port method - generic over the connection, so a fake
 //! stands in for the driver and every step here is held by a cell over one.
 //!
-//! Every method opens the same shape: autocommit off (the driver then issues `BEGIN` before the
-//! first statement), one fixed setting through `execute_update`, the step, and a rollback whatever
-//! happened. Nothing on this transport commits.
+//! Every method but [`export`] opens the same shape: autocommit off (the driver then issues `BEGIN`
+//! before the first statement), one fixed setting through `execute_update`, the step, and a
+//! rollback whatever happened. Nothing on this transport commits.
 //!
 //! - **`Warehouse::execute`** - [`answer`]: `SET LOCAL statement_timeout` from the deadline, then
 //!   the statement through `execute`.
@@ -15,10 +15,16 @@
 //!   caller's one statement through `execute` (the server refuses a second at `Parse`), and the
 //!   stream read no further than `MAX_ROWS` plus one - `docs/adr/0013`'s three properties.
 //! - **The boot path** - [`boot`]: no request, so no deadline; the deployment's ceiling alone.
+//! - **A leg read in partitions** - [`export`], then [`partition`] once per range. `export` is the
+//!   one method that does NOT roll back: it runs `pg_export_snapshot()` under `REPEATABLE READ` and
+//!   leaves that transaction open, because the snapshot is importable only while it is; dropping the
+//!   connection ends it, and `idle_in_transaction_session_timeout` ends it at the deadline if nothing
+//!   does sooner. `partition` is the ordinary shape, its setting importing that snapshot before
+//!   anything else runs.
 //!
 //! **The limit**: `SET TRANSACTION READ ONLY` is sent through the simple protocol after the
 //! driver's own `BEGIN`, read off the driver's source rather than observed; no cell here reaches a
-//! server.
+//! server. `tests/split.rs` is where an exported snapshot is imported, on a provisioned tier only.
 
 use core::num::{NonZeroU32, NonZeroUsize};
 use std::time::{Duration, Instant};
@@ -60,21 +66,62 @@ const SOURCE_REFUSED: [[u8; 5]; 2] = [*b"25006", *b"42501"];
 /// result over it rather than a truncated one that looks complete.
 pub(super) const RAW_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 
-/// What the one `execute_update` in this module sends: fixed literals and a [`NonZeroU32`], so
-/// nothing a caller wrote reaches the simple protocol through it. Zero would read as *no timeout*.
-enum Setting {
+/// What `export` asks the server for first, inside the transaction it leaves open.
+const EXPORT: &str = "SELECT pg_catalog.pg_export_snapshot()";
+
+/// The leg's root table's pages as the catalog last estimated them, `$1` its quoted name. No row for
+/// a name that resolves to nothing, or to anything but a plain table - which is what reads a view,
+/// a partitioned table's parent or a foreign table whole.
+const PAGES: &str =
+    "SELECT c.relpages FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass($1) AND c.relkind = 'r'";
+
+/// The longest snapshot id [`SnapshotId::parse`] admits, well past the server's own
+/// `%08X-%08X-%d`.
+const MOST_SNAPSHOT_ID: usize = 64;
+
+/// What `pg_export_snapshot()` returned, held to hex digits and hyphens - the characters the server
+/// writes one with, and none of them can close the quote it is sent between in [`Setting::sql`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SnapshotId(String);
+
+impl SnapshotId {
+    /// `None` for an empty id, a longer one than [`MOST_SNAPSHOT_ID`], or any other character.
+    pub(super) fn parse(raw: &str) -> Option<Self> {
+        let admitted =
+            !raw.is_empty() && raw.len() <= MOST_SNAPSHOT_ID && raw.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-');
+        admitted.then(|| Self(String::from(raw)))
+    }
+}
+
+/// What the one `execute_update` in this module sends: fixed literals, a [`NonZeroU32`] and a
+/// [`SnapshotId`], so nothing a caller wrote reaches the simple protocol through it. Zero would read
+/// as *no timeout*.
+enum Setting<'snapshot> {
     /// The certified path's: a timeout, or none where the boot path's ceiling is disabled.
     Certified(Option<NonZeroU32>),
     /// The raw tool's: `READ ONLY` beside the timeout.
     ReadOnly(NonZeroU32),
+    /// The exporting transaction's: `REPEATABLE READ`, so its snapshot is the transaction's, a
+    /// statement timeout, and an idle one so a caller that stops reading cannot hold it open.
+    Exporting { statement: NonZeroU32, idle: NonZeroU32 },
+    /// A partition's: the exported snapshot imported before any query, as Postgres requires.
+    Importing(&'snapshot SnapshotId, NonZeroU32),
 }
 
-impl Setting {
+impl Setting<'_> {
     fn sql(&self) -> Option<String> {
         match *self {
             Self::Certified(None) => None,
             Self::Certified(Some(ms)) => Some(format!("SET LOCAL statement_timeout = {ms}")),
             Self::ReadOnly(ms) => Some(format!("SET TRANSACTION READ ONLY; SET LOCAL statement_timeout = {ms}")),
+            Self::Exporting { statement, idle } => Some(format!(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY; SET LOCAL statement_timeout = {statement}; \
+                 SET LOCAL idle_in_transaction_session_timeout = {idle}"
+            )),
+            Self::Importing(SnapshotId(id), ms) => Some(format!(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY; SET TRANSACTION SNAPSHOT '{id}'; \
+                 SET LOCAL statement_timeout = {ms}"
+            )),
         }
     }
 
@@ -89,7 +136,7 @@ impl Setting {
         statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
         #[expect(
             clippy::disallowed_methods,
-            reason = "the one execute_update: its text is `Setting::sql`, fixed literals and an integer"
+            reason = "the one execute_update: its text is `Setting::sql`, fixed literals, integers and a parsed snapshot id"
         )]
         let updated = statement.execute_update();
         updated.map(drop).map_err(AdbcError::Adbc)
@@ -134,6 +181,59 @@ where
     let timeout = left(ceiling_ms, deadline)?;
     transaction(connection, &Setting::ReadOnly(timeout), |connection| {
         stream(connection, sql, None, Some(RAW_ROWS), Some(timeout))
+    })
+}
+
+/// What [`export`] read, each under the deadline.
+#[derive(Debug)]
+pub(super) struct Exported {
+    /// `pg_export_snapshot()`'s one row.
+    pub(super) snapshot: ResultBatches,
+    /// [`PAGES`]' row, or none for a relation that is not a plain table.
+    pub(super) pages: ResultBatches,
+}
+
+/// A split leg's exporting transaction: `relation` bound as [`PAGES`]' `$1`, then the snapshot id
+/// and the pages read. The transaction is left OPEN; the caller holds `connection` for as long as a
+/// partition may still import, and its drop ends it.
+pub(super) fn export<C>(
+    connection: &mut C,
+    relation: Option<RecordBatch>,
+    ceiling_ms: u32,
+    deadline: Deadline,
+) -> Result<Exported, AdbcError>
+where
+    C: Connection,
+{
+    let statement = left(ceiling_ms, deadline)?;
+    // The deadline alone bounds how long a partition may still import, clamped to what the server
+    // accepts for the setting rather than read as no ceiling.
+    let idle = left(i32::MAX.unsigned_abs(), deadline)?;
+    connection
+        .set_option(OptionConnection::AutoCommit, OptionValue::from(false))
+        .map_err(AdbcError::Adbc)?;
+    Setting::Exporting { statement, idle }.apply(connection)?;
+    let snapshot = stream(connection, EXPORT, None, None, Some(statement))?;
+    let pages = stream(connection, PAGES, relation, None, Some(statement))?;
+    Ok(Exported { snapshot, pages })
+}
+
+/// One partition of a split leg: `snapshot` imported, then the statement exactly as [`answer`]
+/// runs one, under the same per-stream bound.
+pub(super) fn partition<C>(
+    connection: &mut C,
+    snapshot: &SnapshotId,
+    sql: &str,
+    bound: Option<RecordBatch>,
+    ceiling_ms: u32,
+    deadline: Deadline,
+) -> Result<ResultBatches, AdbcError>
+where
+    C: Connection,
+{
+    let timeout = left(ceiling_ms, deadline)?;
+    transaction(connection, &Setting::Importing(snapshot, timeout), |connection| {
+        stream(connection, sql, bound, None, Some(timeout))
     })
 }
 
@@ -233,7 +333,7 @@ fn left(ceiling_ms: u32, deadline: Deadline) -> Result<NonZeroU32, AdbcError> {
 /// timeout real: the driver issues `BEGIN` itself before the first statement.
 fn transaction<C, T>(
     connection: &mut C,
-    setting: &Setting,
+    setting: &Setting<'_>,
     step: impl FnOnce(&mut C) -> Result<T, AdbcError>,
 ) -> Result<T, AdbcError>
 where

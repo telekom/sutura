@@ -547,9 +547,12 @@ mod top;
 /// One measure, as one expression - the guard/aggregate rendering.
 mod measure;
 
+/// One leg, restricted to a range of its root table's pages.
+mod pages;
 /// Several metrics on one data system, as one statement.
 mod stacked;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
+pub use pages::generate_leg_pages;
 pub use stacked::generate_stacked;
 
 /// The statement, as this dialect writes it.
@@ -816,6 +819,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// a parse check is not an execution - the executed evidence is
 /// `crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    leg_within(leg, dialect, None)
+}
+
+/// [`generate_leg`], with `also` joined by `AND` after the leg's own filters, so their parameter order holds.
+fn leg_within(leg: &LegPlan, dialect: Dialect, also: Option<Expr>) -> Result<GeneratedQuery, GenerateError> {
     // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
     // the same order for whatever reads the rows back.
     let mut projection = Vec::with_capacity(leg.keys().len().saturating_add(1));
@@ -863,7 +871,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
     )?;
 
     // Folded in leg order, which is parameter order, exactly as `generate` folds a plan's.
-    let mut clauses = leg.filters().iter().map(|f| predicate(dialect, f.predicate()));
+    let mut clauses = leg.filters().iter().map(|f| predicate(dialect, f.predicate())).chain(also);
     if let Some(first) = clauses.next() {
         statement = statement.where_(clauses.fold(first, Expr::and));
     }
