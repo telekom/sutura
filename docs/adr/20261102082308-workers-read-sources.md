@@ -30,14 +30,16 @@ Where is a leg read, under which credential, and which limits does each node app
 
 ## The owner's answers
 
-| Question                                              | Answer                                                                                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Q1. Where is a large leg read?                        | On workers. A leg is split into partitions that workers read, not materialised whole at the coordinating node                        |
-| Q2. Is the 1,000,000-row / 256 MiB bound per leg?     | Per stream. Each partition of a split leg gets it. No limit is raised for SF10's lookup legs                                         |
-| Q3. Which data system first?                          | PostgreSQL (W1) and BigQuery (W2), in parallel                                                                                       |
-| Q4. How is the federated row ceiling checked?         | Globally. A worker fails as soon as its own final-stage partition exceeds it, and the exact total stays at the coordinating node     |
-| Q5. Which limits apply per worker?                    | Those that protect one node's memory, and they fail while reading. Global policy limits are lifted only by the deployment's operator |
-| Q6. What does a worker know about the read it serves? | The task grant names the leg, the source and the partition, and the worker re-certifies the leg against its own pinned catalog       |
+| Question                                          | Answer                                                                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Q1. Where is a large leg read?                    | On workers. A leg is split into partitions that workers read, not materialised whole at the coordinating node                        |
+| Q2. Is the 1,000,000-row / 256 MiB bound per leg? | Per stream. Each partition of a split leg gets it. No limit is raised for SF10's lookup legs                                         |
+| Q3. Which data system first?                      | PostgreSQL (W1) and BigQuery (W2), in parallel                                                                                       |
+| Q4. How is the federated row ceiling checked?     | Globally. A worker fails as soon as its own final-stage partition exceeds it, and the exact total stays at the coordinating node     |
+| Q5. Which limits apply per worker?                | Those that protect one node's memory, and they fail while reading. Global policy limits are lifted only by the deployment's operator |
+
+Decision 5, what the task grant carries and the worker's re-certification, was posted with these
+answers as the design that follows from them, not asked as its own question.
 
 ## Decision
 
