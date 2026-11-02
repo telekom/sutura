@@ -7,13 +7,16 @@
 //!
 //! # The mechanism
 //!
-//! An impersonating source hands the driver a WORKLOAD-IDENTITY CREDENTIAL DOCUMENT naming a
-//! loopback source for the asking subject's own assertion - [`super::subject`] builds it and carries
-//! the whole argument, including why a loopback URL rather than a file or an executable, and what the
-//! open port's exposure actually is. The document names no second hop: the federated token Google's
-//! token service returns IS the subject's own pool principal, and `BigQuery`'s grants on that
-//! principal decide what it reads. A Google-login source hands the driver the subject's own access
-//! token instead, which the identity provider stored when the subject signed in to Google.
+//! An impersonating source exchanges the asking subject's own assertion at Google's token service
+//! through the injected [`PoolExchange`] - in this process, before the driver is loaded - and hands
+//! the driver the access token that comes back. No second hop is asked for: that token IS the
+//! subject's own pool principal, and `BigQuery`'s grants on that principal decide what it reads. A
+//! Google-login source hands the driver the subject's own access token too, the one the identity
+//! provider stored when the subject signed in to Google. A failed exchange is a refusal before any
+//! connection exists (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`).
+//!
+//! **The driver never refreshes an access token**, so a question that runs past the token's
+//! lifetime fails mid-query rather than renewing.
 //!
 //! # No second hop
 //!
@@ -35,34 +38,16 @@
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::{PrincipalName, Secret};
+use sutura_domain::identity::{PoolExchange, PrincipalName, Secret};
 
 use crate::transport::JobIdentity;
 
 use super::AdbcError;
-use super::subject::{SubjectSource, WorkloadPool};
+use super::subject::WorkloadPool;
 
-/// The driver option naming which authentication shape the database uses.
-///
-/// Pinned `go/v1.14.1`'s `OptionAuthType`. `json_credential_string` is the arm whose value is a
-/// credential DOCUMENT rather than a path, which is what lets a per-request document exist at all.
+/// The driver option naming which authentication shape the database uses: pinned `go/v1.14.1`'s
+/// `OptionAuthType`.
 const AUTH_TYPE: &str = "bigquery.auth_type";
-
-/// The value of [`AUTH_TYPE`] that takes a credential document inline.
-const AUTH_TYPE_JSON_STRING: &str = "json_credential_string";
-
-/// The driver option naming which KIND of credential document the value is.
-///
-/// Pinned `go/v1.14.1`'s `OptionAuthCredentialsType`; its `SetOption` accepts
-/// `option.ExternalAccount` by name, and `go/connection.go` passes both straight to
-/// `option.WithAuthCredentialsJSON`.
-const AUTH_CREDENTIALS_TYPE: &str = "bigquery.auth.credentials_type";
-
-/// The value of [`AUTH_CREDENTIALS_TYPE`] that means a workload-identity document.
-const EXTERNAL_ACCOUNT: &str = "external_account";
-
-/// The driver option carrying the credential document itself.
-const AUTH_CREDENTIALS: &str = "bigquery.auth.credentials";
 
 /// The value of [`AUTH_TYPE`] that takes a bare access token, which the driver never refreshes.
 ///
@@ -107,7 +92,8 @@ pub(super) type DatabaseOptions = Vec<(OptionDatabase, OptionValue)>;
 pub enum Impersonation {
     /// This source does not impersonate: every job runs as the identity the driver authenticates as.
     Disabled,
-    /// This source impersonates, by federating the asking subject's assertion against this pool.
+    /// This source impersonates, by exchanging the asking subject's assertion at this pool for the
+    /// subject's own access token.
     ThroughPool(WorkloadPool),
     /// This source impersonates with the access token the identity provider stored for the asking
     /// subject's own Google login: the subject's credential is that token itself.
@@ -155,64 +141,53 @@ impl DelegatingAccount {
     }
 }
 
-/// Everything a job's identity puts on the database, and the loopback source it has to outlive.
-///
-/// **The source is returned rather than dropped here, and that is the lifetime bug this shape
-/// prevents.** `externalaccount`'s token provider is wrapped in a CACHED provider, so the driver
-/// fetches the subject token lazily - after `connect` has returned - and may fetch again if the
-/// credential expires mid-query. A function that bound the listener and let it fall out of scope
-/// would compile, pass every boot-shaped test, and fail on the first real question.
+/// Everything a job's identity puts on the database.
 pub(super) struct JobAuthentication {
     /// What the database is opened with.
     pub(super) options: DatabaseOptions,
-    /// Held for exactly as long as the job runs. `None` for every leg that authenticates as the
-    /// process: the shared posture and the boot path.
-    pub(super) source: Option<SubjectSource>,
 }
 
-/// The database options and loopback source one job's identity becomes.
+/// The database options one job's identity becomes.
 ///
-/// **Empty options and no source for [`JobIdentity::Transport`]**, which is the shared posture and
-/// the boot path: the driver authenticates as the process. An impersonating source reaching that arm
-/// is correct rather than a miss - `verify_anchor` and a fixture load carry no caller, and
-/// `crate`'s `verify_anchor` documentation already says an executed anchor here reproduces for the
-/// identity this deployment holds.
+/// **Empty options for [`JobIdentity::Transport`]**, which is the shared posture and the boot path:
+/// the driver authenticates as the process. An impersonating source reaching that arm is correct
+/// rather than a miss - `verify_anchor` and a fixture load carry no caller, and `crate`'s
+/// `verify_anchor` documentation already says an executed anchor here reproduces for the identity
+/// this deployment holds.
 ///
 /// # Errors
 ///
-/// [`AdbcError::Uncovered`] for a subject at a source that declares no pool: there is nothing to
-/// federate the assertion against, and opening the connection anyway would run the question as the
-/// deployment. [`AdbcError::SubjectSource`] or
-/// [`AdbcError::NoRandomness`] where the loopback source cannot be opened safely - all refusals,
-/// never a weaker source.
-pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
-    match (identity, impersonation) {
-        (JobIdentity::Transport, _) => Ok(JobAuthentication {
-            options: Vec::new(),
-            source: None,
-        }),
-        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin) => Ok(JobAuthentication {
-            options: access_token_options(assertion),
-            source: None,
-        }),
-        (JobIdentity::AsAddress { address }, Impersonation::DomainDelegation(account)) => Ok(JobAuthentication {
-            options: delegation_options(account, address),
-            source: None,
-        }),
+/// [`AdbcError::Uncovered`] for a subject at a source that declares no pool, or at a pool no
+/// exchange was composed for: there is nothing to federate the assertion through, and opening the
+/// connection anyway would run the question as the deployment. [`AdbcError::PoolExchange`] where
+/// Google's token service issued no usable token - all refusals, never a weaker credential.
+pub(super) fn authenticate(
+    identity: JobIdentity<'_>,
+    impersonation: &Impersonation,
+    exchange: Option<&dyn PoolExchange>,
+) -> Result<JobAuthentication, AdbcError> {
+    let options = match (identity, impersonation) {
+        (JobIdentity::Transport, _) => Vec::new(),
+        (JobIdentity::AsSubject { assertion }, Impersonation::GoogleLogin) => access_token_options(assertion),
+        (JobIdentity::AsAddress { address }, Impersonation::DomainDelegation(account)) => delegation_options(account, address),
         // A subject's own credential at a delegating source, or an address anywhere else: in-crate
         // misuse insurance, for the reason the arm below gives.
         (JobIdentity::AsSubject { .. }, Impersonation::DomainDelegation(_))
-        | (JobIdentity::AsAddress { .. }, Impersonation::Disabled | Impersonation::ThroughPool(_) | Impersonation::GoogleLogin) => {
-            Err(AdbcError::Uncovered(
+        | (JobIdentity::AsAddress { .. }, Impersonation::Disabled | Impersonation::ThroughPool(_) | Impersonation::GoogleLogin) =>
+        {
+            return Err(AdbcError::Uncovered(
                 "run a subject by a mechanism this source does not declare",
-            ))
+            ));
         }
         (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) => {
-            let source = SubjectSource::bind(assertion)?;
-            Ok(JobAuthentication {
-                options: credential_options(&source, pool),
-                source: Some(source),
-            })
+            let exchange = exchange.ok_or(AdbcError::Uncovered(
+                "federate a subject at a pool no token exchange was composed for",
+            ))?;
+            let token = exchange
+                .exchange(assertion, pool)
+                .map_err(|cause| AdbcError::PoolExchange { cause })?
+                .into_token();
+            access_token_options(&token)
         }
         // **A subject at a source that declares no pool: IN-CRATE misuse insurance, and no caller
         // outside this crate can reach it.** The sentence here claimed `JobTransport` being public
@@ -224,38 +199,10 @@ pub(super) fn authenticate(identity: JobIdentity<'_>, impersonation: &Impersonat
         // panic in a library: there is no pool to exchange the assertion against, and a connection
         // opened here would answer the question as this deployment.
         (JobIdentity::AsSubject { .. }, Impersonation::Disabled) => {
-            Err(AdbcError::Uncovered("federate a subject at a source that declares no pool"))
+            return Err(AdbcError::Uncovered("federate a subject at a source that declares no pool"));
         }
-    }
-}
-
-/// The three options that hand the driver one request's workload-identity document.
-///
-/// Split out so the pair *which options* and *what the document says* are readable apart, and so
-/// the document's own construction stays in [`SubjectSource::document`] where the secret lives.
-///
-/// **The one place the document is exposed as text**, because a driver option IS text: `OptionValue`
-/// is the C ABI's shape and there is no secret-carrying variant of it. What that costs is stated at
-/// the exposure rather than here.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a driver option is a plain string across the C ABI, so the credential document has to               be exposed exactly once - here, at the boundary, into a value that is built and               consumed inside `connect` and never logged. `SubjectSource::document` keeps it a               `Secret` up to this line so no other reader can print it, and               `the_credential_document_is_redacted_under_debug` is the cell on that"
-)]
-fn credential_options(source: &SubjectSource, pool: &WorkloadPool) -> DatabaseOptions {
-    vec![
-        (
-            OptionDatabase::Other(AUTH_TYPE.into()),
-            OptionValue::String(String::from(AUTH_TYPE_JSON_STRING)),
-        ),
-        (
-            OptionDatabase::Other(AUTH_CREDENTIALS_TYPE.into()),
-            OptionValue::String(String::from(EXTERNAL_ACCOUNT)),
-        ),
-        (
-            OptionDatabase::Other(AUTH_CREDENTIALS.into()),
-            OptionValue::String(String::from(source.document(pool).expose_secret())),
-        ),
-    ]
+    };
+    Ok(JobAuthentication { options })
 }
 
 /// The two options that hand the driver one subject's access token: the token and the auth type
@@ -301,21 +248,17 @@ fn delegation_options(account: &DelegatingAccount, address: &PrincipalName) -> D
 /// A compile-time guard that `JobAuthentication` does not implement `Debug`.
 ///
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
-/// `adbc_core` - and `credential_options` is the one place the credential document is exposed as
-/// text, into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
-/// `#[derive(Debug)]` on `JobAuthentication` would print the whole document: the loopback nonce
-/// and the header secret. That is the same leak
-/// [`super::subject`]'s `no_debug` guard exists for, one layer up - `SubjectSource` holds the bare
-/// values and this type carries them through the foreign `Debug`.
+/// `adbc_core` - and `access_token_options` is the one place an access token is exposed as text,
+/// into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
+/// `#[derive(Debug)]` on `JobAuthentication` would print the subject's token.
 ///
-/// `JobAuthentication` is `pub(super)`, so like `SubjectSource` a `compile_fail` doctest cannot name
-/// it - this guard is the mechanism that replaces review for a type no external crate can reach. It
+/// `JobAuthentication` is `pub(super)`, so a `compile_fail` doctest cannot name it - this guard is the mechanism that replaces review for a type no external crate can reach. It
 /// uses the same negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`,
 /// so adding any `Debug` impl makes `<JobAuthentication as AmbiguousIfImpl<_>>::some_item` ambiguous
 /// (E0283) and the crate does not build.
 ///
 /// **Limit:** this forbids `Debug` and nothing else. The `options` field is a foreign `Vec` whose
-/// `Debug` already prints the document text; nothing here stops a `tracing`/`format!` call that
+/// `Debug` already prints the token; nothing here stops a `tracing`/`format!` call that
 /// reaches `options` directly, or a hand-written `Display` on `JobAuthentication`. Those are held by
 /// review, not by this guard.
 mod no_debug {
@@ -336,13 +279,15 @@ mod tests {
     use sutura_domain::identity::{PrincipalName, Secret};
 
     use super::{
-        AUTH_ACCESS_TOKEN, AUTH_CREDENTIALS, AUTH_CREDENTIALS_TYPE, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, DelegatingAccount,
-        IMPERSONATE_SCOPES, IMPERSONATE_SUBJECT, IMPERSONATE_TARGET, Impersonation, QUERY_THROUGH_JOBS_QUERY,
-        UnusableDelegatingAccount, authenticate,
+        AUTH_ACCESS_TOKEN, AUTH_TYPE, AUTH_TYPE_ACCESS_TOKEN, DelegatingAccount, IMPERSONATE_SCOPES, IMPERSONATE_SUBJECT,
+        IMPERSONATE_TARGET, Impersonation, QUERY_THROUGH_JOBS_QUERY, UnusableDelegatingAccount, authenticate,
     };
     use crate::adbc::AdbcError;
     use crate::adbc::subject::WorkloadPool;
     use crate::transport::JobIdentity;
+
+    /// The deleted credential-document option, named so no access-token leg can bring it back.
+    const AUTH_CREDENTIALS: &str = "bigquery.auth.credentials";
 
     fn impersonating() -> Impersonation {
         Impersonation::ThroughPool(
@@ -353,7 +298,7 @@ mod tests {
 
     /// The option keys one identity puts on the database, as text.
     fn keys(identity: JobIdentity<'_>, impersonation: &Impersonation) -> Vec<String> {
-        authenticate(identity, impersonation)
+        authenticate(identity, impersonation, None)
             .expect("this pair is one this transport authenticates")
             .options
             .into_iter()
@@ -372,35 +317,19 @@ mod tests {
         assert_eq!(keys(JobIdentity::Transport, &impersonating()), Vec::<String>::new());
     }
 
-    #[test]
-    fn a_subject_at_an_impersonating_source_is_authenticated_by_its_own_assertion() {
-        // The other arm of the XOR: three options that hand the driver a workload-identity
-        // document, so Google's own token service verifies the caller's assertion. What the
-        // document SAYS is `subject`'s own suite; what this holds is that these three keys and no
-        // others are what an impersonating leg puts on the database.
-        let assertion = Secret::new("a.caller.assertion");
-        let sent = keys(JobIdentity::AsSubject { assertion: &assertion }, &impersonating());
-        for key in [AUTH_TYPE, AUTH_CREDENTIALS_TYPE, AUTH_CREDENTIALS] {
-            assert!(sent.iter().any(|sent| sent.contains(key)), "{key} is not sent: {sent:?}");
-        }
-        assert_eq!(sent.len(), 3, "{sent:?}");
-        // And no impersonation option, which is the deleted mechanism: `target_principal` would run
-        // the question as a declared account on the deployment's own connection.
-        assert!(
-            !sent.iter().any(|sent| sent.contains("impersonate")),
-            "the deployment-vouches-for-a-subject path came back: {sent:?}"
-        );
-    }
-
     /// The options a Google-login leg puts on the database, as key and text value.
     fn google_login_options(token: &str) -> Vec<(String, String)> {
         let token = Secret::new(token);
-        authenticate(JobIdentity::AsSubject { assertion: &token }, &Impersonation::GoogleLogin)
-            .expect("a subject at a Google-login source is authenticated")
-            .options
-            .into_iter()
-            .map(|(key, value)| (format!("{key:?}"), format!("{value:?}")))
-            .collect()
+        authenticate(
+            JobIdentity::AsSubject { assertion: &token },
+            &Impersonation::GoogleLogin,
+            None,
+        )
+        .expect("a subject at a Google-login source is authenticated")
+        .options
+        .into_iter()
+        .map(|(key, value)| (format!("{key:?}"), format!("{value:?}")))
+        .collect()
     }
 
     #[test]
@@ -451,9 +380,13 @@ mod tests {
         // shared source one layer up) and reachable through `JobTransport`, which is public, so it
         // is a refusal and not an `unreachable!`.
         let assertion = Secret::new("a.caller.assertion");
-        let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &Impersonation::Disabled)
-            .map(|_| ())
-            .expect_err("a source that declares no pool cannot federate a subject");
+        let refused = authenticate(
+            JobIdentity::AsSubject { assertion: &assertion },
+            &Impersonation::Disabled,
+            None,
+        )
+        .map(|_| ())
+        .expect_err("a source that declares no pool cannot federate a subject");
         assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");
         assert!(!refused.to_string().contains("a.caller.assertion"), "{refused}");
     }
@@ -464,16 +397,16 @@ mod tests {
         // the three arms of `JobIdentity`, the pairs are six and every one is decided above: shared
         // and the boot path run as the deployment whatever the source declared, a subject federates,
         // a subject with no pool refuses, and an address refuses at both.
-        // What no pair produces is *a subject's question answered as the deployment* - there is no
-        // option list that is both non-empty and free of the credential document, and no arm that
-        // returns an empty list for a subject.
+        // What no pair produces is *a subject's question answered as the deployment*: a subject
+        // with no pool, or at a pool no exchange was composed for, is refused rather than handed an
+        // empty option list. The federated arm's two options are `super::super::pool_cells`'.
         let assertion = Secret::new("a.caller.assertion");
-        let federated = keys(JobIdentity::AsSubject { assertion: &assertion }, &impersonating());
-        assert!(!federated.is_empty(), "a subject's leg authenticated as nobody");
-        assert!(
-            authenticate(JobIdentity::AsSubject { assertion: &assertion }, &Impersonation::Disabled).is_err(),
-            "a subject's leg fell back to the deployment's identity"
-        );
+        for impersonation in [Impersonation::Disabled, impersonating()] {
+            let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &impersonation, None)
+                .map(|_| ())
+                .expect_err("a subject's leg fell back to the deployment's identity");
+            assert!(matches!(refused, AdbcError::Uncovered(_)), "{impersonation:?}: {refused:?}");
+        }
         // A principal switch is `JobIdentity::AsAddress`, and only a `DomainDelegation` source runs
         // one: `an_address_runs_only_at_a_delegating_source_and_only_an_address_runs_there`.
     }
@@ -487,7 +420,7 @@ mod tests {
     #[test]
     fn a_domain_delegation_job_names_the_account_the_scope_and_the_address() {
         let address = PrincipalName::parse("Analyst.A@example.com").expect("a test name is a name");
-        let sent: Vec<(String, String)> = authenticate(JobIdentity::AsAddress { address: &address }, &delegating())
+        let sent: Vec<(String, String)> = authenticate(JobIdentity::AsAddress { address: &address }, &delegating(), None)
             .expect("an address at a delegating source is authenticated")
             .options
             .into_iter()
@@ -514,13 +447,13 @@ mod tests {
     fn an_address_runs_only_at_a_delegating_source_and_only_an_address_runs_there() {
         let address = PrincipalName::parse("analyst@example.com").expect("a test name is a name");
         for impersonation in [Impersonation::Disabled, impersonating(), Impersonation::GoogleLogin] {
-            let refused = authenticate(JobIdentity::AsAddress { address: &address }, &impersonation)
+            let refused = authenticate(JobIdentity::AsAddress { address: &address }, &impersonation, None)
                 .map(|_| ())
                 .expect_err("an address runs only through domain-wide delegation");
             assert!(matches!(refused, AdbcError::Uncovered(_)), "{impersonation:?}: {refused:?}");
         }
         let assertion = Secret::new("a.caller.assertion");
-        let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &delegating())
+        let refused = authenticate(JobIdentity::AsSubject { assertion: &assertion }, &delegating(), None)
             .map(|_| ())
             .expect_err("a delegating source runs no caller credential");
         assert!(matches!(refused, AdbcError::Uncovered(_)), "{refused:?}");

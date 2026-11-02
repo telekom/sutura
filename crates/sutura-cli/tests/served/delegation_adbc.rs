@@ -7,13 +7,14 @@
 //! child runs with no ambient cloud credential and no egress: every `GOOGLE_*`, `CLOUDSDK_*` and
 //! `GCE_*` variable is dropped, and its outbound HTTP(S) goes to a loopback proxy that records each
 //! request line and refuses it. So the cells read what the identity provider was offered, which
-//! Google host the driver asked for, and what the served surface answered - and a refused exchange
-//! reaches no source because the proxy saw no request at all.
+//! Google host the child asked for, and what the served surface answered - and a refused exchange
+//! reaches no source because the proxy saw no request at all. The pool exchange at Google's token
+//! service is the child's own outbound call, not the driver's, and goes through the same proxy.
 //!
-//! **What this does not show.** Leg 2 against a real pool: nothing reaches Google. Which token the
-//! driver carried to the token service - the proxy sees a host, not a body - so a source handed the
-//! caller's own token instead of the exchanged one passes here; `delegation_served.rs` and
-//! `adbc/subject.rs`'s own cells hold that. Name lookups the driver makes are not observed.
+//! **What this does not show.** The pool against a real token service: nothing reaches Google.
+//! Which token the child carried to the token service - the proxy sees a host, not a body - so a
+//! source handed the caller's own token instead of the exchanged one passes here;
+//! `delegation_served.rs` and `adbc/pool_cells.rs` hold that. Name lookups are not observed.
 //!
 //! `#[ignore]`d because the venue needs the driver at `SUTURA_BIGQUERY_ADBC_DRIVER`, which no nix
 //! check carries; the `e2e-datahub-adbc` CI job (locally `just e2e-datahub-adbc`) selects both.
@@ -46,7 +47,7 @@ mod tests {
     /// The inherited variables a cloud client reads an ambient credential or project from.
     const AMBIENT_CLOUD: [&str; 3] = ["GOOGLE_", "CLOUDSDK_", "GCE_"];
 
-    /// The token service the workload-identity credential is exchanged at.
+    /// The token service a subject's assertion is exchanged at for the pool's token.
     const TOKEN_SERVICE: &str = "CONNECT sts.googleapis.com:443 ";
 
     /// Where a service-account key or a user credential is turned into a token - the deployment's own identity.
@@ -61,8 +62,8 @@ mod tests {
 
     /// A loopback forward proxy that records the request line of every connection and refuses it.
     ///
-    /// Go never proxies a loopback address, so the identity provider and the driver's subject-token
-    /// source are still dialled directly.
+    /// Neither Go nor the shared outbound agent proxies a loopback address, so the identity provider
+    /// is still dialled directly.
     struct RefusingProxy {
         url: String,
         lines: Receiver<String>,
@@ -245,8 +246,8 @@ mod tests {
 
         let tokens = callers.map(|subject| {
             let (token, answer) = ask(&deployed, subject);
-            // Past the exchange the driver asks Google's token service, and the proxy refuses it: the
-            // data system's failure, not the broker's.
+            // Past the exchange this process asks Google's token service for the pool's token, and the
+            // proxy refuses it: the source's failure, not the broker's.
             assert_eq!(answer.status, 503, "{subject}: {}", answer.body);
             assert_eq!(
                 answer.json()["code"],

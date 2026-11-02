@@ -5,8 +5,8 @@
 //! In-process rather than on a spawned binary, and that is forced: a served `bigquery` deployment
 //! opens the ADBC driver at boot and this venue has none, so the transport here is a recording
 //! fake behind the real `BigQueryWarehouse`. What reaches it is the adapter's `JobIdentity` - the
-//! credential the ADBC transport turns into its workload-identity document
-//! (`crates/sutura-exec-bigquery/src/adbc/subject.rs`, held by that module's own cells).
+//! assertion the ADBC transport exchanges at the pool
+//! (`crates/sutura-exec-bigquery/src/adbc/pool_cells.rs` holds that half).
 //!
 //! **What this does not show:** the driver, Google's token service, or any pool accepting the
 //! exchanged token. The identity provider is a loopback fake answering what it is scripted to.

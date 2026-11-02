@@ -243,6 +243,20 @@ fn google_login(
     )))
 }
 
+/// The exchange a `workload_identity` `BigQuery` source's subjects go through: Google's token
+/// service, over the same bounded outbound agent as a delegation exchange.
+#[cfg(feature = "bigquery")]
+pub(super) fn pool_exchange(
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<sutura_http_client::delegation::GoogleSts, String> {
+    use sutura_http_client::delegation::{GOOGLE_STS, GoogleSts, TokenEndpoint};
+
+    let (agent, bounds) = exchange_agent(outbound)?;
+    let endpoint = TokenEndpoint::parse(GOOGLE_STS)
+        .map_err(|cause| format!("Google's token service is not an endpoint this exchange can dial: {cause}"))?;
+    Ok(GoogleSts::new(endpoint, agent, bounds))
+}
+
 /// The agent and the read bounds one source's identity provider requests go over.
 #[cfg(any(
     feature = "bigquery",

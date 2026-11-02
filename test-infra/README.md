@@ -19,10 +19,10 @@ owns the enterprise-IdP half. This project is the (a) Google half.
 - two service accounts, used ONLY to mint each subject's Google id_token (the test IdP). No grant
   names an account;
 - a Google Workload Identity Federation **pool + OIDC provider**, so a subject's own assertion
-  can be federated at Google STS (the (a) token path). **Workload, not workforce** - the
-  `external_account` credential document the BigQuery adapter builds makes the driver send an
-  RFC 8693 `jwt` subject token, which is exactly the shape workload-pool OIDC providers accept
-  (and workforce pools do not). Nothing in sutura performs the exchange itself. The exported
+  can be federated at Google STS (the (a) token path). **Workload, not workforce** - the BigQuery
+  adapter's pool exchange sends an RFC 8693 `jwt` subject token, which is exactly the shape
+  workload-pool OIDC providers accept (and workforce pools do not). The adapter performs that
+  exchange itself and hands the driver the access token. The exported
   `workload_audience` is what a deployment declares as
   `sources.<alias>.workload_identity.audience`;
 - BigQuery grants (`jobUser`, `readSessionUser`, `dataViewer`) on each subject's own **pool
@@ -162,8 +162,8 @@ with `pulumi destroy --preview-only`. Re-create afterwards with `infra-up` then 
   the pool decides the principal and no address predicts it;
 - `workload_audience` (and the pool provider) is the (a) end of a served
   `impersonation-at-source` source: `sutura serve` attaches
-  `sutura_config::DeclaredPrincipalBroker` to one, and the driver federates the asker's own
-  assertion against that pool.
+  `sutura_config::DeclaredPrincipalBroker` and a pool exchange to one, and the adapter exchanges
+  the asker's own assertion at that pool.
 
 ## The `bq-test` GitHub environment
 

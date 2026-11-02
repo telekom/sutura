@@ -151,8 +151,8 @@ pub(super) fn entry(alias: &str, posture: &str, extra: &str) -> String {
 
 /// The `workload_identity` block an `impersonation-at-source` source must now declare.
 ///
-/// Issue 87 made the declaration required (the ADBC transport's credential document names the
-/// pool a subject's assertion federates against, and that pool is this key), and these fixtures
+/// Issue 87 made the declaration required (the ADBC transport exchanges a subject's assertion at
+/// the pool this key names), and these fixtures
 /// thread it through so the test reaches the refusal it is actually about rather than stopping at
 /// the settings tree.
 pub(super) fn wif() -> &'static str {

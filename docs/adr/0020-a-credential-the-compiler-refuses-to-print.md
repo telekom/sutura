@@ -266,3 +266,10 @@ both, so causality has nothing to compare. The proof is the red-kill, not a gree
 foreign `adbc_core` `OptionValue::Debug` still prints the document text if reached directly, which is why
 `JobAuthentication.options` is `pub(super)` rather than public, and why the guard sits on the type
 rather than on the field.
+
+## Third amendment, 2026-11-02: `SubjectSource` is gone
+
+[20261102095553](20261102095553-bigquery-pool-exchange-in-process.md) deleted the loopback source, so
+`SubjectSource` and its guard no longer exist. `JobAuthentication` keeps its `no_debug` guard.
+Its `options` now carry the access token the pool exchange answered, not a credential document.
+The second amendment's limits apply to it unchanged.

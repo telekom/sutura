@@ -26,7 +26,6 @@ adbc = [
   "dep:adbc_driver_manager",
   "dep:arrow-array",
   "dep:arrow-schema",
-  "dep:getrandom",
   "dep:sutura-adbc",
 ]
 
@@ -59,10 +58,9 @@ sutura-domain = { workspace = true }
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
 
-# The ADBC driver takes its `external_account` credential as ONE JSON document string, so this
-# adapter builds that document rather than handing the driver fields. `parking_lot` and `base64`
-# were here for the exchanging broker's cache lock and its subject-token claim decode, and both went
-# with it (`docs/adr/0018`, eighth amendment) - `unused-deps` is what caught them.
+# The job-labels statement option is ONE JSON object string, so this adapter builds it rather than
+# hand-quoting it. The credential document it was first here for went with the in-process pool
+# exchange (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`).
 serde_json = { workspace = true }
 
 adbc_core = { version = "0.24", optional = true }
@@ -77,17 +75,6 @@ sutura-adbc = { workspace = true, optional = true }
 # `libadbc_driver_bigquery.so` by path (`ManagedDriver::load_dynamic_from_filename`)
 # and runs a statement, returning Arrow record batches. The driver owns its own
 # transport to BigQuery, so this transport brings no TLS stack of this crate's own.
-
-# TWO UNGUESSABLE VALUES PER REQUEST, from the operating system's own source
-# (`src/adbc/subject.rs`): the path nonce and the header secret that together
-# authorise the driver's fetch of a subject's assertion over loopback. A
-# CSPRNG and not a clock or an address - both are guessable, and a guessable
-# value here hands a local process somebody else's assertion.
-#
-# It adds no package to `Cargo.lock`: `getrandom` is already in the closure
-# three times over through the TLS and UUID stacks. Behind the `adbc` feature,
-# because only that transport serves a subject token.
-getrandom = { version = "0.4", optional = true }
 
 # The driver's own result vocabulary. The major is the ENGINE's, which is also
 # `sutura-domain`'s since `docs/adr/0039`, and the ADBC driver manager resolves the same
@@ -112,6 +99,10 @@ sutura-domain = { workspace = true, features = ["agreement"] }
 # DEV-dependency and never more: the harness holds this adapter to the port's contract, and nothing
 # shipped should be able to reach it.
 sutura-conformance = { workspace = true }
+# Google's token service client, for `tests/declared_principal.rs` alone: the hosted venue asks the
+# real exchange `sutura serve` composes for a pool source. A DEV edge only - the adapter takes the
+# exchange through `sutura_domain::identity::PoolExchange` and never names this crate.
+sutura-http-client = { workspace = true }
 
 [lints]
 workspace = true

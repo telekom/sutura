@@ -1827,3 +1827,7 @@ archive on x86_64 musl and nothing more.
 ## Twenty-second amendment, 2026-10-09: `workload_identity.scope` is gone
 
 `sources.<alias>.workload_identity.scope` no longer exists: `github.com/telekom/sutura#1328` refuses the key by name instead of parsing a value that reaches nothing, so the eleventh amendment's "`scope` still reaches nothing" and the sixth amendment's addendum describe a setting that is gone.
+
+## Twenty-third amendment, 2026-11-02: the pool exchange runs in this process
+
+The eighth amendment's "Google's token service - not this process - performs the exchange" is reversed by [20261102095553](20261102095553-bigquery-pool-exchange-in-process.md): sutura performs it and hands the driver the access token, and the sixth amendment's loopback source is deleted.

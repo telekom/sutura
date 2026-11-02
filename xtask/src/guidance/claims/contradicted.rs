@@ -566,10 +566,9 @@ pub(in crate::guidance) const CONTRADICTED: &[Contradicted] = &[
         instead: "`BigQueryWarehouse::IMPERSONATION` is `ImpersonationCapability::PerSubjectCredential`, \
                   so a source declared `impersonation-at-source` can be opened here and the posture \
                   cross-check no longer refuses it by name. What is still true is narrower: the ADBC \
-                  transport puts the asking subject's own verified assertion behind a \
-                  workload-identity credential document for Google's token service to verify, and \
-                  nothing reachable from this repository shows that document being accepted - no \
-                  served binary has executed as a caller (`docs/where-identity-is-proven.md`)",
+                  transport exchanges the asking subject's own verified assertion at Google's token \
+                  service, which verifies it, and no served binary has executed as a caller \
+                  (`docs/where-identity-is-proven.md`)",
         only: &[],
         // Both records state the old value and amend it in place, per this repository's own rule
         // for a record: preserve the sentence and correct it beside itself. Excepting them is what

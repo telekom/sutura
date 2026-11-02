@@ -71,17 +71,19 @@ Those three plus secure-by-design are the definition of *correct* in review here
   change you cannot tie to a mechanism is unproven - say so rather than asserting it is fine, and
   prefer adding the missing check to adding a sentence.
 - **State the limit next to the claim.** An overstated control is itself the defect. Leg 1 (knowing
-  who is asking) is built. Leg 2 is **observed at the BigQuery adapter, not at a served human caller**: on BigQuery
-  the caller's own verified assertion is federated through the declared pool - in `direct`, by
-  default, only after a declared delegation hop exchanged it for one with the pool's audience, a
-  hop the adapter venue stands in for with a fake - and the federated
-  token is that subject's own pool principal - no service account is impersonated, and BigQuery's
-  grants on that principal decide what it reads. An anonymous caller is refused, never run as the
+  who is asking) is built. Leg 2 is **built at the BigQuery adapter and awaiting this change's run,
+  not measured at a served human caller**: on BigQuery this process exchanges the caller's own
+  verified assertion at Google's token service for the declared pool - in `direct`, by default,
+  only after a declared delegation hop exchanged it for one with the pool's audience, a hop the
+  adapter venue stands in for with a fake - and hands the driver the token that comes back, which
+  is that subject's own pool principal - no service account is impersonated, and BigQuery's grants
+  on that principal decide what it reads. An anonymous caller is refused, never run as the
   deployment. The adapter venue passed on 2026-10-11 at
-  `github.com/telekom/sutura/actions/runs/38116387739`, which measured its cells before the hop
-  fake was added; the changed cells have no recorded run yet. A served
-  venue is not built, by decision - sutura assumes the operator configures a valid issuer and pool,
-  and the observed adapter run uses fixture assertions, not human sign-in.
+  `github.com/telekom/sutura/actions/runs/38116387739`, but that run measured the driver
+  exchanging through a loopback credential source that is now deleted, so the venue is `wired`
+  until a run of the in-process exchange is recorded. A served venue is not built, by decision -
+  sutura assumes the operator configures a valid issuer and pool, and the adapter venue uses
+  fixture assertions, not human sign-in.
   `docs/where-identity-is-proven.md` decides which venue may be cited, and `check-guidance` refuses
   this claim while that page records no run - in prose files (`md`/`nix`/`yml`/`yaml`/`toml`/`sh`)
   and in `.rs` doc comments (`///`, `//!`) only. A `//` or `/* */` comment or a string literal in

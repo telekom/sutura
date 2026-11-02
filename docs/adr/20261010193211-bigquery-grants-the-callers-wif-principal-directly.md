@@ -81,3 +81,8 @@ conflated.
 The current adapter and test evidence exercises a workload pool only. It does not prove workforce
 federation, browser sign-in or a served human caller. A workforce venue needs its own provider,
 credential and audit measurement before this decision can cite it.
+
+**Amended 2026-11-02** by [20261102095553](20261102095553-bigquery-pool-exchange-in-process.md): this
+process now performs the exchange the credential document described, and hands the driver the access
+token. It still asks for no service-account impersonation, so each caller is still their own pool
+principal.

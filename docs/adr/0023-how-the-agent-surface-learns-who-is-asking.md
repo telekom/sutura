@@ -353,7 +353,8 @@ nothing in a shipped build exchanged anything: the hop this section calls the on
 no longer built, and `docs/adr/0018`'s eighth amendment has since deleted the port with its broker.
 **Nothing in this tree exchanges a token at all now** - the ADBC driver federates the asker's own
 assertion at Google's token service instead, so the chain this section measures has no first hop
-here to count.
+here to count. **Corrected 2026-11-02:** this process now performs that pool exchange itself
+([20261102095553](20261102095553-bigquery-pool-exchange-in-process.md)); it asks for no second hop.
 There is no second hop and nowhere to configure one:
 `git grep -n -i 'audience\|scope' origin/main -- crates/sutura-config/src/credentials.rs` returns
 nothing. Nor is any enterprise provider wired -

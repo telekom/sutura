@@ -22,8 +22,7 @@
 //! `StsExchange` in the tree was a test fake - so the join was between leg 1's real bytes and a
 //! fixture, and `docs/adr/0018`'s eighth amendment deleted the broker with its tree. The same
 //! property on the path that SHIPS is held inside the adapter, where the asker's assertion is
-//! served to the ADBC driver verbatim over a loopback source
-//! (`crates/sutura-exec-bigquery/src/adbc/subject.rs`).
+//! handed to the pool exchange verbatim (`crates/sutura-exec-bigquery/src/adbc/pool_cells.rs`).
 //!
 //! **What survives here is narrower and says so:** `governance.per_replica_spend_ceiling` moving
 //! through the real `/mcp` transport for a verified caller, over the broker `crate::serve` really
