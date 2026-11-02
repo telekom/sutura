@@ -56,6 +56,10 @@ caller's question it belongs to?
    refuses a stage it is sent whose leaf reads anything but another node's stage or rows the plan
    itself carries. The check sits at the receiving node, on the decoded plan, because a check at
    the coordinating node does not stop a node that builds a plan of its own.
+
+   **Superseded in part 2026-11-02** (`docs/adr/20261102082308-workers-read-sources.md`): a worker
+   reads a split PostgreSQL or BigQuery leg's partition under a grant that names it. A stage that
+   reads no source still holds no credential and still refuses a source leaf.
 4. **A stream between nodes is authenticated by mutual TLS.** Both ends present a node certificate
    from the deployment's own authority: nix-generated in the VM venue, cert-manager in the k3s
    venue. A call to the engine's worker service without a client certificate is refused. The
