@@ -60,8 +60,8 @@ pub(super) fn gaps(root_lock: &str, fuzz_lock: &str) -> Vec<String> {
 /// `[patch.crates-io]` entry, which resolve with no `source = ` line.
 type SourcedPin<'a> = (&'a str, &'a str, Option<&'a str>);
 
-/// [`SourcedPin`] keyed by `(name, version)`, for an O(1) lookup of the source the other lock
-/// resolved the same name and version from.
+/// [`SourcedPin`] keyed by `(name, version)`, for a lookup of the source the other lock resolved
+/// the same name and version from.
 type SourceByNameVersion<'a> = BTreeMap<(&'a str, &'a str), Option<&'a str>>;
 
 /// Every `[[package]]` stanza in `lock`, as a [`SourcedPin`]. Stanza-scoped, unlike [`pins`]'s
