@@ -53,7 +53,7 @@ name = "datafusion_physical_plan"
 path = "src/lib.rs"
 
 [dependencies.arrow]
-version = "59.2.0"
+version = "60.1.0"
 features = [
     "prettyprint",
     "chrono-tz",

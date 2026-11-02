@@ -43,7 +43,7 @@ name = "arrow_ipc"
 path = "src/lib.rs"
 
 [dependencies.arrow-array]
-version = "59.2.0"
+version = "60.1.0"
 
 [dependencies.arrow-buffer]
 version = "59.2.0"

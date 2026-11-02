@@ -23,10 +23,10 @@ thiserror = { workspace = true }
 # The one transport (`src/adbc.rs`, `telekom/sutura#913`). `sutura-adbc` is the shared crate that
 # owns the workspace's one `unsafe` ADBC site, so this adapter adds none; the connector loads the
 # driver, and the two Arrow crates name what it hands back.
-adbc_core = { version = "0.24" }
-adbc_driver_manager = { version = "0.24" }
-arrow-array = { version = "59" }
-arrow-schema = { version = "59" }
+adbc_core = { version = "0.25" }
+adbc_driver_manager = { version = "0.25" }
+arrow-array = { version = "60" }
+arrow-schema = { version = "60" }
 sutura-adbc = { workspace = true }
 # The conformance packs, which `tests/conformance.rs` binds this adapter to, and the developer
 # workflow crate that answers where this worktree's Postgres is listening.

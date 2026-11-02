@@ -135,10 +135,10 @@ sutura-config = { path = "../crates/sutura-config" }
 sutura-catalog-local = { path = "../crates/sutura-catalog-local" }
 sutura-flight = { path = "../crates/sutura-flight" }
 serde_json = "1"
-arrow-flight = { version = "=59.2.0", default-features = false }
+arrow-flight = { version = "=60.1.0", default-features = false }
 futures-util = "0.3"
 prost = { version = "=0.14.4", default-features = false }
-datafusion = { version = "=55.1.0", default-features = false, features = [
+datafusion = { version = "=55.2.0", default-features = false, features = [
   "parquet",
   "datetime_expressions",
   "compression",

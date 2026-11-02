@@ -47,10 +47,10 @@ base64 = { workspace = true }
 url = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-adbc_core = { version = "0.24", optional = true }
-adbc_driver_manager = { version = "0.24", optional = true }
-arrow-array = { version = "59", optional = true }
-arrow-schema = { version = "59", optional = true }
+adbc_core = { version = "0.25", optional = true }
+adbc_driver_manager = { version = "0.25", optional = true }
+arrow-array = { version = "60", optional = true }
+arrow-schema = { version = "60", optional = true }
 sutura-adbc = { workspace = true, optional = true }
 
 [features]

@@ -63,8 +63,8 @@ thiserror = { workspace = true }
 # exchange (`docs/adr/20261102095553-bigquery-pool-exchange-in-process.md`).
 serde_json = { workspace = true }
 
-adbc_core = { version = "0.24", optional = true }
-adbc_driver_manager = { version = "0.24", optional = true }
+adbc_core = { version = "0.25", optional = true }
+adbc_driver_manager = { version = "0.25", optional = true }
 # The shared ADBC FFI and helpers (telekom/sutura#913 PR 2): the linked-driver
 # `unsafe`, the parameter-batch builder and the driver-location type live in
 # `sutura-adbc`, so this adapter carries no `unsafe` of its own and
@@ -85,8 +85,8 @@ sutura-adbc = { workspace = true, optional = true }
 # used to cast every result column to `Utf8` and hand text cells up, and the domain now
 # reads the typed arrays directly. `cargo check` names an unused optional dependency, so
 # the manifest is what caught the leftover.
-arrow-array = { version = "59", optional = true }
-arrow-schema = { version = "59", optional = true }
+arrow-array = { version = "60", optional = true }
+arrow-schema = { version = "60", optional = true }
 
 [dev-dependencies]
 # Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed

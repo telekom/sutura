@@ -57,12 +57,12 @@ name = "datafusion_distributed"
 path = "src/lib.rs"
 
 [dependencies.arrow]
-version = "59"
+version = "60"
 features = ["test_utils"]
 optional = true
 
 [dependencies.arrow-flight]
-version = "59"
+version = "60"
 optional = true
 
 [dependencies.arrow-ipc]
@@ -189,7 +189,7 @@ version = "2.5.7"
 version = "1.19"
 
 [dev-dependencies.arrow]
-version = "59"
+version = "60"
 features = ["test_utils"]
 
 [dev-dependencies.datafusion]

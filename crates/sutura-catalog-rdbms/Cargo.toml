@@ -20,7 +20,7 @@ thiserror = { workspace = true }
 # `sutura-adbc`'s parameter batch, and decodes the Arrow batches the driver returns.
 sutura-adbc-postgres = { workspace = true, optional = true }
 sutura-adbc = { workspace = true, optional = true }
-adbc_core = { version = "0.24", optional = true }
+adbc_core = { version = "0.25", optional = true }
 arrow-array = { workspace = true, optional = true }
 # The LIVE Oracle dictionary reader (`src/oracle_reader.rs`), behind its own `live-oracle` feature.
 # Oracle's own pure-Rust driver; it takes `rustls` with its default features, `aws-lc-rs` among

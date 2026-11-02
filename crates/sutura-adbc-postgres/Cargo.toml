@@ -22,9 +22,9 @@ sutura-tls = { workspace = true }
 thiserror = { workspace = true }
 # The driver manager loads the self-built `libadbc_driver_postgresql` (`nix/postgres-adbc.nix`) -
 # linked into a musl release, mounted elsewhere.
-adbc_core = { version = "0.24" }
-adbc_driver_manager = { version = "0.24" }
-arrow-schema = { version = "59" }
+adbc_core = { version = "0.25" }
+adbc_driver_manager = { version = "0.25" }
+arrow-schema = { version = "60" }
 
 [dev-dependencies]
 # A generated self-signed pair, for the cells that exercise the TLS construction refusals against
