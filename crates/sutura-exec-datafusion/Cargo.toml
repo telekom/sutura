@@ -110,7 +110,16 @@ distributed = [
 # Default-off, and `just check-default-features` refuses `sqlparser` or `datafusion-sql` in a
 # shipped default build's resolved tree. `datafusion-distributed?/sql` for `parquet`'s reason above:
 # its error codec matches every `DataFusionError` variant, and `datafusion/sql` adds one.
-sql = ["datafusion/sql", "datafusion-distributed?/sql", "dep:async-trait", "dep:tracing"]
+# `recursive_protection` grows the stack where the parser, planner and optimizer recurse over a
+# caller's expression; a `Display`, `Clone` or `Drop` of one is not reached, so `run_sql` also
+# bounds the statement's operators.
+sql = [
+  "datafusion/sql",
+  "datafusion/recursive_protection",
+  "datafusion-distributed?/sql",
+  "dep:async-trait",
+  "dep:tracing",
+]
 
 [[test]]
 name = "conformance"

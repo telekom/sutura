@@ -1213,6 +1213,7 @@ dependencies = [
  "num-traits",
  "object_store",
  "parquet",
+ "recursive",
  "sqlparser",
  "tokio",
  "uuid",
@@ -1461,6 +1462,7 @@ dependencies = [
  "datafusion-proto-models",
  "indexmap",
  "itertools 0.15.0",
+ "recursive",
  "serde_json",
  "sqlparser",
 ]
@@ -1645,6 +1647,7 @@ dependencies = [
  "indexmap",
  "itertools 0.15.0",
  "log",
+ "recursive",
  "regex",
  "regex-syntax",
 ]
@@ -1669,6 +1672,7 @@ dependencies = [
  "itertools 0.15.0",
  "parking_lot 0.12.5",
  "petgraph",
+ "recursive",
  "tokio",
 ]
 
@@ -1722,6 +1726,7 @@ dependencies = [
  "datafusion-pruning",
  "datafusion-session",
  "itertools 0.15.0",
+ "recursive",
 ]
 
 [[package]]
@@ -1853,8 +1858,10 @@ dependencies = [
  "datafusion-functions-nested",
  "indexmap",
  "log",
+ "recursive",
  "regex",
  "sqlparser",
+ "stacker",
 ]
 
 [[package]]
@@ -3727,6 +3734,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "recursive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0786a43debb760f491b1bc0269fe5e84155353c67482b9e60d0cfb596054b43e"
+dependencies = [
+ "recursive-proc-macro-impl",
+ "stacker",
+]
+
+[[package]]
+name = "recursive-proc-macro-impl"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76009fbe0614077fc1a2ce255e3a1881a2e3a3527097d5dc6d8212c585e7e38b"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4285,6 +4312,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c6d1b651dc4edf07eead2a0c6c78016ce971bc2c10da5266861b13f25e7cec"
 dependencies = [
  "log",
+ "recursive",
  "sqlparser_derive",
 ]
 

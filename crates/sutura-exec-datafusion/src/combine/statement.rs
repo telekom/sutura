@@ -18,8 +18,8 @@
 //! | a leg's rows are not charged against the working set | the raw port capped them by count; the pool charges what the local part builds over them |
 //! | planning or the local part stops at the first yield past the deadline, not at the instant | every node yields after each batch, so one batch's work, a constant folded while planning and a sort's final in-memory pass run to their end |
 //! | the certified metrics' combines wait while a statement's local part runs | they share the combiner's one current-thread runtime |
-//! | a scalar function builds its value in the deployment's memory, outside the working set, and a large enough one can abort the process | the pool charges only what operators reserve, and a constant `repeat` is folded while planning, before any yield |
-//! | an expression nested deeply enough can exhaust the stack while planning | `datafusion`'s `recursive_protection` is off |
+//! | a value built outside the working set can still be large: a string doubled through each common table expression, or a `CAST` to a fixed-size list of a length the caller spells | the pool charges only what operators reserve, and a constant is folded while planning; the session leaves out only the functions whose output length the caller spells or multiplies, and neither an operator nor a SQL type is a function |
+//! | a statement of more than `MOST_OPERATORS` operator tokens is refused, however shallow it is | the count is taken over the text, before any tree is built, because `recursive_protection` grows the stack for the parser, planner and optimizer but not for an expression's `Display`, `Clone` or `Drop` |
 //! | a path two listed sources both carry is a table of neither | the text does not say which source a caller meant |
 //! | an `EXISTS` outside a filter over a second source's table is refused | the rule does not cut inside it, and the part holding it would read two sources |
 //! | only `DuckDB` and `Postgres` sources plan a part | they are the adapters that take raw statements |
@@ -40,13 +40,16 @@ use datafusion::common::{plan_datafusion_err, plan_err};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::memory::{MemoryCatalogProvider, MemorySchemaProvider, MemorySourceConfig};
 use datafusion::error::Result as Planned;
-use datafusion::execution::SessionStateBuilder;
-use datafusion::logical_expr::{Extension, LogicalPlan, Projection, TableSource};
+use datafusion::execution::{SessionStateBuilder, SessionStateDefaults};
+use datafusion::logical_expr::{Extension, LogicalPlan, Projection, ScalarUDF, TableSource};
 use datafusion::optimizer::{Optimizer, OptimizerConfig, OptimizerRule};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::coop::CooperativeExec;
 use datafusion::prelude::{SQLOptions, SessionConfig, SessionContext};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::keywords::Keyword;
+use datafusion::sql::sqlparser::tokenizer::{Token, Tokenizer, Word};
 use datafusion::sql::unparser::Unparser;
 use datafusion::sql::unparser::dialect::{Dialect, DuckDBDialect, PostgreSqlDialect};
 use datafusion_federation::{
@@ -312,8 +315,8 @@ fn source_of(part: &LogicalPlan) -> Planned<String> {
 }
 
 /// The call's session: `tables` registered at their paths, the cut installed, the working set as
-/// its pool. No information schema, so a caller lists nothing, and no table function, so a caller
-/// generates no rows.
+/// its pool. No information schema, so a caller lists nothing, no table function, so a caller
+/// generates no rows, and only the scalar functions `ADMITTED` names.
 fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: WorkingSet) -> Planned<SessionContext> {
     let state = SessionStateBuilder::new()
         .with_config(SessionConfig::new().with_default_catalog_and_schema("", ""))
@@ -323,6 +326,7 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
                 .into_runtime(),
         )
         .with_default_features()
+        .with_scalar_functions(admitted())
         .with_table_function_list(Vec::new())
         .with_optimizer_rule(Arc::new(FederationOptimizerRule::default()))
         .with_physical_optimizer_rule(Arc::new(Yielding))
@@ -368,8 +372,68 @@ fn session(tables: &[StatementTable], fetched: &Arc<Fetched>, working_set: Worki
     Ok(context)
 }
 
-/// `statement`'s optimized plan, refused unless it is one query.
+/// The scalar functions a statement may call: `datafusion`'s defaults less each one whose output a
+/// caller can grow past a constant factor of its input in one call, because a constant call is
+/// folded while planning, outside the pool. `repeat`, `lpad` and `rpad` take the length as an
+/// argument; `replace` and `regexp_replace` insert at every position of an empty pattern; `encode`
+/// doubles per nesting; `arrow_cast` and `arrow_try_cast` spell a type, and a null fixed-size list
+/// of `i32::MAX` items is reserved whole. A function a later `datafusion` adds is out until named.
+const ADMITTED: &str = "
+    arrow_field arrow_metadata arrow_typeof cast_to_type coalesce file_row_index get_field greatest input_file_name least
+    named_struct nullif nvl nvl2 overlay struct try_cast_to_type union_extract union_tag version with_metadata
+    current_date current_time date_bin date_part date_trunc from_unixtime make_date make_time now to_char to_date
+    to_local_time to_time to_timestamp to_timestamp_micros to_timestamp_millis to_timestamp_nanos to_timestamp_seconds
+    to_unixtime decode
+    abs acos acosh asin asinh atan atan2 atanh cbrt ceil cos cosh cot degrees exp factorial floor gcd isnan iszero lcm ln
+    log log10 log2 nanvl pi power radians random round signum sin sinh sqrt tan tanh trunc
+    regexp_count regexp_instr regexp_like regexp_match
+    character_length find_in_set initcap left reverse right strpos substr substr_index translate
+    ascii bit_length btrim chr concat concat_ws contains ends_with levenshtein lower ltrim octet_length rtrim split_part
+    starts_with to_hex upper uuid
+";
+
+fn admitted() -> Vec<Arc<ScalarUDF>> {
+    SessionStateDefaults::default_scalar_functions()
+        .into_iter()
+        .filter(|function| ADMITTED.split_ascii_whitespace().any(|name| name == function.name()))
+        .collect()
+}
+
+/// The most tokens a statement may spend on anything but a name, a literal or a parenthesis. A chain
+/// such as `1 + 1 + ..` nests one level per operator without passing the parser's depth limit, and
+/// `datafusion` displays, clones and drops an expression by a recursion `recursive_protection` does
+/// not reach, so the text is held to what can only build a shallow tree. The number is a judgement:
+/// a cell measures that a constant chain just under it plans on a test thread's stack in the test
+/// profile, whose dependencies are optimised further than a shipped build's. The constant folds while
+/// planning; a chain over a column, which a part's text carries to its source, is not measured. A
+/// long statement of many keywords, commas or qualified names is refused though it is shallow.
+const MOST_OPERATORS: usize = 1024;
+
+/// `statement`'s optimized plan, refused unless it is one query of at most [`MOST_OPERATORS`].
 async fn planned(context: &SessionContext, statement: &RawStatement) -> Planned<LogicalPlan> {
+    let tokens = Tokenizer::new(&GenericDialect {}, statement.as_str())
+        .tokenize()
+        .map_err(|cause| plan_datafusion_err!("{cause}"))?;
+    let operators = tokens
+        .iter()
+        .filter(|token| {
+            !matches!(
+                token,
+                Token::Whitespace(_)
+                    | Token::LParen
+                    | Token::RParen
+                    | Token::Number(..)
+                    | Token::SingleQuotedString(_)
+                    | Token::Word(Word {
+                        keyword: Keyword::NoKeyword,
+                        ..
+                    })
+            )
+        })
+        .count();
+    if operators > MOST_OPERATORS {
+        return plan_err!("the statement has {operators} operators, more than {MOST_OPERATORS}");
+    }
     let options = SQLOptions::new()
         .with_allow_ddl(false)
         .with_allow_dml(false)
@@ -458,10 +522,12 @@ fn fitted(rows: &RawRows, schema: &SchemaRef) -> Planned<Vec<RecordBatch>> {
         .collect()
 }
 
-/// The engine's words name columns, so they go to the log and the caller reads only that the
-/// statement did not plan.
+/// The caller reads only that the statement did not plan, and the log at info only which step
+/// stopped it. The engine's words can name a column or quote a value a leg read, so they are written
+/// at debug, which a deployment that logs at debug still writes.
 fn unplanned<S>(why: &str, cause: &dyn core::fmt::Display) -> StatementStopped<S> {
-    tracing::info!(%cause, "run_sql: {why}");
+    tracing::info!("run_sql: {why}");
+    tracing::debug!(%cause, "run_sql: {why}");
     StatementStopped::NotPlanned
 }
 
