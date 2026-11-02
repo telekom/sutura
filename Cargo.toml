@@ -111,15 +111,9 @@ members = [
 ]
 # Vendored crates are EXCLUDED FROM MEMBERSHIP, a correctness fix: a path dependency inside the
 # workspace directory joins it, and `--workspace` builds every member whoever depends on it, so
-# Windows and macOS built the Linux-only vendored allocator on its own account. Excluding them also
-# keeps `--workspace` clippy and tests off third-party code.
-exclude = [
-  "vendor/adbc_clickhouse",
-  "vendor/datafusion-distributed",
-  "vendor/datafusion-proto",
-  "vendor/mimalloc_rust",
-  "vendor/rust-oracledb",
-]
+# Windows and macOS built the Linux-only vendored allocator on its own account. Excluding the whole
+# directory by path prefix also keeps `--workspace` clippy and tests off third-party code.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.11.0"
@@ -888,9 +882,10 @@ missing_assert_message = "allow"
 #   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
 #                         know when the error half of every `Result` grows.
 
-# A peer's Avro scan stage is refused rather than a panic that stops the node, `VENDOR.md`.
+# A peer's malformed stage is refused rather than a panic that stops the node, `VENDOR.md`.
 [patch.crates-io]
 datafusion-proto = { path = "vendor/datafusion-proto" }
+datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because

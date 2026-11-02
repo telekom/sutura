@@ -286,6 +286,23 @@
           # distinction load-bearing rather than stylistic. `libiconv` is what `-liconv` resolves to
           # on a mac, where rustc emits it for every link and nix keeps it out of the SDK.
           buildInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+          # Put `vendor/` back REAL after crane dummifies the tree for `buildDepsOnly`, and this is
+          # the trap behind `[patch.crates-io]`: crane stubs every crate it finds, vendored ones
+          # included, so a patched crate with REGISTRY dependents (datafusion-physical-plan, which
+          # a dozen datafusion crates import) becomes an empty `lib.rs` they then fail to compile
+          # against. `sutura-deps` exits 101, and the rustc error sits above the 25 log lines CI
+          # shows. A vendored crate only path crates import was stubbed harmlessly, since its
+          # importers were stubs too. `./vendor`, not `src`, so the dependency build is keyed on
+          # the vendored sources alone. Limits: any `vendor/` edit rebuilds the whole dependency
+          # closure; only a `buildDepsOnly` built from these args gets it, and every other crane
+          # call built from them carries it as an env var nothing reads; the vendored crates,
+          # mimalloc's C included unless `SUTURA_MIMALLOC_LIB_DIR` is set, now compile in the
+          # dependency build, and whether the workspace build reuses those units rather than
+          # recompiling them is unmeasured.
+          extraDummyScript = ''
+            rm -rf $out/vendor
+            cp -r ${./vendor} $out/vendor
+          '';
           # The mounted DuckDB ADBC driver every DuckDB cell opens (`nix/duckdb.nix`). A run-time path
           # nothing links: only the NATIVE args carry it, and the cross builds link the archive.
         } // duckdb.env;
