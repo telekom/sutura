@@ -684,7 +684,8 @@ mod tests {
                 "TlsNotUsable",
                 "InvalidDelegation",
                 "InvalidApiGroup",
-                "InvalidPool"
+                "InvalidPool",
+                "WorkerRefusal"
             ]
         );
     }
@@ -739,8 +740,22 @@ mod tests {
                 "TlsNotUsable",
                 "InvalidDelegation",
                 "InvalidApiGroup",
-                "InvalidPool"
+                "InvalidPool",
+                "WorkerRefusal"
             ]
+        );
+    }
+
+    /// A worker's refusal of a final-stage task is enrolled where it is declared, under its own allow file.
+    #[test]
+    fn a_worker_refusal_is_enrolled_beside_its_own_allow_file() {
+        let worker = super::ENROLLED.iter().find(|subject| subject.name == "WorkerRefusal");
+        assert_eq!(
+            worker.map(|subject| (subject.declared_in, subject.allow_file)),
+            Some((
+                "crates/sutura-exec-datafusion/src/combine/across/ceiling.rs",
+                "devco/worker-refusals-unprovoked-allow"
+            ))
         );
     }
 

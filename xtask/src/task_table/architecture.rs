@@ -303,6 +303,14 @@ pub(crate) const TASKS: &[Task] = &[
                     "# no entries: all three variants have test-name or snapshot evidence\n",
                 ),
                 (
+                    "crates/sutura-exec-datafusion/src/combine/across/ceiling.rs",
+                    "pub enum WorkerRefusal {\n    K0,\n}\n",
+                ),
+                (
+                    "devco/worker-refusals-unprovoked-allow",
+                    "K0 2026-11-02 a one-variant enum is named only by censuses\n",
+                ),
+                (
                     "crates/example/tests/first.snap",
                     "R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 V0 V1 V2 V3 W0 W1 W2 T0 T1 T2 D0 D1 G0 P0\n",
                 ),

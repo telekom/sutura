@@ -78,6 +78,10 @@
 //!   under the cap is still buffered whole before it is read, so a reply of `LEAST_REPLY` is held
 //!   whatever the working set, and decoding a body under the cap into Arrow is not bounded here
 //!   (#1680 1(c)).
+//! - A worker fails a task of a question's final stage whose rows pass the whole federated row
+//!   ceiling, [`Nodes::row_ceiling`], as [`WorkerRefusal`] (Decision 4). The caller sees the engine's
+//!   failure of the combine, not a typed refusal, and the check is per task: the planning node's
+//!   exact count stays the one that refuses every answer over the ceiling.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -104,7 +108,7 @@ use datafusion_distributed::{
     WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
-use sutura_domain::plan::{SlotsHeld, WorkerSlotsWanted};
+use sutura_domain::plan::{FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -120,10 +124,20 @@ mod wait;
 /// The task grant a node asks of every call to its worker, keyed per question (Decision 5).
 mod grant;
 
+/// The federated row ceiling a worker counts a final-stage task's rows against (Decision 4).
+mod ceiling;
+
+pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 
 #[cfg(test)]
 mod lost;
+
+/// A final-stage task over the ceiling, run on a worker. `#![cfg(test)]` sits in the file rather
+/// than on this declaration, which the causality gate's base run then restores away with the rest of
+/// this file: every cell there names what the base tree lacks.
+#[path = "tests/across/ceiling.rs"]
+mod final_stage;
 
 /// The nodes one combine's stages may run on, this one among them.
 pub struct Nodes {
@@ -144,6 +158,8 @@ pub struct Nodes {
     slots_wanted: WorkerSlotsWanted,
     /// The questions this node planned, each bound to its key, which [`Self::served`] admits.
     keys: grant::Keys,
+    /// The rows a task of a question's final stage may emit before its worker fails it.
+    row_ceiling: FederatedRowCeiling,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -176,6 +192,7 @@ impl Nodes {
             wait_for_workers: None,
             slots_wanted: WorkerSlotsWanted::default(),
             keys: grant::Keys::default(),
+            row_ceiling: FederatedRowCeiling::LOOSEST,
         }
     }
 
@@ -202,6 +219,16 @@ impl Nodes {
     pub fn wait_for_workers(self, wait: Option<Duration>) -> Self {
         Self {
             wait_for_workers: wait,
+            ..self
+        }
+    }
+
+    /// The same nodes, a worker failing a task of a question's final stage once its rows pass
+    /// `ceiling`, the loosest a deployment may configure until this is called.
+    #[must_use]
+    pub fn row_ceiling(self, ceiling: FederatedRowCeiling) -> Self {
+        Self {
+            row_ceiling: ceiling,
             ..self
         }
     }
@@ -241,6 +268,7 @@ impl Nodes {
                 Ok(grant::forwarded(context.builder, &context.headers)?
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
+                    .with_distributed_user_codec(ceiling::Codec)
                     .build())
             }
         });
@@ -307,11 +335,11 @@ impl Nodes {
             })
             .with_distributed_scale_up_leaf_node_handler(dealt)
             .with_distributed_planner();
-        let state = grant::keyed(planned, self.keys.clone())
-            .map_err(|cause| CombineError::Environment {
-                cause: crate::DataFusionError::Environment { cause },
-            })?
-            .build();
+        let unbuilt = |cause| CombineError::Environment {
+            cause: crate::DataFusionError::Environment { cause },
+        };
+        let counted = ceiling::counted(planned, self.row_ceiling).map_err(unbuilt)?;
+        let state = grant::keyed(counted, self.keys.clone()).map_err(unbuilt)?.build();
         Ok(SessionContext::new_with_state(state))
     }
 }

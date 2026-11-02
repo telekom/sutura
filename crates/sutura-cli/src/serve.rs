@@ -216,6 +216,8 @@ pub(crate) fn run() -> Result<(), String> {
     // Before any adapter opens, so an unusable node identity, or nodes declared on a build that
     // cannot reach them, is refused before the process does anything else.
     let (combiner, worker) = nodes::combiner(settings.server().tls(), settings.runtime())?;
+    #[cfg(feature = "distributed")]
+    let combiner = combiner.row_ceiling(settings.federated_row_ceiling());
 
     // 4. The log, then the panic hook.
     telemetry::install(settings.telemetry()).map_err(flatten)?;
