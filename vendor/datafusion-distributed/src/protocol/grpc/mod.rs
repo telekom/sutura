@@ -20,4 +20,4 @@ pub use observability::{
     ObservabilityServiceImpl, ObservabilityServiceServer, PingRequest, PingResponse, TaskProgress,
     TaskStatus, WorkerMetrics,
 };
-pub use worker_client::create_worker_client;
+pub use worker_client::{create_worker_client, create_worker_client_with_decode_limit};

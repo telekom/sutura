@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
 --- a/crates/sutura-exec-datafusion/src/combine/across.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across.rs
-@@ -199,7 +199,7 @@ impl Nodes {
+@@ -231,7 +231,7 @@ impl Nodes {
      ///
      /// [`CombineError::Environment`] if the bounded environment cannot be built.
      pub fn worker(working_set: WorkingSet, identity: NodeIdentity) -> Result<Worker, CombineError> {
 -        let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
 +        let environment = pool::environment(WorkingSet::of_bytes(core::num::NonZeroUsize::MAX.saturating_add(working_set.bytes()))).map_err(|cause| CombineError::Environment { cause })?;
          let links = Links::of(identity);
+         let bounded = links.bounded(working_set);
          let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
-             let links = links.clone();
