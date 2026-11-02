@@ -32,6 +32,32 @@ pub enum ClientAuth {
     Post,
 }
 
+/// The `scope` a request asks for (RFC 6749, section 3.3): tokens of printable ASCII other than `"`
+/// and `\`, separated by single spaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scope(String);
+
+impl Scope {
+    /// # Errors
+    ///
+    /// [`UnusableScope`] for a value the RFC's `scope` syntax refuses.
+    pub fn parse(raw: &str) -> Result<Self, UnusableScope> {
+        let token =
+            |token: &str| !token.is_empty() && token.bytes().all(|byte| byte.is_ascii_graphic() && !b"\"\\".contains(&byte));
+        if raw.split(' ').all(token) {
+            Ok(Self(String::from(raw)))
+        } else {
+            Err(UnusableScope)
+        }
+    }
+}
+
+/// A scope RFC 6749 cannot carry: empty, a space at either edge or twice, or a byte outside the
+/// token set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a scope is tokens of printable ASCII other than `\"` and `\\`, separated by single spaces")]
+pub struct UnusableScope;
+
 /// Why the token endpoint produced no usable token.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientCredentialsFailed {
@@ -72,6 +98,7 @@ pub struct ClientCredentials {
     endpoint: TokenEndpoint,
     client: ExchangeClient,
     auth: ClientAuth,
+    scope: Option<Scope>,
     agent: sutura_tls::Rotating<ureq::Agent>,
     bounds: ReadBounds,
     held: Mutex<Option<Held>>,
@@ -97,10 +124,19 @@ impl ClientCredentials {
             endpoint,
             client,
             auth,
+            scope: None,
             agent,
             bounds,
             held: Mutex::new(None),
         }
+    }
+
+    /// Asks for `scope` in every request. Without it no `scope` is sent, and the token endpoint
+    /// grants its default.
+    #[must_use]
+    pub fn with_scope(mut self, scope: Scope) -> Self {
+        self.scope = Some(scope);
+        self
     }
 
     /// The held token while more than a minute of it remains, otherwise a new one.
@@ -138,11 +174,14 @@ impl ClientCredentials {
             ClientAuth::Basic => Some(basic(&self.client.id, secret)),
             ClientAuth::Post => None,
         };
-        let form: &[(&str, &str)] = match self.auth {
-            ClientAuth::Basic => &[GRANT],
-            ClientAuth::Post => &[GRANT, ("client_id", self.client.id.as_str()), ("client_secret", secret)],
-        };
-        let (status, text) = super::post(&self.agent, &self.endpoint, self.bounds, authorization.as_ref(), form).map_err(
+        let mut form = vec![GRANT];
+        if self.auth == ClientAuth::Post {
+            form.extend([("client_id", self.client.id.as_str()), ("client_secret", secret)]);
+        }
+        if let Some(ref scope) = self.scope {
+            form.push(("scope", scope.0.as_str()));
+        }
+        let (status, text) = super::post(&self.agent, &self.endpoint, self.bounds, authorization.as_ref(), &form).map_err(
             |unsent| match unsent {
                 Unsent::Unreachable(cause) => ClientCredentialsFailed::Unreachable { cause: Box::new(cause) },
                 Unsent::TooLarge(cap) => ClientCredentialsFailed::TooLarge { cap },
