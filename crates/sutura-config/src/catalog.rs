@@ -16,8 +16,8 @@ pub mod entropy;
 pub mod platform;
 pub mod rdbms;
 pub use crate::catalog::entropy::{
-    EntropyAuth, EntropyBinding, EntropyClientAuth, EntropyOidc, EntropySettings, InvalidBinding, InvalidEntropyCatalog,
-    ServerKey,
+    EntropyAuth, EntropyBinding, EntropyOidc, EntropySettings, FieldName, FieldValue, InvalidBinding, InvalidEntropyCatalog,
+    ServerMatch,
 };
 pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{

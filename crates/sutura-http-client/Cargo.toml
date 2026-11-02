@@ -35,8 +35,6 @@ base64 = { workspace = true }
 serde_json = { workspace = true }
 # The broker's stored token response, decoded into only the fields it is checked by.
 serde = { workspace = true }
-# The held client-credentials token; `std::sync::Mutex` is refused by `clippy.toml`.
-parking_lot = { workspace = true }
 rcgen = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 

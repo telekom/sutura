@@ -775,7 +775,7 @@ pub(crate) struct RawCatalog {
     /// The client credentials grant, in place of an API key.
     #[serde(default)]
     pub(crate) oidc: Option<RawEntropyOidc>,
-    /// Each contract server the catalog may name, and the declared source serving it.
+    /// Which servers the catalog's contracts and ports may name, and the declared source serving each.
     #[serde(default)]
     pub(crate) bindings: Option<Vec<RawEntropyBinding>>,
 }
@@ -789,33 +789,17 @@ pub(crate) struct RawEntropyOidc {
     /// A path read at boot, never the secret itself.
     pub(crate) client_secret_file: String,
     #[serde(default)]
-    pub(crate) client_auth: crate::catalog::EntropyClientAuth,
-    #[serde(default)]
     pub(crate) scope: Option<String>,
 }
 
-/// One `bindings:` entry, as read: a contract server's `type`, the keys that identify it, and the
-/// declared source serving it.
+/// One `bindings:` entry, as read: the `match:` fields that pick a server out, each value as text,
+/// and the declared source serving it.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawEntropyBinding {
-    #[serde(rename = "type")]
-    pub(crate) server_type: String,
+    #[serde(rename = "match")]
+    pub(crate) server: std::collections::BTreeMap<String, String>,
     pub(crate) source: String,
-    #[serde(default)]
-    pub(crate) project: Option<String>,
-    #[serde(default)]
-    pub(crate) dataset: Option<String>,
-    #[serde(default)]
-    pub(crate) host: Option<String>,
-    #[serde(default)]
-    pub(crate) port: Option<core::num::NonZeroU16>,
-    #[serde(default)]
-    pub(crate) database: Option<String>,
-    #[serde(default)]
-    pub(crate) schema: Option<String>,
-    #[serde(default)]
-    pub(crate) service_name: Option<String>,
 }
 
 /// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for

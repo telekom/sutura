@@ -83,7 +83,7 @@ pub enum UnusableClientId {
 }
 
 /// This deployment's client at the identity provider and its secret: `client_secret_post` for an
-/// exchange, either way for [`ClientCredentials`].
+/// exchange, `client_secret_basic` for [`ClientCredentials`].
 ///
 /// **The most sensitive value in the deployment**: whoever holds it can obtain a pool-audience
 /// token for any subject whose inbound token they also hold, or the deployment's own token. `Debug` prints the identifier and `Secret`'s redaction; there is no
@@ -349,7 +349,7 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
 mod client_credentials;
 mod linked;
 mod pool;
-pub use client_credentials::{ClientAuth, ClientCredentials, ClientCredentialsFailed, Scope, UnusableScope};
+pub use client_credentials::{ClientCredentials, ClientCredentialsFailed, Scope, UnusableScope};
 pub use linked::BrokeredLogin;
 pub use pool::{GOOGLE_STS, GoogleSts};
 

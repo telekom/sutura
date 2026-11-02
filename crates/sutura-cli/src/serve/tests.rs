@@ -930,7 +930,7 @@ fn a_declared_entropy_catalog_is_refused_by_every_build_naming_it() {
          posture: shared-service-user\n\
          catalogs:\n  - name: marketplace\n    kind: entropy\n    version: market-1\n    \
          endpoint: https://marketplace.example.com\n    metric_property: sutura_metrics\n    \
-         api_key_file: /run/secrets/entropy-api-key\n    bindings:\n      - type: duckdb\n        \
+         api_key_file: /run/secrets/entropy-api-key\n    bindings:\n      - match:\n          type: duckdb\n          \
          database: warehouse\n        source: analytics\n";
     let settings = sutura_config::Settings::load(
         &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
