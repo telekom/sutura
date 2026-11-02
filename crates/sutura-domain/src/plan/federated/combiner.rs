@@ -231,7 +231,7 @@ pub enum ExecuteError<L, C> {
     Leg(L),
     /// The leg results did not stand for the plan's legs: this workspace's own defect.
     Miswired(LegsMiswired),
-    /// The combine failed, which [`FederationCombiner`]'s four predicates classify.
+    /// The combine failed, which [`FederationCombiner`]'s five predicates classify.
     Combine(C),
 }
 
@@ -318,7 +318,7 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// An adapter never calls another adapter and this does not change that: the combine is called from
 /// the application, above every adapter, exactly where `FederatedPlan::combine` was called from.
 ///
-/// # Every method but the cut's two and the demand is required, and that is the mechanism
+/// # Every method but the cut's two, the demand and the relayed row ceiling is required, and that is the mechanism
 ///
 /// [`Warehouse`](crate::warehouse::Warehouse) defaults its four classifying predicates, because an
 /// adapter with no memory pool has an honest `None` to give. A combiner does not: there is one
@@ -332,7 +332,12 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// across. **The limit:** one that does go across and inherits it exports no demand, and the
 /// operator sizes the worker pool to its floor - nothing but review sees that.
 ///
-/// # What the domain may ask about an implementor's error, and why it is four predicates
+/// [`Self::rows_over_ceiling`] defaults to `false` for the same reason: only a combiner that goes
+/// across is relayed another node's refusal. **The limit:** one that does go across and inherits it
+/// answers a stage another node refused over the federated row ceiling as the `503` a dead data
+/// system produces - nothing but review sees that either.
+///
+/// # What the domain may ask about an implementor's error, and why it is five predicates
 ///
 /// `Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
 /// not grow* from *the plan would not build*. The questions split the same way the query path's
@@ -351,8 +356,13 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// * [`Self::node_lost`] is a node the combine was planned onto not being reachable once it ran -
 ///   [`RefusalReason::NodeLost`](crate::query::RefusalReason::NodeLost), the other a caller may
 ///   retry.
+/// * [`Self::rows_over_ceiling`] is a node the combine was planned onto refusing a stage for rows past
+///   the federated row ceiling -
+///   [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge), naming the
+///   ceiling of the node that answers the caller. A `bool`, so a number another node sent cannot
+///   reach the caller through it.
 ///
-/// All four are predicates rather than conversions, for the reason
+/// All five are predicates rather than conversions, for the reason
 /// [`Warehouse::working_set_exhausted`](crate::warehouse::Warehouse::working_set_exhausted) gives:
 /// an implementor that could return a [`RefusalReason`](crate::query::RefusalReason) could mint any
 /// of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -383,7 +393,7 @@ pub trait FederationCombiner {
     ///
     /// # Errors
     ///
-    /// [`Self::Error`], which the four predicates below classify.
+    /// [`Self::Error`], which the five predicates below classify.
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
@@ -410,6 +420,14 @@ pub trait FederationCombiner {
     ///
     /// `false` is every other failure. Required rather than defaulted - see the trait's own header.
     fn node_lost(&self, error: &Self::Error) -> bool;
+
+    /// Was this failure a node the combine was planned onto refusing a stage for rows past the
+    /// federated row ceiling?
+    ///
+    /// `false` is every other failure. Defaulted - see the trait's own header for the limit.
+    fn rows_over_ceiling(&self, _error: &Self::Error) -> bool {
+        false
+    }
 
     /// The other nodes this combiner's questions that go across hold or wait for, if it goes across.
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
