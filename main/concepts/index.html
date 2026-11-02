@@ -2826,15 +2826,17 @@ records the caller, from a signature.</p>
 The <strong>subject</strong> is the identity that the data system sees: the person, not the service.</p>
 <p>A leg runs in one of two ways:</p>
 <ul>
-<li><strong>secure-impersonation</strong> (BigQuery, ClickHouse, Oracle). The leg runs as the subject. On BigQuery,
-  the caller's verified token is exchanged for the service account that the operator declares for
-  that subject. On ClickHouse, sutura signs in as one declared user and runs each statement as the
-  ClickHouse user that the operator declares for that subject (<code>EXECUTE AS</code>). On Oracle, sutura
-  opens a session with the caller's verified token, and the database runs the query as the database
-  user that it maps the token to.</li>
-<li><strong>shared-service-user</strong> (files, Postgres). The leg runs as the deployment's own identity for
-  that source. An operator declares this in the configuration.</li>
+<li><strong>secure-impersonation</strong> (BigQuery, ClickHouse). The leg runs as the subject. On BigQuery,
+  the leg runs as the caller's own principal in a workload identity pool, or, with domain-wide
+  delegation, as the Google account with the caller's verified email. On ClickHouse, sutura signs in as one declared user and runs each statement as the
+  ClickHouse user that the operator declares for that subject (<code>EXECUTE AS</code>).</li>
+<li><strong>shared-service-user</strong> (files, Postgres, Oracle). The leg runs as the deployment's own identity
+  for that source. An operator declares this in the configuration.</li>
 </ul>
+<p>Oracle is supported as <code>shared-service-user</code> only, for now. sutura also accepts
+<code>impersonation-at-source</code> on Oracle: it opens a session with the caller's verified token, for the
+database to run the query as the database user that it maps the token to. That path is built and
+not verified, because no run has shown an Oracle database executing a query as the caller.</p>
 <p>Where the deployment declares <code>security.inbound</code>, who is asking comes from the caller's own token.
 A deployment behind only the bearer token has no per-caller identity, because that token
 authenticates the deployment.</p>

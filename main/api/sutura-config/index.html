@@ -4317,6 +4317,9 @@ the returned token and resolves who that is itself - Oracle's token authenticati
 lint, hook or gate here reads a live policy, and the driver's token fetch is lazy, so a pool that
 refuses the assertion or a principal with no grant surfaces on the FIRST QUESTION by that
 subject, never at boot.</p>
+<p>An authenticating source is built and unobserved: no run has shown an Oracle database resolving
+the returned token to the asker (<code>docs/where-identity-is-proven.md</code>), so Oracle is supported as
+<code>shared-service-user</code> only, for now.</p>
 <h4 id="enum-declaredprincipalsunusable"><code>enum DeclaredPrincipalsUnusable</code><a class="headerlink" href="#enum-declaredprincipalsunusable" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-91-1"><a id="__codelineno-91-1" name="__codelineno-91-1" href="#__codelineno-91-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DeclaredPrincipalsUnusable</span>
 </span></code></pre></div>
