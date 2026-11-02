@@ -1,0 +1,13 @@
+diff --git a/vendor/datafusion-physical-plan/src/explain.rs b/vendor/datafusion-physical-plan/src/explain.rs
+index 68dfacd2b..ae77ed325 100644
+--- a/vendor/datafusion-physical-plan/src/explain.rs
++++ b/vendor/datafusion-physical-plan/src/explain.rs
+@@ -357,7 +357,7 @@ fn stringified_plan_from_proto(
+         .and_then(|plan_type| plan_type.plan_type_enum.as_ref())
+         .ok_or_else(|| {
+             datafusion_common::internal_datafusion_err!(
+-                "ExplainExec is missing required field 'plan_type' of a 'stringified_plans' entry"
++                "ExplainExec is missing a required field of a 'stringified_plans' entry"
+             )
+         })?;
+     Ok(StringifiedPlan {

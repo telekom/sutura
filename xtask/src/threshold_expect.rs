@@ -32,15 +32,18 @@ use crate::rust_source;
 /// message builds the `clippy::` prefix so this source cannot report itself.
 const FORBIDDEN: &[&str] = &["too_many_lines", "too_many_arguments", "cognitive_complexity"];
 
-/// Rust source, and nothing else. A [`repo::Scope`]: a bare `fn`, so it cannot count subjects and
-/// is not handed the content - an ordinal narrowing has nowhere to keep its counter. It is NOT
-/// sealed against a predicate that opens the file itself; [`repo::Scope`] measures that fail-open
-/// and says which of the five printed numbers it can and cannot move.
+/// Rust source outside `vendor/`, and nothing else. `vendor/` is upstream's code kept as published
+/// and excluded from the workspace, so no workspace clippy run holds its `#[expect]`s to firing;
+/// `VENDOR.md` is where a local change to it is argued. A [`repo::Scope`]: a bare `fn`, so it cannot
+/// count subjects and is not handed the content - an ordinal narrowing has nowhere to keep its
+/// counter. It is NOT sealed against a predicate that opens the file itself; [`repo::Scope`]
+/// measures that fail-open and says which of the five printed numbers it can and cannot move.
 fn rust_source(rel: &str) -> bool {
-    std::path::Path::new(rel)
-        .extension()
-        .and_then(std::ffi::OsStr::to_str)
-        .is_some_and(|ext| ext == "rs")
+    !rel.starts_with("vendor/")
+        && std::path::Path::new(rel)
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|ext| ext == "rs")
 }
 
 /// One banned attribute, located for the report.
@@ -435,7 +438,7 @@ fn collisions(needles: &[Needle]) -> Vec<NeedleViolation> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FORBIDDEN, Violation, scan};
+    use super::{FORBIDDEN, Violation, rust_source, scan};
 
     fn lints(haystack: &str) -> Vec<(&'static str, usize)> {
         let mut found = Vec::new();
@@ -635,5 +638,13 @@ mod tests {
             "}\n",
         );
         assert!(needles(code).is_empty(), "a brace inside a literal spawns no phantom needle");
+    }
+
+    /// `vendor/` is out of the gate's scope: upstream's attributes are upstream's to change.
+    #[test]
+    fn a_threshold_expect_in_vendored_code_is_not_judged() {
+        assert!(rust_source("crates/sutura-domain/src/lib.rs"));
+        assert!(!rust_source("vendor/datafusion-physical-plan/src/joins/utils.rs"));
+        assert!(!rust_source("AGENTS.md"));
     }
 }

@@ -750,3 +750,7 @@ fn a_node_declared_by_a_host_is_dialled_where_it_resolves_and_one_resolving_nowh
         "the node declared by a host was sent no request, so its stage ran here"
     );
 }
+
+/// A peer's Explain or Unnest stage missing a field the decoder used to unwrap, `telekom/sutura#1680`.
+#[cfg(test)]
+mod physical_nodes;
