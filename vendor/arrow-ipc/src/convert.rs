@@ -34,11 +34,11 @@ use DataType::*;
 
 /// Low level Arrow [Schema] to IPC bytes converter
 ///
-/// See also [`fb_to_schema`] for the reverse operation
+/// See also [`try_fb_to_schema`] for the reverse operation
 ///
 /// # Example
 /// ```
-/// # use arrow_ipc::convert::{fb_to_schema, IpcSchemaEncoder};
+/// # use arrow_ipc::convert::{try_fb_to_schema, IpcSchemaEncoder};
 /// # use arrow_ipc::root_as_schema;
 /// # use arrow_ipc::writer::DictionaryTracker;
 /// # use arrow_schema::{DataType, Field, Schema};
@@ -59,7 +59,7 @@ use DataType::*;
 ///
 ///  // convert the IPC bytes back to an Arrow schema
 ///  let ipc_schema = root_as_schema(ipc_bytes).unwrap();
-///  let schema2 = fb_to_schema(ipc_schema);
+///  let schema2 = try_fb_to_schema(ipc_schema).unwrap();
 /// assert_eq!(schema, schema2);
 /// ```
 #[derive(Debug)]
@@ -160,52 +160,74 @@ pub fn schema_to_fb_offset<'a>(
 }
 
 /// Convert an IPC Field to Arrow Field
+///
+/// This panics on malformed input; every reader path uses the fallible
+/// conversion ([`try_field_from`]) instead. Kept for backwards compatibility only.
 impl From<crate::Field<'_>> for Field {
     fn from(field: crate::Field) -> Field {
-        let arrow_field = if let Some(dictionary) = field.dictionary() {
-            #[allow(deprecated)]
-            Field::new_dict(
-                field.name().unwrap_or_default(),
-                get_data_type(field, true),
-                field.nullable(),
-                dictionary.id(),
-                dictionary.isOrdered(),
-            )
-        } else {
-            Field::new(
-                field.name().unwrap_or_default(),
-                get_data_type(field, true),
-                field.nullable(),
-            )
-        };
-
-        let mut metadata_map = HashMap::default();
-        if let Some(list) = field.custom_metadata() {
-            for kv in list {
-                if let (Some(k), Some(v)) = (kv.key(), kv.value()) {
-                    metadata_map.insert(k.to_string(), v.to_string());
-                }
-            }
-        }
-
-        arrow_field.with_metadata(metadata_map)
+        try_field_from(field).expect("invalid IPC field")
     }
 }
 
-/// Deserialize an ipc [crate::Schema`] from flat buffers to an arrow [Schema].
+/// Convert an IPC Field to Arrow Field, refusing a field the flatbuffer
+/// verifier accepted but that is not a valid Arrow field.
+fn try_field_from(field: crate::Field) -> Result<Field, ArrowError> {
+    let arrow_field = if let Some(dictionary) = field.dictionary() {
+        #[allow(deprecated)]
+        Field::new_dict(
+            field.name().unwrap_or_default(),
+            get_data_type(field, true)?,
+            field.nullable(),
+            dictionary.id(),
+            dictionary.isOrdered(),
+        )
+    } else {
+        Field::new(
+            field.name().unwrap_or_default(),
+            get_data_type(field, true)?,
+            field.nullable(),
+        )
+    };
+
+    let mut metadata_map = HashMap::default();
+    if let Some(list) = field.custom_metadata() {
+        for kv in list {
+            if let (Some(k), Some(v)) = (kv.key(), kv.value()) {
+                metadata_map.insert(k.to_string(), v.to_string());
+            }
+        }
+    }
+
+    Ok(arrow_field.with_metadata(metadata_map))
+}
+
+/// Deserialize an ipc [`crate::Schema`] from flat buffers to an arrow [Schema].
+///
+/// Panics on malformed input; kept for backwards compatibility only. Every
+/// reader path in this crate uses [`try_fb_to_schema`] instead.
 pub fn fb_to_schema(fb: crate::Schema) -> Schema {
+    try_fb_to_schema(fb).expect("invalid IPC schema")
+}
+
+/// Deserialize an ipc [`crate::Schema`] from flat buffers to an arrow [Schema].
+///
+/// Returns an error, rather than panicking, on a schema message the flatbuffer
+/// verifier accepts but that is not a valid Arrow schema.
+pub fn try_fb_to_schema(fb: crate::Schema) -> Result<Schema, ArrowError> {
     let mut fields: Vec<Field> = vec![];
-    let c_fields = fb.fields().unwrap();
+    let c_fields = fb
+        .fields()
+        .ok_or_else(|| ArrowError::ParseError("IPC schema has no fields".to_string()))?;
     let len = c_fields.len();
     for i in 0..len {
         let c_field: crate::Field = c_fields.get(i);
-        match c_field.type_type() {
-            crate::Type::Decimal if fb.endianness() == crate::Endianness::Big => {
-                unimplemented!("Big Endian is not supported for Decimal!")
-            }
-            _ => (),
-        };
-        fields.push(c_field.into());
+        if c_field.type_type() == crate::Type::Decimal && fb.endianness() == crate::Endianness::Big
+        {
+            return Err(ArrowError::ParseError(
+                "Big Endian is not supported for Decimal!".to_string(),
+            ));
+        }
+        fields.push(try_field_from(c_field)?);
     }
 
     let mut metadata: HashMap<String, String> = HashMap::default();
@@ -222,14 +244,14 @@ pub fn fb_to_schema(fb: crate::Schema) -> Schema {
             }
         }
     }
-    Schema::new_with_metadata(fields, metadata)
+    Ok(Schema::new_with_metadata(fields, metadata))
 }
 
 /// Try deserialize flat buffer format bytes into a schema
 pub fn try_schema_from_flatbuffer_bytes(bytes: &[u8]) -> Result<Schema, ArrowError> {
     if let Ok(ipc) = crate::root_as_message(bytes) {
-        if let Some(schema) = ipc.header_as_schema().map(fb_to_schema) {
-            Ok(schema)
+        if let Some(schema) = ipc.header_as_schema() {
+            try_fb_to_schema(schema)
         } else {
             Err(ArrowError::ParseError(
                 "Unable to get head as schema".to_string(),
@@ -289,14 +311,26 @@ pub fn try_schema_from_ipc_buffer(buffer: &[u8]) -> Result<Schema, ArrowError> {
     let ipc_schema = msg.header_as_schema().ok_or_else(|| {
         ArrowError::ParseError("Unable to convert flight info to a schema".to_string())
     })?;
-    Ok(fb_to_schema(ipc_schema))
+    try_fb_to_schema(ipc_schema)
 }
 
-/// Get the Arrow data type from the flatbuffer Field table
-pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> DataType {
+/// Get the Arrow data type from the flatbuffer Field table, refusing a Field
+/// the verifier accepted but whose declared type is not valid Arrow - a peer's
+/// `type_type` tag need not match the union value actually present, so every
+/// `type_as_*` accessor can return `None` on the wire.
+pub(crate) fn get_data_type(
+    field: crate::Field,
+    may_be_dictionary: bool,
+) -> Result<DataType, ArrowError> {
+    fn type_err(what: &str) -> ArrowError {
+        ArrowError::ParseError(format!("IPC schema field is missing its {what} type"))
+    }
+
     if let Some(dictionary) = field.dictionary() {
         if may_be_dictionary {
-            let int = dictionary.indexType().unwrap();
+            let int = dictionary
+                .indexType()
+                .ok_or_else(|| type_err("dictionary index"))?;
             let index_type = match (int.bitWidth(), int.is_signed()) {
                 (8, true) => DataType::Int8,
                 (8, false) => DataType::UInt8,
@@ -306,20 +340,26 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
                 (32, false) => DataType::UInt32,
                 (64, true) => DataType::Int64,
                 (64, false) => DataType::UInt64,
-                _ => panic!("Unexpected bitwidth and signed"),
+                _ => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Index type with bit width of {} and signed of {} not supported",
+                        int.bitWidth(),
+                        int.is_signed()
+                    )));
+                }
             };
-            return DataType::Dictionary(
+            return Ok(DataType::Dictionary(
                 Box::new(index_type),
-                Box::new(get_data_type(field, false)),
-            );
+                Box::new(get_data_type(field, false)?),
+            ));
         }
     }
 
-    match field.type_type() {
+    let data_type = match field.type_type() {
         crate::Type::Null => DataType::Null,
         crate::Type::Bool => DataType::Boolean,
         crate::Type::Int => {
-            let int = field.type_as_int().unwrap();
+            let int = field.type_as_int().ok_or_else(|| type_err("int"))?;
             match (int.bitWidth(), int.is_signed()) {
                 (8, true) => DataType::Int8,
                 (8, false) => DataType::UInt8,
@@ -329,10 +369,12 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
                 (32, false) => DataType::UInt32,
                 (64, true) => DataType::Int64,
                 (64, false) => DataType::UInt64,
-                z => panic!(
-                    "Int type with bit width of {} and signed of {} not supported",
-                    z.0, z.1
-                ),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Int type with bit width of {} and signed of {} not supported",
+                        z.0, z.1
+                    )));
+                }
             }
         }
         crate::Type::Binary => DataType::Binary,
@@ -342,41 +384,63 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
         crate::Type::Utf8View => DataType::Utf8View,
         crate::Type::LargeUtf8 => DataType::LargeUtf8,
         crate::Type::FixedSizeBinary => {
-            let fsb = field.type_as_fixed_size_binary().unwrap();
-            DataType::FixedSizeBinary(fsb.byteWidth())
+            let fsb = field
+                .type_as_fixed_size_binary()
+                .ok_or_else(|| type_err("fixed size binary"))?;
+            let byte_width = fsb.byteWidth();
+            if byte_width < 0 {
+                return Err(ArrowError::ParseError(format!(
+                    "FixedSizeBinary byte width must be non-negative, got {byte_width}"
+                )));
+            }
+            DataType::FixedSizeBinary(byte_width)
         }
         crate::Type::FloatingPoint => {
-            let float = field.type_as_floating_point().unwrap();
+            let float = field
+                .type_as_floating_point()
+                .ok_or_else(|| type_err("floating point"))?;
             match float.precision() {
                 crate::Precision::HALF => DataType::Float16,
                 crate::Precision::SINGLE => DataType::Float32,
                 crate::Precision::DOUBLE => DataType::Float64,
-                z => panic!("FloatingPoint type with precision of {z:?} not supported"),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "FloatingPoint type with precision of {z:?} not supported"
+                    )));
+                }
             }
         }
         crate::Type::Date => {
-            let date = field.type_as_date().unwrap();
+            let date = field.type_as_date().ok_or_else(|| type_err("date"))?;
             match date.unit() {
                 crate::DateUnit::DAY => DataType::Date32,
                 crate::DateUnit::MILLISECOND => DataType::Date64,
-                z => panic!("Date type with unit of {z:?} not supported"),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Date type with unit of {z:?} not supported"
+                    )));
+                }
             }
         }
         crate::Type::Time => {
-            let time = field.type_as_time().unwrap();
+            let time = field.type_as_time().ok_or_else(|| type_err("time"))?;
             match (time.bitWidth(), time.unit()) {
                 (32, crate::TimeUnit::SECOND) => DataType::Time32(TimeUnit::Second),
                 (32, crate::TimeUnit::MILLISECOND) => DataType::Time32(TimeUnit::Millisecond),
                 (64, crate::TimeUnit::MICROSECOND) => DataType::Time64(TimeUnit::Microsecond),
                 (64, crate::TimeUnit::NANOSECOND) => DataType::Time64(TimeUnit::Nanosecond),
-                z => panic!(
-                    "Time type with bit width of {} and unit of {:?} not supported",
-                    z.0, z.1
-                ),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Time type with bit width of {} and unit of {:?} not supported",
+                        z.0, z.1
+                    )));
+                }
             }
         }
         crate::Type::Timestamp => {
-            let timestamp = field.type_as_timestamp().unwrap();
+            let timestamp = field
+                .type_as_timestamp()
+                .ok_or_else(|| type_err("timestamp"))?;
             let timezone: Option<_> = timestamp.timezone().map(|tz| tz.into());
             match timestamp.unit() {
                 crate::TimeUnit::SECOND => DataType::Timestamp(TimeUnit::Second, timezone),
@@ -387,132 +451,164 @@ pub(crate) fn get_data_type(field: crate::Field, may_be_dictionary: bool) -> Dat
                     DataType::Timestamp(TimeUnit::Microsecond, timezone)
                 }
                 crate::TimeUnit::NANOSECOND => DataType::Timestamp(TimeUnit::Nanosecond, timezone),
-                z => panic!("Timestamp type with unit of {z:?} not supported"),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Timestamp type with unit of {z:?} not supported"
+                    )));
+                }
             }
         }
         crate::Type::Interval => {
-            let interval = field.type_as_interval().unwrap();
+            let interval = field
+                .type_as_interval()
+                .ok_or_else(|| type_err("interval"))?;
             match interval.unit() {
                 crate::IntervalUnit::YEAR_MONTH => DataType::Interval(IntervalUnit::YearMonth),
                 crate::IntervalUnit::DAY_TIME => DataType::Interval(IntervalUnit::DayTime),
                 crate::IntervalUnit::MONTH_DAY_NANO => {
                     DataType::Interval(IntervalUnit::MonthDayNano)
                 }
-                z => panic!("Interval type with unit of {z:?} unsupported"),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Interval type with unit of {z:?} unsupported"
+                    )));
+                }
             }
         }
         crate::Type::Duration => {
-            let duration = field.type_as_duration().unwrap();
+            let duration = field
+                .type_as_duration()
+                .ok_or_else(|| type_err("duration"))?;
             match duration.unit() {
                 crate::TimeUnit::SECOND => DataType::Duration(TimeUnit::Second),
                 crate::TimeUnit::MILLISECOND => DataType::Duration(TimeUnit::Millisecond),
                 crate::TimeUnit::MICROSECOND => DataType::Duration(TimeUnit::Microsecond),
                 crate::TimeUnit::NANOSECOND => DataType::Duration(TimeUnit::Nanosecond),
-                z => panic!("Duration type with unit of {z:?} unsupported"),
+                z => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Duration type with unit of {z:?} unsupported"
+                    )));
+                }
             }
         }
         crate::Type::List => {
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a list to have one child")
-            }
-            DataType::List(Arc::new(children.get(0).into()))
+            let child = single_child(&field, "list")?;
+            DataType::List(Arc::new(try_field_from(child)?))
         }
         crate::Type::LargeList => {
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a large list to have one child")
-            }
-            DataType::LargeList(Arc::new(children.get(0).into()))
+            let child = single_child(&field, "large list")?;
+            DataType::LargeList(Arc::new(try_field_from(child)?))
         }
         crate::Type::ListView => {
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a listview to have one child")
-            }
-            DataType::ListView(Arc::new(children.get(0).into()))
+            let child = single_child(&field, "listview")?;
+            DataType::ListView(Arc::new(try_field_from(child)?))
         }
         crate::Type::LargeListView => {
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a large listview to have one child")
-            }
-            DataType::LargeListView(Arc::new(children.get(0).into()))
+            let child = single_child(&field, "large listview")?;
+            DataType::LargeListView(Arc::new(try_field_from(child)?))
         }
         crate::Type::FixedSizeList => {
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a list to have one child")
-            }
-            let fsl = field.type_as_fixed_size_list().unwrap();
-            DataType::FixedSizeList(Arc::new(children.get(0).into()), fsl.listSize())
+            let child = single_child(&field, "list")?;
+            let fsl = field
+                .type_as_fixed_size_list()
+                .ok_or_else(|| type_err("fixed size list"))?;
+            DataType::FixedSizeList(Arc::new(try_field_from(child)?), fsl.listSize())
         }
         crate::Type::Struct_ => {
             let fields = match field.children() {
-                Some(children) => children.iter().map(Field::from).collect(),
+                Some(children) => children
+                    .iter()
+                    .map(try_field_from)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
                 None => Fields::empty(),
             };
             DataType::Struct(fields)
         }
         crate::Type::RunEndEncoded => {
-            let children = field.children().unwrap();
+            let children = field
+                .children()
+                .ok_or_else(|| ArrowError::ParseError("IPC list has no children".to_string()))?;
             if children.len() != 2 {
-                panic!(
+                return Err(ArrowError::ParseError(format!(
                     "RunEndEncoded type should have exactly two children. Found {}",
                     children.len()
-                )
+                )));
             }
-            let run_ends_field = children.get(0).into();
-            let values_field = children.get(1).into();
+            let run_ends_field = try_field_from(children.get(0))?;
+            let values_field = try_field_from(children.get(1))?;
             DataType::RunEndEncoded(Arc::new(run_ends_field), Arc::new(values_field))
         }
         crate::Type::Map => {
-            let map = field.type_as_map().unwrap();
-            let children = field.children().unwrap();
-            if children.len() != 1 {
-                panic!("expect a map to have one child")
-            }
-            DataType::Map(Arc::new(children.get(0).into()), map.keysSorted())
+            let map = field.type_as_map().ok_or_else(|| type_err("map"))?;
+            let child = single_child(&field, "map")?;
+            DataType::Map(Arc::new(try_field_from(child)?), map.keysSorted())
         }
         crate::Type::Decimal => {
-            let fsb = field.type_as_decimal().unwrap();
+            let fsb = field.type_as_decimal().ok_or_else(|| type_err("decimal"))?;
             let bit_width = fsb.bitWidth();
-            let precision: u8 = fsb.precision().try_into().unwrap();
-            let scale: i8 = fsb.scale().try_into().unwrap();
+            let precision: u8 = fsb.precision().try_into().map_err(|_| {
+                ArrowError::ParseError(format!("Invalid decimal precision {}", fsb.precision()))
+            })?;
+            let scale: i8 = fsb.scale().try_into().map_err(|_| {
+                ArrowError::ParseError(format!("Invalid decimal scale {}", fsb.scale()))
+            })?;
             match bit_width {
                 32 => DataType::Decimal32(precision, scale),
                 64 => DataType::Decimal64(precision, scale),
                 128 => DataType::Decimal128(precision, scale),
                 256 => DataType::Decimal256(precision, scale),
-                _ => panic!("Unexpected decimal bit width {bit_width}"),
+                _ => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Unexpected decimal bit width {bit_width}"
+                    )));
+                }
             }
         }
         crate::Type::Union => {
-            let union = field.type_as_union().unwrap();
+            let union = field.type_as_union().ok_or_else(|| type_err("union"))?;
 
             let union_mode = match union.mode() {
                 crate::UnionMode::Dense => UnionMode::Dense,
                 crate::UnionMode::Sparse => UnionMode::Sparse,
-                mode => panic!("Unexpected union mode: {mode:?}"),
+                mode => {
+                    return Err(ArrowError::ParseError(format!(
+                        "Unexpected union mode: {mode:?}"
+                    )));
+                }
             };
 
             let mut fields = vec![];
             if let Some(children) = field.children() {
                 for i in 0..children.len() {
-                    fields.push(Field::from(children.get(i)));
+                    fields.push(try_field_from(children.get(i))?);
                 }
             };
 
             let fields = match union.typeIds() {
-                None => UnionFields::from_fields(fields),
-                Some(ids) => UnionFields::try_new(ids.iter().map(|i| i as i8), fields)
-                    .expect("invalid union field"),
+                None => UnionFields::try_from_fields(fields)?,
+                Some(ids) => UnionFields::try_new(ids.iter().map(|i| i as i8), fields)?,
             };
 
             DataType::Union(fields, union_mode)
         }
-        t => unimplemented!("Type {:?} not supported", t),
+        t => return Err(ArrowError::ParseError(format!("Type {t:?} not supported"))),
+    };
+    Ok(data_type)
+}
+
+/// Return the single child of a flatbuffer Field, refusing one that does not
+/// have exactly one.
+fn single_child<'a>(field: &crate::Field<'a>, kind: &str) -> Result<crate::Field<'a>, ArrowError> {
+    let children = field
+        .children()
+        .ok_or_else(|| ArrowError::ParseError(format!("IPC {kind} has no children")))?;
+    if children.len() != 1 {
+        return Err(ArrowError::ParseError(format!(
+            "expect a {kind} to have one child"
+        )));
     }
+    Ok(children.get(0))
 }
 
 pub(crate) struct FBFieldType<'b> {

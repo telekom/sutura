@@ -24,6 +24,12 @@ const LENGTH_NO_COMPRESSED_DATA: i64 = -1;
 const LENGTH_OF_PREFIX_DATA: i64 = 8;
 const DEFAULT_ZSTD_COMPRESSION_LEVEL: i32 = 3;
 
+/// Most output bytes one LZ4 input byte can produce: a match-length continuation byte adds 255.
+const LZ4_MAX_EXPANSION_RATIO: usize = 255;
+
+/// Most output bytes one zstd input byte can produce: a 4-byte RLE block emits up to 128 KiB.
+const ZSTD_MAX_EXPANSION_RATIO: usize = 128 * 1024 / 4;
+
 /// Additional context that may be needed for compression.
 ///
 /// In the case of zstd, this will contain the zstd context, which can be reused between subsequent
@@ -274,13 +280,24 @@ impl CompressionCodec {
         decompressed_size: usize,
         context: &mut DecompressionContext,
     ) -> Result<Vec<u8>, ArrowError> {
+        let (ratio, codec_name) = match self {
+            CompressionCodec::Lz4Frame => (LZ4_MAX_EXPANSION_RATIO, "lz4"),
+            CompressionCodec::Zstd(_) => (ZSTD_MAX_EXPANSION_RATIO, "zstd"),
+        };
+        // Refuse a size the input cannot produce before allocating for it.
+        if decompressed_size > input.len().saturating_mul(ratio) {
+            return Err(ArrowError::IpcError(format!(
+                "decompressed size exceeds the {codec_name} expansion bound"
+            )));
+        }
+
         let ret = match self {
             CompressionCodec::Lz4Frame => decompress_lz4(input, decompressed_size)?,
             CompressionCodec::Zstd(_) => decompress_zstd(input, decompressed_size, context)?,
         };
         if ret.len() != decompressed_size {
             return Err(ArrowError::IpcError(format!(
-                "Expected compressed length of {decompressed_size} got {}",
+                "Expected decompressed length of {decompressed_size} got {}",
                 ret.len()
             )));
         }
@@ -311,7 +328,18 @@ fn compress_lz4(_input: &[u8], _output: &mut Vec<u8>) -> Result<(), ArrowError> 
 fn decompress_lz4(input: &[u8], decompressed_size: usize) -> Result<Vec<u8>, ArrowError> {
     use std::io::Read;
     let mut output = Vec::with_capacity(decompressed_size);
-    lz4_flex::frame::FrameDecoder::new(input).read_to_end(&mut output)?;
+    let mut decoder = lz4_flex::frame::FrameDecoder::new(input);
+    decoder
+        .by_ref()
+        .take(decompressed_size as u64)
+        .read_to_end(&mut output)?;
+
+    // Probe without growing `output` to reject data exceeding the advertised size.
+    if decoder.read(&mut [0])? != 0 {
+        return Err(ArrowError::IpcError(format!(
+            "LZ4 decompressed buffer exceeds advertised size of {decompressed_size}"
+        )));
+    }
     Ok(output)
 }
 
@@ -354,9 +382,12 @@ fn decompress_zstd(
     decompressed_size: usize,
     context: &mut DecompressionContext,
 ) -> Result<Vec<u8>, ArrowError> {
-    let output = context
-        .zstd_decompressor()
-        .decompress(input, decompressed_size)?;
+    // Reserve no more than the frame header's recorded content size; `decompress` still checks the length.
+    let alloc_hint = match zstd::zstd_safe::get_frame_content_size(input) {
+        Ok(Some(content_size)) => decompressed_size.min(content_size as usize),
+        _ => decompressed_size,
+    };
+    let output = context.zstd_decompressor().decompress(input, alloc_hint)?;
     Ok(output)
 }
 

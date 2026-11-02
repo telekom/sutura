@@ -63,7 +63,7 @@ fn read_buffer(
     decompression_context: &mut DecompressionContext,
 ) -> Result<Buffer, ArrowError> {
     let start_offset = buf.offset() as usize;
-    let buf_data = a_data.slice_with_length(start_offset, buf.length() as usize);
+    let buf_data = try_slice_with_length(a_data, start_offset, buf.length() as usize)?;
     // corner case: empty buffer
     match (buf_data.is_empty(), compression_codec) {
         (true, _) | (_, None) => Ok(buf_data),
@@ -71,6 +71,23 @@ fn read_buffer(
             decompressor.decompress_to_buffer(&buf_data, decompression_context)
         }
     }
+}
+
+/// [`Buffer::slice_with_length`] that refuses a range past `a_data`'s end instead of panicking.
+/// Covers only this file's callers: `arrow-buffer` is not vendored.
+fn try_slice_with_length(a_data: &Buffer, offset: usize, length: usize) -> Result<Buffer, ArrowError> {
+    let end = offset.checked_add(length).ok_or_else(|| {
+        ArrowError::IpcError(format!(
+            "buffer length exceeds the record batch body: offset {offset} length {length} overflows"
+        ))
+    })?;
+    if end > a_data.len() {
+        return Err(ArrowError::IpcError(format!(
+            "buffer length exceeds the record batch body: offset {offset} length {length} body length {}",
+            a_data.len()
+        )));
+    }
+    Ok(a_data.slice_with_length(offset, length))
 }
 impl RecordBatchDecoder<'_> {
     /// Coordinates reading arrays based on data types.
@@ -206,13 +223,21 @@ impl RecordBatchDecoder<'_> {
                     self.next_buffer()?;
                 }
 
-                let type_ids: ScalarBuffer<i8> =
-                    self.next_buffer()?.slice_with_length(0, len).into();
+                let type_ids: ScalarBuffer<i8> = {
+                    let buf = self.next_buffer()?;
+                    try_slice_with_length(&buf, 0, len)?.into()
+                };
 
                 let value_offsets = match mode {
                     UnionMode::Dense => {
+                        let buf = self.next_buffer()?;
+                        let byte_len = len.checked_mul(4).ok_or_else(|| {
+                            ArrowError::IpcError(format!(
+                                "union dense offsets length overflows: {len} rows"
+                            ))
+                        })?;
                         let offsets: ScalarBuffer<i32> =
-                            self.next_buffer()?.slice_with_length(0, len * 4).into();
+                            try_slice_with_length(&buf, 0, byte_len)?.into();
                         Some(offsets)
                     }
                     UnionMode::Sparse => None,

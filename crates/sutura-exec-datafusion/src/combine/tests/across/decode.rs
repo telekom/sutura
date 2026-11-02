@@ -268,7 +268,6 @@ fn a_node_refuses_a_schema_whose_union_field_has_too_many_children() {
 /// cell's planned fragment names the future fix's own wording instead, so it is red against that
 /// check's current text and green once the fix lands.
 #[test]
-#[ignore = "lets fail-fast reach the peer IPC cells on the registry crate; the fix commit removes it"]
 #[expect(
     clippy::little_endian_bytes,
     reason = "Arrow IPC's wire format mandates little-endian explicitly, which this cell reads and rewrites"
@@ -335,6 +334,34 @@ fn a_node_refuses_a_list_value_whose_compressed_length_prefix_is_short() {
     let refused = refused(&filter_literal(value));
     assert!(
         matches!(refused.find_root(), DataFusionError::Plan(message) if message.contains("exceeds advertised size")),
+        "{refused}"
+    );
+}
+
+/// `datafusion-proto-common`'s nested `ScalarValue` decode round-trips the peer's proto `Schema`
+/// through IPC and, after `fix (3)` made `arrow-ipc`'s own decode refuse a negative
+/// `FixedSizeBinary` width, was the one remaining caller of the panicking `fb_to_schema`. A
+/// `ListValue` whose schema holds `FixedSizeBinary(-1)` reached that `.expect(..)` and aborted the
+/// worker; it must now be refused instead.
+#[test]
+fn a_node_refuses_a_list_value_whose_schema_has_a_negative_fixed_size_binary_width() {
+    let arrow_schema = datafusion::arrow::datatypes::Schema::new(vec![datafusion::arrow::datatypes::Field::new(
+        "col0",
+        datafusion::arrow::datatypes::DataType::FixedSizeBinary(-1),
+        true,
+    )]);
+    let proto_schema: Schema = (&arrow_schema).try_into().expect("an arrow schema encodes to proto");
+    let value = ScalarValue {
+        value: Some(ScalarValueKind::ListValue(ScalarNestedValue {
+            ipc_message: vec![],
+            arrow_data: vec![],
+            schema: Some(proto_schema),
+            dictionaries: vec![],
+        })),
+    };
+    let refused = refused(&filter_literal(value));
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Plan(message) if message.contains("Invalid IPC schema while deserializing nested ScalarValue")),
         "{refused}"
     );
 }
