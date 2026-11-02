@@ -4,8 +4,10 @@ name: region
 source: crm
 table: region
 columns:
-  - r_regionkey
-  - r_name
+  - name: r_regionkey
+    type: BIGINT
+  - name: r_name
+    type: VARCHAR
 ---
 
 The five TPC-H regions, in the PostgreSQL source.
