@@ -54,6 +54,11 @@ and what they may hold?
    else: no caller-facing route, no source, no catalog, and no source credential mounted. Both run
    the `sutura` image. The operator owns the workers. The serving nodes stay with the chart and its
    autoscaler.
+
+   **Superseded in part 2026-11-02** (`docs/adr/20261102082308-workers-read-sources.md`): a worker
+   that reads a split leg's partition holds a catalog and that source's credential or a forwarded
+   source token. Still holds: no caller-facing route, and a worker that reads no source holds no
+   credential.
 3. **One namespaced resource, `SuturaWorkerPool`.** Its spec names the worker Deployment, the
    serving Deployment whose demand it serves, and four numbers: `min`, `max`, `warm` and
    `idleAfter`. The chart renders the worker Deployment and its headless Service from the values it
@@ -80,6 +85,10 @@ and what they may hold?
    refusal is the container's termination message. The pod never becomes ready, and with
    `maxUnavailable: 0` the rollout stalls while the old workers keep serving. The operator does not
    read the worker configuration. The serving nodes' configuration stays the chart's.
+
+   **Superseded in part 2026-11-02** (`docs/adr/20261102082308-workers-read-sources.md`): this
+   cannot hold for a worker that reads a split leg's partition. Whether it holds for a worker that
+   only combines is open there.
 8. **No consensus.** The operator is a reconciler whose state lives in the Kubernetes API, which
    already runs its own consensus. One replica runs. While it is down, workers keep serving and only
    resizing stops, so there is no leader election until a second replica is wanted.
