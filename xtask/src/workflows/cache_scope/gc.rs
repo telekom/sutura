@@ -13,16 +13,20 @@
 //!   `ci` scope plus `MAIN_PUSH` - the one run whose post step collects;
 //! * a `gc-max-store-size` key anywhere else under `.github`, the `-linux`/`-macos` overrides
 //!   included: an override wins over the knob, and a store step elsewhere collects a store nothing
-//!   roots.
+//!   roots;
+//! * an installer that can run on `push` without `keep-outputs = true`, in a job that writes the
+//!   `ci` store on `push` - without it a rooted derivation does not keep what it built, and the
+//!   collection takes the dependency closure after all.
 //!
-//! **What it cannot see.** It reads text. That the script roots the RIGHT set, and that
-//! `keep-outputs` is on so a rooted derivation keeps what it built, are the step's own job: it
-//! refuses to run without `keep-outputs`, and a failed step skips the action's post step - the
-//! collection and the save together (`post-if: success()`).
+//! **What it cannot see.** It reads text. That the script roots the RIGHT set is the step's own
+//! job. `keep-outputs` set any other way - `NIX_CONFIG`, a `nix.conf` written elsewhere - or undone
+//! by a later `keep-outputs = false` line passes unseen; the root step's own refusal without it
+//! stays the backstop, since a failed step skips the action's post step - the collection and the
+//! save together (`post-if: success()`).
 
 use std::path::Path;
 
-use super::{MAIN_PUSH, STORE_CACHE, key_of, steps};
+use super::{MAIN_PUSH, STORE_ACTION, STORE_CACHE, key_of, steps};
 
 /// The store-cache action, the one file that may set the knob.
 const ACTION: &str = ".github/actions/nix-store-cache/action.yml";
@@ -35,6 +39,12 @@ const GCROOTS: &str = "/nix/var/nix/gcroots/";
 
 /// Every `.github` file this reads: the action itself, and everywhere a knob must not be.
 const GITHUB: [&str; 2] = [".github/workflows", ".github/actions"];
+
+/// The installer whose `extra_nix_config` must carry [`KEEP_OUTPUTS`] in a `ci` store writer.
+const INSTALLER: &str = "cachix/install-nix-action";
+
+/// The line that makes a rooted derivation keep what it built.
+const KEEP_OUTPUTS: &str = "keep-outputs = true";
 
 /// The pairing, over every `.github` workflow and action file.
 pub(super) fn problems(root: &Path) -> Vec<String> {
@@ -60,7 +70,7 @@ pub(super) fn problems(root: &Path) -> Vec<String> {
     judge(&borrowed)
 }
 
-/// The three refusals over labelled text.
+/// The four refusals over labelled text.
 fn judge(files: &[(&str, &str)]) -> Vec<String> {
     let Some((_, action)) = files.iter().find(|(label, _)| *label == ACTION) else {
         return vec![format!(
@@ -128,5 +138,79 @@ fn judge(files: &[(&str, &str)]) -> Vec<String> {
             ));
         }
     }
+    out.extend(files.iter().flat_map(|(label, text)| unkept(label, text)));
     out
+}
+
+/// Every installer that can run on `push` without [`KEEP_OUTPUTS`], in a job that writes the `ci`
+/// store on `push`. A workflow whose `on:` names neither `push` nor `workflow_call` is skipped; one
+/// whose triggers this cannot read is not.
+///
+/// Jobs are read below `jobs:` only: `cachix-push.yml`'s writer is the job `push`, and its header
+/// read from the top of the file is the `on:` block's `push:` trigger.
+fn unkept(label: &str, text: &str) -> Vec<String> {
+    let triggers = crate::workflows::contexts::block_keys(text, "on:");
+    let Some((before, jobs)) = text.split_once("\njobs:\n") else {
+        return Vec::new();
+    };
+    if !label.starts_with(".github/workflows/")
+        || (!triggers.is_empty() && !triggers.iter().any(|on| on == "push" || on == "workflow_call"))
+    {
+        return Vec::new();
+    }
+    // `split`, not `lines`: a blank line just above `jobs:` is still a line.
+    let first = before.split('\n').count().saturating_add(2);
+    let mut out = Vec::new();
+    for id in crate::workflows::contexts::block_keys(text, "jobs:") {
+        let header = format!("  {id}:");
+        let (Some(at), Some(body)) = (
+            jobs.lines().position(|line| line == header),
+            crate::workflows::step::job(jobs, &id),
+        ) else {
+            continue;
+        };
+        let gate = body.iter().find(|line| line.starts_with("    if:")).and_then(|line| {
+            super::Step {
+                line: 0,
+                lines: vec![*line],
+            }
+            .gate()
+        });
+        let joined = body.join("\n");
+        let all = steps(&joined);
+        let writes = all.iter().any(|step| {
+            step.uses()
+                .is_some_and(|uses| uses == STORE_ACTION || uses == "$/.github/actions/nix-store-cache")
+                && step.input("scope:") == Some("ci")
+        });
+        if !writes || !on_push(gate.as_deref()) {
+            continue;
+        }
+        for step in all.iter().filter(|step| step.uses().as_deref() == Some(INSTALLER)) {
+            if on_push(step.gate().as_deref()) && !step.contains_verbatim(KEEP_OUTPUTS) {
+                out.push(format!(
+                    "{label}:{}  job `{id}` writes the `ci` store on `push`, and this {INSTALLER} step can run there without `{KEEP_OUTPUTS}` - the collection before the save would take what the rooted derivations built",
+                    first.saturating_add(at).saturating_add(step.line)
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Can `gate` be true on `push`? No gate, a `||`, or a head conjunct this does not recognise all
+/// say yes - the direction that keeps an installer checked.
+fn on_push(gate: Option<&str>) -> bool {
+    let Some(head) = gate
+        .filter(|gate| !gate.contains("||"))
+        .map(|gate| gate.split(" && ").next().unwrap_or(gate))
+    else {
+        return true;
+    };
+    let event = |op: &str| {
+        head.strip_prefix(&format!("github.event_name {op} '"))
+            .and_then(|rest| rest.strip_suffix('\''))
+            .map(|name| name.eq_ignore_ascii_case("push"))
+    };
+    event("==").or_else(|| event("!=").map(|push| !push)).unwrap_or(true)
 }

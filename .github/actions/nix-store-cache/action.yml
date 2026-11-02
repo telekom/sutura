@@ -37,13 +37,14 @@
 # roots, `nix store gc` would take the dependency closure first: a `nix build` overwrites `./result`,
 # so nothing a run built is a root. `keep-outputs` is what keeps it here - `.#deps` is an input
 # derivation of the rooted checks, and a rooted derivation keeps its outputs only with that set.
-# `cargo xtask check-workflows` holds the knob and the root step together.
+# `cargo xtask check-workflows` holds the knob, the root step and `keep-outputs = true` on every
+# installer a `ci`-scope writer runs on `push` together.
 #
 # LIMITS. The workspace's own check outputs move with the commit and are rooted too, so the entry
 # over-retains one push's worth of them. Another scope (`bq`, a target triple) collects nothing.
 # The collection's duration and the entry's size are UNMEASURED until the first `main` push that
 # misses the key: the post step logs the store size before and after, and the cache list shows the
-# entry.
+# entry. That gate reads text, so `keep-outputs` set any other way passes it unseen.
 #
 # THE SECOND CARRIER IS NOT THIS ACTION, and the two are different kinds of carrier. `docs/adr/0026`
 # retired a third-party binary cache that this file used to name as its fallback - that wiring was
@@ -189,8 +190,8 @@ runs:
     # system's `checks` and `apps` (a program's derivation read off its string context), plus every
     # path `nix flake archive` names. On exactly the run whose post step collects, and after the
     # witness above so its count is still what the cache carried. Without `keep-outputs` a rooted
-    # derivation would not keep what it built, so the step refuses - and a failed step skips the
-    # post step, the collection and the save together.
+    # derivation would not keep what it built, so the step refuses, the backstop behind the gate on
+    # the installers - and a failed step skips the post step, the collection and the save together.
     - name: Root what the flake declares
       if: inputs.scope == 'ci' && github.event_name == 'push' && github.ref == 'refs/heads/main'
       shell: bash

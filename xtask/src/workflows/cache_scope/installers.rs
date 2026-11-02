@@ -477,4 +477,60 @@ mod tests {
             "{found:#?}"
         );
     }
+
+    #[test]
+    fn a_ci_scope_writer_whose_push_installer_lacks_keep_outputs_is_refused() {
+        // `ci` writes the `ci` store on `push`, so its push installer must keep outputs. Its
+        // PR-only installer, the `causality` job gated off `push` and a dispatch-only workflow are
+        // not asked to.
+        let store = "      - uses: ./.github/actions/nix-store-cache\n        with:\n          scope: ci\n";
+        let ci = |job: &str, push: &str| {
+            format!(
+                "on:\n  push:\n\njobs:\n  {job}:\n    steps:\n{push}{}{store}  causality:\n    if: github.event_name != 'push'\n    steps:\n{}{store}",
+                installer(Some("github.event_name == 'pull_request'")),
+                installer(None)
+            )
+        };
+        let claim = format!(
+            "on:\n  workflow_dispatch:\njobs:\n  claim:\n    steps:\n{}{store}",
+            installer(None)
+        );
+        let action = store_action(KNOB, Some(ROOTED));
+        let unkept = |tag: &str, job: &str, push: &str| -> Vec<String> {
+            let workflow = ci(job, push);
+            let tree = crate::scratch_tree::Tree::of(
+                tag,
+                &[
+                    (".github/actions/nix-store-cache/action.yml", action.as_bytes()),
+                    (".github/workflows/ci.yml", workflow.as_bytes()),
+                    (".github/workflows/claim.yml", claim.as_bytes()),
+                ],
+            );
+            let ordinary = crate::workflows::contexts::OrdinaryCi::read(tree.root());
+            super::super::problems(tree.root(), ordinary.closure())
+                .into_iter()
+                .filter(|p| p.contains("keep-outputs = true"))
+                .collect()
+        };
+
+        // Line 7 of `ci.yml`, below a blank line as in `cachix-push.yml`: the `!= 'pull_request'`
+        // installer, the one the writer runs on `push`.
+        // Again with the job named `push`, as `cachix-push.yml`'s is: its header must not be read
+        // as the `on:` block's `push:` trigger.
+        let push = installer(Some("github.event_name != 'pull_request'"));
+        for job in ["ci", "push"] {
+            let found = unkept(&format!("gc-unkept-{job}"), job, &push);
+            assert_eq!(found.len(), 1, "{found:#?}");
+            assert!(
+                found
+                    .iter()
+                    .all(|p| p.starts_with(".github/workflows/ci.yml:7 ") && p.contains(&format!("job `{job}`"))),
+                "{found:#?}"
+            );
+        }
+
+        let kept = push.replace("fallback = true\n", "fallback = true\n            keep-outputs = true\n");
+        let found = unkept("gc-kept", "ci", &kept);
+        assert!(found.is_empty(), "{found:#?}");
+    }
 }
