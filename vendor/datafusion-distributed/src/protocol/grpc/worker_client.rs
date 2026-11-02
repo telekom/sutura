@@ -587,9 +587,20 @@ fn fanout(o_txs: &[UnboundedSender<WorkerMsg>], err: Status) {
 /// }
 /// ```
 pub fn create_worker_client(channel: BoxCloneSyncChannel) -> Box<dyn WorkerChannel> {
+    create_worker_client_with_decode_limit(channel, usize::MAX)
+}
+
+/// [`create_worker_client`], with a reply's decode capped at `max_decoding_message_size` bytes.
+///
+/// `tonic` reserves a reply's declared length before reading its body, so this caps what one reply
+/// can make this node reserve. Encoding stays unbounded; `usize::MAX` is the published behaviour.
+pub fn create_worker_client_with_decode_limit(
+    channel: BoxCloneSyncChannel,
+    max_decoding_message_size: usize,
+) -> Box<dyn WorkerChannel> {
     Box::new(
         pb::worker_service_client::WorkerServiceClient::new(channel)
-            .max_decoding_message_size(usize::MAX)
+            .max_decoding_message_size(max_decoding_message_size)
             .max_encoding_message_size(usize::MAX),
     )
 }

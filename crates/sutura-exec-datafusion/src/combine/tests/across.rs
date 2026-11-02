@@ -478,6 +478,79 @@ fn a_question_across_three_nodes_lets_each_link_hold_a_twelfth_of_the_working_se
     assert_eq!(state.config().target_partitions(), 3, "a task plans one partition per node");
 }
 
+/// A peer's own declared frame length over the cap is refused before any of its body is read, rather
+/// than reserved: the client's gRPC decode is capped at the session's working set.
+#[test]
+fn a_peer_s_declared_frame_length_over_the_cap_is_refused_before_its_body_is_buffered() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let node = authority.sign();
+    let own = Nodes::worker(roomy(), authority.identity(&node)).expect("a worker builds");
+    let own_url = Url::parse("https://127.0.0.1:1").expect("a node is a URL");
+
+    let fake = authority.sign();
+    let tls = TlsAcceptor::from(listening(&fake, authority.peers()));
+    let listener = servers
+        .block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0)))
+        .expect("a localhost port binds");
+    let port = listener.local_addr().expect("a bound port has an address").port();
+    let fake_url = Url::parse(&format!("https://127.0.0.1:{port}")).expect("a socket address is a URL's authority");
+
+    let cap = NonZeroUsize::new(1 << 20).expect("a nonzero size");
+    let over = u32::try_from(cap.get()).expect("1 MiB fits a u32") + 1;
+    servers.spawn(async move {
+        let (tcp, _) = listener.accept().await.expect("the call connects");
+        let stream = tls.accept(tcp).await.expect("the call's TLS handshake completes");
+        let mut connection = h2::server::handshake(stream).await.expect("the call's connection opens");
+        let Some(Ok((_request, mut respond))) = connection.accept().await else {
+            return;
+        };
+        let response = http::Response::builder()
+            .status(200)
+            .header("content-type", "application/grpc")
+            .body(())
+            .expect("a gRPC response has a body");
+        let mut sent = respond.send_response(response, false).expect("the response headers send");
+        let mut frame = Vec::with_capacity(5);
+        frame.push(0u8);
+        #[expect(
+            clippy::big_endian_bytes,
+            reason = "the gRPC frame length prefix is always big-endian on the wire"
+        )]
+        frame.extend_from_slice(&over.to_be_bytes());
+        sent.send_data(frame.into(), true).expect("the frame header sends");
+        // h2 writes the response only while its connection is polled.
+        while connection.accept().await.is_some() {}
+    });
+
+    let declared = Nodes::declared(own, own_url, [fake_url.clone()], authority.identity(&node));
+    let working_set = WorkingSet::of_bytes(cap);
+    let session = declared.session(working_set).expect("a session builds");
+    let resolver = datafusion_distributed::get_distributed_channel_resolver(&session.task_ctx());
+
+    let failure = servers
+        .block_on(async move {
+            let mut client = resolver
+                .get_worker_client_for_url(&fake_url)
+                .await
+                .expect("a client resolves lazily, before any call is made");
+            client
+                .get_worker_info(datafusion_distributed::GetWorkerInfoRequest {})
+                .await
+                .map(drop)
+        })
+        .expect_err("a peer whose declared frame length is over the cap answers nothing");
+
+    let status = core::iter::successors(Some(&failure as &(dyn core::error::Error + 'static)), |error| error.source())
+        .find_map(|error| error.downcast_ref::<tonic::Status>())
+        .expect("the failure holds a tonic status");
+    assert_eq!(
+        status.code(),
+        tonic::Code::OutOfRange,
+        "a length over the cap must be refused before it is reserved, {status:?}"
+    );
+}
+
 #[test]
 fn a_node_another_authority_signed_is_sent_no_stage() {
     let servers = servers();

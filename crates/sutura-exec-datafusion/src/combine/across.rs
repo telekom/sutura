@@ -70,9 +70,14 @@
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
 //!   sized once for the node and not per question. Only the stage that collects the answer reserves
 //!   against the question's own ceiling.
-//! - A link's buffer is bounded by its budget plus one message, which it admits whatever its size,
-//!   and two questions on one node each hold their own links' share. A worker holds the budget the
-//!   stage it runs carries, which the node that planned it set.
+//! - A link's buffer is bounded by its budget plus one message, of at most the working set of the
+//!   node or question reading it or `LEAST_REPLY`, whichever is larger - the client's own gRPC
+//!   decode is capped there, so a peer's length prefix cannot size this node's buffer past that.
+//!   Two questions on one node each hold their own links' share, and a worker holds the budget the
+//!   stage it runs carries, which the node that planned it set. What this does NOT bound: a message
+//!   under the cap is still buffered whole before it is read, so a reply of `LEAST_REPLY` is held
+//!   whatever the working set, and decoding a body under the cap into Arrow is not bounded here
+//!   (#1680 1(c)).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -91,7 +96,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client};
+use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client_with_decode_limit};
 use datafusion_distributed::{
     ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedConfig, DistributedExt as _,
     DistributedLeafExec, NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
@@ -229,11 +234,12 @@ impl Nodes {
     pub fn worker(working_set: WorkingSet, identity: NodeIdentity) -> Result<Worker, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
         let links = Links::of(identity);
+        let bounded = links.bounded(working_set);
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
-            let links = links.clone();
+            let bounded = bounded.clone();
             async move {
                 Ok(grant::forwarded(context.builder, &context.headers)?
-                    .with_distributed_channel_resolver(links)
+                    .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .build())
             }
@@ -292,7 +298,7 @@ impl Nodes {
             .with_runtime_env(environment.into_runtime())
             .with_default_features()
             .with_distributed_worker_resolver(all)
-            .with_distributed_channel_resolver(self.channels.clone())
+            .with_distributed_channel_resolver(self.channels.bounded(working_set))
             .with_distributed_local_worker_context(self.own.to_local_worker_context(self.own_url.clone()))
             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
                 // Any other leaf, answered `None`, is planned as one task, which routes to this node.
@@ -503,6 +509,15 @@ impl Links {
         }
     }
 
+    /// These links, resolving a client whose decode of a peer's reply is capped at `working_set`'s
+    /// bytes, so a peer's own length prefix cannot size this node's buffer past what it would hold.
+    fn bounded(&self, working_set: WorkingSet) -> Bounded {
+        Bounded {
+            links: self.clone(),
+            working_set,
+        }
+    }
+
     /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used, at
     /// the address its fragment names when it names one, and checks the peer against its host.
     fn dial(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
@@ -542,13 +557,29 @@ impl Links {
     }
 }
 
+/// The cap under a working set smaller than it. A peer's refusal is itself a reply, so a pool too
+/// small to decode one would turn the pool's own typed refusal into a decode error naming no pool.
+const LEAST_REPLY: usize = 64 * 1024;
+
+/// [`Links`] whose clients decode a peer's reply up to a working set's bytes or [`LEAST_REPLY`].
+/// The only [`ChannelResolver`] over them, reached through [`Links::bounded`], so a caller names the
+/// working set a reply is capped at; a [`WorkingSet`] near `usize::MAX` is still no cap in practice.
+#[derive(Clone)]
+struct Bounded {
+    links: Links,
+    working_set: WorkingSet,
+}
+
 #[async_trait::async_trait]
-impl ChannelResolver for Links {
+impl ChannelResolver for Bounded {
     async fn get_worker_client_for_url(&self, url: &Url) -> Result<Box<dyn WorkerChannel>, DataFusionError> {
-        let channel = match self.channels.lock().await.entry(url.clone()) {
+        let channel = match self.links.channels.lock().await.entry(url.clone()) {
             Entry::Occupied(kept) => kept.get().clone(),
-            Entry::Vacant(unseen) => unseen.insert(self.dial(url)?).clone(),
+            Entry::Vacant(unseen) => unseen.insert(self.links.dial(url)?).clone(),
         };
-        Ok(create_worker_client(channel))
+        Ok(create_worker_client_with_decode_limit(
+            channel,
+            self.working_set.bytes().max(LEAST_REPLY),
+        ))
     }
 }
