@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Int64Array, RecordBatch};
+use arrow_flight::flight_descriptor::DescriptorType;
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
 use sutura_domain::plan::LegWire;
 use sutura_flight::request_stream;
@@ -39,7 +40,7 @@ mod tests {
                     .expect("the encoder emits a descriptor")
                     .expect("encoding succeeds");
                 let descriptor = first.flight_descriptor.expect("the first message carries the descriptor");
-                assert_eq!(descriptor.r#type, 1);
+                assert_eq!(descriptor.r#type(), DescriptorType::Cmd);
                 assert!(!descriptor.cmd.is_empty());
             });
     }

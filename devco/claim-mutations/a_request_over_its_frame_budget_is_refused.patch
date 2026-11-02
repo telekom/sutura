@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
-index f50e006e..3310fef3 100644
+index d8d185ca9..3e3200373 100644
 --- a/crates/sutura-flight/src/receive.rs
 +++ b/crates/sutura-flight/src/receive.rs
-@@ -71,7 +71,7 @@ where
+@@ -69,7 +69,7 @@ where
      let mut remaining = frame_budget
          .get()
          .checked_sub(descriptor.cmd.len())

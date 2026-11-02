@@ -4,7 +4,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Int64Array, RecordBatch};
-use arrow_flight::{FlightData, FlightDescriptor, error::FlightError};
+use arrow_flight::{
+    FlightData, FlightDescriptor, encode::FlightDataEncoderBuilder, error::FlightError, flight_descriptor::DescriptorType,
+};
 use futures_util::{TryStreamExt as _, stream};
 use sutura_domain::plan::LegWire;
 use sutura_flight::{ReceiveError, descriptor, receive_request, request_stream};
@@ -12,8 +14,6 @@ use sutura_flight::{ReceiveError, descriptor, receive_request, request_stream};
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const COMMAND_DESCRIPTOR: i32 = 1;
 
     fn leg() -> LegWire {
         serde_json::from_value(serde_json::json!({
@@ -71,6 +71,37 @@ mod tests {
         assert_eq!(received_batch, batch());
     }
 
+    /// Sutura's own wire value, not merely a shape sutura happens to accept from itself: a Flight
+    /// descriptor's `type` is a protocol-defined enum, and labelling a command as `Path` (1)
+    /// instead of `Cmd` (2) is a wire break a standard peer would read literally.
+    #[test]
+    fn the_emitted_descriptor_is_a_flight_command() {
+        assert_eq!(
+            descriptor(&leg()).expect("the fixture leg encodes a descriptor").r#type(),
+            DescriptorType::Cmd
+        );
+    }
+
+    /// A descriptor built by arrow-flight's own [`FlightDescriptor::new_cmd`] - not sutura's
+    /// [`descriptor`] - must be accepted the same way: the receiver reads the protocol's type
+    /// field, not a value only sutura's own encoder happens to write.
+    #[test]
+    fn a_standard_flight_command_descriptor_is_accepted() {
+        let (descriptor_limit, frame_budget) = generous_limits();
+        let cmd = serde_json::to_vec(&leg()).expect("the fixture leg encodes as json");
+        let encoded = FlightDataEncoderBuilder::new()
+            .with_flight_descriptor(Some(FlightDescriptor::new_cmd(cmd)))
+            .build(stream::iter([Ok(batch())]));
+        let frames: Vec<FlightData> = run(async { encoded.try_collect().await.expect("encoding succeeds") });
+        let (received_leg, received_batch) = run(async {
+            receive_request(stream::iter(frames.into_iter().map(Ok)), descriptor_limit, frame_budget)
+                .await
+                .expect("a standard Flight command descriptor is accepted")
+        });
+        assert_eq!(received_leg, leg());
+        assert_eq!(received_batch, batch());
+    }
+
     #[test]
     fn an_empty_stream_is_refused() {
         let (descriptor_limit, frame_budget) = generous_limits();
@@ -105,7 +136,7 @@ mod tests {
         // A path-bearing descriptor: the protocol carries a typed leg as command bytes only.
         let path_descriptor = FlightData {
             flight_descriptor: Some(FlightDescriptor {
-                r#type: COMMAND_DESCRIPTOR,
+                r#type: DescriptorType::Cmd.into(),
                 cmd: Vec::new().into(),
                 path: vec![String::from("orders")],
             }),
@@ -138,7 +169,7 @@ mod tests {
         let mut frames = encode(&leg(), vec![batch()]);
         let second = frames.get_mut(1).expect("the encoding carries more than one frame");
         second.flight_descriptor = Some(FlightDescriptor {
-            r#type: COMMAND_DESCRIPTOR,
+            r#type: DescriptorType::Cmd.into(),
             cmd: Vec::new().into(),
             path: Vec::new(),
         });
@@ -156,7 +187,7 @@ mod tests {
         let frame_budget = NonZeroUsize::new(1 << 20).expect("nonzero");
         let oversized = FlightData {
             flight_descriptor: Some(FlightDescriptor {
-                r#type: COMMAND_DESCRIPTOR,
+                r#type: DescriptorType::Cmd.into(),
                 cmd: vec![0_u8; 2].into(),
                 path: Vec::new(),
             }),
@@ -250,7 +281,7 @@ mod tests {
         ] {
             let frame = FlightData {
                 flight_descriptor: Some(FlightDescriptor {
-                    r#type: COMMAND_DESCRIPTOR,
+                    r#type: DescriptorType::Cmd.into(),
                     cmd: cmd.into(),
                     path: Vec::new(),
                 }),
