@@ -3,11 +3,9 @@
 use std::num::NonZeroUsize;
 
 use arrow_array::RecordBatch;
-use arrow_flight::{FlightData, decode::FlightRecordBatchStream, error::FlightError};
+use arrow_flight::{FlightData, decode::FlightRecordBatchStream, error::FlightError, flight_descriptor::DescriptorType};
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _, stream};
 use sutura_domain::plan::LegWire;
-
-use crate::COMMAND_DESCRIPTOR;
 
 /// A closed framing refusal. Peer-controlled JSON and Arrow errors are deliberately not rendered.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -62,7 +60,7 @@ where
         .ok_or(ReceiveError::Empty)?
         .map_err(|_| ReceiveError::Parameters)?;
     let descriptor = first.flight_descriptor.take().ok_or(ReceiveError::Descriptor)?;
-    if descriptor.r#type != COMMAND_DESCRIPTOR || !descriptor.path.is_empty() {
+    if descriptor.r#type() != DescriptorType::Cmd || !descriptor.path.is_empty() {
         return Err(ReceiveError::Descriptor);
     }
     if descriptor.cmd.len() > descriptor_limit.get() {

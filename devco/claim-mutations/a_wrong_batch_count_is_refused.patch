@@ -1,8 +1,8 @@
 diff --git a/crates/sutura-flight/src/receive.rs b/crates/sutura-flight/src/receive.rs
-index f50e006e..7a8018db 100644
+index d8d185ca9..a86ed4c2e 100644
 --- a/crates/sutura-flight/src/receive.rs
 +++ b/crates/sutura-flight/src/receive.rs
-@@ -89,7 +89,7 @@ where
+@@ -87,7 +87,7 @@ where
          .try_next()
          .await
          .map_err(|_| ReceiveError::Parameters)?
