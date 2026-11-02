@@ -45,6 +45,9 @@ impl FederatedRowCeiling {
     /// The most rows any deployment may configure.
     pub const MAX: u32 = 1_000_000;
 
+    /// [`Self::MAX`], the loosest ceiling a deployment may configure.
+    pub const LOOSEST: Self = Self(Self::MAX);
+
     /// Parses an operator-chosen ceiling.
     pub const fn parse(rows: u32) -> Result<Self, InvalidFederatedRowCeiling> {
         if rows == 0 {

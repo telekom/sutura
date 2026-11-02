@@ -679,7 +679,7 @@ mod combine;
 
 pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 #[cfg(feature = "distributed")]
-pub use crate::combine::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant};
+pub use crate::combine::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant, WorkerRefusal};
 
 /// How wide the engine runs, in its own file for the same reason.
 #[cfg(test)]

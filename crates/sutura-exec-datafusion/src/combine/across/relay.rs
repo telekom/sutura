@@ -15,7 +15,9 @@
 //! - A code a node wraps in an Arrow error or an external one crosses its next link as text, which
 //!   is not read, and stays the engine's failure. So does a code in a collection of errors past its
 //!   first, and a code carried as an error's message rather than its context.
-//! - No stage raises a code yet: the worker's row ceiling is the first that will.
+//! - One stage raises a code: a task of a question's final stage past the worker's row ceiling. That
+//!   count is per task, so tasks that each stay under the ceiling can sum past it, which only the
+//!   planning node's own exact count refuses.
 
 use std::sync::Arc;
 
@@ -29,10 +31,6 @@ const ROWS_OVER_CEILING: &str = "sutura.refusal.rows-over-ceiling";
 
 /// `cause` as a stage's refusal for rows past the federated row ceiling, as the node that planned the
 /// question reads it back.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no stage raises a relayed refusal yet; the worker's row ceiling will")
-)]
 pub(crate) fn over_ceiling(cause: DataFusionError) -> DataFusionError {
     DataFusionError::Context(String::from(ROWS_OVER_CEILING), Box::new(cause))
 }

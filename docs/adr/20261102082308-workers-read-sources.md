@@ -141,7 +141,7 @@ is the proposal's.
 | Which limits ride in the limit shares beyond the federated ceiling     | The per-stream bound only. A worker's memory limits stay its own configuration's                                                                                                                                                                      |
 | Who can sign a source-reading grant                                    | A key per reading task, sent only to the worker that reads it, so a node that holds the question's key cannot sign a read it was not given                                                                                                            |
 | Which refusal reports a failed re-certification                        | `RemoteLegNotCertified`, naming the source, as for a remote leg                                                                                                                                                                                       |
-| How a worker's refusal reaches the caller                              | A typed code in the link's failure status. Today a failure relayed from another node arrives as text and stays an internal error                                                                                                                      |
+| How a worker's refusal reaches the caller                              | A typed code in the link's failure status. The row-ceiling refusal crosses as that code and reaches the caller as `RowsOverCeiling`; any other failure relayed from another node still arrives as text and stays an internal error                    |
 
 ## The refusals this adds
 

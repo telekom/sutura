@@ -763,3 +763,8 @@ mod decode;
 /// A stage another node refused over the federated row ceiling, relayed across its link.
 #[cfg(test)]
 mod relayed;
+
+/// A final-stage task over the federated row ceiling, refused typed across a link. A bare `mod`, as
+/// this file is test code already: the causality gate's base run reverts this line, and the cell,
+/// which names `Nodes::row_ceiling`, is not compiled there.
+mod over_ceiling;

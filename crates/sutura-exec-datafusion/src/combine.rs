@@ -98,7 +98,7 @@ mod schema;
 #[cfg(feature = "sql")]
 mod statement;
 #[cfg(feature = "distributed")]
-pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant};
+pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant, WorkerRefusal};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
@@ -403,6 +403,15 @@ impl DataFusionCombiner {
             context: None,
             nodes: Some(nodes),
         })
+    }
+
+    /// The same combiner, its nodes failing a task of a question's final stage once its rows pass
+    /// `ceiling` ([`Nodes::row_ceiling`]). A combiner on this node alone is unchanged.
+    #[cfg(feature = "distributed")]
+    #[must_use]
+    pub fn row_ceiling(mut self, ceiling: sutura_domain::plan::FederatedRowCeiling) -> Self {
+        self.nodes = self.nodes.take().map(|nodes| nodes.row_ceiling(ceiling));
+        self
     }
 
     /// The same combiner, keyed to one subject asking of one source.

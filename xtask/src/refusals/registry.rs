@@ -189,9 +189,27 @@ const POOL: Subject = Subject {
     variants: variants(3),
 };
 
+/// One refused final-stage task: its rows passed the federated row ceiling on the worker running it.
+const WORKER: Subject = Subject {
+    name: "WorkerRefusal",
+    declared_in: "crates/sutura-exec-datafusion/src/combine/across/ceiling.rs",
+    allow_file: "devco/worker-refusals-unprovoked-allow",
+    variants: variants(1),
+};
+
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s
 /// module doc for the direction this list does NOT hold.
-pub(super) const ENROLLED: [&Subject; 8] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS, &DELEGATION, &API_GROUP, &POOL];
+pub(super) const ENROLLED: [&Subject; 9] = [
+    &QUERY,
+    &STARTUP,
+    &VALIDATION,
+    &RAW,
+    &TLS,
+    &DELEGATION,
+    &API_GROUP,
+    &POOL,
+    &WORKER,
+];
 
 /// Two subjects sharing one allow file would share their exceptions, and
 /// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids
