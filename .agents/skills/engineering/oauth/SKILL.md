@@ -71,7 +71,7 @@ The intent is that every query runs as the calling principal. Concretely:
 `sutura_domain::identity::CredentialBroker` is the credential port, with production implementors in
 `sutura-config` (`StaticCredentialBroker`, `DeclaredPrincipalBroker`). On ClickHouse the declared
 map names the user each statement runs as (`EXECUTE AS`). On Oracle each question's session opens
-with the caller's own verified token, and the database runs it as the user it maps that token to. On BigQuery the caller's own
+with the caller's own verified token, for the database to run it as the user it maps that token to; no run has shown a database do so, and Oracle is supported as `shared-service-user` only, for now. On BigQuery the caller's own
 verified assertion is federated through the declared pool, and the federated token is that
 subject's own pool principal. That federation IS an RFC 8693 token exchange, at Google's STS -
 performed by sutura's `GoogleSts`, which hands the driver only the access token, with no

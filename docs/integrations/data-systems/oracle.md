@@ -1,6 +1,6 @@
 ---
 title: Oracle
-description: Answer questions over an Oracle Database as one declared user, or as each caller with their own token.
+description: Answer questions over an Oracle Database as one declared user. Running as each caller with their own token is built and not verified.
 ---
 
 # Oracle
@@ -11,10 +11,12 @@ source kind is `oracle`. The adapter is built with the `oracle` feature.
 
 ## When to use it
 
-- Your data is in an Oracle Database that accepts OAuth 2.0 access tokens, each caller has their
-  own database user, and each query must run with the permissions of that user.
-- Your data is in an Oracle Database, and one database user may read it for all callers.
+- Your data is in an Oracle Database, and one database user may read it for all callers. This is
+  the supported posture, `shared-service-user`.
 
+`impersonation-at-source` is built and not verified, so it is not supported yet (see
+[Identity](#identity)). It is for an Oracle Database that accepts OAuth 2.0 access tokens, where
+each caller has their own database user and each query must run with the permissions of that user.
 Oracle Database 19.18 or later (not 21c) accepts these tokens.
 
 ## Settings
@@ -44,9 +46,26 @@ it logs in, so declare the address that answers.
 
 ## Example
 
-Each caller with their own database user. The caller signs in to Keycloak through Microsoft Entra
-ID. Keycloak sends back the caller's Entra ID token, and Entra ID exchanges it for a token for the
-database:
+One database user for every caller:
+
+```yaml
+sources:
+  warehouse:
+    kind: "oracle"
+    host: "127.0.0.1"
+    port: 2484
+    service_name: "FREEPDB1"
+    user: "sutura"
+    password_file: "/run/secrets/oracle-password"
+    transport_mode: "verified"
+    transport_anchors: "/run/secrets/oracle-ca.pem"
+    posture: "shared-service-user"
+    acknowledged_because: "one read-only Oracle user for every caller"
+```
+
+Each caller with their own database user, which is built and not verified (see
+[Identity](#identity)). The caller signs in to Keycloak through Microsoft Entra ID. Keycloak sends
+back the caller's Entra ID token, and Entra ID exchanges it for a token for the database:
 
 ```yaml
 sources:
@@ -83,26 +102,21 @@ sources:
 - `22222222-…` is the Entra ID app of the database. Each caller has their own database user, for
   example `CREATE USER caller IDENTIFIED GLOBALLY AS 'AZURE_USER=user@example.com';`.
 
-One database user for every caller:
-
-```yaml
-sources:
-  warehouse:
-    kind: "oracle"
-    host: "127.0.0.1"
-    port: 2484
-    service_name: "FREEPDB1"
-    user: "sutura"
-    password_file: "/run/secrets/oracle-password"
-    transport_mode: "verified"
-    transport_anchors: "/run/secrets/oracle-ca.pem"
-    posture: "shared-service-user"
-    acknowledged_because: "one read-only Oracle user for every caller"
-```
-
 ## Identity
 
-This data system supports `impersonation-at-source` and `shared-service-user`.
+The supported posture is `shared-service-user`. sutura connects as the one user in `user`, and
+every caller's query runs with the permissions of that user.
+
+sutura refuses to start when the Oracle driver's packet trace is switched on.
+
+### Each caller with their own token
+
+!!! warning "Built, not verified"
+
+    sutura accepts `impersonation-at-source` on Oracle and does what this section describes. No run
+    has shown an Oracle database executing a query as the caller: the tests record the token that
+    sutura sends to a fake listener, and no test environment runs an Oracle that accepts a token.
+    Until a run shows it, this posture is not supported.
 
 With `impersonation-at-source`, each caller must exist in Oracle. Each caller has their own
 database user, and the query runs with the permissions of that user. sutura exchanges the token
@@ -123,8 +137,3 @@ query ends.
 
 The database can also map the tokens of many callers to one shared schema. The query then runs with
 the shared schema's grants plus the global roles that the database maps from the caller's token.
-
-With `shared-service-user`, sutura connects as the one user in `user`. Every caller's query runs
-with the permissions of that user.
-
-sutura refuses to start when the Oracle driver's packet trace is switched on.

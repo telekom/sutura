@@ -43,15 +43,15 @@ All entries must have the same `version`. A key that sutura does not know is an 
 
 ## Data systems
 
-| Data system                                                   | `kind`       | Identity of the query                               |
-| ------------------------------------------------------------- | ------------ | --------------------------------------------------- |
-| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura                 |
-| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura                 |
-| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account    |
-| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                   |
-| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller    |
-| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user, or the caller's own token        |
-| [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token |
+| Data system                                                   | `kind`       | Identity of the query                                               |
+| ------------------------------------------------------------- | ------------ | ------------------------------------------------------------------- |
+| [DataFusion (files)](integrations/data-systems/datafusion.md) | `files`      | The operating-system user of sutura                                 |
+| [DuckDB](integrations/data-systems/duckdb.md)                 | `duckdb`     | The operating-system user of sutura                                 |
+| [BigQuery](integrations/data-systems/bigquery.md)             | `bigquery`   | One service account, or the caller's own account                    |
+| [PostgreSQL](integrations/data-systems/postgres.md)           | `postgres`   | One declared role                                                   |
+| [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller                    |
+| [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user. The caller's own token is built and not verified |
+| [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token                 |
 
 Cube runs its warehouse query with the database identity in its own driver settings
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
@@ -65,13 +65,13 @@ user or with a caller's `delegation` token, never through `EXECUTE AS`.
 The data systems are a map under `sources:`. The key is the alias that a model names in `source:`.
 Every entry has these keys:
 
-| Key                     | Type   | Default  | Meaning                                                                                                                                      |
-| ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse`, `oracle` or `cube`                                                                  |
-| `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery, ClickHouse and Oracle) |
-| `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`                     |
-| `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                                     |
-| `workload_identity`     | block  | not set  | The token exchange of an `impersonation-at-source` source. See [BigQuery](integrations/data-systems/bigquery.md)                             |
+| Key                     | Type   | Default  | Meaning                                                                                                                                                                                            |
+| ----------------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`                  | string | required | `files`, `duckdb`, `bigquery`, `postgres`, `clickhouse`, `oracle` or `cube`                                                                                                                        |
+| `posture`               | string | required | `shared-service-user`: one identity for every caller. `impersonation-at-source`: the caller's own identity (BigQuery and ClickHouse; on Oracle it is built and not verified, so not supported yet) |
+| `acknowledged_because`  | text   | not set  | Your reason to serve one identity to every caller. Required for a shared source when `security.identity` is `multi-user`                                                                           |
+| `verification_identity` | text   | not set  | The identity that checks anchors at startup. Only on an `impersonation-at-source` source                                                                                                           |
+| `workload_identity`     | block  | not set  | The token exchange of an `impersonation-at-source` source. See [BigQuery](integrations/data-systems/bigquery.md)                                                                                   |
 
 `security.identity` is required as soon as one source is declared: `single-user` with
 `security.single_user_because`, or `multi-user`. In `single-user` mode, the reason in
