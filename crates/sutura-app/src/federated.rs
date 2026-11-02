@@ -39,7 +39,7 @@
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::plan::{Ceilings, ExecuteError, FederatedPlan, FederationCombiner, LegPlan};
+use sutura_domain::plan::{Ceilings, ExecuteError, FederatedPlan, FederatedRowCeiling, FederationCombiner, LegPlan};
 use sutura_domain::query::{RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::deadline::Deadline;
@@ -206,7 +206,8 @@ where
     // **The combine.** The row cap applies to the ANSWER and not to a leg - a leg carries none - and
     // a leg's refusal wins over a combine failure; see [`settled`].
     let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
-    let assembled = match settled::<W, B, C>(combiner, &credentials, combiner.execute(cut, &runner, working_set_bytes)) {
+    let executed = combiner.execute(cut, &runner, working_set_bytes);
+    let assembled = match settled::<W, B, C>(combiner, &credentials, executed, ceilings.federated()) {
         Ok(batches) => batches,
         Err(done) => return *done,
     };
@@ -317,8 +318,17 @@ where
 /// What a combine produced, or the answer a failure of it is.
 ///
 /// A leg's refusal wins over a combine failure, and a combine failure is a refusal whenever
-/// [`governed::refusal`] reads one off it.
-fn settled<W, B, C>(combiner: &C, credentials: &BoundToTheRequest, executed: Ran<W, B, C>) -> Settled<W, B, C>
+/// [`governed::refusal_within`] reads one off it under `ceiling`.
+///
+/// **The limit:** a ranked question another node refused over `ceiling` is answered
+/// `ResultTooLarge`, where [`ranked_answer`] counting the same rows here reads the `top` ceiling
+/// first and may answer `TopOverUncertifiedRows`.
+fn settled<W, B, C>(
+    combiner: &C,
+    credentials: &BoundToTheRequest,
+    executed: Ran<W, B, C>,
+    ceiling: FederatedRowCeiling,
+) -> Settled<W, B, C>
 where
     W: Warehouse,
     B: CredentialBroker,
@@ -334,7 +344,7 @@ where
         }
         Err(ExecuteError::Combine(cause)) => cause,
     };
-    Err(Box::new(governed::refusal(combiner, &cause).map_or_else(
+    Err(Box::new(governed::refusal_within(combiner, &cause, ceiling).map_or_else(
         || Err(ServiceError::Combine { cause }),
         |reason| Ok(Answered::refused(credentials, reason)),
     )))

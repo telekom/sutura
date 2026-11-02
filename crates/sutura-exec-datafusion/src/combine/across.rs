@@ -63,8 +63,14 @@
 //!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
 //!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
-//!   [`CombineError::Execute`]. A cell loses a node nothing listens on and one that drops its
-//!   connection under a call, over plain TCP; the multi-node VM check kills one while it answers.
+//!   [`CombineError::Execute`], unless the failure carries the code of a stage a node refused for
+//!   rows past the federated row ceiling, which leaves as [`CombineError::RowsOverCeiling`]. A cell
+//!   loses a node nothing listens on and one that drops its connection under a call, over plain
+//!   TCP; the multi-node VM check kills one while it answers.
+//! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
+//!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
+//!   in an Arrow or an external error crosses its next link as text and stays a failure, and no
+//!   stage raises one yet.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -121,6 +127,11 @@ mod wait;
 mod grant;
 
 pub use grant::TaskGrant;
+
+/// A refusal another node raised in a stage, read back off the failure its link relays.
+mod relay;
+
+pub(super) use relay::relayed;
 
 #[cfg(test)]
 mod lost;

@@ -71,6 +71,7 @@ where
         combiner,
         &credentials,
         combiner.execute_across(plan, &runner, working_set_bytes),
+        ceilings.federated(),
     ) {
         Ok(batches) => batches,
         Err(done) => return *done,
