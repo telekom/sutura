@@ -52,47 +52,52 @@ Off-host means that callers can arrive from other hosts: a non-loopback `server.
 hop, a `security.tls_termination` of `sidecar` or `ingress`, or a `server.allowed_hosts` entry that is not a loopback
 address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` and `/mcp` use this one rule.
 
-| Configuration                                                                                                       | What to do                                                                                  |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| A bind address that other hosts can reach, and no `security.tls_termination`                                        | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
-| No `security.access_token` and no `security.inbound` on a serving node, in production or off-host                   | Set one of them                                                                             |
-| `security.access_token` together with `security.inbound.mode: direct`                                               | Remove one: both use `Authorization: Bearer`                                                |
-| `security.access_token` together with `behind-gateway` and `transit_header: authorization`                          | Remove one: both use `Authorization: Bearer`                                                |
-| `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                                | Set `security.metrics_token`                                                                |
-| `security.metrics_token` equal to `security.access_token`                                                           | Use two values                                                                              |
-| `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one     | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
-| `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`               | Declare `security.inbound`                                                                  |
-| No `security.inbound` and `security.identity` is not `single-user`                                                  | Declare `security.inbound`, or `single-user` with its reason                                |
-| No `security.inbound` and a source with `impersonation-at-source`                                                   | Declare `security.inbound`                                                                  |
-| A `security.inbound` block with no `mode`                                                                           | Write `direct` or `behind-gateway`                                                          |
-| `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families               | Name algorithms of one asymmetric key family                                                |
-| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                        | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
-| A key set with no key of the kind that `security.inbound.algorithms` needs                                          | Add a key of that kind, or change the algorithms                                            |
-| `behind-gateway` with no `security.inbound.transit_token_type`                                                      | Write the `typ` of the gateway, or `any`                                                    |
-| `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`         | Use a value in range, or accept the long lifetime by name                                   |
-| `security.inbound.key_set_max_stale_seconds` outside 300 to 86400                                                   | Use a value in range                                                                        |
-| `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                                | Keep the default `at+jwt`, or accept `any` by name                                          |
-| A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`              | Name the real proxy hops                                                                    |
-| `rate_limit.enabled: false`, in production or off-host                                                              | Set `rate_limit.enabled: true`                                                              |
-| `server.role: worker` and a `sources` entry                                                                         | Remove the sources. A worker reads none                                                     |
-| `server.role: worker` and `catalogs` in a file or a variable                                                        | Remove the catalogs                                                                         |
-| `server.role: worker` or `reading-worker` and no `server.tls_node_authority`                                        | Set it ([a worker node](#a-worker-node))                                                    |
-| `server.role: worker` or `reading-worker` and `server.agent_surface.enabled`                                        | Remove the switch                                                                           |
-| `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                       | Remove the switch                                                                           |
-| `server.role: reading-worker` and no `sources` entry                                                                | Declare the sources it reads, or use `worker`                                               |
-| `server.role: reading-worker` and no `catalogs` in a file or a variable                                             | Declare the catalog                                                                         |
-| `server.port: 0` in production                                                                                      | Set a port                                                                                  |
-| An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                    | Fix the name                                                                                |
-| A configured source and no `security.identity`                                                                      | Write `single-user` or `multi-user`                                                         |
-| A `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                  | Write the reason on the source                                                              |
-| A source that the catalog reads and no `sources.<alias>` entry declares                                             | Declare the source                                                                          |
-| `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                     | Use a posture the adapter supports                                                          |
-| An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                      | Declare `verification_identity`, or remove the anchor                                       |
-| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one  | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
-| `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements | List the sources the tool runs over, each one whose adapter runs a raw statement            |
-| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                    | Remove them from `security.outbound`, or serve that source from a deployment without them   |
-| A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                         | The message names the feature. Use a build that has it                                      |
-| `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                  | Lower the wait                                                                              |
+| Configuration                                                                                                                     | What to do                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| A bind address that other hosts can reach, and no `security.tls_termination`                                                      | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
+| No `security.access_token` and no `security.inbound` on a serving node, in production or off-host                                 | Set one of them                                                                             |
+| `security.access_token` together with `security.inbound.mode: direct`                                                             | Remove one: both use `Authorization: Bearer`                                                |
+| `security.access_token` together with `behind-gateway` and `transit_header: authorization`                                        | Remove one: both use `Authorization: Bearer`                                                |
+| `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                                              | Set `security.metrics_token`                                                                |
+| `security.metrics_token` equal to `security.access_token`                                                                         | Use two values                                                                              |
+| `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one                   | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
+| `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`                             | Declare `security.inbound`                                                                  |
+| No `security.inbound` and `security.identity` is not `single-user`                                                                | Declare `security.inbound`, or `single-user` with its reason                                |
+| No `security.inbound` and a source with `impersonation-at-source`                                                                 | Declare `security.inbound`                                                                  |
+| A `security.inbound` block with no `mode`                                                                                         | Write `direct` or `behind-gateway`                                                          |
+| `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families                             | Name algorithms of one asymmetric key family                                                |
+| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                                      | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
+| A key set with no key of the kind that `security.inbound.algorithms` needs                                                        | Add a key of that kind, or change the algorithms                                            |
+| `behind-gateway` with no `security.inbound.transit_token_type`                                                                    | Write the `typ` of the gateway, or `any`                                                    |
+| `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`                       | Use a value in range, or accept the long lifetime by name                                   |
+| `security.inbound.key_set_max_stale_seconds` outside 300 to 86400                                                                 | Use a value in range                                                                        |
+| `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                                              | Keep the default `at+jwt`, or accept `any` by name                                          |
+| A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`                            | Name the real proxy hops                                                                    |
+| `rate_limit.enabled: false`, in production or off-host                                                                            | Set `rate_limit.enabled: true`                                                              |
+| `server.role: worker` and a `sources` entry                                                                                       | Remove the sources. A worker reads none                                                     |
+| `server.role: worker` and `catalogs` in a file or a variable                                                                      | Remove the catalogs                                                                         |
+| `server.role: worker` or `reading-worker` and no `server.tls_node_authority`                                                      | Set it ([a worker node](#a-worker-node))                                                    |
+| `server.role: worker` or `reading-worker` and `server.agent_surface.enabled`                                                      | Remove the switch                                                                           |
+| `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                                     | Remove the switch                                                                           |
+| `server.role: reading-worker` and no `sources` entry                                                                              | Declare the sources it reads, or use `worker`                                               |
+| `server.role: reading-worker` and no `catalogs` in a file or a variable                                                           | Declare the catalog                                                                         |
+| `server.port: 0` in production                                                                                                    | Set a port                                                                                  |
+| An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                                  | Fix the name                                                                                |
+| A configured source and no `security.identity`                                                                                    | Write `single-user` or `multi-user`                                                         |
+| A `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                                | Write the reason on the source                                                              |
+| A source that the catalog reads and no `sources.<alias>` entry declares                                                           | Declare the source                                                                          |
+| `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                                   | Use a posture the adapter supports                                                          |
+| An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                                    | Declare `verification_identity`, or remove the anchor                                       |
+| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one                | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
+| `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements               | List the sources the tool runs over, each one whose adapter runs a raw statement            |
+| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                                  | Remove them from `security.outbound`, or serve that source from a deployment without them   |
+| A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                                       | The message names the feature. Use a build that has it                                      |
+| `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                                | Lower the wait                                                                              |
+| A peer in `server.nodes.others` with an unknown `role`, or `role: "serving"`                                                      | Use `worker` or `reading-worker`                                                            |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` with no `sources`, or `role: "worker"` with any                   | Name the sources a reading-worker reads; remove them from a worker                          |
+| Two `server.nodes.others` peers naming the same origin, or one naming this node's own `own` address                               | Remove the duplicate, or the self-reference                                                 |
+| A `server.nodes` address with a path, query, userinfo or a fragment that is not an IP address                                     | Use the bare `https://host:port` origin, or `#<ip>` to dial it at that address              |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` reading a source this deployment's own `sources` does not declare | Declare the source here too, or remove it from the peer's list                              |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
 refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
@@ -347,7 +352,12 @@ server:
   tls_node_authority: "/tls/nodes-ca.pem"
   nodes:
     own: "https://node-a.example.com:8443"
-    others: ["https://node-b.example.com:8443"]
+    others:
+      - url: "https://node-b.example.com:8443"
+        role: "worker"
+      - url: "https://node-c.example.com:8443"
+        role: "reading-worker"
+        sources: ["warehouse"]
     across_above_bytes: 268435456
     wait_for_workers_seconds: 10
 ```
@@ -356,6 +366,15 @@ server:
 `server.tls_node_authority`. The pair is this node's identity twice: the listener presents it, and so does every link
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.
+
+Each peer under `others` names its `role` (`worker` or `reading-worker`, never `serving`) and, for a `reading-worker`,
+the source aliases it reads - a `worker` naming any is refused, and a `reading-worker` naming none is. Every address is
+a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other
+fragment is refused. Two peers naming the same origin, or a peer naming this
+node's own `own` address, is refused. A `reading-worker`'s source alias that this deployment's own `sources:` does not
+declare is refused too, once the posture check runs.
+
+The chart renders only `worker` peers under `others` today; a `reading-worker` peer declared this way is written by hand.
 
 A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at

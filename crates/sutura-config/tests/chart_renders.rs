@@ -372,10 +372,8 @@ mod tests {
             .tls()
             .and_then(TlsMaterial::nodes)
             .expect("the serving pod declares nodes");
-        assert_eq!(
-            nodes.others().iter().map(url::Url::as_str).collect::<Vec<_>>(),
-            ["https://test-release-workers.default.svc:8080/"]
-        );
+        let peer_urls: Vec<&str> = nodes.others().iter().map(|node| node.url().as_str()).collect();
+        assert_eq!(peer_urls, ["https://test-release-workers.default.svc:8080/"]);
     }
 
     #[test]

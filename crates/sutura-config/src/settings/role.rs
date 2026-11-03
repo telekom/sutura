@@ -61,6 +61,37 @@ pub(super) fn worker_refusals(settings: &Settings) -> Vec<NotFitToServe> {
     refusals
 }
 
+/// Every declared peer's source alias that this deployment's own `sources:` section does not
+/// declare - `#828`'s cross-field check, over the already-parsed [`crate::sources::SourceRegistry`]
+/// a per-field `TlsMaterial` parse cannot see.
+///
+/// **Only for `ServerRole::Serving`.** A `worker` or `reading-worker` reads `server.nodes` for the
+/// same peers a serving node declares - its own entry among them is a `worker` or `reading-worker`
+/// too - so without this guard a worker whose peers include a `reading-worker` reading a source the
+/// worker itself never declares (workers declare none, by `#828`'s decision 7) would be refused for
+/// a fact that describes a different node, not this one.
+pub(super) fn declared_node_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+    if settings.server.role() != ServerRole::Serving {
+        return Vec::new();
+    }
+    let Some(nodes) = settings.server.tls().and_then(crate::server::TlsMaterial::nodes) else {
+        return Vec::new();
+    };
+    nodes
+        .others()
+        .iter()
+        .flat_map(|node| {
+            node.sources()
+                .iter()
+                .filter(|alias| settings.sources.get(alias).is_none())
+                .map(|alias| NotFitToServe::DeclaredNodeReadsUndeclaredSource {
+                    url: node.url().to_string(),
+                    alias: alias.as_str().to_owned(),
+                })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod reading;
 #[cfg(test)]

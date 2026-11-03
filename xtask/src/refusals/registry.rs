@@ -111,8 +111,10 @@ const STARTUP: Subject = Subject {
     // `RunSqlFederationNotCompiledIn`, `tools.run_sql.federation_allowed` on a build with no SQL parser.
     // 35: `RunSqlListsNoSource`, the raw tool on with no source listed for it to run over. 37:
     // `ReadingWorkerWithoutSources` and `ReadingWorkerWithoutCatalog`, a `server.role:
-    // reading-worker` configuration that declares no source or no catalog.
-    variants: variants(37),
+    // reading-worker` configuration that declares no source or no catalog. 38:
+    // `DeclaredNodeReadsUndeclaredSource` (#828), a `server.nodes` peer naming a source alias this
+    // deployment's own `sources:` section does not declare.
+    variants: variants(38),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

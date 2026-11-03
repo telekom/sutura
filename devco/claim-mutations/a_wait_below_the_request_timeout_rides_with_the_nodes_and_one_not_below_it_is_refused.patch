@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-config/src/settings/posture.rs b/crates/sutura-config/src/settings/posture.rs
+--- a/crates/sutura-config/src/settings/posture.rs
++++ b/crates/sutura-config/src/settings/posture.rs
+@@ -591,7 +591,7 @@
+ pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToServe> {
+     let wait_seconds = server.tls()?.nodes()?.wait_for_workers()?.get();
+     let timeout_seconds = server.request_timeout().seconds();
+-    (u64::from(wait_seconds) >= timeout_seconds).then_some(NotFitToServe::WorkersWaitNotBelowDeadline {
++    (u64::from(wait_seconds) > timeout_seconds).then_some(NotFitToServe::WorkersWaitNotBelowDeadline {
+         wait_seconds,
+         timeout_seconds,
+     })

@@ -8,7 +8,7 @@
 use core::num::NonZeroU64;
 
 use crate::server::TlsMaterial;
-use crate::settings::{Environment, Settings, SettingsError, Sources};
+use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 
 const PAIR: &str = "server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n";
 
@@ -21,9 +21,13 @@ fn refusal(overlay: String) -> String {
     cause.to_string()
 }
 
+/// `#828`: a peer entry under `others` is now a map naming its `url`, `role` and the source
+/// aliases it reads - never a bare string.
+const WORKER_PEER: &str = "    others:\n      - url: \"https://b.example:8443\"\n        role: \"worker\"\n";
+
 #[test]
 fn nodes_declared_without_a_node_authority_are_refused() {
-    let nodes = "  nodes:\n    own: \"https://a.example:8443\"\n    others: [\"https://b.example:8443\"]\n";
+    let nodes = format!("  nodes:\n    own: \"https://a.example:8443\"\n{WORKER_PEER}");
     for overlay in [format!("{PAIR}{nodes}"), format!("server:\n{nodes}")] {
         assert_eq!(refusal(overlay), "server.nodes is set and server.tls_node_authority is not");
     }
@@ -33,7 +37,7 @@ fn nodes_declared_without_a_node_authority_are_refused() {
 fn a_node_address_that_is_not_https_is_refused_naming_it() {
     let overlay = format!(
         "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
-         others: [\"http://b.example:8443\"]\n"
+         others:\n      - url: \"http://b.example:8443\"\n        role: \"worker\"\n"
     );
     assert_eq!(
         refusal(overlay),
@@ -45,8 +49,8 @@ fn a_node_address_that_is_not_https_is_refused_naming_it() {
 fn a_leg_size_declared_with_the_nodes_rides_with_them_and_zero_is_refused() {
     let nodes = |above: u64| {
         Sources::defaults(Environment::Development).with_overlay(format!(
-            "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
-             others: [\"https://b.example:8443\"]\n    across_above_bytes: {above}\n\
+            "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n\
+             {WORKER_PEER}    across_above_bytes: {above}\n\
              security:\n  tls_termination: \"in-process\"\n"
         ))
     };
@@ -64,8 +68,8 @@ fn a_leg_size_declared_with_the_nodes_rides_with_them_and_zero_is_refused() {
 #[test]
 fn a_wait_for_workers_declared_with_the_nodes_loads() {
     let overlay = format!(
-        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
-         others: [\"https://b.example:8443\"]\n    wait_for_workers_seconds: 5\n\
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n\
+         {WORKER_PEER}    wait_for_workers_seconds: 5\n\
          security:\n  tls_termination: \"in-process\"\n"
     );
     let settings =
@@ -73,6 +77,33 @@ fn a_wait_for_workers_declared_with_the_nodes_loads() {
     assert!(
         settings.server().tls().and_then(TlsMaterial::nodes).is_some(),
         "the nodes are declared"
+    );
+}
+
+/// `#828`: a declared peer's source alias this node's own `sources:` does not declare is a posture
+/// refusal, not a parse-time one - `TlsMaterial::with_nodes` cannot see `sources:` to check it.
+#[test]
+fn a_declared_node_reading_an_undeclared_source_is_not_fit_to_serve() {
+    let overlay = format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
+         others:\n      - url: \"https://b.example:8443\"\n        role: \"reading-worker\"\n        \
+         sources:\n          - \"missing\"\nsecurity:\n  tls_termination: \"in-process\"\n"
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+        .expect_err("a peer reading a source this node never declares is refused");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal naming the undeclared source, got {error:?}");
+    };
+    assert_eq!(
+        refusals
+            .iter()
+            .filter(|&refusal| *refusal != NotFitToServe::InProcessTlsNotCompiledIn)
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![NotFitToServe::DeclaredNodeReadsUndeclaredSource {
+            url: String::from("https://b.example:8443/"),
+            alias: String::from("missing"),
+        }]
     );
 }
 

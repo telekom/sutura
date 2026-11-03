@@ -14,8 +14,10 @@ server:
   nodes:
     own: "https://127.0.0.1:8443"
     others:
-      - "https://127.0.0.1:8444"
-      - "https://127.0.0.1:8445"
+      - url: "https://127.0.0.1:8444"
+        role: "worker"
+      - url: "https://127.0.0.1:8445"
+        role: "worker"
     across_above_bytes: 1
     wait_for_workers_seconds: 5
 security:

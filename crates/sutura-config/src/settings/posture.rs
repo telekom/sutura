@@ -544,6 +544,12 @@ pub enum NotFitToServe {
          server.request_timeout_seconds ({timeout_seconds}). Lower the wait"
     )]
     WorkersWaitNotBelowDeadline { wait_seconds: u32, timeout_seconds: u64 },
+    /// A declared peer's source alias is not one this deployment's own `sources:` section
+    /// declares. `crate::server::InvalidTlsMaterial::InvalidSourceAlias` already refuses an alias
+    /// that is not a valid identifier at all; this is the cross-field check over the same alias,
+    /// read against `self.sources` - a fact `InvalidTlsMaterial`'s own per-field parse cannot see.
+    #[error("`{alias}` in server.nodes for `{url}` is not a source this deployment declares under `sources`")]
+    DeclaredNodeReadsUndeclaredSource { url: String, alias: String },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
