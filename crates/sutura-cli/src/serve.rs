@@ -193,8 +193,9 @@ pub(crate) fn run() -> Result<(), String> {
         sutura_config::config_dir_from_process(),
     ))
     .map_err(flatten)?;
-    // Neither worker role opens a catalog or a source, so nothing below is its boot. A
-    // `reading-worker`'s are parsed and checked by `Settings::load` and opened by nothing yet.
+    // Neither worker role runs the boot below: a `worker` opens nothing, having declared neither a
+    // catalog nor a source, and a `reading-worker` opens its own declared catalog and sources from
+    // inside `run_worker`, through the same constructors this root's own boot uses.
     match settings.server().role() {
         sutura_config::ServerRole::Serving => {}
         sutura_config::ServerRole::Worker | sutura_config::ServerRole::ReadingWorker => return run_worker(&settings),

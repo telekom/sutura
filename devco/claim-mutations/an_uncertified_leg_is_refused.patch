@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/plan/remote/certify.rs b/crates/sutura-domain/src/plan/remote/certify.rs
+index 05b8e4180..28260102e 100644
+--- a/crates/sutura-domain/src/plan/remote/certify.rs
++++ b/crates/sutura-domain/src/plan/remote/certify.rs
+@@ -512,7 +512,7 @@ fn certified_bucket(
+             grain,
+         });
+     }
+-    if time_column(definitions, declared, source).as_ref() != Some(column) {
++    if false && time_column(definitions, declared, source).as_ref() != Some(column) {
+         return Err(LegNotCertified::BucketNotTimeColumn {
+             metric: declared.name().clone(),
+             table: column.table().clone(),

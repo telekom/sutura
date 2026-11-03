@@ -825,6 +825,14 @@ pub use raw::{AnsweredRaw, RunSqlError, RunSqlScope, RunningRaw, run_sql};
 mod remote_leg;
 pub use remote_leg::{RanRemoteLeg, RunningRemoteLeg, run_remote_leg};
 
+// `docs/adr/20261102082308-workers-read-sources.md` Decision 5's reading-worker re-certification -
+// carved out for the same reason `remote_leg` is, and sharing its one refusal rather than copying
+// it (see `remote_leg::leg_not_certified`'s own doc comment).
+//
+// **Private, not `pub`**, for `run_sql`'s own reason above.
+mod reading_worker;
+pub use reading_worker::recertify_leg;
+
 /// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own
 /// `RefusalReason`.
 ///

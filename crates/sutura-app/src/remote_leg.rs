@@ -99,12 +99,23 @@ impl RanRemoteLeg {
 pub type RunningRemoteLeg<W, B, C> =
     Result<RanRemoteLeg, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>>;
 
-/// The refusal this module gives for a source it will not even try to parse `leg` against: not
-/// configured, not certified against this node's own pin, or refused by Decision 7's posture
-/// check - all one closed code, naming only the source.
+/// The one closed refusal for a leg this node will not run: not configured, not certified against
+/// this node's own pin, or refused by Decision 7's posture check - all collapse to naming only the
+/// source, so a sender learns nothing about which case applies.
+///
+/// **Shared with [`crate::reading_worker`]**, which runs the same collapse for a reading worker's
+/// own re-certification (`docs/adr/20261102082308-workers-read-sources.md` Decision 5) - lifted
+/// here rather than copied, so the one place deciding what this refusal names cannot drift between
+/// the two callers.
+pub(crate) const fn leg_not_certified(source: sutura_domain::model::SourceName) -> RefusalReason {
+    RefusalReason::RemoteLegNotCertified { source }
+}
+
+/// The refusal this module gives for a source it will not even try to parse `leg` against - this
+/// path's own [`RemoteLegOutcome`] around [`leg_not_certified`].
 const fn not_certified(source: sutura_domain::model::SourceName) -> RemoteLegOutcome {
     RemoteLegOutcome::Refusal {
-        reason: RefusalReason::RemoteLegNotCertified { source },
+        reason: leg_not_certified(source),
     }
 }
 

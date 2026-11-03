@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-app/src/reading_worker.rs b/crates/sutura-app/src/reading_worker.rs
+index 3a89a5f2a..2217054a9 100644
+--- a/crates/sutura-app/src/reading_worker.rs
++++ b/crates/sutura-app/src/reading_worker.rs
+@@ -50,6 +50,8 @@ where
+     W: Warehouse,
+ {
+     let source = leg.source().clone();
++    return Err(crate::remote_leg::leg_not_certified(source.clone()));
++    #[allow(unreachable_code)]
+     if opened.get(&source).is_none() {
+         return Err(crate::remote_leg::leg_not_certified(source));
+     }
