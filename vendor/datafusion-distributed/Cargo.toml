@@ -149,7 +149,7 @@ version = "1.1.10"
 version = "0.14.1"
 
 [dependencies.rand]
-version = "0.9"
+version = "0.10"
 
 [dependencies.sketches-ddsketch]
 version = "0.3"

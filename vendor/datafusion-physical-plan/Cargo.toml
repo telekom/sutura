@@ -190,7 +190,7 @@ features = [
 ]
 
 [dev-dependencies.rand]
-version = "0.9"
+version = "0.10"
 
 [dev-dependencies.rstest]
 version = "0.26.1"
