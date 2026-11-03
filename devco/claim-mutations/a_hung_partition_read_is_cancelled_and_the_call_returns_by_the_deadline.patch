@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/partitions.rs b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-bigquery/src/adbc/partitions.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+@@ -203,7 +203,7 @@
+     let mut canceller = conn.clone();
+     race_to_deadline(
+         move || read_partition_to_completion(&conn, &descriptor),
+-        move || canceller.cancel(),
++        move || { let _ = &mut canceller; Ok(()) },
+         keep_alive,
+         deadline,
+         now,

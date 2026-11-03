@@ -51,7 +51,8 @@ mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
 pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
-pub use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
+#[cfg(test)]
+pub(crate) use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -544,9 +545,8 @@ where
 }
 
 /// Drains `reader` to completion under the same two ceilings as [`execute_to_completion`] - the
-/// shared tail of every ADBC result this transport reads, whichever call produced the reader.
-/// Private, and reachable from [`partitions`] anyway: a child module sees its parent's private
-/// items, so a partition's own stream is checked by the identical function and not a copy of it.
+/// shared tail of every ADBC result this transport reads, whichever call produced the reader,
+/// including a partition's own stream in [`partitions`].
 fn accumulate_bounded(reader: Box<dyn RecordBatchReader + Send + 'static>) -> Result<ResultBatches, AdbcError> {
     let announced = reader.schema();
     let mut accumulating = Accumulating::announcing(
@@ -636,9 +636,11 @@ where
 /// The race [`run_to_deadline`] documents, with `work` and `cancel` as closures instead of a
 /// `Statement` - so [`partitions::read_partition_to_deadline`] can race a `Connection`'s
 /// `read_partition` the same way without a second copy of the channel, the timeout and the
-/// worker-vanished arm. Everything [`run_to_deadline`]'s own doc says about what a cancel can and
-/// cannot pre-empt, and about why `keep_alive` exists, applies here unchanged - this is that
-/// function with its driver call made generic, not a different race.
+/// worker-vanished arm. The CHANNEL, TIMEOUT and ASYNCHRONOUS-cancel-dispatch shape is shared
+/// unchanged by every caller; what a cancel can pre-empt is NOT - `run_to_deadline`'s own doc about
+/// `execute` and `cancel` queueing on one FFI lock is about `ManagedStatement` specifically, and
+/// [`partitions::read_partition_to_deadline`]'s own doc gives the different, unverified answer for a
+/// `Connection`'s cancel instead of repeating `run_to_deadline`'s.
 fn race_to_deadline<T>(
     work: impl FnOnce() -> Result<T, AdbcError> + Send + 'static,
     cancel: impl FnOnce() -> adbc_core::error::Result<()> + Send + 'static,

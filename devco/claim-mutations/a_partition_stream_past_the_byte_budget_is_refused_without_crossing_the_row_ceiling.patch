@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/warehouse/arrow.rs b/crates/sutura-domain/src/warehouse/arrow.rs
+index c7102f21b..b4a5bf493 100644
+--- a/crates/sutura-domain/src/warehouse/arrow.rs
++++ b/crates/sutura-domain/src/warehouse/arrow.rs
+@@ -268,7 +268,7 @@ impl Accumulating {
+         // spend copying it, so the refusal lands one batch before the peak rather than halfway
+         // through it - earlier than `docs/adr/0009` specified, against the same budget.
+         let spending = self.bytes.saturating_add(materialised(&batch));
+-        if spending > self.budget.bytes() {
++        if spending > self.budget.bytes().saturating_mul(2) {
+             return Err(UnannouncedBatch::OverBudget {
+                 most_bytes: self.budget.bytes(),
+             });
