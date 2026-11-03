@@ -46,10 +46,12 @@ mod ceiling;
 mod driver_message;
 pub mod google_trace;
 mod identity;
+mod partitions;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
 pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
+pub use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -60,7 +62,7 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
-use arrow_array::RecordBatchReader as _;
+use arrow_array::RecordBatchReader;
 
 use sutura_domain::identity::{PoolExchange, PoolExchangeFailed};
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
@@ -538,6 +540,14 @@ where
     S: Statement,
 {
     let reader = stmt.execute().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    accumulate_bounded(reader)
+}
+
+/// Drains `reader` to completion under the same two ceilings as [`execute_to_completion`] - the
+/// shared tail of every ADBC result this transport reads, whichever call produced the reader.
+/// Private, and reachable from [`partitions`] anyway: a child module sees its parent's private
+/// items, so a partition's own stream is checked by the identical function and not a copy of it.
+fn accumulate_bounded(reader: Box<dyn RecordBatchReader + Send + 'static>) -> Result<ResultBatches, AdbcError> {
     let announced = reader.schema();
     let mut accumulating = Accumulating::announcing(
         announced,
@@ -613,16 +623,40 @@ fn run_to_deadline<S>(
 where
     S: Statement + Clone + Send + 'static,
 {
+    let mut canceller = stmt.clone();
+    race_to_deadline(
+        move || execute_to_completion(&mut stmt),
+        move || canceller.cancel(),
+        keep_alive,
+        deadline,
+        now,
+    )
+}
+
+/// The race [`run_to_deadline`] documents, with `work` and `cancel` as closures instead of a
+/// `Statement` - so [`partitions::read_partition_to_deadline`] can race a `Connection`'s
+/// `read_partition` the same way without a second copy of the channel, the timeout and the
+/// worker-vanished arm. Everything [`run_to_deadline`]'s own doc says about what a cancel can and
+/// cannot pre-empt, and about why `keep_alive` exists, applies here unchanged - this is that
+/// function with its driver call made generic, not a different race.
+fn race_to_deadline<T>(
+    work: impl FnOnce() -> Result<T, AdbcError> + Send + 'static,
+    cancel: impl FnOnce() -> adbc_core::error::Result<()> + Send + 'static,
+    keep_alive: impl Send + 'static,
+    deadline: JobDeadline,
+    now: Instant,
+) -> Result<T, AdbcError>
+where
+    T: Send + 'static,
+{
     let remaining = match deadline {
         JobDeadline::Port(deadline) => Some(deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?),
         JobDeadline::Boot => None,
     };
-    let mut canceller = stmt.clone();
     let (answered, awaited) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _kept_alive = keep_alive;
-        let outcome = execute_to_completion(&mut stmt);
-        drop(answered.send(outcome));
+        drop(answered.send(work()));
     });
     let Some(budget) = remaining else {
         return awaited.recv().unwrap_or_else(|_| Err(worker_vanished()));
@@ -630,11 +664,11 @@ where
     match awaited.recv_timeout(budget) {
         Ok(outcome) => outcome,
         Err(RecvTimeoutError::Timeout) => {
-            // Best-effort and ASYNCHRONOUS: this must not itself wait on the same lock `execute`
+            // Best-effort and ASYNCHRONOUS: this must not itself wait on the same lock `work`
             // may still be holding, or the deadline this function exists to enforce would be
             // spent waiting on the cancel meant to protect it.
             std::thread::spawn(move || {
-                drop(canceller.cancel());
+                drop(cancel());
             });
             Err(AdbcError::DeadlineElapsed)
         }
@@ -802,6 +836,8 @@ impl JobTransport for AdbcBigQuery {
 
 #[cfg(test)]
 mod batch_cells;
+#[cfg(test)]
+mod partition_cells;
 #[cfg(test)]
 mod pool_cells;
 #[cfg(test)]
