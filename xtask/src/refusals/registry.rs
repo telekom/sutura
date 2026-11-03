@@ -189,12 +189,13 @@ const POOL: Subject = Subject {
     variants: variants(3),
 };
 
-/// One refused final-stage task: its rows passed the federated row ceiling on the worker running it.
+/// One refused worker task: its rows passed the federated row ceiling, or its source-reading grant
+/// did not name its leg/source/partition or had passed its expiry (Decisions 4-5).
 const WORKER: Subject = Subject {
     name: "WorkerRefusal",
     declared_in: "crates/sutura-exec-datafusion/src/combine/across/ceiling.rs",
     allow_file: "devco/worker-refusals-unprovoked-allow",
-    variants: variants(1),
+    variants: variants(3),
 };
 
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s

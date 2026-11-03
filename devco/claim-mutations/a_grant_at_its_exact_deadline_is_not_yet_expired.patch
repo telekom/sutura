@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
+@@ -124,7 +124,7 @@
+     /// matching "the worker refuses a grant past it"
+     /// (`docs/adr/20261102082308-workers-read-sources.md`).
+     fn passed(&self, now: Duration) -> bool {
+-        now > self.0
++        now >= self.0
+     }
+ }
+ 

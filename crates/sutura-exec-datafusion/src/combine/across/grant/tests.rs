@@ -19,6 +19,10 @@ use url::Url;
 
 use super::{AWAITED, GRANT, KEY, Key, TaskGrant, valued};
 
+/// The source-reading grant's own cells (`super::reading`, Decision 5) - a separate module since
+/// they drive a different gRPC harness than the task-grant cells above.
+mod reading;
+
 const ASKED: &str = "07070707-0707-0707-0707-070707070707";
 
 /// Stage 1's task 0 of the question `asked`.

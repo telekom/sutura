@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
+@@ -191,8 +191,6 @@
+         feed_field(&mut message, &self.leg.0);
+         feed_field(&mut message, self.source.as_str().as_bytes());
+         feed_field(&mut message, &self.partition.0);
+-        feed_field(&mut message, self.expiry.0.as_secs().to_string().as_bytes());
+-        feed_field(&mut message, self.expiry.0.subsec_nanos().to_string().as_bytes());
+         feed_field(&mut message, self.caller.0.as_bytes());
+         feed_field(&mut message, self.bound.rows.to_string().as_bytes());
+         feed_field(&mut message, self.bound.bytes.to_string().as_bytes());
