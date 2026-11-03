@@ -136,7 +136,7 @@ features = [
 version = "0.2"
 
 [dependencies.object_store]
-version = "0.13"
+version = "0.14"
 
 [dependencies.parquet]
 version = "59"

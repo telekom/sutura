@@ -137,7 +137,7 @@ version = "55.1.0"
 version = "55.1.0"
 
 [dependencies.object_store]
-version = "0.13.2"
+version = "0.14.2"
 default-features = false
 
 [dependencies.prost]
