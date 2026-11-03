@@ -42,13 +42,18 @@ fn certified_wire() -> (LegWire, Vec<ParamValue>) {
 /// [`certified_wire`] sent under `metric` - a sender's pin that defines the same metric differently
 /// when `metric` is not [`planned`].
 fn wire_under(metric: MetricDigest) -> (LegWire, Vec<ParamValue>) {
+    bucketed(metric, bucket_column())
+}
+
+/// A leg under `metric` bucketed, and bounded by its range, on `bucket`.
+fn bucketed(metric: MetricDigest, bucket: PlanColumn) -> (LegWire, Vec<ParamValue>) {
     let mut params = Vec::new();
-    let [from, until] = range_filters(june(), &bucket_column(), &mut params);
+    let [from, until] = range_filters(june(), &bucket, &mut params);
     let leg = LegPlan::Fact {
         source: source(),
         metric,
         tables: StatementTables::only(table()),
-        bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, bucket_column()),
+        bucket: PlanBucket::new(ResultLabel::bucket(), Grain::Month, bucket),
         keys: Vec::new(),
         terms: vec![LegTerm::new(
             PlanTerm::Aggregate {
@@ -67,28 +72,7 @@ fn wire_under(metric: MetricDigest) -> (LegWire, Vec<ParamValue>) {
 /// Identical to [`certified_wire`] except the bucket reads a column the metric never declared as
 /// its time column - refused whatever the digest says.
 fn uncertified_wire() -> (LegWire, Vec<ParamValue>) {
-    let leg = LegPlan::Fact {
-        source: source(),
-        metric: planned(),
-        tables: StatementTables::only(table()),
-        bucket: PlanBucket::new(
-            ResultLabel::bucket(),
-            Grain::Month,
-            PlanColumn::new(table(), column("amount_cents")),
-        ),
-        keys: Vec::new(),
-        terms: vec![LegTerm::new(
-            PlanTerm::Aggregate {
-                aggregate: Aggregate::Sum,
-                column: PlanColumn::new(table(), column("amount_cents")),
-            },
-            ResultLabel::internal(InternalLabel::Leaf(0)),
-        )],
-        bindings: PlanBindings::none(),
-        range: june(),
-    };
-    let wire = to_wire(&leg).expect("the sender's own pin still sends it");
-    (wire, Vec::new())
+    bucketed(planned(), PlanColumn::new(table(), column("amount_cents")))
 }
 
 /// A source this worker's registry never opened.

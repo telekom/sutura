@@ -32,11 +32,19 @@ fn a_reading_worker_opens_its_declared_catalog_and_source() {
         catalog = example.join("catalog").display(),
         data = example.join("data").display(),
     );
+    // A file, not an overlay: a catalog only an overlay declares is not the worker's own.
+    let directory = std::env::temp_dir().join(format!("sutura-cli-reading-worker-opens-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("a scratch configuration directory is creatable");
+    std::fs::write(directory.join("base.yaml"), overlay).expect("a scratch configuration is writable");
     let settings = sutura_config::Settings::load(
-        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_overlay(overlay),
+        &sutura_config::Sources::defaults(sutura_config::Environment::Development).with_directory(directory.clone()),
     )
     .expect("a reading worker with a declared catalog and source loads");
     let opened = super::open_reading_sources(&settings);
-    let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
+    let _ignored = (
+        std::fs::remove_file(&certificate),
+        std::fs::remove_file(&key),
+        std::fs::remove_dir_all(&directory),
+    );
     opened.expect("a reading worker opens its declared catalog and source at boot");
 }
