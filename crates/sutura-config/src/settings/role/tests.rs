@@ -162,6 +162,17 @@ fn a_reading_worker_that_declares_its_sources_and_a_catalog_is_fit_and_a_combini
     );
 }
 
+/// `#828`'s cross-field check over `server.nodes` only applies to `ServerRole::Serving` - a worker
+/// declares no sources of its own (`WorkerDeclaresSources` catches that already), so a peer's source
+/// alias is a fact about the peer, not about this node, and must not be checked against this node's
+/// own (empty) `sources:` section.
+#[test]
+fn a_worker_whose_nodes_list_a_reading_worker_peer_loads() {
+    let nodes = "  nodes:\n    own: \"https://a.example:8443\"\n    others:\n      - url: \"https://b.example:8443\"\n        \
+                 role: \"reading-worker\"\n        sources:\n          - \"missing\"\n";
+    assert_eq!(overlaid(&worker(&format!("{AUTHORITY}{nodes}"), "")), Vec::new());
+}
+
 #[test]
 fn the_default_role_is_serving_and_asks_for_no_worker_shape() {
     let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");

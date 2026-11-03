@@ -17,28 +17,43 @@ use crate::proxy::{ClientAddressSource, TrustedProxies};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{AccessToken, DeploymentIdentity, SecuritySettings, TlsTermination};
-use crate::server::{AllowedHost, BindAddress, BodyLimit, RequestTimeout, ServerRole, ServerSettings};
+use crate::server::{AllowedHost, BindAddress, BodyLimit, DeclaredNodeInput, RequestTimeout, ServerRole, ServerSettings};
 use crate::sources::caller_identity::CallerIdentityBlocks;
 use crate::sources::{RawSourceEntry, SourceRegistry};
 use crate::telemetry::{LogFilter, LogFormat, ServiceName, TelemetrySettings};
 
-pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, SettingsError> {
-    let bind = BindAddress::parse(&raw.server.host, raw.server.port).map_err(|cause| SettingsError::Bind { cause })?;
-    let timeout = RequestTimeout::parse(raw.server.request_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
-    let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
+fn parse_tls(raw: &RawSettings) -> Result<Option<crate::server::TlsMaterial>, SettingsError> {
     let tls = crate::server::TlsMaterial::parse(
         raw.server.tls_certificate.as_deref(),
         raw.server.tls_key.as_deref(),
         raw.server.tls_node_authority.as_deref(),
     )
-    .and_then(|tls| match (tls, raw.server.nodes.as_ref()) {
-        (tls, None) => Ok(tls),
-        (Some(tls), Some(nodes)) => tls
-            .with_nodes(&nodes.own, &nodes.others)
-            .map(|tls| Some(tls.across_above(nodes.across_above_bytes))),
-        (None, Some(_)) => Err(crate::server::InvalidTlsMaterial::NodesWithoutAuthority),
-    })
     .map_err(|cause| SettingsError::TlsMaterial { cause })?;
+    match (tls, raw.server.nodes.as_ref()) {
+        (tls, None) => Ok(tls),
+        (Some(tls), Some(nodes)) => {
+            let others: Vec<DeclaredNodeInput<'_>> = nodes
+                .others
+                .iter()
+                .map(|node| DeclaredNodeInput::new(node.url.as_str(), node.role.as_str(), node.sources.as_slice()))
+                .collect();
+            let tls = tls.with_nodes(&nodes.own, &others).map_err(|refusal| match refusal {
+                crate::server::DeclaredNodeRefusal::Tls(cause) => SettingsError::TlsMaterial { cause },
+                crate::server::DeclaredNodeRefusal::Node(cause) => SettingsError::InvalidDeclaredNode { cause },
+            })?;
+            Ok(Some(tls.across_above(nodes.across_above_bytes)))
+        }
+        (None, Some(_)) => Err(SettingsError::TlsMaterial {
+            cause: crate::server::InvalidTlsMaterial::NodesWithoutAuthority,
+        }),
+    }
+}
+
+pub(super) fn parse_server(raw: &RawSettings) -> Result<ServerSettings, SettingsError> {
+    let bind = BindAddress::parse(&raw.server.host, raw.server.port).map_err(|cause| SettingsError::Bind { cause })?;
+    let timeout = RequestTimeout::parse(raw.server.request_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
+    let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
+    let tls = parse_tls(raw)?;
     let wait = raw.server.nodes.as_ref().and_then(|nodes| nodes.wait_for_workers_seconds);
     let tls = tls.map(|tls| tls.wait_for_workers(wait));
     let allowed_hosts = raw

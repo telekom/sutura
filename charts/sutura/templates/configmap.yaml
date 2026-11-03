@@ -9,7 +9,8 @@ verbatim; this chart parses none of them. `telemetry` in `base.yaml` is the char
 {{- include "sutura.requireOffHostPosture" . -}}
 {{- $defaults := dict "telemetry" (dict "format" .Values.telemetry.format "filter" .Values.telemetry.filter) -}}
 {{- if .Values.workerPool.enabled -}}
-{{- $nodes := dict "others" (list (printf "https://%s-workers.%s.svc:%v" (include "sutura.fullname" .) .Release.Namespace .Values.service.port)) -}}
+{{- $workerPeer := dict "url" (printf "https://%s-workers.%s.svc:%v" (include "sutura.fullname" .) .Release.Namespace .Values.service.port) "role" "worker" -}}
+{{- $nodes := dict "others" (list $workerPeer) -}}
 {{- with .Values.workerPool.acrossAboveBytes }}{{ $_ := set $nodes "across_above_bytes" (int64 .) }}{{ end -}}
 {{- with .Values.workerPool.waitForWorkersSeconds }}{{ $_ := set $nodes "wait_for_workers_seconds" (int .) }}{{ end -}}
 {{- $_ := set $defaults "server" (dict "nodes" $nodes) -}}

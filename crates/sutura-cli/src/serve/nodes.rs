@@ -47,9 +47,14 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let wait = nodes
         .wait_for_workers()
         .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
-    let across = Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity)
-        .across_above(nodes.across_above())
-        .wait_for_workers(wait);
+    let across = Nodes::declared(
+        own,
+        nodes.own().clone(),
+        nodes.others().iter().map(|node| node.url().clone()),
+        identity,
+    )
+    .across_above(nodes.across_above())
+    .wait_for_workers(wait);
     let mount = sutura_http::WorkerMount::new(
         across
             .served()

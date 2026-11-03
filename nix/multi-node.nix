@@ -100,8 +100,13 @@ let
   # The same, declaring the other nodes.
   listener = own: others: pair own // {
     # The fixtures' legs are a few hundred bytes, which one node holds, so a combine reading both
-    # data systems would stay on `query`; one byte sends every such combine across.
-    nodes = { own = "https://${own}:8443"; others = map (other: "https://${other}:8443") others; across_above_bytes = 1; };
+    # data systems would stay on `query`; one byte sends every such combine across. Every declared
+    # peer here only combines - none is a `reading-worker`, which this fixture does not exercise.
+    nodes = {
+      own = "https://${own}:8443";
+      others = map (other: { url = "https://${other}:8443"; role = "worker"; }) others;
+      across_above_bytes = 1;
+    };
   };
   offHost = { tls_termination = "in-process"; metrics_token = "multi-node-metrics-token-0000000000"; };
   local = {

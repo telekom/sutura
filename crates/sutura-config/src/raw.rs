@@ -411,13 +411,26 @@ pub(crate) struct RawSpendCeiling {
 pub(crate) struct RawNodes {
     /// This node's address, as the others reach it.
     pub(crate) own: String,
-    pub(crate) others: Vec<String>,
+    pub(crate) others: Vec<RawDeclaredNode>,
     /// The leg bytes above which a question reading several data systems is planned across at once.
     #[serde(default)]
     pub(crate) across_above_bytes: Option<core::num::NonZeroU64>,
     /// Seconds a question that goes across waits for the other nodes it wants to resolve.
     #[serde(default)]
     pub(crate) wait_for_workers_seconds: Option<core::num::NonZeroU32>,
+}
+
+/// One peer named by `server.nodes.others`: its address, its role (`worker` or
+/// `reading-worker`, the same spelling `server.role` takes), and the source aliases it reads.
+/// `sources` is meaningful only for a `reading-worker` entry; a `worker` entry naming any source
+/// is `#828`'s decision 7, refused at [`crate::server::InvalidTlsMaterial`].
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDeclaredNode {
+    pub(crate) url: String,
+    pub(crate) role: String,
+    #[serde(default)]
+    pub(crate) sources: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]

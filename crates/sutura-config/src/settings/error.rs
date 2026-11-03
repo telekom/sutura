@@ -10,7 +10,7 @@ use crate::limits::InvalidQuota;
 use crate::prompt::{InvalidPromptSettings, UnknownCatalogProse};
 use crate::proxy::{Cidr, InvalidTrustedProxy, UnknownClientAddressSource};
 use crate::security::{InvalidAccessToken, InvalidDeploymentIdentity, InvalidOutbound, UnknownTlsTermination};
-use crate::server::{InvalidBindAddress, InvalidBound, InvalidTlsMaterial, UnknownServerRole};
+use crate::server::{InvalidBindAddress, InvalidBound, InvalidDeclaredNode, InvalidTlsMaterial, UnknownServerRole};
 use crate::sources::InvalidSourceRegistry;
 use crate::telemetry::{InvalidLogFilter, InvalidServiceName, UnknownLogFormat};
 use crate::tools::InvalidRunSqlSources;
@@ -90,6 +90,14 @@ pub enum SettingsError {
     TlsMaterial {
         #[source]
         cause: InvalidTlsMaterial,
+    },
+    /// A peer declared under `server.nodes` names an unusable role, source alias, or address -
+    /// `#828`'s shape check over a declared peer, as opposed to [`SettingsError::TlsMaterial`]'s
+    /// check of the certificate pair and the node authority.
+    #[error("a peer declared under `server.nodes` is not usable")]
+    InvalidDeclaredNode {
+        #[source]
+        cause: InvalidDeclaredNode,
     },
     /// A `security.inbound` block exists and does not say which mode.
     ///

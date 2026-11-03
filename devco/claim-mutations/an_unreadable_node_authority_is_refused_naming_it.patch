@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/serve/nodes.rs b/crates/sutura-cli/src/serve/nodes.rs
+--- a/crates/sutura-cli/src/serve/nodes.rs
++++ b/crates/sutura-cli/src/serve/nodes.rs
+@@ -86,7 +86,7 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
+         })?
+         .into_parts();
+     let authority = sutura_tls::load_anchors(&sutura_tls::Anchors::Bundle(authority.to_path_buf()))
+-        .map_err(|cause| format!("{}\nserver.tls_node_authority is not a node authority", super::flatten(cause)))?;
++        .map_err(|_cause| String::from("server.tls_node_authority is not a node authority"))?;
+     sutura_exec_datafusion::NodeIdentity::new(chain, key, authority)
+         .map_err(|cause| format!("{}\nthis node's identity could not be built", super::flatten(cause)))
+ }

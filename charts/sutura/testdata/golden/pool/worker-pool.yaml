@@ -46,7 +46,8 @@ data:
     server:
       nodes:
         others:
-        - https://test-release-workers.default.svc:8080
+        - role: worker
+          url: https://test-release-workers.default.svc:8080
         wait_for_workers_seconds: 20
     telemetry:
       filter: info
