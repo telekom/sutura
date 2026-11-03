@@ -311,5 +311,9 @@ pub(super) fn forwarded(builder: SessionStateBuilder, headers: &HeaderMap) -> Re
     builder.with_distributed_passthrough_headers(sent)
 }
 
+/// The source-reading grant a reading task carries, signed under a key per reading task (Decision
+/// 5). Wires into nothing here yet - see its module doc.
+mod reading;
+
 #[cfg(test)]
 mod tests;

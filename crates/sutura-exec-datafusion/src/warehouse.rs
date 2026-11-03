@@ -167,7 +167,7 @@ impl Warehouse for DataFusionWarehouse {
     /// outage. Leaving the default would reach that caller as a `503` inviting a retry that spends
     /// the same budget in the same place.
     ///
-    /// Every other [`UnannouncedBatch`](sutura_domain::warehouse::UnannouncedBatch) is `false`,
+    /// Every other [`UnannouncedBatch`] is `false`,
     /// exhaustively and by NAME, for the reason the `BigQuery` transport's twin gives: a mislabelled
     /// or mis-width batch is the engine disagreeing with its own announced schema, which no narrower
     /// question fixes. `OverBound` is unreachable here - `collected` passes `usize::MAX` - and is

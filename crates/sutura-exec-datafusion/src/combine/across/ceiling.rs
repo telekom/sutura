@@ -55,6 +55,19 @@ pub enum WorkerRefusal {
         /// The ceiling the stage carried.
         ceiling: FederatedRowCeiling,
     },
+    /// A source-reading task's grant did not name the leg digest, source and partition the task
+    /// actually reads, or named them correctly but failed to verify under the task's own key - which
+    /// also covers a grant whose expiry, caller or stream bound was tampered with after signing,
+    /// since every field feeds the signature, not only the three this refusal names
+    /// (`grant::reading::verify`, Decision 5). `verify` takes a grant non-optionally, so a task
+    /// carrying no grant at all cannot reach this variant; that refusal arrives only with the later
+    /// slice that wires a reading stage and has to decide what a missing grant means.
+    #[error("this reading task's grant does not name its leg, source and partition")]
+    GrantNotNaming,
+    /// A source-reading task's grant named its leg, source and partition, but its expiry had already
+    /// passed the worker's own clock.
+    #[error("this reading task's grant is past its expiry")]
+    GrantExpired,
 }
 
 /// A final-stage task's rows, counted against the whole federated row ceiling as they pass.
