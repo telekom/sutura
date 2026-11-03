@@ -23,6 +23,12 @@ updates:
     # Both locks, so a bump reaches the fuzz workspace too. `cargo xtask check-lock-coverage`
     # fails on a Cargo.lock in the tree that no entry here covers.
     directories: ["/", "/fuzz"]
+    # vendor/ holds the published-crate-plus-local-patch copies VENDOR.md tracks; their manifests
+    # must stay the ones `[patch.crates-io]` pins against, and the cargo updater had rewritten them
+    # (#1735, #1736, #1739). The cargo file_fetcher checks `@exclude_paths` before fetching a
+    # path-dependency or workspace manifest at all, so one root-relative pattern keeps it unfetched
+    # (and so unwritten) from both `/` and `/fuzz`. Only Dependabot's next run proves it.
+    exclude-paths: ["vendor/**"]
     schedule:
       interval: weekly
       day: monday
