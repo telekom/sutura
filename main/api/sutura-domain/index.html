@@ -8623,6 +8623,28 @@ never one read here off whatever is pinned now: a catalog refresh between planni
 cannot swap it, so what a leg claims about its metric is what the sender planned under.</p>
 <p>A key truncated to a grain is refused as <code>NotSendable::KeyTruncated</code>: a wire key carries its
 column and not its grain, so the receiver would group by the raw column and answer wrongly.</p>
+<h3 id="use-estimatedrows"><code>use EstimatedRows</code><a class="headerlink" href="#use-estimatedrows" title="Permanent link">&para;</a></h3>
+<p>A dry estimate of the rows a leg's root would read, before any is - the catalog's <code>reltuples</code>,
+or a source's equivalent.</p>
+<p><strong>Zero is a legitimate estimate, not a stand-in for "unknown"</strong>, the same contrast
+<code>EstimatedBytes</code> states for its own unit: a table with no rows yet is zero rows, not an absent
+estimate. What a source cannot estimate at all - PostgreSQL's <code>reltuples = -1</code> before the first
+<code>ANALYZE</code> - is read as zero by the caller that measured it, which <code>decide</code> then reads as
+"at or under every threshold", not as a hidden sentinel inside this type.</p>
+<h3 id="use-splitdecision"><code>use SplitDecision</code><a class="headerlink" href="#use-splitdecision" title="Permanent link">&para;</a></h3>
+<p><code>decide</code>'s one output: a leg's root read whole, split into this many partitions, or refused.</p>
+<h3 id="use-splitrefusal"><code>use SplitRefusal</code><a class="headerlink" href="#use-splitrefusal" title="Permanent link">&para;</a></h3>
+<p>Why a leg was not split: not even <code>ready_workers</code> partitions keep each one's row share at or
+under <code>per_stream_bound</code>.</p>
+<h3 id="use-decide"><code>use decide</code><a class="headerlink" href="#use-decide" title="Permanent link">&para;</a></h3>
+<p>Decides <code>SplitDecision</code> for one leg's root.</p>
+<p><code>bytes</code> against <code>above_bytes</code> decides whether to split at all - at or under it,
+<code>SplitDecision::Whole</code>. Over it, the fewest partitions in <code>1..=ready_workers</code> whose own share
+of <code>rows</code> sits at or under <code>per_stream_bound</code> (by the ceiling-division identity: <code>n</code> partitions
+of <code>rows</code> have none over <code>bound</code> exactly when <code>n &gt;= rows.div_ceil(bound)</code>); none of them do,
+<code>SplitDecision::Refused</code> names the shortfall rather than splitting past <code>ready_workers</code>.</p>
+<p>Checked throughout: every width change is <code>try_from</code> clamped to the target's maximum, so <code>rows</code>,
+<code>per_stream_bound</code> or <code>ready_workers</code> at their type's maximum decide rather than panic.</p>
 <h3 id="use-stackedplan"><code>use StackedPlan</code><a class="headerlink" href="#use-stackedplan" title="Permanent link">&para;</a></h3>
 <p>Two or more whole-answer plans on one data system, joined by it on their keys and bucket.</p>
 <p>The source, keys, bucket and range are the first arm's, and every later arm is checked against
