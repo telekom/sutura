@@ -3161,6 +3161,26 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td><code>server.nodes.wait_for_workers_seconds</code> not below <code>server.request_timeout_seconds</code></td>
 <td>Lower the wait</td>
 </tr>
+<tr>
+<td>A peer in <code>server.nodes.others</code> with an unknown <code>role</code>, or <code>role: "serving"</code></td>
+<td>Use <code>worker</code> or <code>reading-worker</code></td>
+</tr>
+<tr>
+<td>A <code>server.nodes.others</code> peer declaring <code>role: "reading-worker"</code> with no <code>sources</code>, or <code>role: "worker"</code> with any</td>
+<td>Name the sources a reading-worker reads; remove them from a worker</td>
+</tr>
+<tr>
+<td>Two <code>server.nodes.others</code> peers naming the same origin, or one naming this node's own <code>own</code> address</td>
+<td>Remove the duplicate, or the self-reference</td>
+</tr>
+<tr>
+<td>A <code>server.nodes</code> address with a path, query, userinfo or a fragment that is not an IP address</td>
+<td>Use the bare <code>https://host:port</code> origin, or <code>#&lt;ip&gt;</code> to dial it at that address</td>
+</tr>
+<tr>
+<td>A <code>server.nodes.others</code> peer declaring <code>role: "reading-worker"</code> reading a source this deployment's own <code>sources</code> does not declare</td>
+<td>Declare the source here too, or remove it from the peer's list</td>
+</tr>
 </tbody>
 </table>
 <p>Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
@@ -3615,14 +3635,26 @@ other build refuses the key at startup rather than combining on one node.</p>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">tls_node_authority</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/nodes-ca.pem"</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">nodes</span><span class="p">:</span>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">own</span><span class="p">:</span><span class="w"> </span><span class="s">"https://node-a.example.com:8443"</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">others</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"https://node-b.example.com:8443"</span><span class="p p-Indicator">]</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">across_above_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">wait_for_workers_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">others</span><span class="p">:</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://node-b.example.com:8443"</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="s">"worker"</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://node-c.example.com:8443"</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="s">"reading-worker"</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">        </span><span class="nt">sources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"warehouse"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">across_above_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">wait_for_workers_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 </span></code></pre></div>
 <p><code>own</code> is this node's address as the others reach it. Every address is an https URL, and the key is refused without
 <code>server.tls_node_authority</code>. The pair is this node's identity twice: the listener presents it, and so does every link
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.</p>
+<p>Each peer under <code>others</code> names its <code>role</code> (<code>worker</code> or <code>reading-worker</code>, never <code>serving</code>) and, for a <code>reading-worker</code>,
+the source aliases it reads - a <code>worker</code> naming any is refused, and a <code>reading-worker</code> naming none is. Every address is
+a bare origin, or one with a <code>#&lt;ip&gt;</code> fragment naming the address to dial it at: a path, query, userinfo or any other
+fragment is refused. Two peers naming the same origin, or a peer naming this
+node's own <code>own</code> address, is refused. A <code>reading-worker</code>'s source alias that this deployment's own <code>sources:</code> does not
+declare is refused too, once the posture check runs.</p>
+<p>The chart renders only <code>worker</code> peers under <code>others</code> today; a <code>reading-worker</code> peer declared this way is written by hand.</p>
 <p>A host in <code>others</code> is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
 that moment, each dialled at its address and checked against the host, so every worker's certificate carries that
