@@ -311,8 +311,8 @@ fn a_descriptor_the_driver_refuses_maps_to_the_same_adbc_error_every_other_drive
 ///
 /// **Mirrors `tests.rs`'s `Hanging` statement, over `Connection` instead of `Statement`.** One flag
 /// shared through the `Arc` every clone holds: the only way `read_partition` below ever returns is a
-/// `cancel` call reaching the SAME shared state, not a timeout of its own - exactly what
-/// `read_partition_to_deadline`'s own doc says a real driver's `ConnectionCancel` would have to do.
+/// `cancel` call reaching the SAME shared state, not a timeout of its own - as the driver's
+/// `ConnectionCancel` cancels the context its connection's latest call runs under.
 #[derive(Clone)]
 struct HangingConnection {
     cancelled: Arc<AtomicBool>,

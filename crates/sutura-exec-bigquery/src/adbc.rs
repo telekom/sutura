@@ -636,11 +636,8 @@ where
 /// The race [`run_to_deadline`] documents, with `work` and `cancel` as closures instead of a
 /// `Statement` - so [`partitions::read_partition_to_deadline`] can race a `Connection`'s
 /// `read_partition` the same way without a second copy of the channel, the timeout and the
-/// worker-vanished arm. The CHANNEL, TIMEOUT and ASYNCHRONOUS-cancel-dispatch shape is shared
-/// unchanged by every caller; what a cancel can pre-empt is NOT - `run_to_deadline`'s own doc about
-/// `execute` and `cancel` queueing on one FFI lock is about `ManagedStatement` specifically, and
-/// [`partitions::read_partition_to_deadline`]'s own doc gives the different, unverified answer for a
-/// `Connection`'s cancel instead of repeating `run_to_deadline`'s.
+/// worker-vanished arm. What a cancel can pre-empt differs per caller: `run_to_deadline`'s doc covers
+/// a `ManagedStatement`, [`partitions::read_partition_to_deadline`]'s a `Connection`.
 fn race_to_deadline<T>(
     work: impl FnOnce() -> Result<T, AdbcError> + Send + 'static,
     cancel: impl FnOnce() -> adbc_core::error::Result<()> + Send + 'static,

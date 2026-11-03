@@ -12,14 +12,6 @@
 //! that failed, through [`AdbcError::Adbc`] - there is no second, Rust-side check of the version
 //! byte, because the one authority on the format is the driver that defined it.
 //!
-//! # The stream count is not a parameter here
-//!
-//! The patch requests a FIXED number of Storage Read API streams per partitioned statement - the Go
-//! constant `partitionStreamCount = 4`, read off the patch itself, with its own comment saying
-//! wiring it to a knob is a later slice. So [`execute_leg_partitions`] takes none: there is nothing
-//! pinned driver exposes to ask for a different count, and adding a Rust-side parameter the driver
-//! cannot act on would be a knob that changes nothing.
-//!
 //! # Limit
 //!
 //! Neither function here builds its own connection or statement. When either is wired into a
@@ -165,15 +157,11 @@ where
 /// the descriptors, carried here by [`super::race_to_deadline`] so both races share one
 /// worker-thread, one timeout and one cancel-on-timeout shape.
 ///
-/// **What stands in for [`adbc_core::Statement::cancel`] here is [`Connection::cancel`]** - the
-/// same trait's own method, over the connection the stream is being read on rather than over a
-/// statement, because a partition's read never goes through a `Statement` at all. **This is NOT the
-/// same guarantee [`super::run_to_deadline`]'s doc gives for a `Statement`.** That doc's argument
-/// about a blocking call and its cancel sharing one FFI lock is about
-/// `adbc_driver_manager::ManagedStatement`, which this function never touches - a connection's
-/// cancel goes straight to the pinned driver's `ConnectionCancel`, with no Rust-side lock standing
-/// between a concurrent read and a concurrent cancel on the SAME connection. See the limit below for
-/// what that means for sharing one connection across reads.
+/// The cancel here is [`Connection::cancel`], because a partition's read never goes through a
+/// `Statement`. The pinned driver's C entry points track ONE context per connection (driverbase-go's
+/// `CancellableContext`): every call on a connection cancels the previous call's context before it
+/// starts, and `ConnectionCancel` cancels the current one. So this cancel reaches the read only while
+/// the read is the connection's latest call.
 ///
 /// `keep_alive` carries whatever has to outlive a worker that may still be running after this
 /// function has already returned [`AdbcError::DeadlineElapsed`] - the driver handle, in every real
@@ -181,16 +169,9 @@ where
 ///
 /// # Limit
 ///
-/// UNVERIFIED: whether the pinned driver's `ConnectionCancel` cancels only the connection's CURRENT
-/// in-flight call, or also a PREVIOUS one a still-draining read left behind. Settling that needs the
-/// driver's own Go source (`go/connection_cancel.go` and whatever installs the context
-/// `ConnectionCancel` cancels); this environment has no on-disk copy of
-/// `bigquery-adbc-src@a25673b703d7e80f8ec646569997d384b343f1ea` to read it from - the flake input is
-/// pinned but not fetched, and the Go module cache on this machine holds `driverbase-go`, not the
-/// `bigquery` driver module itself - and fetching or building it is out of scope for this change.
-/// Until it is verified, treat every call here as needing ITS OWN connection: never share a clone of
-/// `conn` between two concurrent reads, or between a read and the statement that produced its
-/// descriptors.
+/// Every read needs its own connection. Any later call on `conn` - another read, a new statement, an
+/// option get or set - cancels a stream this read is still draining; executing a statement does not,
+/// as a statement tracks its own context. Nothing here refuses a shared connection.
 #[cfg_attr(
     not(test),
     expect(
