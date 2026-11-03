@@ -99,6 +99,19 @@ fn the_export_reads_its_snapshot_and_pages_and_leaves_its_transaction_open() {
 }
 
 #[test]
+fn the_pages_query_also_reads_row_count_and_page_size_for_split_by_estimate() {
+    let mut connection = FakeConnection::replying(one_column("id", Arc::new(StringArray::from(vec!["00000003-0000001B-1"]))));
+    let relation = Some(a_number());
+    session::export(&mut connection, relation, CEILING_MS, open_for(Duration::from_secs(60))).expect("export reads");
+    let sent = connection.sent();
+    let Some(Sent::Query { sql: pages, .. }) = sent.into_iter().nth(4) else {
+        panic!("the fifth message sent is the bound pages query");
+    };
+    assert!(pages.contains("c.reltuples::bigint"), "{pages}");
+    assert!(pages.contains("current_setting('block_size')::bigint"), "{pages}");
+}
+
+#[test]
 fn a_partition_imports_the_snapshot_before_its_statement_and_rolls_back() {
     let snapshot = SnapshotId::parse("00000003-0000001B-1").expect("a server-shaped id");
     let mut connection = FakeConnection::replying(a_number());

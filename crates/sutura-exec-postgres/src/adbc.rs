@@ -57,7 +57,7 @@ mod session;
 mod split;
 
 use adbc_driver_manager::ManagedConnection;
-pub use split::{Partition, SplitLeg};
+pub use split::{Partition, Planned, SplitLeg};
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{
     AdbcError, Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, MOUNTED_DRIVER, NoDriver,
@@ -128,6 +128,29 @@ impl AdbcPostgres {
         deadline: Deadline,
     ) -> Result<SplitLeg<'_>, PostgresError> {
         split::open(self, leg, partitions, presented, deadline)
+    }
+
+    /// Whether `leg`'s root should be read whole or split, and into how many partitions - the
+    /// catalog's own `relpages`/`reltuples` and the session's page size, decided by
+    /// `sutura_domain::plan::decide` against `above_bytes`, over the one export a
+    /// [`split::Planned::Split`] then cuts under directly - never a second one from
+    /// [`Self::split_leg`].
+    ///
+    /// # Errors
+    ///
+    /// What `Warehouse::execute` refuses before it sends a statement - a presented identity this
+    /// source does not serve, a spent deadline, a leg whose root does not quote - and the exporting
+    /// connection's driver or server failure.
+    pub fn split_by_estimate(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        presented: &Presented,
+        deadline: Deadline,
+        above_bytes: core::num::NonZeroU64,
+        per_stream_bound: core::num::NonZeroUsize,
+        ready_workers: core::num::NonZeroUsize,
+    ) -> Result<split::Planned<'_>, PostgresError> {
+        split::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
     }
 
     fn connection(&self) -> Result<ManagedConnection, AdbcError> {

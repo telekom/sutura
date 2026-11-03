@@ -69,11 +69,13 @@ pub(super) const RAW_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 /// What `export` asks the server for first, inside the transaction it leaves open.
 const EXPORT: &str = "SELECT pg_catalog.pg_export_snapshot()";
 
-/// The leg's root table's pages as the catalog last estimated them, `$1` its quoted name. No row for
-/// a name that resolves to nothing, or to anything but a plain table - which is what reads a view,
-/// a partitioned table's parent or a foreign table whole.
-const PAGES: &str =
-    "SELECT c.relpages FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass($1) AND c.relkind = 'r'";
+/// The leg's root table's pages, rows and the server's page size, as the catalog and the session
+/// last reported them, `$1` the table's quoted name - one round trip for `split::open` (column 0
+/// alone) and `split::split_by_estimate` (all three). No row for a name that resolves to nothing, or to
+/// anything but a plain table - which is what reads a view, a partitioned table's parent or a
+/// foreign table whole; `split::split_by_estimate` reads the same absence as an estimate of zero.
+const PAGES: &str = "SELECT c.relpages, c.reltuples::bigint, pg_catalog.current_setting('block_size')::bigint \
+     FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass($1) AND c.relkind = 'r'";
 
 /// The longest snapshot id [`SnapshotId::parse`] admits, well past the server's own
 /// `%08X-%08X-%d`.
