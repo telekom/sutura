@@ -3062,6 +3062,19 @@ is handed to <code>Warehouse::execute_raw</code> is the adapter's own business.<
 <h2 id="use-run_remote_leg"><code>use run_remote_leg</code><a class="headerlink" href="#use-run_remote_leg" title="Permanent link">&para;</a></h2>
 <p>Runs one remote leg this node certifies, under the caller already established at this node, or
 says why it will not - this module's own documentation has the shape and the limits.</p>
+<h2 id="use-recertify_leg"><code>use recertify_leg</code><a class="headerlink" href="#use-recertify_leg" title="Permanent link">&para;</a></h2>
+<p>Re-certifies a leg's wire document against this worker's own pinned catalog and the sources it
+opened at boot.</p>
+<p><strong>Two refusal paths, one refusal.</strong> A source <code>opened</code> holds nothing for is refused before
+<code>LegWire::parse</code> is even tried - the same order <code>run_remote_leg</code> certifies a remote leg in,
+and for the same reason: there is nothing to certify the leg's statement against without a
+source. A source <code>opened</code> does hold is then certified structurally, through the parse this
+node's own planner certifies every remote leg with - a digest mismatch and any other certification
+cause both collapse to the same refusal there, and this function inherits that collapse rather
+than re-deciding it.</p>
+<p><code>params</code> are the leg's own bound parameter values, in the placeholder order <code>LegWire::parse</code>
+takes them - the partition's read is not scoped by this function; only the leg it reads is
+certified here.</p>
 <h2 id="use-grains_coarsest_first"><code>use grains_coarsest_first</code><a class="headerlink" href="#use-grains_coarsest_first" title="Permanent link">&para;</a></h2>
 <p>The grains a metric declares, coarsest first.</p>
 <p>A small helper the composition root uses to describe a metric, kept here so the ordering is the
