@@ -8,6 +8,7 @@
 //! a configuration fact, not a liveness one. Readiness stays exactly where it already was, with
 //! resolving the node.
 
+use std::net::IpAddr;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
@@ -158,8 +159,11 @@ pub enum InvalidTlsMaterial {
     NotANodeAddress { found: String },
     /// A node address carried a path, query, fragment or userinfo beyond the bare origin - none of
     /// those reach anything at a node address, and carrying one would invite two spellings of the
-    /// same node to be read as different peers.
-    #[error("`{found}` in server.nodes is not a bare https origin - drop the path, query, fragment or userinfo")]
+    /// same node to be read as different peers. A fragment naming an IP address is the one extra kept:
+    /// it is where the node is dialled, while its certificate is still checked against the host.
+    #[error(
+        "`{found}` in server.nodes is not a bare https origin - drop the path, query, userinfo or a fragment that is not an IP address"
+    )]
     NodeAddressHasExtra { found: String },
 }
 
@@ -387,7 +391,7 @@ fn node_address(written: &str) -> Result<Url, InvalidTlsMaterial> {
             let bare_path = url.path().is_empty() || url.path() == "/";
             if !bare_path
                 || url.query().is_some()
-                || url.fragment().is_some()
+                || url.fragment().is_some_and(|address| address.parse::<IpAddr>().is_err())
                 || !url.username().is_empty()
                 || url.password().is_some()
             {

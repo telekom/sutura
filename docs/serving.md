@@ -96,7 +96,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | A peer in `server.nodes.others` with an unknown `role`, or `role: "serving"`                                                      | Use `worker` or `reading-worker`                                                            |
 | A `server.nodes.others` peer declaring `role: "reading-worker"` with no `sources`, or `role: "worker"` with any                   | Name the sources a reading-worker reads; remove them from a worker                          |
 | Two `server.nodes.others` peers naming the same origin, or one naming this node's own `own` address                               | Remove the duplicate, or the self-reference                                                 |
-| A `server.nodes.others` address with a path, query, fragment or userinfo beyond the bare origin                                   | Use the bare `https://host:port` origin                                                     |
+| A `server.nodes` address with a path, query, userinfo or a fragment that is not an IP address                                     | Use the bare `https://host:port` origin, or `#<ip>` to dial it at that address              |
 | A `server.nodes.others` peer declaring `role: "reading-worker"` reading a source this deployment's own `sources` does not declare | Declare the source here too, or remove it from the peer's list                              |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
@@ -369,7 +369,8 @@ node serves its worker on the same listener, to clients whose certificate the au
 
 Each peer under `others` names its `role` (`worker` or `reading-worker`, never `serving`) and, for a `reading-worker`,
 the source aliases it reads - a `worker` naming any is refused, and a `reading-worker` naming none is. Every address is
-a bare origin: a path, query, fragment or userinfo is refused. Two peers naming the same origin, or a peer naming this
+a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other
+fragment is refused. Two peers naming the same origin, or a peer naming this
 node's own `own` address, is refused. A `reading-worker`'s source alias that this deployment's own `sources:` does not
 declare is refused too, once the posture check runs.
 
