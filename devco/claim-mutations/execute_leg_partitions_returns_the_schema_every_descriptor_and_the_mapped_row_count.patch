@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/partitions.rs b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-bigquery/src/adbc/partitions.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+@@ -135,7 +135,7 @@
+     Ok(Partitioned {
+         schema: SchemaRef::new(partitioned.schema),
+         descriptors: partitioned.partitions.into_iter().map(PartitionDescriptor).collect(),
+-        rows: u64::try_from(partitioned.rows_affected).ok(),
++        rows: u64::try_from(partitioned.rows_affected.saturating_add(1)).ok(),
+     })
+ }
+ 
