@@ -2766,6 +2766,11 @@ runs whatever it is handed, through the simple protocol - which is why it exists
 <p>Runs <code>sql</code>, every statement in it, on this connection.</p>
 <h1 id="errors_8">Errors<a class="headerlink" href="#errors_8" title="Permanent link">&para;</a></h1>
 <p><code>AdbcError::Adbc</code> where the server refused it.</p>
+<h3 id="use-most_result_rows"><code>use MOST_RESULT_ROWS</code><a class="headerlink" href="#use-most_result_rows" title="Permanent link">&para;</a></h3>
+<p>The rows one result stream may deliver before it is refused while being read.</p>
+<p>The <code>BigQuery</code> transport's ceiling, for its reason: a federation leg carries no <code>LIMIT</code>, so this
+is what makes a stream finite. <code>tests::a_stream_past_the_row_ceiling_is_refused_while_it_is_read</code>
+holds it.</p>
 <h3 id="use-invaliddescriptor"><code>use InvalidDescriptor</code><a class="headerlink" href="#use-invaliddescriptor" title="Permanent link">&para;</a></h3>
 <p>Why bytes are not a <code>PartitionDescriptor</code>. No variant carries the bytes themselves.</p>
 <h3 id="use-partition"><code>use Partition</code><a class="headerlink" href="#use-partition" title="Permanent link">&para;</a></h3>
