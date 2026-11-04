@@ -832,7 +832,7 @@ pub use remote_leg::{RanRemoteLeg, RunningRemoteLeg, run_remote_leg};
 //
 // **Private, not `pub`**, for `run_sql`'s own reason above.
 mod reading_worker;
-pub use reading_worker::recertify_leg;
+pub use reading_worker::{read_recertified, recertify_leg};
 
 /// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own
 /// `RefusalReason`.

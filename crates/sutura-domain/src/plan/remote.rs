@@ -302,5 +302,39 @@ impl LegWire {
     }
 }
 
+/// A split leg as a reading task carries it: the leg and the values it binds, in one document.
+///
+/// A reading grant digests that document, so the grant covers the bound values too, where a remote
+/// leg's travel beside its document.
+///
+/// **The limit:** nothing on the planning node encodes one yet; routing a split leg to a reading
+/// worker is a later slice.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PartitionLeg {
+    leg: LegWire,
+    params: Vec<ParamValue>,
+}
+
+impl PartitionLeg {
+    /// `leg` with the values its predicates bind, in placeholder order.
+    #[must_use]
+    pub const fn new(leg: LegWire, params: Vec<ParamValue>) -> Self {
+        Self { leg, params }
+    }
+
+    /// The document `bytes` hold, or `None` for anything that is not exactly one.
+    #[must_use]
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    /// The leg and the values it binds, in placeholder order, for [`LegWire::parse`].
+    #[must_use]
+    pub fn into_parts(self) -> (LegWire, Vec<ParamValue>) {
+        (self.leg, self.params)
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-app/src/federated/governed.rs b/crates/sutura-app/src/federated/governed.rs
+--- a/crates/sutura-app/src/federated/governed.rs
++++ b/crates/sutura-app/src/federated/governed.rs
+@@ -63,7 +63,7 @@ where
+ {
+     refusal_within(combiner, cause, ceiling).or_else(|| {
+         split
+-            .filter(|_| combiner.leg_not_certified(cause))
++            .filter(|_| !combiner.leg_not_certified(cause))
+             .map(|source| crate::remote_leg::leg_not_certified(source.clone()))
+     })
+ }

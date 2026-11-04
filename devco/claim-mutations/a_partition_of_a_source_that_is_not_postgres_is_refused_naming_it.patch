@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/serve/worker/partition.rs b/crates/sutura-cli/src/serve/worker/partition.rs
+--- a/crates/sutura-cli/src/serve/worker/partition.rs
++++ b/crates/sutura-cli/src/serve/worker/partition.rs
+@@ -76,7 +76,7 @@ impl Opened {
+                     _ => Err(not_postgres()),
+                 })
+             }
+-            _ => Ok(Err(not_postgres())),
++            _ => Ok(Err(Unread::LegNotCertified)),
+         };
+         read.unwrap_or_else(|_refused| Err(Unread::LegNotCertified))
+     }

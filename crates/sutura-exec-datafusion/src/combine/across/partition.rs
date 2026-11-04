@@ -2,17 +2,16 @@
 //! (`docs/adr/20261102082308-workers-read-sources.md` Decision 5), and the worker admit rule and
 //! codec that carry and check it.
 //!
-//! **Build steps 1-2 only.** Nothing plans [`PartitionScanExec`](partition::PartitionScanExec) yet -
-//! no caller outside this module's own tests mints a grant for one or sends it across a link.
-//! [`super::Nodes::worker_reading`]
-//! is a reading worker's own construction, parallel to [`super::Nodes::worker`], not yet wired to
-//! `crates/sutura-cli`: that, the app-level port, and the second relay code mapping a worker's
-//! refused re-certification back to [`crate::CombineError`], are a later slice.
+//! Nothing plans [`PartitionScanExec`](partition::PartitionScanExec) yet - no caller outside this
+//! crate's own tests mints a grant for one or sends it across a link; routing a split leg to a
+//! worker is a later slice. [`super::Nodes::worker_reading`] is a reading worker's own construction,
+//! parallel to [`super::Nodes::worker`]; `crates/sutura-cli` builds one for its reading role.
 //!
 //! # Limits
 //!
-//! - [`PartitionReader`](partition::PartitionReader) is a fake behind a trait a test supplies; no
-//!   adapter implements it here.
+//! - [`PartitionReader`](partition::PartitionReader) is a port: this crate holds no implementation,
+//!   the composition root does. A reader that answers [`Unread::LegNotCertified`] fails the task
+//!   under the relay code [`super::relay`] reads back; what it re-certified against is the reader's.
 //! - The leaf's schema crosses the wire through `datafusion_proto`'s own `Schema` protobuf, the same
 //!   round trip `combine::tests::across::decode` already exercises for one.
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
@@ -20,6 +19,7 @@
 //!   ([`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming), widened for exactly this case).
 
 use core::fmt;
+use core::future::Future;
 use core::time::Duration;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -30,41 +30,102 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties};
 use datafusion_distributed::{WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse};
 use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConverterExtension};
 use datafusion_proto::protobuf::Schema as ProtoSchema;
+use futures_util::{StreamExt as _, stream};
 use prost::Message as _;
 use sutura_domain::model::SourceName;
+use sutura_domain::warehouse::ResultBatches;
 
 use super::grant::{self, ReadingKeys};
 use super::{StageReadsASource, carried};
 
-/// Reads one partition of one source for a reading task - a fake behind this trait in every test
-/// here; no adapter implements it in this slice. `pub`, not `pub(super)`: [`super::Nodes::worker_reading`]
-/// names it in a `pub fn` signature, so this trait cannot be more private than that function.
+/// Reads one partition of one source for a reading task. `pub`, not `pub(super)`:
+/// [`super::Nodes::worker_reading`] names it in a `pub fn` signature, so this trait cannot be more
+/// private than that function.
 pub trait PartitionReader: Send + Sync {
-    /// Reads `source`'s `partition`, against `schema`.
+    /// Reads `source`'s `partition` of the leg `wire` carries, against `schema`.
+    ///
+    /// # Errors
+    ///
+    /// [`Unread::LegNotCertified`] when this node does not certify the leg `wire` carries;
+    /// [`Unread::Failed`] for anything else.
     fn read(
         &self,
+        wire: &[u8],
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
-    ) -> Result<SendableRecordBatchStream, DataFusionError>;
+    ) -> Result<SendableRecordBatchStream, Unread>;
 }
 
+/// A closure reads without the leg's wire, and its failure is never a refused certification.
 impl<F> PartitionReader for F
 where
     F: Fn(&SourceName, &[u8], &SchemaRef) -> Result<SendableRecordBatchStream, DataFusionError> + Send + Sync,
 {
     fn read(
         &self,
+        _wire: &[u8],
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
-    ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        self(source, partition, schema)
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        self(source, partition, schema).map_err(Unread::Failed)
     }
+}
+
+/// Why a [`PartitionReader`] read nothing.
+#[derive(Debug)]
+pub enum Unread {
+    /// This node's own catalog does not certify the leg the task carries. Crosses the link as a code
+    /// the planning node maps to its own refusal, never as text.
+    LegNotCertified,
+    /// The read failed, as the engine's failure.
+    Failed(DataFusionError),
+}
+
+impl Unread {
+    /// `cause` as the engine's failure.
+    pub fn failed(cause: impl core::error::Error + Send + Sync + 'static) -> Self {
+        Self::Failed(DataFusionError::External(Box::new(cause)))
+    }
+
+    /// A partition of `source`, which this node's reader does not read, as the engine's failure.
+    #[must_use]
+    pub fn source_not_read(source: &SourceName) -> Self {
+        Self::Failed(DataFusionError::Execution(format!(
+            "this reading worker does not read source `{source}`"
+        )))
+    }
+
+    fn into_error(self) -> DataFusionError {
+        match self {
+            Self::LegNotCertified => super::relay::not_certified(DataFusionError::Execution(String::from(
+                "this worker's catalog does not certify the leg it was asked to read",
+            ))),
+            Self::Failed(cause) => cause,
+        }
+    }
+}
+
+/// The stream of a read that runs only once it is first polled - `read` is typically a blocking
+/// read moved off the runtime - against `schema`. A failure is relayed as
+/// [`PartitionScanExec::execute`] relays one.
+pub fn read_later(
+    schema: SchemaRef,
+    read: impl Future<Output = Result<ResultBatches, Unread>> + Send + 'static,
+) -> SendableRecordBatchStream {
+    let batches = stream::once(read).flat_map(|read| {
+        stream::iter(match read {
+            Ok(read) => read.into_batches().into_iter().map(Ok).collect(),
+            Err(unread) => vec![Err(unread.into_error())],
+        })
+    });
+    Box::pin(RecordBatchStreamAdapter::new(schema, batches))
 }
 
 /// A reading worker's own reader, carried on its session so [`PartitionScanExec::execute`] can
@@ -169,7 +230,13 @@ impl ExecutionPlan for PartitionScanExec {
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
         reader
             .0
-            .read(&self.source, &self.partition, self.properties.eq_properties.schema())
+            .read(
+                &self.wire,
+                &self.source,
+                &self.partition,
+                self.properties.eq_properties.schema(),
+            )
+            .map_err(Unread::into_error)
     }
 }
 

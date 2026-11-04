@@ -1,24 +1,13 @@
 diff --git a/crates/sutura-cli/src/serve/worker.rs b/crates/sutura-cli/src/serve/worker.rs
-index db0cf735a..624b1bcc0 100644
 --- a/crates/sutura-cli/src/serve/worker.rs
 +++ b/crates/sutura-cli/src/serve/worker.rs
-@@ -95,17 +95,8 @@ pub(super) fn mount(
- /// dropped on return, so a source that becomes unreachable after boot is not noticed here, and the
- /// slice that reads a partition is the one that holds them for `sutura_app::recertify_leg`.
- fn open_reading_sources(settings: &Settings) -> Result<(), String> {
--    let outbound = super::outbound::resolve(settings)?;
--    let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
--    let pinned = crate::catalog::load(&catalogs)?;
--    let _opened = super::open_engine(
--        &pinned,
--        settings.sources(),
--        settings.runtime(),
--        settings.server().request_timeout(),
--        outbound.as_ref(),
--    )?;
--    Ok(())
-+    let _ = settings;
-+    Err(String::from("mutated: a reading worker never opens its declared sources"))
+@@ -132,7 +132,8 @@ fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
+         settings.server().request_timeout(),
+         outbound.as_ref(),
+     )?;
+-    Ok((pinned, opened))
++    let _kept = (pinned, opened);
++    Err(String::from("mutated: a reading worker opens its declared sources and still refuses to serve"))
  }
  
- #[cfg(test)]
+ /// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what

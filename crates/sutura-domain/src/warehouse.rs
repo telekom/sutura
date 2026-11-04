@@ -130,7 +130,7 @@ use crate::warehouse::schema::TypeDialect;
 /// So it goes when a typed column model does, and not before - the reasoning
 /// `sutura_exec_datafusion`'s `cell` gives for leaving `Date64` unmapped: an unreachable arm holding
 /// a semantic choice nobody reviewed is worse than not having the arm.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ParamValue {
     Text(String),
     Date(Date),

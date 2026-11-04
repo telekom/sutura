@@ -12,15 +12,15 @@
 //! grant learns nothing about which case applies, the same limit `remote_leg`'s own documentation
 //! states.
 //!
-//! **Nothing calls this from a worker's read path yet.** `crates/sutura-cli/src/serve/worker.rs`
-//! opens a reading worker's catalog and its declared sources at boot; this function is the check
-//! the slice that reads a granted partition will run before it does, over the leg the grant names
-//! and the partition's own bound parameters. No `PartitionReader` port exists yet - that arrives
-//! with its first implementor, a later slice.
+//! **A reading worker's partition reader calls [`read_recertified`] before every read.**
+//! `crates/sutura-cli/src/serve/worker.rs` opens the worker's catalog and declared sources at boot
+//! and keeps them for that reader, which reads only what this check returns. **The limit:** nothing
+//! on the planning node routes a split leaf to a worker yet, so outside tests no task reaches it.
 
+use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::LegPlan;
-use sutura_domain::plan::remote::LegWire;
+use sutura_domain::plan::remote::{LegWire, PartitionLeg};
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::{ParamValue, Warehouse};
 
@@ -55,6 +55,32 @@ where
     }
     leg.parse(pinned, params)
         .map_err(|_cause| crate::remote_leg::leg_not_certified(source))
+}
+
+/// `read` over the leg `wire` holds, once [`recertify_leg`] certified it, and the source `opened`
+/// holds for it - and `read` is never called otherwise.
+///
+/// `wire` is a [`PartitionLeg`], the document the task's reading grant digests; `source` is the
+/// source the task names beside it. Bytes that are not one document, and a leg naming another
+/// source, are refused as an uncertified leg is, naming `source`.
+pub fn read_recertified<W, T>(
+    pinned: &PinnedDefinitions,
+    opened: &Warehouses<W>,
+    source: &SourceName,
+    wire: &[u8],
+    read: impl FnOnce(&W, LegPlan) -> T,
+) -> Result<T, RefusalReason>
+where
+    W: Warehouse,
+{
+    let refused = || crate::remote_leg::leg_not_certified(source.clone());
+    let (leg, params) = PartitionLeg::parse(wire).ok_or_else(refused)?.into_parts();
+    if leg.source() != source {
+        return Err(refused());
+    }
+    let plan = recertify_leg(pinned, opened, leg, params)?;
+    let warehouse = opened.get(source).ok_or_else(refused)?;
+    Ok(read(warehouse, plan))
 }
 
 #[cfg(test)]
