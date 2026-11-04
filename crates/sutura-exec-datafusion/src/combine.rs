@@ -561,7 +561,13 @@ async fn arm_plan(
         .lookups()
         .iter()
         .zip(LOOKUP_TABLES)
-        .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
+        .enumerate()
+        .map(|(position, (&(leg, parts), table))| {
+            let first = parts
+                .first()
+                .ok_or_else(|| missing_lookup(&InternalLabel::link(position).label()))?;
+            Ok((leg, table, parts, LegSchema::of(table, first.schema())?))
+        })
         .collect::<Result<Vec<_>, CombineError>>()?;
     // Each lookup leg's link kinds agree with the leg it joins onto, part by part. A part past the
     // first is pinned by a cell only for a lookup onto the fact leg, not for one chained onto an
@@ -617,7 +623,8 @@ async fn arm_plan(
         }
     }
 
-    register_link(context, FACT_TABLE, FACT, legs.fact(), &link, casts.fact.as_ref())?;
+    let fact_rows = core::slice::from_ref(legs.fact());
+    register_link(context, FACT_TABLE, FACT, fact_rows, &link, casts.fact.as_ref())?;
     for (position, &(_, table, batches, _)) in lookups.iter().enumerate() {
         let own = InternalLabel::link(position).label();
         register_link(
@@ -634,14 +641,15 @@ async fn arm_plan(
             context,
             SECOND_FACT_TABLE,
             SECOND_FACT,
-            batches,
+            core::slice::from_ref(batches),
             &link,
             casts.second_fact.as_ref(),
         )?;
     }
 
     // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
-    // among them: a value repeated on one part alone is not a repeated tuple.
+    // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
+    // table over all its partitions, so a tuple repeated across two of them is refused too.
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
         let own = plan.link_labels(position);
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
@@ -681,7 +689,7 @@ fn held(batches: &ResultBatches) -> u64 {
 fn legs_held(legs: &Legs<'_>) -> u64 {
     core::iter::once(legs.fact())
         .chain(legs.second_fact())
-        .chain(legs.lookups().iter().map(|&(_, batches)| batches))
+        .chain(legs.lookups().iter().flat_map(|&(_, parts)| parts))
         .map(held)
         .fold(0, u64::saturating_add)
 }
@@ -801,36 +809,46 @@ impl FederationCombiner for DataFusionCombiner {
 /// buffers, so this copies no cell and reserves nothing against the pool. `crate::pool`'s header is
 /// where that limit on the ceiling's reach is stated.
 fn register(context: &SessionContext, table: &str, side: &'static str, batches: &ResultBatches) -> Result<(), CombineError> {
-    register_parts(context, table, side, batches.schema(), batches.batches().to_vec())
+    register_parts(context, table, side, batches.schema(), vec![batches.batches().to_vec()])
 }
 
-/// [`register`], with the leg's link column `label` cast first when its relationship declares one.
+/// A leg's `parts` as one table of one partition each, its link column `label` cast first when its
+/// relationship declares one. A split leg's parts share the first one's schema, or `MemTable` refuses.
 fn register_link(
     context: &SessionContext,
     table: &str,
     side: &'static str,
-    batches: &ResultBatches,
+    parts: &[ResultBatches],
     label: &str,
     cast: Option<&Cast>,
 ) -> Result<(), CombineError> {
-    match cast {
-        None => register(context, table, side, batches),
-        Some(cast) => {
-            let (schema, cast) = cast.apply(side, batches, label)?;
-            register_parts(context, table, side, &schema, cast)
-        }
-    }
+    let (schemas, partitions): (Vec<_>, Vec<_>) = parts
+        .iter()
+        .map(|part| {
+            cast.map_or_else(
+                || Ok((Arc::clone(part.schema()), part.batches().to_vec())),
+                |cast| cast.apply(side, part, label),
+            )
+        })
+        .collect::<Result<Vec<_>, CombineError>>()?
+        .into_iter()
+        .unzip();
+    let schema = schemas.first().ok_or_else(|| CombineError::MissingColumn {
+        side,
+        label: String::from(label),
+    })?;
+    register_parts(context, table, side, schema, partitions)
 }
 
-/// `batches` under `schema`, registered as `table`.
+/// `partitions` under `schema`, registered as `table`.
 fn register_parts(
     context: &SessionContext,
     table: &str,
     side: &'static str,
     schema: &SchemaRef,
-    batches: Vec<RecordBatch>,
+    partitions: Vec<Vec<RecordBatch>>,
 ) -> Result<(), CombineError> {
-    let memory = MemTable::try_new(Arc::clone(schema), vec![batches]).map_err(|cause| CombineError::Register { side, cause })?;
+    let memory = MemTable::try_new(Arc::clone(schema), partitions).map_err(|cause| CombineError::Register { side, cause })?;
     // A merge registers each arm's legs under the same names in turn; the plan an earlier arm built
     // holds its own table, so the name is free again. Nothing is registered under it on the two-leg
     // path, where this finds nothing to remove.

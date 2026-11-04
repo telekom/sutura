@@ -33,14 +33,15 @@
 //! against the plan's count of legs. **The limit:** two lookup results swapped with each other
 //! carry one tag, and so do the fact and the second fact ([`LegSide::Fact`]), so [`Legs::assign`]
 //! sees neither swap. The order of results within one side is held by
-//! [`FederationCombiner::execute`], which orders its results as [`FederatedPlan::legs`] does, and by
-//! nothing for a caller that builds [`Legs`] itself.
+//! [`FederationCombiner::execute`], which builds [`Legs`] from the plan's own legs, each beside the
+//! result read for it, and by nothing for a caller that builds [`Legs`] through [`Legs::assign`].
 
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, LookupLeg};
 use crate::plan::leg::LegPlan;
+use crate::plan::split::PartitionReader;
 use crate::warehouse::ResultBatches;
 
 mod statement;
@@ -94,7 +95,8 @@ impl LegResult {
 /// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
 /// second fact model, joined above on the link and the time bucket. The combiner reads it through
 /// [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names. Each lookup
-/// result arrives beside its [`LookupLeg`], which names the leg it joins onto.
+/// result arrives beside its [`LookupLeg`], which names the leg it joins onto: one result for a
+/// leg read whole, one per partition for a leg its source split ([`LegRunner::split`]).
 ///
 /// Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 /// for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -103,8 +105,12 @@ impl LegResult {
 pub struct Legs<'a> {
     fact: &'a ResultBatches,
     second_fact: Option<&'a ResultBatches>,
-    lookups: Vec<(&'a LookupLeg, &'a ResultBatches)>,
+    lookups: Vec<LookupRows<'a>>,
 }
+
+/// A lookup leg beside its rows: one result for a leg read whole, one per partition for a leg its
+/// source split.
+pub type LookupRows<'a> = (&'a LookupLeg, &'a [ResultBatches]);
 
 impl<'a> Legs<'a> {
     /// The results, one per [`FederatedPlan::legs`] entry and in that order, each checked against
@@ -146,7 +152,7 @@ impl<'a> Legs<'a> {
                 .lookups()
                 .legs()
                 .iter()
-                .zip(lookups.iter().map(LegResult::batches))
+                .zip(lookups.iter().map(|result| core::slice::from_ref(result.batches())))
                 .collect(),
         })
     }
@@ -165,19 +171,21 @@ impl<'a> Legs<'a> {
         self.second_fact
     }
 
-    /// Each lookup leg beside its result, in plan order.
+    /// Each lookup leg beside its result, in plan order: one result, or one per partition of a leg
+    /// its source split.
     #[inline]
     #[must_use]
-    pub fn lookups(&self) -> &[(&'a LookupLeg, &'a ResultBatches)] {
+    pub fn lookups(&self) -> &[LookupRows<'a>] {
         &self.lookups
     }
 }
 
 /// Leg results that do not stand for the plan's legs, so there is nothing to combine.
 ///
-/// Unreachable through [`FederationCombiner::execute`], which builds one [`LegResult`] per
-/// [`FederatedPlan::legs`] entry. Typed anyway rather than assumed away: a silent choice would
-/// combine a leg with the wrong rows, or read a missing leg as a leg with no match.
+/// Unreachable through [`FederationCombiner::execute`], which builds [`Legs`] from the plan's own
+/// legs rather than through [`Legs::assign`], but for [`Self::NoPartition`]. Typed anyway rather than
+/// assumed away: a silent choice would combine a leg with the wrong rows, or read a missing leg as a
+/// leg with no match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum LegsMiswired {
     /// The plan runs `legs` legs and `results` results arrived.
@@ -186,6 +194,9 @@ pub enum LegsMiswired {
     /// A result stands where the plan runs a leg of the other side.
     #[error("a {found:?} leg's result stands where the plan runs a {expected:?} leg")]
     WrongSide { expected: LegSide, found: LegSide },
+    /// A lookup leg's source split it into no partitions, so no result stands for it.
+    #[error("a lookup leg's source split it into no partitions")]
+    NoPartition,
 }
 
 /// The legs a federated plan runs at their sources, and the plan the combine runs above them.
@@ -220,6 +231,22 @@ pub trait LegRunner {
     ///
     /// [`Self::Error`].
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error>;
+
+    /// A lookup leg's partitions as its source split them, or the leg read whole as the one partition.
+    ///
+    /// Defaults to [`Self::run`]: a runner whose sources split nothing reads every leg whole. Asked of
+    /// lookup legs only - a split fact leg needs a re-group stage above its partitions, and none
+    /// exists - so a fact leg is read whole whatever its source could do. A leg that failed before
+    /// any partition was read is a reader whose one item is that error; a reader with no item at all
+    /// is [`LegsMiswired::NoPartition`], never a leg with no rows.
+    ///
+    /// **[`FederationCombiner::execute`] owns the reader** and drops it on the lookup leg's own thread
+    /// once the last partition is read or the first fails, whose error is the leg's - before the
+    /// combine starts. A source holding a transaction open across its partitions releases it there.
+    /// The partitions are read one after another, in process.
+    fn split(&self, leg: &LegPlan) -> PartitionReader<'_, Self::Error> {
+        Box::new(core::iter::once(self.run(leg)))
+    }
 }
 
 /// Why [`FederationCombiner::execute`] or `DrillAcrossCombiner::execute_across` gave no answer.
@@ -445,7 +472,8 @@ pub trait FederationCombiner {
     /// Runs the cut's legs through `runner`, then [`Self::combine`]s their results.
     ///
     /// The fact leg runs on this thread while each lookup leg runs beside it on a scoped thread of
-    /// its own, and a second fact runs after all of them. Scoped, so the runner and the plan are
+    /// its own, read whole or partition by partition ([`LegRunner::split`]), and a second fact runs
+    /// after all of them. Scoped, so the runner and the plan are
     /// borrowed and nothing is cloned. If the OS refuses a thread, that lookup leg runs after the
     /// fact leg on this thread. The fact leg's error wins over every lookup leg's, an earlier lookup
     /// leg's over a later one's, all of them over the second fact's, and every leg's over the
@@ -471,7 +499,7 @@ pub trait FederationCombiner {
                 .map(|&leg| {
                     std::thread::Builder::new()
                         .name(String::from("federated-lookup-leg"))
-                        .spawn_scoped(scope, move || runner.run(leg))
+                        .spawn_scoped(scope, move || runner.split(leg).collect::<Result<Vec<_>, _>>())
                         .map_err(|_refused| leg)
                 })
                 .collect();
@@ -485,25 +513,34 @@ pub trait FederationCombiner {
                         // reachable only in an unwinding test build. There is no leg outcome to return.
                         Err(panic) => std::panic::resume_unwind(panic),
                     },
-                    Err(leg) => runner.run(leg),
+                    Err(leg) => runner.split(leg).collect(),
                 })
                 .collect();
             (fact, looked_up)
         });
-        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
-        let looked_up = lookups
+        let fact = fact.map_err(ExecuteError::Leg)?;
+        let looked_up = looked_up
             .into_iter()
-            .zip(looked_up)
-            .map(|(leg, answered)| answered.map(|batches| LegResult::of(leg, batches)))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ExecuteError::Leg)?;
+        if looked_up.iter().any(Vec::is_empty) {
+            return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
+        }
         let second_fact = plan
             .second_fact()
-            .map(|leg| runner.run(leg).map(|batches| LegResult::of(leg, batches)))
+            .map(|leg| runner.run(leg))
             .transpose()
             .map_err(ExecuteError::Leg)?;
-        let results: Vec<LegResult> = core::iter::once(fact).chain(second_fact).chain(looked_up).collect();
-        let legs = Legs::assign(plan, &results).map_err(ExecuteError::Miswired)?;
+        let legs = Legs {
+            fact: &fact,
+            second_fact: second_fact.as_ref(),
+            lookups: plan
+                .lookups()
+                .legs()
+                .iter()
+                .zip(looked_up.iter().map(Vec::as_slice))
+                .collect(),
+        };
         self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
     }
 

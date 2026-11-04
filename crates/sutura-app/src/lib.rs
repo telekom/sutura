@@ -270,8 +270,8 @@ pub enum ServiceError<E, M, C> {
 /// The federated path's own wiring, in the four shapes it cannot answer for.
 ///
 /// **Every arm is unreachable through `sutura_semantic::plan::federated_plan`, the one production
-/// splitter, and the provided `FederationCombiner::execute`. Each is typed anyway rather than
-/// assumed away.** A previous revision reached for a `DuplicateLabels` combine failure for the
+/// splitter, and the provided `FederationCombiner::execute` over sources that split a lookup leg
+/// into at least one partition. Each is typed anyway rather than assumed away.** A previous revision reached for a `DuplicateLabels` combine failure for the
 /// first of them - a failure about a leg RESULT, minted from a value that has nothing to do with
 /// one - which is the shape this enum replaces.
 #[derive(Debug, thiserror::Error)]
@@ -287,7 +287,8 @@ pub enum FederationMiswired {
     },
     /// The leg results did not stand for the plan's legs.
     ///
-    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order.
+    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order -
+    /// reachable only through a source that split a lookup leg into no partitions.
     #[error("the leg results do not stand for the federated plan's legs")]
     LegsMiswired {
         #[source]
