@@ -77,6 +77,8 @@ mod tests {
     use crate::serve::ENGINE_SOURCE;
     use crate::serve::open_engine;
     #[cfg(feature = "clickhouse")]
+    use crate::serve::tests::direct_registry;
+    #[cfg(feature = "clickhouse")]
     use crate::serve::tests::entry;
     use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
 
@@ -237,7 +239,7 @@ mod tests {
             Subject::verified("analyst-a@example.com").expect("a test subject"),
         ));
         let minted = |entry: &str| {
-            crate::serve::broker::build_broker(&registry(entry), None)
+            crate::serve::broker::build_broker(&direct_registry(entry), None)
                 .expect("the source builds a broker")
                 .mint(&without_assertion, &SourceSet::of(at.clone()))
                 .expect("a mint answers")
