@@ -91,8 +91,9 @@
 //!   refuses every answer over the ceiling.
 //! - A [`SplitScan`]'s partitions are read only on the nodes [`Nodes::reading`] names for its
 //!   source, each under a key of its own sent only to the node that reads it, and a stage no such
-//!   node resolved for is refused. No served question builds one yet: the split leg stays on this
-//!   node until the cross-partition ambiguous-link check lands.
+//!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
+//!   values across its partitions, counting each value after a repartition on the link columns. No
+//!   served question builds a split leg or calls that check yet: a served leg stays on this node.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -147,8 +148,12 @@ mod partition;
 /// source (Decisions 1 and 5).
 mod split;
 
+/// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
+mod link;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
+pub use link::refuse_ambiguous_split;
 pub use partition::{PartitionReader, Unread, read_later};
 pub use split::{SplitScan, StreamBound};
 
