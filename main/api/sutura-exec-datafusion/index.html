@@ -2671,6 +2671,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-splitscan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use SplitScan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-streambound" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use StreamBound
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-taskgrant" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3126,6 +3148,11 @@ key, and the deployment's node authority.</p>
 <p>Reads one partition of one source for a reading task. <code>pub</code>, not <code>pub(super)</code>:
 <code>super::Nodes::worker_reading</code> names it in a <code>pub fn</code> signature, so this trait cannot be more
 private than that function.</p>
+<h2 id="use-splitscan"><code>use SplitScan</code><a class="headerlink" href="#use-splitscan" title="Permanent link">&para;</a></h2>
+<p>A leg split into partitions, each read only by a task on a worker that reads its source.</p>
+<h2 id="use-streambound"><code>use StreamBound</code><a class="headerlink" href="#use-streambound" title="Permanent link">&para;</a></h2>
+<p>The bound a split leg's every partition stream is read under, signed into its grant: at most
+<code>rows</code> rows and <code>bytes</code> bytes.</p>
 <h2 id="use-taskgrant"><code>use TaskGrant</code><a class="headerlink" href="#use-taskgrant" title="Permanent link">&para;</a></h2>
 <p>The task grant a node's worker asks of every call it is sent over gRPC.</p>
 <p>A call to install a stage is admitted with a key and a grant under it, the first key a question is
