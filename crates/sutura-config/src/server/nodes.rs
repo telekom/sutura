@@ -3,8 +3,9 @@
 //!
 //! **What [`DeclaredNodes::reading`] does not do.** It answers "which declared peers named this
 //! source alias", read from this node's own configuration. Its count sizes a lookup leg's split at
-//! that source, and nothing dispatches through it - every partition is still read on this node -
-//! and readiness is unaffected by it: a node that failed to resolve or is unreachable is still
+//! that source, and the planner places a split leg's partitions only on these peers, but no served
+//! question builds one yet - every partition is still read on this node - and readiness is
+//! unaffected by it: a node that failed to resolve or is unreachable is still
 //! *declared*, so this accessor is a configuration fact, not a liveness one. Readiness stays exactly
 //! where it already was, with resolving the node.
 
@@ -103,8 +104,9 @@ impl DeclaredNodes {
 
     /// The declared peers that read `alias`, in declaration order.
     ///
-    /// Counted to size a lookup leg's split at `alias`; no source-reading stage dispatches through
-    /// it yet. Readiness still comes from resolving the node, not from appearing here.
+    /// Counted to size a lookup leg's split at `alias`, and the only nodes a split leg's partitions
+    /// are placed on; no served question builds one yet. Readiness still comes from resolving the
+    /// node, not from appearing here.
     pub fn reading<'a>(&'a self, alias: &SourceName) -> impl Iterator<Item = &'a DeclaredNode> {
         self.others.iter().filter(move |node| node.sources.contains(alias))
     }

@@ -100,7 +100,9 @@ mod schema;
 #[cfg(feature = "sql")]
 mod statement;
 #[cfg(feature = "distributed")]
-pub use across::{NodeIdentity, Nodes, NotAnIdentity, PartitionReader, TaskGrant, Unread, WorkerRefusal, read_later};
+pub use across::{
+    NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, TaskGrant, Unread, WorkerRefusal, read_later,
+};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};

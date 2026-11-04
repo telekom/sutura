@@ -2,10 +2,11 @@
 //! (`docs/adr/20261102082308-workers-read-sources.md` Decision 5), and the worker admit rule and
 //! codec that carry and check it.
 //!
-//! Nothing plans [`PartitionScanExec`](partition::PartitionScanExec) yet - no caller outside this
-//! crate's own tests mints a grant for one or sends it across a link; routing a split leg to a
-//! worker is a later slice. [`super::Nodes::worker_reading`] is a reading worker's own construction,
-//! parallel to [`super::Nodes::worker`]; `crates/sutura-cli` builds one for its reading role.
+//! A [`SplitScan`](crate::SplitScan) plans one `PartitionScanExec` per partition, placed on a node
+//! reading its source; no served question builds one yet, so outside this crate's tests no reading
+//! task is sent. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
+//! construction, parallel to [`Nodes::worker`](crate::Nodes::worker); `crates/sutura-cli` builds one
+//! for its reading role.
 //!
 //! # Limits
 //!

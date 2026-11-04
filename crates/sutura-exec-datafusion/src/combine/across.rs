@@ -89,6 +89,10 @@
 //!   planning node answers as [`CombineError::RowsOverCeiling`]. The check is per task, so tasks that
 //!   each stay under the ceiling can sum past it: the planning node's exact count stays the one that
 //!   refuses every answer over the ceiling.
+//! - A [`SplitScan`]'s partitions are read only on the nodes [`Nodes::reading`] names for its
+//!   source, each under a key of its own sent only to the node that reads it, and a stage no such
+//!   node resolved for is refused. No served question builds one yet: the split leg stays on this
+//!   node until the cross-partition ambiguous-link check lands.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -110,11 +114,12 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_distributed::grpc::{BoxCloneSyncChannel, create_worker_client_with_decode_limit};
 use datafusion_distributed::{
     ChannelResolver, DesiredTaskCountEvent, DesiredTaskCountEventResponse, DistributedConfig, DistributedExt as _,
-    DistributedLeafExec, NetworkBoundaryExt as _, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
+    DistributedLeafExec, NetworkBoundaryExt as _, RouteTasksEvent, ScaleUpLeafNodeEvent, ScaleUpLeafNodeEventResponse,
     SessionStateBuilderExt as _, Worker, WorkerChannel, WorkerPlanRewriteEvent, WorkerPlanRewriteEventResponse,
     WorkerQueryContext, WorkerResolver,
 };
 use hyper_util::rt::TokioIo;
+use sutura_domain::model::SourceName;
 use sutura_domain::plan::{FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
@@ -138,9 +143,14 @@ mod ceiling;
 /// reading node's worker and coordinator both install (Decision 5).
 mod partition;
 
+/// A split leg's partitions as tasks of a source-reading stage, each placed on a node reading its
+/// source (Decisions 1 and 5).
+mod split;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use partition::{PartitionReader, Unread, read_later};
+pub use split::{SplitScan, StreamBound};
 
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;
@@ -177,6 +187,8 @@ pub struct Nodes {
     keys: grant::Keys,
     /// The rows a task of a question's final stage may emit before its worker fails it.
     row_ceiling: FederatedRowCeiling,
+    /// The other nodes declared as reading each source, as declared.
+    readers: HashMap<SourceName, Vec<Url>>,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -210,6 +222,7 @@ impl Nodes {
             slots_wanted: WorkerSlotsWanted::default(),
             keys: grant::Keys::default(),
             row_ceiling: FederatedRowCeiling::LOOSEST,
+            readers: HashMap::new(),
         }
     }
 
@@ -248,6 +261,14 @@ impl Nodes {
             row_ceiling: ceiling,
             ..self
         }
+    }
+
+    /// The same nodes, a [`SplitScan`] of `source` read only on `readers`, each as declared. A reader
+    /// that is not among the other nodes declared, or does not resolve, reads nothing.
+    #[must_use]
+    pub fn reading(mut self, source: SourceName, readers: impl IntoIterator<Item = Url>) -> Self {
+        self.readers.insert(source, readers.into_iter().collect());
+        self
     }
 
     /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
@@ -380,6 +401,16 @@ impl Nodes {
     ) -> Result<SessionContext, CombineError> {
         let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
         let all = Declared(core::iter::once(self.own_url.clone()).chain(others).collect());
+        let reading: HashMap<SourceName, Vec<Url>> = self
+            .readers
+            .iter()
+            .map(|(source, declared)| {
+                let resolved = all.0.iter().skip(1).filter(|node| declared.contains(&unresolved(node)));
+                (source.clone(), resolved.cloned().collect())
+            })
+            .collect();
+        let reading = Arc::new(reading);
+        let routing = Arc::clone(&reading);
         let count = all.0.len();
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =
@@ -392,6 +423,9 @@ impl Nodes {
             .with_distributed_worker_resolver(all)
             .with_distributed_channel_resolver(self.channels.bounded(working_set))
             .with_distributed_local_worker_context(self.own.to_local_worker_context(self.own_url.clone()))
+            .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| split::desired(event, &reading))
+            .with_distributed_scale_up_leaf_node_handler(split::scaled)
+            .with_distributed_route_tasks_handler(move |event: RouteTasksEvent<'_>| split::routed(&event, &routing))
             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
                 // Any other leaf, answered `None`, is planned as one task, which routes to this node.
                 (!event.plan.children().is_empty() || dealable(event.plan).is_some())
@@ -467,6 +501,13 @@ fn resolved(declared: &Url) -> Vec<Url> {
         .collect()
 }
 
+/// `node` as declared: without the address [`resolved`] put in its fragment.
+fn unresolved(node: &Url) -> Url {
+    let mut declared = node.clone();
+    declared.set_fragment(None);
+    declared
+}
+
 /// `event`'s leg scan as one variant per task, each with every `task_count`th batch of each
 /// partition, so the tasks read the leg's rows between them and none twice.
 fn dealt(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLeafNodeEventResponse, DataFusionError>> {
@@ -504,6 +545,17 @@ fn dealable(leaf: &Arc<dyn ExecutionPlan>) -> Option<&MemorySourceConfig> {
 #[error("a stage sent to this node reads `{leaf}`, and a node reads no source for another node")]
 pub(super) struct StageReadsASource {
     pub(super) leaf: String,
+}
+
+/// A stage reading split legs of `aliases` that no resolved node is declared as reading together: it
+/// is read on none, and never on a node that does not read them.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "no resolved node reads all of {}, so the stage's split legs are read on none",
+    .aliases.iter().map(|alias| format!("`{alias}`")).collect::<Vec<_>>().join(", ")
+)]
+pub(super) struct NoReadingNode {
+    pub(super) aliases: Vec<SourceName>,
 }
 
 /// `event`'s stage, refused if a leaf reads anything but another node's stage or rows the plan

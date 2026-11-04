@@ -37,7 +37,8 @@
 //! a fresh connection, under the same per-stream bound, through the one body [`Partition::read`]
 //! runs. **Its limits**:
 //!
-//! - Nothing calls it yet; a reading worker's grant handler will - `github.com/telekom/sutura#828`.
+//! - Only a reading worker's partition reader calls it, and no served question sends one a
+//!   partition yet - `github.com/telekom/sutura#828`.
 //! - It takes no presented identity and does not authenticate the descriptor: both are the task
 //!   grant's, which carries the descriptor and authorises the leg before this runs. Every connection
 //!   is the adapter's one conninfo, since its `IMPERSONATION` is `NoPlaceForASubject`. That the
