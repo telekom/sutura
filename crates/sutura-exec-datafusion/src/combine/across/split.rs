@@ -14,13 +14,17 @@
 //!   lookup leg's link keys for duplicates only over rows it read itself, so a split leg is still read
 //!   whole there until the cross-partition ambiguous-link check lands.
 //! - The planning node mints, and so holds, every partition's key.
-//! - The tasks are at most the nodes resolved, this one among them. With fewer tasks than
-//!   partitions, a task reads each partition whose index leaves its own remainder by the task count,
-//!   each under its own key.
-//! - A leg planned as one task - one partition, or no other node resolved - fails rather than being
-//!   read: its scan reads only inside a reading task, and the codec refuses to send it whole.
-//! - A stage with two split legs goes only to nodes reading both sources. A stage whose sources no
-//!   resolved node reads together is refused (`NoReadingNode`), never placed elsewhere.
+//! - A split stage's tasks are at most its partitions and at most the readers resolved for its
+//!   source, so each reader runs at most one of them. With fewer tasks than partitions, a task reads
+//!   each partition whose index leaves its own remainder by the task count, each under its own key.
+//! - A leg planned as one task - one partition, one reader resolved, or no other node resolved -
+//!   fails rather than being read: its scan reads only inside a reading task, and the codec refuses
+//!   to send it whole.
+//! - A stage with two split legs goes only to nodes reading both sources, its tasks capped at the
+//!   fewer readers of either: when fewer nodes read both, one of them runs more than one task.
+//! - A stage whose sources no resolved node reads together is refused (`NoReadingNode`, naming each
+//!   of them), never placed elsewhere. The refusal reaches a caller as `CombineError::Execute`, not a
+//!   typed refusal, until a served question builds a split, where a typed variant arrives.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
 //! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
@@ -242,10 +246,18 @@ impl ExecutionPlan for SplitLeafExec {
     }
 }
 
-/// A split leg's stage asks for one task per partition at most.
-pub(super) fn desired(event: DesiredTaskCountEvent<'_>) -> Option<Result<DesiredTaskCountEventResponse, DataFusionError>> {
-    let split = event.plan.downcast_ref::<SplitLeafExec>()?;
-    Some(Ok(DesiredTaskCountEventResponse::maximum(split.leg.partitions.len())))
+/// A split leg's stage asks for one task per partition at most, and no more than the nodes `readers`
+/// names for its source, so no reader is dealt two of its tasks. A source none is named for is left
+/// uncapped, for `routed` to refuse.
+pub(super) fn desired(
+    event: DesiredTaskCountEvent<'_>,
+    readers: &HashMap<SourceName, Vec<Url>>,
+) -> Option<Result<DesiredTaskCountEventResponse, DataFusionError>> {
+    let leg = &event.plan.downcast_ref::<SplitLeafExec>()?.leg;
+    let partitions = leg.partitions.len();
+    let reading = readers.get(&leg.source).map_or(0, Vec::len);
+    let tasks = if reading == 0 { partitions } else { partitions.min(reading) };
+    Some(Ok(DesiredTaskCountEventResponse::maximum(tasks)))
 }
 
 /// A split leg as one variant per task: each partition's slot holds its granted scan in the task
@@ -303,7 +315,7 @@ pub(super) fn routed(
         if node.as_network_boundary().is_some() {
             return Ok(TreeNodeRecursion::Jump);
         }
-        if let Some(leg) = split_of(node) {
+        if let Some(leg) = split_of(node).filter(|leg| !sources.contains(&leg.source)) {
             sources.push(leg.source.clone());
         }
         Ok(TreeNodeRecursion::Continue)
@@ -318,9 +330,7 @@ pub(super) fn routed(
         .filter(|&node| sources.iter().all(|source| reading(source).contains(node)))
         .collect();
     if nodes.is_empty() {
-        return Some(Err(DataFusionError::External(Box::new(NoReadingNode {
-            alias: first.clone(),
-        }))));
+        return Some(Err(DataFusionError::External(Box::new(NoReadingNode { aliases: sources }))));
     }
     Some(Ok(RouteTasksEventResponse::new(
         nodes.into_iter().cycle().take(event.task_count).cloned().collect(),

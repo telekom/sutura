@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -256,7 +256,7 @@
+     let leg = &event.plan.downcast_ref::<SplitLeafExec>()?.leg;
+     let partitions = leg.partitions.len();
+     let reading = readers.get(&leg.source).map_or(0, Vec::len);
+-    let tasks = if reading == 0 { partitions } else { partitions.min(reading) };
++    let tasks = if reading == 0 { partitions } else { partitions.max(reading) };
+     Some(Ok(DesiredTaskCountEventResponse::maximum(tasks)))
+ }
+ 

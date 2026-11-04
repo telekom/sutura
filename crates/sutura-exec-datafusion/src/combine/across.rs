@@ -409,6 +409,8 @@ impl Nodes {
                 (source.clone(), resolved.cloned().collect())
             })
             .collect();
+        let reading = Arc::new(reading);
+        let routing = Arc::clone(&reading);
         let count = all.0.len();
         let mut links = DistributedConfig::default();
         links.worker_connection_buffer_budget_bytes =
@@ -421,9 +423,9 @@ impl Nodes {
             .with_distributed_worker_resolver(all)
             .with_distributed_channel_resolver(self.channels.bounded(working_set))
             .with_distributed_local_worker_context(self.own.to_local_worker_context(self.own_url.clone()))
-            .with_distributed_desired_task_count_handler(split::desired)
+            .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| split::desired(event, &reading))
             .with_distributed_scale_up_leaf_node_handler(split::scaled)
-            .with_distributed_route_tasks_handler(move |event: RouteTasksEvent<'_>| split::routed(&event, &reading))
+            .with_distributed_route_tasks_handler(move |event: RouteTasksEvent<'_>| split::routed(&event, &routing))
             .with_distributed_desired_task_count_handler(move |event: DesiredTaskCountEvent<'_>| {
                 // Any other leaf, answered `None`, is planned as one task, which routes to this node.
                 (!event.plan.children().is_empty() || dealable(event.plan).is_some())
@@ -545,12 +547,15 @@ pub(super) struct StageReadsASource {
     pub(super) leaf: String,
 }
 
-/// A stage reading a split leg whose sources no resolved node is declared as reading together: it
-/// is read on none, and never on a node that does not read it.
+/// A stage reading split legs of `aliases` that no resolved node is declared as reading together: it
+/// is read on none, and never on a node that does not read them.
 #[derive(Debug, thiserror::Error)]
-#[error("no node declared as reading `{alias}` resolved, so its split leg is read on none")]
+#[error(
+    "no resolved node reads all of {}, so the stage's split legs are read on none",
+    .aliases.iter().map(|alias| format!("`{alias}`")).collect::<Vec<_>>().join(", ")
+)]
 pub(super) struct NoReadingNode {
-    pub(super) alias: SourceName,
+    pub(super) aliases: Vec<SourceName>,
 }
 
 /// `event`'s stage, refused if a leaf reads anything but another node's stage or rows the plan

@@ -33,7 +33,7 @@ use super::{Authority, listening, roomy, served, servers};
 use crate::combine::across::NoReadingNode;
 use crate::combine::{Nodes, PartitionReader, SplitScan, StreamBound};
 
-/// More partitions than there are nodes, so some task reads two.
+/// More partitions than there are nodes, so each task reads more than one.
 const PARTITIONS: u8 = 6;
 
 fn schema() -> SchemaRef {
@@ -242,6 +242,34 @@ fn a_split_leg_s_partitions_are_sent_only_to_the_nodes_reading_its_source_each_o
     across.answer.expect("a split leg read across its readers answered");
 }
 
+/// Six partitions over two readers: as one task each, the first reads the even partitions and the
+/// second the odd ones. Dealt a task per node instead, the first reader would also read partition 5.
+#[test]
+fn a_split_leg_with_more_partitions_than_readers_sends_each_reader_one_task() {
+    let across = split_across(both_readers);
+
+    let shares = across
+        .orders
+        .iter()
+        .map(|peer| {
+            let mut asked = peer.asked();
+            asked.sort();
+            asked
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        shares,
+        [vec![vec![0], vec![2], vec![4]], vec![vec![1], vec![3], vec![5]]],
+        "a reader ran more than one task of the leg's stage"
+    );
+    let whole: Vec<i64> = partitions()
+        .iter()
+        .flat_map(|partition| values(&[rows(partition).expect("a partition's rows build")]))
+        .collect();
+    let split = across.answer.expect("a split leg read across its readers answered");
+    assert_eq!(values(&split), whole);
+}
+
 #[test]
 fn a_split_leg_no_resolved_node_reads_is_refused_and_sent_nowhere() {
     let across = split_across(|_| vec![Url::parse("https://127.0.0.1:1").expect("an address is a URL")]);
@@ -251,7 +279,7 @@ fn a_split_leg_no_resolved_node_reads_is_refused_and_sent_nowhere() {
         matches!(
             refused.find_root(),
             DataFusionError::External(cause)
-                if cause.downcast_ref::<NoReadingNode>().is_some_and(|refusal| refusal.alias == source("orders"))
+                if cause.downcast_ref::<NoReadingNode>().is_some_and(|refusal| refusal.aliases == [source("orders")])
         ),
         "{refused}"
     );
