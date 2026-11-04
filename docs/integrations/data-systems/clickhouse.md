@@ -113,7 +113,9 @@ delegation:
 ```
 
 A `host` that is not loopback needs `transport_mode: verified` or `mutual`, because each request
-sends the caller's token. sutura does not start without it.
+sends the caller's token. sutura does not start without it. `delegation` needs
+`security.inbound.mode: direct`, and sutura does not start when the last hop asks for the audience
+of sutura itself.
 
 ClickHouse does not verify the token itself. It sends the user and the token to a token checker
 that you run. sutura does not supply a checker. For each query, ClickHouse sends one request to the

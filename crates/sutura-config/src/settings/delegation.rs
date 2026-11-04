@@ -1,15 +1,22 @@
 //! The combination checks on what a source hands its data system's token service in place of the
 //! caller: a source that sends the caller's own inbound token to an identity provider - a
-//! `workload_identity.delegation`, a `google_login`, or an Oracle or Cube `delegation` - on a
-//! deployment that verifies no `direct` caller, and the acknowledgement that a `direct` deployment
-//! declares no hop.
+//! `workload_identity.delegation`, a `google_login`, or an Oracle, Cube, `ClickHouse` or `node`
+//! `delegation` - on a deployment that verifies no `direct` caller, and the acknowledgement that a
+//! `direct` deployment declares no hop. These are every [`crate::SourcePlacement`] variant that
+//! carries a `delegation` list; a kind added with one more needs a row here too, because this module
+//! reads the placement by name rather than through one shared accessor. The own-audience check below
+//! does not read `node` through the shared `hops` slice - its hop reaching another node that also
+//! verifies it is a different exposure from the others, not the data system receiving this
+//! deployment's own token, so it earns its own refusal and message rather than being folded into
+//! [`crate::settings::NotFitToServe::DelegationToTheDeploymentsOwnAudience`].
 
 use crate::inbound::InboundIdentity;
 use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
 use crate::sources::caller_identity::CallerIdentity;
 
-/// See [`NotFitToServe::DelegationWithoutDirectInbound`],
+/// Reads `workload_identity.delegation`, `google_login`, and the `delegation` list of an Oracle,
+/// Cube, `ClickHouse` or `node` placement. See [`NotFitToServe::DelegationWithoutDirectInbound`],
 /// [`NotFitToServe::InboundTokenAtPoolUnacknowledged`],
 /// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`],
 /// [`NotFitToServe::DelegationToTheDeploymentsOwnAudience`] and
@@ -31,7 +38,8 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             *source.placement(),
             crate::SourcePlacement::Oracle { ref delegation, .. }
                 | crate::SourcePlacement::Cube { ref delegation, .. }
-                | crate::SourcePlacement::Node { ref delegation, .. } if !delegation.is_empty()
+                | crate::SourcePlacement::Node { ref delegation, .. }
+                | crate::SourcePlacement::ClickHouse { ref delegation, .. } if !delegation.is_empty()
         ) {
             Some("delegation")
         } else {
@@ -51,6 +59,15 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             (false, Some(_)) => refusals.push(NotFitToServe::InboundTokenAtPoolWithoutEffect { alias: alias.clone() }),
             (true, Some(_)) | (false, None) => {}
         }
+        let hops = source.workload_identity().map_or_else(
+            || match *source.placement() {
+                crate::SourcePlacement::Oracle { ref delegation, .. }
+                | crate::SourcePlacement::Cube { ref delegation, .. }
+                | crate::SourcePlacement::ClickHouse { ref delegation, .. } => delegation.as_slice(),
+                _ => &[],
+            },
+            |wif| wif.delegation(),
+        );
         if let Some(resource) = own
             && let crate::SourcePlacement::Node { ref delegation, .. } = *source.placement()
             && let Some(last) = delegation.last()
@@ -59,7 +76,7 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             refusals.push(NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience { alias: alias.clone() });
         }
         if let Some(resource) = own
-            && let Some(last) = source.workload_identity().and_then(|wif| wif.delegation().last())
+            && let Some(last) = hops.last()
             && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
         {
             refusals.push(NotFitToServe::DelegationToTheDeploymentsOwnAudience { alias: alias.clone() });

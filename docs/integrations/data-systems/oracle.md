@@ -132,6 +132,7 @@ query ends.
   source has `subjects`.
 - The source must use `transport_mode: verified`, and `delegation` needs
   `security.inbound.mode: direct`.
+- sutura does not start when the last hop asks for the audience of sutura itself.
 - sutura also connects as `user` at startup to check the source. No caller's query runs on that
   connection.
 

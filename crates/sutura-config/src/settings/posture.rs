@@ -215,7 +215,8 @@ pub enum NotFitToServe {
     )]
     DelegationWithoutDirectInbound {
         alias: SourceName,
-        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`.
+        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`,
+        /// `cube`, `clickhouse` or `node`.
         key: &'static str,
     },
     /// A `direct` deployment's `workload_identity` source declares no delegation hop, and does not
@@ -241,23 +242,28 @@ pub enum NotFitToServe {
          source, or security.inbound.mode is not `direct`. Remove the key"
     )]
     InboundTokenAtPoolWithoutEffect { alias: SourceName },
-    /// A `direct` deployment's last `workload_identity.delegation` hop asks for this deployment's
-    /// own audience, so the pool would receive a token minted for this deployment - what
-    /// `inbound_token_at_pool: accepted` acknowledges, here unacknowledged. The comparison is of the
-    /// configured strings only; an identity provider that maps audiences is not seen.
+    /// A `direct` deployment's last delegation hop - `workload_identity.delegation`, or an Oracle,
+    /// Cube or `ClickHouse` `delegation` - asks for this deployment's own audience, so the data system would receive
+    /// a token minted for this deployment: what `inbound_token_at_pool: accepted` acknowledges for a
+    /// pool, here unacknowledged. The comparison is of the configured strings only; an identity
+    /// provider that maps audiences is not seen.
     #[error(
-        "`sources.{alias}.workload_identity.delegation`'s last hop asks for this deployment's own \
-         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
-         receive a token minted for this deployment. Ask the last hop for the pool's own audience"
+        "`sources.{alias}`'s last delegation hop asks for this deployment's own audience \
+         (`security.inbound.resource` or `security.inbound.audience`), so the data system would \
+         receive a token minted for this deployment. Ask the last hop for the data system's own audience"
     )]
     DelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// A `direct` deployment's `node` source whose last `delegation` hop asks for this deployment's
-    /// own audience. Such a token is valid here too, so it is the caller's own token reaching the
-    /// other node by another route. The comparison is of the configured strings only, as above.
+    /// own audience. This is a different exposure from
+    /// [`Self::DelegationToTheDeploymentsOwnAudience`]: the token the other node receives is the
+    /// caller's own token reaching it by another route, not a stranger's - but it is still refused,
+    /// because the hop should ask the other node for its own audience, not sutura's. The comparison
+    /// is of the configured strings only, as above.
     #[error(
         "`sources.{alias}.delegation`'s last hop asks for this deployment's own audience \
          (`security.inbound.resource` or `security.inbound.audience`), so the other node would \
-         receive a token that is valid here too. Ask the last hop for the node's own audience"
+         receive a token minted for this deployment instead of for itself. Ask the last hop for the \
+         node's own audience"
     )]
     NodeDelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// A `direct` deployment whose audience (`security.inbound.resource`, or `audience` when written)
