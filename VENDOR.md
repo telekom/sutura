@@ -156,20 +156,34 @@ Seven source-level adaptations, recorded here so nothing is silent:
 - **Read a query's result as several partitions.** `nix/bigquery-adbc-partitions.patch` implements
   `(*statement).ExecutePartitions` and `(*connection).ReadPartition`, both unconditionally
   `NotImplemented` upstream. `ExecutePartitions` runs the query to a destination table exactly as
-  `ExecuteQuery` does, then opens a multi-stream Storage Read API session
-  (`CreateReadSession`, `MaxStreamCount > 1`) against that table and returns one partition
-  descriptor per stream, with the result schema taken from the read session. A descriptor carries
-  only the Storage Read API stream name (plus a version byte) - never a credential, token, or
-  anything else identity-bearing - so `ReadPartition` can decode it and open `ReadRows` on that
-  stream with whichever connection calls it, using that connection's own credentials, not the
-  credentials of the connection `ExecutePartitions` ran on. A malformed descriptor is refused as
-  `InvalidArgument`, never a panic. `ExecutePartitions` refuses a `bigquery.query.dry_run`
-  statement outright (a dry run has no destination table to partition) rather than returning a
-  partition list or substituting a row-count estimate. The patch reuses `job_query.go`'s existing
-  `streamRecordBatches`/channel machinery for `ReadPartition` rather than building a second kind of
-  stream reader, and needs no new Go module: the Storage Read API client was already a dependency
-  of the default-stream read path. The patch adds `partitions_test.go` (descriptor round trip,
-  malformed descriptor refused, dry run and empty query refused), which `nix/bigquery-adbc.nix`'s
+  `ExecuteQuery` does, then reads that table's own metadata once for its exact row count (`NumRows`,
+  not the read session's `GetEstimatedRowCount`, which is an estimate) and returns it as
+  `rows_affected` (a checked conversion; anything unrepresentable in an `int64` stays `-1`), then
+  opens a multi-stream Storage Read API session (`CreateReadSession`) against that table and returns
+  one partition descriptor per stream, with the result schema taken from the read session. A
+  descriptor carries only the Storage Read API stream name (plus a version byte) - never a
+  credential, token, or anything else identity-bearing - so `ReadPartition` can decode it and open
+  `ReadRows` on that stream with whichever connection calls it, using that connection's own
+  credentials, not the credentials of the connection `ExecutePartitions` ran on. A malformed
+  descriptor is refused as `InvalidArgument`, never a panic. `ExecutePartitions` refuses a
+  `bigquery.query.dry_run` statement outright (a dry run has no destination table to partition)
+  rather than returning a partition list or substituting a row-count estimate.
+  **Two statement options decide `CreateReadSession`'s `MaxStreamCount`:**
+  `bigquery.query.partitions.max_streams` (a positive integer bounding how many streams are ever
+  asked for; unset keeps `partitionStreamCount`, 4, today's fixed value) and
+  `bigquery.query.partitions.target_rows_per_stream` (a positive integer; set, the exact row count
+  is divided into stream-sized chunks, rounded up and capped at `max_streams`; unset keeps today's
+  behaviour of always asking for `max_streams`). `partitionStreamCountFor` is the pure split
+  function; neither option is clamped silently - zero, negative or non-integer is refused at
+  `SetOption` with `InvalidArgument`. **Limit: streams asked for are not streams returned** - the
+  Storage Read API session may hand back fewer than requested (never more), so a per-stream row
+  bound enforced at read time remains the real guard regardless of this split, and the exact row
+  count costs one extra round trip beyond what `ExecuteQuery` needs. The patch reuses
+  `job_query.go`'s existing `streamRecordBatches`/channel machinery for `ReadPartition` rather than
+  building a second kind of stream reader, and needs no new Go module: the Storage Read API client
+  was already a dependency of the default-stream read path. The patch adds `partitions_test.go`
+  (descriptor round trip, malformed descriptor refused, dry run and empty query refused, the
+  stream-count split function, and both options' value refusals), which `nix/bigquery-adbc.nix`'s
   check phase runs by name on a host that can run its target; no test here exercises
   `CreateReadSession` or `ReadRows` against real BigQuery. **Limit: nothing in sutura calls `ExecutePartitions` or `ReadPartition` yet** - wiring
   a caller through them needs the worker transport and is a later slice. Upstream issue:
