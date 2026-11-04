@@ -300,6 +300,48 @@ impl Warehouse for AnyWarehouse {
         any_billed!(self, execute_billed, executable, presented, bill_to, labels, deadline)
     }
 
+    /// A `PostgreSQL` lookup leg through `split_by_estimate`, every other kind read whole.
+    ///
+    /// The reader owns the [`SplitLeg`](sutura_exec_postgres::adbc::SplitLeg), so the exporting
+    /// transaction its partitions import their snapshot from stays open until the reader is dropped,
+    /// every partition read or not. It reads by position until the split holds no further partition,
+    /// so each is read once, in page order. A single-kind `postgres` deployment holds the adapter
+    /// itself rather than this enum and reads every leg whole.
+    ///
+    /// **Limits:** a leg answered [`Partitioned::Whole`](sutura_domain::plan::Partitioned::Whole)
+    /// was estimated first, one round trip more than reading it whole outright. And a link value two
+    /// partitions both carry is one table's repeated tuple to the combine, refused as an ambiguous
+    /// link - so a leg the whole read answered can be refused once split, never answered differently.
+    #[cfg(feature = "postgres")]
+    fn split_lookup(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        presented: &Presented,
+        deadline: Deadline,
+        above_bytes: core::num::NonZeroU64,
+        readers: core::num::NonZeroUsize,
+    ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
+        use core::num::NonZeroUsize;
+        use sutura_domain::plan::Partitioned;
+        use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned};
+
+        let Self::Postgres(postgres) = self else {
+            return Ok(Partitioned::Whole);
+        };
+        let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
+        match postgres.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
+            Ok(Planned::Whole) => Ok(Partitioned::Whole),
+            Ok(Planned::Refused(refusal)) => Ok(Partitioned::Refused(refusal)),
+            Ok(Planned::Split(split)) => Ok(Partitioned::Split(Box::new((0..).map_while(move |index| {
+                split
+                    .partitions()
+                    .nth(index)
+                    .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
+            })))),
+            Err(cause) => Err(AnyWarehouseError::Postgres(cause)),
+        }
+    }
+
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         // The same boot-only call `sutura_app::verify_and_validate` already makes, one layer of
         // delegation further down: this enum has no anchor logic of its own, it forwards to

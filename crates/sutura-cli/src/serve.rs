@@ -386,6 +386,7 @@ pub(crate) fn run() -> Result<(), String> {
             // the first time (its `preflight` takes the port's default), which `boot.rs`'s own doc
             // says is informational rather than a defect.
             boot::refuse_absent_tables(&pinned, &mixed.engines)?;
+            let engines = nodes::splitting(mixed.engines, settings.server().tls(), settings.runtime());
             // **One broker per ANSWER, so the choice is per BUILD and not per kind.** A mix may
             // read a shared source of one kind and an impersonating one of another, and
             // `build_broker` scans the whole registry rather than the `bigquery` entries - so "does
@@ -402,7 +403,7 @@ pub(crate) fn run() -> Result<(), String> {
             ))]
             let served = compose::started(
                 &catalogs,
-                mixed.engines,
+                engines,
                 broker::build_broker(settings.sources(), outbound.as_ref())?,
                 combiner,
                 gate,
@@ -419,7 +420,7 @@ pub(crate) fn run() -> Result<(), String> {
                 feature = "cube",
                 feature = "node"
             )))]
-            let served = shared_identity_service(&catalogs, mixed.engines, combiner, gate, &settings)?;
+            let served = shared_identity_service(&catalogs, engines, combiner, gate, &settings)?;
             (served, mixed.attached)
         }
     };
