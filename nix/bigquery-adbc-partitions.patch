@@ -290,7 +290,7 @@
 +}
 --- /dev/null
 +++ b/partitions_test.go
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,191 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -462,6 +462,25 @@
 +			})
 +		}
 +	}
++
++	// OptionQueryPartitionsMaxStreams narrows into an int32 (the Storage Read API's own
++	// MaxStreamCount field width): a value one past int32's range must be refused here, not
++	// silently wrapped into a negative stream count. OptionQueryPartitionsTargetRowsPerStream
++	// stays int64-wide and takes this value, so it is exercised only for max_streams.
++	t.Run(OptionQueryPartitionsMaxStreams+"=2147483648", func(t *testing.T) {
++		st := &statement{}
++		err := st.SetOption(context.Background(), OptionQueryPartitionsMaxStreams, "2147483648")
++		if err == nil {
++			t.Fatalf("SetOption(%s, %q): expected an error, got nil", OptionQueryPartitionsMaxStreams, "2147483648")
++		}
++		adbcErr, ok := err.(adbc.Error)
++		if !ok {
++			t.Fatalf("SetOption(%s, %q): error %v is not an adbc.Error", OptionQueryPartitionsMaxStreams, "2147483648", err)
++		}
++		if adbcErr.Code != adbc.StatusInvalidArgument {
++			t.Fatalf("SetOption(%s, %q): code = %v, want StatusInvalidArgument", OptionQueryPartitionsMaxStreams, "2147483648", adbcErr.Code)
++		}
++	})
 +}
 --- a/statement.go
 +++ b/statement.go
@@ -491,7 +510,7 @@
  			st.queryConfig.Labels = labels
  		}
 +	case OptionQueryPartitionsMaxStreams:
-+		n, err := strconv.Atoi(v)
++		n, err := strconv.ParseInt(v, 10, 32)
 +		if err != nil || n <= 0 {
 +			return adbc.Error{
 +				Code: adbc.StatusInvalidArgument,
