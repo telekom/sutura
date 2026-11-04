@@ -11,7 +11,7 @@
 //!
 //! - [`PartitionReader`](partition::PartitionReader) is a port: this crate holds no implementation,
 //!   the composition root does. A reader that answers [`Unread::LegNotCertified`] fails the task
-//!   under the relay code [`super::relay`] reads back; what it re-certified against is the reader's.
+//!   under the relay code [`relay`] reads back; what it re-certified against is the reader's.
 //! - The leaf's schema crosses the wire through `datafusion_proto`'s own `Schema` protobuf, the same
 //!   round trip `combine::tests::across::decode` already exercises for one.
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
