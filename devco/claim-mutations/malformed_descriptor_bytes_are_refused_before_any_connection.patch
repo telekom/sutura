@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split.rs b/crates/sutura-exec-postgres/src/adbc/split.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split.rs
+@@ -270,6 +270,7 @@
+     descriptor: &[u8],
+     deadline: Deadline,
+ ) -> Result<ResultBatches, PostgresError> {
++    let _ = adapter.connection()?;
+     let parsed = PartitionDescriptor::try_from(descriptor).map_err(|cause| PostgresError::MalformedDescriptor { cause })?;
+     let (from, to) = parsed.pages();
+     let query = generate_leg_pages(leg, from, to).map_err(|cause| PostgresError::Render { cause })?;

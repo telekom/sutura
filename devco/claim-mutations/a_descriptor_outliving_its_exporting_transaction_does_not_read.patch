@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split.rs b/crates/sutura-exec-postgres/src/adbc/split.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split.rs
+@@ -273,7 +273,8 @@
+     let parsed = PartitionDescriptor::try_from(descriptor).map_err(|cause| PostgresError::MalformedDescriptor { cause })?;
+     let (from, to) = parsed.pages();
+     let query = generate_leg_pages(leg, from, to).map_err(|cause| PostgresError::Render { cause })?;
+-    read_range(adapter, Some(parsed.snapshot()), &query, deadline)
++    let _ = parsed.snapshot();
++    read_range(adapter, None, &query, deadline)
+ }
+ 
+ /// `query` on a connection of its own, importing `snapshot` first where there is one - the one body

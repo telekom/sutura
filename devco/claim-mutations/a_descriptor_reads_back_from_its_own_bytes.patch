@@ -1,0 +1,15 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+@@ -95,8 +95,8 @@
+         match to {
+             None => bytes.push(OPEN),
+             Some(to) => {
+-                bytes.push(CLOSED);
+-                bytes.extend_from_slice(&to.to_be_bytes());
++                let _ = to;
++                bytes.push(OPEN);
+             }
+         }
+         bytes
