@@ -4,8 +4,9 @@
 //! `datafusion-distributed` sends a stage's failure across a link as the engine error's protobuf in
 //! the call's status, and a `Context` error keeps its text and the error under it there. A node that
 //! refuses a stage fails it under a `Context` whose text is a code; the node that planned the
-//! question reads that code back and answers [`CombineError::RowsOverCeiling`], a variant with no
-//! fields, so what the caller is told - the ceiling among it - is this node's own configuration.
+//! question reads that code back and answers [`CombineError::RowsOverCeiling`] or
+//! [`CombineError::LegNotCertified`], variants with no fields, so what the caller is told - the
+//! ceiling, the source - is this node's own configuration.
 //!
 //! **Limits, next to the claim.**
 //!
@@ -15,9 +16,10 @@
 //! - A code a node wraps in an Arrow error or an external one crosses its next link as text, which
 //!   is not read, and stays the engine's failure. So does a code in a collection of errors past its
 //!   first, and a code carried as an error's message rather than its context.
-//! - One stage raises a code: a task of a question's final stage past the worker's row ceiling. That
-//!   count is per task, so tasks that each stay under the ceiling can sum past it, which only the
-//!   planning node's own exact count refuses.
+//! - Two stages raise a code: a task of a question's final stage past the worker's row ceiling, and a
+//!   reading worker's partition scan whose reader did not certify its leg. The row count is per task,
+//!   so tasks that each stay under the ceiling can sum past it, which only the planning node's own
+//!   exact count refuses.
 
 use std::sync::Arc;
 
@@ -35,10 +37,20 @@ pub(crate) fn over_ceiling(cause: DataFusionError) -> DataFusionError {
     DataFusionError::Context(String::from(ROWS_OVER_CEILING), Box::new(cause))
 }
 
-/// `error` as [`CombineError::RowsOverCeiling`] when a node relayed that refusal in it.
+/// The code a reading worker's refused re-certification of a leg crosses a link under.
+const LEG_NOT_CERTIFIED: &str = "sutura.refusal.leg-not-certified";
+
+/// `cause` as a reading worker's refusal to certify the leg it was asked to read.
+pub(crate) fn not_certified(cause: DataFusionError) -> DataFusionError {
+    DataFusionError::Context(String::from(LEG_NOT_CERTIFIED), Box::new(cause))
+}
+
+/// `error` as [`CombineError::RowsOverCeiling`] or [`CombineError::LegNotCertified`] when a node
+/// relayed that refusal in it.
 pub(crate) fn relayed(error: CombineError) -> CombineError {
     match error {
         CombineError::Execute { cause } if carries(&cause, ROWS_OVER_CEILING) => CombineError::RowsOverCeiling,
+        CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) => CombineError::LegNotCertified,
         other => other,
     }
 }

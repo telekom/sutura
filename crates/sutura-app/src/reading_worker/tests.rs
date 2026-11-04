@@ -136,3 +136,17 @@ fn an_unknown_source_is_refused_before_the_leg_is_even_parsed() {
         "the refusal names the leg's own source, not what this worker opened"
     );
 }
+
+#[test]
+fn a_partition_whose_leg_the_catalog_certifies_differently_is_never_read() {
+    let theirs = MetricDigest::new(metric(), DefinitionDigest::parse("a".repeat(64)).expect("a digest"));
+    let (leg, params) = wire_under(theirs);
+    let wire = serde_json::to_vec(&sutura_domain::plan::remote::PartitionLeg::new(leg, params)).expect("a partition leg encodes");
+    let read = core::cell::Cell::new(false);
+    let refused = super::read_recertified(&bundle(), &opened(), &source(), &wire, |_warehouse, _leg| read.set(true));
+    assert_eq!(refused, Err(RefusalReason::RemoteLegNotCertified { source: source() }));
+    assert!(
+        !read.get(),
+        "a leg this catalog certifies differently never reaches the warehouse"
+    );
+}

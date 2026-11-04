@@ -140,6 +140,7 @@ mod partition;
 
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
+pub use partition::{PartitionReader, Unread, read_later};
 
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;

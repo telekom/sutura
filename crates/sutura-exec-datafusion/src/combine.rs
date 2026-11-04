@@ -65,8 +65,8 @@
 
 use std::sync::Arc;
 
-use datafusion::arrow::array::{Array as _, Float64Array, RecordBatch};
-use datafusion::arrow::datatypes::{DataType, SchemaRef};
+use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Column, TableReference};
 use datafusion::datasource::MemTable;
 use datafusion::functions_aggregate::expr_fn::count;
@@ -88,6 +88,8 @@ mod across;
 mod arm;
 /// The cast a relationship's declared key comparison asks of a link column.
 mod cast;
+/// The refusal of an answer whose measure is not a finite number.
+mod finite;
 /// The drill-across merge: several arms joined above their legs, in this one session.
 mod merge;
 /// The provider a source and a subject give the plan cutter.
@@ -98,11 +100,12 @@ mod schema;
 #[cfg(feature = "sql")]
 mod statement;
 #[cfg(feature = "distributed")]
-pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant, WorkerRefusal};
+pub use across::{NodeIdentity, Nodes, NotAnIdentity, PartitionReader, TaskGrant, Unread, WorkerRefusal, read_later};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
 use cast::{Cast, LinkCasts};
+use finite::refuse_non_finite;
 use schema::{FACT, LegSchema, agreeing_bucket, agreeing_link};
 
 /// The name the fact leg is registered under, so a column reference is QUALIFIED.
@@ -313,6 +316,10 @@ pub enum CombineError {
     /// is this node's own configuration and never the peer's text or numbers.
     #[error("a node the combine was planned across refused a stage over the federated row ceiling")]
     RowsOverCeiling,
+    /// The question went across, and a reading worker it was planned onto did not certify the leg it
+    /// was asked to read. Carries nothing, for [`CombineError::RowsOverCeiling`]'s reason.
+    #[error("a node the combine was planned across did not certify a leg it was asked to read")]
+    LegNotCertified,
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -747,6 +754,10 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::RowsOverCeiling)
     }
 
+    fn leg_not_certified(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::LegNotCertified)
+    }
+
     #[cfg(feature = "distributed")]
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.nodes.as_ref().map(Nodes::slots_wanted)
@@ -768,8 +779,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost` and `RowsOverCeiling`, which
-            // `workers_not_ready`, `node_lost` and `rows_over_ceiling` answer.
+            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost`, `RowsOverCeiling` and
+            // `LegNotCertified`, which the predicate of each one's own name answers.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -786,7 +797,8 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::LinkTypeNotMapped { .. }
             | CombineError::WorkersNotReady { .. }
             | CombineError::NodeLost { .. }
-            | CombineError::RowsOverCeiling => None,
+            | CombineError::RowsOverCeiling
+            | CombineError::LegNotCertified => None,
         }
     }
 
@@ -953,44 +965,6 @@ async fn collected(
         })?;
     }
     Ok(accumulating.finish())
-}
-
-/// Refuses an answer whose measure is not a finite number.
-///
-/// **One pass over the measure columns, and only the ones that are floats.** The measures are the
-/// answer's last `measures` columns by construction - [`answer_labels`] states the order, and a
-/// drill-across answer carries one per arm - and only a `Float64` measure can be non-finite: an
-/// exact decimal cannot represent one.
-///
-/// **Why the combiner refuses this rather than letting the presentation edge do it.**
-/// `ResultBatches::to_rows` already refuses a non-finite double, so the answer would be refused
-/// either way - but as `sutura_app::ServiceError::Unreadable`, which reaches a caller as a
-/// data-system failure. It is neither: a definition that declared `fails` for a zero denominator
-/// asked for exactly this, and a caller told to retry it retries forever. So the refusal is taken
-/// here, where it can be classified as
-/// [`FederatedAnswerRefusal::NonFinite`](sutura_domain::plan::FederatedAnswerRefusal::NonFinite).
-fn refuse_non_finite(answered: &ResultBatches, measures: usize) -> Result<(), CombineError> {
-    let width = answered.schema().fields().len();
-    for measure in width.saturating_sub(measures)..width {
-        let Some(field) = answered.schema().fields().get(measure) else {
-            continue;
-        };
-        if *field.data_type() != DataType::Float64 {
-            continue;
-        }
-        for batch in answered.batches() {
-            let Some(column) = batch.columns().get(measure) else {
-                continue;
-            };
-            let Some(floats) = column.as_any().downcast_ref::<Float64Array>() else {
-                continue;
-            };
-            if floats.iter().flatten().any(|value| !value.is_finite()) {
-                return Err(CombineError::NonFinite);
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

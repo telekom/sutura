@@ -207,7 +207,13 @@ where
     // a leg's refusal wins over a combine failure; see [`settled`].
     let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
     let executed = combiner.execute(cut, &runner, working_set_bytes);
-    let assembled = match settled::<W, B, C>(combiner, &credentials, executed, ceilings.federated()) {
+    let assembled = match settled::<W, B, C>(
+        combiner,
+        &credentials,
+        executed,
+        ceilings.federated(),
+        governed::split_source(plan),
+    ) {
         Ok(batches) => batches,
         Err(done) => return *done,
     };
@@ -318,7 +324,8 @@ where
 /// What a combine produced, or the answer a failure of it is.
 ///
 /// A leg's refusal wins over a combine failure, and a combine failure is a refusal whenever
-/// [`governed::refusal_within`] reads one off it under `ceiling`.
+/// [`governed::refusal_split`] reads one off it under `ceiling`, naming `split` for a leg a reading
+/// node did not certify.
 ///
 /// **The limit:** a ranked question another node refused over `ceiling` is answered
 /// `ResultTooLarge`, where [`ranked_answer`] counting the same rows here reads the `top` ceiling
@@ -328,6 +335,7 @@ fn settled<W, B, C>(
     credentials: &BoundToTheRequest,
     executed: Ran<W, B, C>,
     ceiling: FederatedRowCeiling,
+    split: Option<&SourceName>,
 ) -> Settled<W, B, C>
 where
     W: Warehouse,
@@ -344,10 +352,12 @@ where
         }
         Err(ExecuteError::Combine(cause)) => cause,
     };
-    Err(Box::new(governed::refusal_within(combiner, &cause, ceiling).map_or_else(
-        || Err(ServiceError::Combine { cause }),
-        |reason| Ok(Answered::refused(credentials, reason)),
-    )))
+    Err(Box::new(
+        governed::refusal_split(combiner, &cause, ceiling, split).map_or_else(
+            || Err(ServiceError::Combine { cause }),
+            |reason| Ok(Answered::refused(credentials, reason)),
+        ),
+    ))
 }
 
 /// A combined answer held to the federated row cap and the response bound, then certified for

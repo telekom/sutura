@@ -11,18 +11,25 @@
 //! uses** - never a second copy of either constructor. A `worker` still opens neither, having
 //! declared neither.
 //!
+//! **A `reading-worker` built with the `postgres` adapter keeps them for its partition reader**
+//! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
+//! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
+//! read. A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
+//!
 //! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the
 //! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
 //! re-opened here (`crate::serve::refresh` is wired only into the serving root). The worker admits
 //! only a call that carries its question's task grant, under the key the first call of that
-//! question installed: a node of the same authority installs that key. **Nothing reads a partition
-//! yet.** A `reading-worker` still serves the same worker transport as a `worker`, which refuses
-//! every stage whose leaf reads a source: opening a source here only proves it is reachable and
-//! lets [`sutura_app::recertify_leg`] check a leg against it; reading a granted partition needs a
-//! task grant that names it, which the grant does not carry, and a `PartitionReader` port that does
-//! not exist yet - a later slice's.
+//! question installed: a node of the same authority installs that key. Nothing on the planning node
+//! routes a split leg to a worker yet, so outside tests no reading task reaches the reader. A source
+//! of any kind but `PostgreSQL` - `BigQuery` among them - is refused, and a build without the
+//! `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
+
+use std::sync::Arc;
 
 use sutura_config::{RuntimeSettings, ServerRole, Settings, TlsMaterial};
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_exec_datafusion::{Nodes, PartitionReader};
 use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
 
 /// Builds this node's worker, then serves it until a signal stops the process.
@@ -39,13 +46,17 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     else {
         return Err(String::from("a worker needs server.tls_node_authority, and it is not set"));
     };
-    let mount = mount(tls, authority, settings.runtime())?;
     telemetry::install(settings.telemetry()).map_err(super::flatten)?;
     sutura_runtime::install_panic_hook();
     banner::announce(settings);
+    let reading = settings.server().role() == ServerRole::ReadingWorker;
+    let mount = if reading {
+        reading_mount(tls, authority, settings)?
+    } else {
+        mount(tls, authority, settings.runtime())?
+    };
     let router = sutura_http::worker_router(settings, &mount).map_err(super::flatten)?;
-    if settings.server().role() == ServerRole::ReadingWorker {
-        open_reading_sources(settings)?;
+    if reading {
         tracing::info!("serving as a reading worker: catalog and declared sources opened, no /v1, /mcp or Flight");
     } else {
         tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
@@ -74,10 +85,24 @@ pub(super) fn mount(
     authority: &std::path::Path,
     runtime: RuntimeSettings,
 ) -> Result<sutura_http::WorkerMount, String> {
+    mounted(tls, authority, runtime, None)
+}
+
+/// [`mount`], reading an admitted partition through `reader` when given one; with none, the worker
+/// refuses every stage whose leaf reads a source.
+fn mounted(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    runtime: RuntimeSettings,
+    reader: Option<Arc<dyn PartitionReader>>,
+) -> Result<sutura_http::WorkerMount, String> {
     let identity = super::nodes::identity(tls, authority)?;
     let working_set = crate::sources::working_set(runtime);
-    let own = sutura_exec_datafusion::Nodes::worker(working_set, identity)
-        .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
+    let own = match reader {
+        Some(reader) => Nodes::worker_reading(working_set, identity, Some(reader)),
+        None => Nodes::worker(working_set, identity),
+    }
+    .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     Ok(sutura_http::WorkerMount::new(
         own.with_call_authorizer(sutura_exec_datafusion::TaskGrant::default())
             .into_worker_server()
@@ -85,29 +110,58 @@ pub(super) fn mount(
     ))
 }
 
+/// What a `reading-worker` pinned and opened at boot.
+type Opened = (PinnedDefinitions, super::OpenedSources);
+
 /// Opens a `reading-worker`'s own declared catalog and its declared sources, through the exact
 /// constructors `crate::serve::run`'s own boot calls for a serving node - `crate::catalog::open_catalog`,
 /// `crate::catalog::load`, then `super::open_engine`.
 ///
 /// **What this proves, and what it does not.** A failure here means the catalog or a source could
 /// not be opened - the same refusal a serving node gives for the same misconfiguration - and stops
-/// this process before it serves. Nothing is kept: the pinned catalog and the opened sources are
-/// dropped on return, so a source that becomes unreachable after boot is not noticed here, and the
-/// slice that reads a partition is the one that holds them for `sutura_app::recertify_leg`.
-fn open_reading_sources(settings: &Settings) -> Result<(), String> {
+/// this process before it serves. The pinned catalog and the opened sources are kept for this node's
+/// partition reader, so a source that becomes unreachable after boot is noticed only by a read.
+fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
     let outbound = super::outbound::resolve(settings)?;
     let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = crate::catalog::load(&catalogs)?;
-    let _opened = super::open_engine(
+    let opened = super::open_engine(
         &pinned,
         settings.sources(),
         settings.runtime(),
         settings.server().request_timeout(),
         outbound.as_ref(),
     )?;
-    Ok(())
+    Ok((pinned, opened))
 }
 
+/// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what
+/// [`open_reading_sources`] opened, each read bounded by this node's `server.request_timeout`.
+#[cfg(feature = "postgres")]
+fn reading_mount(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    settings: &Settings,
+) -> Result<sutura_http::WorkerMount, String> {
+    let (pinned, opened) = open_reading_sources(settings)?;
+    let reader = partition::Reader::new(pinned, opened, settings.server().request_timeout().budget());
+    mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
+}
+
+/// A `reading-worker`'s [`mount`] in a build without `PostgreSQL`, the one kind it reads: its
+/// catalog and sources are opened, then dropped, and it serves as a `worker`.
+#[cfg(not(feature = "postgres"))]
+fn reading_mount(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    settings: &Settings,
+) -> Result<sutura_http::WorkerMount, String> {
+    let _opened = open_reading_sources(settings)?;
+    mount(tls, authority, settings.runtime())
+}
+
+#[cfg(feature = "postgres")]
+mod partition;
 #[cfg(test)]
 mod reading;
 #[cfg(test)]

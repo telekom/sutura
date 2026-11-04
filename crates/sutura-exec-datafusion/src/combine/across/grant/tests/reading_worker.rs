@@ -6,8 +6,8 @@
 //! # What this does not exercise
 //!
 //! No caller outside this module's own tests mints a grant or plans [`PartitionScanExec`]
-//! (`partition.rs`'s own module doc states that limit): a reading task's re-certification against a
-//! worker's own catalog, and the relay code a failed one crosses back under, are a later slice.
+//! (`partition.rs`'s own module doc states that limit). A refused re-certification is read back off
+//! an in-process worker's stream, so the protobuf a real link carries it in is not exercised here.
 
 use core::time::Duration;
 use std::sync::Arc;
@@ -26,9 +26,12 @@ use sutura_domain::model::SourceName;
 use tonic::codegen::http::HeaderMap;
 use url::Url;
 
-use super::super::super::partition::{PartitionReader, PartitionScanExec};
-use super::super::super::{NodeIdentity, Nodes, StageReadsASource, WorkerRefusal};
+use sutura_domain::plan::FederationCombiner as _;
+
+use super::super::super::partition::{PartitionReader, PartitionScanExec, Unread, read_later};
+use super::super::super::{NodeIdentity, Nodes, StageReadsASource, WorkerRefusal, relayed};
 use super::super::reading::{Expiry, LegDigest, MaskedCaller, Partition, ReadingGrant, ReadingKey, StreamBound, encode, mint};
+use crate::combine::{CombineError, DataFusionCombiner};
 use crate::pool::WorkingSet;
 
 /// A node signed for 127.0.0.1 by an authority of its own: no cell here dials a link. The one shared
@@ -359,5 +362,90 @@ fn a_second_reading_key_presented_for_the_same_task_is_refused() {
             DataFusionError::External(cause) if cause.downcast_ref::<WorkerRefusal>() == Some(&WorkerRefusal::GrantNotNaming)
         ),
         "{second}"
+    );
+}
+
+/// A reader whose node certifies no leg, refusing as the composition root's reader does: inside the
+/// stream, once it is first polled.
+struct CertifiesNothing;
+
+impl PartitionReader for CertifiesNothing {
+    fn read(
+        &self,
+        _wire: &[u8],
+        _source: &SourceName,
+        _partition: &[u8],
+        schema: &SchemaRef,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        Ok(read_later(Arc::clone(schema), async { Err(Unread::LegNotCertified) }))
+    }
+}
+
+#[test]
+fn a_reading_worker_refusing_to_certify_its_leg_is_read_back_as_the_planning_nodes_own_refusal() {
+    let wire = b"wire-not-certified".to_vec();
+    let partition = b"partition-not-certified".to_vec();
+    let key_bytes = [8_u8; 32];
+    let grant = granted(&ReadingKey::of(key_bytes), &wire, &partition);
+    let reader: Arc<dyn PartitionReader> = Arc::new(CertifiesNothing);
+    let worker = Nodes::worker_reading(roomy(), identity(), Some(reader)).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let leaf = Arc::new(PartitionScanExec::new(
+        wire,
+        source(),
+        partition,
+        key_bytes,
+        Some(grant),
+        schema(),
+    )) as Arc<dyn ExecutionPlan>;
+    let task = task_key("77777777-7777-7777-7777-777777777777");
+
+    let failures = servers().block_on(async {
+        let encoded = MaybeEncoded::Decoded(leaf)
+            .encode(&planning.task_ctx())
+            .expect("a leaf encodes");
+        drop(
+            worker
+                .coordinator_channel(
+                    HeaderMap::new(),
+                    SetPlanRequest {
+                        task_key: task,
+                        task_count: 1,
+                        plan: MaybeEncoded::Encoded(encoded),
+                        work_unit_feed_declarations: vec![],
+                        target_worker_url: at,
+                        query_start_time_ns: 0,
+                    },
+                    Box::pin(stream::pending()),
+                )
+                .await
+                .expect("a granted read is installed"),
+        );
+        let (streams, _) = worker
+            .execute_task(ExecuteTaskRequest {
+                task_key: task,
+                target_partition_start: 0,
+                target_partition_end: 1,
+                producer_head: ProducerHead::None,
+            })
+            .await
+            .expect("an installed task runs");
+        stream::iter(streams)
+            .flatten()
+            .filter_map(|batch| async move { batch.err() })
+            .collect::<Vec<_>>()
+            .await
+    });
+
+    let cause = failures
+        .into_iter()
+        .next()
+        .expect("a read whose leg this worker does not certify answered rows");
+    let refused = relayed(CombineError::Execute { cause });
+    assert!(matches!(refused, CombineError::LegNotCertified), "{refused:?}");
+    assert!(
+        DataFusionCombiner::new()
+            .expect("a combiner builds")
+            .leg_not_certified(&refused)
     );
 }

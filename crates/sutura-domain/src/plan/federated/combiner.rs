@@ -258,7 +258,7 @@ pub enum ExecuteError<L, C> {
     Leg(L),
     /// The leg results did not stand for the plan's legs: this workspace's own defect.
     Miswired(LegsMiswired),
-    /// The combine failed, which [`FederationCombiner`]'s five predicates classify.
+    /// The combine failed, which [`FederationCombiner`]'s six predicates classify.
     Combine(C),
 }
 
@@ -362,9 +362,10 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// [`Self::rows_over_ceiling`] defaults to `false` for the same reason: only a combiner that goes
 /// across is relayed another node's refusal. **The limit:** one that does go across and inherits it
 /// answers a stage another node refused over the federated row ceiling as the `503` a dead data
-/// system produces - nothing but review sees that either.
+/// system produces - nothing but review sees that either. [`Self::leg_not_certified`] defaults to
+/// `false` for the same reason, and with the same limit.
 ///
-/// # What the domain may ask about an implementor's error, and why it is five predicates
+/// # What the domain may ask about an implementor's error, and why it is six predicates
 ///
 /// `Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
 /// not grow* from *the plan would not build*. The questions split the same way the query path's
@@ -388,8 +389,13 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 ///   [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge), naming the
 ///   ceiling of the node that answers the caller. A `bool`, so a number another node sent cannot
 ///   reach the caller through it.
+/// * [`Self::leg_not_certified`] is a reading node the combine was planned onto refusing to certify a
+///   leg it was asked to read -
+///   [`RefusalReason::RemoteLegNotCertified`](crate::query::RefusalReason::RemoteLegNotCertified),
+///   naming the source the node that answers the caller split the leg of. A `bool`, so a name another
+///   node sent cannot reach the caller through it.
 ///
-/// All five are predicates rather than conversions, for the reason
+/// All six are predicates rather than conversions, for the reason
 /// [`Warehouse::working_set_exhausted`](crate::warehouse::Warehouse::working_set_exhausted) gives:
 /// an implementor that could return a [`RefusalReason`](crate::query::RefusalReason) could mint any
 /// of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -420,7 +426,7 @@ pub trait FederationCombiner {
     ///
     /// # Errors
     ///
-    /// [`Self::Error`], which the five predicates below classify.
+    /// [`Self::Error`], which the six predicates below classify.
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
@@ -453,6 +459,14 @@ pub trait FederationCombiner {
     ///
     /// `false` is every other failure. Defaulted - see the trait's own header for the limit.
     fn rows_over_ceiling(&self, _error: &Self::Error) -> bool {
+        false
+    }
+
+    /// Was this failure a reading node the combine was planned onto refusing to certify a leg it was
+    /// asked to read?
+    ///
+    /// `false` is every other failure. Defaulted - see the trait's own header for the limit.
+    fn leg_not_certified(&self, _error: &Self::Error) -> bool {
         false
     }
 

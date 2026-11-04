@@ -76,9 +76,10 @@ disallowed-methods = [
   { path = "sutura_domain::warehouse::Warehouse::preflight", reason = "one of three port methods that execute with no credential; every pre-flight reaches it through one call site, which holds an #[expect]" },
   # Not a port method, the same hazard: `read_partition` takes no presented identity - who may ask is
   # the task grant's to decide before the call, `github.com/telekom/sutura#828` - so each call reads
-  # as the declared service user for whoever holds the descriptor's bytes. No production caller
-  # exists yet; `tests/partition_read.rs` holds the one `#[expect]`, and a resolved path is what lets
-  # it be fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
+  # as the declared service user for whoever holds the descriptor's bytes. The one production caller,
+  # a reading worker's partition reader in `crates/sutura-cli/src/serve/worker/partition.rs`, holds an
+  # `#[expect]` beside the one in `tests/partition_read.rs`, and a resolved path is what lets each be
+  # fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
   { path = "sutura_exec_postgres::adbc::AdbcPostgres::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, and holds an #[expect] naming it" },
   # The one call that lets credential material out of `Secret`, and until #145 the only thing
   # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`

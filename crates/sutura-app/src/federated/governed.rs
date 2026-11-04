@@ -1,6 +1,7 @@
 //! The governance refusal a combine failure is, when it is one.
 
-use sutura_domain::plan::{FederatedRowCeiling, FederationCombiner};
+use sutura_domain::model::SourceName;
+use sutura_domain::plan::{FederatedPlan, FederatedRowCeiling, FederationCombiner};
 use sutura_domain::query::{RefusalReason, ResultBound};
 
 /// The refusal `cause` is, taken off the combiner in the order the mono path asks its own adapter:
@@ -45,6 +46,39 @@ where
     })
 }
 
+/// [`refusal_within`], then a reading node refusing to certify a leg it was asked to read, answered
+/// naming `split` - the source this node split lookup legs off - and never a name the combiner read
+/// off that node.
+///
+/// **The limit:** with `split` `None` the failure stays an internal `ServiceError`, because no
+/// partition carries back which leg it was split from.
+pub(super) fn refusal_split<C>(
+    combiner: &C,
+    cause: &C::Error,
+    ceiling: FederatedRowCeiling,
+    split: Option<&SourceName>,
+) -> Option<RefusalReason>
+where
+    C: FederationCombiner,
+{
+    refusal_within(combiner, cause, ceiling).or_else(|| {
+        split
+            .filter(|_| combiner.leg_not_certified(cause))
+            .map(|source| crate::remote_leg::leg_not_certified(source.clone()))
+    })
+}
+
+/// The one source every lookup leg of `plan` reads - the only legs a combine splits - or `None` when
+/// they read more than one, or there are none.
+pub(super) fn split_source(plan: &FederatedPlan) -> Option<&SourceName> {
+    let mut sources = plan.lookups().legs().iter().map(|lookup| lookup.leg().source());
+    let first = sources.next()?;
+    sources.all(|source| source == first).then_some(first)
+}
+
+/// A reading node's refusal to certify a leg, named with this node's own source.
+#[cfg(test)]
+mod certified;
 /// A node lost while the combine ran, over a combiner that reads every failure as one.
 #[cfg(test)]
 mod lost;
