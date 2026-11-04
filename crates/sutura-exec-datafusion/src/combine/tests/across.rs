@@ -768,3 +768,8 @@ mod relayed;
 /// this file is test code already: the causality gate's base run reverts this line, and the cell,
 /// which names `Nodes::row_ceiling`, is not compiled there.
 mod over_ceiling;
+
+/// A split leg's partitions read only on the nodes declared as reading its source. A bare `mod`, as
+/// this file is test code already: the causality gate's base run reverts this line, and the cells,
+/// which name `SplitScan` and `Nodes::reading`, are not compiled there.
+mod split_read;

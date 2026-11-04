@@ -42,6 +42,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::grpc::{WorkerCall, WorkerCallAuthorizer};
 use datafusion_distributed::{DistributedExt as _, NetworkBoundaryExt as _};
 use ring::hmac;
+use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 use tonic::Status;
 use tonic::body::Body;
@@ -57,6 +58,9 @@ const AWAITED: Duration = Duration::from_secs(10);
 const POLLED: Duration = Duration::from_millis(20);
 const IDLE: Duration = Duration::from_secs(600);
 const KEPT: usize = 1 << 16;
+
+/// A key's bytes and the encoded grant signed under it.
+type KeyedGrant = ([u8; 32], Vec<u8>);
 
 /// The key one question's grants are signed under. No `Debug`, so it is never printed.
 #[derive(Clone)]
@@ -237,6 +241,32 @@ pub(super) fn verify_reading(
             now,
         })
     })
+}
+
+/// Mints the grant for one partition of a split leg under a key drawn for that partition alone: the
+/// key's bytes, which only the task reading `partition` is handed, and the encoded grant naming
+/// `wire`'s leg, `source`, `partition`, `caller` masked, the deadline `until`, and a stream bound of
+/// `rows` rows and `bytes` bytes.
+pub(super) fn granted_read(
+    wire: &[u8],
+    source: &SourceName,
+    partition: &[u8],
+    caller: &SubjectKey,
+    until: Duration,
+    rows: u32,
+    bytes: u32,
+) -> Result<KeyedGrant, DataFusionError> {
+    let key = reading::ReadingKey::drawn()?;
+    let grant = reading::ReadingGrant::new(
+        reading::LegDigest::of(wire),
+        source.clone(),
+        reading::Partition::of(partition.to_vec()),
+        reading::Expiry::at(until),
+        reading::MaskedCaller::of(caller),
+        reading::StreamBound { rows, bytes },
+    );
+    let (grant, signature) = reading::mint(&key, grant);
+    Ok((key.into_bytes(), reading::encode(&grant, &signature)))
 }
 
 /// The task grant a node's worker asks of every call it is sent over gRPC.

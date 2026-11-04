@@ -20,8 +20,9 @@
 //! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
 //! re-opened here (`crate::serve::refresh` is wired only into the serving root). The worker admits
 //! only a call that carries its question's task grant, under the key the first call of that
-//! question installed: a node of the same authority installs that key. Nothing on the planning node
-//! routes a split leg to a worker yet, so outside tests no reading task reaches the reader. A source
+//! question installed: a node of the same authority installs that key. The planning node routes a
+//! split leg's partition only to a node `server.nodes` declares as reading its source, but no served
+//! question builds a split leg yet, so outside tests no reading task reaches the reader. A source
 //! of any kind but `PostgreSQL` - `BigQuery` among them - is refused, and a build without the
 //! `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 

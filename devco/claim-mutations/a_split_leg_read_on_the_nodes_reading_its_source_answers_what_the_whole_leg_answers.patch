@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -261,7 +261,7 @@
+                         .iter()
+                         .enumerate()
+                         .map(|(index, granted)| {
+-                            if index.checked_rem(tasks) == Some(task) {
++                            if index.checked_rem(tasks) == Some(task) && index > 0 {
+                                 Arc::new(PartitionScanExec::new(
+                                     leg.wire.clone(),
+                                     leg.source.clone(),

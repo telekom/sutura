@@ -679,7 +679,9 @@ mod combine;
 
 pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 #[cfg(feature = "distributed")]
-pub use crate::combine::{NodeIdentity, Nodes, NotAnIdentity, PartitionReader, TaskGrant, Unread, WorkerRefusal, read_later};
+pub use crate::combine::{
+    NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, TaskGrant, Unread, WorkerRefusal, read_later,
+};
 /// The engine's own types a [`PartitionReader`] names, so an implementor outside this crate needs no
 /// `datafusion` edge of its own.
 #[cfg(feature = "distributed")]

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -317,7 +317,7 @@
+         .iter()
+         .filter(|&node| sources.iter().all(|source| reading(source).contains(node)))
+         .collect();
+-    if nodes.is_empty() {
++    if nodes.is_empty() && event.task_count == 0 {
+         return Some(Err(DataFusionError::External(Box::new(NoReadingNode {
+             alias: first.clone(),
+         }))));

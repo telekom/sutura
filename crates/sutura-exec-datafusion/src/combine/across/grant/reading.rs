@@ -4,22 +4,22 @@
 //!
 //! # Limits
 //!
-//! No source-reading stage exists in this tree yet; a later slice plans one. This module mints and
-//! verifies a [`ReadingGrant`](crate::combine::across::grant::reading::ReadingGrant) under a
-//! [`ReadingKey`](crate::combine::across::grant::reading::ReadingKey) the caller draws per reading
-//! task - never [`Key`](crate::combine::across::grant::Key), the per-question key `grant.rs` signs
-//! task-install/execute calls under, so neither type can be passed for the other - and nothing here
-//! is wired into `across.rs`: no stage asks for one today, so every item below is reached only from
-//! this module's own tests until that slice lands.
+//! This module mints and verifies a
+//! [`ReadingGrant`](crate::combine::across::grant::reading::ReadingGrant) under a
+//! [`ReadingKey`](crate::combine::across::grant::reading::ReadingKey) drawn per partition - never
+//! [`Key`](crate::combine::across::grant::Key), the per-question key `grant.rs` signs
+//! task-install/execute calls under, so neither type can be passed for the other.
 //!
+//! - The planning node mints one grant per partition of a split leg (`grant::granted_read`, called
+//!   by `combine::across::split`), and no served question builds a split leg yet: that waits on the
+//!   cross-partition ambiguous-link check.
 //! - How the grant reaches a reading task's worker is `combine::across::partition`'s leaf and codec:
 //!   it carries this module's [`encode`](crate::combine::across::grant::reading::encode)d
 //!   grant/signature bytes, and the worker's admit rule
 //!   [`decode`](crate::combine::across::grant::reading::decode)s and
 //!   [`verify`](crate::combine::across::grant::reading::verify)s them.
-//!   [`mint`](crate::combine::across::grant::reading::mint) - the planning-node side that signs a
-//!   grant in the first place - still has no caller outside this module's own tests: nothing here
-//!   plans a source-reading stage yet, only reads a task already carrying one.
+//! - [`StreamBound`](crate::StreamBound) is signed into the grant and carried, but no worker
+//!   enforces it yet.
 //! - The worker side of "first key wins" - keeping the FIRST key seen for a given reading task, the
 //!   way `grant::Keys` keeps the first key seen for a question - is `combine::across::grant::ReadingKeys`,
 //!   beside `Keys`, not this module:
@@ -65,14 +65,6 @@ fn feed_field(message: &mut Vec<u8>, field: &[u8]) {
 pub(in crate::combine::across) struct ReadingKey([u8; 32]);
 
 impl ReadingKey {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "draws a fresh key for a grant this module mints; only this module's own tests mint one until \
-                      a later slice plans a source-reading stage and signs a grant for it"
-        )
-    )]
     pub(super) fn drawn() -> Result<Self, DataFusionError> {
         let mut key = [0; 32];
         #[expect(
@@ -90,6 +82,11 @@ impl ReadingKey {
     /// module's tests: it never mints a key, only verifies a grant under one a call already carried.
     pub(super) const fn of(bytes: [u8; 32]) -> Self {
         Self(bytes)
+    }
+
+    /// The key's bytes, consumed, for the one partition scan that presents them to its worker.
+    pub(super) const fn into_bytes(self) -> [u8; 32] {
+        self.0
     }
 
     fn signing(&self) -> hmac::Key {
@@ -149,14 +146,6 @@ pub(super) struct MaskedCaller(String);
 
 impl MaskedCaller {
     /// `subject`'s masked rendering, never its unmasked form.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "builds a masked caller from a live subject when a grant is minted; only this module's own \
-                      tests mint one until a later slice plans a source-reading stage"
-        )
-    )]
     pub(super) fn of(subject: &SubjectKey) -> Self {
         Self(subject.to_string())
     }
@@ -242,14 +231,6 @@ impl Signature {
 
 /// `grant`, signed under `key` - a key drawn for the one reading task `grant` is minted for, never
 /// the question's own key, so holding it grants no other task.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the planning-node side that signs a grant in the first place; only this module's own tests mint \
-                  one until a later slice plans a source-reading stage"
-    )
-)]
 pub(super) fn mint(key: &ReadingKey, grant: ReadingGrant) -> (ReadingGrant, Signature) {
     let signature = Signature(hmac::sign(&key.signing(), &grant.signed()).as_ref().to_vec());
     (grant, signature)
@@ -276,14 +257,6 @@ pub(super) fn task_id(wire: &[u8], partition: &[u8]) -> [u8; 32] {
 /// collapse them to a fixed-width digest. Not a fixed-width length prefix either -
 /// `clippy::big_endian_bytes` and its two siblings (on in this workspace) exist so a byte order
 /// never has to be picked; decimal text need not pick one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the planning-node side that encodes a grant in the first place; only this module's own \
-                  tests mint and encode one until a later slice plans a source-reading stage"
-    )
-)]
 fn encode_field(buf: &mut Vec<u8>, bytes: &[u8]) {
     buf.extend_from_slice(bytes.len().to_string().as_bytes());
     buf.push(b':');
@@ -308,14 +281,6 @@ fn decode_field(rest: &mut &[u8]) -> Option<Vec<u8>> {
 /// outside this module that can stand for a [`ReadingGrant`], since none of its fields are
 /// reachable from outside it. [`decode`] is the inverse.
 #[must_use]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the planning-node side that encodes a grant in the first place; only this module's own \
-                  tests mint and encode one until a later slice plans a source-reading stage"
-    )
-)]
 pub(super) fn encode(grant: &ReadingGrant, signature: &Signature) -> Vec<u8> {
     let mut buf = Vec::new();
     encode_field(&mut buf, &grant.leg.0);

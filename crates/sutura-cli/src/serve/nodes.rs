@@ -59,6 +59,13 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     )
     .across_above(nodes.across_above())
     .wait_for_workers(wait);
+    let across = nodes
+        .others()
+        .iter()
+        .flat_map(DeclaredNode::sources)
+        .fold(across, |across, alias| {
+            across.reading(alias.clone(), nodes.reading(alias).map(|node| node.url().clone()))
+        });
     let mount = sutura_http::WorkerMount::new(
         across
             .served()
@@ -100,8 +107,9 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
 /// the working set.
 ///
 /// **Limit:** the peers are counted as declared, not as ready, and every partition is still read
-/// on this node - so one split leg holds up to its readers times the source's per-stream bound
-/// here, where the same leg read whole is refused past one stream's.
+/// on this node - `combiner` hands the readers to the planner, but no served question builds a
+/// leg it places on them - so one split leg holds up to its readers times the source's per-stream
+/// bound here, where the same leg read whole is refused past one stream's.
 pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
 where
     W: Warehouse,
