@@ -773,3 +773,8 @@ mod over_ceiling;
 /// this file is test code already: the causality gate's base run reverts this line, and the cells,
 /// which name `SplitScan` and `Nodes::reading`, are not compiled there.
 mod split_read;
+
+/// A split lookup leg's ambiguous-link check, counted across its partitions. A bare `mod`, as this
+/// file is test code already: the causality gate's base run reverts this line, and the cells, which
+/// name `refuse_ambiguous_split`, are not compiled there.
+mod split_link;

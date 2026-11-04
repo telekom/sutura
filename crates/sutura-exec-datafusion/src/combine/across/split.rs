@@ -10,9 +10,10 @@
 //!
 //! # Limits
 //!
-//! - No served question builds a [`SplitScan`](crate::SplitScan) yet: the planning node checks a
-//!   lookup leg's link keys for duplicates only over rows it read itself, so a split leg is still read
-//!   whole there until the cross-partition ambiguous-link check lands.
+//! - No served question builds a [`SplitScan`](crate::SplitScan) yet: a served lookup leg is still
+//!   read whole on the planning node, which checks its link values there.
+//!   [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one across its
+//!   partitions, and no served question calls it.
 //! - The planning node mints, and so holds, every partition's key.
 //! - A split stage's tasks are at most its partitions and at most the readers resolved for its
 //!   source, so each reader runs at most one of them. With fewer tasks than partitions, a task reads
