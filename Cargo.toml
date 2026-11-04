@@ -346,7 +346,7 @@ datafusion = { version = "55.0.0", default-features = false, features = [
 # decides on. WITHOUT its `sql` feature, which is `datafusion/sql` and would undo the property the
 # entry above states. Its `datafusion` requirement is `^55` with default features off, so it adds
 # no second engine.
-datafusion-federation = { version = "0.5.7", default-features = false }
+datafusion-federation = { version = "0.5.9", default-features = false }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`
@@ -892,7 +892,6 @@ datafusion-proto = { path = "vendor/datafusion-proto" }
 datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
 arrow-ipc = { path = "vendor/arrow-ipc" }
-datafusion-federation = { path = "vendor/datafusion-federation" }
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
 # they are compiled once and executed many times, so paying for them is free.
