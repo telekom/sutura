@@ -153,7 +153,7 @@ datafusion-distributed = { path = "../vendor/datafusion-distributed", version = 
 ] }
 datafusion-proto = { version = "=55.1.0", default-features = false }
 
-# Vendored exactly as the root `[patch.crates-io]` resolves them, less `datafusion-federation` -
+# Vendored exactly as the root `[patch.crates-io]` resolves them -
 # `source_gaps` (`xtask/src/fuzz/lock_drift.rs`) refuses a mismatch, and `cargo tree -i <crate>`
 # under `fuzz/Cargo.lock` is what decided this is the subset the fuzz graph actually resolves.
 [patch.crates-io]
