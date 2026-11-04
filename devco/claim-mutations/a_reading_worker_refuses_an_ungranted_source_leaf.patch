@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/partition.rs b/crates/sutura-exec-datafusion/src/combine/across/partition.rs
+index da7bb9075..f5363e335 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/partition.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/partition.rs
+@@ -312,7 +312,7 @@ pub(super) fn reads_partition_or_nothing(
+                 refusal = Some(DataFusionError::External(Box::new(cause)));
+                 return Ok(TreeNodeRecursion::Stop);
+             }
+-        } else if node.children().is_empty() && !carried(node) {
++        } else if node.children().is_empty() && carried(node) {
+             refusal = Some(DataFusionError::External(Box::new(StageReadsASource {
+                 leaf: String::from(node.name()),
+             })));

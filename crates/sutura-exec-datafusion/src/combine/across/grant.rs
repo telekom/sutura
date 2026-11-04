@@ -42,9 +42,12 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::grpc::{WorkerCall, WorkerCallAuthorizer};
 use datafusion_distributed::{DistributedExt as _, NetworkBoundaryExt as _};
 use ring::hmac;
+use sutura_domain::model::SourceName;
 use tonic::Status;
 use tonic::body::Body;
 use tonic::codegen::http::{self, HeaderMap, HeaderValue};
+
+use super::WorkerRefusal;
 
 const KEY: &str = "x-sutura-task-key";
 const GRANT: &str = "x-sutura-task-grant";
@@ -146,6 +149,94 @@ impl Keys {
             tokio::time::sleep(POLLED).await;
         }
     }
+}
+
+/// The reading key a worker first saw for a reading task, kept the same way [`Keys`] keeps a
+/// question's key: first seen, bounded, idle-evicted. [`reading::ReadingKey`] has no `Clone`, so
+/// admission runs through [`ReadingKeys::admit`], which hands the kept key to a closure rather than
+/// a copy of it.
+///
+/// **Limit**: at most [`KEPT`] reading tasks kept at once, each forgotten [`IDLE`] after its last
+/// admitted call - the same bound [`Keys`] states for questions, applied per reading task instead.
+/// A task forgotten this way is treated as new on its next call, which still keeps that call's
+/// presented key first for whatever calls follow it.
+type KeptReadingTasks = HashMap<[u8; 32], ReadingKept>;
+
+#[derive(Clone, Default)]
+pub(super) struct ReadingKeys(Arc<parking_lot::Mutex<KeptReadingTasks>>);
+
+struct ReadingKept {
+    key: reading::ReadingKey,
+    used: Instant,
+}
+
+impl ReadingKeys {
+    /// Admits a reading task identified by `task`: the first `presented` key seen for it is kept,
+    /// and every call for that task - this one and any later one - is checked under the kept key,
+    /// never the key a call presents. A later call cannot swap in a different key and have its own
+    /// grant verify in `task`'s place; `asked` runs under the kept key either way.
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the lock stays held for `asked`'s whole call: the kept key it borrows has no `Clone` \
+                  by design (its own doc says why), so there is no value to extract and unlock early over"
+    )]
+    pub(super) fn admit(
+        &self,
+        task: [u8; 32],
+        presented: [u8; 32],
+        asked: impl FnOnce(&reading::ReadingKey) -> Result<(), WorkerRefusal>,
+    ) -> Result<(), WorkerRefusal> {
+        let now = Instant::now();
+        let mut kept = self.0.lock();
+        kept.retain(|_, held| now.duration_since(held.used) < IDLE);
+        let full = kept.len() >= KEPT;
+        let key = match kept.entry(task) {
+            Entry::Occupied(held) => {
+                let held = held.into_mut();
+                held.used = now;
+                &held.key
+            }
+            Entry::Vacant(_) if full => return Err(WorkerRefusal::GrantNotNaming),
+            Entry::Vacant(unseen) => {
+                &unseen
+                    .insert(ReadingKept {
+                        key: reading::ReadingKey::of(presented),
+                        used: now,
+                    })
+                    .key
+            }
+        };
+        asked(key)
+    }
+}
+
+/// Admits a source-reading task's call: identifies the task from `wire` and `partition_bytes`
+/// ([`reading::task_id`]), decodes `grant` under the key `keys` kept for that task - the first
+/// `presented` for it - and checks the decoded grant names `wire`'s leg digest, `source` and
+/// `partition_bytes` and is not yet past `now` ([`reading::verify`]). A missing or malformed
+/// `grant` reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
+pub(super) fn verify_reading(
+    keys: &ReadingKeys,
+    wire: &[u8],
+    source: &SourceName,
+    partition_bytes: &[u8],
+    presented: [u8; 32],
+    grant: Option<&[u8]>,
+    now: Duration,
+) -> Result<(), WorkerRefusal> {
+    let task = reading::task_id(wire, partition_bytes);
+    let (grant, signature) = grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+    keys.admit(task, presented, |key| {
+        reading::verify(&reading::Verification {
+            key,
+            grant: &grant,
+            signature: &signature,
+            wanted_leg: reading::LegDigest::of(wire),
+            wanted_source: source,
+            wanted_partition: &reading::Partition::of(partition_bytes.to_vec()),
+            now,
+        })
+    })
 }
 
 /// The task grant a node's worker asks of every call it is sent over gRPC.
@@ -312,7 +403,8 @@ pub(super) fn forwarded(builder: SessionStateBuilder, headers: &HeaderMap) -> Re
 }
 
 /// The source-reading grant a reading task carries, signed under a key per reading task (Decision
-/// 5). Wires into nothing here yet - see its module doc.
+/// 5). [`ReadingKeys`] above keeps this module's keys; `combine::across::partition` carries this
+/// module's encoded grant across a link and asks its worker's admit rule to verify one.
 mod reading;
 
 #[cfg(test)]

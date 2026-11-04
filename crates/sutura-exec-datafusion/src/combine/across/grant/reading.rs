@@ -12,20 +12,19 @@
 //! is wired into `across.rs`: no stage asks for one today, so every item below is reached only from
 //! this module's own tests until that slice lands.
 //!
-//! - How the grant reaches a reading task's worker is not built; the slice that wires a
-//!   source-reading stage carries it.
+//! - How the grant reaches a reading task's worker is `combine::across::partition`'s leaf and codec:
+//!   it carries this module's [`encode`](crate::combine::across::grant::reading::encode)d
+//!   grant/signature bytes, and the worker's admit rule
+//!   [`decode`](crate::combine::across::grant::reading::decode)s and
+//!   [`verify`](crate::combine::across::grant::reading::verify)s them.
+//!   [`mint`](crate::combine::across::grant::reading::mint) - the planning-node side that signs a
+//!   grant in the first place - still has no caller outside this module's own tests: nothing here
+//!   plans a source-reading stage yet, only reads a task already carrying one.
 //! - The worker side of "first key wins" - keeping the FIRST key seen for a given reading task, the
-//!   way `grant::Keys` keeps the first key seen for a question - is **not built**. Nothing here is
-//!   wired to a worker yet, so there is nothing today that could keep a second one; a later slice
-//!   wiring a reading stage has to add that keeping, not assume
-//!   [`verify`](crate::combine::across::grant::reading::verify) alone provides it.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "mint, verify and their types are exercised by this module's tests alone until a later slice wires a source-reading stage; see the module doc"
-    )
-)]
+//!   way `grant::Keys` keeps the first key seen for a question - is `combine::across::grant::ReadingKeys`,
+//!   beside `Keys`, not this module:
+//!   [`verify`](crate::combine::across::grant::reading::verify) alone never provided it, and still
+//!   does not.
 
 use core::time::Duration;
 
@@ -63,9 +62,17 @@ fn feed_field(message: &mut Vec<u8>, field: &[u8]) {
 /// holds a question's key must not be able to sign a read of a partition it was not handed a
 /// reading task for. No `Debug`, so it is never printed, and no `Clone`: nothing here needs a
 /// second copy of a key that exists to be handed to exactly one task.
-pub(super) struct ReadingKey([u8; 32]);
+pub(in crate::combine::across) struct ReadingKey([u8; 32]);
 
 impl ReadingKey {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "draws a fresh key for a grant this module mints; only this module's own tests mint one until \
+                      a later slice plans a source-reading stage and signs a grant for it"
+        )
+    )]
     pub(super) fn drawn() -> Result<Self, DataFusionError> {
         let mut key = [0; 32];
         #[expect(
@@ -76,6 +83,13 @@ impl ReadingKey {
         let drawn = getrandom::fill(&mut key);
         drawn.map_err(|cause| DataFusionError::Execution(format!("no reading key could be drawn for the task: {cause}")))?;
         Ok(Self(key))
+    }
+
+    /// Reconstructs a reading task's key from the bytes a call presented for it - the worker's own
+    /// admit rule, through `combine::across::grant::ReadingKeys`, is the only caller outside this
+    /// module's tests: it never mints a key, only verifies a grant under one a call already carried.
+    pub(super) const fn of(bytes: [u8; 32]) -> Self {
+        Self(bytes)
     }
 
     fn signing(&self) -> hmac::Key {
@@ -135,8 +149,23 @@ pub(super) struct MaskedCaller(String);
 
 impl MaskedCaller {
     /// `subject`'s masked rendering, never its unmasked form.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "builds a masked caller from a live subject when a grant is minted; only this module's own \
+                      tests mint one until a later slice plans a source-reading stage"
+        )
+    )]
     pub(super) fn of(subject: &SubjectKey) -> Self {
         Self(subject.to_string())
+    }
+
+    /// Reconstructs a masked caller directly from its already-masked text - [`decode`]'s only
+    /// source, since a reading grant crossing a link carries the masked form already, never the key
+    /// it was taken from.
+    pub(super) const fn of_masked(text: String) -> Self {
+        Self(text)
     }
 }
 
@@ -213,9 +242,122 @@ impl Signature {
 
 /// `grant`, signed under `key` - a key drawn for the one reading task `grant` is minted for, never
 /// the question's own key, so holding it grants no other task.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the planning-node side that signs a grant in the first place; only this module's own tests mint \
+                  one until a later slice plans a source-reading stage"
+    )
+)]
 pub(super) fn mint(key: &ReadingKey, grant: ReadingGrant) -> (ReadingGrant, Signature) {
     let signature = Signature(hmac::sign(&key.signing(), &grant.signed()).as_ref().to_vec());
     (grant, signature)
+}
+
+/// Identifies one reading task from the two values that never change across a retry of it: the
+/// leg's own wire bytes and the partition descriptor, hashed together so a task is the same task
+/// only when both match - never a value a caller supplies, so a hostile retry cannot pick its own
+/// id and collide with another task's kept key (`combine::across::grant::ReadingKeys`).
+#[must_use]
+pub(super) fn task_id(wire: &[u8], partition: &[u8]) -> [u8; 32] {
+    let mut message = Vec::new();
+    feed_field(&mut message, b"sutura.reading-task.v1");
+    feed_field(&mut message, wire);
+    feed_field(&mut message, partition);
+    let hashed = digest::digest(&digest::SHA256, &message);
+    let mut bytes = [0; 32];
+    bytes.copy_from_slice(hashed.as_ref());
+    bytes
+}
+
+/// Writes `bytes` into `buf` as a decimal length, a `:`, then `bytes` itself - [`decode_field`]'s
+/// counterpart. Not [`feed_field`]'s hash: a wire form must round-trip back to the same bytes, not
+/// collapse them to a fixed-width digest. Not a fixed-width length prefix either -
+/// `clippy::big_endian_bytes` and its two siblings (on in this workspace) exist so a byte order
+/// never has to be picked; decimal text need not pick one.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the planning-node side that encodes a grant in the first place; only this module's own \
+                  tests mint and encode one until a later slice plans a source-reading stage"
+    )
+)]
+fn encode_field(buf: &mut Vec<u8>, bytes: &[u8]) {
+    buf.extend_from_slice(bytes.len().to_string().as_bytes());
+    buf.push(b':');
+    buf.extend_from_slice(bytes);
+}
+
+/// Reads one [`encode_field`]-written field from the front of `*rest`, advancing `*rest` past it.
+fn decode_field(rest: &mut &[u8]) -> Option<Vec<u8>> {
+    let colon = rest.iter().position(|&byte| byte == b':')?;
+    let (digits, tail) = rest.split_at(colon);
+    let length: usize = core::str::from_utf8(digits).ok()?.parse().ok()?;
+    let tail = tail.get(1..)?;
+    if tail.len() < length {
+        return None;
+    }
+    let (field, tail) = tail.split_at(length);
+    *rest = tail;
+    Some(field.to_vec())
+}
+
+/// Serializes `grant` and `signature` as the bytes a leaf carries across a link - the only form
+/// outside this module that can stand for a [`ReadingGrant`], since none of its fields are
+/// reachable from outside it. [`decode`] is the inverse.
+#[must_use]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the planning-node side that encodes a grant in the first place; only this module's own \
+                  tests mint and encode one until a later slice plans a source-reading stage"
+    )
+)]
+pub(super) fn encode(grant: &ReadingGrant, signature: &Signature) -> Vec<u8> {
+    let mut buf = Vec::new();
+    encode_field(&mut buf, &grant.leg.0);
+    encode_field(&mut buf, grant.source.as_str().as_bytes());
+    encode_field(&mut buf, &grant.partition.0);
+    encode_field(&mut buf, grant.expiry.0.as_secs().to_string().as_bytes());
+    encode_field(&mut buf, grant.expiry.0.subsec_nanos().to_string().as_bytes());
+    encode_field(&mut buf, grant.caller.0.as_bytes());
+    encode_field(&mut buf, grant.bound.rows.to_string().as_bytes());
+    encode_field(&mut buf, grant.bound.bytes.to_string().as_bytes());
+    encode_field(&mut buf, signature.as_bytes());
+    buf
+}
+
+/// The inverse of [`encode`], or `None` for anything that is not exactly nine well-formed fields -
+/// a decode failure is never a panic: a worker calls this on bytes a call presented, and a
+/// malformed presentation is refused the same way a merely wrong one is
+/// ([`WorkerRefusal::GrantNotNaming`]).
+#[must_use]
+pub(super) fn decode(buf: &[u8]) -> Option<(ReadingGrant, Signature)> {
+    let mut rest = buf;
+    let leg = <[u8; 32]>::try_from(decode_field(&mut rest)?.as_slice()).ok()?;
+    let source = SourceName::parse(String::from_utf8(decode_field(&mut rest)?).ok()?).ok()?;
+    let partition = decode_field(&mut rest)?;
+    let secs: u64 = core::str::from_utf8(&decode_field(&mut rest)?).ok()?.parse().ok()?;
+    let nanos: u32 = core::str::from_utf8(&decode_field(&mut rest)?).ok()?.parse().ok()?;
+    let caller = String::from_utf8(decode_field(&mut rest)?).ok()?;
+    let rows: u32 = core::str::from_utf8(&decode_field(&mut rest)?).ok()?.parse().ok()?;
+    let bytes: u32 = core::str::from_utf8(&decode_field(&mut rest)?).ok()?.parse().ok()?;
+    let signature = decode_field(&mut rest)?;
+    if !rest.is_empty() {
+        return None;
+    }
+    let grant = ReadingGrant::new(
+        LegDigest(leg),
+        source,
+        Partition(partition),
+        Expiry::at(Duration::new(secs, nanos)),
+        MaskedCaller::of_masked(caller),
+        StreamBound { rows, bytes },
+    );
+    Some((grant, Signature(signature)))
 }
 
 /// What a worker asks [`verify`] to admit a reading task's call under: the grant and signature it

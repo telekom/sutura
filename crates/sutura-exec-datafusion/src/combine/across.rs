@@ -134,6 +134,10 @@ mod grant;
 /// The federated row ceiling a worker counts a final-stage task's rows against (Decision 4).
 mod ceiling;
 
+/// The leaf a reading task's plan carries, its worker admit rule, and the composite codec a
+/// reading node's worker and coordinator both install (Decision 5).
+mod partition;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 
@@ -280,8 +284,55 @@ impl Nodes {
                 Ok(grant::forwarded(context.builder, &context.headers)?
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
-                    .with_distributed_user_codec(ceiling::Codec)
+                    .with_distributed_user_codec(partition::Codec)
                     .build())
+            }
+        });
+        Ok(worker.with_runtime_env(environment.into_runtime()))
+    }
+
+    /// The worker a reading node serves: as [`Self::worker`], but admitting a source-reading task's
+    /// [`PartitionScanExec`](partition::PartitionScanExec) leaf under a verified reading grant
+    /// (Decision 5) instead of refusing every leaf outright, reading an admitted one through `reader`
+    /// when given one. `reader` is `None` for a combining-only worker:
+    /// [`reads_partition_or_nothing`](partition::reads_partition_or_nothing) still refuses a leaf it
+    /// cannot verify before `reader` is ever asked for, so a combining-only worker refuses a
+    /// partition scan exactly as [`Self::worker`] refuses any other leaf it did not plan.
+    ///
+    /// # Errors
+    ///
+    /// [`CombineError::Environment`] if the bounded environment cannot be built.
+    pub fn worker_reading(
+        working_set: WorkingSet,
+        identity: NodeIdentity,
+        reader: Option<Arc<dyn partition::PartitionReader>>,
+    ) -> Result<Worker, CombineError> {
+        let environment = pool::environment(working_set).map_err(|cause| CombineError::Environment { cause })?;
+        let links = Links::of(identity);
+        let bounded = links.bounded(working_set);
+        let keys = grant::ReadingKeys::default();
+        let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
+            let bounded = bounded.clone();
+            let keys = keys.clone();
+            let reader = reader.clone();
+            async move {
+                let mut builder = grant::forwarded(context.builder, &context.headers)?
+                    .with_distributed_channel_resolver(bounded)
+                    .with_distributed_worker_plan_rewrite_handler(
+                        move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {
+                            partition::reads_partition_or_nothing(event, &keys)
+                        },
+                    )
+                    .with_distributed_user_codec(partition::Codec);
+                if let Some(reader) = reader {
+                    let slot = builder.config();
+                    *slot = Some(
+                        slot.take()
+                            .unwrap_or_default()
+                            .with_extension(Arc::new(partition::ReaderExtension(reader))),
+                    );
+                }
+                Ok(builder.build())
             }
         });
         Ok(worker.with_runtime_env(environment.into_runtime()))
@@ -525,6 +576,26 @@ impl NodeIdentity {
             .map_err(|cause| NotAnIdentity { cause })?;
         config.alpn_protocols = vec![b"h2".to_vec()];
         Ok(Self(TlsConnector::from(Arc::new(config))))
+    }
+
+    /// A node signed for 127.0.0.1 by an authority of its own: no caller of this dials a link.
+    #[cfg(test)]
+    pub(super) fn signed_for_localhost() -> Self {
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("no names are valid parameters");
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let authority = rcgen::CertifiedIssuer::self_signed(params, rcgen::KeyPair::generate().expect("a key generates"))
+            .expect("an authority signs itself");
+        let key = rcgen::KeyPair::generate().expect("a key generates");
+        let certificate = rcgen::CertificateParams::new(vec![String::from("127.0.0.1")])
+            .expect("an address is valid parameters")
+            .signed_by(&key, &authority)
+            .expect("the authority signs a node");
+        Self::new(
+            vec![certificate.der().clone()],
+            PrivateKeyDer::Pkcs8(tokio_rustls::rustls::pki_types::PrivatePkcs8KeyDer::from(key.serialize_der())),
+            [authority.der().clone()],
+        )
+        .expect("a signed node is an identity")
     }
 }
 
