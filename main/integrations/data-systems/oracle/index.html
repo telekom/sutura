@@ -2885,6 +2885,7 @@ query ends.</p>
   source has <code>subjects</code>.</li>
 <li>The source must use <code>transport_mode: verified</code>, and <code>delegation</code> needs
   <code>security.inbound.mode: direct</code>.</li>
+<li>sutura does not start when the last hop asks for the audience of sutura itself.</li>
 <li>sutura also connects as <code>user</code> at startup to check the source. No caller's query runs on that
   connection.</li>
 </ul>

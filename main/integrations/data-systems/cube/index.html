@@ -2833,6 +2833,7 @@ before it. Each request of the caller's query sends the token from the last hop 
 <li>sutura does not start without <code>delegation</code>, or when the last hop is <code>broker-token</code>.</li>
 <li>The <code>endpoint</code> must be <code>https</code>, and <code>delegation</code> needs <code>security.inbound.mode: direct</code>. Cube
   serves plain HTTP, so put a TLS proxy in front of it, and give its CA in <code>security.outbound</code>.</li>
+<li>sutura does not start when the last hop asks for the audience of sutura itself.</li>
 <li>sutura sends the token in <code>token_file</code> only for the checks it runs at startup. No caller's query
   sends it.</li>
 </ul>
