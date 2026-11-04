@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -823,7 +823,7 @@
+     cast: Option<&Cast>,
+ ) -> Result<(), CombineError> {
+     let (schemas, partitions): (Vec<_>, Vec<_>) = parts
+-        .iter()
++        .iter().take(1)
+         .map(|part| {
+             cast.map_or_else(
+                 || Ok((Arc::clone(part.schema()), part.batches().to_vec())),
