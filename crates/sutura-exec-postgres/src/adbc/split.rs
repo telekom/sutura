@@ -122,11 +122,11 @@ fn export(adapter: &AdbcPostgres, leg: &LegPlan, deadline: Deadline) -> Result<E
     let mut exporting = adapter.connection()?;
     let exported = session::export(&mut exporting, relation, adapter.statement_timeout_ceiling_ms, deadline)?;
     let (snapshot, pages) = (numeric::rows(&exported.snapshot)?, numeric::rows(&exported.pages)?);
-    let snapshot = match first(&snapshot) {
-        Some(Value::Text(id)) => SnapshotId::parse(id),
+    let row = pages.rows().first();
+    let snapshot = match (first(&snapshot), row.and_then(|row| row.first())) {
+        (Some(Value::Text(id)), Some(&Value::Integer(1..))) => SnapshotId::parse(id),
         _ => None,
     };
-    let row = pages.rows().first();
     let relpages = match row.and_then(|row| row.first()) {
         Some(&Value::Integer(pages)) if snapshot.is_some() => u32::try_from(pages).unwrap_or(0),
         _ => 0,
@@ -241,7 +241,7 @@ impl SplitLeg<'_> {
 }
 
 impl Partition<'_> {
-    /// This range's rows, on a connection of its own that imports the leg's snapshot first.
+    /// This range's rows, on a connection of its own that imports the leg's snapshot first where it holds one.
     ///
     /// # Errors
     ///
