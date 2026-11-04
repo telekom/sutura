@@ -23,6 +23,10 @@ use super::{AWAITED, GRANT, KEY, Key, TaskGrant, valued};
 /// they drive a different gRPC harness than the task-grant cells above.
 mod reading;
 
+/// A reading worker's own admit rule, end to end through `super::super::partition`'s leaf and
+/// codec - a separate module from [`reading`] since it drives a worker, not `mint`/`verify` alone.
+mod reading_worker;
+
 const ASKED: &str = "07070707-0707-0707-0707-070707070707";
 
 /// Stage 1's task 0 of the question `asked`.

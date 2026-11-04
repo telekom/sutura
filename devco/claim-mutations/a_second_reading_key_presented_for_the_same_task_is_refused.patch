@@ -1,0 +1,33 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+index 6fb79ecbb..159a19d9b 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+@@ -224,18 +224,17 @@ pub(super) fn verify_reading(
+     grant: Option<&[u8]>,
+     now: Duration,
+ ) -> Result<(), WorkerRefusal> {
+-    let task = reading::task_id(wire, partition_bytes);
++    let _ = (keys, reading::task_id(wire, partition_bytes));
+     let (grant, signature) = grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+-    keys.admit(task, presented, |key| {
+-        reading::verify(&reading::Verification {
+-            key,
+-            grant: &grant,
+-            signature: &signature,
+-            wanted_leg: reading::LegDigest::of(wire),
+-            wanted_source: source,
+-            wanted_partition: &reading::Partition::of(partition_bytes.to_vec()),
+-            now,
+-        })
++    let key = reading::ReadingKey::of(presented);
++    reading::verify(&reading::Verification {
++        key: &key,
++        grant: &grant,
++        signature: &signature,
++        wanted_leg: reading::LegDigest::of(wire),
++        wanted_source: source,
++        wanted_partition: &reading::Partition::of(partition_bytes.to_vec()),
++        now,
+     })
+ }
+ 

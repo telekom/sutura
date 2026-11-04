@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
+index c69d3aa2e..50d9bfd64 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
+@@ -377,7 +377,7 @@ pub(super) struct Verification<'a> {
+ /// `asked.wanted_source`/`asked.wanted_partition` not yet past `asked.now`, or the refusal naming
+ /// why not.
+ pub(super) fn verify(asked: &Verification<'_>) -> Result<(), WorkerRefusal> {
+-    let names = asked.grant.leg == asked.wanted_leg
++    let names = asked.grant.leg == asked.grant.leg
+         && &asked.grant.source == asked.wanted_source
+         && asked.grant.partition == *asked.wanted_partition;
+     if !names || hmac::verify(&asked.key.signing(), &asked.grant.signed(), asked.signature.as_bytes()).is_err() {

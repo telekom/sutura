@@ -1,0 +1,363 @@
+//! A reading worker's admit rule end to end (`super::super::super::partition`, Decision 5): a
+//! granted read runs through [`Nodes::worker_reading`] and its codec exactly as a plain worker's
+//! stage does, and each way a call fails to name the read it asks for is refused before any reader
+//! is asked to read anything.
+//!
+//! # What this does not exercise
+//!
+//! No caller outside this module's own tests mints a grant or plans [`PartitionScanExec`]
+//! (`partition.rs`'s own module doc states that limit): a reading task's re-certification against a
+//! worker's own catalog, and the relay code a failed one crosses back under, are a later slice.
+
+use core::time::Duration;
+use std::sync::Arc;
+
+use datafusion::arrow::array::Int64Array;
+use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::error::DataFusionError;
+use datafusion::execution::SendableRecordBatchStream;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion_distributed::{ExecuteTaskRequest, MaybeEncoded, ProducerHead, SetPlanRequest, TaskKey};
+use futures_util::{StreamExt as _, stream};
+use sutura_domain::model::SourceName;
+use tonic::codegen::http::HeaderMap;
+use url::Url;
+
+use super::super::super::partition::{PartitionReader, PartitionScanExec};
+use super::super::super::{NodeIdentity, Nodes, StageReadsASource, WorkerRefusal};
+use super::super::reading::{Expiry, LegDigest, MaskedCaller, Partition, ReadingGrant, ReadingKey, StreamBound, encode, mint};
+use crate::pool::WorkingSet;
+
+/// A node signed for 127.0.0.1 by an authority of its own: no cell here dials a link. The one shared
+/// definition every localhost test tree under `combine` calls, rather than each building its own.
+fn identity() -> NodeIdentity {
+    NodeIdentity::signed_for_localhost()
+}
+
+fn roomy() -> WorkingSet {
+    WorkingSet::of_bytes(core::num::NonZeroUsize::new(1 << 30).expect("a nonzero size"))
+}
+
+fn servers() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a server runtime builds")
+}
+
+fn schema() -> SchemaRef {
+    Arc::new(Schema::new(vec![Field::new("n", DataType::Int64, false)]))
+}
+
+fn source() -> SourceName {
+    SourceName::parse("orders").expect("a test source is a source")
+}
+
+/// A grant naming `wire`/`source()`/`partition`, far enough in the future that the worker's own
+/// wall clock never finds it expired, signed under `key` and encoded as a leaf carries it.
+fn granted(key: &ReadingKey, wire: &[u8], partition: &[u8]) -> Vec<u8> {
+    let built = ReadingGrant::new(
+        LegDigest::of(wire),
+        source(),
+        Partition::of(partition.to_vec()),
+        Expiry::at(Duration::from_secs(4_000_000_000)),
+        MaskedCaller::of_masked(String::from("masked")),
+        StreamBound {
+            rows: 1000,
+            bytes: 1 << 20,
+        },
+    );
+    let (built, signature) = mint(key, built);
+    encode(&built, &signature)
+}
+
+/// A reading worker's own address, declared with no other node.
+fn declared(
+    worker: datafusion_distributed::Worker,
+) -> (datafusion_distributed::Worker, datafusion::prelude::SessionContext, Url) {
+    let at = Url::parse("https://127.0.0.1:1").expect("an address is a URL");
+    let planning = Nodes::declared(worker.clone(), at.clone(), [], identity())
+        .session(roomy())
+        .expect("a session builds");
+    (worker, planning, at)
+}
+
+fn task_key(query_id: &str) -> TaskKey {
+    TaskKey {
+        query_id: query_id.parse().expect("a uuid"),
+        stage_id: 1,
+        task_number: 0,
+    }
+}
+
+#[test]
+fn a_granted_partition_read_runs_end_to_end_through_in_process_workers() {
+    let wire = b"wire-granted".to_vec();
+    let partition = b"partition-granted".to_vec();
+    let key_bytes = [7_u8; 32];
+    let grant = granted(&ReadingKey::of(key_bytes), &wire, &partition);
+    let batch = RecordBatch::try_new(schema(), vec![Arc::new(Int64Array::from(vec![1_i64, 2, 3]))]).expect("a batch builds");
+    let reader: Arc<dyn PartitionReader> = Arc::new(move |_: &SourceName, _: &[u8], schema: &SchemaRef| {
+        let batch = batch.clone();
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(schema),
+            stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
+        )) as SendableRecordBatchStream)
+    });
+    let worker = Nodes::worker_reading(roomy(), identity(), Some(reader)).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let leaf = Arc::new(PartitionScanExec::new(
+        wire,
+        source(),
+        partition,
+        key_bytes,
+        Some(grant),
+        schema(),
+    )) as Arc<dyn ExecutionPlan>;
+    let task = task_key("11111111-1111-1111-1111-111111111111");
+
+    let collected = servers().block_on(async {
+        let encoded = MaybeEncoded::Decoded(leaf)
+            .encode(&planning.task_ctx())
+            .expect("a leaf encodes");
+        drop(
+            worker
+                .coordinator_channel(
+                    HeaderMap::new(),
+                    SetPlanRequest {
+                        task_key: task,
+                        task_count: 1,
+                        plan: MaybeEncoded::Encoded(encoded),
+                        work_unit_feed_declarations: vec![],
+                        target_worker_url: at,
+                        query_start_time_ns: 0,
+                    },
+                    Box::pin(stream::pending()),
+                )
+                .await
+                .expect("a granted read is installed"),
+        );
+        let (streams, _) = worker
+            .execute_task(ExecuteTaskRequest {
+                task_key: task,
+                target_partition_start: 0,
+                target_partition_end: 1,
+                producer_head: ProducerHead::None,
+            })
+            .await
+            .expect("an installed task runs");
+        stream::iter(streams)
+            .flatten()
+            .map(|batch| batch.map(|batch| batch.num_rows()))
+            .collect::<Vec<_>>()
+            .await
+    });
+
+    let rows: Vec<usize> = collected
+        .into_iter()
+        .map(|batch| batch.expect("a granted read runs"))
+        .collect();
+    assert_eq!(rows, vec![3]);
+}
+
+#[test]
+fn a_reading_worker_refuses_an_ungranted_source_leaf() {
+    let worker = Nodes::worker_reading(roomy(), identity(), None).expect("a reading worker builds");
+    let path = std::env::temp_dir().join(format!("sutura-reading-worker-source-{}.csv", std::process::id()));
+    std::fs::write(&path, "region\nnorth\n").expect("a temporary file writes");
+    let refused = servers().block_on(async {
+        let scan = SessionContext::new()
+            .read_csv(path.to_str().expect("a temporary path is text"), CsvReadOptions::new())
+            .await
+            .expect("a file reads")
+            .create_physical_plan()
+            .await
+            .expect("a file scan plans");
+        worker
+            .coordinator_channel(
+                HeaderMap::new(),
+                SetPlanRequest {
+                    task_key: task_key("22222222-2222-2222-2222-222222222222"),
+                    task_count: 1,
+                    plan: MaybeEncoded::Decoded(scan),
+                    work_unit_feed_declarations: vec![],
+                    target_worker_url: Url::parse("https://127.0.0.1:1").expect("an address is a URL"),
+                    query_start_time_ns: 0,
+                },
+                Box::pin(stream::pending()),
+            )
+            .await
+            .err()
+    });
+    std::fs::remove_file(&path).expect("a temporary file removes");
+    let refused = refused.expect("a reading worker ran a stage that reads a file no grant names");
+    assert!(
+        matches!(
+            refused.find_root(),
+            DataFusionError::External(cause)
+                if cause.downcast_ref::<StageReadsASource>().is_some_and(|refusal| refusal.leaf == "DataSourceExec")
+        ),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_reading_worker_refuses_a_grant_whose_leg_digest_is_not_the_wires() {
+    let signed_wire = b"wire-signed-over".to_vec();
+    let sent_wire = b"wire-actually-sent".to_vec();
+    let partition = b"partition-digest-mismatch".to_vec();
+    let key_bytes = [9_u8; 32];
+    let grant = granted(&ReadingKey::of(key_bytes), &signed_wire, &partition);
+    let worker = Nodes::worker_reading(roomy(), identity(), None).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let leaf = Arc::new(PartitionScanExec::new(
+        sent_wire,
+        source(),
+        partition,
+        key_bytes,
+        Some(grant),
+        schema(),
+    )) as Arc<dyn ExecutionPlan>;
+    let task = task_key("33333333-3333-3333-3333-333333333333");
+
+    let refused = servers().block_on(async {
+        let encoded = MaybeEncoded::Decoded(leaf)
+            .encode(&planning.task_ctx())
+            .expect("a leaf encodes");
+        worker
+            .coordinator_channel(
+                HeaderMap::new(),
+                SetPlanRequest {
+                    task_key: task,
+                    task_count: 1,
+                    plan: MaybeEncoded::Encoded(encoded),
+                    work_unit_feed_declarations: vec![],
+                    target_worker_url: at,
+                    query_start_time_ns: 0,
+                },
+                Box::pin(stream::pending()),
+            )
+            .await
+            .err()
+    });
+
+    let refused = refused.expect("a reading worker ran a leaf whose grant names a different leg");
+    assert!(
+        matches!(
+            refused.find_root(),
+            DataFusionError::External(cause) if cause.downcast_ref::<WorkerRefusal>() == Some(&WorkerRefusal::GrantNotNaming)
+        ),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_reading_worker_refuses_a_leaf_carrying_no_grant() {
+    let wire = b"wire-no-grant".to_vec();
+    let partition = b"partition-no-grant".to_vec();
+    let key_bytes = [1_u8; 32];
+    let worker = Nodes::worker_reading(roomy(), identity(), None).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let leaf = Arc::new(PartitionScanExec::new(wire, source(), partition, key_bytes, None, schema())) as Arc<dyn ExecutionPlan>;
+    let task = task_key("44444444-4444-4444-4444-444444444444");
+
+    let refused = servers().block_on(async {
+        let encoded = MaybeEncoded::Decoded(leaf)
+            .encode(&planning.task_ctx())
+            .expect("a leaf encodes");
+        worker
+            .coordinator_channel(
+                HeaderMap::new(),
+                SetPlanRequest {
+                    task_key: task,
+                    task_count: 1,
+                    plan: MaybeEncoded::Encoded(encoded),
+                    work_unit_feed_declarations: vec![],
+                    target_worker_url: at,
+                    query_start_time_ns: 0,
+                },
+                Box::pin(stream::pending()),
+            )
+            .await
+            .err()
+    });
+
+    let refused = refused.expect("a reading worker ran a leaf with no grant");
+    assert!(
+        matches!(
+            refused.find_root(),
+            DataFusionError::External(cause) if cause.downcast_ref::<WorkerRefusal>() == Some(&WorkerRefusal::GrantNotNaming)
+        ),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_second_reading_key_presented_for_the_same_task_is_refused() {
+    let wire = b"wire-same-task".to_vec();
+    let partition = b"partition-same-task".to_vec();
+    let (first_bytes, second_bytes) = ([2_u8; 32], [3_u8; 32]);
+    let first_grant = granted(&ReadingKey::of(first_bytes), &wire, &partition);
+    let second_grant = granted(&ReadingKey::of(second_bytes), &wire, &partition);
+    let worker = Nodes::worker_reading(roomy(), identity(), None).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let first_leaf = Arc::new(PartitionScanExec::new(
+        wire.clone(),
+        source(),
+        partition.clone(),
+        first_bytes,
+        Some(first_grant),
+        schema(),
+    )) as Arc<dyn ExecutionPlan>;
+    let second_leaf = Arc::new(PartitionScanExec::new(
+        wire,
+        source(),
+        partition,
+        second_bytes,
+        Some(second_grant),
+        schema(),
+    )) as Arc<dyn ExecutionPlan>;
+    let first_task = task_key("55555555-5555-5555-5555-555555555555");
+    let second_task = task_key("66666666-6666-6666-6666-666666666666");
+
+    let (first, second) = servers().block_on(async {
+        let install = async |leaf: Arc<dyn ExecutionPlan>, task_key: TaskKey| {
+            let encoded = MaybeEncoded::Decoded(leaf)
+                .encode(&planning.task_ctx())
+                .expect("a leaf encodes");
+            worker
+                .coordinator_channel(
+                    HeaderMap::new(),
+                    SetPlanRequest {
+                        task_key,
+                        task_count: 1,
+                        plan: MaybeEncoded::Encoded(encoded),
+                        work_unit_feed_declarations: vec![],
+                        target_worker_url: at.clone(),
+                        query_start_time_ns: 0,
+                    },
+                    Box::pin(stream::pending()),
+                )
+                .await
+                .err()
+        };
+        (install(first_leaf, first_task).await, install(second_leaf, second_task).await)
+    });
+
+    assert!(
+        first.is_none(),
+        "the first key presented for a reading task is not refused: {first:?}"
+    );
+    let second = second.expect("a second, differently-keyed grant for the same reading task was admitted");
+    assert!(
+        matches!(
+            second.find_root(),
+            DataFusionError::External(cause) if cause.downcast_ref::<WorkerRefusal>() == Some(&WorkerRefusal::GrantNotNaming)
+        ),
+        "{second}"
+    );
+}
