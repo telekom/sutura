@@ -940,3 +940,7 @@ fn a_federated_answer_is_refused_when_only_one_leg_can_execute() {
 /// The federated answer's own row ceiling - `github.com/telekom/sutura#828`.
 #[cfg(test)]
 mod ceiling_test;
+
+/// A lookup leg split at its source, answered and refused - `github.com/telekom/sutura#828`.
+#[cfg(test)]
+mod split_test;

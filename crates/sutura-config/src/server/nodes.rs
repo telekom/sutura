@@ -2,11 +2,11 @@
 //! declared peer reads.
 //!
 //! **What [`DeclaredNodes::reading`] does not do.** It answers "which declared peers named this
-//! source alias", read from this node's own configuration. Nothing dispatches through it yet - a
-//! not-yet-built source-reading stage is its only intended caller - and readiness is unaffected
-//! by it: a node that failed to resolve or is unreachable is still *declared*, so this accessor is
-//! a configuration fact, not a liveness one. Readiness stays exactly where it already was, with
-//! resolving the node.
+//! source alias", read from this node's own configuration. Its count sizes a lookup leg's split at
+//! that source, and nothing dispatches through it - every partition is still read on this node -
+//! and readiness is unaffected by it: a node that failed to resolve or is unreachable is still
+//! *declared*, so this accessor is a configuration fact, not a liveness one. Readiness stays exactly
+//! where it already was, with resolving the node.
 
 use std::net::IpAddr;
 use std::num::{NonZeroU32, NonZeroU64};
@@ -103,9 +103,8 @@ impl DeclaredNodes {
 
     /// The declared peers that read `alias`, in declaration order.
     ///
-    /// **Unconsumed today.** No source-reading stage exists yet to dispatch through this; it is
-    /// `#828`'s accessor for one not yet built. Readiness still comes from resolving the node, not
-    /// from appearing here.
+    /// Counted to size a lookup leg's split at `alias`; no source-reading stage dispatches through
+    /// it yet. Readiness still comes from resolving the node, not from appearing here.
     pub fn reading<'a>(&'a self, alias: &SourceName) -> impl Iterator<Item = &'a DeclaredNode> {
         self.others.iter().filter(move |node| node.sources.contains(alias))
     }

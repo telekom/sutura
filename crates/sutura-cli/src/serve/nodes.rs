@@ -13,8 +13,12 @@
 //! it is buffered or the grant is asked: the bound is per message, so concurrent streams each reach
 //! it, and the replies a link reads are not bounded here.
 
+use core::num::{NonZeroU64, NonZeroUsize};
+
+use sutura_app::Warehouses;
 use sutura_config::RuntimeSettings;
-use sutura_config::TlsMaterial;
+use sutura_config::{DeclaredNode, TlsMaterial};
+use sutura_domain::warehouse::Warehouse;
 use sutura_exec_datafusion::DataFusionCombiner;
 use sutura_http::ServiceState;
 
@@ -89,6 +93,35 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
         .map_err(|cause| format!("{}\nserver.tls_node_authority is not a node authority", super::flatten(cause)))?;
     sutura_exec_datafusion::NodeIdentity::new(chain, key, authority)
         .map_err(|cause| format!("{}\nthis node's identity could not be built", super::flatten(cause)))
+}
+
+/// `engines`, each source alias a declared peer reads named for splitting a lookup leg into at most
+/// as many partitions as there are such peers, above `server.nodes.across_above_bytes` or, unset,
+/// the working set.
+///
+/// **Limit:** the peers are counted as declared, not as ready, and every partition is still read
+/// on this node - so one split leg holds up to its readers times the source's per-stream bound
+/// here, where the same leg read whole is refused past one stream's.
+pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
+where
+    W: Warehouse,
+{
+    let Some(nodes) = tls.and_then(TlsMaterial::nodes) else {
+        return engines;
+    };
+    let above = nodes
+        .across_above()
+        .unwrap_or_else(|| NonZeroU64::try_from(runtime.working_set().bytes()).unwrap_or(NonZeroU64::MAX));
+    nodes
+        .others()
+        .iter()
+        .flat_map(DeclaredNode::sources)
+        .fold(engines, |engines, alias| {
+            match NonZeroUsize::new(nodes.reading(alias).count()) {
+                Some(readers) => engines.splitting(alias.clone(), above, readers),
+                None => engines,
+            }
+        })
 }
 
 /// `state` with this node's worker mounted, when there is one.

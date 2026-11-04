@@ -31,12 +31,13 @@
 //! data system produces one - a source declares a column's type - so what this reaches is a fake
 //! that builds one by hand, and the row builder's own doc is where that is stated.
 
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::collections::BTreeSet;
 
 use crate::calendar::Date;
 use crate::identity::{BillTo, Presented};
 use crate::model::{QualifiedTable, SourceName};
-use crate::plan::{AnchorPlan, Executable};
+use crate::plan::{AnchorPlan, Executable, LegPlan, LookupSplit, Partitioned};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
 pub mod billed;
@@ -622,6 +623,29 @@ pub trait Warehouse {
     ) -> billed::BilledResult<ResultBatches, Self::Error> {
         billed::unstated(bill_to, self.source())?;
         self.execute(executable, presented, deadline).map_err(billed::Billed::Source)
+    }
+
+    /// A lookup leg split into partitions at this source, when its estimate is over `above_bytes`
+    /// and at most `readers` partitions keep each under this source's per-stream bound
+    /// ([`crate::plan::decide`]). `readers` is the count the deployment declares, not one measured
+    /// ready.
+    ///
+    /// **Defaults to [`Partitioned::Whole`]**: a source that does not override this reads every leg
+    /// through [`Self::execute`]. Takes no payer: the caller asks it only of a leg that names none,
+    /// and runs every other through [`Self::execute_billed`].
+    ///
+    /// # Errors
+    ///
+    /// The source's own failure to estimate or split the leg.
+    fn split_lookup(
+        &self,
+        _leg: &LegPlan,
+        _presented: &Presented,
+        _deadline: Deadline,
+        _above_bytes: NonZeroU64,
+        _readers: NonZeroUsize,
+    ) -> LookupSplit<'_, Self::Error> {
+        Ok(Partitioned::Whole)
     }
 
     /// Re-runs one anchor's plan, under the identity this adapter was configured with.

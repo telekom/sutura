@@ -38,10 +38,12 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Unanno
 use super::AdbcError;
 use crate::deadline::deadline_statement_timeout_ms;
 
-/// The rows one result stream may deliver before it is refused while being read - the `BigQuery`
-/// transport's ceiling, for its reason: a federation leg carries no `LIMIT`, so this is what makes
-/// a stream finite. `tests::a_stream_past_the_row_ceiling_is_refused_while_it_is_read` holds it.
-const MOST_RESULT_ROWS: usize = 1_000_000;
+/// The rows one result stream may deliver before it is refused while being read.
+///
+/// The `BigQuery` transport's ceiling, for its reason: a federation leg carries no `LIMIT`, so this
+/// is what makes a stream finite. `tests::a_stream_past_the_row_ceiling_is_refused_while_it_is_read`
+/// holds it.
+pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
 /// The bytes one result stream may materialise, the `BigQuery` transport's budget.
 pub(super) const MOST_RESULT_BYTES: NonZeroUsize = match NonZeroUsize::new(256 * 1024 * 1024) {

@@ -57,6 +57,7 @@ mod session;
 mod split;
 
 use adbc_driver_manager::ManagedConnection;
+pub use session::MOST_RESULT_ROWS;
 pub use split::{InvalidDescriptor, Partition, PartitionDescriptor, Planned, SplitLeg};
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{

@@ -1,18 +1,16 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -367,13 +367,13 @@
+@@ -518,11 +518,11 @@
                  .collect();
              (fact, looked_up)
          });
--        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
-         let looked_up = lookups
+-        let fact = fact.map_err(ExecuteError::Leg)?;
+         let looked_up = looked_up
              .into_iter()
-             .zip(looked_up)
-             .map(|(leg, answered)| answered.map(|batches| LegResult::of(leg, batches)))
              .collect::<Result<Vec<_>, _>>()
              .map_err(ExecuteError::Leg)?;
-+        let fact = LegResult::of(plan.fact(), fact.map_err(ExecuteError::Leg)?);
-         let second_fact = plan
-             .second_fact()
-             .map(|leg| runner.run(leg).map(|batches| LegResult::of(leg, batches)))
++        let fact = fact.map_err(ExecuteError::Leg)?;
+         if looked_up.iter().any(Vec::is_empty) {
+             return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
+         }

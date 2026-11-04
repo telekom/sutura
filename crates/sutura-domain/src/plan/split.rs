@@ -19,9 +19,12 @@
 //!   [`decide`] calling the split fit; that partition is refused like any other stream past the
 //!   bound, read, not split again. There is no margin knob here to widen against skew - a caller
 //!   wanting one states its own bound narrower before calling [`decide`].
+//! - [`PartitionReader`] reads one partition after another on the thread that asked for them. No
+//!   other node reads one yet.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 
+use crate::warehouse::ResultBatches;
 use crate::warehouse::estimate::EstimatedBytes;
 
 /// A dry estimate of the rows a leg's root would read, before any is - the catalog's `reltuples`,
@@ -136,3 +139,26 @@ pub fn decide(
     let partitions = usize::try_from(required).unwrap_or(usize::MAX);
     SplitDecision::Split(NonZeroUsize::new(partitions).unwrap_or(NonZeroUsize::MIN))
 }
+
+/// A split leg's partitions, read in order: each item is the next partition's rows, or why it was
+/// not read.
+///
+/// **The port is [`Iterator`]**, boxed because the source's own reader does not cross it. Each item
+/// is read when it is pulled, under the deadline the reader was built with, and dropping the reader
+/// ends the read: what a source holds open across its partitions - PostgreSQL's exporting
+/// transaction - is released then, every partition read or not.
+pub type PartitionReader<'r, E> = Box<dyn Iterator<Item = Result<ResultBatches, E>> + 'r>;
+
+/// What [`Warehouse::split_lookup`](crate::warehouse::Warehouse::split_lookup) answers for one leg.
+pub enum Partitioned<'r, E> {
+    /// Not split: the leg is read through [`Warehouse::execute`](crate::warehouse::Warehouse::execute),
+    /// as every leg was before a source could split one.
+    Whole,
+    /// Split at the source: one item per partition.
+    Split(PartitionReader<'r, E>),
+    /// Over the threshold, and [`decide`] refused the split.
+    Refused(SplitRefusal),
+}
+
+/// [`Partitioned`], or the source's failure to estimate or split the leg.
+pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
