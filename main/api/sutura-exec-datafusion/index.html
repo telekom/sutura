@@ -2660,6 +2660,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-partitionreader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use PartitionReader
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-taskgrant" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2671,10 +2682,54 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-unread" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use Unread
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-workerrefusal" class="md-nav__link">
     <span class="md-ellipsis">
       
         use WorkerRefusal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-read_later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use read_later
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-schemaref" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use SchemaRef
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-sendablerecordbatchstream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use SendableRecordBatchStream
       
     </span>
   </a>
@@ -3067,13 +3122,29 @@ key, and the deployment's node authority.</p>
 <p>The nodes one combine's stages may run on, this one among them.</p>
 <h2 id="use-notanidentity"><code>use NotAnIdentity</code><a class="headerlink" href="#use-notanidentity" title="Permanent link">&para;</a></h2>
 <p>The node's certificate, key or authority is not one a link can present or trust.</p>
+<h2 id="use-partitionreader"><code>use PartitionReader</code><a class="headerlink" href="#use-partitionreader" title="Permanent link">&para;</a></h2>
+<p>Reads one partition of one source for a reading task. <code>pub</code>, not <code>pub(super)</code>:
+<code>super::Nodes::worker_reading</code> names it in a <code>pub fn</code> signature, so this trait cannot be more
+private than that function.</p>
 <h2 id="use-taskgrant"><code>use TaskGrant</code><a class="headerlink" href="#use-taskgrant" title="Permanent link">&para;</a></h2>
 <p>The task grant a node's worker asks of every call it is sent over gRPC.</p>
 <p>A call to install a stage is admitted with a key and a grant under it, the first key a question is
 installed under kept; a call to execute a task is admitted with a grant its question's kept key
 verifies. Any other call is refused.</p>
+<h2 id="use-unread"><code>use Unread</code><a class="headerlink" href="#use-unread" title="Permanent link">&para;</a></h2>
+<p>Why a <code>PartitionReader</code> read nothing.</p>
 <h2 id="use-workerrefusal"><code>use WorkerRefusal</code><a class="headerlink" href="#use-workerrefusal" title="Permanent link">&para;</a></h2>
 <p>Why a worker refused a task it was running.</p>
+<h2 id="use-read_later"><code>use read_later</code><a class="headerlink" href="#use-read_later" title="Permanent link">&para;</a></h2>
+<p>The stream of a read that runs only once it is first polled - <code>read</code> is typically a blocking
+read moved off the runtime - against <code>schema</code>. A failure is relayed as
+<code>PartitionScanExec::execute</code> relays one.</p>
+<h2 id="use-schemaref"><code>use SchemaRef</code><a class="headerlink" href="#use-schemaref" title="Permanent link">&para;</a></h2>
+<p>The engine's own types a <code>PartitionReader</code> names, so an implementor outside this crate needs no
+<code>datafusion</code> edge of its own.</p>
+<h2 id="use-sendablerecordbatchstream"><code>use SendableRecordBatchStream</code><a class="headerlink" href="#use-sendablerecordbatchstream" title="Permanent link">&para;</a></h2>
+<p>The engine's own types a <code>PartitionReader</code> names, so an implementor outside this crate needs no
+<code>datafusion</code> edge of its own.</p>
 <h2 id="module-measurement">Module <code>measurement</code><a class="headerlink" href="#module-measurement" title="Permanent link">&para;</a></h2>
 <p>Opt-in peak recording for measurement-only children, excluded from default builds.
 Opt-in measurement construction for bounded DataFusion execution.</p>

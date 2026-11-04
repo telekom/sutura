@@ -2713,7 +2713,9 @@ re-inferred from the committed file on every run, so it cannot drift from it.</p
 on a fresh connection that imports the descriptor's snapshot first, under the same per-stream
 bound as <code>Partition::read</code>. The statement is generated from <code>leg</code> here; the descriptor
 carries none.</p>
-<p><strong>The limits</strong>: nothing calls this yet - a reading worker's grant handler will,
+<p><strong>The limits</strong>: its one production caller is a reading worker's partition reader in
+<code>sutura-cli</code>, after the worker admitted the task's grant and re-certified the leg against its
+own catalog; no planning node routes a split leaf to a worker yet,
 <code>github.com/telekom/sutura#828</code>. It takes no presented identity and does not authenticate
 <code>descriptor</code>, so it reads as the adapter's service user for whoever holds the bytes - a source
 declared <code>shared-service-user</code> because startup refuses any other posture for Postgres, not
