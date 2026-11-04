@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+@@ -130,7 +130,7 @@
+             return Err(InvalidDescriptor::Trailing { extra: rest.len() });
+         }
+         if let Some(to) = to
+-            && to <= from
++            && to < from
+         {
+             return Err(InvalidDescriptor::EmptyRange { from, to });
+         }

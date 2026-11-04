@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+@@ -123,7 +123,7 @@
+         let (&end, rest) = rest.split_first().ok_or(InvalidDescriptor::Truncated)?;
+         let (to, rest) = match end {
+             OPEN => (None, rest),
+-            CLOSED => page(rest).map(|(to, rest)| (Some(to), rest))?,
++            CLOSED => page(rest).map_or((None, &[][..]), |(to, rest)| (Some(to), rest)),
+             found => return Err(InvalidDescriptor::End { found }),
+         };
+         if !rest.is_empty() {

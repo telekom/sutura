@@ -79,7 +79,7 @@ const PAGES: &str = "SELECT c.relpages, c.reltuples::bigint, pg_catalog.current_
 
 /// The longest snapshot id [`SnapshotId::parse`] admits, well past the server's own
 /// `%08X-%08X-%d`.
-const MOST_SNAPSHOT_ID: usize = 64;
+pub(super) const MOST_SNAPSHOT_ID: usize = 64;
 
 /// What `pg_export_snapshot()` returned, held to hex digits and hyphens - the characters the server
 /// writes one with, and none of them can close the quote it is sent between in [`Setting::sql`].
@@ -92,6 +92,10 @@ impl SnapshotId {
         let admitted =
             !raw.is_empty() && raw.len() <= MOST_SNAPSHOT_ID && raw.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-');
         admitted.then(|| Self(String::from(raw)))
+    }
+
+    pub(super) const fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 

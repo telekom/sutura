@@ -30,6 +30,28 @@
 //! cuts [`SplitLeg`] from the very snapshot the estimate was read from, never a second one. Calling
 //! it from `sutura-exec-datafusion`'s combine or a reading worker still needs the grant growth, the
 //! source token and the re-certification slices that follow this one - `github.com/telekom/sutura#828`.
+//!
+//! [`Partition::descriptor`] is one range as bytes for another node: the snapshot id and the page
+//! range, [`PartitionDescriptor`]'s layout. [`AdbcPostgres::read_partition`] reads them back against
+//! a leg the reading side holds - the statement regenerated from that leg, the snapshot imported on
+//! a fresh connection, under the same per-stream bound, through the one body [`Partition::read`]
+//! runs. **Its limits**:
+//!
+//! - Nothing calls it yet; a reading worker's grant handler will - `github.com/telekom/sutura#828`.
+//! - It takes no presented identity and does not authenticate the descriptor: both are the task
+//!   grant's, which carries the descriptor and authorises the leg before this runs. Every connection
+//!   is the adapter's one conninfo, since its `IMPERSONATION` is `NoPlaceForASubject`. That the
+//!   source was declared `shared-service-user` is held at startup by `sutura-cli`'s Postgres connect
+//!   step, whose posture cross-check refuses an `impersonation-at-source` entry - `read_partition`
+//!   reads no posture itself.
+//! - A forged but well-formed descriptor names at most a page range of the leg the reading side
+//!   passed - up to the whole leg, never other SQL, since the statement is generated from `leg`
+//!   alone - read under any snapshot still exported in this database. The server checks only the
+//!   database and that the exporter still runs, not its role, so that snapshot can be another
+//!   session's, or an older one than the split's. The id is held to the hex digits and hyphens
+//!   [`session::SnapshotId`] admits before it is sent.
+//! - A snapshot whose exporting transaction ended - its [`SplitLeg`] dropped, its deadline spent,
+//!   its connection gone - fails the import, and so the read.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 
@@ -48,11 +70,15 @@ use super::{AdbcError, AdbcPostgres, numeric};
 use crate::PostgresError;
 use crate::deadline::refuse_if_spent;
 
+mod descriptor;
+
+pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
+
 /// A leg cut into partitions, and the open transaction their snapshot belongs to.
 pub struct SplitLeg<'adapter> {
     adapter: &'adapter AdbcPostgres,
     snapshot: Option<SnapshotId>,
-    partitions: Vec<GeneratedQuery>,
+    partitions: Vec<(Pages, GeneratedQuery)>,
     /// Never read: the exporting transaction is open for as long as this connection is.
     _exporting: ManagedConnection,
 }
@@ -60,6 +86,7 @@ pub struct SplitLeg<'adapter> {
 /// One range of a [`SplitLeg`].
 pub struct Partition<'split> {
     split: &'split SplitLeg<'split>,
+    pages: Pages,
     query: &'split GeneratedQuery,
 }
 
@@ -95,11 +122,11 @@ fn export(adapter: &AdbcPostgres, leg: &LegPlan, deadline: Deadline) -> Result<E
     let mut exporting = adapter.connection()?;
     let exported = session::export(&mut exporting, relation, adapter.statement_timeout_ceiling_ms, deadline)?;
     let (snapshot, pages) = (numeric::rows(&exported.snapshot)?, numeric::rows(&exported.pages)?);
-    let snapshot = match first(&snapshot) {
-        Some(Value::Text(id)) => SnapshotId::parse(id),
+    let row = pages.rows().first();
+    let snapshot = match (first(&snapshot), row.and_then(|row| row.first())) {
+        (Some(Value::Text(id)), Some(&Value::Integer(1..))) => SnapshotId::parse(id),
         _ => None,
     };
-    let row = pages.rows().first();
     let relpages = match row.and_then(|row| row.first()) {
         Some(&Value::Integer(pages)) if snapshot.is_some() => u32::try_from(pages).unwrap_or(0),
         _ => 0,
@@ -155,14 +182,13 @@ fn cut_under<'adapter>(
     partitions: NonZeroUsize,
 ) -> Result<SplitLeg<'adapter>, PostgresError> {
     let ranges = cut(exported.relpages, partitions);
-    let partitions = if ranges.len() == 1 {
-        vec![whole]
-    } else {
-        ranges
+    let partitions = match *ranges.as_slice() {
+        [only] => vec![(only, whole)],
+        _ => ranges
             .into_iter()
-            .map(|(from, to)| generate_leg_pages(leg, from, to))
+            .map(|(from, to)| generate_leg_pages(leg, from, to).map(|query| ((from, to), query)))
             .collect::<Result<_, _>>()
-            .map_err(|cause| PostgresError::Render { cause })?
+            .map_err(|cause| PostgresError::Render { cause })?,
     };
     Ok(SplitLeg {
         adapter,
@@ -206,28 +232,66 @@ pub(super) fn split_by_estimate<'adapter>(
 impl SplitLeg<'_> {
     /// Each range, in page order.
     pub fn partitions(&self) -> impl ExactSizeIterator<Item = Partition<'_>> {
-        self.partitions.iter().map(move |query| Partition { split: self, query })
+        self.partitions.iter().map(move |&(pages, ref query)| Partition {
+            split: self,
+            pages,
+            query,
+        })
     }
 }
 
 impl Partition<'_> {
-    /// This range's rows, on a connection of its own that imports the leg's snapshot first.
+    /// This range's rows, on a connection of its own that imports the leg's snapshot first where it holds one.
     ///
     /// # Errors
     ///
     /// A spent deadline, a stream past the per-stream bound, and the driver's or the server's
     /// failure - among them a snapshot that is no longer importable.
     pub fn read(&self, deadline: Deadline) -> Result<ResultBatches, PostgresError> {
-        refuse_if_spent(deadline)?;
-        let adapter = self.split.adapter;
-        let bound = parameter_batch(self.query.params()).map_err(AdbcError::Parameters)?;
-        let (sql, ceiling) = (self.query.sql(), adapter.statement_timeout_ceiling_ms);
-        let batches = adapter.connected(|connection| match self.split.snapshot {
-            Some(ref snapshot) => session::partition(connection, snapshot, sql, bound, ceiling, deadline),
-            None => session::answer(connection, sql, bound, ceiling, deadline),
-        })?;
-        numeric::batches(batches)
+        read_range(self.split.adapter, self.split.snapshot.as_ref(), self.query, deadline)
     }
+
+    /// This range as bytes [`AdbcPostgres::read_partition`] reads on another connection - `None`
+    /// where the split holds no snapshot, the roots the module header reads whole: that one
+    /// partition is a read of the table as it is now, which no other connection can repeat.
+    pub fn descriptor(&self) -> Option<PartitionDescriptor> {
+        self.split
+            .snapshot
+            .as_ref()
+            .map(|snapshot| PartitionDescriptor::new(snapshot.clone(), self.pages))
+    }
+}
+
+/// [`AdbcPostgres::read_partition`]: `descriptor` parsed before any connection opens, its range's
+/// statement generated from `leg` alone, and read under its snapshot.
+pub(super) fn read_partition(
+    adapter: &AdbcPostgres,
+    leg: &LegPlan,
+    descriptor: &[u8],
+    deadline: Deadline,
+) -> Result<ResultBatches, PostgresError> {
+    let parsed = PartitionDescriptor::try_from(descriptor).map_err(|cause| PostgresError::MalformedDescriptor { cause })?;
+    let (from, to) = parsed.pages();
+    let query = generate_leg_pages(leg, from, to).map_err(|cause| PostgresError::Render { cause })?;
+    read_range(adapter, Some(parsed.snapshot()), &query, deadline)
+}
+
+/// `query` on a connection of its own, importing `snapshot` first where there is one - the one body
+/// [`Partition::read`] and [`read_partition`] share, so both read under the same bound.
+fn read_range(
+    adapter: &AdbcPostgres,
+    snapshot: Option<&SnapshotId>,
+    query: &GeneratedQuery,
+    deadline: Deadline,
+) -> Result<ResultBatches, PostgresError> {
+    refuse_if_spent(deadline)?;
+    let bound = parameter_batch(query.params()).map_err(AdbcError::Parameters)?;
+    let (sql, ceiling) = (query.sql(), adapter.statement_timeout_ceiling_ms);
+    let batches = adapter.connected(|connection| match snapshot {
+        Some(snapshot) => session::partition(connection, snapshot, sql, bound, ceiling, deadline),
+        None => session::answer(connection, sql, bound, ceiling, deadline),
+    })?;
+    numeric::batches(batches)
 }
 
 /// The leg's root table as `to_regclass` reads a name: each part double-quoted, as the statement

@@ -57,7 +57,7 @@ mod session;
 mod split;
 
 use adbc_driver_manager::ManagedConnection;
-pub use split::{Partition, Planned, SplitLeg};
+pub use split::{InvalidDescriptor, Partition, PartitionDescriptor, Planned, SplitLeg};
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{
     AdbcError, Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, MOUNTED_DRIVER, NoDriver,
@@ -151,6 +151,36 @@ impl AdbcPostgres {
         ready_workers: core::num::NonZeroUsize,
     ) -> Result<split::Planned<'_>, PostgresError> {
         split::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
+    }
+
+    /// The one range of `leg` that `descriptor` - bytes [`Partition::descriptor`] minted - names,
+    /// on a fresh connection that imports the descriptor's snapshot first, under the same per-stream
+    /// bound as [`Partition::read`]. The statement is generated from `leg` here; the descriptor
+    /// carries none.
+    ///
+    /// **The limits**: nothing calls this yet - a reading worker's grant handler will,
+    /// `github.com/telekom/sutura#828`. It takes no presented identity and does not authenticate
+    /// `descriptor`, so it reads as the adapter's service user for whoever holds the bytes - a source
+    /// declared `shared-service-user` because startup refuses any other posture for Postgres, not
+    /// because this reads one. Deciding who may ask, and keeping the bytes intact on the wire, is the
+    /// task grant's. A forged but well-formed descriptor names at most a page range of `leg` - up to
+    /// all of it, never another statement - under any snapshot still exported in this database,
+    /// whichever session or role exported it, possibly an older one than the split's. `clippy.toml`
+    /// bans the call, so each caller is an `#[expect]` a reviewer sees.
+    ///
+    /// # Errors
+    ///
+    /// [`PostgresError::MalformedDescriptor`] for bytes that do not parse, before any connection
+    /// opens; a leg that does not render; a spent deadline; a stream past the per-stream bound; and
+    /// the driver's or the server's failure - among them a snapshot whose exporting transaction has
+    /// ended, which no longer imports, and whose message from the server quotes the snapshot id.
+    pub fn read_partition(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        descriptor: &[u8],
+        deadline: Deadline,
+    ) -> Result<ResultBatches, PostgresError> {
+        split::read_partition(self, leg, descriptor, deadline)
     }
 
     fn connection(&self) -> Result<ManagedConnection, AdbcError> {

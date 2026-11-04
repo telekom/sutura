@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+@@ -162,6 +162,7 @@
+         f.debug_struct("PartitionDescriptor")
+             .field("from_page", &self.pages.0)
+             .field("to_page", &self.pages.1)
++            .field("snapshot", &self.snapshot)
+             .finish_non_exhaustive()
+     }
+ }
