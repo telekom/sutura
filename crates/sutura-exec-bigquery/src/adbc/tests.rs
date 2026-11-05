@@ -418,6 +418,23 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
 }
 
 #[test]
+fn a_split_asks_for_at_most_one_stream_per_reader_of_half_the_row_bound_each() {
+    let mut statement = Recording::new();
+    super::partitions::bounded(&mut statement, core::num::NonZeroUsize::new(3).expect("three is not zero"))
+        .expect("the recording statement accepts string options");
+    assert_eq!(
+        statement.string_options,
+        [
+            (String::from("bigquery.query.partitions.max_streams"), String::from("3")),
+            (
+                String::from("bigquery.query.partitions.target_rows_per_stream"),
+                String::from("500000")
+            ),
+        ]
+    );
+}
+
+#[test]
 fn every_statement_this_transport_submits_carries_the_configured_bytes_billed_ceiling() {
     // **THE CELL THE P1 ASKS FOR.** `sources.<alias>.max_bytes_billed` was required at boot,
     // parsed by nothing and sent nowhere, so the only key in the settings tree that spends money
