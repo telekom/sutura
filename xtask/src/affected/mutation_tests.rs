@@ -298,17 +298,19 @@ fn every_page_a_crate_literal_names_classifies_as_rust() {
 }
 
 /// rust-oracledb's `guide` module compiles nineteen of its own pages into the crate, and no
-/// `crates/` literal names them, so a non-member's page fails open rather than docs-only.
+/// `crates/` literal names them, so a non-member's page is never docs-only: the vendored driver's
+/// page is `rust`, and a non-member no area names fails open.
 #[test]
 fn a_non_member_page_is_never_docs_only() {
-    for page in ["vendor/rust-oracledb/doc/arrow.md", "fuzz/README.md"] {
-        let classified = crate::changes::classify(&[String::from(page)]);
-        assert!(classified.docs_only.is_empty(), "{page} is not docs-only: {classified:?}");
-        assert!(
-            classified.run_all && classified.needs("rust"),
-            "{page} runs everything: {classified:?}"
-        );
-    }
+    let driver = crate::changes::classify(&[String::from("vendor/rust-oracledb/doc/arrow.md")]);
+    assert!(driver.docs_only.is_empty(), "the driver page is not docs-only: {driver:?}");
+    assert!(
+        !driver.run_all && driver.areas.contains("rust"),
+        "the driver page is `rust`, not everything: {driver:?}"
+    );
+    let fuzz = crate::changes::classify(&[String::from("fuzz/README.md")]);
+    assert!(fuzz.docs_only.is_empty(), "fuzz/README.md is not docs-only: {fuzz:?}");
+    assert!(fuzz.run_all, "fuzz/README.md runs everything: {fuzz:?}");
 }
 
 /// A docs-only diff selects no category leg; a page an area owns, or a non-member's page, is not

@@ -872,6 +872,7 @@ jobs:
           IDENTITY: ${{ steps.classify.outputs.identity }}
           POSTGRES: ${{ steps.classify.outputs.data_source_postgres }}
           CLICKHOUSE: ${{ steps.classify.outputs.data_source_clickhouse }}
+          ORACLE: ${{ steps.classify.outputs.data_source_oracle }}
         with:
           label: test graph
           run: |-
@@ -888,6 +889,9 @@ jobs:
             fi
             if [ "$TIERS" = "true" ] || [ "$CLICKHOUSE" = "true" ]; then
               checks+=(.#checks.x86_64-linux.clickhouse-tier)
+            fi
+            if [ "$TIERS" = "true" ] || [ "$ORACLE" = "true" ]; then
+              checks+=(.#checks.x86_64-linux.vendored-oracledb)
             fi
             if [ "$API" = "true" ]; then checks+=(.#checks.x86_64-linux.api-docs); fi
             if [ "${#checks[@]}" -eq 0 ]; then
@@ -930,6 +934,15 @@ jobs:
       - name: ClickHouse tier
         if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_clickhouse == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.clickhouse-tier -L
+
+      # The vendored Oracle driver's own unit tests (`nix/vendored-oracledb.nix`), which the
+      # workspace excludes, so `Tests` never compiles them. They cover the patched modules, which
+      # no live Oracle cell reaches in full. Gated on the venue's inputs like the tiers above; a
+      # change under `vendor/rust-oracledb/` selects `data_source_oracle` through the category
+      # axis's fail-open to `core`.
+      - name: Vendored Oracle driver tests
+        if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_oracle == 'true') && github.event_name != 'push'
+        run: nix build .#checks.x86_64-linux.vendored-oracledb -L
 
       # nextest deliberately does not run doctests, so a `///` example that stops compiling
       # would pass unnoticed. A separate check, so the gap is visible rather than assumed.

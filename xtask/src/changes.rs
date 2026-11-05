@@ -104,6 +104,9 @@ const AREAS: &[Area] = &[
             "docs/examples/single-player.md",
             "docs/serving.md",
             "docs/serving-behind-a-gateway.md",
+            // A workspace dependency through `[patch]`, so cargo compiles it into the binary. Its
+            // pages too: the `guide` module compiles them in.
+            "vendor/rust-oracledb/**",
         ],
         consumers: &["build"],
     },
