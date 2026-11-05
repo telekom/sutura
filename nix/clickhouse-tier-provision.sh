@@ -65,9 +65,14 @@ PY
 # nobody keeps. A row policy on `execute_as.conformance_events` (the conformance corpus table) shows
 # `sutura_analyst_a` every row and `sutura_analyst_b` none; `$user` has no policy and reads all.
 #
+# The ADBC cells (crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs): `sutura_switched` and
+# `sutura_switched_ungranted` have no password and may read `adbc_switched` only, and `IMPERSONATE`
+# is granted on the first alone - so a statement switched to the second is refused by the server.
+#
 # Token sign-in: `sutura_caller_a` and `sutura_caller_b` sign in through `checker`, which answers
 # ClickHouse's `GET` with 200 only for a valid token whose `sub` is the Basic user. A row policy on
-# `signed_in.conformance_events` shows `sutura_caller_a` every row and `sutura_caller_b` none.
+# `signed_in.conformance_events` shows `sutura_caller_a` every row and `sutura_caller_b` none; both
+# also read `adbc_switched`, which has no row policy, for the ADBC sign-in cell.
 write_config() {
   digest="$(printf '%s' "$password" | sha256sum | cut -d' ' -f1)"
   unusable="$(od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n' | sha256sum | cut -d' ' -f1)"
@@ -97,16 +102,22 @@ users:
         - REVOKE ACCESS MANAGEMENT ON *.*
         - GRANT IMPERSONATE ON sutura_analyst_a
         - GRANT IMPERSONATE ON sutura_analyst_b
+        - GRANT IMPERSONATE ON sutura_switched
 $(for analyst in sutura_analyst_a:1 sutura_analyst_b:0 sutura_ungranted:0; do
     printf '  %s:\n    password_sha256_hex: %s\n' "${analyst%:*}" "$unusable"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
     printf '    grants:\n      query:\n        - GRANT SELECT ON execute_as.*\n'
     printf '    databases:\n      execute_as:\n        conformance_events:\n          filter: "%s"\n' "${analyst#*:}"
   done)
+$(for switched in sutura_switched sutura_switched_ungranted; do
+    printf '  %s:\n    no_password: 1\n' "$switched"
+    printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
+    printf '    grants:\n      query:\n        - GRANT SELECT ON adbc_switched.*\n'
+  done)
 $(for caller in sutura_caller_a:1 sutura_caller_b:0; do
     printf '  %s:\n    http_authentication:\n      server: checker\n      scheme: basic\n' "${caller%:*}"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
-    printf '    grants:\n      query:\n        - GRANT SELECT ON signed_in.*\n'
+    printf '    grants:\n      query:\n        - GRANT SELECT ON signed_in.*\n        - GRANT SELECT ON adbc_switched.*\n'
     printf '    databases:\n      signed_in:\n        conformance_events:\n          filter: "%s"\n' "${caller#*:}"
   done)
 http_authentication_servers:
