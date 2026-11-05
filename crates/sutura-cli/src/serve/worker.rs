@@ -21,8 +21,9 @@
 //! re-opened here (`crate::serve::refresh` is wired only into the serving root). The worker admits
 //! only a call that carries its question's task grant, under the key the first call of that
 //! question installed: a node of the same authority installs that key. The planning node routes a
-//! split leg's partition only to a node `server.nodes` declares as reading its source, but no served
-//! question builds a split leg yet, so outside tests no reading task reaches the reader. A source
+//! split leg's partition only to a node `server.nodes` declares as reading its source, and only a
+//! mixed-kind deployment's PostgreSQL source grants one, so no other served lookup leg reaches the
+//! reader. A source
 //! of any kind but `PostgreSQL` - `BigQuery` among them - is refused, and a build without the
 //! `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 

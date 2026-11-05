@@ -30,7 +30,7 @@
 //! cuts [`SplitLeg`] from the very snapshot the estimate was read from, never a second one.
 //! [`SplitLeg::schema`] describes the columns a split's partitions answer on that same exporting
 //! connection, without reading a row, so the split can be granted to the nodes that read the source
-//! rather than read here. Nothing in production calls it yet - `github.com/telekom/sutura#828`.
+//! rather than read here - `github.com/telekom/sutura#828`.
 //!
 //! [`Partition::descriptor`] is one range as bytes for another node: the snapshot id and the page
 //! range, [`PartitionDescriptor`]'s layout. [`AdbcPostgres::read_partition`] reads them back against
@@ -38,8 +38,8 @@
 //! a fresh connection, under the same per-stream bound, through the one body [`Partition::read`]
 //! runs. **Its limits**:
 //!
-//! - Only a reading worker's partition reader calls it, and no served question sends one a
-//!   partition yet - `github.com/telekom/sutura#828`.
+//! - Only a reading worker's partition reader calls it, for a partition of a leg its planning node
+//!   granted - `github.com/telekom/sutura#828`.
 //! - It takes no presented identity and does not authenticate the descriptor: both are the task
 //!   grant's, which carries the descriptor and authorises the leg before this runs. Every connection
 //!   is the adapter's one conninfo, since its `IMPERSONATION` is `NoPlaceForASubject`. That the

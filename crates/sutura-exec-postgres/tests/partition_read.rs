@@ -10,8 +10,8 @@
 //!
 //! **What these cells hold that the unit cells cannot:** that the server imports a snapshot named by
 //! descriptor bytes alone, that a descriptor's read is its partition's and all of them together are
-//! the leg read whole, that an ended exporting transaction fails the read, and that the per-stream
-//! bound holds on this path too. **The limit**: which SQLSTATE the server answers a snapshot that no
+//! the leg read whole, that an ended exporting transaction fails the read, that the columns a split
+//! describes are those a descriptor read streams, and that the per-stream bound holds on this path too. **The limit**: which SQLSTATE the server answers a snapshot that no
 //! longer exists with differs between server versions and is not asserted - the cell holds that the
 //! same bytes read while the split lived and fail once it is gone.
 
@@ -169,6 +169,27 @@ mod partition_read {
                 .read(corpus::deadline())
                 .unwrap_or_else(|e| panic!("partition {index} did not read: {e}"));
             assert_eq!(keys(&read), keys(&direct), "partition {index}, {descriptor:?}");
+        }
+    }
+
+    #[test]
+    fn a_split_s_described_columns_are_what_each_descriptor_read_streams_and_its_export_still_imports() {
+        let Some((warehouse, mut admin)) = open("described") else {
+            return;
+        };
+        paged(&mut admin);
+        let leg = lookup("paged");
+        let mut split = split_into(&warehouse, &leg, 3);
+        let described = split
+            .schema(corpus::deadline())
+            .unwrap_or_else(|e| panic!("the split's columns were not described: {e}"))
+            .expect("a bigint key has one schema for every partition");
+        let minted = minted(&split);
+        assert_eq!(minted.len(), 3, "describing the columns leaves every partition's descriptor");
+        for (index, bytes) in minted.iter().enumerate() {
+            let read = read_descriptor(&warehouse, &leg, bytes)
+                .unwrap_or_else(|e| panic!("partition {index} did not import the export it was described under: {e}"));
+            assert_eq!(read.schema(), &described, "partition {index} streams the described columns");
         }
     }
 

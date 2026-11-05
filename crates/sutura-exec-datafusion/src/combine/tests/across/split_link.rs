@@ -4,8 +4,8 @@
 //!
 //! # What this does not exercise
 //!
-//! The leg is a `SplitScan` built here and checked by a direct call: no served question builds one or
-//! calls the check. Its readers answer from memory rather than a source, and every node shares one
+//! The leg is a `SplitScan` built here and checked by a direct call, which no served question makes.
+//! Its readers answer from memory rather than a source, and every node shares one
 //! authority and one runtime.
 
 use core::time::Duration;

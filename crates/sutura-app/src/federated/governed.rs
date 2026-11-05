@@ -6,7 +6,9 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 
 /// The refusal `cause` is, taken off the combiner in the order the mono path asks its own adapter:
 /// the ceiling, then no other node ready in time, then a node lost while the combine ran, then a
-/// deterministic refusal about what the legs returned.
+/// granted leg whose source no node the combine can reach reads - `SourceUnavailable`, the refusal a
+/// source this deployment does not serve gets - then a deterministic refusal about what the legs
+/// returned.
 ///
 /// D19 + A4: a deterministic combine failure - the same plan against the same legs fails again - is
 /// a governance refusal and not a data-system outage, so a caller is never told to retry one. `None`
@@ -26,6 +28,11 @@ where
             })
         })
         .or_else(|| combiner.node_lost(cause).then_some(RefusalReason::NodeLost))
+        .or_else(|| {
+            combiner
+                .no_reading_node(cause)
+                .map(|source| RefusalReason::SourceUnavailable { source: source.clone() })
+        })
         .or_else(|| {
             combiner
                 .answer_not_well_formed(cause)

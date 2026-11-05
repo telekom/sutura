@@ -1,16 +1,16 @@
 diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
 --- a/crates/sutura-app/src/federated/leg.rs
 +++ b/crates/sutura-app/src/federated/leg.rs
-@@ -327,7 +327,7 @@
-         let deadline = self.deadline;
-         let presented = usable::<W, B, C>(self.credentials, leg, deadline)?;
-         match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, None) {
+@@ -344,7 +344,7 @@
+             Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
+         };
+         match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee) {
 -            Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
 +            Ok(Partitioned::Whole | Partitioned::Refused(_)) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
                  warehouse,
                  (self.credentials, self.labels),
                  leg,
-@@ -346,9 +346,6 @@
+@@ -363,9 +363,6 @@
                  }))))
              }
              Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),

@@ -273,7 +273,10 @@ impl Statement for FakeStatement {
             statement: self.ordinal,
             sql: self.sql.clone(),
         });
-        Ok(arrow_schema::Schema::empty())
+        Ok(self
+            .reply
+            .as_ref()
+            .map_or_else(arrow_schema::Schema::empty, |batch| batch.schema().as_ref().clone()))
     }
 
     fn execute_partitions(&mut self) -> AdbcResult<PartitionedResult> {

@@ -105,8 +105,8 @@ impl DeclaredNodes {
     /// The declared peers that read `alias`, in declaration order.
     ///
     /// Counted to size a lookup leg's split at `alias`, and the only nodes a split leg's partitions
-    /// are placed on; no served question builds one yet. Readiness still comes from resolving the
-    /// node, not from appearing here.
+    /// are placed on when its source grants it. Readiness still comes from resolving the node, not
+    /// from appearing here.
     pub fn reading<'a>(&'a self, alias: &SourceName) -> impl Iterator<Item = &'a DeclaredNode> {
         self.others.iter().filter(move |node| node.sources.contains(alias))
     }
