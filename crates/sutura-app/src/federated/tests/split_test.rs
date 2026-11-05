@@ -15,8 +15,8 @@ use super::*;
 use crate::ServiceError;
 use crate::tests_support::BrokerUnreachable;
 use sutura_domain::identity::{
-    BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Minted, PrincipalChain, RequestContext, SourceSet,
-    Subject, SubjectKey,
+    BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry, LegCredentials, Minted, PrincipalChain,
+    RequestContext, SourceSet, Subject, SubjectKey,
 };
 use sutura_domain::plan::{
     EstimatedRows, Grantee, LegPlan, LinkKind, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide,
@@ -212,6 +212,38 @@ impl CredentialBroker for NamingThePayer {
     }
 }
 
+/// A shared-service-user grant for the asker that expires ten seconds from now: before a
+/// thirty-second deadline, and after any question a cell asks under it.
+struct ExpiringInTenSeconds;
+
+impl CredentialBroker for ExpiringInTenSeconds {
+    type Error = BrokerUnreachable;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        let expires = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+            .saturating_add(10);
+        let presented = sources
+            .iter()
+            .map(|source| {
+                let shared = Presented::SharedServiceUser {
+                    declared: crate::tests_support::acknowledged(),
+                };
+                (source.clone(), shared)
+            })
+            .collect();
+        let credentials = LegCredentials::minted(
+            context.chain().subject().clone(),
+            Expiry::At { unix_seconds: expires },
+            sources,
+            presented,
+        )
+        .map_err(|_uncoverable| BrokerUnreachable)?;
+        Ok(Minted::Granted { credentials })
+    }
+}
+
 fn combiner() -> sutura_exec_datafusion::DataFusionCombiner {
     sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds")
 }
@@ -391,13 +423,9 @@ fn a_split_lookup_leg_is_granted_no_longer_than_the_request_s_own_grant_lasts() 
     .splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
     let asked_at = SystemTime::now();
 
-    let outcome = asked(
-        &warehouses,
-        &asked_by_a_person(),
-        &FixedBroker::GrantsSomethingExpiringInTenSeconds,
-    )
-    .expect("a granted leg is an answer or a refusal, not an error")
-    .into_outcome();
+    let outcome = asked(&warehouses, &asked_by_a_person(), &ExpiringInTenSeconds)
+        .expect("a granted leg is an answer or a refusal, not an error")
+        .into_outcome();
 
     assert!(matches!(outcome, ToolOutcome::Refusal { .. }), "{outcome:?}");
     let (_, until) = granted(&warehouses).expect("the split was granted");

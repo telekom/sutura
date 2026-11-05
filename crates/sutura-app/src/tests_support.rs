@@ -629,9 +629,6 @@ pub(crate) enum FixedBroker {
     /// pre-flight. Paired with `FixedWarehouse::answering_after`, whose pre-flight takes longer than
     /// the second this grant has left.
     GrantsSomethingExpiringWithinTheSecond,
-    /// Grants a credential that expires ten seconds from now: before a thirty-second deadline, and
-    /// after any question a cell asks under it.
-    GrantsSomethingExpiringInTenSeconds,
     /// Refuses a source that was never in the set it was asked about.
     ///
     /// Before the guard this became a caller-facing `CredentialUnavailable` naming a source the
@@ -690,12 +687,6 @@ impl CredentialBroker for FixedBroker {
             Self::GrantsSomethingExpiringWithinTheSecond => Grant {
                 not_after: Expiry::At {
                     unix_seconds: now_in_unix_seconds().saturating_add(1),
-                },
-                ..Grant::of(asked_by, sources.clone(), shared_leg)
-            },
-            Self::GrantsSomethingExpiringInTenSeconds => Grant {
-                not_after: Expiry::At {
-                    unix_seconds: now_in_unix_seconds().saturating_add(10),
                 },
                 ..Grant::of(asked_by, sources.clone(), shared_leg)
             },
