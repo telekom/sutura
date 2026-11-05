@@ -14,26 +14,36 @@
 //!
 //! # Limit
 //!
-//! Neither function here builds its own connection or statement. When either is wired into a
-//! caller, the connection or statement handed in must come from [`super::AdbcBigQuery::connect`]
-//! the same as every other call this transport makes - never built or reused outside that path -
-//! because `connect` is where the identity-first check, the bytes-billed ceiling and the job
-//! timeout all live, and nothing here re-applies any of them.
+//! Neither function here builds its own connection or statement. Their one caller each is
+//! `super::AdbcBigQuery::split` and `super::AdbcBigQuery::read_partition`, which authenticate
+//! first and, for a statement, prepare it as `super::AdbcBigQuery::connect` does - the
+//! identity-first check, the bytes-billed ceiling and the job timeout - and nothing here re-applies
+//! any of them.
 
-use std::time::Instant;
+use core::num::NonZeroUsize;
+use std::time::{Instant, SystemTime};
 
+use adbc_core::options::{OptionStatement, OptionValue};
 use adbc_core::{Connection, Statement};
 use arrow_schema::SchemaRef;
+use sutura_domain::identity::Delegated;
 
-use super::{AdbcError, DriverMessage, accumulate_bounded, race_to_deadline};
+use super::{AdbcError, DriverMessage, MOST_RESULT_ROWS, accumulate_bounded, race_to_deadline};
 use crate::transport::JobDeadline;
+
+/// `nix/bigquery-adbc-partitions.patch`'s `OptionQueryPartitionsMaxStreams`: at most this many
+/// Storage Read API streams.
+const MAX_STREAMS_OPTION: &str = "bigquery.query.partitions.max_streams";
+
+/// The patch's `OptionQueryPartitionsTargetRowsPerStream`: about this many rows a stream.
+const TARGET_ROWS_PER_STREAM_OPTION: &str = "bigquery.query.partitions.target_rows_per_stream";
 
 /// One partition of a statement's result, as the driver's own opaque bytes.
 ///
-/// **A newtype rather than a bare `Vec<u8>`**, so a caller cannot build one from anything but
-/// [`execute_leg_partitions`]'s own answer and cannot read what is inside. [`Self::as_bytes`] exists
-/// only for handing the value back to [`read_partition_to_deadline`], which is the one place it is
-/// read at all.
+/// **A newtype rather than a bare `Vec<u8>`**, so a caller outside this module builds one only from
+/// [`execute_leg_partitions`]'s own answer or from the bytes a grant carried ([`Self::granted`]).
+/// [`Self::as_bytes`] hands the bytes to [`read_partition_to_deadline`] and to a grant, and nothing
+/// here reads what they say.
 pub(crate) struct PartitionDescriptor(Vec<u8>);
 
 impl core::fmt::Debug for PartitionDescriptor {
@@ -46,9 +56,15 @@ impl core::fmt::Debug for PartitionDescriptor {
 }
 
 impl PartitionDescriptor {
-    /// The bytes this descriptor carries, for [`Connection::read_partition`] alone.
+    /// The bytes this descriptor carries, for [`Connection::read_partition`] and a grant.
     fn as_bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    /// A descriptor a grant carried from the node that ran the job. Still opaque: the driver's
+    /// `ReadPartition` is what refuses one it did not mint.
+    pub(super) fn granted(bytes: &[u8]) -> Self {
+        Self(bytes.to_vec())
     }
 
     /// Builds a descriptor from bytes a test made up, standing in for a real one
@@ -63,13 +79,6 @@ impl PartitionDescriptor {
 /// [`execute_leg_partitions`]'s answer: the schema the result was announced under, one descriptor
 /// per Storage Read API stream the driver opened, and the row count the driver reported for the
 /// statement as a whole, if it reported one at all.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "not wired into AdbcBigQuery::run yet - W2 of telekom/sutura#828, this slice is the reading side"
-    )
-)]
 #[derive(Debug)]
 pub(crate) struct Partitioned {
     pub(crate) schema: SchemaRef,
@@ -78,6 +87,85 @@ pub(crate) struct Partitioned {
     /// here once with [`u64::try_from`] so nothing downstream has to re-learn that one sentinel:
     /// `-1` becomes [`None`], every other value (including `0`) becomes [`Some`].
     pub(crate) rows: Option<u64>,
+}
+
+/// A leg run once at its source as the asking subject, its result split into streams for the
+/// nodes that read them.
+///
+/// **It holds the forwarded token**: a bearer token for the asking subject's pool principal,
+/// asked for `bigquery.readonly`. Its `Debug` prints neither the token nor a descriptor.
+pub struct SplitLeg {
+    partitioned: Partitioned,
+    forwarded: Delegated,
+    until: SystemTime,
+}
+
+impl SplitLeg {
+    pub(super) const fn new(partitioned: Partitioned, forwarded: Delegated, until: SystemTime) -> Self {
+        Self {
+            partitioned,
+            forwarded,
+            until,
+        }
+    }
+
+    /// The columns every stream answers.
+    #[must_use]
+    pub const fn schema(&self) -> &SchemaRef {
+        &self.partitioned.schema
+    }
+
+    /// The row count the driver reported for the whole result, if it reported one.
+    #[must_use]
+    pub const fn rows(&self) -> Option<u64> {
+        self.partitioned.rows
+    }
+
+    /// One descriptor per stream, in the driver's own encoding, for a grant to carry.
+    pub fn descriptors(&self) -> impl Iterator<Item = &[u8]> {
+        self.partitioned.descriptors.iter().map(PartitionDescriptor::as_bytes)
+    }
+
+    /// The question's end as it was handed in, or the forwarded token's expiry where that is
+    /// earlier: a grant of these streams ends no later.
+    #[must_use]
+    pub const fn until(&self) -> SystemTime {
+        self.until
+    }
+
+    /// The forwarded token, moved out: the one value a reading node needs beside a descriptor.
+    #[must_use]
+    pub fn into_forwarded(self) -> Delegated {
+        self.forwarded
+    }
+}
+
+impl core::fmt::Debug for SplitLeg {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SplitLeg")
+            .field("streams", &self.partitioned.descriptors.len())
+            .field("rows", &self.partitioned.rows)
+            .field("until", &self.until)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Asks `stmt`'s partitioned execution for at most `readers` streams of about
+/// [`MOST_RESULT_ROWS`] rows each. **The driver aims and does not promise**: the Storage Read API
+/// may answer fewer streams, and a stream past the bound is refused when it is read.
+pub(super) fn bounded<S>(stmt: &mut S, readers: NonZeroUsize) -> Result<(), AdbcError>
+where
+    S: Statement,
+{
+    let streams = readers.get().min(usize::try_from(i32::MAX).unwrap_or(usize::MAX));
+    for (key, value) in [
+        (MAX_STREAMS_OPTION, streams),
+        (TARGET_ROWS_PER_STREAM_OPTION, MOST_RESULT_ROWS),
+    ] {
+        stmt.set_option(OptionStatement::Other(key.to_owned()), OptionValue::String(value.to_string()))
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    }
+    Ok(())
 }
 
 /// Runs `stmt`'s statement once, at the coordinating node, and returns the schema its result was
@@ -98,13 +186,6 @@ pub(crate) struct Partitioned {
 /// statement or an empty query, both of which the patch's `ExecutePartitions` refuses outright
 /// rather than answering with a partition list. [`AdbcError::DeadlineElapsed`] if `deadline` fires
 /// first.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "not wired into AdbcBigQuery::run yet - W2 of telekom/sutura#828, this slice is the reading side"
-    )
-)]
 pub(crate) fn execute_leg_partitions<S>(
     stmt: S,
     keep_alive: impl Send + 'static,
@@ -172,13 +253,6 @@ where
 /// Every read needs its own connection. Any later call on `conn` - another read, a new statement, an
 /// option get or set - cancels a stream this read is still draining; executing a statement does not,
 /// as a statement tracks its own context. Nothing here refuses a shared connection.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "not wired into AdbcBigQuery::run yet - W2 of telekom/sutura#828, this slice is the reading side"
-    )
-)]
 pub(crate) fn read_partition_to_deadline<C>(
     conn: C,
     descriptor: PartitionDescriptor,

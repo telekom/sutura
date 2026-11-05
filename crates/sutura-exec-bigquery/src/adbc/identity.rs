@@ -37,8 +37,10 @@
 //! puts the value into a request, and a check belongs where the risk is. See
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
+use std::time::SystemTime;
+
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::{PoolExchange, PoolScope, PrincipalName, Secret};
+use sutura_domain::identity::{Delegated, PoolExchange, PoolScope, PrincipalName, Secret};
 
 use crate::transport::JobIdentity;
 
@@ -203,6 +205,60 @@ pub(super) fn authenticate(
         }
     };
     Ok(JobAuthentication { options })
+}
+
+/// The database options one partition read becomes: the forwarded `token` and nothing else, so a
+/// source that federates at no pool - where the driver would fall back to this process's own
+/// credentials - is refused.
+///
+/// # Errors
+///
+/// [`AdbcError::Uncovered`] at every source, until a reading worker reads a forwarded token.
+pub(super) const fn forwarded(_token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
+    match *impersonation {
+        Impersonation::ThroughPool(_) => Err(AdbcError::Uncovered("read a partition with a forwarded token")),
+        Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
+            "read a forwarded token at a source that federates at no pool",
+        )),
+    }
+}
+
+/// What a split leg's job runs on, and the token forwarded to the nodes that read its streams.
+pub(super) struct Split {
+    /// The job's database options: the first exchange's token, asked for [`PoolScope::Query`], so
+    /// the job can still be cancelled.
+    pub(super) options: DatabaseOptions,
+    /// The second exchange's token, asked for [`PoolScope::ReadOnly`]: the only one that leaves.
+    pub(super) forwarded: Delegated,
+    /// `ends`, or the forwarded token's expiry where that is earlier.
+    pub(super) until: SystemTime,
+}
+
+/// Both exchanges a split leg makes, before any connection exists, and when what it forwards ends.
+///
+/// # Errors
+///
+/// [`AdbcError::Uncovered`] for anything but a subject at a pool source with an exchange composed,
+/// decided before either exchange, and for that pairing too until a reading worker reads a
+/// forwarded token.
+pub(super) fn split(
+    identity: JobIdentity<'_>,
+    impersonation: &Impersonation,
+    exchange: Option<&dyn PoolExchange>,
+    _ends: SystemTime,
+) -> Result<Split, AdbcError> {
+    if !matches!(
+        (identity, impersonation),
+        (JobIdentity::AsSubject { .. }, Impersonation::ThroughPool(_))
+    ) {
+        return Err(AdbcError::Uncovered("split a leg that federates no subject at a pool"));
+    }
+    if exchange.is_none() {
+        return Err(AdbcError::Uncovered(
+            "federate a subject at a pool no token exchange was composed for",
+        ));
+    }
+    Err(AdbcError::Uncovered("split a leg whose streams no reading worker reads"))
 }
 
 /// The two options that hand the driver one subject's access token: the token and the auth type
