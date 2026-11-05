@@ -21,6 +21,9 @@ const MAX_SEGMENT_BYTES: usize = 255;
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Mapping {
+    /// The path the document's paths sit under on the endpoint, as its `servers` URL would add.
+    #[serde(default)]
+    pub(crate) base_path: Option<BasePath>,
     /// The fixed path parameters, by name.
     #[serde(default)]
     pub(crate) parameters: BTreeMap<ParameterName, PathSegment>,
@@ -110,6 +113,8 @@ pub enum InvalidMappingValue {
     Name,
     #[error("a path parameter value is 1 to {MAX_SEGMENT_BYTES} of `A-Z a-z 0-9 _ . ~ -`, and not `.` or `..`")]
     Segment,
+    #[error("a base path is `/` and plain path segments, with no trailing `/`")]
+    BasePath,
     #[error("a value is longer than {limit} bytes")]
     TooLong { limit: usize },
 }
@@ -284,6 +289,29 @@ impl TryFrom<String> for PathSegment {
         let unreserved = raw.bytes().all(|byte| is_name_byte(byte) || byte == b'~');
         if raw.is_empty() || raw.len() > MAX_SEGMENT_BYTES || !unreserved || raw == "." || raw == ".." {
             return Err(InvalidMappingValue::Segment);
+        }
+        Ok(Self(raw))
+    }
+}
+
+/// The path every document path is put under: `/` and [`PathSegment`]s, with no trailing `/`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub(crate) struct BasePath(String);
+
+impl BasePath {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for BasePath {
+    type Error = InvalidMappingValue;
+
+    fn try_from(raw: String) -> Result<Self, Self::Error> {
+        let segments = raw.strip_prefix('/').ok_or(InvalidMappingValue::BasePath)?;
+        for segment in segments.split('/') {
+            PathSegment::try_from(segment.to_owned()).map_err(|_segment| InvalidMappingValue::BasePath)?;
         }
         Ok(Self(raw))
     }

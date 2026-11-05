@@ -20,6 +20,7 @@ a page here. [Inbound identity](integrations/identity.md) describes how sutura v
 | [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
 | [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
 | [Cube](integrations/data-systems/cube.md#catalog)      | `cube`                  | Models, types, descriptions                   |
+| [OpenAPI](integrations/catalogs/openapi.md)            | `openapi`               | Experimental: tables, types, joins            |
 | [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
 A catalog that supplies part of the model declares the rest as absent. A catalog without metrics
