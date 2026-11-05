@@ -51,7 +51,6 @@ mod tests {
         Environment, InvalidAccessToken, InvalidDeclaredNode, InvalidInboundValue, NotFitToServe, ServerRole, Settings,
         SettingsError, Sources, TlsMaterial, UnknownEnvironment,
     };
-    use sutura_domain::model::SourceName;
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
     /// `SUTURA__*` variable.
@@ -96,6 +95,37 @@ mod tests {
             std::fs::write(dir.join(file), content).expect("a settings file");
         }
         dir
+    }
+
+    fn inputs(name: &str, docs: &[Value]) -> Inputs {
+        let env = of_kind(docs, "Deployment")["spec"]["template"]["spec"]["containers"][0]["env"]
+            .as_sequence()
+            .unwrap_or_else(|| panic!("{name}: the container has an env list"));
+        let mut environment = None;
+        let mut directory = None;
+        let mut variables = BTreeMap::new();
+        for entry in env {
+            let variable = entry["name"].as_str().expect("an env name");
+            let value = match entry["value"].as_str() {
+                Some(value) => String::from(value),
+                None if entry["valueFrom"]["secretKeyRef"].is_mapping() => {
+                    format!("{name}-{variable}-placeholder-secret-value")
+                }
+                None => panic!("{name}: {variable} has neither a value nor a secretKeyRef"),
+            };
+            match variable {
+                "SUTURA_ENVIRONMENT" => environment = Some(value),
+                "SUTURA_CONFIG_DIR" => directory = Some(settings_directory(name, of_kind(docs, "ConfigMap"))),
+                _ => {
+                    variables.insert(String::from(variable), value);
+                }
+            }
+        }
+        Inputs {
+            environment: environment.unwrap_or_else(|| panic!("{name}: no SUTURA_ENVIRONMENT")),
+            directory,
+            variables,
+        }
     }
 
     /// What `sutura serve` refuses once `Settings::load` accepted: `/v1` with no `security.inbound` block.
@@ -265,7 +295,7 @@ mod tests {
                     environment,
                     directory,
                     variables,
-                } = pod_inputs(name, &docs, RELEASE);
+                } = inputs(name, &docs);
                 let why = refusal(&environment, directory.as_deref(), variables);
                 if let Some(dir) = directory {
                     std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
@@ -280,16 +310,13 @@ mod tests {
         );
     }
 
-    /// The release every golden is rendered as, so its serving Deployment and `ConfigMap` are named for it.
-    const RELEASE: &str = "test-release";
-
-    /// What the render's Deployment `deployment` hands its process, `$(POD_IP)` resolved as the
-    /// kubelet would and the variable it reads from the pod itself left out. Its settings directory is
-    /// the files of the `ConfigMap` named `<deployment>-config`, when it sets `SUTURA_CONFIG_DIR`; `label`
-    /// makes that directory and a `secretKeyRef`'s stand-in value distinct per caller.
-    fn pod_inputs(label: &str, docs: &[Value], deployment: &str) -> Inputs {
-        let env = named(docs, "Deployment", deployment)["spec"]["template"]["spec"]["containers"][0]["env"]
-            .as_sequence()
+    /// What the worker pool render's Deployment `deployment` hands its process, `$(POD_IP)` resolved
+    /// as the kubelet would and the variable it reads from the pod itself left out.
+    fn pool_inputs(docs: &[Value], deployment: &str) -> Inputs {
+        let env = docs
+            .iter()
+            .find(|doc| doc["kind"].as_str() == Some("Deployment") && doc["metadata"]["name"].as_str() == Some(deployment))
+            .and_then(|doc| doc["spec"]["template"]["spec"]["containers"][0]["env"].as_sequence())
             .unwrap_or_else(|| panic!("a Deployment {deployment} with an env list"));
         let mut environment = None;
         let mut directory = None;
@@ -299,19 +326,14 @@ mod tests {
             let value = match entry["value"].as_str() {
                 Some(value) => value.replace("$(POD_IP)", "10.0.0.5"),
                 None if entry["valueFrom"]["secretKeyRef"].is_mapping() => {
-                    format!("{label}-{variable}-placeholder-secret-value")
+                    format!("{deployment}-{variable}-placeholder-secret-value")
                 }
                 None if entry["valueFrom"]["fieldRef"].is_mapping() => continue,
                 None => panic!("{deployment}: {variable} has no value, secretKeyRef or fieldRef"),
             };
             match variable {
                 "SUTURA_ENVIRONMENT" => environment = Some(value),
-                "SUTURA_CONFIG_DIR" => {
-                    directory = Some(settings_directory(
-                        label,
-                        named(docs, "ConfigMap", &format!("{deployment}-config")),
-                    ));
-                }
+                "SUTURA_CONFIG_DIR" => directory = Some(settings_directory(deployment, of_kind(docs, "ConfigMap"))),
                 _ => {
                     variables.insert(String::from(variable), value);
                 }
@@ -324,13 +346,15 @@ mod tests {
         }
     }
 
-    /// The settings the Deployment `deployment` of the golden `golden` under `golden/pool/` loads.
-    fn settings_of(golden: &str, deployment: &str) -> Settings {
+    /// The settings the worker pool render's Deployment `deployment` loads.
+    fn pool_settings(deployment: &str) -> Settings {
+        let golden = testdata().join("golden/pool/worker-pool.yaml");
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
         let Inputs {
             environment,
             directory,
             variables,
-        } = pod_inputs(&format!("{golden}-{deployment}"), &golden_docs(golden), deployment);
+        } = pool_inputs(&documents(&text), deployment);
         let environment = Environment::parse(&environment).unwrap_or_else(|error| panic!("{deployment}: {error}"));
         let sources = Sources::defaults(environment).with_variables(variables);
         let loaded = match &directory {
@@ -341,17 +365,6 @@ mod tests {
             std::fs::remove_dir_all(dir).expect("the scratch directory is removed");
         }
         loaded.unwrap_or_else(|error| panic!("the binary refuses {deployment}: {:?}", error.reason()))
-    }
-
-    fn pool_settings(deployment: &str) -> Settings {
-        settings_of("worker-pool", deployment)
-    }
-
-    /// The parsed documents of the golden `golden` under `golden/pool/`.
-    fn golden_docs(golden: &str) -> Vec<Value> {
-        let path = testdata().join(format!("golden/pool/{golden}.yaml"));
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{} is readable: {error}", path.display()));
-        documents(&text)
     }
 
     #[test]
@@ -373,130 +386,14 @@ mod tests {
         assert_eq!(settings.server().role(), ServerRole::Worker);
     }
 
-    /// The names of one Deployment's volumes, then of its first container's volume mounts.
-    type VolumeNames = (Vec<String>, Vec<String>);
+    #[cfg(test)]
+    mod reading;
 
-    fn volume_names(docs: &[Value], deployment: &str) -> VolumeNames {
-        let pod = &named(docs, "Deployment", deployment)["spec"]["template"]["spec"];
-        let names = |list: &Value| -> Vec<String> {
-            list.as_sequence()
-                .unwrap_or_else(|| panic!("{deployment}: a list of volumes"))
-                .iter()
-                .map(|entry| String::from(entry["name"].as_str().expect("a volume name")))
-                .collect()
-        };
-        (names(&pod["volumes"]), names(&pod["containers"][0]["volumeMounts"]))
-    }
-
-    /// A declared peer: its address, its role and the source aliases it reads.
-    type Peer<'a> = (&'a str, ServerRole, Vec<&'a str>);
-
-    #[test]
-    fn the_serving_pod_names_each_reading_worker_group_with_the_sources_it_reads() {
-        let settings = settings_of("reading-workers", RELEASE);
-        assert!(serve_refusals(&settings).is_empty(), "{:?}", serve_refusals(&settings));
-        let nodes = settings
-            .server()
-            .tls()
-            .and_then(TlsMaterial::nodes)
-            .expect("the serving pod declares nodes");
-        let peers: Vec<Peer<'_>> = nodes
-            .others()
-            .iter()
-            .map(|node| {
-                (
-                    node.url().as_str(),
-                    node.role(),
-                    node.sources().iter().map(SourceName::as_str).collect(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            peers,
-            [
-                ("https://test-release-workers.default.svc:8080/", ServerRole::Worker, vec![]),
-                (
-                    "https://test-release-reading-finance.default.svc:8080/",
-                    ServerRole::ReadingWorker,
-                    vec!["billing", "ledger"]
-                ),
-                (
-                    "https://test-release-reading-orders.default.svc:8080/",
-                    ServerRole::ReadingWorker,
-                    vec!["orders"]
-                ),
-            ]
-        );
-    }
-
-    /// A group's pod starts as a reading worker, and its settings declare the sources it reads and no
-    /// other - the serving pod of the same render declares four.
-    #[test]
-    fn a_reading_workers_pod_starts_as_a_reading_worker_over_its_own_sources_only() {
-        for (deployment, read) in [
-            ("test-release-reading-orders", vec!["orders"]),
-            ("test-release-reading-finance", vec!["billing", "ledger"]),
-        ] {
-            let settings = settings_of("reading-workers", deployment);
-            assert_eq!(settings.server().role(), ServerRole::ReadingWorker, "{deployment}");
-            let mut declared: Vec<&str> = settings.sources().each().map(|(alias, _)| alias.as_str()).collect();
-            declared.sort_unstable();
-            assert_eq!(declared, read, "{deployment}");
-        }
-        assert_eq!(settings_of("reading-workers", RELEASE).sources().count(), 4);
-    }
-
-    /// The release's own `extraVolumes` reach the serving pod and no group; each group's pod mounts the
-    /// volumes its own values list and no other group's.
-    #[test]
-    fn a_reading_workers_pod_mounts_only_its_own_credentials() {
-        let docs = golden_docs("reading-workers");
-        let shared = String::from("all-source-credentials");
-        let (serving_volumes, serving_mounts) = volume_names(&docs, RELEASE);
-        assert!(serving_volumes.contains(&shared) && serving_mounts.contains(&shared));
-        for (deployment, own) in [
-            ("test-release-reading-orders", "orders-credentials"),
-            ("test-release-reading-finance", "finance-credentials"),
-        ] {
-            let expected = ["config", "node", "inbound-keys", own];
-            let (volumes, mounts) = volume_names(&docs, deployment);
-            assert_eq!(volumes, expected, "{deployment}");
-            assert_eq!(mounts, expected, "{deployment}");
-        }
-    }
-
-    /// The policy for the reading workers selects the labels a group's pods carry, and admits the
-    /// serving pods, the combining workers and the reading workers only.
-    #[test]
-    fn the_reading_workers_network_policy_selects_the_group_pods_and_admits_the_releases_own() {
-        let docs = golden_docs("reading-workers-network-policy");
-        let policy = named(&docs, "NetworkPolicy", "test-release-reading-workers");
-        let pod = &named(&docs, "Deployment", "test-release-reading-orders")["spec"]["template"]["metadata"]["labels"];
-        let selector = policy["spec"]["podSelector"]["matchLabels"]
-            .as_mapping()
-            .expect("the policy selects by labels");
-        for (key, value) in selector {
-            let key = key.as_str().expect("a label name");
-            assert_eq!(
-                &pod[key], value,
-                "the group's pod carries label {key} as the policy selects it"
-            );
-        }
-        let admitted: Vec<&str> = policy["spec"]["ingress"][0]["from"]
-            .as_sequence()
-            .expect("an ingress rule with sources")
-            .iter()
-            .map(|entry| {
-                entry["podSelector"]["matchLabels"]["app.kubernetes.io/name"]
-                    .as_str()
-                    .expect("a name label")
-            })
-            .collect();
-        assert_eq!(admitted, ["sutura", "sutura-worker", "sutura-reading-worker"]);
-    }
-
+    /// The worker pool render's parsed documents, loaded once per call rather than cached.
     fn pool_docs() -> Vec<Value> {
-        golden_docs("worker-pool")
+        let golden = testdata().join("golden/pool/worker-pool.yaml");
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
+        documents(&text)
     }
 
     fn named<'a>(docs: &'a [Value], kind: &str, name: &str) -> &'a Value {
@@ -831,7 +728,7 @@ mod tests {
             environment,
             directory,
             variables,
-        } = pod_inputs(name, &docs, RELEASE);
+        } = reading::release_inputs(name, &docs);
         let sources = Environment::parse(&environment).map(|environment| {
             let sources = Sources::defaults(environment).with_variables(variables);
             match &directory {
