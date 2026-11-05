@@ -556,6 +556,15 @@ pub enum NotFitToServe {
     /// read against `self.sources` - a fact `InvalidTlsMaterial`'s own per-field parse cannot see.
     #[error("`{alias}` in server.nodes for `{url}` is not a source this deployment declares under `sources`")]
     DeclaredNodeReadsUndeclaredSource { url: String, alias: String },
+    /// A declared peer reads a source this deployment serves, and `security.inbound` is absent. A
+    /// lookup leg of that source split across its readers is granted for the verified caller who
+    /// asked, so with no verified caller every such leg would be refused at question time.
+    #[error(
+        "server.nodes declares `{url}` as reading `{alias}`, and security.inbound is not declared: a leg \
+         read on a reading node is granted for a verified caller. Declare security.inbound, or remove \
+         `{alias}` from that node's sources"
+    )]
+    ReadingNodeWithoutInboundIdentity { url: String, alias: String },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

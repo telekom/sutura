@@ -138,6 +138,32 @@ pub enum Looked<'r> {
     Granted(Granted<'r>),
 }
 
+/// Whether the combine may cast a lookup leg's link before it joins it, which it does only to rows
+/// this node holds - so [`LegRunner::lookup`] grants no leg whose link the plan declares a
+/// comparison for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkCast {
+    /// No comparison is declared for this leg's link: it joins as its source reads it.
+    Undeclared,
+    /// The plan's declared comparison names this leg's link, cast when its kind differs.
+    Declared,
+}
+
+impl LinkCast {
+    /// The lookup leg at `position` of `plan`: only the first one's link carries the declaration.
+    ///
+    /// **The limit:** read off the declaration, before any leg is read, so a declared comparison the
+    /// leg's own kind already meets is [`Self::Declared`] too, and that leg is read here.
+    #[must_use]
+    pub const fn of(plan: &FederatedPlan, position: usize) -> Self {
+        if position == 0 && plan.link_comparison().is_some() {
+            Self::Declared
+        } else {
+            Self::Undeclared
+        }
+    }
+}
+
 impl Looked<'_> {
     fn read(&self) -> LookupRead<'_> {
         match self {
@@ -287,7 +313,7 @@ pub trait LegRunner {
     }
 
     /// A lookup leg's result: [`Self::split`]'s partitions read here, or partitions granted to the
-    /// nodes that read its source.
+    /// nodes that read its source - never for a leg whose `link` is [`LinkCast::Declared`].
     ///
     /// Defaults to [`Self::split`], read to its end. **The limit:** no runner in production answers
     /// [`Looked::Granted`] yet (`github.com/telekom/sutura#828`, SERVE-2).
@@ -295,7 +321,7 @@ pub trait LegRunner {
     /// # Errors
     ///
     /// [`Self::Error`], the first partition's that failed.
-    fn lookup(&self, leg: &LegPlan) -> Result<Looked<'_>, Self::Error> {
+    fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Self::Error> {
         self.split(leg).collect::<Result<Vec<_>, _>>().map(Looked::Rows)
     }
 }
@@ -568,16 +594,22 @@ pub trait FederationCombiner {
         R::Error: Send,
     {
         let plan = cut.plan;
-        let lookups: Vec<&LegPlan> = plan.lookups().legs().iter().map(LookupLeg::leg).collect();
+        let lookups: Vec<(&LegPlan, LinkCast)> = plan
+            .lookups()
+            .legs()
+            .iter()
+            .enumerate()
+            .map(|(position, lookup)| (lookup.leg(), LinkCast::of(plan, position)))
+            .collect();
         let (fact, looked_up) = std::thread::scope(|scope| {
             #[expect(clippy::needless_collect, reason = "every lookup leg starts before the fact leg runs")]
             let started: Vec<_> = lookups
                 .iter()
-                .map(|&leg| {
+                .map(|&(leg, link)| {
                     std::thread::Builder::new()
                         .name(String::from("federated-lookup-leg"))
-                        .spawn_scoped(scope, move || runner.lookup(leg))
-                        .map_err(|_refused| leg)
+                        .spawn_scoped(scope, move || runner.lookup(leg, link))
+                        .map_err(|_refused| (leg, link))
                 })
                 .collect();
             let fact = runner.run(plan.fact());
@@ -590,7 +622,7 @@ pub trait FederationCombiner {
                         // reachable only in an unwinding test build. There is no leg outcome to return.
                         Err(panic) => std::panic::resume_unwind(panic),
                     },
-                    Err(leg) => runner.lookup(leg),
+                    Err((leg, link)) => runner.lookup(leg, link),
                 })
                 .collect();
             (fact, looked_up)

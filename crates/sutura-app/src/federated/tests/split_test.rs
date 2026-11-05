@@ -15,7 +15,7 @@ use crate::tests_support::BrokerUnreachable;
 use sutura_domain::identity::{
     BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Minted, RequestContext, SourceSet,
 };
-use sutura_domain::plan::{EstimatedRows, LegPlan, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide};
+use sutura_domain::plan::{EstimatedRows, Grantee, LegPlan, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide};
 use sutura_domain::warehouse::PreFlight;
 use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
@@ -118,6 +118,7 @@ impl Warehouse for SplitLegs {
         _deadline: Deadline,
         _above_bytes: NonZeroU64,
         _readers: NonZeroUsize,
+        _grantee: Option<Grantee>,
     ) -> LookupSplit<'_, Self::Error> {
         self.splits_asked.fetch_add(1, Ordering::SeqCst);
         let first_read_takes = match self.splits {

@@ -27,9 +27,10 @@
 //! `pg_class.relpages`/`reltuples` and the session's page size, turned into
 //! [`sutura_domain::plan::SplitDecision`] by `sutura_domain::plan::decide`. **One export serves
 //! both the decision and the cut it leads to** - a [`sutura_domain::plan::SplitDecision::Split`]
-//! cuts [`SplitLeg`] from the very snapshot the estimate was read from, never a second one. Calling
-//! it from `sutura-exec-datafusion`'s combine or a reading worker still needs the grant growth, the
-//! source token and the re-certification slices that follow this one - `github.com/telekom/sutura#828`.
+//! cuts [`SplitLeg`] from the very snapshot the estimate was read from, never a second one.
+//! [`SplitLeg::schema`] describes the columns a split's partitions answer on that same exporting
+//! connection, without reading a row, so the split can be granted to the nodes that read the source
+//! rather than read here. Nothing in production calls it yet - `github.com/telekom/sutura#828`.
 //!
 //! [`Partition::descriptor`] is one range as bytes for another node: the snapshot id and the page
 //! range, [`PartitionDescriptor`]'s layout. [`AdbcPostgres::read_partition`] reads them back against
@@ -57,6 +58,7 @@
 use core::num::{NonZeroU64, NonZeroUsize};
 
 use adbc_driver_manager::ManagedConnection;
+use arrow_schema::SchemaRef;
 use sutura_adbc::parameter_batch;
 use sutura_domain::identity::Presented;
 use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, SplitRefusal, decide};
@@ -80,8 +82,10 @@ pub struct SplitLeg<'adapter> {
     adapter: &'adapter AdbcPostgres,
     snapshot: Option<SnapshotId>,
     partitions: Vec<(Pages, GeneratedQuery)>,
-    /// Never read: the exporting transaction is open for as long as this connection is.
-    _exporting: ManagedConnection,
+    estimate: EstimatedBytes,
+    /// The exporting transaction, open for as long as this connection is; [`SplitLeg::schema`] is
+    /// its one further statement.
+    exporting: ManagedConnection,
 }
 
 /// One range of a [`SplitLeg`].
@@ -149,6 +153,13 @@ fn export(adapter: &AdbcPostgres, leg: &LegPlan, deadline: Deadline) -> Result<E
     })
 }
 
+impl Exported {
+    /// The root's pages at the server's page size.
+    fn bytes(&self) -> EstimatedBytes {
+        EstimatedBytes::parse(u64::from(self.relpages).saturating_mul(self.block_size))
+    }
+}
+
 /// `row`'s column `index`, or `0` for a missing row, a short row, or anything but an integer -
 /// [`PAGES`](session) selects three integers and nothing else ever reaches this.
 fn column(row: Option<&Vec<Value>>, index: usize) -> i64 {
@@ -182,6 +193,7 @@ fn cut_under<'adapter>(
     exported: Exported,
     partitions: NonZeroUsize,
 ) -> Result<SplitLeg<'adapter>, PostgresError> {
+    let estimate = exported.bytes();
     let ranges = cut(exported.relpages, partitions);
     let partitions = match *ranges.as_slice() {
         [only] => vec![(only, whole)],
@@ -195,7 +207,8 @@ fn cut_under<'adapter>(
         adapter,
         snapshot: exported.snapshot,
         partitions,
-        _exporting: exported.exporting,
+        estimate,
+        exporting: exported.exporting,
     })
 }
 
@@ -221,7 +234,7 @@ pub(super) fn split_by_estimate<'adapter>(
     let whole = generate_leg_pages(leg, 0, None).map_err(|cause| PostgresError::Render { cause })?;
     refuse_if_spent(deadline)?;
     let exported = export(adapter, leg, deadline)?;
-    let bytes = EstimatedBytes::parse(u64::from(exported.relpages).saturating_mul(exported.block_size));
+    let bytes = exported.bytes();
     let rows = EstimatedRows::parse(exported.reltuples);
     match decide(bytes, rows, above_bytes, per_stream_bound, ready_workers) {
         SplitDecision::Whole => Ok(Planned::Whole),
@@ -231,6 +244,32 @@ pub(super) fn split_by_estimate<'adapter>(
 }
 
 impl SplitLeg<'_> {
+    /// The columns every partition answers, described by the server on the exporting connection
+    /// inside its open transaction and never run - or `None` where a `NUMERIC` column's type is
+    /// decided by the cells each partition holds, so no one schema stands for all of them, and for a
+    /// split holding no partition.
+    ///
+    /// **The limit:** the described schema is the driver's `execute_schema`, not a partition's own
+    /// stream; `tests/partition_read.rs` compares the two for a plain `bigint` column only.
+    ///
+    /// # Errors
+    ///
+    /// A spent deadline, and the driver's or the server's failure - a server failure aborts the
+    /// exporting transaction, so no partition imports its snapshot after it.
+    pub fn schema(&mut self, deadline: Deadline) -> Result<Option<SchemaRef>, PostgresError> {
+        refuse_if_spent(deadline)?;
+        let Some((_, query)) = self.partitions.first() else {
+            return Ok(None);
+        };
+        Ok(numeric::fixed(session::columns(&mut self.exporting, query.sql())?))
+    }
+
+    /// The catalog's estimate of the leg's root, in bytes: its pages at the server's page size.
+    #[must_use]
+    pub const fn estimate(&self) -> EstimatedBytes {
+        self.estimate
+    }
+
     /// Each range, in page order.
     pub fn partitions(&self) -> impl ExactSizeIterator<Item = Partition<'_>> {
         self.partitions.iter().map(move |&(pages, ref query)| Partition {

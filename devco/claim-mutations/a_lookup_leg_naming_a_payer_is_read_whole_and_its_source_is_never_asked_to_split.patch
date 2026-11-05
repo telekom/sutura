@@ -7,15 +7,15 @@ diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/fede
  
 -use sutura_domain::identity::{BillTo, BoundToTheRequest, CredentialBroker, Presented, RequestContext};
 +use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, Presented, RequestContext};
- use sutura_domain::plan::{Executable, FederationCombiner, LegPlan, LegRunner, PartitionReader, Partitioned};
- use sutura_domain::query::{RefusalReason, ResultBound};
- use sutura_domain::warehouse::deadline::Deadline;
-@@ -363,7 +363,7 @@
+ use sutura_domain::plan::{
+     Executable, FederationCombiner, Granted, LegPlan, LegRunner, LinkCast, Looked, NotGranted, PartitionReader, Partitioned,
+ };
+@@ -393,7 +393,7 @@
          let at = self
              .warehouses
              .split_at(leg.source())
 -            .filter(|_| matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
 +            .filter(|_| true);
-         let Some((above_bytes, readers)) = at else {
-             return Box::new(iter::once(self.run(leg)));
+         let Some(at) = at else {
+             return self.run(leg).map(|rows| Looked::Rows(vec![rows]));
          };
