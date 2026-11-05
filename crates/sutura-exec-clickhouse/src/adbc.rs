@@ -4,6 +4,10 @@
 //! request identity and channel options on one per-call database, then hands the driver's Arrow
 //! stream straight to `Accumulating`. The older HTTP transport remains available only to the
 //! fixture and conformance targets while those loaders are migrated separately.
+//!
+//! An `impersonation-at-source` caller presented as a principal is run through `EXECUTE AS` on the
+//! deployment's own sign-in, as the HTTP transport runs it; a caller presented with an exchanged
+//! token signs in with that token instead.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -100,6 +104,7 @@ pub fn driver_location() -> Result<DriverLocation, DriverLocationError> {
 pub struct DriverMessage {
     text: String,
     status: Status,
+    server: Option<ServerCode>,
 }
 
 impl DriverMessage {
@@ -107,15 +112,39 @@ impl DriverMessage {
         Self {
             text: error.to_string(),
             status: error.status,
+            server: ServerCode::parse(&error.message),
         }
     }
 
+    /// The driver reports a server's error as `Internal`, so the server's own code decides.
     const fn refused_identity(&self) -> bool {
         matches!(self.status, Status::Unauthorized)
+            || matches!(
+                self.server,
+                Some(ServerCode::ACCESS_DENIED | ServerCode::AUTHENTICATION_FAILED)
+            )
     }
 
     const fn timed_out(&self) -> bool {
-        matches!(self.status, Status::Timeout)
+        matches!(self.status, Status::Timeout) || matches!(self.server, Some(ServerCode::TIMEOUT_EXCEEDED))
+    }
+}
+
+/// The exception code `ClickHouse` opens its error text with (`Code: 497. DB::Exception: ...`),
+/// the classification `transport::Http` reads too. The driver passes that text on as the message
+/// behind its own fixed prefixes, which name no code, so the first `Code: ` is the server's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ServerCode(u32);
+
+impl ServerCode {
+    const TIMEOUT_EXCEEDED: Self = Self(159);
+    const ACCESS_DENIED: Self = Self(497);
+    const AUTHENTICATION_FAILED: Self = Self(516);
+
+    fn parse(message: &str) -> Option<Self> {
+        let (_, after) = message.split_once("Code: ")?;
+        let digits = after.split(|c: char| !c.is_ascii_digit()).next()?;
+        digits.parse().ok().map(Self)
     }
 }
 
@@ -237,16 +266,15 @@ impl AdbcClickHouseWarehouse {
         query: &GeneratedQuery,
         deadline: Deadline,
         most_rows: usize,
-        runs_as: RunsAs<'_>,
+        runs_as: &RunsAs<'_>,
     ) -> Result<ResultBatches, AdbcError> {
         if deadline::refuse_if_spent(deadline).is_err() {
             return Err(AdbcError::DeadlineSpent);
         }
         let mut driver = load_driver(&self.driver)?;
-        let (username, password) = match runs_as {
-            RunsAs::Deployment => (self.username.clone(), &self.password),
-            RunsAs::Switched(user) => (user.to_string(), &self.password),
-            RunsAs::SignedIn { user, token } => (user.to_string(), token),
+        let (username, password) = match *runs_as {
+            RunsAs::Deployment | RunsAs::Switched(_) => (self.username.as_str(), &self.password),
+            RunsAs::SignedIn { ref user, token } => (user.as_str(), token),
         };
         #[expect(
             clippy::disallowed_methods,
@@ -254,7 +282,7 @@ impl AdbcClickHouseWarehouse {
         )]
         let mut options = vec![
             (OptionDatabase::Uri, self.endpoint.clone().into()),
-            (OptionDatabase::Username, username.into()),
+            (OptionDatabase::Username, username.to_owned().into()),
             (OptionDatabase::Password, password.expose_secret().to_owned().into()),
             (OptionDatabase::Other(JOIN_USE_NULLS.to_owned()), "1".into()),
             (OptionDatabase::Other(JSON_QUOTE_DENORMALS.to_owned()), "1".into()),
@@ -294,6 +322,10 @@ impl AdbcClickHouseWarehouse {
             )
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
         let sql = rewrite_placeholders(query.sql(), query.params())?;
+        let sql = match *runs_as {
+            RunsAs::Switched(ref user) => user.execute_as(&sql),
+            RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,
+        };
         statement
             .set_sql_query(sql)
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
@@ -306,6 +338,8 @@ impl AdbcClickHouseWarehouse {
     }
 }
 
+/// Who a statement runs as. `Switched` signs in as the deployment and sends the one statement as
+/// [`ClickHouseUser::execute_as`] - the per-statement form, so the switch ends with the statement.
 enum RunsAs<'a> {
     Deployment,
     Switched(ClickHouseUser),
@@ -329,6 +363,7 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
                 params.len()
             ),
             status: Status::InvalidArguments,
+            server: None,
         }));
     }
     let mut out = String::with_capacity(statement.len() + params.len() * 12);
@@ -448,7 +483,7 @@ impl Warehouse for AdbcClickHouseWarehouse {
             return Err(AdbcError::LegUnderExecuteAs);
         }
         let most_rows = executable.row_limit().unwrap_or(MOST_RESULT_ROWS);
-        self.run(&Self::render(executable)?, deadline, most_rows, runs_as)
+        self.run(&Self::render(executable)?, deadline, most_rows, &runs_as)
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {
@@ -457,13 +492,13 @@ impl Warehouse for AdbcClickHouseWarehouse {
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::ClickHouse).map_err(AdbcError::Render)?;
-        let rows = self.run(&query, boot_deadline(), MOST_RESULT_ROWS, RunsAs::Deployment)?;
+        let rows = self.run(&query, boot_deadline(), MOST_RESULT_ROWS, &RunsAs::Deployment)?;
         rows.to_rows().map(AnchorRows::of).map_err(AdbcError::Decode)
     }
 
     fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
         let query = generate_key_probe(&key, Dialect::ClickHouse).map_err(AdbcError::Render)?;
-        let rows = self.run(&query, boot_deadline(), MOST_RESULT_ROWS, RunsAs::Deployment)?;
+        let rows = self.run(&query, boot_deadline(), MOST_RESULT_ROWS, &RunsAs::Deployment)?;
         let rows = rows.to_rows().map_err(AdbcError::Decode)?;
         KeyUniqueness::read(&rows).map_err(AdbcError::KeyCounts)
     }

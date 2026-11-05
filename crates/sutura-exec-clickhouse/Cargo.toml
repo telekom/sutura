@@ -77,6 +77,10 @@ name = "execute_as"
 required-features = ["fixtures"]
 
 [[test]]
+name = "adbc_execute_as"
+required-features = ["adbc", "fixtures"]
+
+[[test]]
 name = "reload"
 required-features = ["fixtures"]
 
