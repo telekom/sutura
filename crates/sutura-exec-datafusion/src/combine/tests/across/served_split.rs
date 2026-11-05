@@ -6,9 +6,9 @@
 //!
 //! # What this does not exercise
 //!
-//! The grant is built here: no runner in production answers one yet (`github.com/telekom/sutura#828`,
-//! SERVE-2), so no served question reaches these paths and `sutura_app` reads none of the refusals.
-//! The readers answer from memory rather than a source, every node shares one authority and one
+//! The grant is built here, not by a source: `sutura_app`'s leg runner and a PostgreSQL split are
+//! held apart from these paths, and none of these cells reads a refusal through `sutura_app`. The
+//! readers answer from memory rather than a source, every node shares one authority and one
 //! runtime, and no cell reaches the byte bound a grant carries, which no worker enforces.
 //!
 //! That a granted leg is never read on this node is held by `SplitLeafExec::execute` and
@@ -37,7 +37,7 @@ use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, Looked};
+use sutura_domain::plan::{ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ResultBatches, Value};
 use tokio::runtime::Runtime;
@@ -188,7 +188,7 @@ impl LegRunner for Granting {
         Ok(fact())
     }
 
-    fn lookup(&self, _leg: &LegPlan) -> Result<Looked<'_>, Infallible> {
+    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
         Ok(grant(Arc::clone(&self.schema), self.partitions.clone(), &self.caller))
     }
 }
@@ -333,7 +333,7 @@ impl LegRunner for GrantingTwo {
         ))
     }
 
-    fn lookup(&self, leg: &LegPlan) -> Result<Looked<'_>, Infallible> {
+    fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
         if *leg.source() == source("geo") {
             return Ok(Looked::Rows(vec![batches_of(
                 vec![linked(0), linked(1), String::from("region")],

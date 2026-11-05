@@ -1,4 +1,5 @@
-//! [`decide`]'s and [`Granted::new`]'s cells, apart from their implementation in `split.rs`.
+//! [`decide`]'s, [`Granted::new`]'s and [`Grantee::grant`](crate::plan::Grantee::grant)'s cells,
+//! apart from their implementation in `split.rs`.
 
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use core::time::Duration;
@@ -163,4 +164,112 @@ fn a_grant_ending_at_or_before_now_is_refused_as_expired() {
         grant(now + Duration::from_secs(1)).is_ok(),
         "a grant ending after now was refused"
     );
+}
+
+/// A lookup leg of `k` on `paged`, as a split reads it.
+fn lookup_leg() -> crate::plan::LegPlan {
+    use crate::model::{ColumnName, DimensionName, MetricName, SourceName, TableName};
+    use crate::plan::{PlanBindings, PlanColumn, PlanKey, ResultLabel};
+
+    let table = TableName::parse("paged").expect("a test name is a name");
+    crate::plan::LegPlan::Lookup {
+        source: SourceName::parse("geo").expect("a test source is a source"),
+        metric: crate::pinned::MetricDigest::new(
+            MetricName::parse("amount_total").expect("a test name is a name"),
+            crate::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
+        table: table.clone().into(),
+        keys: vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("k").expect("a test name is a name")),
+            PlanColumn::new(table, ColumnName::parse("k").expect("a test name is a name")),
+        )],
+        bindings: PlanBindings::none(),
+    }
+}
+
+fn asker() -> SubjectKey {
+    SubjectKey::parse("user@example.com").expect("a test caller is a subject")
+}
+
+#[test]
+fn a_grant_carries_the_asking_caller_the_leg_its_readers_re_certify_and_each_partition_in_order() {
+    use crate::plan::remote::{PartitionLeg, to_wire};
+
+    let now = SystemTime::now();
+    let until = now + Duration::from_secs(30);
+    let leg = lookup_leg();
+    let granted = crate::plan::Grantee::new(&leg, Some(asker()), until, now)
+        .expect("a lookup leg on its own columns encodes")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1]), Some(vec![2])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(7),
+            (),
+        )
+        .expect("a verified caller's portable partitions are granted");
+
+    assert_eq!(granted.caller(), &asker());
+    assert_eq!(granted.until(), until);
+    assert_eq!(
+        PartitionLeg::parse(granted.wire()),
+        Some(PartitionLeg::new(
+            to_wire(&leg).expect("the leg sends"),
+            leg.params().to_vec()
+        )),
+        "the wire is the leg a reading worker re-certifies, with the values it binds"
+    );
+    assert_eq!(
+        granted.partitions().iter().cloned().collect::<Vec<_>>(),
+        vec![vec![1], vec![2]]
+    );
+}
+
+#[test]
+fn a_grant_for_a_question_with_no_verified_caller_is_refused() {
+    let now = SystemTime::now();
+    let refused = crate::plan::Grantee::new(&lookup_leg(), None, now + Duration::from_secs(30), now)
+        .expect("a lookup leg on its own columns encodes")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+        );
+    assert!(matches!(refused, Err(crate::plan::NotGranted::NoCaller)), "{refused:?}");
+}
+
+#[test]
+fn a_grant_of_a_partition_only_this_node_can_read_is_refused() {
+    let now = SystemTime::now();
+    let grantee = || {
+        crate::plan::Grantee::new(&lookup_leg(), Some(asker()), now + Duration::from_secs(30), now)
+            .expect("a lookup leg on its own columns encodes")
+    };
+    for partitions in [vec![Some(vec![1]), None], Vec::new()] {
+        let refused = grantee().grant(
+            Arc::new(Schema::empty()),
+            partitions,
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+        );
+        assert!(matches!(refused, Err(crate::plan::NotGranted::NotPortable)), "{refused:?}");
+    }
+}
+
+#[test]
+fn a_grant_for_a_question_already_over_is_refused_as_expired() {
+    let now = SystemTime::now();
+    let refused = crate::plan::Grantee::new(&lookup_leg(), Some(asker()), now, now)
+        .expect("a lookup leg on its own columns encodes")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+        );
+    assert!(matches!(refused, Err(crate::plan::NotGranted::Expired(_))), "{refused:?}");
 }

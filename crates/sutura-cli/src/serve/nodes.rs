@@ -106,10 +106,10 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
 /// as many partitions as there are such peers, above `server.nodes.across_above_bytes` or, unset,
 /// the working set.
 ///
-/// **Limit:** the peers are counted as declared, not as ready, and every partition is still read
-/// on this node - `combiner` hands the readers to the planner, but no served question builds a
-/// leg it places on them - so one split leg holds up to its readers times the source's per-stream
-/// bound here, where the same leg read whole is refused past one stream's.
+/// **Limit:** the peers are counted as declared, not as ready. A split leg the source does not grant,
+/// one whose link the plan declares a comparison for or with a `NUMERIC` column, is still read on
+/// this node, so it holds up to its readers times the source's per-stream bound here, where the same
+/// leg read whole is refused past one stream's. A single-kind deployment's adapter splits nothing.
 pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
 where
     W: Warehouse,

@@ -302,16 +302,24 @@ impl Warehouse for AnyWarehouse {
 
     /// A `PostgreSQL` lookup leg through `split_by_estimate`, every other kind read whole.
     ///
-    /// The reader owns the [`SplitLeg`](sutura_exec_postgres::adbc::SplitLeg), so the exporting
-    /// transaction its partitions import their snapshot from stays open until the reader is dropped,
-    /// every partition read or not. It reads by position until the split holds no further partition,
-    /// so each is read once, in page order. A single-kind `postgres` deployment holds the adapter
-    /// itself rather than this enum and reads every leg whole.
+    /// A split offered a `grantee` is granted to the nodes that read the source: its columns
+    /// described on the exporting connection, each partition's descriptor, and the
+    /// [`SplitLeg`](sutura_exec_postgres::adbc::SplitLeg) itself held by the grant, so the exporting
+    /// transaction stays open as long as the grant does.
+    /// [`Grantee::grant`](sutura_domain::plan::Grantee::grant)'s refusal is the answer,
+    /// and no partition of a granted or refused leg is read here.
+    ///
+    /// Without a `grantee`, or with a column whose type its cells decide (`NUMERIC`), the reader owns
+    /// the split and reads by position until it holds no further partition, so each is read once,
+    /// in page order, and the exporting transaction stays open until the reader is dropped. A
+    /// single-kind `postgres` deployment holds the adapter itself rather than this enum and reads
+    /// every leg whole.
     ///
     /// **Limits:** a leg answered [`Partitioned::Whole`](sutura_domain::plan::Partitioned::Whole)
-    /// was estimated first, one round trip more than reading it whole outright. And a link value two
-    /// partitions both carry is one table's repeated tuple to the combine, refused as an ambiguous
-    /// link - so a leg the whole read answered can be refused once split, never answered differently.
+    /// was estimated first, one round trip more than reading it whole outright; a granted one is
+    /// described too, one more. And a link value two partitions both carry is one table's repeated
+    /// tuple to the combine, refused as an ambiguous link - so a leg the whole read answered can be
+    /// refused once split, never answered differently.
     #[cfg(feature = "postgres")]
     fn split_lookup(
         &self,
@@ -320,8 +328,9 @@ impl Warehouse for AnyWarehouse {
         deadline: Deadline,
         above_bytes: core::num::NonZeroU64,
         readers: core::num::NonZeroUsize,
+        grantee: Option<sutura_domain::plan::Grantee>,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
-        use core::num::NonZeroUsize;
+        use core::num::{NonZeroU32, NonZeroUsize};
         use sutura_domain::plan::Partitioned;
         use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned};
 
@@ -329,17 +338,31 @@ impl Warehouse for AnyWarehouse {
             return Ok(Partitioned::Whole);
         };
         let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
-        match postgres.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
-            Ok(Planned::Whole) => Ok(Partitioned::Whole),
-            Ok(Planned::Refused(refusal)) => Ok(Partitioned::Refused(refusal)),
-            Ok(Planned::Split(split)) => Ok(Partitioned::Split(Box::new((0..).map_while(move |index| {
-                split
-                    .partitions()
-                    .nth(index)
-                    .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
-            })))),
-            Err(cause) => Err(AnyWarehouseError::Postgres(cause)),
+        let mut split = match postgres.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
+            Ok(Planned::Whole) => return Ok(Partitioned::Whole),
+            Ok(Planned::Refused(refusal)) => return Ok(Partitioned::Refused(refusal)),
+            Ok(Planned::Split(split)) => split,
+            Err(cause) => return Err(AnyWarehouseError::Postgres(cause)),
+        };
+        if let Some(grantee) = grantee
+            && let Some(schema) = split.schema(deadline).map_err(AnyWarehouseError::Postgres)?
+        {
+            let partitions: Vec<_> = split
+                .partitions()
+                .map(|partition| partition.descriptor().map(|descriptor| descriptor.to_bytes()))
+                .collect();
+            let rows = NonZeroU32::try_from(stream_rows).unwrap_or(NonZeroU32::MAX);
+            let estimate = split.estimate();
+            return Ok(grantee
+                .grant(schema, partitions, rows, estimate, split)
+                .map_or_else(Partitioned::NotGranted, Partitioned::Granted));
         }
+        Ok(Partitioned::Split(Box::new((0..).map_while(move |index| {
+            split
+                .partitions()
+                .nth(index)
+                .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
+        }))))
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

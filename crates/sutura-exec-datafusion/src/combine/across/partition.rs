@@ -3,8 +3,8 @@
 //! codec that carry and check it.
 //!
 //! A [`SplitScan`](crate::SplitScan) plans one `PartitionScanExec` per partition, placed on a node
-//! reading its source; no served question builds one yet, so outside this crate's tests no reading
-//! task is sent. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
+//! reading its source; a served question builds one only for a granted lookup leg, which only a
+//! mixed-kind `sutura serve` deployment's PostgreSQL source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
 //! construction, parallel to [`Nodes::worker`](crate::Nodes::worker); `crates/sutura-cli` builds one
 //! for its reading role.
 //!

@@ -1,5 +1,5 @@
-//! The page cut, the snapshot id's admission, and what the export and a partition send, over
-//! `super::super::tests`' fake connection. The tier half is `tests/split.rs`.
+//! The page cut, the snapshot id's admission, what the export, a partition and a split's described
+//! columns send, over `super::super::tests`' fake connection. The tier half is `tests/split.rs`.
 
 use core::num::NonZeroUsize;
 use std::sync::Arc;
@@ -138,5 +138,36 @@ fn a_partition_imports_the_snapshot_before_its_statement_and_rolls_back() {
             },
             Sent::Rollback,
         ]
+    );
+}
+
+#[test]
+fn a_split_legs_columns_are_described_on_the_exporting_connection_and_its_transaction_left_open() {
+    let mut connection = FakeConnection::replying(a_number());
+    let described = session::columns(&mut connection, "SELECT k FROM t").expect("the server describes the statement");
+    assert_eq!(described, *a_number().schema());
+    assert_eq!(
+        connection.sent(),
+        vec![Sent::Described {
+            statement: 0,
+            sql: String::from("SELECT k FROM t"),
+        }],
+        "described and never run, with no rollback to end the exporting transaction"
+    );
+}
+
+#[test]
+fn a_numeric_column_leaves_a_split_with_no_one_schema_for_every_partition() {
+    let plain = a_number().schema().as_ref().clone();
+    assert_eq!(super::super::numeric::fixed(plain.clone()).as_deref(), Some(&plain));
+
+    let typname = std::collections::HashMap::from([(String::from("ADBC:postgresql:typname"), String::from("numeric"))]);
+    let numeric = arrow_schema::Schema::new(vec![
+        arrow_schema::Field::new("n", arrow_schema::DataType::Utf8, true).with_metadata(typname),
+    ]);
+    assert_eq!(
+        super::super::numeric::fixed(numeric),
+        None,
+        "a NUMERIC column is typed by each partition's own cells"
     );
 }

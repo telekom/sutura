@@ -20,8 +20,9 @@
 //!   bound, read, not split again. There is no margin knob here to widen against skew - a caller
 //!   wanting one states its own bound narrower before calling [`decide`].
 //! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
-//!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, and nothing in
-//!   production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
+//!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, made by
+//!   [`Grantee::grant`] for the asking caller; only a mixed-kind `sutura serve` deployment's
+//!   PostgreSQL source makes one (`github.com/telekom/sutura#828`).
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -31,6 +32,8 @@ use arrow_schema::SchemaRef;
 
 use crate::identity::SubjectKey;
 use crate::nonempty::NonEmpty;
+use crate::plan::leg::LegPlan;
+use crate::plan::remote::{NotSendable, PartitionLeg};
 use crate::warehouse::ResultBatches;
 use crate::warehouse::estimate::EstimatedBytes;
 
@@ -165,6 +168,10 @@ pub enum Partitioned<'r, E> {
     Split(PartitionReader<'r, E>),
     /// Over the threshold, and [`decide`] refused the split.
     Refused(SplitRefusal),
+    /// Split at the source, and granted to the nodes that read it: none of it is read here.
+    Granted(Granted<'r>),
+    /// Split at the source for a [`Grantee`], and refused rather than read here.
+    NotGranted(NotGranted),
 }
 
 /// [`Partitioned`], or the source's failure to estimate or split the leg.
@@ -173,13 +180,14 @@ pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
 /// A lookup leg its source split and granted to the nodes that read it, rather than read here.
 ///
 /// Every partition is read by a node reading the leg's source, for `caller`, until `until`, at most
-/// `stream_rows` rows a stream. `wire` and each partition are the granting adapter's own encoding,
-/// opaque here. `held` is what the source keeps open across the partitions - an exporting
-/// transaction - and lives as long as this value, which [`Legs`](crate::plan::Legs) borrows past the
-/// combine. It is `Send + Sync` because the combine's scoped join moves the borrowed legs across
-/// threads.
+/// `stream_rows` rows a stream. `wire` is the leg as [`PartitionLeg::encode`] writes it from a
+/// [`Grantee`], and each partition the granting adapter's own descriptor, opaque here. `held` is
+/// what the source keeps open across the partitions - an exporting transaction - and lives as long
+/// as this value, which [`Legs`](crate::plan::Legs) borrows past the combine. It is `Send + Sync`
+/// because the combine's scoped join moves the borrowed legs across threads.
 ///
-/// **The limit:** nothing in production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
+/// **The limit:** only [`Grantee::grant`] builds one in production, for a mixed-kind deployment's
+/// PostgreSQL source (`github.com/telekom/sutura#828`).
 pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,
@@ -272,6 +280,94 @@ impl<'r> Granted<'r> {
     #[must_use]
     pub const fn estimate(&self) -> EstimatedBytes {
         self.estimate
+    }
+}
+
+/// Whom a split lookup leg is granted for, and until when.
+///
+/// The application builds it from the request's own grant: the caller the broker answered for, and
+/// the earlier of the question's deadline and that grant's expiry.
+///
+/// `caller` is `None` for the deployment itself, which [`Self::grant`] refuses: a grant names whom
+/// its partitions are read for, and never stands in the process for nobody.
+pub struct Grantee {
+    wire: Vec<u8>,
+    caller: Option<SubjectKey>,
+    until: SystemTime,
+    now: SystemTime,
+}
+
+/// Why [`Grantee::grant`] made no grant. Each is a refusal of the leg, never a read here instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NotGranted {
+    /// The question has no verified caller to name.
+    #[error("a grant names the caller it is read for, and this question has no verified caller")]
+    NoCaller,
+    /// No partition, or one only this node can read - PostgreSQL's when it exported no snapshot.
+    #[error("a split leg has a partition no other node can read")]
+    NotPortable,
+    /// The grant would end at or before it is made.
+    #[error(transparent)]
+    Expired(#[from] GrantExpired),
+}
+
+impl Grantee {
+    /// `leg`, encoded as its readers re-certify it, granted for `caller` until `until`, checked
+    /// against `now`.
+    ///
+    /// # Errors
+    ///
+    /// [`NotSendable`] for a leg [`PartitionLeg::encode`] cannot write, which is then not granted.
+    pub fn new(leg: &LegPlan, caller: Option<SubjectKey>, until: SystemTime, now: SystemTime) -> Result<Self, NotSendable> {
+        Ok(Self {
+            wire: PartitionLeg::encode(leg)?,
+            caller,
+            until,
+            now,
+        })
+    }
+
+    /// `partitions`, each a descriptor another node can read or `None` for one only this node can,
+    /// granted as [`Granted::new`] grants them.
+    ///
+    /// # Errors
+    ///
+    /// [`NotGranted::NoCaller`] first, then [`NotGranted::NotPortable`], then
+    /// [`NotGranted::Expired`].
+    pub fn grant<'r>(
+        self,
+        schema: SchemaRef,
+        partitions: impl IntoIterator<Item = Option<Vec<u8>>>,
+        stream_rows: NonZeroU32,
+        estimate: EstimatedBytes,
+        held: impl Send + Sync + 'r,
+    ) -> Result<Granted<'r>, NotGranted> {
+        let caller = self.caller.ok_or(NotGranted::NoCaller)?;
+        let portable = partitions
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or(NotGranted::NotPortable)?;
+        let partitions = NonEmpty::parse(portable).map_err(|_none| NotGranted::NotPortable)?;
+        Ok(Granted::new(
+            self.wire,
+            schema,
+            partitions,
+            caller,
+            self.until,
+            self.now,
+            stream_rows,
+            estimate,
+            held,
+        )?)
+    }
+}
+
+impl fmt::Debug for Grantee {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Grantee")
+            .field("caller", &self.caller)
+            .field("until", &self.until)
+            .finish_non_exhaustive()
     }
 }
 

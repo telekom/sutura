@@ -5,17 +5,20 @@
 //!
 //! # Limits
 //!
-//! - Nothing in production grants a leg yet (SERVE-2): every served lookup leg still arrives as rows.
+//! - A served question is granted a leg only by a mixed-kind `sutura serve` deployment's PostgreSQL
+//!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
 //! - The ambiguous-link check and the join each read every partition, so each partition is read
 //!   twice, under the one snapshot its source holds open across both. Accepted.
 //! - A granted leg is planned across whatever its size and never tried on this node. A combiner
 //!   with no other node, or a stage no resolved node reads the leg's source for, refuses it as
-//!   [`CombineError::NoReadingNode`], which `sutura_app` does not ask about yet: it reaches a caller as
-//!   this workspace's own defect. A granted source no other node is declared as reading is refused
+//!   [`CombineError::NoReadingNode`], which `sutura_app` answers as `SourceUnavailable` naming that
+//!   source. A granted source no other node is declared as reading is refused
 //!   before any granted partition is read; one whose declared readers do not resolve only when its
 //!   stage is routed, after an earlier leg's partitions may have been read.
 //! - A granted leg whose link the relationship casts is refused as a registration failure: the cast
-//!   applies to rows this node holds, and a granted leg's are not here.
+//!   applies to rows this node holds, and a granted leg's are not here. `sutura_app` grants no leg
+//!   whose link the plan declares a comparison for (`LinkCast::Declared`), so only a runner that
+//!   ignores that reaches it.
 //! - Each partition's stream is bounded at the combine's whole working-set ceiling in bytes
 //!   (`runtime.working_set_max_bytes`), clamped to `u32`, and at the grant's own row bound - at that
 //!   key's default of 1 GiB, looser than the 256 MiB a PostgreSQL read on this node is bounded at

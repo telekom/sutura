@@ -11,11 +11,12 @@
 //! # Limits
 //!
 //! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
-//!   checks its link values across its partitions in the same session it joins in. Nothing in
-//!   production grants a leg yet (`github.com/telekom/sutura#828`, SERVE-2), so a served lookup leg
-//!   is still read whole, or partition by partition, on the planning node, which checks its link
-//!   values there. [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one
-//!   across its partitions, and no served question calls it.
+//!   checks its link values across its partitions in the same session it joins in. Only a mixed-kind
+//!   `sutura serve` deployment's PostgreSQL source grants a served leg
+//!   (`github.com/telekom/sutura#828`); every other served lookup leg is read whole, or partition by
+//!   partition, on the planning node, which checks its link values there.
+//!   [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one across its
+//!   partitions, and no served question calls it.
 //! - The planning node mints, and so holds, every partition's key.
 //! - A split stage's tasks are at most its partitions and at most the readers resolved for its
 //!   source, so each reader runs at most one of them. With fewer tasks than partitions, a task reads
@@ -27,8 +28,8 @@
 //!   fewer readers of either: when fewer nodes read both, one of them runs more than one task.
 //! - A stage whose sources no resolved node reads together is refused (`NoReadingNode`, naming each
 //!   of them), never placed elsewhere. A combine answers it as `CombineError::NoReadingNode` naming
-//!   the first of them no resolved node reads at all, which `sutura_app` does not ask about yet: it
-//!   reaches a caller as this workspace's own defect. Sources that each have a reader but none in
+//!   the first of them no resolved node reads at all, which `sutura_app` answers as
+//!   `SourceUnavailable` naming it. Sources that each have a reader but none in
 //!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
 //! - A `BigQuery` leg is not read on a worker: its token handoff is not built.

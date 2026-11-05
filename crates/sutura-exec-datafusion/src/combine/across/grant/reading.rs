@@ -11,7 +11,7 @@
 //! task-install/execute calls under, so neither type can be passed for the other.
 //!
 //! - The planning node mints one grant per partition of a split leg (`grant::granted_read`, called
-//!   by `combine::across::split`), and no served question builds a split leg yet.
+//!   by `combine::across::split`), for a lookup leg its source granted (`sutura_app`'s leg runner).
 //! - How the grant reaches a reading task's worker is `combine::across::partition`'s leaf and codec:
 //!   it carries this module's [`encode`](crate::combine::across::grant::reading::encode)d
 //!   grant/signature bytes, and the worker's admit rule

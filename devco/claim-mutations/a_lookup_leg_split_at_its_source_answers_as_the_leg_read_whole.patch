@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
 --- a/crates/sutura-app/src/federated/leg.rs
 +++ b/crates/sutura-app/src/federated/leg.rs
-@@ -359,7 +359,7 @@
+@@ -415,7 +415,7 @@
          let at = self
              .warehouses
              .split_at(leg.source())
 -            .filter(|_| matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
 +            .filter(|_| !matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
-         let Some((above_bytes, readers)) = at else {
-             return Box::new(iter::once(self.run(leg)));
+         let Some(at) = at else {
+             return self.run(leg).map(|rows| Looked::Rows(vec![rows]));
          };

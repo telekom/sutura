@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -575,7 +575,7 @@ pub trait FederationCombiner {
-                 .map(|&leg| {
+@@ -605,7 +605,7 @@
+                 .map(|&(leg, link)| {
                      std::thread::Builder::new()
                          .name(String::from("federated-lookup-leg"))
--                        .spawn_scoped(scope, move || runner.lookup(leg))
+-                        .spawn_scoped(scope, move || runner.lookup(leg, link))
 +                        .spawn_scoped(scope, move || Ok(Looked::Rows(runner.split(leg).filter_map(Result::ok).collect())))
-                         .map_err(|_refused| leg)
+                         .map_err(|_refused| (leg, link))
                  })
                  .collect();

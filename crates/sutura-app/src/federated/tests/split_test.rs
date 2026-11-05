@@ -5,17 +5,22 @@
 //! the lookup leg itself; how a data system cuts one, and the per-stream bound each partition is
 //! read under, are the adapter's and its own tier's to hold.
 
-use core::num::{NonZeroU64, NonZeroUsize};
+use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use core::time::Duration;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::SystemTime;
 
 use super::*;
 use crate::ServiceError;
 use crate::tests_support::BrokerUnreachable;
 use sutura_domain::identity::{
-    BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Minted, RequestContext, SourceSet,
+    BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Minted, PrincipalChain, RequestContext, SourceSet,
+    Subject, SubjectKey,
 };
-use sutura_domain::plan::{EstimatedRows, LegPlan, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide};
+use sutura_domain::plan::{
+    EstimatedRows, Grantee, LegPlan, LinkKind, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide,
+};
 use sutura_domain::warehouse::PreFlight;
 use sutura_domain::warehouse::billed::{Billed, BilledResult};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
@@ -31,10 +36,14 @@ enum Splits {
     PerRowOutlivingTheGrant,
     /// No partition count the readers allow keeps each under the source's per-stream bound.
     Refused(SplitRefusal),
+    /// One partition per row, granted to the leg's readers when a grantee is offered - each one a
+    /// descriptor another node can read, or none of them where `portable` is `false` - else read here.
+    Granting { portable: bool },
 }
 
 /// A [`crate::tests_support::LegsWarehouse`] that splits a lookup leg as `splits` says, takes any
-/// payer, and counts the legs it reads whole, the splits it is asked for and the partitions read.
+/// payer, and counts the legs it reads whole, the splits it is asked for and the partitions read -
+/// and records whether a split was offered a grantee, and whom and until when it granted.
 struct SplitLegs {
     legs: crate::tests_support::LegsWarehouse,
     rows: RowSet,
@@ -42,7 +51,12 @@ struct SplitLegs {
     executes: AtomicUsize,
     splits_asked: AtomicUsize,
     partitions_read: AtomicUsize,
+    offered: AtomicBool,
+    granted: OnceLock<GrantedTo>,
 }
+
+/// Whom, and until when, a split was granted.
+type GrantedTo = (SubjectKey, SystemTime);
 
 impl SplitLegs {
     fn answering(source: &str, rows: RowSet, splits: Splits) -> Self {
@@ -57,6 +71,22 @@ impl SplitLegs {
             executes: AtomicUsize::new(0),
             splits_asked: AtomicUsize::new(0),
             partitions_read: AtomicUsize::new(0),
+            offered: AtomicBool::new(false),
+            granted: OnceLock::new(),
+        }
+    }
+
+    /// One partition per row granted to `grantee`, recording whom and until when.
+    fn granting(&self, grantee: Grantee, portable: bool) -> Partitioned<'_, AdapterFailure> {
+        let schema = Arc::clone(crate::tests_support::canned(&self.rows).schema());
+        let partitions = (0..self.rows.rows().len())
+            .map(|index| portable.then(|| vec![u8::try_from(index).expect("a test leg has few rows")]));
+        match grantee.grant(schema, partitions, NonZeroU32::MIN, EstimatedBytes::parse(0), ()) {
+            Ok(made) => {
+                drop(self.granted.set((made.caller().clone(), made.until())));
+                Partitioned::Granted(made)
+            }
+            Err(refused) => Partitioned::NotGranted(refused),
         }
     }
 }
@@ -118,12 +148,15 @@ impl Warehouse for SplitLegs {
         _deadline: Deadline,
         _above_bytes: NonZeroU64,
         _readers: NonZeroUsize,
+        grantee: Option<Grantee>,
     ) -> LookupSplit<'_, Self::Error> {
         self.splits_asked.fetch_add(1, Ordering::SeqCst);
-        let first_read_takes = match self.splits {
-            Splits::PerRow => Duration::ZERO,
-            Splits::PerRowOutlivingTheGrant => Duration::from_millis(1200),
-            Splits::Refused(refusal) => return Ok(Partitioned::Refused(refusal)),
+        self.offered.store(grantee.is_some(), Ordering::SeqCst);
+        let first_read_takes = match (self.splits, grantee) {
+            (Splits::PerRow, _) | (Splits::Granting { .. }, None) => Duration::ZERO,
+            (Splits::PerRowOutlivingTheGrant, _) => Duration::from_millis(1200),
+            (Splits::Refused(refusal), _) => return Ok(Partitioned::Refused(refusal)),
+            (Splits::Granting { portable }, Some(grantee)) => return Ok(self.granting(grantee, portable)),
         };
         Ok(Partitioned::Split(Box::new(self.rows.rows().iter().enumerate().map(
             move |(index, row)| {
@@ -292,4 +325,131 @@ fn a_grant_that_expires_during_one_partition_refuses_the_leg_before_the_next_is_
         geo_leg(&warehouses).partitions_read.load(Ordering::SeqCst) < 2,
         "the partition after the grant expired is never read"
     );
+}
+
+/// A person nobody verified: the deployment itself.
+fn asked_by_nobody() -> RequestContext {
+    RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
+}
+
+fn granted(warehouses: &Warehouses<SplitLegs>) -> Option<GrantedTo> {
+    geo_leg(warehouses).granted.get().cloned()
+}
+
+fn read_here(warehouses: &Warehouses<SplitLegs>) -> usize {
+    geo_leg(warehouses).partitions_read.load(Ordering::SeqCst)
+}
+
+#[test]
+fn a_split_lookup_leg_is_granted_for_the_asking_caller_until_the_question_ends_and_never_read_here() {
+    let warehouses = registry(Splits::Granting { portable: true }).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
+    let asked_at = SystemTime::now();
+
+    let outcome = answered(&warehouses);
+
+    // One node and no reader of `geo`: the grant is refused where it would be read, never read here.
+    assert_eq!(
+        outcome,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::SourceUnavailable { source: geo() }
+        }
+    );
+    let (caller, until) = granted(&warehouses).expect("the split was granted");
+    assert_eq!(
+        caller,
+        SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
+        "the grant names the caller who asked"
+    );
+    assert!(until > asked_at, "the grant outlives the moment it was asked for");
+    assert!(
+        until <= SystemTime::now() + Duration::from_secs(30),
+        "the grant ends no later than the question's thirty-second deadline"
+    );
+    assert_eq!(whole_reads(&warehouses), 0, "a granted leg is not read whole here");
+    assert_eq!(read_here(&warehouses), 0, "a granted leg's partitions are not read here");
+}
+
+#[test]
+fn a_split_lookup_leg_is_granted_no_longer_than_the_request_s_own_grant_lasts() {
+    let warehouses = registry(Splits::Granting { portable: true }).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
+    let asked_at = SystemTime::now();
+
+    let outcome = asked(
+        &warehouses,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsSomethingExpiringWithinTheSecond,
+    )
+    .expect("a granted leg is an answer or a refusal, not an error")
+    .into_outcome();
+
+    assert!(matches!(outcome, ToolOutcome::Refusal { .. }), "{outcome:?}");
+    let (_, until) = granted(&warehouses).expect("the split was granted");
+    assert!(
+        until <= asked_at + Duration::from_secs(2),
+        "the grant ends with the credential that expires within the second, not the thirty-second deadline"
+    );
+}
+
+#[test]
+fn a_split_lookup_leg_asked_by_no_verified_caller_is_refused_and_never_read_as_the_deployment() {
+    let warehouses = registry(Splits::Granting { portable: true }).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
+
+    let outcome = asked(&warehouses, &asked_by_nobody(), &FixedBroker::GrantsShared)
+        .expect("a refused grant is an answer, not an error")
+        .into_outcome();
+
+    assert_eq!(
+        outcome,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::CredentialUnavailable { source: geo() }
+        }
+    );
+    assert_eq!(granted(&warehouses), None, "no grant names nobody");
+    assert_eq!(whole_reads(&warehouses), 0, "a refused grant is not read whole instead");
+    assert_eq!(read_here(&warehouses), 0, "a refused grant is not read here instead");
+}
+
+#[test]
+fn a_split_lookup_leg_with_a_partition_no_other_node_can_read_is_refused_as_source_unavailable() {
+    let warehouses = registry(Splits::Granting { portable: false }).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
+
+    let outcome = answered(&warehouses);
+
+    assert_eq!(
+        outcome,
+        ToolOutcome::Refusal {
+            reason: RefusalReason::SourceUnavailable { source: geo() }
+        }
+    );
+    assert_eq!(granted(&warehouses), None, "a partition only this node reads is not granted");
+    assert_eq!(whole_reads(&warehouses), 0, "a refused grant is not read whole instead");
+    assert_eq!(read_here(&warehouses), 0, "a refused grant is not read here instead");
+}
+
+#[test]
+fn a_lookup_leg_whose_link_declares_a_comparison_is_never_offered_for_granting_and_is_read_here() {
+    let warehouses = registry(Splits::Granting { portable: true }).splitting(geo(), NonZeroU64::MIN, NonZeroUsize::MIN);
+
+    let outcome = answer_federated(
+        (&bundle(), PinnedSchemas::default().digest()),
+        &federated_plan().with_link_comparison(Some(LinkKind::Text)),
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &warehouses,
+        &combiner(),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::Ceilings::DEFAULT,
+    )
+    .expect("a leg read here is an answer")
+    .into_outcome();
+
+    assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
+    assert!(
+        !geo_leg(&warehouses).offered.load(Ordering::SeqCst),
+        "a leg the combine may cast is split without a grantee"
+    );
+    assert_eq!(granted(&warehouses), None);
+    assert_eq!(read_here(&warehouses), 2, "each partition is read here");
 }

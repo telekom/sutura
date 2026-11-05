@@ -58,7 +58,7 @@ pub use crate::plan::drill_across::{
 };
 pub use crate::plan::federated::{
     AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
-    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, Looked, LookupLeg, LookupLegs,
+    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkCast, LinkKind, Looked, LookupLeg, LookupLegs,
     LookupLegsError, LookupRead, QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion,
     StatementStopped, StatementTable, WorkerSlotsWanted, WorkersShort, labels,
 };
@@ -71,7 +71,8 @@ pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
 pub use crate::plan::split::{
-    EstimatedRows, GrantExpired, Granted, LookupSplit, PartitionReader, Partitioned, SplitDecision, SplitRefusal, decide,
+    EstimatedRows, GrantExpired, Granted, Grantee, LookupSplit, NotGranted, PartitionReader, Partitioned, SplitDecision,
+    SplitRefusal, decide,
 };
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
