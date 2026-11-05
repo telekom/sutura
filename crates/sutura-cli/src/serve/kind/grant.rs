@@ -1,7 +1,8 @@
 //! A split PostgreSQL lookup leg granted to the nodes that read its source, or read here.
 //!
-//! [`granted_or_read`] is the arm [`AnyWarehouse::split_lookup`](super::AnyWarehouse) runs once
-//! `split_by_estimate` split a leg, over [`HeldSplit`] so a fake can stand in for the driver.
+//! [`granted_or_read`](grant::granted_or_read) is the arm [`AnyWarehouse`] runs from
+//! `split_lookup` once `split_by_estimate` split a leg, over [`HeldSplit`](grant::HeldSplit) so a
+//! fake can stand in for the driver.
 //!
 //! **Limits:** a split of one partition is read here, never granted: the combine plans a granted leg
 //! of one partition as one task, and that task's leaf only reads inside a reading task. A split with
