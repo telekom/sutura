@@ -8,7 +8,8 @@
 //! node split that leg into two partitions and grant them to the caller; each reader re-certifies
 //! the leg against its own catalog and reads its partitions. The answer is the example's six rows,
 //! which no whole read of the leg returns: one stream refuses it past 1,000,000 rows. With no
-//! reader resolved the question is refused `source_unavailable`. A reader that declares `geo` alone
+//! reader resolved the question is refused `source_unavailable`. A reader whose catalog defines the
+//! metric differently refuses the leg, and so does the question. A reader that declares `geo` alone
 //! starts beside a catalog that reads `local` too.
 //!
 //! **What this does not show.** Every node runs on one host, presents one self-signed pair and
@@ -382,5 +383,75 @@ mod tests {
         let (status, body) = fixture.ask(&serving);
         assert_eq!(status, 200, "{body}");
         assert_eq!(body["rows"], whole_leg_rows(), "{body}");
+    }
+
+    #[test]
+    fn a_granted_lookup_no_reading_worker_resolves_for_is_refused_source_unavailable() {
+        let Some(fixture) = fixture("split-unresolved") else {
+            return;
+        };
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let serving = fixture.serving(&unresolved(), &sources);
+
+        let (status, body) = fixture.ask(&serving);
+        assert_eq!(body["reason"]["code"], "source_unavailable", "{body}");
+        assert_eq!(status, 503, "{body}");
+    }
+
+    #[test]
+    fn with_one_reading_worker_up_both_partitions_are_read_there_and_answer_exactly() {
+        let Some(fixture) = fixture("split-one-reader") else {
+            return;
+        };
+        let theirs = format!(
+            "{}{}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let reader = fixture.reader("a", &fixture.catalog, &theirs);
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let serving = fixture.serving(&[url(&reader), String::from(UNRESOLVED[1])], &sources);
+
+        let (status, body) = fixture.ask(&serving);
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["rows"], whole_leg_rows(), "{body}");
+    }
+
+    #[test]
+    fn a_reading_worker_whose_catalog_defines_the_metric_differently_refuses_the_leg() {
+        let Some(fixture) = fixture("split-reader-differs") else {
+            return;
+        };
+        // The reader's own case, so its `Served` removes this catalog.
+        let catalog = split_catalog("split-reader-differs-a");
+        rewrite(
+            &catalog.join("metrics").join("recurring_revenue.md"),
+            "description: Where the customer is.\n",
+            "description: Where the customer was.\n",
+        );
+        let theirs = format!(
+            "{}{}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let readers = [fixture.reader("a", &catalog, &theirs), fixture.reader("b", &catalog, &theirs)];
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let serving = fixture.serving(&readers.each_ref().map(url), &sources);
+
+        let (status, body) = fixture.ask(&serving);
+        assert_eq!(body["reason"]["code"], "remote_leg_not_certified", "{body}");
+        assert_eq!(status, 403, "{body}");
     }
 }
