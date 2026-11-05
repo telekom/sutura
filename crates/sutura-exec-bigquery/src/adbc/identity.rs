@@ -18,6 +18,10 @@
 //! **The driver never refreshes an access token**, so a question that runs past the token's
 //! lifetime fails mid-query rather than renewing.
 //!
+//! A split leg exchanges twice ([`split`]): its job runs on a token asked for [`PoolScope::Query`],
+//! and only a second one, asked for [`PoolScope::ReadOnly`], is forwarded. A partition read hands
+//! the driver that forwarded token alone ([`forwarded`]), at a pool source only.
+//!
 //! # No second hop
 //!
 //! Two were built and both are deleted. `bigquery.impersonate.target_principal` impersonated a
@@ -37,7 +41,8 @@
 //! puts the value into a request, and a check belongs where the risk is. See
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
-use std::time::SystemTime;
+use core::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use adbc_core::options::{OptionDatabase, OptionValue};
 use sutura_domain::identity::{Delegated, PoolExchange, PoolScope, PrincipalName, Secret};
@@ -213,10 +218,12 @@ pub(super) fn authenticate(
 ///
 /// # Errors
 ///
-/// [`AdbcError::Uncovered`] at every source, until a reading worker reads a forwarded token.
-pub(super) const fn forwarded(_token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
+/// [`AdbcError::Uncovered`] at a source that federates at no pool.
+pub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
     match *impersonation {
-        Impersonation::ThroughPool(_) => Err(AdbcError::Uncovered("read a partition with a forwarded token")),
+        Impersonation::ThroughPool(_) => Ok(JobAuthentication {
+            options: access_token_options(token),
+        }),
         Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
             "read a forwarded token at a source that federates at no pool",
         )),
@@ -236,29 +243,42 @@ pub(super) struct Split {
 
 /// Both exchanges a split leg makes, before any connection exists, and when what it forwards ends.
 ///
+/// **Two tokens for one subject, both live until Google's own expiry.** The forwarded one is asked
+/// for [`PoolScope::ReadOnly`], which still runs read queries, and nothing here shortens its
+/// lifetime: clamping `until` bounds the grant, not the token.
+///
 /// # Errors
 ///
 /// [`AdbcError::Uncovered`] for anything but a subject at a pool source with an exchange composed,
-/// decided before either exchange, and for that pairing too until a reading worker reads a
-/// forwarded token.
+/// decided before either exchange. [`AdbcError::PoolExchange`] where either exchange failed, so a
+/// split never forwards the job's own token instead.
 pub(super) fn split(
     identity: JobIdentity<'_>,
     impersonation: &Impersonation,
     exchange: Option<&dyn PoolExchange>,
-    _ends: SystemTime,
+    ends: SystemTime,
 ) -> Result<Split, AdbcError> {
-    if !matches!(
-        (identity, impersonation),
-        (JobIdentity::AsSubject { .. }, Impersonation::ThroughPool(_))
-    ) {
+    let (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) = (identity, impersonation) else {
         return Err(AdbcError::Uncovered("split a leg that federates no subject at a pool"));
-    }
-    if exchange.is_none() {
-        return Err(AdbcError::Uncovered(
-            "federate a subject at a pool no token exchange was composed for",
-        ));
-    }
-    Err(AdbcError::Uncovered("split a leg whose streams no reading worker reads"))
+    };
+    let exchange = exchange.ok_or(AdbcError::Uncovered(
+        "federate a subject at a pool no token exchange was composed for",
+    ))?;
+    let exchanged = |scope| {
+        exchange
+            .exchange(assertion, pool, scope)
+            .map_err(|cause| AdbcError::PoolExchange { cause })
+    };
+    let query = exchanged(PoolScope::Query)?;
+    let forwarded = exchanged(PoolScope::ReadOnly)?;
+    let until = UNIX_EPOCH
+        .checked_add(Duration::from_secs(forwarded.not_after_unix_seconds()))
+        .map_or(ends, |expires| expires.min(ends));
+    Ok(Split {
+        options: access_token_options(&query.into_token()),
+        forwarded,
+        until,
+    })
 }
 
 /// The two options that hand the driver one subject's access token: the token and the auth type

@@ -270,3 +270,34 @@ Limits:
 - **Not measured: which principal BigQuery lets read a stream of a job's result.** Until a venue
   run observes a split read under two principals, a split BigQuery read is not cited for the
   caller's own access.
+
+## Second amendment, 2026-11-05: the BigQuery adapter can split a pool leg, and nothing calls it
+
+`GoogleSts` asks for `https://www.googleapis.com/auth/bigquery.readonly` for `PoolScope::ReadOnly`.
+This replaces the first amendment's first limit. The BigQuery adapter has both halves of a split
+leg, and no composition root calls either:
+
+- `BigQueryWarehouse::split_leg` runs a leg once, for a subject at a source that federates at a
+  pool, on a token asked for `PoolScope::Query`. A second exchange asks for `PoolScope::ReadOnly`,
+  and only that token is handed back to forward. Every other pairing is refused before either
+  exchange. The grant ends at the question's end, or at the forwarded token's expiry where that is
+  earlier. The job asks the driver for at most one stream per reading node, each of about the
+  per-stream bound.
+- `BigQueryWarehouse::read_partition` reads one stream with the token it is handed and no other
+  credential, and only at a source that federates at a pool.
+
+The `split_lookup` arm that offers a BigQuery leg for splitting lands with the reading worker's
+BigQuery arm. Until a worker can read a granted BigQuery partition, a grant of one would fail a
+question that reading the leg whole answers.
+
+Limits, beside the first amendment's:
+
+- **The grant ends early, the token does not.** Each split makes two tokens for the asking
+  subject's principal. Both stay valid at Google until Google's own expiry, and nothing here
+  shortens it.
+- **The adapter does not check whose credential it was handed.** It cannot read a subject key off
+  the presented credential, so the one tie between the caller a grant names and the token it
+  forwards is one layer up: the federated leg reads both off the same request grant.
+- **No driver ran it.** The cells reach the driver's load, over fakes for the token service.
+  Nothing has split a leg against BigQuery, and a stream read by a principal other than its creator
+  is not yet measured.

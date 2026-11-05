@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/partitions.rs b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+--- a/crates/sutura-exec-bigquery/src/adbc/partitions.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+@@ -157,7 +157,7 @@ pub(super) fn bounded<S>(stmt: &mut S, readers: NonZeroUsize) -> Result<(), Adbc
+ where
+     S: Statement,
+ {
+-    let streams = readers.get().min(usize::try_from(i32::MAX).unwrap_or(usize::MAX));
++    let streams = readers.get().saturating_add(1).min(usize::try_from(i32::MAX).unwrap_or(usize::MAX));
+     for (key, value) in [
+         (MAX_STREAMS_OPTION, streams),
+         (TARGET_ROWS_PER_STREAM_OPTION, MOST_RESULT_ROWS),
