@@ -2715,8 +2715,8 @@ bound as <code>Partition::read</code>. The statement is generated from <code>leg
 carries none.</p>
 <p><strong>The limits</strong>: its one production caller is a reading worker's partition reader in
 <code>sutura-cli</code>, after the worker admitted the task's grant and re-certified the leg against its
-own catalog; no planning node routes a split leaf to a worker yet,
-<code>github.com/telekom/sutura#828</code>. It takes no presented identity and does not authenticate
+own catalog; a planning node routes it a split leaf only for a leg granted through
+<code>SplitLeg::schema</code> and <code>Partition::descriptor</code>, <code>github.com/telekom/sutura#828</code>. It takes no presented identity and does not authenticate
 <code>descriptor</code>, so it reads as the adapter's service user for whoever holds the bytes - a source
 declared <code>shared-service-user</code> because startup refuses any other posture for Postgres, not
 because this reads one. Deciding who may ask, and keeping the bytes intact on the wire, is the

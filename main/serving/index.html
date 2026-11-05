@@ -3181,6 +3181,10 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>A <code>server.nodes.others</code> peer declaring <code>role: "reading-worker"</code> reading a source this deployment's own <code>sources</code> does not declare</td>
 <td>Declare the source here too, or remove it from the peer's list</td>
 </tr>
+<tr>
+<td>A <code>server.nodes.others</code> peer declaring <code>role: "reading-worker"</code> reading a declared source, and no <code>security.inbound</code></td>
+<td>Declare <code>security.inbound</code>, or remove the source from the peer's list</td>
+</tr>
 </tbody>
 </table>
 <p>Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
@@ -3653,7 +3657,10 @@ the source aliases it reads - a <code>worker</code> naming any is refused, and a
 a bare origin, or one with a <code>#&lt;ip&gt;</code> fragment naming the address to dial it at: a path, query, userinfo or any other
 fragment is refused. Two peers naming the same origin, or a peer naming this
 node's own <code>own</code> address, is refused. A <code>reading-worker</code>'s source alias that this deployment's own <code>sources:</code> does not
-declare is refused too, once the posture check runs.</p>
+declare is refused too, once the posture check runs. So is a <code>reading-worker</code> peer reading a declared source on a
+deployment with no <code>security.inbound</code>: a lookup leg read on a reading node is granted for a verified caller, and a
+question with no verified caller is refused before such a source is asked anything. A lookup leg that names a payer is
+not split, so it is read whole, as the deployment.</p>
 <p>The chart renders only <code>worker</code> peers under <code>others</code> today; a <code>reading-worker</code> peer declared this way is written by hand.</p>
 <p>A host in <code>others</code> is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
