@@ -378,7 +378,7 @@ deployment with no `security.inbound`: a lookup leg read on a reading node is gr
 question with no verified caller is refused before such a source is asked anything. A lookup leg that names a payer is
 not split, so it is read whole, as the deployment.
 
-The chart renders only `worker` peers under `others` today; a `reading-worker` peer declared this way is written by hand.
+The chart renders a `worker` peer for its worker pool and a `reading-worker` peer for each group in its `readingWorkers.groups`, with the source aliases the group reads.
 
 A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
@@ -438,7 +438,7 @@ production or off-host it still needs `security.metrics_token` and `rate_limit.e
 it declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node
 with a source. **It reads nothing yet:** it opens neither the sources nor the catalog, and it serves the same worker
 transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
-chart's worker pool runs `worker`.
+chart's worker pool runs `worker`, and each of its `readingWorkers.groups` runs `reading-worker`.
 
 Limit: a catalog counts only when a file or a variable declares it.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series

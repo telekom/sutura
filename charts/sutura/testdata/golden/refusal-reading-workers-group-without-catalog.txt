@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups.orders declares no catalogs: a reading worker certifies a leg against its own catalog before it reads, and sutura refuses to start one that declares none (NotFitToServe::ReadingWorkerWithoutCatalog) - list the catalogs in readingWorkers.groups.orders.catalogs
+
+Use --debug flag to render out invalid YAML

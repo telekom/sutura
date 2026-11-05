@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups names "Orders_Readers": a group name is a DNS label, lower-case letters, digits and `-`, beginning and ending with a letter or digit, because it names the group's Service
+
+Use --debug flag to render out invalid YAML

@@ -1,0 +1,186 @@
+{{/*
+Reading workers: nodes with `server.role: reading-worker`, which open the sources they declare and
+read a granted partition themselves. One group is one settings file, one Deployment and one headless
+Service, named for the group. A group's settings file holds only the `sources` entries of the aliases
+it names, and its pod mounts only what the group itself lists: the release's own `extraVolumes`,
+`extraVolumeMounts` and `extraEnv` are never copied, so a group holds no credential of a source it
+does not read. The serving pod names each group under `server.nodes` (`configmap.yaml`).
+*/}}
+{{- if .Values.readingWorkers.groups }}
+{{- include "sutura.requireReadingWorkers" . }}
+{{- $fullname := include "sutura.fullname" . }}
+{{- $name := include "sutura.name" . }}
+{{- $base := .Values.config.base | default dict }}
+{{- $env := .Values.config.environment | default dict }}
+{{- $timeout := dig "server" "request_timeout_seconds" (dig "server" "request_timeout_seconds" 30 $base) $env | int }}
+{{- range $group, $spec := .Values.readingWorkers.groups }}
+{{- $workerName := printf "%s-reading-%s" $fullname $group }}
+{{- $workerValues := dict "Values" (dict "runtime" (dict) "resources" (dig "resources" (dict) $spec)) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $workerName }}-config
+  labels:
+    {{- include "sutura.labels" $ | nindent 4 }}
+data:
+  base.yaml: |
+    {{- include "sutura.readingWorkerSettings" (dict "root" $ "group" $spec) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $workerName }}
+  labels:
+    {{- include "sutura.labels" $ | nindent 4 }}
+spec:
+  replicas: {{ dig "replicas" 1 $spec | int }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $group | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-reading-worker
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: {{ $group | quote }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "sutura.podSecurityContext" $ | nindent 8 }}
+      serviceAccountName: {{ include "sutura.serviceAccountName" $ }}
+      # A stage runs at most as long as the question it serves.
+      terminationGracePeriodSeconds: {{ add $timeout 10 }}
+      containers:
+        - name: reading-worker
+          image: "{{ include "sutura.image" $ }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: {{ $.Values.service.port }}
+              protocol: TCP
+          env:
+            - name: SUTURA_ENVIRONMENT
+              value: {{ $.Values.environment | quote }}
+            - name: SUTURA_CONFIG_DIR
+              value: /etc/sutura/config
+            - name: SUTURA__SERVER__ROLE
+              value: reading-worker
+            - name: SUTURA__SERVER__HOST
+              value: "0.0.0.0"
+            - name: SUTURA__SERVER__PORT
+              value: {{ $.Values.service.port | quote }}
+            - name: SUTURA__RATE_LIMIT__ENABLED
+              value: {{ $.Values.rateLimit.enabled | quote }}
+            - name: SUTURA__SECURITY__METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.security.metricsToken.secretName }}
+                  key: {{ $.Values.security.metricsToken.secretKey }}
+            {{- include "sutura.nodeTls" $ | nindent 12 }}
+            {{- if $.Values.security.inbound.keySetSecretName }}
+            - name: SUTURA__SECURITY__INBOUND__KEY_SET_FILE
+              value: /etc/sutura/inbound-keys/{{ $.Values.security.inbound.keySetSecretKey }}
+            {{- end }}
+            - name: SUTURA__TELEMETRY__FORMAT
+              value: {{ $.Values.telemetry.format | quote }}
+            - name: SUTURA__TELEMETRY__FILTER
+              value: {{ $.Values.telemetry.filter | quote }}
+            - name: SUTURA__RUNTIME__SHUTDOWN_GRACE_SECONDS
+              value: {{ $timeout | quote }}
+            {{- with include "sutura.engineWorkerThreads" $workerValues }}
+            - name: SUTURA__RUNTIME__ENGINE_WORKER_THREADS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with include "sutura.workingSetMaxBytes" $workerValues }}
+            - name: SUTURA__RUNTIME__WORKING_SET_MAX_BYTES
+              value: {{ . | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sutura/config
+              readOnly: true
+            - name: node
+              mountPath: /etc/sutura/node
+              readOnly: true
+            {{- if $.Values.security.inbound.keySetSecretName }}
+            - name: inbound-keys
+              mountPath: /etc/sutura/inbound-keys
+              readOnly: true
+            {{- end }}
+            {{- with dig "extraVolumeMounts" (list) $spec }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            failureThreshold: {{ $.Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ $.Values.probes.startup.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+              scheme: HTTPS
+            periodSeconds: {{ $.Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ $.Values.probes.liveness.failureThreshold }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml (dig "resources" (dict) $spec) | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $workerName }}-config
+        {{- include "sutura.nodeCertificate" (dict "root" $ "name" $workerName) | nindent 8 }}
+        {{- if $.Values.security.inbound.keySetSecretName }}
+        - name: inbound-keys
+          secret:
+            secretName: {{ $.Values.security.inbound.keySetSecretName }}
+            items:
+              - key: {{ $.Values.security.inbound.keySetSecretKey }}
+                path: {{ $.Values.security.inbound.keySetSecretKey }}
+        {{- end }}
+        {{- with dig "extraVolumes" (list) $spec }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# Headless: a serving node resolves every pod of the group from this name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $workerName }}
+  labels:
+    {{- include "sutura.labels" $ | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ $.Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ $name }}-reading-worker
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: {{ $group | quote }}
+{{- end }}
+{{- end -}}

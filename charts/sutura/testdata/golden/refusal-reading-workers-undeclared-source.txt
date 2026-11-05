@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): readingWorkers.groups.finance reads "ledger", which config.base and config.environment do not declare under `sources`: sutura refuses a node that names a reading worker for a source the deployment does not declare (NotFitToServe::DeclaredNodeReadsUndeclaredSource) - declare the source, or remove it from the group
+
+Use --debug flag to render out invalid YAML

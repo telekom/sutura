@@ -59,6 +59,41 @@ spec:
       ports:
         - port: {{ .Values.service.port }}
           protocol: TCP
+{{- if .Values.readingWorkers.groups }}
+---
+# Reading workers answer only this release's serving pods, the combining workers and each other, as
+# the combining workers do. A reading worker's own egress to its data source is not restricted here,
+# for the reason the worker pool's is not.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-reading-workers
+  labels:
+    {{- include "sutura.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-reading-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "sutura.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}-reading-worker
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - port: {{ .Values.service.port }}
+          protocol: TCP
+{{- end }}
 ---
 # The operator calls the Kubernetes API and nothing else: it holds a node certificate only to read
 # the CA bundle (finding 4), it never dials a node. DNS stays open because this chart does not know
