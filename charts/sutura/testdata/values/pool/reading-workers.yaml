@@ -1,0 +1,118 @@
+# Two reading worker groups beside the worker pool: `orders` reads one source, `finance` two, and a
+# fourth source is read by the serving pod alone. The serving pod names each group under
+# `server.nodes` with the aliases it reads; each group's settings file and pod carry its own sources
+# and its own credential Secret only, never the release-wide `extraVolumes` or another group's.
+#
+# `crates/sutura-config/tests/chart_renders.rs` loads the serving pod and each group's pod as settings.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+  max: 3
+extraVolumes:
+  - name: all-source-credentials
+    secret:
+      secretName: all-source-credentials
+extraVolumeMounts:
+  - name: all-source-credentials
+    mountPath: /etc/sutura/sources
+    readOnly: true
+readingWorkers:
+  groups:
+    orders:
+      replicas: 2
+      sources: [orders]
+      catalogs:
+        - name: model
+          kind: markdown
+          dir: /srv/sutura/catalog
+          data_dir: /srv/sutura/data
+          version: "1"
+      resources:
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      extraVolumes:
+        - name: orders-credentials
+          secret:
+            secretName: orders-credentials
+      extraVolumeMounts:
+        - name: orders-credentials
+          mountPath: /etc/sutura/sources/orders
+          readOnly: true
+    finance:
+      sources: [billing, ledger]
+      catalogs:
+        - name: model
+          kind: markdown
+          dir: /srv/sutura/catalog
+          data_dir: /srv/sutura/data
+          version: "1"
+      extraVolumes:
+        - name: finance-credentials
+          secret:
+            secretName: finance-credentials
+      extraVolumeMounts:
+        - name: finance-credentials
+          mountPath: /etc/sutura/sources/finance
+          readOnly: true
+config:
+  base:
+    security:
+      identity: multi-user
+      inbound:
+        mode: direct
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        algorithms: [RS256]
+    sources:
+      orders:
+        kind: postgres
+        host: orders.db.example.com
+        port: 5432
+        database: orders
+        user: sutura
+        password_file: /etc/sutura/sources/orders/password
+        transport_mode: verified
+        transport_anchors: system
+        posture: shared-service-user
+        acknowledged_because: "a read-only role this deployment owns on the orders database"
+      billing:
+        kind: postgres
+        host: billing.db.example.com
+        port: 5432
+        database: billing
+        user: sutura
+        password_file: /etc/sutura/sources/finance/billing-password
+        transport_mode: verified
+        transport_anchors: system
+        posture: shared-service-user
+        acknowledged_because: "a read-only role this deployment owns on the billing database"
+      ledger:
+        kind: postgres
+        host: ledger.db.example.com
+        port: 5432
+        database: ledger
+        user: sutura
+        password_file: /etc/sutura/sources/finance/ledger-password
+        transport_mode: verified
+        transport_anchors: system
+        posture: shared-service-user
+        acknowledged_because: "a read-only role this deployment owns on the ledger database"
+      inventory:
+        kind: postgres
+        host: inventory.db.example.com
+        port: 5432
+        database: inventory
+        user: sutura
+        password_file: /etc/sutura/sources/inventory-password
+        transport_mode: verified
+        transport_anchors: system
+        posture: shared-service-user
+        acknowledged_because: "a read-only role this deployment owns on the inventory database"
