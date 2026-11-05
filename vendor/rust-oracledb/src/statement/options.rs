@@ -38,18 +38,31 @@ pub(crate) struct StatementOptions {
     fetch_lobs: bool,
     #[cfg(feature = "arrow")]
     requested_schema: Option<SchemaRef>,
+    #[cfg(feature = "arrow")]
+    arrow_batch_size: Option<usize>,
+    #[cfg(feature = "arrow")]
+    arrow_batch_per_round_trip: bool,
+    #[cfg(feature = "arrow")]
+    exact_number_text: bool,
 }
 
 impl StatementOptions {
-    /// Creates a new structure and returns it.
-    pub(crate) fn new() -> StatementOptions {
-        StatementOptions {
-            prefetch_rows: 2,
-            fetch_array_size: 100,
-            fetch_lobs: false,
-            #[cfg(feature = "arrow")]
-            requested_schema: None,
-        }
+    #[cfg(feature = "arrow")]
+    pub(crate) fn arrow_batch_size(&self) -> usize {
+        self.arrow_batch_size.unwrap_or(1024)
+    }
+
+    /// Returns whether each Arrow batch holds the rows of one round trip.
+    #[cfg(feature = "arrow")]
+    pub(crate) fn arrow_batch_per_round_trip(&self) -> bool {
+        self.arrow_batch_per_round_trip
+    }
+
+    /// Returns whether the default Arrow schema fetches a NUMBER with no fixed
+    /// precision as its exact decimal text.
+    #[cfg(feature = "arrow")]
+    pub(crate) fn exact_number_text(&self) -> bool {
+        self.exact_number_text
     }
 
     /// Returns the configured fetch array size.
@@ -63,6 +76,23 @@ impl StatementOptions {
         self.fetch_lobs
     }
 
+    /// Creates a new structure and returns it.
+    pub(crate) fn new() -> StatementOptions {
+        StatementOptions {
+            prefetch_rows: 2,
+            fetch_array_size: 100,
+            fetch_lobs: false,
+            #[cfg(feature = "arrow")]
+            requested_schema: None,
+            #[cfg(feature = "arrow")]
+            arrow_batch_size: None,
+            #[cfg(feature = "arrow")]
+            arrow_batch_per_round_trip: false,
+            #[cfg(feature = "arrow")]
+            exact_number_text: false,
+        }
+    }
+
     /// Returns the configured number of rows to prefetch with the initial
     /// execution of the statement.
     pub(crate) fn prefetch_rows(&self) -> u32 {
@@ -73,6 +103,21 @@ impl StatementOptions {
     #[cfg(feature = "arrow")]
     pub(crate) fn requested_schema(&self) -> Option<&SchemaRef> {
         self.requested_schema.as_ref()
+    }
+
+    #[cfg(feature = "arrow")]
+    pub(crate) fn set_arrow_batch_size(&mut self, value: usize) {
+        self.arrow_batch_size = Some(value);
+    }
+
+    #[cfg(feature = "arrow")]
+    pub(crate) fn set_arrow_batch_per_round_trip(&mut self) {
+        self.arrow_batch_per_round_trip = true;
+    }
+
+    #[cfg(feature = "arrow")]
+    pub(crate) fn set_exact_number_text(&mut self) {
+        self.exact_number_text = true;
     }
 
     /// Sets the number of rows to fetch each time rows are fetched.

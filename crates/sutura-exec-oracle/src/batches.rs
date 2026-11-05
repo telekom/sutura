@@ -19,7 +19,7 @@ use arrow_array::types::{
     ArrowPrimitiveType, TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType,
 };
 use arrow_array::{Array as _, ArrayRef, RecordBatch, StringArray};
-use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
+use arrow_schema::{ArrowError, DataType, Field, Schema, SchemaRef, TimeUnit};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, RowSet, UnannouncedBatch, UnreadableCell, Value};
 
 use crate::datetime::{date_text, local_zone_refused};
@@ -35,11 +35,33 @@ pub(crate) fn query(
 ) -> Result<RowSet, OracleError> {
     let sets = [params];
     let batches = connection
-        .query_arrow_batches(sql, sets.as_slice())
+        .statement(sql)
+        .map_err(execute_err_mapped)?
+        .arrow_batch_per_round_trip()
+        .exact_number_text()
+        .build()
+        .map_err(execute_err_mapped)?
+        .query_arrow_batches(sets.as_slice().into())
         .map_err(execute_err_mapped)?;
     let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;
     let schema = batches.schema();
-    read(batches, &schema, &numbers, stop, before_fetch)
+    read(
+        batches.map(|batch| batch.map_err(driver_error)),
+        &schema,
+        &numbers,
+        stop,
+        before_fetch,
+    )
+}
+
+/// The driver's own error, out of the [`ArrowError`] its batch reader wraps it in.
+fn driver_error(error: ArrowError) -> oracledb::Error {
+    match error {
+        ArrowError::ExternalError(cause) => cause
+            .downcast::<oracledb::Error>()
+            .map_or_else(|cause| ArrowError::ExternalError(cause).into(), |error| *error),
+        error => error.into(),
+    }
 }
 
 /// The indexes of the `NUMBER` columns among `columns`, each a name and its type; a `TIMESTAMP

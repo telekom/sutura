@@ -26,11 +26,17 @@
 1.  The driver returns errors for malformed authentication responses, and
     added the error
     [ErrorKind::InvalidAuthResponse](crate::ErrorKind::InvalidAuthResponse).
-1.  Added method
+1.  Added methods
     [Connection::query_arrow_batches()](crate::Connection::query_arrow_batches),
-    which returns one Arrow RecordBatch for each round trip, and a `NUMBER`
-    with no fixed precision is fetched as its exact decimal text (`Utf8`)
-    instead of `Float64`.
+    [Statement::query_arrow_batches()](crate::Statement::query_arrow_batches),
+    and [StatementBuilder::arrow_batch_size()](crate::StatementBuilder::arrow_batch_size)
+    for processing query results incrementally with Arrow
+    ([issue 52](https://github.com/oracle/rust-oracledb/issues/52)), and
+    [StatementBuilder::arrow_batch_per_round_trip()](crate::StatementBuilder::arrow_batch_per_round_trip)
+    for one Arrow RecordBatch per round trip, and
+    [StatementBuilder::exact_number_text()](crate::StatementBuilder::exact_number_text)
+    to fetch a `NUMBER` with no fixed precision as its exact decimal text
+    (`Utf8`) instead of `Float64`.
 1.  The driver validates server-sent lengths and iteration counts, and added
     the errors [ErrorKind::PacketTooShort](crate::ErrorKind::PacketTooShort)
     and
