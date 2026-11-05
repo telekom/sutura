@@ -278,13 +278,16 @@ This replaces the first amendment's first limit. The BigQuery adapter has both h
 leg, and no composition root calls either:
 
 - `BigQueryWarehouse::split_leg` runs a leg once, for a subject at a source that federates at a
-  pool, on a token asked for `PoolScope::Query`. A second exchange asks for `PoolScope::ReadOnly`,
-  and only that token is handed back to forward. Every other pairing is refused before either
-  exchange. The grant ends at the question's end, or at the forwarded token's expiry where that is
-  earlier. The job asks the driver for at most one stream per reading node, each of about the
-  per-stream bound.
-- `BigQueryWarehouse::read_partition` reads one stream with the token it is handed and no other
-  credential, and only at a source that federates at a pool.
+  pool, on a token asked for `PoolScope::Query`, labelled as a billed leg is. A second exchange asks
+  for `PoolScope::ReadOnly`, and only that token is handed back to forward. Every other pairing is
+  refused before either exchange. It reports when what it forwards ends: the question's end, or the
+  forwarded token's expiry where that is earlier. That end is computed, not applied: no grant reads
+  it yet, and `Grantee::grant` takes no earlier end, which the grant change adds. The job asks the
+  driver for at most one stream per reading node, each of about half the per-stream bound, so each
+  partition sits well under it as "How many partitions?" decides.
+- `BigQueryWarehouse::read_partition` hands the driver the token it is handed as its only
+  credential option, and only at a source that federates at a pool. `clippy.toml` bans the call, so
+  its one caller will carry an `#[expect]`.
 
 The `split_lookup` arm that offers a BigQuery leg for splitting lands with the reading worker's
 BigQuery arm. Until a worker can read a granted BigQuery partition, a grant of one would fail a
@@ -292,12 +295,19 @@ question that reading the leg whole answers.
 
 Limits, beside the first amendment's:
 
-- **The grant ends early, the token does not.** Each split makes two tokens for the asking
+- **Neither the grant nor the token ends early yet.** Each split makes two tokens for the asking
   subject's principal. Both stay valid at Google until Google's own expiry, and nothing here
-  shortens it.
+  shortens it. The forwarded token's expiry reaches no grant until the grant change applies it.
 - **The adapter does not check whose credential it was handed.** It cannot read a subject key off
-  the presented credential, so the one tie between the caller a grant names and the token it
-  forwards is one layer up: the federated leg reads both off the same request grant.
-- **No driver ran it.** The cells reach the driver's load, over fakes for the token service.
-  Nothing has split a leg against BigQuery, and a stream read by a principal other than its creator
-  is not yet measured.
+  the presented credential. The one tie between the caller a grant names and the token it forwards
+  will be one layer up, once the `split_lookup` arm passes `split_leg` the presented credential it
+  is handed: the federated leg reads both off the same request grant.
+- **No cell sees the options reach the driver.** The cells check the options `split` and
+  `forwarded` compute, and that a split or a partition read gets as far as the driver's load. That
+  `split_leg` and `read_partition` hand those options to the driver, and no others, is held by
+  review alone until the venue cell runs.
+- **No driver ran it.** The cells run over fakes for the token service. Nothing has split a leg
+  against BigQuery, and a stream read by a principal other than its creator is not yet measured.
+- **Half the bound is a target, not a guarantee.** The Storage Read API may answer fewer streams
+  than asked, each then larger, and a stream past 1,000,000 rows or 256 MiB is still refused when
+  it is read. The byte bound plays no part in the stream count.

@@ -418,7 +418,7 @@ fn the_batch_this_transport_built_is_the_batch_the_statement_is_bound_with() {
 }
 
 #[test]
-fn a_split_asks_for_at_most_one_stream_per_reader_of_about_the_row_bound_each() {
+fn a_split_asks_for_at_most_one_stream_per_reader_of_half_the_row_bound_each() {
     let mut statement = Recording::new();
     super::partitions::bounded(&mut statement, core::num::NonZeroUsize::new(3).expect("three is not zero"))
         .expect("the recording statement accepts string options");
@@ -428,7 +428,7 @@ fn a_split_asks_for_at_most_one_stream_per_reader_of_about_the_row_bound_each() 
             (String::from("bigquery.query.partitions.max_streams"), String::from("3")),
             (
                 String::from("bigquery.query.partitions.target_rows_per_stream"),
-                super::MOST_RESULT_ROWS.to_string()
+                String::from("500000")
             ),
         ]
     );

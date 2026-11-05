@@ -264,22 +264,27 @@ const QUERY_TOKEN: &str = "ya29.the-jobs-own-token";
 /// The token [`Scoped`] issues for [`PoolScope::ReadOnly`]: the forwarded one.
 const READ_ONLY_TOKEN: &str = "ya29.the-forwarded-read-only-token";
 
-/// Google's token service issuing each exchange a token named for the scope it was asked for, every
-/// one expiring at `not_after`, and refusing [`PoolScope::ReadOnly`] where `read_only_refused`. It
-/// sends each scope it is asked for, in order, to the receiver [`scoped_at`] hands back beside it.
+/// Google's token service issuing each exchange a token named for the scope it was asked for, the
+/// read-only one expiring at `not_after` and the job's at `query_not_after`, and refusing
+/// [`PoolScope::ReadOnly`] where `read_only_refused`. It sends each scope it is asked for, in order,
+/// to the receiver [`scoped_at`] hands back beside it.
 #[derive(Debug)]
 struct Scoped {
     not_after: u64,
+    query_not_after: u64,
     read_only_refused: bool,
     scopes: Sender<PoolScope>,
 }
 
-/// A [`Scoped`] whose tokens expire at `not_after`, and where it reports the scopes it was asked for.
+/// A [`Scoped`] whose read-only token expires at `not_after` and whose job token ten minutes later,
+/// so a split that read the wrong token's expiry answers differently, and where it reports the
+/// scopes it was asked for.
 fn scoped_at(not_after: u64) -> (Scoped, Receiver<PoolScope>) {
     let (scopes, reported) = channel();
     (
         Scoped {
             not_after,
+            query_not_after: not_after.saturating_add(600),
             read_only_refused: false,
             scopes,
         },
@@ -292,17 +297,17 @@ impl PoolExchange for Scoped {
         self.scopes.send(scope).map_err(|_closed| PoolExchangeFailed::Malformed {
             what: "the cell stopped listening",
         })?;
-        let token = match scope {
-            PoolScope::Query => QUERY_TOKEN,
+        let (token, not_after) = match scope {
+            PoolScope::Query => (QUERY_TOKEN, self.query_not_after),
             PoolScope::ReadOnly if self.read_only_refused => {
                 return Err(PoolExchangeFailed::Refused {
                     status: 403,
                     error: None,
                 });
             }
-            PoolScope::ReadOnly => READ_ONLY_TOKEN,
+            PoolScope::ReadOnly => (READ_ONLY_TOKEN, self.not_after),
         };
-        Ok(Delegated::new(Secret::new(token), self.not_after))
+        Ok(Delegated::new(Secret::new(token), not_after))
     }
 }
 
@@ -375,7 +380,7 @@ fn a_split_whose_read_only_exchange_is_refused_forwards_nothing() {
 }
 
 #[test]
-fn a_split_grant_ends_no_later_than_the_forwarded_token() {
+fn a_split_reports_the_earlier_of_the_question_end_and_the_forwarded_token_expiry() {
     let assertion = Secret::new(ASSERTION);
     for (not_after, until) in [(1_900_000_000, 1_900_000_000), (2_100_000_000, 2_000_000_000)] {
         let (scoped, _reported) = scoped_at(not_after);
@@ -452,7 +457,7 @@ fn a_split_exchanges_twice_before_the_driver_loads() {
 }
 
 #[test]
-fn a_partition_read_hands_the_driver_the_forwarded_token_and_nothing_else() {
+fn a_forwarded_token_becomes_the_only_two_auth_options() {
     let token = Secret::new(READ_ONLY_TOKEN);
     let sent = option_text(
         forwarded(&token, &pool())
@@ -481,7 +486,7 @@ fn a_forwarded_token_is_refused_at_a_source_that_federates_at_no_pool() {
     for impersonation in [Impersonation::Disabled, Impersonation::GoogleLogin, delegating] {
         let refused = forwarded(&token, &impersonation)
             .map(|_| ())
-            .expect_err("a source with no pool would read as this process");
+            .expect_err("only a source that federates at a pool reads a forwarded token");
         assert!(matches!(refused, AdbcError::Uncovered(_)), "{impersonation:?}: {refused:?}");
     }
 }

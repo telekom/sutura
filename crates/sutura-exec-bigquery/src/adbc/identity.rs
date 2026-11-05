@@ -247,7 +247,7 @@ pub(super) struct Split {
 ///
 /// **Two tokens for one subject, both live until Google's own expiry.** The forwarded one is asked
 /// for [`PoolScope::ReadOnly`], which still runs read queries, and nothing here shortens its
-/// lifetime: clamping `until` bounds the grant, not the token.
+/// lifetime. `until` is computed for a grant to end by; no grant reads it yet.
 ///
 /// # Errors
 ///
@@ -287,8 +287,10 @@ pub(super) fn split(
 /// that selects it, only ever together - the driver reads the token under no other auth type.
 #[expect(
     clippy::disallowed_methods,
-    reason = "a driver option is a plain string across the C ABI, so the token is exposed here \
-              once, into a value built and consumed inside `connect` and never logged"
+    reason = "a driver option is a plain string across the C ABI, so a token is exposed here once \
+              per database, never logged: a job's in `authenticate` for `connect`, a split job's \
+              full-scope one in `split` through `Split` to `connect_as`, and a forwarded one in \
+              `forwarded` for `read_partition`"
 )]
 fn access_token_options(token: &Secret) -> DatabaseOptions {
     vec![
