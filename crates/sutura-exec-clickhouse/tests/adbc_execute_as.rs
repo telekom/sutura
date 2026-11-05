@@ -6,10 +6,11 @@
 
 #[cfg(test)]
 mod adbc_execute_as {
-    use std::io::{Read as _, Write as _};
-    use std::net::TcpListener;
+    use std::io::{ErrorKind, Read as _, Write as _};
+    use std::net::{TcpListener, TcpStream};
     use std::path::Path;
     use std::thread;
+    use std::time::{Duration, Instant};
 
     use sutura_conformance::corpus::{self, Case};
     use sutura_dev::provisioned::{self, Provisioned};
@@ -76,52 +77,92 @@ mod adbc_execute_as {
         })
     }
 
-    /// Runs the case through the driver against a listener that refuses it, and returns the one
-    /// request the listener read.
-    fn sent(presented: &Presented) -> Sent {
+    /// How long the listener waits to be dialled before the cell fails.
+    const DIALLED_WITHIN: Duration = Duration::from_secs(10);
+
+    /// A 500 with no body: no rows, and no server code.
+    const BARE_REFUSAL: &str = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+    /// `ClickHouse`'s error answer for `code`: the code in its header and at the head of its text.
+    fn server_error(code: u32, text: &str) -> String {
+        let body = format!("Code: {code}. DB::Exception: {text}. (version 26.9.15.5 (official build))");
+        format!(
+            "HTTP/1.1 500 Internal Server Error\r\nX-ClickHouse-Exception-Code: {code}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// The listener's first connection, or `None` if nothing dialled it within [`DIALLED_WITHIN`].
+    fn accepted(listener: &TcpListener) -> Option<TcpStream> {
+        let deadline = Instant::now() + DIALLED_WITHIN;
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => return Some(stream),
+                Err(error) if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
+    /// Reads one request off `stream` and answers it with `answer`.
+    fn answer_one(mut stream: TcpStream, answer: &str) -> Sent {
+        stream.set_nonblocking(false).expect("the stream blocks");
+        stream
+            .set_read_timeout(Some(DIALLED_WITHIN))
+            .expect("the stream takes a read timeout");
+        let mut received = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        let (head_end, length) = loop {
+            let read = stream.read(&mut chunk).expect("the request reads");
+            assert_ne!(read, 0, "the request ended before its headers");
+            received.extend_from_slice(chunk.get(..read).expect("read within the chunk"));
+            if let Some(at) = received.windows(4).position(|window| window == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(received.get(..at).expect("the head is received"));
+                let length = header(&head, "content-length").map(str::parse::<usize>);
+                break (
+                    at + 4,
+                    length.expect("the driver sends a sized body").expect("a length is a number"),
+                );
+            }
+        };
+        while received.len() < head_end + length {
+            let read = stream.read(&mut chunk).expect("the body reads");
+            assert_ne!(read, 0, "the request ended before its body");
+            received.extend_from_slice(chunk.get(..read).expect("read within the chunk"));
+        }
+        stream.write_all(answer.as_bytes()).expect("the answer writes");
+        let head = String::from_utf8_lossy(received.get(..head_end).expect("the head is received")).into_owned();
+        let body = String::from_utf8_lossy(received.get(head_end..head_end + length).expect("the body is received"));
+        // A statement with parameters travels as the `query` field of a multipart body.
+        let sql = body
+            .split_once("name=\"query\"\r\n\r\n")
+            .map_or(&*body, |(_, field)| field.split_once("\r\n--").map_or(field, |(sql, _)| sql))
+            .to_owned();
+        Sent { head, sql }
+    }
+
+    /// What the warehouse answered when the listener answered `answer`, and the request it read.
+    fn exchange(presented: &Presented, answer: String) -> (AdbcClickHouseWarehouse, AdbcError, Sent) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
         let endpoint = format!("http://{}", listener.local_addr().expect("a bound listener has an address"));
-        let listening = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("the driver dials the listener");
-            let mut received = Vec::new();
-            let mut chunk = [0_u8; 4096];
-            let (head_end, length) = loop {
-                let read = stream.read(&mut chunk).expect("the request reads");
-                assert_ne!(read, 0, "the request ended before its headers");
-                received.extend_from_slice(chunk.get(..read).expect("read within the chunk"));
-                if let Some(at) = received.windows(4).position(|window| window == b"\r\n\r\n") {
-                    let head = String::from_utf8_lossy(received.get(..at).expect("the head is received"));
-                    let length = header(&head, "content-length").map(str::parse::<usize>);
-                    break (
-                        at + 4,
-                        length.expect("the driver sends a sized body").expect("a length is a number"),
-                    );
-                }
-            };
-            while received.len() < head_end + length {
-                let read = stream.read(&mut chunk).expect("the body reads");
-                assert_ne!(read, 0, "the request ended before its body");
-                received.extend_from_slice(chunk.get(..read).expect("read within the chunk"));
-            }
-            stream
-                .write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                .expect("the refusal writes");
-            let head = String::from_utf8_lossy(received.get(..head_end).expect("the head is received")).into_owned();
-            let body = String::from_utf8_lossy(received.get(head_end..head_end + length).expect("the body is received"));
-            // A statement with parameters travels as the `query` field of a multipart body.
-            let sql = body
-                .split_once("name=\"query\"\r\n\r\n")
-                .map_or(&*body, |(_, field)| field.split_once("\r\n--").map_or(field, |(sql, _)| sql))
-                .to_owned();
-            Sent { head, sql }
-        });
-        let answered = warehouse(endpoint, String::from("sutura_service"), String::from("deployment-secret")).execute(
-            Executable::Query(case().plan()),
-            presented,
-            corpus::deadline(),
-        );
-        assert!(answered.is_err(), "the listener answers no rows");
-        listening.join().expect("the listener read one request")
+        listener.set_nonblocking(true).expect("the listener goes non-blocking");
+        let listening = thread::spawn(move || accepted(&listener).map(|stream| answer_one(stream, &answer)));
+        let warehouse = warehouse(endpoint, String::from("sutura_service"), String::from("deployment-secret"));
+        let answered = warehouse
+            .execute(Executable::Query(case().plan()), presented, corpus::deadline())
+            .err();
+        let sent = listening.join().expect("the listener thread finishes");
+        let Some(sent) = sent else {
+            panic!("nothing dialled the listener within {DIALLED_WITHIN:?}; the warehouse answered {answered:?}");
+        };
+        let refused = answered.unwrap_or_else(|| panic!("the listener answers no rows"));
+        (warehouse, refused, sent)
+    }
+
+    fn sent(presented: &Presented) -> Sent {
+        exchange(presented, String::from(BARE_REFUSAL)).2
     }
 
     /// A switched user is named in the statement, never in the handshake: the driver signs in as the
@@ -151,6 +192,40 @@ mod adbc_execute_as {
         assert!(!signed_in.sql.contains("EXECUTE AS"), "{}", signed_in.sql);
     }
 
+    /// The driver reports every server error with one status, so the server's code decides: a
+    /// refused identity reads as refused, a spent `max_execution_time` as a spent deadline, and any
+    /// other code as neither.
+    #[test]
+    fn a_server_refusal_reads_as_refused_and_a_server_timeout_as_spent() {
+        let switched = switched_to("sutura_switched");
+        for (code, text) in [
+            (
+                497,
+                "sutura_service: Not enough privileges. To execute this query, it's necessary to have the grant IMPERSONATE ON sutura_switched. (ACCESS_DENIED)",
+            ),
+            (516, "sutura_service: Authentication failed. (AUTHENTICATION_FAILED)"),
+        ] {
+            let (warehouse, refused, _) = exchange(&switched, server_error(code, text));
+            assert!(warehouse.source_refused(&refused), "{code}: {refused}");
+            assert!(!warehouse.deadline_exceeded(&refused), "{code}: {refused}");
+        }
+        let (warehouse, spent, _) = exchange(
+            &switched,
+            server_error(159, "Timeout exceeded: elapsed 30.1 seconds, maximum: 30. (TIMEOUT_EXCEEDED)"),
+        );
+        assert!(warehouse.deadline_exceeded(&spent), "{spent}");
+        assert!(!warehouse.source_refused(&spent), "{spent}");
+        let (warehouse, failed, _) = exchange(
+            &switched,
+            server_error(
+                60,
+                "Unknown table expression identifier 'conformance_events'. (UNKNOWN_TABLE)",
+            ),
+        );
+        assert!(!warehouse.source_refused(&failed), "{failed}");
+        assert!(!warehouse.deadline_exceeded(&failed), "{failed}");
+    }
+
     fn variable(name: &str) -> String {
         std::env::var(name).unwrap_or_else(|_absent| panic!("{name} is unset, so the tier has no fixture credential"))
     }
@@ -171,15 +246,18 @@ mod adbc_execute_as {
         .unwrap_or_else(|e| panic!("clickhouse could not load the corpus into {database}: {e}"));
     }
 
-    fn refused_for_lack_of(refused: &AdbcError, grant: &str) {
+    /// Refused by the server for lack of `grant`, and classified as a refused identity.
+    fn refused_for_lack_of(warehouse: &AdbcClickHouseWarehouse, refused: &AdbcError, grant: &str) {
         let message = refused.to_string();
         assert!(message.contains(grant), "refused for another reason: {message}");
+        assert!(warehouse.source_refused(refused), "{message}");
     }
 
     /// `sutura_switched` has no password, reads `adbc_switched` only, and the service user may
     /// become it: the question is answered under that user's grants, and refused on a table only
     /// the service user may read. `sutura_switched_ungranted` has the same grants and no
     /// `IMPERSONATE` on it, so the server refuses the switch. A token still signs in as the caller.
+    /// Each refusal reads as a refused identity.
     #[test]
     fn a_switched_user_answers_under_its_own_grants() {
         // The two databases only this cell writes to.
@@ -213,15 +291,17 @@ mod adbc_execute_as {
         assert_eq!(rows.rows(), case.expected().rows().len());
         let refused = run("adbc_service_only", &switched_to("sutura_switched"))
             .expect_err("a switched user reads only what its own grants admit");
-        refused_for_lack_of(&refused, "ACCESS_DENIED");
+        refused_for_lack_of(&at("adbc_service_only"), &refused, "ACCESS_DENIED");
         let refused = run("adbc_switched", &switched_to("sutura_switched_ungranted"))
             .expect_err("the service user may not become a user it holds no IMPERSONATE on");
-        refused_for_lack_of(&refused, "IMPERSONATE");
+        refused_for_lack_of(&at("adbc_switched"), &refused, "IMPERSONATE");
 
         let token = variable("SUTURA_CLICKHOUSE_TIER_TOKEN");
         let rows =
             run("adbc_switched", &signed_in_as("sutura_caller_a", &token)).unwrap_or_else(|e| panic!("sutura_caller_a: {e}"));
         assert_eq!(rows.rows(), case.expected().rows().len());
-        run("adbc_switched", &signed_in_as("sutura_caller_b", &token)).expect_err("a token signs in only as its own `sub`");
+        let refused =
+            run("adbc_switched", &signed_in_as("sutura_caller_b", &token)).expect_err("a token signs in only as its own `sub`");
+        assert!(at("adbc_switched").source_refused(&refused), "{refused}");
     }
 }

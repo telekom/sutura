@@ -104,6 +104,7 @@ pub fn driver_location() -> Result<DriverLocation, DriverLocationError> {
 pub struct DriverMessage {
     text: String,
     status: Status,
+    server: Option<ServerCode>,
 }
 
 impl DriverMessage {
@@ -111,15 +112,39 @@ impl DriverMessage {
         Self {
             text: error.to_string(),
             status: error.status,
+            server: ServerCode::parse(&error.message),
         }
     }
 
+    /// The driver reports a server's error as `Internal`, so the server's own code decides.
     const fn refused_identity(&self) -> bool {
         matches!(self.status, Status::Unauthorized)
+            || matches!(
+                self.server,
+                Some(ServerCode::ACCESS_DENIED | ServerCode::AUTHENTICATION_FAILED)
+            )
     }
 
     const fn timed_out(&self) -> bool {
-        matches!(self.status, Status::Timeout)
+        matches!(self.status, Status::Timeout) || matches!(self.server, Some(ServerCode::TIMEOUT_EXCEEDED))
+    }
+}
+
+/// The exception code `ClickHouse` opens its error text with (`Code: 497. DB::Exception: ...`),
+/// the classification `transport::Http` reads too. The driver passes that text on as the message
+/// behind its own fixed prefixes, which name no code, so the first `Code: ` is the server's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ServerCode(u32);
+
+impl ServerCode {
+    const TIMEOUT_EXCEEDED: Self = Self(159);
+    const ACCESS_DENIED: Self = Self(497);
+    const AUTHENTICATION_FAILED: Self = Self(516);
+
+    fn parse(message: &str) -> Option<Self> {
+        let (_, after) = message.split_once("Code: ")?;
+        let digits = after.split(|c: char| !c.is_ascii_digit()).next()?;
+        digits.parse().ok().map(Self)
     }
 }
 
@@ -338,6 +363,7 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
                 params.len()
             ),
             status: Status::InvalidArguments,
+            server: None,
         }));
     }
     let mut out = String::with_capacity(statement.len() + params.len() * 12);
