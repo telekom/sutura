@@ -4424,6 +4424,7 @@ dependencies = [
  "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
+ "sutura-catalog-foundry",
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openmetadata",
@@ -4491,6 +4492,19 @@ dependencies = [
  "sutura-domain",
  "sutura-http-client",
  "sutura-semantic",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
+name = "sutura-catalog-foundry"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "sutura-http-client",
  "sutura-tls",
  "thiserror 2.0.21",
  "ureq",

@@ -309,6 +309,19 @@ impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::
     }
 }
 
+/// An ontology: Foundry, opened over answers written from its public API reference.
+///
+/// It supplies the physical model, the descriptions and the foreign-key joins of its link types;
+/// object-type metadata carries no measure. The universal cells hold because the bundle is
+/// measured against the declaration.
+impl CatalogUnderTest for sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader> {
+    const NAME: &'static str = "foundry";
+
+    fn open() -> Self {
+        sutura_catalog_foundry::fixture::over_fixture_source(source(), version())
+    }
+}
+
 /// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
 ///
 /// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
@@ -847,6 +860,14 @@ macro_rules! registered {
             cube,
             declaring,
             sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader>
+        );
+        // `sutura-catalog-foundry`, EXPERIMENTAL: a Foundry ontology read as a DECLARING source - the
+        // object types, their properties and their foreign-key links, over answers written from the
+        // public API reference - `github.com/telekom/sutura#1727`. Universal cells only.
+        $cell!(
+            foundry,
+            declaring,
+            sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader>
         );
         // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
         // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.

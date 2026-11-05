@@ -27,6 +27,9 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  # EXPERIMENTAL declaring source over a Foundry ontology's metadata API; capabilities and limits are
+  # in docs/what-foundry-can-carry.md - `github.com/telekom/sutura#1727`.
+  "crates/sutura-catalog-foundry",
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -131,6 +134,7 @@ sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-foundry = { path = "crates/sutura-catalog-foundry" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
