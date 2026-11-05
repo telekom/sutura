@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -518,11 +518,11 @@
+@@ -594,11 +594,11 @@ pub trait FederationCombiner {
                  .collect();
              (fact, looked_up)
          });
@@ -11,6 +11,6 @@ diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura
              .collect::<Result<Vec<_>, _>>()
              .map_err(ExecuteError::Leg)?;
 +        let fact = fact.map_err(ExecuteError::Leg)?;
-         if looked_up.iter().any(Vec::is_empty) {
+         let lookups: Vec<_> = plan.lookups().legs().iter().zip(looked_up.iter().map(Looked::read)).collect();
+         if lookups.iter().any(|&(_, read)| read.is_empty()) {
              return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
-         }

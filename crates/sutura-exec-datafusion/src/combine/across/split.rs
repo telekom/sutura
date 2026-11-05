@@ -10,10 +10,12 @@
 //!
 //! # Limits
 //!
-//! - No served question builds a [`SplitScan`](crate::SplitScan) yet: a served lookup leg is still
-//!   read whole on the planning node, which checks its link values there.
-//!   [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one across its
-//!   partitions, and no served question calls it.
+//! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
+//!   checks its link values across its partitions in the same session it joins in. Nothing in
+//!   production grants a leg yet (`github.com/telekom/sutura#828`, SERVE-2), so a served lookup leg
+//!   is still read whole, or partition by partition, on the planning node, which checks its link
+//!   values there. [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one
+//!   across its partitions, and no served question calls it.
 //! - The planning node mints, and so holds, every partition's key.
 //! - A split stage's tasks are at most its partitions and at most the readers resolved for its
 //!   source, so each reader runs at most one of them. With fewer tasks than partitions, a task reads
@@ -24,8 +26,9 @@
 //! - A stage with two split legs goes only to nodes reading both sources, its tasks capped at the
 //!   fewer readers of either: when fewer nodes read both, one of them runs more than one task.
 //! - A stage whose sources no resolved node reads together is refused (`NoReadingNode`, naming each
-//!   of them), never placed elsewhere. The refusal reaches a caller as `CombineError::Execute`, not a
-//!   typed refusal, until a served question builds a split, where a typed variant arrives.
+//!   of them), never placed elsewhere. A combine answers it as `CombineError::NoReadingNode`, naming
+//!   the first of them, which `sutura_app` does not ask about yet: it reaches a caller as this
+//!   workspace's own defect.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
 //! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.

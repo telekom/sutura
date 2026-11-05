@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
+--- a/crates/sutura-exec-datafusion/src/combine/served.rs
++++ b/crates/sutura-exec-datafusion/src/combine/served.rs
+@@ -151,7 +151,7 @@ pub(super) fn combined(
+     if let Some(nodes) = &combiner.nodes {
+         let working_set = working_set_of(ceiling_bytes);
+         let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
+-        return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set)
++        return run(&super::bounded_session(working_set)?, working_set)
+             .map_err(|error| across::relayed(across::lost(error)));
+     }
+     Err(CombineError::NoReadingNode {

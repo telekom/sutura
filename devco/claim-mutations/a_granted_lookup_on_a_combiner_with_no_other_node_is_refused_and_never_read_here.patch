@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
+--- a/crates/sutura-exec-datafusion/src/combine/served.rs
++++ b/crates/sutura-exec-datafusion/src/combine/served.rs
+@@ -142,7 +142,7 @@ fn registered_split(
+ )]
+ pub(super) fn combined(
+     combiner: &DataFusionCombiner,
+-    source: &SourceName,
++    _source: &SourceName,
+     ceiling_bytes: u64,
+     legs_bytes: u64,
+     run: impl Fn(&SessionContext, WorkingSet) -> Result<ResultBatches, CombineError>,
+@@ -154,7 +154,6 @@ pub(super) fn combined(
+         return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set)
+             .map_err(|error| across::relayed(across::lost(error)));
+     }
+-    Err(CombineError::NoReadingNode {
+-        source_name: source.clone(),
+-    })
++    let working_set = super::working_set_of(ceiling_bytes);
++    run(&super::bounded_session(working_set)?, working_set)
+ }

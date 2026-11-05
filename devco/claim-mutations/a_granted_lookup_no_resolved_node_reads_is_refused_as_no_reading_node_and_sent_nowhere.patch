@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/relay.rs b/crates/sutura-exec-datafusion/src/combine/across/relay.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/relay.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/relay.rs
+@@ -55,14 +55,6 @@ pub(crate) fn relayed(error: CombineError) -> CombineError {
+     match error {
+         CombineError::Execute { cause } if carries(&cause, ROWS_OVER_CEILING) => CombineError::RowsOverCeiling,
+         CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) => CombineError::LegNotCertified,
+-        CombineError::Execute { cause } => {
+-            let unread = chain(&cause)
+-                .find_map(|link| link.downcast_ref::<super::NoReadingNode>())
+-                .and_then(|refusal| refusal.aliases.first().cloned());
+-            unread.map_or(CombineError::Execute { cause }, |source_name| CombineError::NoReadingNode {
+-                source_name,
+-            })
+-        }
+         other => other,
+     }
+ }

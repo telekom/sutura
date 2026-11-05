@@ -96,6 +96,8 @@ mod merge;
 mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
+/// A lookup leg granted to the nodes that read its source, registered as one split scan.
+mod served;
 /// A `run_sql` statement cut into one part per listed source, each run through the raw port.
 #[cfg(feature = "sql")]
 mod statement;
@@ -323,6 +325,10 @@ pub enum CombineError {
     /// was asked to read. Carries nothing, for [`CombineError::RowsOverCeiling`]'s reason.
     #[error("a node the combine was planned across did not certify a leg it was asked to read")]
     LegNotCertified,
+    /// A lookup leg of `source` was granted to the nodes that read it, and no node this combine can
+    /// reach does: it is read on none, never on this node.
+    #[error("no node the combine can reach reads `{source_name}`, so its granted leg is read on none")]
+    NoReadingNode { source_name: SourceName },
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -572,12 +578,7 @@ async fn arm_plan(
         .iter()
         .zip(LOOKUP_TABLES)
         .enumerate()
-        .map(|(position, (&(leg, parts), table))| {
-            let first = parts
-                .first()
-                .ok_or_else(|| missing_lookup(&InternalLabel::link(position).label()))?;
-            Ok((leg, table, parts, LegSchema::of(table, first.schema())?))
-        })
+        .map(|(position, (&(leg, read), table))| Ok((leg, table, read, served::lookup_schema(read, table, position)?)))
         .collect::<Result<Vec<_>, CombineError>>()?;
     // Each lookup leg's link kinds agree with the leg it joins onto, part by part. A part past the
     // first is pinned by a cell only for a lookup onto the fact leg, not for one chained onto an
@@ -635,15 +636,14 @@ async fn arm_plan(
 
     let fact_rows = core::slice::from_ref(legs.fact());
     register_link(context, FACT_TABLE, FACT, fact_rows, &link, casts.fact.as_ref())?;
-    for (position, &(_, table, batches, _)) in lookups.iter().enumerate() {
+    for (position, &(leg, table, read, _)) in lookups.iter().enumerate() {
         let own = InternalLabel::link(position).label();
-        register_link(
+        served::register_lookup(
             context,
-            table,
-            table,
-            batches,
+            (leg, table, read),
             &own,
             casts.lookup.as_ref().filter(|_| position == 0),
+            ceiling_bytes,
         )?;
     }
     if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
@@ -659,7 +659,8 @@ async fn arm_plan(
 
     // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
     // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
-    // table over all its partitions, so a tuple repeated across two of them is refused too.
+    // table over all its partitions, so a tuple repeated across two of them is refused too - a
+    // granted one counted on the nodes reading its source, each partition read again by the join.
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
         let own = plan.link_labels(position);
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
@@ -699,8 +700,8 @@ fn held(batches: &ResultBatches) -> u64 {
 fn legs_held(legs: &Legs<'_>) -> u64 {
     core::iter::once(legs.fact())
         .chain(legs.second_fact())
-        .chain(legs.lookups().iter().flat_map(|&(_, parts)| parts))
         .map(held)
+        .chain(legs.lookups().iter().map(|&(_, read)| served::lookup_held(read)))
         .fold(0, u64::saturating_add)
 }
 
@@ -728,11 +729,14 @@ impl FederationCombiner for DataFusionCombiner {
     type Error = CombineError;
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
-        let legs_bytes = several(plan.sources()).then(|| legs_held(&legs));
-        self.placed(working_set_bytes, legs_bytes, |context, working_set| {
+        let run = |context: &SessionContext, working_set| {
             self.runtime()?
                 .block_on(Self::assembled(plan, &legs, context, working_set, working_set_bytes))
-        })
+        };
+        if let Some(source) = served::granted(&legs) {
+            return served::combined(self, source, working_set_bytes, legs_held(&legs), run);
+        }
+        self.placed(working_set_bytes, several(plan.sources()).then(|| legs_held(&legs)), run)
     }
 
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {
@@ -761,6 +765,13 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::LegNotCertified)
     }
 
+    fn no_reading_node<'e>(&self, error: &'e Self::Error) -> Option<&'e SourceName> {
+        match error {
+            CombineError::NoReadingNode { source_name } => Some(source_name),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "distributed")]
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.nodes.as_ref().map(Nodes::slots_wanted)
@@ -782,8 +793,8 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost`, `RowsOverCeiling` and
-            // `LegNotCertified`, which the predicate of each one's own name answers.
+            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost`, `RowsOverCeiling`,
+            // `LegNotCertified` and `NoReadingNode`, which the predicate of each one's own name answers.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -801,7 +812,8 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::WorkersNotReady { .. }
             | CombineError::NodeLost { .. }
             | CombineError::RowsOverCeiling
-            | CombineError::LegNotCertified => None,
+            | CombineError::LegNotCertified
+            | CombineError::NoReadingNode { .. } => None,
         }
     }
 

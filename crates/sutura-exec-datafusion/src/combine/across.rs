@@ -92,8 +92,11 @@
 //! - A [`SplitScan`]'s partitions are read only on the nodes [`Nodes::reading`] names for its
 //!   source, each under a key of its own sent only to the node that reads it, and a stage no such
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
-//!   values across its partitions, counting each value after a repartition on the link columns. No
-//!   served question builds a split leg or calls that check yet: a served leg stays on this node.
+//!   values across its partitions, counting each value after a repartition on the link columns. A
+//!   combine registers a lookup leg its source granted as one, and checks and joins it across these
+//!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
+//!   under the one snapshot its source holds open across both. Nothing in production grants a leg
+//!   yet (`github.com/telekom/sutura#828`, SERVE-2): a served leg stays on this node.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;

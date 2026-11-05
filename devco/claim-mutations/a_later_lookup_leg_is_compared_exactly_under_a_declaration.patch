@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
 --- a/crates/sutura-exec-datafusion/src/combine.rs
 +++ b/crates/sutura-exec-datafusion/src/combine.rs
-@@ -517,7 +517,7 @@ async fn arm_plan(
-             table,
-             batches,
+@@ -642,7 +642,7 @@ async fn arm_plan(
+             context,
+             (leg, table, read),
              &own,
 -            casts.lookup.as_ref().filter(|_| position == 0),
 +            casts.lookup.as_ref(),
+             ceiling_bytes,
          )?;
      }
-     if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
