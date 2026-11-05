@@ -125,7 +125,8 @@ binary folds.
 
 With no inbound mode, `sutura serve` starts `/v1` only for a `single-user` deployment with no
 `impersonation-at-source` source (`Settings::query_surface_refusals`). Those two guards come last,
-so a values file that breaks an earlier rule still fails at that rule.
+so a values file that breaks an earlier rule still fails at that rule. The reading worker groups'
+guard comes just before them, because it is a rule about the inbound mode.
 */}}
 {{- define "sutura.requireOffHostPosture" -}}
 {{- if not .Values.environment -}}
@@ -193,6 +194,7 @@ so a values file that breaks an earlier rule still fails at that rule.
 {{- if and .Values.tls.enabled (not .Values.tls.secretName) -}}
 {{ fail "tls.enabled requires tls.secretName (a kubernetes.io/tls Secret)" }}
 {{- end -}}
+{{- include "sutura.requireReadingWorkerPosture" (dict "root" . "mode" $mode) -}}
 {{- if not $mode -}}
 {{- $identity := dig "security" "identity" (dig "security" "identity" "" $base) $env | default "" | toString | trim -}}
 {{- if ne $identity "single-user" -}}
@@ -220,6 +222,119 @@ setting beside the pool's would be dropped without a word, as the pool's node ce
 {{- if and (eq .Values.workerPool.issuer.kind "ClusterIssuer") (not .Values.workerPool.issuer.acknowledgeSharedIssuer) -}}
 {{ fail "workerPool.issuer.kind is ClusterIssuer: any certificate this node authority signs is a node (github.com/telekom/sutura#1680 finding 5), and a ClusterIssuer can sign for every namespace in the cluster, not only this release - dedicate a namespaced Issuer to this release's node authority, or set workerPool.issuer.acknowledgeSharedIssuer: true to accept that any workload able to ask the ClusterIssuer for a certificate joins the node set" }}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The reading worker groups' own guards, outside the posture guard: they read nothing the binary
+reads from the serving pod's settings, so the worker pool's node certificate and the group's name
+and catalog are the chart's to refuse.
+*/}}
+{{- define "sutura.requireReadingWorkers" -}}
+{{- if not .Values.workerPool.enabled -}}
+{{ fail "readingWorkers.groups requires workerPool.enabled: every reading worker's certificate comes from workerPool.issuer, and the serving pod names the groups beside the worker pool's own peer" }}
+{{- end -}}
+{{- $fullname := include "sutura.fullname" . -}}
+{{- range $group, $spec := .Values.readingWorkers.groups -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" (toString $group)) -}}
+{{ fail (printf "readingWorkers.groups names %q: a group name is a DNS label, lower-case letters, digits and `-`, beginning and ending with a letter or digit, because it names the group's Service" (toString $group)) }}
+{{- end -}}
+{{- if gt (len (printf "%s-reading-%s" $fullname $group)) 63 -}}
+{{ fail (printf "readingWorkers.groups.%s makes the Service name %s-reading-%s longer than the 63 characters a DNS label allows - shorten the group name" $group $fullname $group) }}
+{{- end -}}
+{{- if not (kindIs "map" $spec) -}}
+{{ fail (printf "readingWorkers.groups.%s is not a map: declare its sources and catalogs" $group) }}
+{{- end -}}
+{{- $catalogs := dig "catalogs" (list) $spec -}}
+{{- if not (and (kindIs "slice" $catalogs) (gt (len $catalogs) 0)) -}}
+{{ fail (printf "readingWorkers.groups.%s declares no catalogs: a reading worker certifies a leg against its own catalog before it reads, and sutura refuses to start one that declares none (NotFitToServe::ReadingWorkerWithoutCatalog) - list the catalogs in readingWorkers.groups.%s.catalogs" $group $group) }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The reading worker groups against the serving pod's settings, mirroring what the binary refuses on
+a serving node that names them under `server.nodes`: no inbound identity
+(`NotFitToServe::ReadingNodeWithoutInboundIdentity`), a group naming no source
+(`InvalidDeclaredNode::ReadingWorkerNamesNoSource`) and a source the deployment does not declare
+(`NotFitToServe::DeclaredNodeReadsUndeclaredSource`). `.mode` is the resolved `security.inbound.mode`.
+Not a guard on the group's own pod: its settings are built from these same sources, which this
+guard has checked, and the chart-only rules are `sutura.requireReadingWorkers`.
+*/}}
+{{- define "sutura.requireReadingWorkerPosture" -}}
+{{- $root := .root -}}
+{{- if $root.Values.readingWorkers.groups -}}
+{{- if not .mode -}}
+{{ fail "readingWorkers.groups is set and config.base and config.environment set no security.inbound.mode: sutura refuses to start a serving node that names a reading worker for a source it declares with no security.inbound, because a lookup leg a reading worker reads is granted for a verified caller (NotFitToServe::ReadingNodeWithoutInboundIdentity) - declare security.inbound with mode `direct` or `behind-gateway`, or remove readingWorkers.groups" }}
+{{- end -}}
+{{- $base := $root.Values.config.base | default dict -}}
+{{- $env := $root.Values.config.environment | default dict -}}
+{{- $declared := mergeOverwrite (deepCopy (dig "sources" (dict) $base)) (dig "sources" (dict) $env) -}}
+{{- range $group, $spec := $root.Values.readingWorkers.groups -}}
+{{- $sources := dig "sources" (list) (ternary $spec (dict) (kindIs "map" $spec)) -}}
+{{- if not (and (kindIs "slice" $sources) (gt (len $sources) 0)) -}}
+{{ fail (printf "readingWorkers.groups.%s names no source: sutura refuses a `reading-worker` peer that names none (InvalidDeclaredNode::ReadingWorkerNamesNoSource), because it would read nothing - list the aliases it reads in readingWorkers.groups.%s.sources" $group $group) }}
+{{- end -}}
+{{- range $sources -}}
+{{- if not (hasKey $declared (toString .)) -}}
+{{ fail (printf "readingWorkers.groups.%s reads %q, which config.base and config.environment do not declare under `sources`: sutura refuses a node that names a reading worker for a source the deployment does not declare (NotFitToServe::DeclaredNodeReadsUndeclaredSource) - declare the source, or remove it from the group" $group (toString .)) }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The inbound block as the binary layers it - the environment file over `base.yaml`, key by key, and a
+non-map there erasing the base's - as JSON, empty when neither declares one. The same reading
+`sutura.requireOffHostPosture` makes, so a reading worker is handed the block the serving pod runs
+with.
+*/}}
+{{- define "sutura.resolvedInbound" -}}
+{{- $securityEnv := dig "security" (dict) (.Values.config.environment | default dict) -}}
+{{- $envInbound := get $securityEnv "inbound" -}}
+{{- $baseInbound := dig "security" "inbound" nil (.Values.config.base | default dict) -}}
+{{- $erased := and (hasKey $securityEnv "inbound") (not (kindIs "map" $envInbound)) -}}
+{{- $inbound := dict -}}
+{{- if and (kindIs "map" $baseInbound) (not $erased) -}}
+{{- $inbound = deepCopy $baseInbound -}}
+{{- end -}}
+{{- if kindIs "map" $envInbound -}}
+{{- $inbound = mergeOverwrite $inbound $envInbound -}}
+{{- end -}}
+{{- if $inbound -}}
+{{- toJson $inbound -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+A reading worker group's settings file: the deployment's identity and inbound declaration, the
+catalogs the group names, and the `sources` entries of the aliases the group reads - never another
+alias's. Sources are layered like the binary does, the environment file over `base.yaml`. Nothing
+else in `config.base` or `config.environment` reaches it, so a setting the sources depend on
+(`security.outbound`, say) is not carried. `.root` is the release, `.group` the group's values.
+*/}}
+{{- define "sutura.readingWorkerSettings" -}}
+{{- $root := .root -}}
+{{- $base := $root.Values.config.base | default dict -}}
+{{- $env := $root.Values.config.environment | default dict -}}
+{{- $declared := mergeOverwrite (deepCopy (dig "sources" (dict) $base)) (dig "sources" (dict) $env) -}}
+{{- $sources := dict -}}
+{{- range .group.sources -}}
+{{- if hasKey $declared (toString .) -}}
+{{- $_ := set $sources (toString .) (get $declared (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- $security := dict -}}
+{{- with dig "security" "identity" (dig "security" "identity" "" $base) $env -}}
+{{- $_ := set $security "identity" . -}}
+{{- end -}}
+{{- with dig "security" "single_user_because" (dig "security" "single_user_because" "" $base) $env -}}
+{{- $_ := set $security "single_user_because" . -}}
+{{- end -}}
+{{- with include "sutura.resolvedInbound" $root -}}
+{{- $_ := set $security "inbound" (fromJson .) -}}
+{{- end -}}
+{{- toYaml (dict "catalogs" .group.catalogs "security" $security "sources" $sources) -}}
 {{- end -}}
 
 {{/*

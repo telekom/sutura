@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/reading-workers.yaml:10:4): readingWorkers.groups requires workerPool.enabled: every reading worker's certificate comes from workerPool.issuer, and the serving pod names the groups beside the worker pool's own peer
+
+Use --debug flag to render out invalid YAML

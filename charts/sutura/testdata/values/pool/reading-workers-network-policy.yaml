@@ -1,0 +1,40 @@
+# NetworkPolicy on with one reading worker group: the serving, worker, reading worker and operator
+# policies all render, and the reading workers' accepts the serving pods, the combining workers and
+# the reading workers themselves.
+environment: production
+security:
+  metricsToken:
+    secretName: sutura-metrics-token
+  inbound:
+    keySetSecretName: sutura-inbound-keys
+workerPool:
+  enabled: true
+  issuer:
+    name: sutura-nodes
+networkPolicy:
+  enabled: true
+readingWorkers:
+  groups:
+    orders:
+      sources: [orders]
+      catalogs:
+        - name: model
+          kind: markdown
+          dir: /srv/sutura/catalog
+          data_dir: /srv/sutura/data
+          version: "1"
+config:
+  base:
+    security:
+      identity: multi-user
+      inbound:
+        mode: direct
+        resource: https://sutura.example.com
+        authorization_server: https://issuer.example.com
+        algorithms: [RS256]
+    sources:
+      orders:
+        kind: files
+        data_dir: /srv/sutura/orders
+        posture: shared-service-user
+        acknowledged_because: "a directory this deployment owns"
