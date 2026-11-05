@@ -2630,6 +2630,9 @@ connection, and a fake for the conformance pack.</p>
 request identity and channel options on one per-call database, then hands the driver's Arrow
 stream straight to <code>Accumulating</code>. The older HTTP transport remains available only to the
 fixture and conformance targets while those loaders are migrated separately.</p>
+<p>An <code>impersonation-at-source</code> caller presented as a principal is run through <code>EXECUTE AS</code> on the
+deployment's own sign-in, as the HTTP transport runs it; a caller presented with an exchanged
+token signs in with that token instead.</p>
 <h3 id="struct-tlsoptions"><code>struct TlsOptions</code><a class="headerlink" href="#struct-tlsoptions" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsOptions</span>
 </span></code></pre></div>
@@ -2698,9 +2701,9 @@ fixture and conformance targets while those loaders are migrated separately.</p>
 <p><strong>The per-statement form only.</strong> <code>ClickHouse</code> also has <code>EXECUTE AS &lt;user&gt;</code> with no statement,
 which switches the user for the rest of a session. This adapter never renders it:
 <code>ClickHouseUser::execute_as</code> is the one place the keyword is written, and it always carries the
-statement. Each request is also stateless - <code>transport::Http</code> sends no <code>session_id</code> - so no
-switch can outlive the request that asked for it, and two callers on one pooled connection
-cannot inherit each other's user.</p>
+statement. Each request is also stateless - <code>transport::Http</code> sends no <code>session_id</code>, and the
+ADBC path opens a connection per statement, under a session id the driver draws for it - so no
+switch can outlive the request that asked for it, and two callers cannot inherit each other's user.</p>
 <p><strong>The user is the caller's verified subject, never caller text.</strong> Leg 1 verified the token that
 carries it, the broker presents it, and it is parsed here to a closed character set and quoted
 with the dialect's identifier quote. The character set has no quote, backslash or whitespace, so
