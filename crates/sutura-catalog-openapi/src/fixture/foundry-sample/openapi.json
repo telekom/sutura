@@ -1,0 +1,130 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Ontology metadata, a sample subset",
+    "version": "2",
+    "description": "A hand-written subset of two public ontology v2 list operations, transcribed from their public reference pages for this adapter's sample mapping. Not a vendor-published document."
+  },
+  "security": [{ "OAuth2": ["api:ontologies-read"] }, { "BearerAuth": [] }],
+  "paths": {
+    "/api/v2/ontologies/{ontology}/objectTypes": {
+      "get": {
+        "operationId": "listObjectTypesV2",
+        "parameters": [
+          { "$ref": "#/components/parameters/Ontology" },
+          { "$ref": "#/components/parameters/Branch" },
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/PageToken" },
+          { "name": "includeDatasources", "in": "query", "schema": { "type": "boolean" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of object types.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ListObjectTypesV2Response" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ontologies/{ontology}/objectTypes/{objectType}/outgoingLinkTypes": {
+      "get": {
+        "operationId": "listOutgoingLinkTypesV2",
+        "parameters": [
+          { "$ref": "#/components/parameters/Ontology" },
+          { "name": "objectType", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/Branch" },
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the object type's outgoing link type sides.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ListOutgoingLinkTypesResponseV2" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer" },
+      "OAuth2": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "/oauth2/token",
+            "scopes": { "api:ontologies-read": "Read ontology metadata." }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "Ontology": { "name": "ontology", "in": "path", "required": true, "schema": { "type": "string" } },
+      "Branch": { "name": "branch", "in": "query", "schema": { "type": "string" } },
+      "PageSize": { "name": "pageSize", "in": "query", "schema": { "type": "integer" } },
+      "PageToken": { "name": "pageToken", "in": "query", "schema": { "type": "string" } }
+    },
+    "schemas": {
+      "ListObjectTypesV2Response": {
+        "type": "object",
+        "properties": {
+          "nextPageToken": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ObjectTypeV2" } }
+        }
+      },
+      "ObjectTypeV2": {
+        "type": "object",
+        "properties": {
+          "apiName": { "type": "string" },
+          "displayName": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string" },
+          "primaryKey": { "type": "string" },
+          "rid": { "type": "string" },
+          "properties": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/PropertyV2" } }
+        }
+      },
+      "PropertyV2": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "displayName": { "type": "string" },
+          "rid": { "type": "string" },
+          "dataType": { "$ref": "#/components/schemas/ObjectPropertyType" }
+        }
+      },
+      "ObjectPropertyType": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/StringType" },
+          { "$ref": "#/components/schemas/LongType" },
+          { "$ref": "#/components/schemas/TimestampType" }
+        ]
+      },
+      "StringType": { "type": "object", "properties": { "type": { "type": "string", "enum": ["string"] } } },
+      "LongType": { "type": "object", "properties": { "type": { "type": "string", "enum": ["long"] } } },
+      "TimestampType": { "type": "object", "properties": { "type": { "type": "string", "enum": ["timestamp"] } } },
+      "ListOutgoingLinkTypesResponseV2": {
+        "type": "object",
+        "properties": {
+          "nextPageToken": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/LinkTypeSideV2" } }
+        }
+      },
+      "LinkTypeSideV2": {
+        "type": "object",
+        "properties": {
+          "apiName": { "type": "string" },
+          "displayName": { "type": "string" },
+          "status": { "type": "string" },
+          "objectTypeApiName": { "type": "string" },
+          "cardinality": { "type": "string", "enum": ["ONE", "MANY"] },
+          "foreignKeyPropertyApiName": { "type": "string" },
+          "linkTypeRid": { "type": "string" }
+        }
+      }
+    }
+  }
+}

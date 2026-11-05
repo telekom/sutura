@@ -4426,6 +4426,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
+ "sutura-catalog-openapi",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
  "sutura-catalog-wren",
@@ -4516,6 +4517,17 @@ dependencies = [
  "serde",
  "serde_norway",
  "sutura-bounded-read",
+ "sutura-domain",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sutura-catalog-openapi"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_norway",
  "sutura-domain",
  "thiserror 2.0.21",
 ]
