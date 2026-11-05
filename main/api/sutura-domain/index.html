@@ -5059,6 +5059,10 @@ assertion against the pool. Synchronous for the reason <code>DelegationExchange<
 <p>Why a pool exchange produced no usable access token.</p>
 <p><strong>No variant carries token material or the token service's free text</strong>, for the reason
 <code>DelegationFailed</code> gives: the <code>error</code> code survives only in its registered shape.</p>
+<h3 id="use-poolscope"><code>use PoolScope</code><a class="headerlink" href="#use-poolscope" title="Permanent link">&para;</a></h3>
+<p>What the token a pool exchange asks for may do at the data system.</p>
+<p>Closed, with nothing to parse: the code that needs a token chooses its scope, and no
+configuration names one. The implementor maps each variant to its data system's scope.</p>
 <h3 id="use-requestedaudience"><code>use RequestedAudience</code><a class="headerlink" href="#use-requestedaudience" title="Permanent link">&para;</a></h3>
 <p>The audience the exchanged token must carry: the pool provider's client ID.</p>
 <p><strong>Stored exactly as written</strong>, as <code>ResourceIdentifier</code> is: an identity provider matches it byte for byte
@@ -5073,9 +5077,10 @@ against a client it knows, so a normalised spelling would ask for a different au
 as in the settings tree because it reaches a request body a <code>PoolExchange</code> builds. The
 accepted set excludes every character that could end a form field or a URL, so a declaration
 cannot reshape the request it lands in.</p>
-<p><strong>One field, and a scope is not it.</strong> The scope an exchange asks for is the data system
-client's own, a constant of the <code>PoolExchange</code> implementor; there is no <code>workload_identity.scope</code>
-key, so a declared value nothing sends cannot read as a control that is in place.</p>
+<p><strong>One field, and a scope is not it.</strong> The scope an exchange asks for is a <code>PoolScope</code> the
+code needing the token chooses, mapped by the <code>PoolExchange</code> implementor to its data system's
+own scope; there is no <code>workload_identity.scope</code> key, so a declared value nothing sends cannot
+read as a control that is in place.</p>
 <h3 id="use-actor"><code>use Actor</code><a class="headerlink" href="#use-actor" title="Permanent link">&para;</a></h3>
 <p>The identifier of something that acted for the subject: an agent, or an agent's agent.</p>
 <p>One link of the second position. Never on its own - an actor exists inside an <code>ActorChain</code>,
