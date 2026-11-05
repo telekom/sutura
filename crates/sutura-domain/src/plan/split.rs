@@ -21,8 +21,8 @@
 //!   wanting one states its own bound narrower before calling [`decide`].
 //! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
 //!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, made by
-//!   [`Grantee::grant`] for the asking caller. Nothing in production offers a source a [`Grantee`]
-//!   yet, so nothing builds one (`github.com/telekom/sutura#828`, SERVE-2).
+//!   [`Grantee::grant`] for the asking caller; only a mixed-kind `sutura serve` deployment's
+//!   PostgreSQL source makes one, and only of two or more partitions (`github.com/telekom/sutura#828`).
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -187,8 +187,8 @@ pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
 /// as this value, which [`Legs`](crate::plan::Legs) borrows past the combine. It is `Send + Sync`
 /// because the combine's scoped join moves the borrowed legs across threads.
 ///
-/// **The limit:** only [`Grantee::grant`] builds one, and nothing in production offers a source a
-/// [`Grantee`] yet (`github.com/telekom/sutura#828`, SERVE-2).
+/// **The limit:** only [`Grantee::grant`] builds one in production, for a mixed-kind deployment's
+/// PostgreSQL source (`github.com/telekom/sutura#828`).
 pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,

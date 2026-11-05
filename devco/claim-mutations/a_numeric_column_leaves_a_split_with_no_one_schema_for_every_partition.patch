@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/numeric.rs b/crates/sutura-exec-postgres/src/adbc/numeric.rs
+--- a/crates/sutura-exec-postgres/src/adbc/numeric.rs
++++ b/crates/sutura-exec-postgres/src/adbc/numeric.rs
+@@ -122,8 +122,8 @@
+ /// `schema` as every read of its statement answers it, or `None` where a `NUMERIC` column's type is
+ /// decided by the cells each read holds ([`batches`]), so no one schema stands for every read.
+ pub(super) fn fixed(schema: Schema) -> Option<SchemaRef> {
+-    let fixed = numeric_indices(&schema).next().is_none();
+-    fixed.then(|| Arc::new(schema))
++    let _fixed = numeric_indices(&schema).next().is_none();
++    Some(Arc::new(schema))
+ }
+ 
+ fn numeric_columns(batches: &ResultBatches) -> Vec<usize> {

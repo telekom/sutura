@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/plan/split.rs
+--- a/crates/sutura-domain/src/plan/split.rs
++++ b/crates/sutura-domain/src/plan/split.rs
+@@ -361,6 +361,9 @@
+         held: impl Send + Sync + 'r,
+         now: SystemTime,
+     ) -> Result<Granted<'r>, NotGranted> {
++        if self.until <= now {
++            return Err(NotGranted::Expired(GrantExpired { until: self.until }));
++        }
+         let portable = partitions
+             .into_iter()
+             .collect::<Option<Vec<_>>>()

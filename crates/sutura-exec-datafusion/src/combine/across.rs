@@ -95,8 +95,8 @@
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
 //!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Nothing in production grants a leg
-//!   (`github.com/telekom/sutura#828`, SERVE-2): a served question has no granted leg yet.
+//!   under the one snapshot its source holds open across both. Only a mixed-kind `sutura serve`
+//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;

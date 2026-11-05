@@ -106,10 +106,15 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
 /// as many partitions as there are such peers, above `server.nodes.across_above_bytes` or, unset,
 /// the working set.
 ///
-/// **Limit:** the peers are counted as declared, not as ready, and every partition is still read
-/// on this node - `combiner` hands the readers to the planner, but no served question builds a
-/// leg it places on them - so one split leg holds up to its readers times the source's per-stream
-/// bound here, where the same leg read whole is refused past one stream's.
+/// **Limit:** the peers are counted as declared, not as ready. A split leg the source does not grant
+/// is still read on this node - one of one partition (every split of a source one peer reads), one
+/// whose link the plan declares a comparison for, one with a `NUMERIC` column, one
+/// `PartitionLeg::encode` refuses, and one that names a payer - so it holds up to its readers times
+/// the source's per-stream bound here, where the same leg read whole is refused past one stream's.
+/// A lookup leg of a source named here, asked with no verified caller, is refused before the source
+/// is asked anything - unless it names a payer, which is read whole, as the deployment; a deployment
+/// declaring such a source with no `security.inbound` does not boot.
+/// A single-kind deployment's adapter splits nothing.
 pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
 where
     W: Warehouse,

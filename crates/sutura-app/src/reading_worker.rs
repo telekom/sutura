@@ -14,8 +14,9 @@
 //!
 //! **A reading worker's partition reader calls [`read_recertified`] before every read.**
 //! `crates/sutura-cli/src/serve/worker.rs` opens the worker's catalog and declared sources at boot
-//! and keeps them for that reader, which reads only what this check returns. **The limit:** nothing
-//! on the planning node routes a split leaf to a worker yet, so outside tests no task reaches it.
+//! and keeps them for that reader, which reads only what this check returns. **The limit:** a
+//! planning node routes a split leaf to a worker only for a lookup leg its source granted, which only
+//! a mixed-kind `sutura serve` deployment's PostgreSQL source does.
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
