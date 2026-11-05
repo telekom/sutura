@@ -4,7 +4,7 @@
 
 use std::sync::OnceLock;
 
-use sutura_domain::identity::{Delegated, PoolExchange, PoolExchangeFailed, PrincipalName, Secret};
+use sutura_domain::identity::{Delegated, PoolExchange, PoolExchangeFailed, PoolScope, PrincipalName, Secret};
 
 use super::identity::authenticate;
 use super::subject::WorkloadPool;
@@ -20,6 +20,7 @@ const ISSUED: &str = "ya29.the-pools-own-token";
 struct Shown {
     assertion: String,
     audience: String,
+    scope: PoolScope,
 }
 
 /// Google's token service granting the one exchange a cell makes, and recording what it was shown.
@@ -34,10 +35,11 @@ impl PoolExchange for Granting {
         clippy::disallowed_methods,
         reason = "a fake records the assertion it was shown so a cell can compare it"
     )]
-    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool) -> Result<Delegated, PoolExchangeFailed> {
+    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool, scope: PoolScope) -> Result<Delegated, PoolExchangeFailed> {
         let shown = Shown {
             assertion: assertion.expose_secret().to_owned(),
             audience: pool.audience().to_owned(),
+            scope,
         };
         if self.shown.set(shown).is_err() {
             return Err(PoolExchangeFailed::Malformed {
@@ -53,7 +55,7 @@ impl PoolExchange for Granting {
 struct Refusing;
 
 impl PoolExchange for Refusing {
-    fn exchange(&self, _: &Secret, _: &WorkloadPool) -> Result<Delegated, PoolExchangeFailed> {
+    fn exchange(&self, _: &Secret, _: &WorkloadPool, _: PoolScope) -> Result<Delegated, PoolExchangeFailed> {
         Err(PoolExchangeFailed::Refused {
             status: 400,
             error: Some(String::from("invalid_grant")),
@@ -130,6 +132,7 @@ fn a_subject_at_a_pool_hands_the_driver_the_exchanged_token_and_nothing_else() {
         Some(&Shown {
             assertion: String::from(ASSERTION),
             audience: String::from(POOL),
+            scope: PoolScope::Query,
         })
     );
 }

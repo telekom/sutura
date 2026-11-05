@@ -147,6 +147,33 @@ workerPool:
       digest: ""
     resources: {}
 
+# Workers that read data sources themselves (`server.role: reading-worker`), in groups. Each group
+# is one Deployment, one headless Service and one settings file, and it opens only the sources it
+# names. Needs `workerPool.enabled`, whose issuer signs every node's certificate and whose serving
+# pod names the groups as `server.nodes` peers; the release then also needs `security.inbound`,
+# because a lookup leg a reading worker reads is granted for a verified caller. The operator sizes
+# the combining workers only, never a group: `replicas` is the count.
+readingWorkers:
+  # Groups by name, a DNS label no longer than the Service name allows. A group takes:
+  #   replicas:           Pods in the group. Default 1.
+  #   sources:            Aliases the group reads, each declared under `sources` in `config.base` or
+  #                       `config.environment`. At least one. The group's settings file carries those
+  #                       entries and no others.
+  #   catalogs:           The catalog list the group certifies a leg against, as `catalogs` in
+  #                       `config.base`. At least one.
+  #   resources:          CPU and memory limits and requests for each pod.
+  #   extraVolumes,
+  #   extraVolumeMounts:  What the group's sources read, such as a credential Secret. The release's
+  #                       own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
+  #
+  # groups:
+  #   orders:
+  #     replicas: 2
+  #     sources: [orders]
+  #     catalogs:
+  #       - {name: model, kind: markdown, dir: /srv/sutura/catalog, data_dir: /srv/sutura/data, version: "1"}
+  groups: {}
+
 # Engine thread and memory settings for the runtime.
 runtime:
   # Number of engine worker threads. Empty derives from the CPU limit.

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/identity.rs b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+index cfaf78726..d7e2fc6ab 100644
+--- a/crates/sutura-exec-bigquery/src/adbc/identity.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+@@ -184,7 +184,7 @@ pub(super) fn authenticate(
+                 "federate a subject at a pool no token exchange was composed for",
+             ))?;
+             let token = exchange
+-                .exchange(assertion, pool, PoolScope::Query)
++                .exchange(assertion, pool, PoolScope::ReadOnly)
+                 .map_err(|cause| AdbcError::PoolExchange { cause })?
+                 .into_token();
+             access_token_options(&token)

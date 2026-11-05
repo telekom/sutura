@@ -387,7 +387,7 @@ rows. When no declared reader resolves, the question is refused with `503 source
 here. A question that reads one source has no lookup leg: it is sent to that source whole, as one statement, and is
 never split.
 
-The chart renders only `worker` peers under `others` today; a `reading-worker` peer declared this way is written by hand.
+The chart renders a `worker` peer for its worker pool and a `reading-worker` peer for each group in its `readingWorkers.groups`, with the source aliases the group reads.
 
 A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
@@ -449,7 +449,7 @@ a source. At startup it opens its catalog and each source the catalog reads that
 the catalog reads and `sources:` does not declare is not opened and needs no credential there. Before it reads a
 partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
 leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
-runs `worker`.
+runs `worker`, and each of its `readingWorkers.groups` runs `reading-worker`.
 
 Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
 worker. The catalog and the sources are read once, at startup.

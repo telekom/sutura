@@ -38,7 +38,7 @@
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::{PoolExchange, PrincipalName, Secret};
+use sutura_domain::identity::{PoolExchange, PoolScope, PrincipalName, Secret};
 
 use crate::transport::JobIdentity;
 
@@ -184,7 +184,7 @@ pub(super) fn authenticate(
                 "federate a subject at a pool no token exchange was composed for",
             ))?;
             let token = exchange
-                .exchange(assertion, pool)
+                .exchange(assertion, pool, PoolScope::Query)
                 .map_err(|cause| AdbcError::PoolExchange { cause })?
                 .into_token();
             access_token_options(&token)
