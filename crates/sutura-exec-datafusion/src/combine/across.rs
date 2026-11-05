@@ -95,7 +95,7 @@
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
 //!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Only a mixed-kind `sutura serve`
+//!   under the one snapshot its source holds open across both. Only a `sutura serve`
 //!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
@@ -282,6 +282,20 @@ impl Nodes {
     /// Whether any other node is declared as reading `source`, resolved or not.
     pub(super) fn reads(&self, source: &SourceName) -> bool {
         self.readers.get(source).is_some_and(|readers| !readers.is_empty())
+    }
+
+    /// Whether a node declared as reading `source` is among the other nodes resolved now, as
+    /// [`Self::session_over`] reads them.
+    ///
+    /// **Limit:** each call resolves every other node again, so a host that resolves here and not
+    /// in the session planned beside it, or the other way round, is read differently by the two.
+    pub(super) fn resolves_a_reader(&self, source: &SourceName) -> bool {
+        self.readers.get(source).is_some_and(|declared| {
+            self.others
+                .iter()
+                .flat_map(resolved)
+                .any(|node| declared.contains(&unresolved(&node)))
+        })
     }
 
     /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is

@@ -877,6 +877,25 @@
             else
               pkgs.runCommand "multi-node-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # A serving node, two reading workers and PostgreSQL in four NixOS VMs: a lookup leg split
+          # and granted to the readers (`telekom/sutura#828`) - `nix/multi-node-postgres.nix` says what
+          # it observes and what it does not. A stub on any other system, for `multi-node`'s reason.
+          multi-node-postgres =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node-postgres.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "postgres" "tls" "distributed" ];
+                };
+                postgresDriver = postgresAdbcHostDriver;
+                example = ./examples/single-player;
+                golden = builtins.path { path = ./crates/sutura-app/tests/snapshots + "/recurring-revenue-by-region__rows@postgres.snap"; name = "recurring-revenue-by-region.snap"; };
+              }
+            else
+              pkgs.runCommand "multi-node-postgres-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
           # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
           # what it does not. A stub on any other system, for `multi-node`'s reason.

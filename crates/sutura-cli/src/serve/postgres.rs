@@ -35,6 +35,38 @@ pub(crate) fn open_postgres(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
+/// The service a deployment whose sources are all `postgres` answers through, under the static
+/// broker: the adapter has nowhere for a subject's credential to arrive.
+///
+/// A question that reads one of its sources has no lookup leg, so it is that source's one statement
+/// whatever is erased here, and is never split; only a lookup leg sutura joins across two sources is.
+///
+/// Where a peer `server.nodes` declares reads one of its sources, the adapters are erased into
+/// `kind::AnyWarehouse` and named for splitting as a mix's are (`nodes::splitting`), so a split
+/// lookup leg of that source is granted to its readers. Otherwise each adapter is served itself and
+/// reads every leg whole.
+///
+/// **Limit:** erased, a source answers the enum's associated constants rather than its own, as a
+/// mix's does (`kind`'s header). `AdbcPostgres` declares `IMPERSONATION` as the enum does, and
+/// `EXECUTES_LEGS` and `ACCEPTS_RAW_STATEMENTS`, which the enum forwards per instance; it leaves the
+/// rest at the port's default, so today both registries answer alike. A constant it later declares
+/// reads as the default here, and only review checks that.
+#[cfg(feature = "postgres")]
+pub(super) fn served(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<super::PostgresSource>,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
+    settings: &sutura_config::Settings,
+) -> Result<super::Serving, String> {
+    let tls = settings.server().tls();
+    if !super::nodes::read_by_a_peer(&engines, tls) {
+        return super::compose::shared_identity_service(catalogs, engines, combiner, None, settings);
+    }
+    let erased = engines.into_mapped(|postgres| super::kind::AnyWarehouse::Postgres(Box::new(postgres)));
+    let engines = super::nodes::splitting(erased, tls, settings.runtime());
+    super::compose::shared_identity_service(catalogs, engines, combiner, None, settings)
+}
+
 /// The refusal for a build that did not link the `Postgres` adapter.
 ///
 /// **Two definitions of one signature rather than a `cfg` inside one body**, for the reason
