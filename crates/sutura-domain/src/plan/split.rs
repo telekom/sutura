@@ -20,17 +20,21 @@
 //!   bound, read, not split again. There is no margin knob here to widen against skew - a caller
 //!   wanting one states its own bound narrower before calling [`decide`].
 //! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
-//!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, and nothing in
-//!   production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
+//!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, made by
+//!   [`Grantee::grant`] for the asking caller. Nothing in production offers a source a [`Grantee`]
+//!   yet, so nothing builds one (`github.com/telekom/sutura#828`, SERVE-2).
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::time::SystemTime;
+use core::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow_schema::SchemaRef;
 
-use crate::identity::SubjectKey;
+use crate::identity::{BoundToTheRequest, SubjectKey};
 use crate::nonempty::NonEmpty;
+use crate::plan::leg::LegPlan;
+use crate::plan::remote::{NotSendable, PartitionLeg};
 use crate::warehouse::ResultBatches;
 use crate::warehouse::estimate::EstimatedBytes;
 
@@ -165,6 +169,10 @@ pub enum Partitioned<'r, E> {
     Split(PartitionReader<'r, E>),
     /// Over the threshold, and [`decide`] refused the split.
     Refused(SplitRefusal),
+    /// Split at the source, and granted to the nodes that read it: none of it is read here.
+    Granted(Granted<'r>),
+    /// Split at the source for a [`Grantee`], and refused rather than read here.
+    NotGranted(NotGranted),
 }
 
 /// [`Partitioned`], or the source's failure to estimate or split the leg.
@@ -173,13 +181,14 @@ pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
 /// A lookup leg its source split and granted to the nodes that read it, rather than read here.
 ///
 /// Every partition is read by a node reading the leg's source, for `caller`, until `until`, at most
-/// `stream_rows` rows a stream. `wire` and each partition are the granting adapter's own encoding,
-/// opaque here. `held` is what the source keeps open across the partitions - an exporting
-/// transaction - and lives as long as this value, which [`Legs`](crate::plan::Legs) borrows past the
-/// combine. It is `Send + Sync` because the combine's scoped join moves the borrowed legs across
-/// threads.
+/// `stream_rows` rows a stream. `wire` is the leg as [`PartitionLeg::encode`] writes it from a
+/// [`Grantee`], and each partition the granting adapter's own descriptor, opaque here. `held` is
+/// what the source keeps open across the partitions - an exporting transaction - and lives as long
+/// as this value, which [`Legs`](crate::plan::Legs) borrows past the combine. It is `Send + Sync`
+/// because the combine's scoped join moves the borrowed legs across threads.
 ///
-/// **The limit:** nothing in production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
+/// **The limit:** only [`Grantee::grant`] builds one, and nothing in production offers a source a
+/// [`Grantee`] yet (`github.com/telekom/sutura#828`, SERVE-2).
 pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,
@@ -193,7 +202,7 @@ pub struct Granted<'r> {
 
 /// [`Granted::new`] was handed a grant that ended at or before the `now` it was checked against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the grant ended at {until:?}, at or before it was made")]
+#[error("the grant ended at {until:?}, at or before the instant it was checked against")]
 pub struct GrantExpired {
     until: SystemTime,
 }
@@ -205,7 +214,7 @@ impl<'r> Granted<'r> {
     /// # Errors
     ///
     /// [`GrantExpired`] when `until` is not after `now`. Checked once, here: a grant that ends while
-    /// its partitions are read is not refused by this check.
+    /// its partitions are read is refused only by each reading worker, as it admits a partition.
     pub fn new(
         wire: Vec<u8>,
         schema: SchemaRef,
@@ -272,6 +281,111 @@ impl<'r> Granted<'r> {
     #[must_use]
     pub const fn estimate(&self) -> EstimatedBytes {
         self.estimate
+    }
+}
+
+/// Whom a split lookup leg is granted for, and until when, read off the request's own grant.
+///
+/// Only [`Self::new`] builds one, from a [`BoundToTheRequest`]: the caller is the one the broker
+/// answered for and the request agreed with, never a value a caller of this type supplies, and the
+/// grant ends no later than that answer does.
+pub struct Grantee {
+    wire: Vec<u8>,
+    caller: SubjectKey,
+    until: SystemTime,
+}
+
+/// Why [`Grantee::new`] offered no grant.
+#[derive(Debug, thiserror::Error)]
+pub enum NotOffered {
+    /// The request has no verified caller - the deployment itself - and a grant names one.
+    #[error("a grant names the caller it is read for, and this question has no verified caller")]
+    NoCaller,
+    /// The leg does not encode for its readers, so it is not granted.
+    #[error(transparent)]
+    NotSendable(NotSendable),
+}
+
+/// Why [`Grantee::grant`] made no grant. Each is a refusal of the leg, never a read here instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum NotGranted {
+    /// No partition, or one only this node can read - PostgreSQL's when it exported no snapshot.
+    #[error("a split leg has a partition no other node can read")]
+    NotPortable,
+    /// The grant ends at or before the instant the source handed back its partitions.
+    #[error(transparent)]
+    Expired(#[from] GrantExpired),
+}
+
+impl Grantee {
+    /// `leg`, encoded as its readers re-certify it, granted for the caller `asked` names, until the
+    /// earlier of `question_ends` and `asked`'s own expiry.
+    ///
+    /// # Errors
+    ///
+    /// [`NotOffered::NoCaller`] for a request with no verified caller, decided before the leg is
+    /// encoded; [`NotOffered::NotSendable`] for a leg [`PartitionLeg::encode`] cannot write.
+    pub fn new(leg: &LegPlan, asked: &BoundToTheRequest, question_ends: SystemTime) -> Result<Self, NotOffered> {
+        let caller = asked.asked_by().key().cloned().ok_or(NotOffered::NoCaller)?;
+        let until = asked
+            .not_after()
+            .unix_seconds()
+            .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
+            .map_or(question_ends, |expires| expires.min(question_ends));
+        Ok(Self {
+            wire: PartitionLeg::encode(leg).map_err(NotOffered::NotSendable)?,
+            caller,
+            until,
+        })
+    }
+
+    /// When the grant ends.
+    #[must_use]
+    pub const fn until(&self) -> SystemTime {
+        self.until
+    }
+
+    /// `partitions`, each a descriptor another node can read or `None` for one only this node can,
+    /// granted as [`Granted::new`] grants them, checked against `now` - the instant the source
+    /// handed them back, after its own round trips.
+    ///
+    /// # Errors
+    ///
+    /// [`NotGranted::NotPortable`] first, then [`NotGranted::Expired`].
+    pub fn grant<'r>(
+        self,
+        schema: SchemaRef,
+        partitions: impl IntoIterator<Item = Option<Vec<u8>>>,
+        stream_rows: NonZeroU32,
+        estimate: EstimatedBytes,
+        held: impl Send + Sync + 'r,
+        now: SystemTime,
+    ) -> Result<Granted<'r>, NotGranted> {
+        let portable = partitions
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+            .ok_or(NotGranted::NotPortable)?;
+        let partitions = NonEmpty::parse(portable).map_err(|_none| NotGranted::NotPortable)?;
+        Ok(Granted::new(
+            self.wire,
+            schema,
+            partitions,
+            self.caller,
+            self.until,
+            now,
+            stream_rows,
+            estimate,
+            held,
+        )?)
+    }
+}
+
+impl fmt::Debug for Grantee {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Grantee")
+            .field("caller", &self.caller)
+            .field("until", &self.until)
+            .finish_non_exhaustive()
     }
 }
 

@@ -1,22 +1,22 @@
 diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
 --- a/crates/sutura-app/src/federated/leg.rs
 +++ b/crates/sutura-app/src/federated/leg.rs
-@@ -313,7 +313,7 @@
+@@ -327,7 +327,7 @@
          let deadline = self.deadline;
          let presented = usable::<W, B, C>(self.credentials, leg, deadline)?;
-         match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers) {
--            Ok(Partitioned::Whole) => Ok(Box::new(iter::once(run_leg::<_, B, C>(
-+            Ok(Partitioned::Whole | Partitioned::Refused(_)) => Ok(Box::new(iter::once(run_leg::<_, B, C>(
+         match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, None) {
+-            Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
++            Ok(Partitioned::Whole | Partitioned::Refused(_)) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
                  warehouse,
                  (self.credentials, self.labels),
                  leg,
-@@ -328,9 +328,6 @@
-                         .map(|part| part.map_err(|cause| classified::<W, B, C>(warehouse, cause, deadline)))
-                 })))
+@@ -346,9 +346,6 @@
+                 }))))
              }
+             Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
 -            Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
 -                bound: ResultBound::Volume,
 -            })),
+             Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
              Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
          }
-     }

@@ -312,6 +312,7 @@ impl Warehouse for AnyWarehouse {
     /// was estimated first, one round trip more than reading it whole outright. And a link value two
     /// partitions both carry is one table's repeated tuple to the combine, refused as an ambiguous
     /// link - so a leg the whole read answered can be refused once split, never answered differently.
+    /// A split offered a grantee is read here too: nothing grants one yet (`github.com/telekom/sutura#828`).
     #[cfg(feature = "postgres")]
     fn split_lookup(
         &self,
@@ -320,6 +321,7 @@ impl Warehouse for AnyWarehouse {
         deadline: Deadline,
         above_bytes: core::num::NonZeroU64,
         readers: core::num::NonZeroUsize,
+        _grantee: Option<sutura_domain::plan::Grantee>,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
         use core::num::NonZeroUsize;
         use sutura_domain::plan::Partitioned;

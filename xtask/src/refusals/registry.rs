@@ -113,8 +113,9 @@ const STARTUP: Subject = Subject {
     // `ReadingWorkerWithoutSources` and `ReadingWorkerWithoutCatalog`, a `server.role:
     // reading-worker` configuration that declares no source or no catalog. 38:
     // `DeclaredNodeReadsUndeclaredSource` (#828), a `server.nodes` peer naming a source alias this
-    // deployment's own `sources:` section does not declare.
-    variants: variants(38),
+    // deployment's own `sources:` section does not declare. 39: `ReadingNodeWithoutInboundIdentity`
+    // (#828), a `server.nodes` peer reading a declared source on a deployment that verifies no caller.
+    variants: variants(39),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
