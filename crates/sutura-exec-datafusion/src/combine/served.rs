@@ -5,7 +5,7 @@
 //!
 //! # Limits
 //!
-//! - A served question is granted a leg only by a mixed-kind `sutura serve` deployment's PostgreSQL
+//! - A served question is granted a leg only by a `sutura serve` deployment's PostgreSQL
 //!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
 //! - The ambiguous-link check and the join each read every partition, so each partition is read
 //!   twice, under the one snapshot its source holds open across both. Accepted.

@@ -378,6 +378,12 @@ deployment with no `security.inbound`: a lookup leg read on a reading node is gr
 question with no verified caller is refused before such a source is asked anything. A lookup leg that names a payer is
 not split, so it is read whole, as the deployment.
 
+A lookup leg of a PostgreSQL source that `reading-worker` peers read is granted to them when the source estimates it
+above `across_above_bytes` (or the working-set ceiling) and splits it into two or more partitions, at most one for each
+declared reader. The same holds when PostgreSQL is the deployment's only data system. Each reader reads its partitions
+under the snapshot this node exported, and this node reads none of the leg's rows. When no declared reader resolves,
+the question is refused with `503 source_unavailable` and the leg is not read here.
+
 The chart renders only `worker` peers under `others` today; a `reading-worker` peer declared this way is written by hand.
 
 A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4

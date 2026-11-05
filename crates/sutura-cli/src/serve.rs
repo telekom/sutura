@@ -345,8 +345,8 @@ pub(crate) fn run() -> Result<(), String> {
             // its `preflight` is `NotReported` by construction - which `refuse_absent_tables` treats
             // as a WARN rather than a refusal, so the call would add a misleading permission
             // sentence and nothing else. A mistyped `table:` is caught on the first question against
-            // it, as the port itself documents.
-            (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
+            // it, as the port itself documents. A source a declared peer reads is split as a mix's is.
+            (postgres::served(&catalogs, engines, combiner, &settings)?, None)
         }
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
