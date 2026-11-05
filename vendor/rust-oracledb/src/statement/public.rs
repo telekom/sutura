@@ -101,6 +101,11 @@ impl Statement {
         Self { client_ref, statement, return_on_drop: true }
     }
 
+    #[cfg(feature = "arrow")]
+    pub(crate) fn options(&self) -> &super::StatementOptions {
+        self.statement.options()
+    }
+
     /// Returns the bind names used by the statement.
     pub fn bind_names(&self) -> &[String] {
         self.statement.bind_names()
@@ -218,36 +223,24 @@ impl Statement {
     /// Performs a query against the database and returns an Arrow RecordBatch
     /// structure containing the data.
     pub fn query_arrow(
-        mut self,
+        self,
         params: BindParameters,
     ) -> Result<arrow_array::RecordBatch, Error> {
-        self.statement.check_binds(&params)?;
-        let mut client = self.client_ref.lock()?;
-        arrow::query_single_batch(
-            &mut client,
-            &mut self.statement,
-            &self.client_ref,
-            params,
-        )
+        self.query_arrow_batches(params)?.into_single_batch()
     }
 
     #[cfg(feature = "arrow")]
-    /// Performs a query against the database and returns an iterator of
-    /// Arrow RecordBatch structures, one for each round trip to the database.
-    /// The next round trip is made only when the next batch is requested.
-    pub fn query_arrow_batches<'a>(
+    /// Executes a query and returns Arrow's standard record batch reader.
+    ///
+    /// The reader exposes a schema and yields results one batch at a time,
+    /// allowing callers to process results incrementally. Each set of
+    /// bind parameters is executed in order. See [crate::ArrowBatchReader].
+    pub fn query_arrow_batches<'params>(
         mut self,
-        params: BindParameters<'a>,
-    ) -> Result<arrow::ArrowBatches<'a>, Error> {
+        params: BindParameters<'params>,
+    ) -> Result<arrow::ArrowBatchReader<'params>, Error> {
         self.statement.check_binds(&params)?;
-        arrow::ArrowBatches::new(self, params)
-    }
-
-    /// Returns the schema requested for an Arrow query, if one was set with
-    /// [StatementBuilder::with_requested_schema()](crate::StatementBuilder::with_requested_schema).
-    #[cfg(feature = "arrow")]
-    pub(crate) fn requested_schema(&self) -> Option<&arrow_schema::SchemaRef> {
-        self.statement.options().requested_schema()
+        arrow::ArrowBatchReader::new(self, params)
     }
 
     /// Executes the statement with the given parameters and returns a Cursor

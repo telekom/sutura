@@ -264,13 +264,12 @@ impl ConnImpl {
     }
 
     #[cfg(feature = "arrow")]
-    /// Performs a query against the database and returns an iterator of
-    /// Arrow RecordBatch structures, one for each round trip.
-    pub fn query_arrow_batches<'a>(
+    /// Executes a query and returns an Arrow record batch reader.
+    pub fn query_arrow_batches<'params>(
         &self,
         sql: &str,
-        params: BindParameters<'a>,
-    ) -> Result<crate::arrow::ArrowBatches<'a>, Error> {
+        params: BindParameters<'params>,
+    ) -> Result<crate::ArrowBatchReader<'params>, Error> {
         self.statement(sql).build()?.query_arrow_batches(params)
     }
 

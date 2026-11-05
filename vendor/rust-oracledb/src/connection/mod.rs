@@ -226,14 +226,16 @@ impl Connection {
     }
 
     #[cfg(feature = "arrow")]
-    /// Executes a query against the database and returns an iterator of Arrow
-    /// RecordBatch structures, one for each round trip to the database. The
-    /// next round trip is made only when the next batch is requested.
-    pub fn query_arrow_batches<'a>(
+    /// Executes a query and returns Arrow's standard record batch reader.
+    ///
+    /// The reader exposes a schema and yields results one record batch at a
+    /// time. Use it to process results incrementally instead of collecting
+    /// them into one batch. See [crate::ArrowBatchReader] for details.
+    pub fn query_arrow_batches<'params>(
         &self,
         sql: &str,
-        params: impl Into<BindParameters<'a>>,
-    ) -> Result<crate::arrow::ArrowBatches<'a>, Error> {
+        params: impl Into<BindParameters<'params>>,
+    ) -> Result<crate::ArrowBatchReader<'params>, Error> {
         self.get_impl()?.query_arrow_batches(sql, params.into())
     }
 
