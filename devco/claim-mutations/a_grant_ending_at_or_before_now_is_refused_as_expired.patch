@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/plan/split.rs
+--- a/crates/sutura-domain/src/plan/split.rs
++++ b/crates/sutura-domain/src/plan/split.rs
+@@ -217,7 +217,7 @@ impl<'r> Granted<'r> {
+         estimate: EstimatedBytes,
+         held: impl Send + Sync + 'r,
+     ) -> Result<Self, GrantExpired> {
+-        if until <= now {
++        if until < now {
+             return Err(GrantExpired { until });
+         }
+         Ok(Self {

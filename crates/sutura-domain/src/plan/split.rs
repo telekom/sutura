@@ -24,12 +24,13 @@
 //!   production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
 
 use core::fmt;
-use core::num::{NonZeroU64, NonZeroUsize};
+use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::SystemTime;
 
 use arrow_schema::SchemaRef;
 
 use crate::identity::SubjectKey;
+use crate::nonempty::NonEmpty;
 use crate::warehouse::ResultBatches;
 use crate::warehouse::estimate::EstimatedBytes;
 
@@ -175,35 +176,51 @@ pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
 /// `stream_rows` rows a stream. `wire` and each partition are the granting adapter's own encoding,
 /// opaque here. `held` is what the source keeps open across the partitions - an exporting
 /// transaction - and lives as long as this value, which [`Legs`](crate::plan::Legs) borrows past the
-/// combine.
+/// combine. It is `Send + Sync` because the combine's scoped join moves the borrowed legs across
+/// threads.
 ///
 /// **The limit:** nothing in production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
 pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,
-    partitions: Vec<Vec<u8>>,
+    partitions: NonEmpty<Vec<u8>>,
     caller: SubjectKey,
     until: SystemTime,
-    stream_rows: u32,
+    stream_rows: NonZeroU32,
     estimate: EstimatedBytes,
     _held: Box<dyn Send + Sync + 'r>,
+}
+
+/// [`Granted::new`] was handed a grant that ended at or before the `now` it was checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the grant ended at {until:?}, at or before it was made")]
+pub struct GrantExpired {
+    until: SystemTime,
 }
 
 impl<'r> Granted<'r> {
     /// `partitions` of the leg `wire` encodes, answering `schema`, granted to `caller` until `until`
     /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// [`GrantExpired`] when `until` is not after `now`. Checked once, here: a grant that ends while
+    /// its partitions are read is not refused by this check.
     pub fn new(
         wire: Vec<u8>,
         schema: SchemaRef,
-        partitions: Vec<Vec<u8>>,
+        partitions: NonEmpty<Vec<u8>>,
         caller: SubjectKey,
         until: SystemTime,
-        stream_rows: u32,
+        now: SystemTime,
+        stream_rows: NonZeroU32,
         estimate: EstimatedBytes,
         held: impl Send + Sync + 'r,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, GrantExpired> {
+        if until <= now {
+            return Err(GrantExpired { until });
+        }
+        Ok(Self {
             wire,
             schema,
             partitions,
@@ -212,7 +229,7 @@ impl<'r> Granted<'r> {
             stream_rows,
             estimate,
             _held: Box::new(held),
-        }
+        })
     }
 
     /// The leg, as the granting adapter encoded it for its readers.
@@ -229,8 +246,8 @@ impl<'r> Granted<'r> {
 
     /// One descriptor per partition, in the granting adapter's encoding.
     #[must_use]
-    pub const fn partitions(&self) -> &[Vec<u8>] {
-        self.partitions.as_slice()
+    pub const fn partitions(&self) -> &NonEmpty<Vec<u8>> {
+        &self.partitions
     }
 
     /// Whom every partition is read for.
@@ -247,7 +264,7 @@ impl<'r> Granted<'r> {
 
     /// The most rows one partition's stream may carry.
     #[must_use]
-    pub const fn stream_rows(&self) -> u32 {
+    pub const fn stream_rows(&self) -> NonZeroU32 {
         self.stream_rows
     }
 

@@ -71,7 +71,7 @@ pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
 pub use crate::plan::split::{
-    EstimatedRows, Granted, LookupSplit, PartitionReader, Partitioned, SplitDecision, SplitRefusal, decide,
+    EstimatedRows, GrantExpired, Granted, LookupSplit, PartitionReader, Partitioned, SplitDecision, SplitRefusal, decide,
 };
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};

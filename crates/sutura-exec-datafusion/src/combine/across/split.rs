@@ -26,9 +26,10 @@
 //! - A stage with two split legs goes only to nodes reading both sources, its tasks capped at the
 //!   fewer readers of either: when fewer nodes read both, one of them runs more than one task.
 //! - A stage whose sources no resolved node reads together is refused (`NoReadingNode`, naming each
-//!   of them), never placed elsewhere. A combine answers it as `CombineError::NoReadingNode`, naming
-//!   the first of them, which `sutura_app` does not ask about yet: it reaches a caller as this
-//!   workspace's own defect.
+//!   of them), never placed elsewhere. A combine answers it as `CombineError::NoReadingNode` naming
+//!   the first of them no resolved node reads at all, which `sutura_app` does not ask about yet: it
+//!   reaches a caller as this workspace's own defect. Sources that each have a reader but none in
+//!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
 //! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
@@ -334,7 +335,11 @@ pub(super) fn routed(
         .filter(|&node| sources.iter().all(|source| reading(source).contains(node)))
         .collect();
     if nodes.is_empty() {
-        return Some(Err(DataFusionError::External(Box::new(NoReadingNode { aliases: sources }))));
+        let unread = sources.iter().find(|&source| reading(source).is_empty()).cloned();
+        return Some(Err(DataFusionError::External(Box::new(NoReadingNode {
+            aliases: sources,
+            unread,
+        }))));
     }
     Some(Ok(RouteTasksEventResponse::new(
         nodes.into_iter().cycle().take(event.task_count).cloned().collect(),

@@ -119,11 +119,12 @@ pub enum LookupRead<'a> {
 }
 
 impl LookupRead<'_> {
-    /// No partition stands for the leg.
+    /// No partition stands for the leg. Never a grant, whose partitions are
+    /// [`NonEmpty`](crate::nonempty::NonEmpty).
     const fn is_empty(self) -> bool {
         match self {
             Self::Rows(parts) => parts.is_empty(),
-            Self::Granted(granted) => granted.partitions().is_empty(),
+            Self::Granted(_) => false,
         }
     }
 }

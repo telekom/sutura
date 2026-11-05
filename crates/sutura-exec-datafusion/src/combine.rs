@@ -733,8 +733,8 @@ impl FederationCombiner for DataFusionCombiner {
             self.runtime()?
                 .block_on(Self::assembled(plan, &legs, context, working_set, working_set_bytes))
         };
-        if let Some(source) = served::granted(&legs) {
-            return served::combined(self, source, working_set_bytes, legs_held(&legs), run);
+        if let Some(source) = served::granted(&legs).next() {
+            return served::combined(self, source, &legs, working_set_bytes, run);
         }
         self.placed(working_set_bytes, several(plan.sources()).then(|| legs_held(&legs)), run)
     }

@@ -1,16 +1,16 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
 --- a/crates/sutura-exec-datafusion/src/combine/served.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/served.rs
-@@ -142,7 +142,7 @@ fn registered_split(
+@@ -146,7 +146,7 @@ fn registered_split(
  )]
  pub(super) fn combined(
      combiner: &DataFusionCombiner,
 -    source: &SourceName,
 +    _source: &SourceName,
+     legs: &Legs<'_>,
      ceiling_bytes: u64,
-     legs_bytes: u64,
      run: impl Fn(&SessionContext, WorkingSet) -> Result<ResultBatches, CombineError>,
-@@ -154,7 +154,6 @@ pub(super) fn combined(
+@@ -164,7 +164,6 @@ pub(super) fn combined(
          return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set)
              .map_err(|error| across::relayed(across::lost(error)));
      }

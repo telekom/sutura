@@ -1,8 +1,15 @@
-//! [`decide`]'s cells, apart from its implementation in `split.rs`.
+//! [`decide`]'s and [`Granted::new`]'s cells, apart from their implementation in `split.rs`.
 
-use core::num::{NonZeroU64, NonZeroUsize};
+use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use core::time::Duration;
+use std::sync::Arc;
+use std::time::SystemTime;
 
-use crate::plan::{EstimatedRows, SplitDecision, decide};
+use arrow_schema::Schema;
+
+use crate::identity::SubjectKey;
+use crate::nonempty::NonEmpty;
+use crate::plan::{EstimatedRows, GrantExpired, Granted, SplitDecision, decide};
 use crate::warehouse::estimate::EstimatedBytes;
 
 fn nz_u64(value: u64) -> NonZeroU64 {
@@ -124,5 +131,36 @@ fn arithmetic_at_the_widest_values_does_not_panic() {
         decision,
         SplitDecision::Split(nz_usize(1)),
         "one partition of u64::MAX rows sits under a usize::MAX-row bound"
+    );
+}
+
+/// A grant ending at the moment it is made, or before, is refused; one ending a second later is not.
+#[test]
+fn a_grant_ending_at_or_before_now_is_refused_as_expired() {
+    let now = SystemTime::now();
+    let grant = |until| {
+        Granted::new(
+            Vec::new(),
+            Arc::new(Schema::empty()),
+            NonEmpty::one(vec![0]),
+            SubjectKey::parse("user@example.com").expect("a test caller is a subject"),
+            until,
+            now,
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+        )
+    };
+
+    for until in [now, now - Duration::from_secs(1)] {
+        let refused = grant(until);
+        assert!(
+            matches!(refused, Err(GrantExpired { .. })),
+            "a grant ending at or before now was made: {refused:?}"
+        );
+    }
+    assert!(
+        grant(now + Duration::from_secs(1)).is_ok(),
+        "a grant ending after now was refused"
     );
 }

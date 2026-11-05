@@ -96,7 +96,7 @@
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
 //!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
 //!   under the one snapshot its source holds open across both. Nothing in production grants a leg
-//!   yet (`github.com/telekom/sutura#828`, SERVE-2): a served leg stays on this node.
+//!   (`github.com/telekom/sutura#828`, SERVE-2): a served question has no granted leg yet.
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -277,6 +277,11 @@ impl Nodes {
     pub fn reading(mut self, source: SourceName, readers: impl IntoIterator<Item = Url>) -> Self {
         self.readers.insert(source, readers.into_iter().collect());
         self
+    }
+
+    /// Whether any other node is declared as reading `source`, resolved or not.
+    pub(super) fn reads(&self, source: &SourceName) -> bool {
+        self.readers.get(source).is_some_and(|readers| !readers.is_empty())
     }
 
     /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
@@ -556,7 +561,8 @@ pub(super) struct StageReadsASource {
 }
 
 /// A stage reading split legs of `aliases` that no resolved node is declared as reading together: it
-/// is read on none, and never on a node that does not read them.
+/// is read on none, and never on a node that does not read them. `unread` is the first of them no
+/// resolved node reads at all, `None` when each has a reader and none reads them all.
 #[derive(Debug, thiserror::Error)]
 #[error(
     "no resolved node reads all of {}, so the stage's split legs are read on none",
@@ -564,6 +570,7 @@ pub(super) struct StageReadsASource {
 )]
 pub(super) struct NoReadingNode {
     pub(super) aliases: Vec<SourceName>,
+    pub(super) unread: Option<SourceName>,
 }
 
 /// `event`'s stage, refused if a leaf reads anything but another node's stage or rows the plan
