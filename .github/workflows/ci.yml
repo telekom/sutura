@@ -938,8 +938,7 @@ jobs:
       # The vendored Oracle driver's own unit tests (`nix/vendored-oracledb.nix`), which the
       # workspace excludes, so `Tests` never compiles them. They cover the patched modules, which
       # no live Oracle cell reaches in full. Gated on the venue's inputs like the tiers above; a
-      # change under `vendor/rust-oracledb/` selects `data_source_oracle` through the category
-      # axis's fail-open to `core`.
+      # change under `vendor/rust-oracledb/` matches no area, so it runs everything.
       - name: Vendored Oracle driver tests
         if: (steps.classify.outputs.run_all == 'true' || steps.classify.outputs.nix == 'true' || steps.classify.outputs.data_source_oracle == 'true') && github.event_name != 'push'
         run: nix build .#checks.x86_64-linux.vendored-oracledb -L
