@@ -28,6 +28,12 @@
 //! `sutura-catalog-datahub`'s own module header are explicit that those mappings are a first-party
 //! claim about each platform's wire shape, which this crate must never blur by generalizing over.
 //!
+//! # Auth
+//!
+//! [`token::TokenSource`] is the bearer a reader presents: a fixed token, or an OAuth 2.0
+//! client-credentials grant on the reader's own origin, minted again before it expires so a
+//! refreshing catalog outlives one token. Either is the deployment's own identity.
+//!
 //! # TLS
 //!
 //! [`fixed`] and [`rotating_agent`] are the two ways a reader gets an outbound `ureq::Agent`: fixed
@@ -50,6 +56,7 @@ mod message;
 mod paging;
 mod routed;
 mod tls;
+pub mod token;
 
 #[cfg(any(test, feature = "test"))]
 pub mod test_support;

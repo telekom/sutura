@@ -72,6 +72,15 @@ impl TokenEndpoint {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether this endpoint is on `origin`: the same scheme, host and port as written, then a path.
+    /// A host written in another case, or a default port written out on one side only, is not.
+    #[must_use]
+    pub fn is_on(&self, origin: &Endpoint) -> bool {
+        self.0
+            .strip_prefix(origin.as_str().trim_end_matches('/'))
+            .is_some_and(|path| path.starts_with('/'))
+    }
 }
 
 /// Why a declared client identifier is unusable.
@@ -84,9 +93,10 @@ pub enum UnusableClientId {
 
 /// This deployment's client at the identity provider and its secret (`client_secret_post`).
 ///
-/// **The most sensitive value in the deployment**: whoever holds it can obtain a pool-audience
-/// token for any subject whose inbound token they also hold. `Debug` prints the identifier and `Secret`'s redaction; there is no
-/// `Display`.
+/// **The most sensitive value in the deployment**: in a delegation exchange, whoever holds it can
+/// obtain a pool-audience token for any subject whose inbound token they also hold; in a
+/// [`crate::token::ClientCredentials`] grant, the deployment's own token. `Debug` prints the
+/// identifier and `Secret`'s redaction; there is no `Display`.
 #[derive(Debug, Clone)]
 pub struct ExchangeClient {
     id: String,
@@ -106,6 +116,14 @@ impl ExchangeClient {
             secret,
         })
     }
+
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) const fn secret(&self) -> &Secret {
+        &self.secret
+    }
 }
 
 /// Which request an [`OverHttp`] sends its endpoint.
@@ -123,7 +141,7 @@ pub enum Grant {
 }
 
 /// An answer's status and its body, read into a [`Secret`].
-type Answer = (u16, Secret);
+pub(crate) type Answer = (u16, Secret);
 
 /// [`DelegationExchange`] over HTTP.
 #[derive(Debug)]
@@ -168,7 +186,7 @@ impl OverHttp {
 }
 
 /// Why [`post`] has no answer to check.
-enum Unsent {
+pub(crate) enum Unsent {
     Unreachable(ureq::Error),
     TooLarge(u64),
 }
@@ -181,15 +199,25 @@ fn post(
     bounds: ReadBounds,
     form: &[(&str, &str)],
 ) -> Result<Answer, Unsent> {
+    post_capped(agent, endpoint, bounds.timeout(), bounds.max_response_bytes(), form)
+}
+
+/// [`post`] inside `timeout`, reading at most `cap` bytes.
+pub(crate) fn post_capped(
+    agent: &sutura_tls::Rotating<ureq::Agent>,
+    endpoint: &TokenEndpoint,
+    timeout: core::time::Duration,
+    cap: u64,
+    form: &[(&str, &str)],
+) -> Result<Answer, Unsent> {
     let mut response = agent
         .current()
         .post(endpoint.as_str())
         .config()
-        .timeout_global(Some(Budget::socket(bounds.timeout())))
+        .timeout_global(Some(Budget::socket(timeout)))
         .build()
         .send_form(form.iter().copied())
         .map_err(Unsent::Unreachable)?;
-    let cap = bounds.max_response_bytes();
     let text = Secret::new(
         response
             .body_mut()
@@ -276,7 +304,7 @@ fn refusal(status: u16, body: Option<&serde_json::Value>) -> DelegationFailed {
 
 /// The RFC 6749 `error` code, kept only in its registered shape - `[a-z_]`, at most 64 bytes - which
 /// no token can be.
-fn registered(error: Option<&str>) -> Option<String> {
+pub(crate) fn registered(error: Option<&str>) -> Option<String> {
     error
         .filter(|code| code.len() <= 64 && code.bytes().all(|byte| byte.is_ascii_lowercase() || byte == b'_'))
         .map(String::from)
