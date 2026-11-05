@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
+index 04332cc1a..19cc79f4d 100644
+--- a/crates/sutura-http-client/src/delegation/pool.rs
++++ b/crates/sutura-http-client/src/delegation/pool.rs
+@@ -90,7 +90,7 @@ fn answered(status: u16, text: &str, now: u64) -> Result<Delegated, PoolExchange
+         return Err(PoolExchangeFailed::Malformed { what: "not JSON" });
+     }
+     if text_of("issued_token_type") != Some(ACCESS_TOKEN)
+-        || !text_of("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("bearer"))
++        || !text_of("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("dpop"))
+     {
+         return Err(PoolExchangeFailed::WrongTokenType);
+     }

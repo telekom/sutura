@@ -314,9 +314,10 @@ impl Delegation {
 /// accepted set excludes every character that could end a form field or a URL, so a declaration
 /// cannot reshape the request it lands in.
 ///
-/// **One field, and a scope is not it.** The scope an exchange asks for is the data system
-/// client's own, a constant of the [`PoolExchange`] implementor; there is no `workload_identity.scope`
-/// key, so a declared value nothing sends cannot read as a control that is in place.
+/// **One field, and a scope is not it.** The scope an exchange asks for is a [`PoolScope`] the
+/// code needing the token chooses, mapped by the [`PoolExchange`] implementor to its data system's
+/// own scope; there is no `workload_identity.scope` key, so a declared value nothing sends cannot
+/// read as a control that is in place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkloadPool {
     audience: String,
@@ -386,6 +387,21 @@ impl WorkloadPool {
     }
 }
 
+/// What the token a pool exchange asks for may do at the data system.
+///
+/// Closed, with nothing to parse: the code that needs a token chooses its scope, and no
+/// configuration names one. The implementor maps each variant to its data system's scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolScope {
+    /// What the data system's own client asks for: run a question's job, read its result, cancel it.
+    Query,
+    /// Reads only, for a token a node forwards to another that reads part of a result. **Not
+    /// narrowed yet:** nothing asks for it, and the implementor asks for [`Self::Query`]'s scope
+    /// until the forwarded token lands, the next change of the `BigQuery` reading worker. Once
+    /// narrowed it still starts queries: `BigQuery`'s read-only scope accepts `jobs.query`.
+    ReadOnly,
+}
+
 /// Why a pool exchange produced no usable access token.
 ///
 /// **No variant carries token material or the token service's free text**, for the reason
@@ -431,12 +447,13 @@ pub enum PoolExchangeFailed {
 /// non-empty token - and never decodes the token; Google's token service is what verifies the
 /// assertion against the pool. Synchronous for the reason [`DelegationExchange`] is.
 pub trait PoolExchange: core::fmt::Debug + Send + Sync {
-    /// Exchanges `assertion` - the caller's own, after any declared delegation - at `pool`.
+    /// Exchanges `assertion` - the caller's own, after any declared delegation - at `pool`, for a
+    /// token asked for `scope`.
     ///
     /// # Errors
     ///
     /// [`PoolExchangeFailed`]: nothing usable came back, and no data system connection is opened.
-    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool) -> Result<Delegated, PoolExchangeFailed>;
+    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool, scope: PoolScope) -> Result<Delegated, PoolExchangeFailed>;
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@
 //! **No client authentication and no `options` member**: the provider sends neither without a
 //! declared client id and secret or a workforce user project, and a source here declares none.
 
-use sutura_domain::identity::{Delegated, PoolExchange, PoolExchangeFailed, Secret, WorkloadPool};
+use sutura_domain::identity::{Delegated, PoolExchange, PoolExchangeFailed, PoolScope, Secret, WorkloadPool};
 
 use super::{ACCESS_TOKEN, TOKEN_EXCHANGE, TokenEndpoint, Unsent};
 use crate::ReadBounds;
@@ -25,8 +25,9 @@ const JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
 
 /// The `BigQuery` client's own scope. The driver's client prepends it to its options, and a
 /// federated token with no impersonation hop is asked for the client's scopes - so this is what the
-/// driver asked for before this process performed the exchange. Not narrowed to read-only: a token
-/// the client would not have asked for is a different credential, unmeasured.
+/// driver asked for before this process performed the exchange. **Both [`PoolScope`]s ask for it
+/// today:** the read-only scope lands with the forwarded token, the next change of the `BigQuery`
+/// reading worker.
 const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
 
 /// [`PoolExchange`] over HTTP, at [`GOOGLE_STS`] or a stand-in for it.
@@ -45,7 +46,10 @@ impl GoogleSts {
 }
 
 impl PoolExchange for GoogleSts {
-    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool) -> Result<Delegated, PoolExchangeFailed> {
+    fn exchange(&self, assertion: &Secret, pool: &WorkloadPool, scope: PoolScope) -> Result<Delegated, PoolExchangeFailed> {
+        let scope = match scope {
+            PoolScope::Query | PoolScope::ReadOnly => BIGQUERY_SCOPE,
+        };
         #[expect(
             clippy::disallowed_methods,
             reason = "the assertion is the value this request exists to send; it goes into one form \
@@ -57,7 +61,7 @@ impl PoolExchange for GoogleSts {
             ("requested_token_type", ACCESS_TOKEN),
             ("subject_token_type", JWT),
             ("subject_token", assertion.expose_secret()),
-            ("scope", BIGQUERY_SCOPE),
+            ("scope", scope),
         ];
         let (status, text) = super::post(&self.agent, &self.endpoint, self.bounds, &form).map_err(|unsent| match unsent {
             Unsent::Unreachable(cause) => PoolExchangeFailed::Unreachable { cause: Box::new(cause) },
