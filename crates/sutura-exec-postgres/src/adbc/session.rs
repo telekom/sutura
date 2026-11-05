@@ -175,10 +175,19 @@ where
 {
     let timeout = left(ceiling_ms, deadline)?;
     transaction(connection, &Setting::Certified(Some(timeout)), |connection| {
-        let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
-        statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
-        statement.execute_schema().map(drop).map_err(AdbcError::Adbc)
+        columns(connection, sql).map(drop)
     })
+}
+
+/// The columns `sql` answers, described by the server and never run, inside whatever transaction
+/// `connection` holds - a split leg's exporting one, which nothing here rolls back.
+pub(super) fn columns<C>(connection: &mut C, sql: &str) -> Result<arrow_schema::Schema, AdbcError>
+where
+    C: Connection,
+{
+    let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
+    statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
+    statement.execute_schema().map_err(AdbcError::Adbc)
 }
 
 /// The raw tool's one statement, `READ ONLY`, read to [`RAW_ROWS`] at most.

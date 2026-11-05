@@ -37,7 +37,7 @@ use std::collections::BTreeSet;
 use crate::calendar::Date;
 use crate::identity::{BillTo, Presented};
 use crate::model::{QualifiedTable, SourceName};
-use crate::plan::{AnchorPlan, Executable, LegPlan, LookupSplit, Partitioned};
+use crate::plan::{AnchorPlan, Executable, Grantee, LegPlan, LookupSplit, Partitioned};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
 pub mod billed;
@@ -630,6 +630,10 @@ pub trait Warehouse {
     /// ([`crate::plan::decide`]). `readers` is the count the deployment declares, not one measured
     /// ready.
     ///
+    /// With a `grantee`, a source that can hand its partitions to the nodes reading it answers a split
+    /// [`Partitioned::Granted`], or [`Partitioned::NotGranted`] for [`Grantee::grant`]'s refusal, and
+    /// reads none of it here; without one it reads its partitions here.
+    ///
     /// **Defaults to [`Partitioned::Whole`]**: a source that does not override this reads every leg
     /// through [`Self::execute`]. Takes no payer: the caller asks it only of a leg that names none,
     /// and runs every other through [`Self::execute_billed`].
@@ -644,6 +648,7 @@ pub trait Warehouse {
         _deadline: Deadline,
         _above_bytes: NonZeroU64,
         _readers: NonZeroUsize,
+        _grantee: Option<Grantee>,
     ) -> LookupSplit<'_, Self::Error> {
         Ok(Partitioned::Whole)
     }

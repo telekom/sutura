@@ -98,6 +98,7 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | Two `server.nodes.others` peers naming the same origin, or one naming this node's own `own` address                               | Remove the duplicate, or the self-reference                                                 |
 | A `server.nodes` address with a path, query, userinfo or a fragment that is not an IP address                                     | Use the bare `https://host:port` origin, or `#<ip>` to dial it at that address              |
 | A `server.nodes.others` peer declaring `role: "reading-worker"` reading a source this deployment's own `sources` does not declare | Declare the source here too, or remove it from the peer's list                              |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` reading a declared source, and no `security.inbound`              | Declare `security.inbound`, or remove the source from the peer's list                       |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
 refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
@@ -372,7 +373,9 @@ the source aliases it reads - a `worker` naming any is refused, and a `reading-w
 a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other
 fragment is refused. Two peers naming the same origin, or a peer naming this
 node's own `own` address, is refused. A `reading-worker`'s source alias that this deployment's own `sources:` does not
-declare is refused too, once the posture check runs.
+declare is refused too, once the posture check runs. So is a `reading-worker` peer reading a declared source on a
+deployment with no `security.inbound`: a lookup leg read on a reading node is granted for a verified caller, and a
+question with no verified caller is refused before such a source is asked anything.
 
 The chart renders only `worker` peers under `others` today; a `reading-worker` peer declared this way is written by hand.
 

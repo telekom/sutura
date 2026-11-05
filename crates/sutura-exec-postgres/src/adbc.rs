@@ -161,8 +161,8 @@ impl AdbcPostgres {
     ///
     /// **The limits**: its one production caller is a reading worker's partition reader in
     /// `sutura-cli`, after the worker admitted the task's grant and re-certified the leg against its
-    /// own catalog; no planning node routes a split leaf to a worker yet,
-    /// `github.com/telekom/sutura#828`. It takes no presented identity and does not authenticate
+    /// own catalog; a planning node routes it a split leaf only for a leg granted through
+    /// [`SplitLeg::schema`] and [`Partition::descriptor`], `github.com/telekom/sutura#828`. It takes no presented identity and does not authenticate
     /// `descriptor`, so it reads as the adapter's service user for whoever holds the bytes - a source
     /// declared `shared-service-user` because startup refuses any other posture for Postgres, not
     /// because this reads one. Deciding who may ask, and keeping the bytes intact on the wire, is the

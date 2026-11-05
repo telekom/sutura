@@ -15,10 +15,13 @@ use core::iter;
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use sutura_domain::identity::{BillTo, BoundToTheRequest, CredentialBroker, Presented, RequestContext};
-use sutura_domain::plan::{Executable, FederationCombiner, LegPlan, LegRunner, PartitionReader, Partitioned};
+use sutura_domain::plan::{
+    Executable, FederationCombiner, Granted, Grantee, LegPlan, LegRunner, LinkCast, Looked, NotGranted, NotOffered,
+    PartitionReader, Partitioned,
+};
 use sutura_domain::query::{RefusalReason, ResultBound};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
@@ -80,8 +83,15 @@ type Failed<W, B, C> = LegError<<W as Warehouse>::Error, <B as CredentialBroker>
 /// `T`, or [`Failed`] - named for the `type_complexity` reason [`LegAnswer`] is.
 type Leg<T, W, B, C> = Result<T, Failed<W, B, C>>;
 
+/// What a split asked of a lookup leg's source answered: partitions read here, or granted to the
+/// nodes that read it.
+enum Asked<'r, E> {
+    Here(PartitionReader<'r, E>),
+    Granted(Granted<'r>),
+}
+
 /// A lookup leg's partitions, or why it was not split - named for the same reason.
-type Partitions<'r, W, B, C> = Leg<PartitionReader<'r, Failed<W, B, C>>, W, B, C>;
+type Partitions<'r, W, B, C> = Leg<Asked<'r, Failed<W, B, C>>, W, B, C>;
 
 /// The credential `leg` is read under, once it is still usable and `deadline` has time left.
 ///
@@ -301,28 +311,51 @@ where
     }
 
     /// `leg` asked of a source [`Warehouses::splitting`] named: its partitions, its one read when
-    /// the source answers [`Partitioned::Whole`], or why neither.
+    /// the source answers [`Partitioned::Whole`], its grant, or why none of them.
     ///
     /// [`usable`]'s guards are asked before the split, and the grant's `still_usable_at` again before
     /// each partition is asked for - the call after the last one too, so a grant that expires during
     /// the last read refuses the leg. Each partition's failure is [`classified`] as a whole leg's is.
     /// [`Partitioned::Refused`] is `ResultTooLarge`: no partition count the declared readers allow
     /// keeps each under the source's per-stream bound, so nothing is read.
-    fn partitioned(&self, leg: &LegPlan, above_bytes: NonZeroU64, readers: NonZeroUsize) -> Partitions<'_, W, B, C> {
+    ///
+    /// **A request with no verified caller is refused here, before the source is asked anything**,
+    /// whatever the leg's size, columns or link: a split leg may be granted, a grant names its
+    /// caller, and this deployment does not read such a leg as itself instead. `sutura_config` refuses
+    /// at boot a serving node whose peers read a source it declares while `security.inbound` is
+    /// absent (`NotFitToServe::ReadingNodeWithoutInboundIdentity`), so this is the defence behind
+    /// that, for a caller a declared inbound mode still leaves unverified. A leg whose `link` is
+    /// [`LinkCast::Undeclared`] is then offered for granting ([`Self::grantee`]), and a grant the
+    /// source would not make is refused ([`Self::not_granted`]), never read here instead.
+    fn partitioned(
+        &self,
+        leg: &LegPlan,
+        (above_bytes, readers): (NonZeroU64, NonZeroUsize),
+        link: LinkCast,
+    ) -> Partitions<'_, W, B, C> {
         let _entered = self.span.enter();
         let warehouse = self.cleared(leg)?;
         let deadline = self.deadline;
         let presented = usable::<W, B, C>(self.credentials, leg, deadline)?;
-        match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers) {
-            Ok(Partitioned::Whole) => Ok(Box::new(iter::once(run_leg::<_, B, C>(
+        let grantee = match self.grantee(leg) {
+            Err(NotOffered::NoCaller) => {
+                return Err(LegError::Refusal(RefusalReason::CredentialUnavailable {
+                    source: leg.source().clone(),
+                }));
+            }
+            Err(NotOffered::NotSendable(_)) => None,
+            Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
+        };
+        match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee) {
+            Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
                 warehouse,
                 (self.credentials, self.labels),
                 leg,
                 deadline,
-            )))),
+            ))))),
             Ok(Partitioned::Split(mut parts)) => {
                 let (span, credentials) = (&self.span, self.credentials);
-                Ok(Box::new(iter::from_fn(move || {
+                Ok(Asked::Here(Box::new(iter::from_fn(move || {
                     let _entered = span.enter();
                     if let Err(cause) = credentials.still_usable_at(now_in_unix_seconds()) {
                         return Some(Err(ServiceError::Credentials { cause }.into()));
@@ -330,12 +363,38 @@ where
                     parts
                         .next()
                         .map(|part| part.map_err(|cause| classified::<W, B, C>(warehouse, cause, deadline)))
-                })))
+                }))))
             }
+            Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
             Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
                 bound: ResultBound::Volume,
             })),
+            Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
             Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
+        }
+    }
+
+    /// `leg` granted for the caller the request's grant names, until the earlier of the question's
+    /// deadline and that grant's own expiry - [`NotOffered::NotSendable`] for a leg that does not
+    /// encode, which is then read here as it was before a leg could be granted.
+    fn grantee(&self, leg: &LegPlan) -> Result<Grantee, NotOffered> {
+        let now = SystemTime::now();
+        let left = self.deadline.remaining_at(Instant::now()).unwrap_or_default();
+        Grantee::new(leg, self.credentials, now.checked_add(left).unwrap_or(now))
+    }
+
+    /// The failure a grant `leg`'s source would not make is: a partition no other node can read is
+    /// `SourceUnavailable`, and a grant that ended before the source handed back its partitions is
+    /// the request's own grant expiring when that has passed, else the question's deadline.
+    fn not_granted(&self, leg: &LegPlan, refused: NotGranted) -> Failed<W, B, C> {
+        match refused {
+            NotGranted::NotPortable => LegError::Refusal(RefusalReason::SourceUnavailable {
+                source: leg.source().clone(),
+            }),
+            NotGranted::Expired(_) => match self.credentials.still_usable_at(now_in_unix_seconds()) {
+                Err(cause) => ServiceError::Credentials { cause }.into(),
+                Ok(()) => LegError::Refusal(deadline_exceeded(self.deadline)),
+            },
         }
     }
 }
@@ -358,16 +417,18 @@ where
     }
 
     /// Split at the source when [`Warehouses::splitting`] named `leg`'s source and `leg` names no
-    /// payer - a split reads no payer - otherwise [`Self::run`]'s one read.
-    fn split(&self, leg: &LegPlan) -> PartitionReader<'_, Self::Error> {
+    /// payer - a split reads no payer - read here or granted, otherwise [`Self::run`]'s one read.
+    fn lookup(&self, leg: &LegPlan, link: LinkCast) -> Result<Looked<'_>, Self::Error> {
         let at = self
             .warehouses
             .split_at(leg.source())
             .filter(|_| matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
-        let Some((above_bytes, readers)) = at else {
-            return Box::new(iter::once(self.run(leg)));
+        let Some(at) = at else {
+            return self.run(leg).map(|rows| Looked::Rows(vec![rows]));
         };
-        self.partitioned(leg, above_bytes, readers)
-            .unwrap_or_else(|failed| Box::new(iter::once(Err(failed))))
+        match self.partitioned(leg, at, link)? {
+            Asked::Here(parts) => parts.collect::<Result<Vec<_>, _>>().map(Looked::Rows),
+            Asked::Granted(granted) => Ok(Looked::Granted(granted)),
+        }
     }
 }
