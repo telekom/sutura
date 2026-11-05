@@ -183,6 +183,7 @@ exclude_docs: |
   what-a-bpmn-file-actually-carries.md
   what-a-data-contract-can-carry.md
   what-an-openapi-catalog-can-carry.md
+  what-foundry-can-carry.md
   what-an-rdf-graph-can-carry.md
   what-okf-can-carry.md
   what-openmetadata-can-carry.md

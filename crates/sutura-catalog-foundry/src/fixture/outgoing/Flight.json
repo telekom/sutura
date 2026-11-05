@@ -1,0 +1,39 @@
+{
+  "data": [
+    {
+      "apiName": "aircraft",
+      "displayName": "Aircraft",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Aircraft",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "tailNumber",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000027"
+    },
+    {
+      "apiName": "arrivalAirport",
+      "displayName": "Arrival airport",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Airport",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "arrivalAirportCode",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000028"
+    },
+    {
+      "apiName": "crew",
+      "displayName": "Crew",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Employee",
+      "cardinality": "MANY",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000029"
+    },
+    {
+      "apiName": "departureAirport",
+      "displayName": "Departure airport",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Airport",
+      "cardinality": "ONE",
+      "foreignKeyPropertyApiName": "departureAirportCode",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000030"
+    }
+  ]
+}

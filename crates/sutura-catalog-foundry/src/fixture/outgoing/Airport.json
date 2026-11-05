@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "apiName": "arrivingFlights",
+      "displayName": "Arriving flights",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Flight",
+      "cardinality": "MANY",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000024"
+    },
+    {
+      "apiName": "departingFlights",
+      "displayName": "Departing flights",
+      "status": "ACTIVE",
+      "objectTypeApiName": "Flight",
+      "cardinality": "MANY",
+      "linkTypeRid": "ri.ontology.main.link-type.00000000-0000-0000-0000-000000000025"
+    }
+  ]
+}
