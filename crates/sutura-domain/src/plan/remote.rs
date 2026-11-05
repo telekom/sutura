@@ -313,9 +313,6 @@ impl LegWire {
 /// A reading grant digests that document, so the grant covers the bound values too, where a remote
 /// leg's travel beside its document. The planning node writes it with [`Self::encode`], the reading
 /// worker reads it back with [`Self::parse`].
-///
-/// **The limit:** only [`Grantee::new`](crate::plan::Grantee::new) encodes one, and nothing in
-/// production builds a grantee yet (`github.com/telekom/sutura#828`, SERVE-2).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartitionLeg {

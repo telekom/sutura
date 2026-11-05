@@ -92,6 +92,39 @@ pub(super) fn declared_node_refusals(settings: &Settings) -> Vec<NotFitToServe> 
         .collect()
 }
 
+/// Every declared peer reading a source this deployment serves, on a serving node that verifies
+/// no caller - `security.inbound` absent.
+///
+/// A lookup leg such a source splits is granted to its readers for the verified caller who asked,
+/// and `sutura_app` refuses one asked by nobody verified before the source is asked anything. So
+/// without leg 1 every such leg is refused at question time; this refuses the deployment before a
+/// listener binds instead. An alias this deployment does not declare is
+/// [`NotFitToServe::DeclaredNodeReadsUndeclaredSource`]'s, not this one's.
+///
+/// **The limit:** it reads the declaration. A deployment with `security.inbound` whose callers
+/// reach `/v1` with no verified subject still meets the question-time refusal.
+pub(super) fn reading_node_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+    if settings.server.role() != ServerRole::Serving || settings.security.inbound().is_some() {
+        return Vec::new();
+    }
+    let Some(nodes) = settings.server.tls().and_then(crate::server::TlsMaterial::nodes) else {
+        return Vec::new();
+    };
+    nodes
+        .others()
+        .iter()
+        .flat_map(|node| {
+            node.sources()
+                .iter()
+                .filter(|alias| settings.sources.get(alias).is_some())
+                .map(|alias| NotFitToServe::ReadingNodeWithoutInboundIdentity {
+                    url: node.url().to_string(),
+                    alias: alias.as_str().to_owned(),
+                })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod reading;
 #[cfg(test)]

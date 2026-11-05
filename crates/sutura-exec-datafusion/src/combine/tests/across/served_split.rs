@@ -6,9 +6,9 @@
 //!
 //! # What this does not exercise
 //!
-//! The grant is built here: no runner in production answers one yet (`github.com/telekom/sutura#828`,
-//! SERVE-2), so no served question reaches these paths and `sutura_app` reads none of the refusals.
-//! The readers answer from memory rather than a source, every node shares one authority and one
+//! The grant is built here, not by a source: `sutura_app`'s leg runner and a PostgreSQL split are
+//! held apart from these paths, and none of these cells reads a refusal through `sutura_app`. The
+//! readers answer from memory rather than a source, every node shares one authority and one
 //! runtime, and no cell reaches the byte bound a grant carries, which no worker enforces.
 //!
 //! That a granted leg is never read on this node is held by `SplitLeafExec::execute` and
@@ -266,6 +266,33 @@ fn a_granted_lookup_is_read_only_by_its_source_s_readers_and_answers_what_the_wh
         read,
         partitions(DISTINCT).into_iter().collect(),
         "a partition was read by other than one of the leg's readers"
+    );
+}
+
+/// One declared reader of `geo`: its stage is still scaled into reading tasks, both dealt to that
+/// reader, rather than planned as one task whose leaf refuses to read.
+#[test]
+fn a_granted_lookup_one_node_reads_is_read_there_and_answers_what_the_whole_leg_answers() {
+    let across = granted_across(DISTINCT, |geo| vec![geo[0].url.clone()]);
+
+    let answer = across
+        .answer
+        .expect("a granted lookup with one reader answered")
+        .to_rows()
+        .expect("a combined answer decodes");
+    let read_whole = combined(&sum_plan(true), &fact(), &whole(DISTINCT), UNBOUNDED);
+    assert_eq!(answer.rows(), read_whole.rows());
+    assert_eq!(across.read_here, 0, "execute ran the lookup instead of granting it");
+    let [ref reader, ref undeclared] = across.geo;
+    assert_eq!(
+        reader.read(),
+        partitions(DISTINCT).into_iter().collect(),
+        "the one declared reader read every partition"
+    );
+    assert_eq!(
+        undeclared.read(),
+        BTreeSet::new(),
+        "a node not declared as reading read a partition"
     );
 }
 

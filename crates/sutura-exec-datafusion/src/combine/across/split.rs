@@ -11,24 +11,26 @@
 //! # Limits
 //!
 //! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
-//!   checks its link values across its partitions in the same session it joins in. Nothing in
-//!   production grants a leg yet (`github.com/telekom/sutura#828`, SERVE-2), so a served lookup leg
-//!   is still read whole, or partition by partition, on the planning node, which checks its link
-//!   values there. [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one
-//!   across its partitions, and no served question calls it.
+//!   checks its link values across its partitions in the same session it joins in. Only a mixed-kind
+//!   `sutura serve` deployment's PostgreSQL source grants a served leg
+//!   (`github.com/telekom/sutura#828`); every other served lookup leg is read whole, or partition by
+//!   partition, on the planning node, which checks its link values there.
+//!   [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one across its
+//!   partitions, and no served question calls it.
 //! - The planning node mints, and so holds, every partition's key.
 //! - A split stage's tasks are at most its partitions and at most the readers resolved for its
-//!   source, so each reader runs at most one of them. With fewer tasks than partitions, a task reads
-//!   each partition whose index leaves its own remainder by the task count, each under its own key.
-//! - A leg planned as one task - one partition, one reader resolved, or no other node resolved -
-//!   fails rather than being read: its scan reads only inside a reading task, and the codec refuses
-//!   to send it whole.
+//!   source, so each reader runs at most one of them - but at least two, so a leg of one partition,
+//!   or one resolved reader, is still scaled into reading tasks: a task then holds no partition, or
+//!   one reader runs both. With fewer tasks than partitions, a task reads each partition whose index
+//!   leaves its own remainder by the task count, each under its own key.
+//! - A leg planned as one task - no other node resolved - fails rather than being read: its scan
+//!   reads only inside a reading task, and the codec refuses to send it whole.
 //! - A stage with two split legs goes only to nodes reading both sources, its tasks capped at the
 //!   fewer readers of either: when fewer nodes read both, one of them runs more than one task.
 //! - A stage whose sources no resolved node reads together is refused (`NoReadingNode`, naming each
 //!   of them), never placed elsewhere. A combine answers it as `CombineError::NoReadingNode` naming
-//!   the first of them no resolved node reads at all, which `sutura_app` does not ask about yet: it
-//!   reaches a caller as this workspace's own defect. Sources that each have a reader but none in
+//!   the first of them no resolved node reads at all, which `sutura_app` answers as
+//!   `SourceUnavailable` naming it. Sources that each have a reader but none in
 //!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
 //! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
@@ -252,8 +254,10 @@ impl ExecutionPlan for SplitLeafExec {
 }
 
 /// A split leg's stage asks for one task per partition at most, and no more than the nodes `readers`
-/// names for its source, so no reader is dealt two of its tasks. A source none is named for is left
-/// uncapped, for `routed` to refuse.
+/// names for its source, so no reader is dealt two of its tasks - but never fewer than two, because a
+/// stage planned as one task is never scaled into reading tasks: one partition, or one reader, still
+/// reads in a reading task, a second task holding nothing or dealt to the same reader. A source none
+/// is named for is left uncapped, for `routed` to refuse.
 pub(super) fn desired(
     event: DesiredTaskCountEvent<'_>,
     readers: &HashMap<SourceName, Vec<Url>>,
@@ -261,7 +265,11 @@ pub(super) fn desired(
     let leg = &event.plan.downcast_ref::<SplitLeafExec>()?.leg;
     let partitions = leg.partitions.len();
     let reading = readers.get(&leg.source).map_or(0, Vec::len);
-    let tasks = if reading == 0 { partitions } else { partitions.min(reading) };
+    let tasks = if reading == 0 {
+        partitions
+    } else {
+        partitions.min(reading).max(2)
+    };
     Some(Ok(DesiredTaskCountEventResponse::maximum(tasks)))
 }
 

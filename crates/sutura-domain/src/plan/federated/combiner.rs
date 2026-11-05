@@ -315,8 +315,7 @@ pub trait LegRunner {
     /// A lookup leg's result: [`Self::split`]'s partitions read here, or partitions granted to the
     /// nodes that read its source - never for a leg whose `link` is [`LinkCast::Declared`].
     ///
-    /// Defaults to [`Self::split`], read to its end. **The limit:** no runner in production answers
-    /// [`Looked::Granted`] yet (`github.com/telekom/sutura#828`, SERVE-2).
+    /// Defaults to [`Self::split`], read to its end.
     ///
     /// # Errors
     ///
@@ -473,9 +472,7 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 ///   node sent cannot reach the caller through it.
 /// * [`Self::no_reading_node`] is a granted lookup leg whose source no node the combine can reach
 ///   reads - [`RefusalReason::SourceUnavailable`](crate::query::RefusalReason::SourceUnavailable),
-///   naming that source. **The limit:** `sutura_app` does not ask it yet, so the failure reaches a
-///   caller as this workspace's own defect until a served question grants a leg
-///   (`github.com/telekom/sutura#828`, SERVE-2).
+///   naming that source.
 ///
 /// All seven are predicates rather than conversions, for the reason
 /// [`Warehouse::working_set_exhausted`](crate::warehouse::Warehouse::working_set_exhausted) gives:

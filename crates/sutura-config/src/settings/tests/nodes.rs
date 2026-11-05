@@ -113,3 +113,70 @@ fn a_served_tree_naming_its_role_loads() {
     let sources = Sources::defaults(Environment::Development).with_overlay("server:\n  role: \"serving\"\n");
     Settings::load(&sources).expect("a tree naming the serving role loads");
 }
+
+/// A serving node, its source `local`, and one peer: a `reading-worker` reading `local`, or a
+/// `worker` reading nothing - with `security` after it.
+fn peered(reading: bool, security: &str) -> String {
+    let peer = if reading {
+        "      - url: \"https://b.example:8443\"\n        role: \"reading-worker\"\n        sources:\n          - \"local\"\n"
+    } else {
+        "      - url: \"https://b.example:8443\"\n        role: \"worker\"\n"
+    };
+    format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    others:\n{peer}\
+         sources:\n  local:\n    kind: \"files\"\n    data_dir: \"/srv/sutura/local\"\n    posture: \"shared-service-user\"\n    \
+         acknowledged_because: \"a directory of CSVs this deployment owns\"\n\
+         security:\n  tls_termination: \"in-process\"\n{security}"
+    )
+}
+
+/// What `overlay` is refused with, or nothing when it loads.
+fn refused_with(overlay: String) -> Vec<NotFitToServe> {
+    match Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)) {
+        Ok(_) => Vec::new(),
+        Err(error) => match *error.reason() {
+            SettingsError::NotFitToServe { ref refusals } => refusals.clone(),
+            ref other => panic!("expected the deployment to load or be refused at its posture, got {other:?}"),
+        },
+    }
+}
+
+fn reading_without_inbound() -> NotFitToServe {
+    NotFitToServe::ReadingNodeWithoutInboundIdentity {
+        url: String::from("https://b.example:8443/"),
+        alias: String::from("local"),
+    }
+}
+
+/// `#828`: a lookup leg read on a reading node is granted for a verified caller, so a deployment that
+/// verifies none and declares one is refused before it serves, naming the remedy.
+#[test]
+fn a_reading_node_on_a_deployment_that_verifies_no_caller_is_not_fit_to_serve() {
+    let refusals = refused_with(peered(true, ""));
+    assert!(refusals.contains(&reading_without_inbound()), "{refusals:?}");
+    let rendered = reading_without_inbound().to_string();
+    assert!(rendered.contains("Declare security.inbound"), "{rendered}");
+}
+
+#[test]
+fn a_reading_node_on_a_deployment_that_verifies_its_callers_is_not_refused_for_it() {
+    let refusals = refused_with(peered(true, super::inbound::DIRECT_INBOUND));
+    assert!(!refusals.contains(&reading_without_inbound()), "{refusals:?}");
+}
+
+#[test]
+fn declared_nodes_with_no_reading_node_and_no_inbound_identity_still_serve() {
+    let refusals = refused_with(peered(false, ""));
+    assert!(
+        !refusals
+            .iter()
+            .any(|refusal| matches!(refusal, NotFitToServe::ReadingNodeWithoutInboundIdentity { .. })),
+        "{refusals:?}"
+    );
+    let overlay = format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n\
+         {WORKER_PEER}security:\n  tls_termination: \"in-process\"\n"
+    );
+    Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+        .expect("nodes with no reading node and no inbound identity still load");
+}

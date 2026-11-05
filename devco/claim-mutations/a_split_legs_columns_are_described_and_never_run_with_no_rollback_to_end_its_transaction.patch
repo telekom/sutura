@@ -1,0 +1,18 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/session.rs b/crates/sutura-exec-postgres/src/adbc/session.rs
+--- a/crates/sutura-exec-postgres/src/adbc/session.rs
++++ b/crates/sutura-exec-postgres/src/adbc/session.rs
+@@ -185,9 +185,11 @@
+ where
+     C: Connection,
+ {
+-    let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
+-    statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
+-    statement.execute_schema().map_err(AdbcError::Adbc)
++    transaction(connection, &Setting::Certified(None), |connection| {
++        let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
++        statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
++        statement.execute_schema().map_err(AdbcError::Adbc)
++    })
+ }
+ 
+ /// The raw tool's one statement, `READ ONLY`, read to [`RAW_ROWS`] at most.

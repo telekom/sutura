@@ -1,4 +1,5 @@
-//! [`decide`]'s and [`Granted::new`]'s cells, apart from their implementation in `split.rs`.
+//! [`decide`]'s, [`Granted::new`]'s and [`Grantee::grant`](crate::plan::Grantee::grant)'s cells,
+//! apart from their implementation in `split.rs`.
 
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use core::time::Duration;
@@ -163,4 +164,185 @@ fn a_grant_ending_at_or_before_now_is_refused_as_expired() {
         grant(now + Duration::from_secs(1)).is_ok(),
         "a grant ending after now was refused"
     );
+}
+
+/// A lookup leg of `k` on `paged` where `k` is the one value it binds, as a split reads it.
+fn lookup_leg() -> crate::plan::LegPlan {
+    use crate::model::{ColumnName, DimensionName, MetricName, TableName};
+    use crate::plan::{PlanBindings, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PredicateOrigin, ResultLabel};
+    use crate::warehouse::ParamValue;
+
+    let table = TableName::parse("paged").expect("a test name is a name");
+    let k = PlanColumn::new(table.clone(), ColumnName::parse("k").expect("a test name is a name"));
+    crate::plan::LegPlan::Lookup {
+        source: geo(),
+        metric: crate::pinned::MetricDigest::new(
+            MetricName::parse("amount_total").expect("a test name is a name"),
+            crate::definitions::DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
+        ),
+        table: table.into(),
+        keys: vec![PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse("k").expect("a test name is a name")),
+            k.clone(),
+        )],
+        bindings: PlanBindings::parse(
+            vec![PlanFilter::new(
+                PredicateOrigin::Requested,
+                PlanPredicate::Equals { column: k, param: 0 },
+            )],
+            vec![ParamValue::Text(String::from("north"))],
+        )
+        .expect("one filter binding one value is coherent"),
+    }
+}
+
+fn geo() -> crate::model::SourceName {
+    crate::model::SourceName::parse("geo").expect("a test source is a source")
+}
+
+/// The request's own grant, asked by `subject` and usable until `not_after`.
+fn asked_by(subject: &crate::identity::Subject, not_after: crate::identity::Expiry) -> crate::identity::BoundToTheRequest {
+    use crate::identity::{Agreed, LegCredentials, Minted, Presented, Secret, SourceSet};
+
+    let sources = SourceSet::of(geo());
+    let presented = std::collections::BTreeMap::from([(
+        geo(),
+        Presented::SubjectToken {
+            material: Secret::new("a-test-token"),
+        },
+    )]);
+    let credentials =
+        LegCredentials::minted(subject.clone(), not_after, &sources, presented).expect("one leg covers its one source");
+    let Ok(Agreed::Granted { credentials }) = (Minted::Granted { credentials }).agreeing_with(subject, &sources, 0) else {
+        panic!("a fixture grant agrees with its own request");
+    };
+    credentials
+}
+
+fn someone() -> crate::identity::Subject {
+    crate::identity::Subject::verified("user@example.com").expect("a test caller is a subject")
+}
+
+fn grantee(question_ends: SystemTime) -> crate::plan::Grantee {
+    crate::plan::Grantee::new(
+        &lookup_leg(),
+        &asked_by(&someone(), crate::identity::Expiry::NothingExpires),
+        question_ends,
+    )
+    .expect("a verified caller's lookup leg on its own columns is offered")
+}
+
+#[test]
+fn a_grant_carries_the_asking_caller_the_leg_its_readers_re_certify_and_each_partition_in_order() {
+    use crate::plan::remote::{PartitionLeg, to_wire};
+
+    let now = SystemTime::now();
+    let until = now + Duration::from_secs(30);
+    let leg = lookup_leg();
+    let granted = grantee(until)
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1]), Some(vec![2])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(7),
+            (),
+            now,
+        )
+        .expect("a verified caller's portable partitions are granted");
+
+    assert_eq!(
+        granted.caller(),
+        &SubjectKey::parse("user@example.com").expect("a test caller is a subject")
+    );
+    assert_eq!(granted.until(), until);
+    assert_eq!(leg.params().len(), 1, "the leg binds one value");
+    assert_eq!(
+        PartitionLeg::parse(granted.wire()),
+        Some(PartitionLeg::new(
+            to_wire(&leg).expect("the leg sends"),
+            leg.params().to_vec()
+        )),
+        "the wire is the leg a reading worker re-certifies, with the values it binds"
+    );
+    assert_eq!(
+        granted.partitions().iter().cloned().collect::<Vec<_>>(),
+        vec![vec![1], vec![2]]
+    );
+}
+
+#[test]
+fn a_grant_ends_with_the_request_s_own_grant_when_that_ends_before_the_question() {
+    let now = SystemTime::now();
+    let expires = now + Duration::from_secs(5);
+    let not_after = crate::identity::Expiry::At {
+        unix_seconds: expires
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("now is after the epoch")
+            .as_secs(),
+    };
+    let offered = crate::plan::Grantee::new(&lookup_leg(), &asked_by(&someone(), not_after), now + Duration::from_secs(30))
+        .expect("a verified caller's lookup leg is offered");
+    assert!(
+        offered.until() <= expires,
+        "{:?} outlives the request's grant",
+        offered.until()
+    );
+    assert!(offered.until() > now, "the request's grant has not ended yet");
+}
+
+#[test]
+fn a_question_with_no_verified_caller_is_offered_no_grant() {
+    let deployment = crate::identity::Subject::TheDeploymentItself;
+    let refused = crate::plan::Grantee::new(
+        &lookup_leg(),
+        &asked_by(&deployment, crate::identity::Expiry::NothingExpires),
+        SystemTime::now() + Duration::from_secs(30),
+    );
+    assert!(matches!(refused, Err(crate::plan::NotOffered::NoCaller)), "{refused:?}");
+}
+
+#[test]
+fn a_grant_of_a_partition_only_this_node_can_read_is_refused() {
+    let now = SystemTime::now();
+    for partitions in [vec![Some(vec![1]), None], Vec::new()] {
+        let refused = grantee(now + Duration::from_secs(30)).grant(
+            Arc::new(Schema::empty()),
+            partitions,
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+            now,
+        );
+        assert!(matches!(refused, Err(crate::plan::NotGranted::NotPortable)), "{refused:?}");
+    }
+}
+
+/// The instant the partitions came back is the one checked, not the one the grantee was offered at.
+#[test]
+fn a_grant_ending_before_its_partitions_came_back_is_refused_as_expired() {
+    let offered_at = SystemTime::now();
+    let until = offered_at + Duration::from_secs(1);
+    let refused = grantee(until).grant(
+        Arc::new(Schema::empty()),
+        [Some(vec![1])],
+        NonZeroU32::MIN,
+        EstimatedBytes::parse(0),
+        (),
+        until,
+    );
+    assert!(matches!(refused, Err(crate::plan::NotGranted::Expired(_))), "{refused:?}");
+}
+
+#[test]
+fn a_grant_both_unportable_and_expired_is_refused_as_unportable() {
+    let now = SystemTime::now();
+    let refused = grantee(now).grant(
+        Arc::new(Schema::empty()),
+        [None],
+        NonZeroU32::MIN,
+        EstimatedBytes::parse(0),
+        (),
+        now,
+    );
+    assert!(matches!(refused, Err(crate::plan::NotGranted::NotPortable)), "{refused:?}");
 }
