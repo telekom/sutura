@@ -81,11 +81,12 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                                     | Remove the switch                                                                           |
 | `server.role: reading-worker` and no `sources` entry                                                                              | Declare the sources it reads, or use `worker`                                               |
 | `server.role: reading-worker` and no `catalogs` in a file or a variable                                                           | Declare the catalog                                                                         |
+| `server.role: reading-worker` and a catalog that reads none of its `sources`                                                      | Declare a source the catalog reads                                                          |
 | `server.port: 0` in production                                                                                                    | Set a port                                                                                  |
 | An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                                  | Fix the name                                                                                |
 | A configured source and no `security.identity`                                                                                    | Write `single-user` or `multi-user`                                                         |
 | A `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                                | Write the reason on the source                                                              |
-| A source that the catalog reads and no `sources.<alias>` entry declares                                                           | Declare the source                                                                          |
+| A source that the catalog reads and no `sources.<alias>` entry declares, on a serving node                                        | Declare the source                                                                          |
 | `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                                   | Use a posture the adapter supports                                                          |
 | An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                                    | Declare `verification_identity`, or remove the anchor                                       |
 | `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one                | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
@@ -440,13 +441,16 @@ security:
 A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
 production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
 
-`server.role: reading-worker` is the worker that is to read a split leg's partitions. It is configured as above, and
-it declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node
-with a source. **It reads nothing yet:** it opens neither the sources nor the catalog, and it serves the same worker
-transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
-chart's worker pool runs `worker`.
+`server.role: reading-worker` is the worker that reads a granted leg's partitions. It is configured as above, and it
+declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node with
+a source. At startup it opens its catalog and each source the catalog reads that its own `sources:` declares. A source
+the catalog reads and `sources:` does not declare is not opened and needs no credential there. Before it reads a
+partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
+leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+runs `worker`.
 
-Limit: a catalog counts only when a file or a variable declares it.
+Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
+worker. The catalog and the sources are read once, at startup.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
 

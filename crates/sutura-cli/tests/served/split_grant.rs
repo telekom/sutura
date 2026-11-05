@@ -8,7 +8,8 @@
 //! node split that leg into two partitions and grant them to the caller; each reader re-certifies
 //! the leg against its own catalog and reads its partitions. The answer is the example's six rows,
 //! which no whole read of the leg returns: one stream refuses it past 1,000,000 rows. With no
-//! reader resolved the question is refused `source_unavailable`.
+//! reader resolved the question is refused `source_unavailable`. A reader that declares `geo` alone
+//! starts beside a catalog that reads `local` too.
 //!
 //! **What this does not show.** Every node runs on one host, presents one self-signed pair and
 //! accepts it as its node authority, and reads the tier as its one fixture role, so nothing here
@@ -33,8 +34,8 @@ mod tests {
 
     use crate::harness::{
         LOCAL_SOURCE, LOOKUP_SOURCE, SINGLE_USER, Served, accepted_by, an_issuer, bound_address, config_path, derived_beside,
-        derived_catalog, discover_tier, example_root, load_into_tier, recurring_revenue_by_region, settings_over, source_entry,
-        start_configured, v1,
+        derived_catalog, discover_tier, example_root, files_source, load_into_tier, recurring_revenue_by_region, settings_over,
+        source_entry, start_configured, v1,
     };
 
     /// The table `customers` reads here instead of the example's `dim_customer`.
@@ -352,5 +353,34 @@ mod tests {
             ]),
             "{body}"
         );
+    }
+
+    #[test]
+    fn a_reading_worker_opens_only_the_sources_it_declares_and_reads_its_granted_partitions() {
+        let Some(fixture) = fixture("split-reader-declares-one") else {
+            return;
+        };
+        let theirs = fixture.tier.source(LOOKUP_SOURCE);
+        let started = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            [
+                fixture.reader("a", &fixture.catalog, &theirs),
+                fixture.reader("b", &fixture.catalog, &theirs),
+            ]
+        }));
+        let Ok(readers) = started else {
+            panic!(
+                "a reading worker declaring `{LOOKUP_SOURCE}` alone, of a catalog reading `{LOCAL_SOURCE}` too, did not start"
+            );
+        };
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let serving = fixture.serving(&readers.each_ref().map(url), &sources);
+
+        let (status, body) = fixture.ask(&serving);
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["rows"], whole_leg_rows(), "{body}");
     }
 }
