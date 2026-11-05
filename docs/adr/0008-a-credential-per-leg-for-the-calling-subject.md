@@ -2348,7 +2348,7 @@ with the `oracle` feature (#1446, `crates/sutura-config/src/sources/oracle.rs:17
 **The vendored driver exposes an end-user security context, and what a server does with its roles is
 unmeasured.** `EndUserSecurityContext`, its builder and `EndUserIdentity` are public
 (`vendor/rust-oracledb/src/lib.rs:80-81`, `97`), with `Connection::set_end_user_security_context` at
-`vendor/rust-oracledb/src/connection/mod.rs:320` and its clear twin at `:122`.
+`vendor/rust-oracledb/src/connection/mod.rs:329` and its clear twin at `:122`.
 `EndUserIdentity::Token(String)` exists (`vendor/rust-oracledb/src/end_user_security_context.rs:46-48`),
 and the builder takes `attributes()` (`:130-136`) and `data_roles()` (`:222-225`). Two readings of
 who defines the roles are in the tree, and neither is asserted. The path (c) paragraph of this record
