@@ -20,6 +20,10 @@
 //!   reading worker's partition scan whose reader did not certify its leg. The row count is per task,
 //!   so tasks that each stay under the ceiling can sum past it, which only the planning node's own
 //!   exact count refuses.
+//! - [`CombineError::NoReadingNode`] is no peer's code: it is read off this node's own routing of a
+//!   split leg to no node, as the typed error itself, which no link carries. It names the first
+//!   source of a stage no resolved node reads at all; a stage whose sources each have a reader but
+//!   none in common stays [`CombineError::Execute`].
 
 use std::sync::Arc;
 
@@ -46,11 +50,20 @@ pub(crate) fn not_certified(cause: DataFusionError) -> DataFusionError {
 }
 
 /// `error` as [`CombineError::RowsOverCeiling`] or [`CombineError::LegNotCertified`] when a node
-/// relayed that refusal in it.
+/// relayed that refusal in it, and as [`CombineError::NoReadingNode`] when this node routed a split
+/// leg of a source no resolved node reads.
 pub(crate) fn relayed(error: CombineError) -> CombineError {
     match error {
         CombineError::Execute { cause } if carries(&cause, ROWS_OVER_CEILING) => CombineError::RowsOverCeiling,
         CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) => CombineError::LegNotCertified,
+        CombineError::Execute { cause } => {
+            let unread = chain(&cause)
+                .find_map(|link| link.downcast_ref::<super::NoReadingNode>())
+                .and_then(|refusal| refusal.unread.clone());
+            unread.map_or(CombineError::Execute { cause }, |source_name| CombineError::NoReadingNode {
+                source_name,
+            })
+        }
         other => other,
     }
 }

@@ -778,3 +778,8 @@ mod split_read;
 /// file is test code already: the causality gate's base run reverts this line, and the cells, which
 /// name `refuse_ambiguous_split`, are not compiled there.
 mod split_link;
+
+/// A lookup leg granted to the nodes that read its source, checked and joined only there. A bare
+/// `mod`, as this file is test code already: the causality gate's base run reverts this line, and
+/// the cells, which name `Granted` and `Looked`, are not compiled there.
+mod served_split;

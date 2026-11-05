@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
 --- a/crates/sutura-domain/src/plan/federated/combiner.rs
 +++ b/crates/sutura-domain/src/plan/federated/combiner.rs
-@@ -523,9 +523,6 @@
-             .into_iter()
-             .collect::<Result<Vec<_>, _>>()
-             .map_err(ExecuteError::Leg)?;
--        if looked_up.iter().any(Vec::is_empty) {
--            return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
--        }
-         let second_fact = plan
-             .second_fact()
-             .map(|leg| runner.run(leg))
+@@ -123,7 +123,7 @@ impl LookupRead<'_> {
+     /// [`NonEmpty`](crate::nonempty::NonEmpty).
+     const fn is_empty(self) -> bool {
+         match self {
+-            Self::Rows(parts) => parts.is_empty(),
++            Self::Rows(_) => false,
+             Self::Granted(_) => false,
+         }
+     }

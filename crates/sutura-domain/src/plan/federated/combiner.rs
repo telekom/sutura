@@ -39,9 +39,10 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use crate::model::SourceName;
 use crate::plan::federated::{FederatedAnswerRefusal, FederatedPlan, LegSide, LookupLeg};
 use crate::plan::leg::LegPlan;
-use crate::plan::split::PartitionReader;
+use crate::plan::split::{Granted, PartitionReader};
 use crate::warehouse::ResultBatches;
 
 mod statement;
@@ -95,8 +96,8 @@ impl LegResult {
 /// A two-fact plan (`telekom/sutura#780`) carries an optional second fact leg: a result from a
 /// second fact model, joined above on the link and the time bucket. The combiner reads it through
 /// [`Self::second_fact`] and routes each `Carried` leaf to the fact leg its model names. Each lookup
-/// result arrives beside its [`LookupLeg`], which names the leg it joins onto: one result for a
-/// leg read whole, one per partition for a leg its source split ([`LegRunner::split`]).
+/// result arrives beside its [`LookupLeg`], which names the leg it joins onto, as a [`LookupRead`]
+/// ([`LegRunner::lookup`]).
 ///
 /// Borrowed rather than owned, because a combiner reads the batches and the caller still holds them
 /// for the refusal it may have to build - and because Arrow batches are reference-counted buffers,
@@ -105,12 +106,46 @@ impl LegResult {
 pub struct Legs<'a> {
     fact: &'a ResultBatches,
     second_fact: Option<&'a ResultBatches>,
-    lookups: Vec<LookupRows<'a>>,
+    lookups: Vec<(&'a LookupLeg, LookupRead<'a>)>,
 }
 
-/// A lookup leg beside its rows: one result for a leg read whole, one per partition for a leg its
-/// source split.
-pub type LookupRows<'a> = (&'a LookupLeg, &'a [ResultBatches]);
+/// A lookup leg's result as the combine reads it.
+#[derive(Debug, Clone, Copy)]
+pub enum LookupRead<'a> {
+    /// Rows read here: one result for a leg read whole, one per partition for a leg its source split.
+    Rows(&'a [ResultBatches]),
+    /// Partitions granted to the nodes that read the leg's source, none of them read here.
+    Granted(&'a Granted<'a>),
+}
+
+impl LookupRead<'_> {
+    /// No partition stands for the leg. Never a grant, whose partitions are
+    /// [`NonEmpty`](crate::nonempty::NonEmpty).
+    const fn is_empty(self) -> bool {
+        match self {
+            Self::Rows(parts) => parts.is_empty(),
+            Self::Granted(_) => false,
+        }
+    }
+}
+
+/// What [`LegRunner::lookup`] answers for one lookup leg.
+#[derive(Debug)]
+pub enum Looked<'r> {
+    /// Rows read here: one result for a leg read whole, one per partition for a leg its source split.
+    Rows(Vec<ResultBatches>),
+    /// Partitions granted to the nodes that read the leg's source.
+    Granted(Granted<'r>),
+}
+
+impl Looked<'_> {
+    fn read(&self) -> LookupRead<'_> {
+        match self {
+            Self::Rows(parts) => LookupRead::Rows(parts),
+            Self::Granted(granted) => LookupRead::Granted(granted),
+        }
+    }
+}
 
 impl<'a> Legs<'a> {
     /// The results, one per [`FederatedPlan::legs`] entry and in that order, each checked against
@@ -152,7 +187,11 @@ impl<'a> Legs<'a> {
                 .lookups()
                 .legs()
                 .iter()
-                .zip(lookups.iter().map(|result| core::slice::from_ref(result.batches())))
+                .zip(
+                    lookups
+                        .iter()
+                        .map(|result| LookupRead::Rows(core::slice::from_ref(result.batches()))),
+                )
                 .collect(),
         })
     }
@@ -171,11 +210,10 @@ impl<'a> Legs<'a> {
         self.second_fact
     }
 
-    /// Each lookup leg beside its result, in plan order: one result, or one per partition of a leg
-    /// its source split.
+    /// Each lookup leg beside its result, in plan order.
     #[inline]
     #[must_use]
-    pub fn lookups(&self) -> &[LookupRows<'a>] {
+    pub fn lookups(&self) -> &[(&'a LookupLeg, LookupRead<'a>)] {
         &self.lookups
     }
 }
@@ -247,6 +285,19 @@ pub trait LegRunner {
     fn split(&self, leg: &LegPlan) -> PartitionReader<'_, Self::Error> {
         Box::new(core::iter::once(self.run(leg)))
     }
+
+    /// A lookup leg's result: [`Self::split`]'s partitions read here, or partitions granted to the
+    /// nodes that read its source.
+    ///
+    /// Defaults to [`Self::split`], read to its end. **The limit:** no runner in production answers
+    /// [`Looked::Granted`] yet (`github.com/telekom/sutura#828`, SERVE-2).
+    ///
+    /// # Errors
+    ///
+    /// [`Self::Error`], the first partition's that failed.
+    fn lookup(&self, leg: &LegPlan) -> Result<Looked<'_>, Self::Error> {
+        self.split(leg).collect::<Result<Vec<_>, _>>().map(Looked::Rows)
+    }
 }
 
 /// Why [`FederationCombiner::execute`] or `DrillAcrossCombiner::execute_across` gave no answer.
@@ -258,7 +309,7 @@ pub enum ExecuteError<L, C> {
     Leg(L),
     /// The leg results did not stand for the plan's legs: this workspace's own defect.
     Miswired(LegsMiswired),
-    /// The combine failed, which [`FederationCombiner`]'s six predicates classify.
+    /// The combine failed, which [`FederationCombiner`]'s seven predicates classify.
     Combine(C),
 }
 
@@ -363,9 +414,9 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 /// across is relayed another node's refusal. **The limit:** one that does go across and inherits it
 /// answers a stage another node refused over the federated row ceiling as the `503` a dead data
 /// system produces - nothing but review sees that either. [`Self::leg_not_certified`] defaults to
-/// `false` for the same reason, and with the same limit.
+/// `false` and [`Self::no_reading_node`] to `None` for the same reason, and with the same limit.
 ///
-/// # What the domain may ask about an implementor's error, and why it is six predicates
+/// # What the domain may ask about an implementor's error, and why it is seven predicates
 ///
 /// `Self::Error` is the implementor's own type, so nothing above this port can tell *the pool would
 /// not grow* from *the plan would not build*. The questions split the same way the query path's
@@ -394,8 +445,13 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 ///   [`RefusalReason::RemoteLegNotCertified`](crate::query::RefusalReason::RemoteLegNotCertified),
 ///   naming the source the node that answers the caller split the leg of. A `bool`, so a name another
 ///   node sent cannot reach the caller through it.
+/// * [`Self::no_reading_node`] is a granted lookup leg whose source no node the combine can reach
+///   reads - [`RefusalReason::SourceUnavailable`](crate::query::RefusalReason::SourceUnavailable),
+///   naming that source. **The limit:** `sutura_app` does not ask it yet, so the failure reaches a
+///   caller as this workspace's own defect until a served question grants a leg
+///   (`github.com/telekom/sutura#828`, SERVE-2).
 ///
-/// All six are predicates rather than conversions, for the reason
+/// All seven are predicates rather than conversions, for the reason
 /// [`Warehouse::working_set_exhausted`](crate::warehouse::Warehouse::working_set_exhausted) gives:
 /// an implementor that could return a [`RefusalReason`](crate::query::RefusalReason) could mint any
 /// of them from a failure of its own. Everything else leaves as the implementor's typed error and
@@ -426,7 +482,7 @@ pub trait FederationCombiner {
     ///
     /// # Errors
     ///
-    /// [`Self::Error`], which the six predicates below classify.
+    /// [`Self::Error`], which the seven predicates below classify.
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
@@ -470,6 +526,14 @@ pub trait FederationCombiner {
         false
     }
 
+    /// The source of a granted lookup leg that no node the combine can reach reads, if that was the
+    /// failure.
+    ///
+    /// `None` is every other failure. Defaulted - see the trait's own header for the limit.
+    fn no_reading_node<'e>(&self, _error: &'e Self::Error) -> Option<&'e SourceName> {
+        None
+    }
+
     /// The other nodes this combiner's questions that go across hold or wait for, if it goes across.
     fn worker_slots_wanted(&self) -> Option<&WorkerSlotsWanted> {
         None
@@ -486,13 +550,12 @@ pub trait FederationCombiner {
     /// Runs the cut's legs through `runner`, then [`Self::combine`]s their results.
     ///
     /// The fact leg runs on this thread while each lookup leg runs beside it on a scoped thread of
-    /// its own, read whole or partition by partition ([`LegRunner::split`]), and a second fact runs
-    /// after all of them. Scoped, so the runner and the plan are
-    /// borrowed and nothing is cloned. If the OS refuses a thread, that lookup leg runs after the
-    /// fact leg on this thread. The fact leg's error wins over every lookup leg's, an earlier lookup
-    /// leg's over a later one's, all of them over the second fact's, and every leg's over the
-    /// combine's. A leg that did not answer ends the answer, so the combine never reads a missing
-    /// leg as a leg with no match.
+    /// its own, read whole, partition by partition, or granted ([`LegRunner::lookup`]), and a second
+    /// fact runs after all of them. Scoped, so the runner and the plan are borrowed and nothing is
+    /// cloned. If the OS refuses a thread, that lookup leg runs after the fact leg on this thread. The
+    /// fact leg's error wins over every lookup leg's, an earlier lookup leg's over a later one's, all
+    /// of them over the second fact's, and every leg's over the combine's. A leg that did not answer
+    /// ends the answer, so the combine never reads a missing leg as a leg with no match.
     ///
     /// Provided, for the reason [`Self::plan`] is.
     ///
@@ -513,7 +576,7 @@ pub trait FederationCombiner {
                 .map(|&leg| {
                     std::thread::Builder::new()
                         .name(String::from("federated-lookup-leg"))
-                        .spawn_scoped(scope, move || runner.split(leg).collect::<Result<Vec<_>, _>>())
+                        .spawn_scoped(scope, move || runner.lookup(leg))
                         .map_err(|_refused| leg)
                 })
                 .collect();
@@ -527,7 +590,7 @@ pub trait FederationCombiner {
                         // reachable only in an unwinding test build. There is no leg outcome to return.
                         Err(panic) => std::panic::resume_unwind(panic),
                     },
-                    Err(leg) => runner.split(leg).collect(),
+                    Err(leg) => runner.lookup(leg),
                 })
                 .collect();
             (fact, looked_up)
@@ -537,7 +600,8 @@ pub trait FederationCombiner {
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
             .map_err(ExecuteError::Leg)?;
-        if looked_up.iter().any(Vec::is_empty) {
+        let lookups: Vec<_> = plan.lookups().legs().iter().zip(looked_up.iter().map(Looked::read)).collect();
+        if lookups.iter().any(|&(_, read)| read.is_empty()) {
             return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
         }
         let second_fact = plan
@@ -548,12 +612,7 @@ pub trait FederationCombiner {
         let legs = Legs {
             fact: &fact,
             second_fact: second_fact.as_ref(),
-            lookups: plan
-                .lookups()
-                .legs()
-                .iter()
-                .zip(looked_up.iter().map(Vec::as_slice))
-                .collect(),
+            lookups,
         };
         self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
     }

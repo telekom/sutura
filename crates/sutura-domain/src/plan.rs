@@ -58,9 +58,9 @@ pub use crate::plan::drill_across::{
 };
 pub use crate::plan::federated::{
     AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
-    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, LookupLeg, LookupLegs, LookupLegsError,
-    LookupRows, QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
-    WorkerSlotsWanted, WorkersShort, labels,
+    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, Looked, LookupLeg, LookupLegs,
+    LookupLegsError, LookupRead, QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion,
+    StatementStopped, StatementTable, WorkerSlotsWanted, WorkersShort, labels,
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use crate::plan::federated::{NothingCombined, RefusingCombiner};
@@ -70,7 +70,9 @@ pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
-pub use crate::plan::split::{EstimatedRows, LookupSplit, PartitionReader, Partitioned, SplitDecision, SplitRefusal, decide};
+pub use crate::plan::split::{
+    EstimatedRows, GrantExpired, Granted, LookupSplit, PartitionReader, Partitioned, SplitDecision, SplitRefusal, decide,
+};
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 

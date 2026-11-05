@@ -19,11 +19,18 @@
 //!   [`decide`] calling the split fit; that partition is refused like any other stream past the
 //!   bound, read, not split again. There is no margin knob here to widen against skew - a caller
 //!   wanting one states its own bound narrower before calling [`decide`].
-//! - [`PartitionReader`] reads one partition after another on the thread that asked for them. No
-//!   other node reads one yet.
+//! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
+//!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, and nothing in
+//!   production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
 
-use core::num::{NonZeroU64, NonZeroUsize};
+use core::fmt;
+use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::time::SystemTime;
 
+use arrow_schema::SchemaRef;
+
+use crate::identity::SubjectKey;
+use crate::nonempty::NonEmpty;
 use crate::warehouse::ResultBatches;
 use crate::warehouse::estimate::EstimatedBytes;
 
@@ -162,3 +169,117 @@ pub enum Partitioned<'r, E> {
 
 /// [`Partitioned`], or the source's failure to estimate or split the leg.
 pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
+
+/// A lookup leg its source split and granted to the nodes that read it, rather than read here.
+///
+/// Every partition is read by a node reading the leg's source, for `caller`, until `until`, at most
+/// `stream_rows` rows a stream. `wire` and each partition are the granting adapter's own encoding,
+/// opaque here. `held` is what the source keeps open across the partitions - an exporting
+/// transaction - and lives as long as this value, which [`Legs`](crate::plan::Legs) borrows past the
+/// combine. It is `Send + Sync` because the combine's scoped join moves the borrowed legs across
+/// threads.
+///
+/// **The limit:** nothing in production builds one yet (`github.com/telekom/sutura#828`, SERVE-2).
+pub struct Granted<'r> {
+    wire: Vec<u8>,
+    schema: SchemaRef,
+    partitions: NonEmpty<Vec<u8>>,
+    caller: SubjectKey,
+    until: SystemTime,
+    stream_rows: NonZeroU32,
+    estimate: EstimatedBytes,
+    _held: Box<dyn Send + Sync + 'r>,
+}
+
+/// [`Granted::new`] was handed a grant that ended at or before the `now` it was checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the grant ended at {until:?}, at or before it was made")]
+pub struct GrantExpired {
+    until: SystemTime,
+}
+
+impl<'r> Granted<'r> {
+    /// `partitions` of the leg `wire` encodes, answering `schema`, granted to `caller` until `until`
+    /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long.
+    ///
+    /// # Errors
+    ///
+    /// [`GrantExpired`] when `until` is not after `now`. Checked once, here: a grant that ends while
+    /// its partitions are read is not refused by this check.
+    pub fn new(
+        wire: Vec<u8>,
+        schema: SchemaRef,
+        partitions: NonEmpty<Vec<u8>>,
+        caller: SubjectKey,
+        until: SystemTime,
+        now: SystemTime,
+        stream_rows: NonZeroU32,
+        estimate: EstimatedBytes,
+        held: impl Send + Sync + 'r,
+    ) -> Result<Self, GrantExpired> {
+        if until <= now {
+            return Err(GrantExpired { until });
+        }
+        Ok(Self {
+            wire,
+            schema,
+            partitions,
+            caller,
+            until,
+            stream_rows,
+            estimate,
+            _held: Box::new(held),
+        })
+    }
+
+    /// The leg, as the granting adapter encoded it for its readers.
+    #[must_use]
+    pub const fn wire(&self) -> &[u8] {
+        self.wire.as_slice()
+    }
+
+    /// The columns every partition answers.
+    #[must_use]
+    pub const fn schema(&self) -> &SchemaRef {
+        &self.schema
+    }
+
+    /// One descriptor per partition, in the granting adapter's encoding.
+    #[must_use]
+    pub const fn partitions(&self) -> &NonEmpty<Vec<u8>> {
+        &self.partitions
+    }
+
+    /// Whom every partition is read for.
+    #[must_use]
+    pub const fn caller(&self) -> &SubjectKey {
+        &self.caller
+    }
+
+    /// When every partition's grant ends.
+    #[must_use]
+    pub const fn until(&self) -> SystemTime {
+        self.until
+    }
+
+    /// The most rows one partition's stream may carry.
+    #[must_use]
+    pub const fn stream_rows(&self) -> NonZeroU32 {
+        self.stream_rows
+    }
+
+    /// The source's own estimate of the whole leg.
+    #[must_use]
+    pub const fn estimate(&self) -> EstimatedBytes {
+        self.estimate
+    }
+}
+
+impl fmt::Debug for Granted<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Granted")
+            .field("partitions", &self.partitions.len())
+            .field("estimate", &self.estimate)
+            .finish_non_exhaustive()
+    }
+}
