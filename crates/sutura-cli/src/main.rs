@@ -112,11 +112,12 @@ mod openapi;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `openapi`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read shared by the outbound readers.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "oracle",
@@ -140,6 +141,7 @@ mod postgres;
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "foundry",
     feature = "node",
     feature = "openapi",
     feature = "openmetadata",

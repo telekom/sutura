@@ -993,6 +993,8 @@ mod datahub_platforms;
 #[cfg(test)]
 mod nodes;
 
+#[cfg(test)]
+mod foundry_catalog;
 /// `operator`: a served tree carries it. Same `#[cfg(test)]` reason as `governance` above.
 #[cfg(test)]
 mod operator_section;

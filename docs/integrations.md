@@ -20,6 +20,7 @@ a page here. [Inbound identity](integrations/identity.md) describes how sutura v
 | [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
 | [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
 | [Cube](integrations/data-systems/cube.md#catalog)      | `cube`                  | Models, types, descriptions                   |
+| [Foundry](integrations/catalogs/foundry.md)            | `foundry`               | Experimental: models, types, joins            |
 | [OpenAPI](integrations/catalogs/openapi.md)            | `openapi`               | Experimental: tables, types, joins            |
 | [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
@@ -35,8 +36,8 @@ The catalogs are a list under `catalogs:`. Every entry has these keys:
 | ----------------------- | ------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`                  | string  | required        | The name of the entry                                                                                                                                               |
 | `kind`                  | string  | `markdown`      | The catalog kind                                                                                                                                                    |
-| `dir`                   | path    | required        | The directory that a file catalog reads. Optional for `rdbms`                                                                                                       |
-| `data_dir`              | path    | required        | Required, and not read by any catalog. Optional for `rdbms`                                                                                                         |
+| `dir`                   | path    | required        | The directory that a file catalog reads. Optional for `rdbms` and `foundry`                                                                                                     |
+| `data_dir`              | path    | required        | Required, and not read by any catalog. Optional for `rdbms` and `foundry`                                                                                                       |
 | `version`               | string  | required        | The label of the snapshot, for example a commit ID. Up to 128 characters                                                                                            |
 | `refresh_seconds`       | integer | 900             | `sutura serve` reads all entries again at the shortest of these. `0` is refused                                                                                     |
 | `max_definitions_bytes` | integer | 1048576 (1 MiB) | The authored byte bound every catalog kind assembles its definitions under (`github.com/telekom/sutura#2071`). `0` or above 16 MiB (`16777216`) is refused at parse |

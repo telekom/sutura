@@ -797,6 +797,9 @@ pub(crate) struct RawCatalog {
     /// stays `refuse`, the behaviour before this key existed.
     #[serde(default)]
     pub(crate) on_missing_endpoint: Option<String>,
+    /// `catalog.kind: foundry` only: the ontology and the client-credentials grant.
+    #[serde(default)]
+    pub(crate) foundry: Option<crate::catalog::foundry::RawFoundry>,
 }
 
 /// Native dictionary include pair. Patterns are data, never SQL fragments.

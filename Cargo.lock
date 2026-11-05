@@ -4668,6 +4668,7 @@ dependencies = [
  "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
+ "sutura-catalog-foundry",
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openapi",

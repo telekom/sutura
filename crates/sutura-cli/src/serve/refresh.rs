@@ -162,6 +162,8 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverag
         OpenedCatalogs::Cube(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "openapi")]
         OpenedCatalogs::OpenApi(catalogs) => spawn(catalogs, surface, coverage, interval),
+        #[cfg(feature = "foundry")]
+        OpenedCatalogs::Foundry(catalogs) => spawn(catalogs, surface, coverage, interval),
         OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "rdbms")]
         catalogs @ (OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. }) => {
