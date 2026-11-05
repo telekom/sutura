@@ -10,7 +10,9 @@
 //! which no whole read of the leg returns: one stream refuses it past 1,000,000 rows. With no
 //! reader resolved the question is refused `source_unavailable`. A reader whose catalog defines the
 //! metric differently refuses the leg, and so does the question. A reader that declares `geo` alone
-//! starts beside a catalog that reads `local` too.
+//! starts beside a catalog that reads `local` too. In a deployment of two PostgreSQL sources, the
+//! same question over models that all sit on `geo` is one statement there: answered with no reader
+//! resolved, never granted.
 //!
 //! **What this does not show.** Every node runs on one host, presents one self-signed pair and
 //! accepts it as its node authority, and reads the tier as its one fixture role, so nothing here
@@ -453,5 +455,36 @@ mod tests {
         let (status, body) = fixture.ask(&serving);
         assert_eq!(body["reason"]["code"], "remote_leg_not_certified", "{body}");
         assert_eq!(status, 403, "{body}");
+    }
+
+    #[test]
+    fn a_question_that_reads_one_postgres_source_is_one_statement_there_and_never_granted() {
+        let Some(fixture) = fixture("split-one-source") else {
+            return;
+        };
+        // `subscriptions` and `products` join `customers` and `regions` on `geo`, so the question
+        // reads `geo` alone; `daily_usage` keeps `local` a second PostgreSQL source.
+        for model in ["subscriptions.md", "products.md"] {
+            rewrite(
+                &fixture.catalog.join("models").join(model),
+                &format!("source: {LOCAL_SOURCE}\n"),
+                &format!("source: {LOOKUP_SOURCE}\n"),
+            );
+        }
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            fixture.tier.source(LOCAL_SOURCE),
+            fixture.tier.source(LOOKUP_SOURCE)
+        );
+        let serving = fixture.serving(&unresolved(), &sources);
+
+        let (status, body) = fixture.ask(&serving);
+        assert_eq!(status, 200, "a one-source question was split or granted: {body}");
+        assert_eq!(body["rows"], whole_leg_rows(), "{body}");
+        assert_eq!(
+            body["executed_as"],
+            serde_json::json!([{ "source": LOOKUP_SOURCE, "posture": "shared-service-user" }]),
+            "{body}"
+        );
     }
 }

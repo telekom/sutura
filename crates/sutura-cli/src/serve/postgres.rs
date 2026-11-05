@@ -35,8 +35,11 @@ pub(crate) fn open_postgres(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
-/// The service a `postgres`-only deployment answers through, under the static broker: the adapter
-/// has nowhere for a subject's credential to arrive.
+/// The service a deployment whose sources are all `postgres` answers through, under the static
+/// broker: the adapter has nowhere for a subject's credential to arrive.
+///
+/// A question that reads one of its sources has no lookup leg, so it is that source's one statement
+/// whatever is erased here, and is never split; only a lookup leg sutura joins across two sources is.
 ///
 /// Where a peer `server.nodes` declares reads one of its sources, the adapters are erased into
 /// `kind::AnyWarehouse` and named for splitting as a mix's are (`nodes::splitting`), so a split

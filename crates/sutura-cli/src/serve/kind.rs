@@ -312,9 +312,9 @@ impl Warehouse for AnyWarehouse {
     /// Without a `grantee`, with one partition, or with a column whose type its cells decide
     /// (`NUMERIC`), the reader owns the split and reads by position until it holds no further
     /// partition, so each is read once, in page order, and the exporting transaction stays open until
-    /// the reader is dropped. A `postgres`-only deployment holds this enum only where a declared peer
-    /// reads one of its sources (`postgres::served`); otherwise it holds the adapter itself and reads
-    /// every leg whole.
+    /// the reader is dropped. A deployment whose sources are all `postgres` holds this enum only where
+    /// a declared peer reads one of its sources (`postgres::served`); otherwise it holds the adapter
+    /// itself and reads every leg whole.
     ///
     /// **Limits:** a leg answered [`Partitioned::Whole`](sutura_domain::plan::Partitioned::Whole)
     /// was estimated first, one round trip more than reading it whole outright; a granted one is
