@@ -781,6 +781,9 @@ pub(crate) struct RawCatalog {
     /// catalog read has no caller to run as.
     #[serde(default)]
     pub(crate) connection: Option<RawCatalogConnection>,
+    /// `catalog.kind: foundry` only: the ontology and the client-credentials grant.
+    #[serde(default)]
+    pub(crate) foundry: Option<crate::catalog::foundry::RawFoundry>,
 }
 
 /// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for

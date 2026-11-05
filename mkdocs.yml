@@ -228,6 +228,7 @@ nav:
           - Metadata platforms:
               - DataHub: integrations/catalogs/datahub.md
               - OpenMetadata: integrations/catalogs/openmetadata.md
+              - Foundry: integrations/catalogs/foundry.md
           - Databases:
               - RDBMS dictionary: integrations/catalogs/rdbms.md
           - Files:

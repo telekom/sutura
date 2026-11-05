@@ -10,7 +10,9 @@ use std::path::PathBuf;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
-use crate::catalog::{CatalogKind, CatalogSettings, Catalogs, DataHubPlatform, InvalidCatalogSettings, RdbmsSettings};
+use crate::catalog::{
+    CatalogKind, CatalogSettings, Catalogs, DataHubPlatform, FoundrySettings, InvalidCatalogSettings, RdbmsSettings,
+};
 use crate::raw::{RawCatalog, RawSettings};
 use crate::sources::SourceRegistry;
 
@@ -53,6 +55,13 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
         if kind != CatalogKind::Rdbms {
             refuse_rdbms_keys(&settings, raw_catalog)?;
         }
+        if kind != CatalogKind::Foundry && raw_catalog.foundry.is_some() {
+            return Err(SettingsError::Catalog {
+                cause: InvalidCatalogSettings::FoundryOnOtherKind {
+                    name: settings.name().clone(),
+                },
+            });
+        }
         if kind != CatalogKind::Datahub && raw_catalog.platforms.is_some() {
             return Err(SettingsError::Catalog {
                 cause: InvalidCatalogSettings::PlatformsOnOtherKind {
@@ -60,41 +69,55 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                 },
             });
         }
-        let settings = match kind {
-            CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::DataContract => settings,
-            CatalogKind::Rdbms => {
-                let rdbms =
-                    RdbmsSettings::parse(settings.name(), raw_catalog, sources).map_err(|cause| SettingsError::Catalog {
-                        cause: InvalidCatalogSettings::Rdbms {
-                            name: settings.name().clone(),
-                            cause,
-                        },
-                    })?;
-                settings.with_rdbms(rdbms)
-            }
-            CatalogKind::Datahub => {
-                let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
-                let token_file = raw_catalog.token_file.clone().unwrap_or_default();
-                let metric_property = raw_catalog.metric_property.clone().unwrap_or_default();
-                let platforms = parse_platforms(settings.name(), raw_catalog, sources)?;
-                settings
-                    .with_datahub_reader(endpoint, PathBuf::from(token_file), metric_property)
-                    .map_err(|cause| SettingsError::Catalog { cause })?
-                    // Absent means the reader's own recommended default - neither field is
-                    // refused here for being absent, only (downstream, in the composition root)
-                    // for being an unusable bound if the deployment WROTE a zero.
-                    .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
-                    .with_datahub_platforms(platforms)
-            }
-            CatalogKind::Openmetadata | CatalogKind::Cube => {
-                let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
-                let token_file = raw_catalog.token_file.clone().unwrap_or_default();
-                settings
-                    .with_http_reader(endpoint, PathBuf::from(token_file))
-                    .map_err(|cause| SettingsError::Catalog { cause })?
-                    .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
-            }
-        };
+        let settings =
+            match kind {
+                CatalogKind::Markdown | CatalogKind::Okf | CatalogKind::DataContract => settings,
+                CatalogKind::Rdbms => {
+                    let rdbms =
+                        RdbmsSettings::parse(settings.name(), raw_catalog, sources).map_err(|cause| SettingsError::Catalog {
+                            cause: InvalidCatalogSettings::Rdbms {
+                                name: settings.name().clone(),
+                                cause,
+                            },
+                        })?;
+                    settings.with_rdbms(rdbms)
+                }
+                CatalogKind::Datahub => {
+                    let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
+                    let token_file = raw_catalog.token_file.clone().unwrap_or_default();
+                    let metric_property = raw_catalog.metric_property.clone().unwrap_or_default();
+                    let platforms = parse_platforms(settings.name(), raw_catalog, sources)?;
+                    settings
+                        .with_datahub_reader(endpoint, PathBuf::from(token_file), metric_property)
+                        .map_err(|cause| SettingsError::Catalog { cause })?
+                        // Absent means the reader's own recommended default - neither field is
+                        // refused here for being absent, only (downstream, in the composition root)
+                        // for being an unusable bound if the deployment WROTE a zero.
+                        .with_datahub_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+                        .with_datahub_platforms(platforms)
+                }
+                CatalogKind::Openmetadata | CatalogKind::Cube => {
+                    let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
+                    let token_file = raw_catalog.token_file.clone().unwrap_or_default();
+                    settings
+                        .with_http_reader(endpoint, PathBuf::from(token_file))
+                        .map_err(|cause| SettingsError::Catalog { cause })?
+                        .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+                }
+                CatalogKind::Foundry => {
+                    let foundry = FoundrySettings::parse(raw_catalog.foundry.as_ref(), raw_catalog.token_file.as_deref())
+                        .map_err(|cause| SettingsError::Catalog {
+                            cause: InvalidCatalogSettings::Foundry {
+                                name: settings.name().clone(),
+                                cause,
+                            },
+                        })?;
+                    settings
+                        .with_foundry(raw_catalog.endpoint.clone().unwrap_or_default(), foundry)
+                        .map_err(|cause| SettingsError::Catalog { cause })?
+                        .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
+                }
+            };
         // Every kind, not `datahub` alone - `#975`. Applied after the kind-specific step above so
         // a `datahub` entry's own refusal (an unusable endpoint, say) is reported first; a zero
         // interval is refused either way.

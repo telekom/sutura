@@ -114,6 +114,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 # `openmetadata`'s reason: its outbound TLS stack arrives through `sutura-http-client`, which also
 # carries a `cube` source's `delegation` exchange.
 cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube", "dep:sutura-http-client"]
+# EXPERIMENTAL: the Foundry ontology adapter's HTTP reader (issue #1727), for `catalog.kind:
+# foundry`. Default-off for `openmetadata`'s reason, and in no release's `features`.
+foundry = ["dep:sutura-catalog-foundry", "sutura-catalog-foundry/http", "dep:sutura-http-client"]
 # A `node` source: legs another sutura node runs, over Arrow Flight (#137). Default-off because it
 # links the gRPC client and HTTP/2; `sutura-http-client` carries the source's `delegation` exchange.
 node = ["dep:sutura-exec-node", "dep:sutura-http-client"]
@@ -236,6 +239,8 @@ sutura-catalog-datahub = { workspace = true, optional = true }
 sutura-catalog-openmetadata = { workspace = true, optional = true }
 # The Cube metadata adapter, behind the `cube` feature above, optional for `openmetadata`'s reason.
 sutura-catalog-cube = { workspace = true, optional = true }
+# The Foundry ontology adapter, behind the `foundry` feature above, optional for `openmetadata`'s reason.
+sutura-catalog-foundry = { workspace = true, optional = true }
 # The RDBMS metadata adapter, behind the `rdbms` feature above. Optional for the same reason
 # `sutura-catalog-datahub` is: absent, not merely unused, from a build that did not ask for it -
 # its `live` feature pulls the reader and its outbound TLS stack, and this root links neither

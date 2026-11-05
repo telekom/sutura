@@ -148,19 +148,7 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverag
         interval_seconds = interval.as_secs(),
         "this deployment's catalog will be polled and re-pinned on a declared interval"
     );
-    match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => spawn(catalogs, surface, coverage, interval),
-        #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => spawn(catalogs, surface, coverage, interval),
-        OpenedCatalogs::Okf(catalogs) => spawn(catalogs, surface, coverage, interval),
-        #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => spawn(catalogs, surface, coverage, interval),
-        #[cfg(feature = "cube")]
-        OpenedCatalogs::Cube(catalogs) => spawn(catalogs, surface, coverage, interval),
-        OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
-        #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => spawn(catalogs, surface, coverage, interval),
-    }
+    crate::catalog::with_opened!(catalogs, catalogs => spawn(catalogs, surface, coverage, interval));
 }
 
 /// One kind's worth of the poll loop: polls on `interval`, each poll on the blocking pool.

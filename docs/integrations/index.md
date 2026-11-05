@@ -47,6 +47,16 @@ The catalog reads from a metadata platform over its API.
 
     [:octicons-arrow-right-24: OpenMetadata](catalogs/openmetadata.md)
 
+-   :material-graph-outline:{ .lg .middle } __Foundry__
+
+    ---
+
+    <span class="sutura-badge">Catalog · experimental</span>
+
+    Read object types, properties and foreign-key links from a Foundry ontology.
+
+    [:octicons-arrow-right-24: Foundry](catalogs/foundry.md)
+
 </div>
 
 <!-- dprint-ignore-end -->

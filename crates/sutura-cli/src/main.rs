@@ -109,11 +109,12 @@ mod mcp;
 /// The ONE Oracle composition, reached by both composition roots below - `clickhouse`'s shape.
 #[cfg(feature = "oracle")]
 mod oracle;
-/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `oracle`, `postgres` and `rdbms` builds share.
+/// The secret-file read the `bigquery`, `clickhouse`, `cube`, `foundry`, `oracle`, `postgres` and `rdbms` builds share.
 #[cfg(any(
     feature = "bigquery",
     feature = "clickhouse",
     feature = "cube",
+    feature = "foundry",
     feature = "node",
     feature = "oracle",
     feature = "postgres",
@@ -136,6 +137,7 @@ mod postgres;
     feature = "clickhouse",
     feature = "cube",
     feature = "datahub",
+    feature = "foundry",
     feature = "node",
     feature = "openmetadata",
     feature = "oracle"
