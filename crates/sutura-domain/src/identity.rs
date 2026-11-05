@@ -55,7 +55,7 @@ pub use crate::identity::credential::{
 };
 pub use crate::identity::delegated_as::DelegatedAs;
 pub use crate::identity::delegation::{
-    Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, PoolExchange, PoolExchangeFailed,
+    Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, PoolExchange, PoolExchangeFailed, PoolScope,
     RequestedAudience, UnusableAudience, UnusablePool, WorkloadPool,
 };
 pub use crate::identity::principal::{

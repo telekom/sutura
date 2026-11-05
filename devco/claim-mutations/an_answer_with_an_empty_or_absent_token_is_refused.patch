@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
+index 04332cc1a..fc38dfe81 100644
+--- a/crates/sutura-http-client/src/delegation/pool.rs
++++ b/crates/sutura-http-client/src/delegation/pool.rs
+@@ -95,7 +95,7 @@ fn answered(status: u16, text: &str, now: u64) -> Result<Delegated, PoolExchange
+         return Err(PoolExchangeFailed::WrongTokenType);
+     }
+     let token = text_of("access_token")
+-        .filter(|token| !token.is_empty())
++        .filter(|token| !token.contains('\0'))
+         .ok_or(PoolExchangeFailed::Malformed { what: "no access_token" })?;
+     let lifetime = field("expires_in")
+         .and_then(serde_json::Value::as_u64)

@@ -6,8 +6,10 @@ description: A federated leg on PostgreSQL or BigQuery is split into partitions 
 # Workers read a split leg's partitions themselves, and each fails on its own limits
 
 Status: **accepted**, 2026-11-02. This is the owner's decision, and so is each row of "Decided
-with the design" below, accepted by the owner the same day. Nothing is built: no leg is split, no
-worker reads a source, and the task grant carries none of the fields Decision 5 adds. A row
+with the design" below, accepted by the owner the same day. Partly built, under
+`github.com/telekom/sutura#828`: a PostgreSQL lookup leg can be split, and every split is still
+read on the coordinating node, because no split is offered a grantee yet. So nothing in production
+grants a partition, no worker reads a source outside tests, and a BigQuery leg is read whole. A row
 marked *inferred* was neither read in this repository nor run here. This record decides and proves
 nothing.
 
@@ -222,3 +224,49 @@ refusal gets its own cell.
 - The worker role in `sutura-config` gains a reading role beside the combining one, and the
   chart's worker values change with it.
 - W2 waits for a partitioned read of a job's result.
+
+## Amendment, 2026-11-05: a BigQuery source token travels with its own task, and only a pool source splits
+
+The owner decided four questions that building W2's reading worker raised.
+
+1. **The source token travels in its partition's own task, beside its reading key.** This replaces
+   the row "How the source token reaches a worker" in "Decided with the design": a header of the
+   call that installs a stage reaches every node of that stage, and so the token for one task
+   travels only with that task. The worker takes the token once, when the read starts, and its
+   `Debug` and `Display` show no value. The grant signs a digest of the token, so a worker refuses a
+   token the grant was not issued with.
+2. **A split question makes two exchanges.** The coordinating node runs the job on the first,
+   asked for `PoolScope::Query` (the BigQuery client's own scope), so it can still cancel the job.
+   The second asks for `PoolScope::ReadOnly` (`bigquery.readonly`), and only its token is
+   forwarded. This names the scopes of the 2026-11-03 row on narrowing and does not change it.
+3. **Only a BigQuery source that federates at a workload identity pool is split.** A
+   `google_login`, `domain_delegation` or shared BigQuery source is read whole, as today. A reading
+   worker whose configuration declares a BigQuery source of another kind does not start.
+4. **A forwarded token that BigQuery refuses, or that has expired, fails the read as an internal
+   error**, not as a refusal that names the source.
+
+What is built: `PoolScope`, which `PoolExchange::exchange` takes. Every caller asks for
+`PoolScope::Query`, and nothing is forwarded.
+
+Limits:
+
+- **`PoolScope::ReadOnly` is not narrowed yet.** `GoogleSts` asks for the full `bigquery` scope for
+  both variants. The read-only scope lands with the forwarded token, in the next change of the
+  BigQuery reading worker, so until then decision 2 is a decision and not behaviour.
+- **A read-only token still starts queries.** `bigquery.readonly` accepts `jobs.query`, so a holder
+  of a forwarded token can run any read query the caller's principal may run, until the token
+  expires. It cannot cancel one, and nothing ends the token early. That Google accepts `jobs.query`
+  under this scope was measured with a service account's own token
+  (`crates/sutura-exec-bigquery/src/adbc/identity.rs`), not with a pool principal's.
+- **A token in a task is as protected as the task.** Routing each task to its own worker and the
+  link's TLS keep it from other nodes. A node that can read a task's document can read its token,
+  as it can read the reading key beside it.
+- **Taking the token once bounds the worker's copy, not the token.** It stays valid at BigQuery
+  until it expires.
+- **A worker cannot tell whose token it holds.** The token is opaque, so the digest ties it to the
+  grant and not to the caller. The worker trusts the coordinating node for that.
+- **An internal error is less helpful.** A caller whose grants do not cover the stream, or whose
+  token expired during a long read, gets an internal error rather than `source_refused`.
+- **Not measured: which principal BigQuery lets read a stream of a job's result.** Until a venue
+  run observes a split read under two principals, a split BigQuery read is not cited for the
+  caller's own access.

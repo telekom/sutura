@@ -1,7 +1,7 @@
 //! The pool exchange against a loopback stand-in for Google's token service: the form it sends, and
 //! a refusal for each answer shape it must not present.
 
-use sutura_domain::identity::{Delegated, PoolExchange as _, PoolExchangeFailed, Secret, WorkloadPool};
+use sutura_domain::identity::{Delegated, PoolExchange as _, PoolExchangeFailed, PoolScope, Secret, WorkloadPool};
 
 use super::GoogleSts;
 use crate::ReadBounds;
@@ -29,12 +29,14 @@ fn answer(issued_token_type: &str, token_type: &str, expires_in: &serde_json::Va
 /// What one exchange answered, beside the one request the stand-in received.
 type Exchanged = (Result<Delegated, PoolExchangeFailed>, CapturedRequest);
 
-/// One exchange against a stand-in that answers `scripted`, and the one request it received.
+/// One exchange asked for [`PoolScope::Query`] against a stand-in that answers `scripted`, and the
+/// one request it received.
 fn exchanged(scripted: Scripted, cap: u64) -> Exchanged {
     let server = FakeServer::start(vec![scripted]);
     let bounds = ReadBounds::parse(5, cap).expect("test bounds are nonzero");
     let endpoint = TokenEndpoint::parse(&format!("{}/v1/token", server.endpoint())).expect("a loopback endpoint parses");
-    let outcome = GoogleSts::new(endpoint, crate::fixed(bounds, None), bounds).exchange(&Secret::new(ASSERTION), &pool());
+    let outcome =
+        GoogleSts::new(endpoint, crate::fixed(bounds, None), bounds).exchange(&Secret::new(ASSERTION), &pool(), PoolScope::Query);
     let mut requests = server.finish().into_iter();
     let (Some(request), None) = (requests.next(), requests.next()) else {
         panic!("expected exactly one request");
