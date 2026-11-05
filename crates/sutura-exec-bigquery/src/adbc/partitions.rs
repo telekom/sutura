@@ -38,6 +38,12 @@ const MAX_STREAMS_OPTION: &str = "bigquery.query.partitions.max_streams";
 /// The patch's `OptionQueryPartitionsTargetRowsPerStream`: about this many rows a stream.
 const TARGET_ROWS_PER_STREAM_OPTION: &str = "bigquery.query.partitions.target_rows_per_stream";
 
+/// The rows a split asks each stream for: half of [`MOST_RESULT_ROWS`], so each partition sits well
+/// under the per-stream bound, as the workers-read-sources record's "How many partitions?" row
+/// decides. Half leaves room for a split the driver sizes unevenly, not a guarantee. Rows only: a
+/// wide stream under it can still cross `MOST_RESULT_BYTES`, which no stream count measures.
+const TARGET_ROWS_PER_STREAM: usize = MOST_RESULT_ROWS.div_euclid(2);
+
 /// One partition of a statement's result, as the driver's own opaque bytes.
 ///
 /// **A newtype rather than a bare `Vec<u8>`**, so a caller outside this module builds one only from
@@ -61,8 +67,9 @@ impl PartitionDescriptor {
         &self.0
     }
 
-    /// A descriptor a grant carried from the node that ran the job. Still opaque: the driver's
-    /// `ReadPartition` is what refuses one it did not mint.
+    /// A descriptor a grant carried from the node that ran the job. Still opaque: the driver
+    /// checks only its shape, and whether `BigQuery` serves the stream it names to the reading
+    /// token's principal is `BigQuery`'s decision, not measured here.
     pub(super) fn granted(bytes: &[u8]) -> Self {
         Self(bytes.to_vec())
     }
@@ -127,7 +134,8 @@ impl SplitLeg {
     }
 
     /// The question's end as it was handed in, or the forwarded token's expiry where that is
-    /// earlier: a grant of these streams ends no later.
+    /// earlier. **Computed, not applied:** no grant reads it yet, and `Grantee::grant` takes no
+    /// earlier end - the grant change adds one.
     #[must_use]
     pub const fn until(&self) -> SystemTime {
         self.until
@@ -151,8 +159,9 @@ impl core::fmt::Debug for SplitLeg {
 }
 
 /// Asks `stmt`'s partitioned execution for at most `readers` streams of about
-/// [`MOST_RESULT_ROWS`] rows each. **The driver aims and does not promise**: the Storage Read API
-/// may answer fewer streams, and a stream past the bound is refused when it is read.
+/// [`TARGET_ROWS_PER_STREAM`] rows each. **The driver aims and does not promise**: the Storage
+/// Read API may answer fewer streams, and a stream past [`MOST_RESULT_ROWS`] or
+/// `MOST_RESULT_BYTES` is refused when it is read.
 pub(super) fn bounded<S>(stmt: &mut S, readers: NonZeroUsize) -> Result<(), AdbcError>
 where
     S: Statement,
@@ -160,7 +169,7 @@ where
     let streams = readers.get().min(usize::try_from(i32::MAX).unwrap_or(usize::MAX));
     for (key, value) in [
         (MAX_STREAMS_OPTION, streams),
-        (TARGET_ROWS_PER_STREAM_OPTION, MOST_RESULT_ROWS),
+        (TARGET_ROWS_PER_STREAM_OPTION, TARGET_ROWS_PER_STREAM),
     ] {
         stmt.set_option(OptionStatement::Other(key.to_owned()), OptionValue::String(value.to_string()))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;

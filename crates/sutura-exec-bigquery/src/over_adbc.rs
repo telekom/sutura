@@ -15,6 +15,7 @@ use sutura_domain::plan::{Executable, LegPlan};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::labels::JobLabels;
 
 use crate::transport::JobDeadline;
 use crate::{BigQueryError, BigQueryWarehouse, JobBilling, Mapped, adbc, billing};
@@ -62,11 +63,16 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
             adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed),
         )
     }
+
     /// `leg` run once at this source as the asking subject, its result split into at most `readers`
-    /// streams for other nodes to read with the forwarded token, granted until no later than `ends`.
+    /// streams for other nodes to read with the forwarded token. It reports when what it forwards
+    /// ends ([`adbc::SplitLeg::until`]): the earlier of `ends` and the forwarded token's expiry.
+    /// **Computed, not applied** - no grant reads it yet.
     ///
-    /// Checked as [`Warehouse::execute`] checks a leg before anything is sent, and billed to the
-    /// project it bills. Then both exchanges, before the driver loads: the job runs on a token
+    /// Checked as [`Warehouse::execute`] checks a leg before anything is sent, billed to the
+    /// project it bills, and labelled with `labels` as a billed leg is - the port's `split_lookup`
+    /// carries no labels yet, so its caller has to bring them. Then both exchanges, before the
+    /// driver loads: the job runs on a token
     /// asked for the `BigQuery` client's own scope, so it can still be cancelled, and only a second
     /// token, asked for `bigquery.readonly`, is forwarded ([`adbc::SplitLeg::into_forwarded`]).
     ///
@@ -83,6 +89,7 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         deadline: Deadline,
         readers: NonZeroUsize,
         ends: SystemTime,
+        labels: &JobLabels,
     ) -> Mapped<adbc::SplitLeg, adbc::AdbcError> {
         let executable = Executable::Leg(leg);
         let payer = self.unstated_payer(&billing::executable_projects(executable)?)?;
@@ -91,27 +98,29 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         let identity = self.job_identity(presented)?;
         self.transport
             .split(
-                &Self::request(&query, &payer, identity, JobDeadline::Port(deadline)),
+                &Self::request(&query, &payer, identity, JobDeadline::Port(deadline)).labelled(Some(labels)),
                 readers,
                 ends,
             )
             .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 
-    /// The one stream of `leg`'s split result that `descriptor` names, read with `token` and no
-    /// other credential, billed to the project [`Self::split_leg`] billed.
+    /// The one stream of `leg`'s split result that `descriptor` names, read with `token` as the
+    /// only credential the transport sets, under the project this node's own billing resolves for
+    /// `leg` - nothing compares it with the project the split job billed.
     ///
     /// **The limits**: it takes no presented identity and cannot tell whose token it holds - the
     /// token is opaque, so the caller decides that it is the forwarded one, and a `deadline` that
-    /// ends no later than the token does. Whether `BigQuery` lets a principal other than the one that
-    /// ran the job read a stream of its result is not measured here.
+    /// ends no later than the token does. `clippy.toml` bans the call, so each caller is an
+    /// `#[expect]` a reviewer sees. Whether `BigQuery` lets a principal other than the one that ran
+    /// the job read a stream of its result is not measured here.
     ///
     /// # Errors
     ///
     /// A leg that names no project, or no payer; then, as [`BigQueryError::Endpoint`],
     /// [`adbc::AdbcError::Uncovered`] at a source that federates at no pool, decided before the
-    /// driver loads, and the driver's failure - among them a descriptor it did not mint, and a
-    /// token `BigQuery` refuses or that has expired.
+    /// driver loads, and the driver's failure - among them a descriptor that is not its shape, and
+    /// a token `BigQuery` refuses or that has expired.
     pub fn read_partition(
         &self,
         leg: &LegPlan,

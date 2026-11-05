@@ -212,9 +212,11 @@ pub(super) fn authenticate(
     Ok(JobAuthentication { options })
 }
 
-/// The database options one partition read becomes: the forwarded `token` and nothing else, so a
-/// source that federates at no pool - where the driver would fall back to this process's own
-/// credentials - is refused.
+/// The database options one partition read becomes: the forwarded `token` and nothing else.
+///
+/// Only a source that federates at a pool reads one, because only such a source splits: at a
+/// shared, Google-login or delegating source a caller's forwarded token would read as a principal
+/// that source's posture does not declare.
 ///
 /// # Errors
 ///
@@ -321,22 +323,25 @@ fn delegation_options(account: &DelegatingAccount, address: &PrincipalName) -> D
     .collect()
 }
 
-/// A compile-time guard that `JobAuthentication` does not implement `Debug`.
+/// A compile-time guard that neither `JobAuthentication` nor `Split` implements `Debug`.
 ///
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
 /// `adbc_core` - and `access_token_options` is the one place an access token is exposed as text,
 /// into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
-/// `#[derive(Debug)]` on `JobAuthentication` would print the subject's token.
+/// `#[derive(Debug)]` on `JobAuthentication` would print the subject's token. `Split.options` is
+/// the same type, holding a split job's full-scope token.
 ///
-/// `JobAuthentication` is `pub(super)`, so a `compile_fail` doctest cannot name it - this guard is the mechanism that replaces review for a type no external crate can reach. It
-/// uses the same negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`,
-/// so adding any `Debug` impl makes `<JobAuthentication as AmbiguousIfImpl<_>>::some_item` ambiguous
-/// (E0283) and the crate does not build.
+/// Both are `pub(super)`, so a `compile_fail` doctest cannot name them - this guard is the
+/// mechanism that replaces review for a type no external crate can reach. It uses the same
+/// negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`, so adding any
+/// `Debug` impl to either makes its `<_ as AmbiguousIfImpl<_>>::some_item` ambiguous (E0283) and
+/// the crate does not build - measured for `Split` by deriving `Debug` on it, which failed the
+/// check with E0283 at its line.
 ///
 /// **Limit:** this forbids `Debug` and nothing else. The `options` field is a foreign `Vec` whose
-/// `Debug` already prints the token; nothing here stops a `tracing`/`format!` call that
-/// reaches `options` directly, or a hand-written `Display` on `JobAuthentication`. Those are held by
-/// review, not by this guard.
+/// `Debug` already prints the token; nothing here stops a `tracing`/`format!` call that reaches
+/// `options` directly, or a hand-written `Display` on either type. Those are held by review, not by
+/// this guard.
 mod no_debug {
     trait AmbiguousIfImpl<A> {
         fn some_item() {}
@@ -344,9 +349,11 @@ mod no_debug {
     impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
     impl<T: ?Sized + core::fmt::Debug> AmbiguousIfImpl<u8> for T {}
 
-    // Compiles only while JobAuthentication does NOT implement Debug.
+    // Compiles only while neither implements Debug. `Split.options` holds the split job's
+    // full-scope token as text, as `JobAuthentication.options` holds a job's.
     const _: fn() = || {
         let _ = <super::JobAuthentication as AmbiguousIfImpl<_>>::some_item;
+        let _ = <super::Split as AmbiguousIfImpl<_>>::some_item;
     };
 }
 
