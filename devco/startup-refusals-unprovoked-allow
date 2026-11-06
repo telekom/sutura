@@ -1,4 +1,5 @@
 # NotFitToServe variants without test-name or snapshot-word evidence.
 # Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
-# Dates are shape-checked; stale and unknown entries fail. No exceptions currently.
+# Dates are shape-checked; stale and unknown entries fail.
 # Name coverage is not proof of provocation or execution in a venue.
+ReadingWorkerBigQueryOutsideAPool 2026-11-06 declared with the API it belongs to and raised by no load yet; the next change wires it into the reading-worker refusals with its cell, which ends this exception
