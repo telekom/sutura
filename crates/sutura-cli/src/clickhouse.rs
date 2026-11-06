@@ -12,11 +12,11 @@
 //! sentences: `serve`'s names every declared source at once, and the command's names the one it was
 //! asked about.
 //!
-//! # The generic is the seam, and it is kept
+//! # One transport, pinned here
 //!
-//! `ClickHouseSource` pins the ADBC warehouse **here, at the composition root**. The fixture and
-//! conformance targets retain the HTTP-backed generic warehouse while their table loader is being
-//! migrated; a served source always uses the ADBC path.
+//! `ClickHouseSource` pins the ADBC warehouse **here, at the composition root**; it is the only
+//! transport `sutura_exec_clickhouse` has, so a served source and the executed cells in the golden
+//! matrix run the same code.
 //!
 //! # Per-subject execution
 //!
@@ -52,11 +52,10 @@ type OpenChannel = (String, Option<TlsOptions>);
 ///
 /// # The limit, next to the claim
 ///
-/// The TLS material is read ONCE and the `ureq::Agent` fixes its configuration at construction, so
-/// a replaced anchor bundle is adopted on the next process start and not on the next request -
+/// The TLS material is read ONCE and held as the PEM text the driver is handed on every connection,
+/// so a replaced anchor bundle is adopted on the next process start and not on the next request -
 /// unlike the `bigquery` wire and the `postgres` channel, which both take a rotating handle. That is
-/// the transport's shape rather than a choice made here (`sutura_exec_clickhouse::transport::Http`'s
-/// own documentation states it), and it is why this root starts no rotation poll for this kind.
+/// why this root starts no rotation poll for this kind.
 ///
 /// # Errors
 ///
@@ -140,10 +139,9 @@ pub(crate) fn deployment_user(
 
 /// The transport for the channel this source declared: plaintext, or TLS over the declared store.
 ///
-/// **The scheme follows the declaration and is never guessed.** `Endpoint::plaintext` for
-/// `transport_mode: plaintext` and `Endpoint::tls` for the two TLS modes, so a source declared
-/// `verified` cannot end up dialled over `http://` - which is the failure a single endpoint
-/// constructor plus an optional TLS config would admit.
+/// **The scheme follows the declaration and is never guessed.** `http` for `transport_mode:
+/// plaintext` and `https` for the two TLS modes, so a source declared `verified` cannot end up
+/// dialled over `http://` - which is the failure one scheme plus optional TLS material would admit.
 fn open_channel(
     source: &SourceName,
     host: &sutura_config::sources::placement::HostName,

@@ -145,6 +145,9 @@ pub(crate) struct RawSource {
     /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
     #[serde(default)]
     pub(crate) hash_buckets_acknowledged_because: Option<String>,
+    /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
+    #[serde(default)]
+    pub(crate) split: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]

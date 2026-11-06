@@ -62,10 +62,10 @@ pub(super) fn acknowledge_hash_buckets(
 ///
 /// `unix_socket` and `database` are in the refused set beside the `files` and `bigquery` keys.
 /// Neither is a gap waiting to be filled: `ClickHouse`'s HTTP interface is dialled over TCP, and
-/// `sutura_exec_clickhouse::transport::Http` sends no `database` field on the one request it makes,
-/// so a `database:` written here would be a key an operator believes is in effect while the
-/// deployment reads past it. That is the state this module's own foreign-key rule exists to refuse,
-/// and refusing it on this kind too is the rule applied rather than an exception to it.
+/// the adapter's endpoint names no `database`, so a `database:` written here would be a key an
+/// operator believes is in effect while the deployment reads past it. That is the state this
+/// module's own foreign-key rule exists to refuse, and refusing it on this kind too is the rule
+/// applied rather than an exception to it.
 ///
 /// # Errors
 ///

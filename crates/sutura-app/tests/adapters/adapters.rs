@@ -505,16 +505,12 @@ impl DataSystemUnderTest for ClickHouse {
     }
 
     fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
-        clickhouse_on(name, tables, ClickHouseLoader::load_csv)
+        clickhouse_on(name, tables, Self::load_csv)
     }
 }
 
 pub(crate) type ClickHouse = sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
-
-/// The HTTP fixture loader, which creates the cell's database and loads its tables. Nothing a cell
-/// executes goes through it.
-pub(crate) type ClickHouseLoader = sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>;
-type ClickHouseLoad = fn(&ClickHouseLoader, &TableName, &Path) -> Result<(), sutura_exec_clickhouse::fixture::FixtureError>;
+type ClickHouseLoad = fn(&ClickHouse, &TableName, &Path) -> Result<(), sutura_exec_clickhouse::fixture::FixtureError>;
 
 /// Opens the `ClickHouse` tier as `name` over ADBC, each table attached by `load`.
 ///
@@ -522,33 +518,23 @@ type ClickHouseLoad = fn(&ClickHouseLoader, &TableName, &Path) -> Result<(), sut
 /// than skipping: a skip here would read as a cell the shipped transport passed.
 pub(crate) fn clickhouse_on(name: SourceName, tables: Vec<(TableName, PathBuf)>, load: ClickHouseLoad) -> ClickHouse {
     let endpoint = clickhouse_tier().expect("`available()` guards the Open of every clickhouse cell");
-    let auth = sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-    let driver = sutura_exec_clickhouse::adbc::driver_location()
-        .unwrap_or_else(|e| panic!("the clickhouse tier is up at {endpoint}, so the shipped ADBC driver must be named: {e}"));
+    let credential =
+        sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
     let database = format!("cell_{}_{}", std::process::id(), schema_counter());
-    let (user, password) = (String::from(auth.user()), auth.password().clone());
-    let loader = ClickHouseLoader::connect_in_database(
-        name.clone(),
+    let warehouse = ClickHouse::connect_in_database(
+        name,
         posture(),
-        sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
-        auth,
+        endpoint.host(),
+        endpoint.port(),
+        &credential,
         &database,
         result_budget(),
     )
     .unwrap_or_else(|e| panic!("clickhouse did not open at {endpoint}: {e}"));
     for (table, csv) in tables {
-        load(&loader, &table, &csv).unwrap_or_else(|e| panic!("clickhouse could not load {}: {e}", csv.display()));
+        load(&warehouse, &table, &csv).unwrap_or_else(|e| panic!("clickhouse could not load {}: {e}", csv.display()));
     }
-    ClickHouse::new(
-        name,
-        posture(),
-        driver,
-        format!("http://{endpoint}/?database={database}"),
-        user,
-        password,
-        None,
-        result_budget(),
-    )
+    warehouse
 }
 
 /// A metrics serving layer: Cube, over the compose `cube` profile's server (`just dev-up-cube`).
