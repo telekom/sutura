@@ -469,7 +469,10 @@ use tokio_rustls::rustls::ServerConfig;
 use tonic::service::InterceptorLayer;
 use tonic::transport::Server;
 
-use super::{Handed, ReadsWithTokens, Tls};
+use super::Tls;
+
+mod tokens;
+use tokens::{Handed, ReadsWithTokens};
 
 /// The token a granted `geo` leg is read with.
 const FORWARDED: &str = "a-forwarded-token-value";
