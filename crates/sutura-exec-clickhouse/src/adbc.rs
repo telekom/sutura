@@ -576,6 +576,13 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
             }
         }
         let slot = struct_array.column(sum_type.slot());
+        // A `tuple()` is never `Nullable`, so the server declares the column non-nullable and only
+        // its slots nullable: the total takes its slot's nullability, or a NULL total is refused.
+        let nullable = field.is_nullable()
+            || struct_array
+                .fields()
+                .get(sum_type.slot())
+                .is_some_and(|slot| slot.is_nullable());
         let selected: Arc<dyn Array> = match sum_type {
             SumType::Decimal { scale } => Arc::new(sum::at_scale(slot, scale).map_err(|refused| match refused {
                 SlotScale::NotADecimalSlot => unsupported_struct(field),
@@ -586,7 +593,13 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
             })?),
             SumType::Integer | SumType::Float => Arc::clone(slot),
         };
-        fields.push(Arc::new(field.as_ref().clone().with_data_type(selected.data_type().clone())));
+        fields.push(Arc::new(
+            field
+                .as_ref()
+                .clone()
+                .with_data_type(selected.data_type().clone())
+                .with_nullable(nullable),
+        ));
         columns.push(selected);
     }
     let schema = Arc::new(Schema::new(fields));

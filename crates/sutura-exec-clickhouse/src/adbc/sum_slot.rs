@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Decimal256Array, Float64Array, RecordBatch, StringArray, StructArray};
+use arrow_array::{Array as _, ArrayRef, Decimal256Array, Float64Array, RecordBatch, StringArray, StructArray};
 use arrow_buffer::i256;
-use arrow_schema::{DataType, Field};
+use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::warehouse::{Accumulating, ResultBudget, Value};
 
 use super::{AdbcError, normalize_batch};
@@ -19,7 +19,8 @@ fn widened(total: i128, scale: u32) -> i256 {
 }
 
 /// One `total` column as the generated sum arrives under `type_name`: its totals in the
-/// `Decimal(76, 38)` slot, the integer and float slots `NULL`.
+/// `Decimal(76, 38)` slot, the integer and float slots `NULL`. The column is non-nullable and its
+/// slots nullable, as the server declares a `tuple()` of `Nullable` slots in its Arrow output.
 fn decimal_sum(type_name: &str, totals: Vec<Option<i256>>) -> RecordBatch {
     let rows = totals.len();
     let slot = |values: Vec<Option<i256>>, scale| -> ArrayRef {
@@ -47,7 +48,8 @@ fn decimal_sum(type_name: &str, totals: Vec<Option<i256>>) -> RecordBatch {
             Arc::new(Float64Array::from(vec![None; rows])) as ArrayRef,
         ),
     ]);
-    RecordBatch::try_from_iter([("total", Arc::new(tuple) as ArrayRef)]).expect("one column is a batch")
+    let column = Field::new("total", tuple.data_type().clone(), false);
+    RecordBatch::try_new(Arc::new(Schema::new(vec![column])), vec![Arc::new(tuple) as ArrayRef]).expect("one column is a batch")
 }
 
 /// The domain values `batch` answers, read the way `execute_to_completion` reads it.
