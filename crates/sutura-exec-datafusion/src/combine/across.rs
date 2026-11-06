@@ -74,14 +74,18 @@
 //!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
 //!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
-//!   [`CombineError::Execute`], unless the failure carries the code of a stage a node refused for
-//!   rows past the federated row ceiling, which leaves as [`CombineError::RowsOverCeiling`]. A cell
+//!   [`CombineError::Execute`], unless the failure carries a code `relay` reads back: a stage refused
+//!   for rows past the federated row ceiling ([`CombineError::RowsOverCeiling`]), a leg a reading
+//!   worker did not certify ([`CombineError::LegNotCertified`]), or a granted leg's link value held
+//!   more than once ([`CombineError::AmbiguousLink`]). A cell
 //!   loses a node nothing listens on and one that drops its connection under a call, over plain
 //!   TCP; the multi-node VM check kills one while it answers.
-//! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
-//!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
-//!   in an Arrow or an external error crosses its next link as text and stays a failure. One stage
-//!   raises it: a final-stage task past the worker's row ceiling.
+//! - Each code is read only exactly, only off a failure, and answered from this node's own
+//!   configuration: a peer can turn a failed question into one of those refusals, never into an
+//!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
+//!   stays a failure. Three stages raise one: a final-stage task past the worker's row ceiling, a
+//!   reading worker's partition scan whose reader did not certify its leg, and a granted leg's link
+//!   count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -105,9 +109,12 @@
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
-//!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Only a `sutura serve`
-//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   nodes, never on this one. An arm's one granted leg is checked in the plan that joins it, whose
+//!   join reads the scan the check counts, so each partition is read once; with two or more granted
+//!   legs, each is checked before the join and each partition is read twice
+//!   (`served::counted_in_plan`). A link value held twice fails that plan under a code this node
+//!   reads back as [`CombineError::AmbiguousLink`]. Only a `sutura serve` deployment's
+//!   PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -165,6 +172,9 @@ mod split;
 /// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
 mod link;
 
+/// An arm's one granted lookup leg's ambiguous-link check, inside the plan that joins it.
+mod once;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
@@ -174,6 +184,7 @@ pub use split::{SplitScan, StreamBound};
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;
 
+pub(super) use once::checked;
 pub(super) use relay::relayed;
 
 #[cfg(test)]
@@ -354,7 +365,7 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let bounded = bounded.clone();
             async move {
-                Ok(grant::forwarded(context.builder, &context.headers)?
+                Ok(once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .with_distributed_user_codec(partition::Codec)
@@ -389,7 +400,7 @@ impl Nodes {
             let keys = keys.clone();
             let reader = reader.clone();
             async move {
-                let mut builder = grant::forwarded(context.builder, &context.headers)?
+                let mut builder = once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(
                         move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {

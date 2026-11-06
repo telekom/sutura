@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across/relay.rs b/crates/sutura-exec-datafusion/src/combine/across/relay.rs
 --- a/crates/sutura-exec-datafusion/src/combine/across/relay.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across/relay.rs
-@@ -54,7 +54,7 @@ pub(crate) fn not_certified(cause: DataFusionError) -> DataFusionError {
+@@ -64,7 +64,7 @@
  pub(crate) fn relayed(error: CombineError) -> CombineError {
      match error {
          CombineError::Execute { cause } if carries(&cause, ROWS_OVER_CEILING) => CombineError::RowsOverCeiling,
 -        CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) => CombineError::LegNotCertified,
 +        CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) && carries(&cause, ROWS_OVER_CEILING) => CombineError::LegNotCertified,
+         CombineError::Execute { cause } if carries(&cause, AMBIGUOUS_LINK) => CombineError::AmbiguousLink,
          CombineError::Execute { cause } => {
              let unread = chain(&cause)
-                 .find_map(|link| link.downcast_ref::<super::NoReadingNode>())
