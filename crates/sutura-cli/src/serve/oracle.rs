@@ -12,6 +12,7 @@
 #[cfg(feature = "oracle")]
 pub(crate) fn open_oracle(
     declared: &[&sutura_domain::model::SourceName],
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<super::OpenedSources, String> {
@@ -19,7 +20,7 @@ pub(crate) fn open_oracle(
     for source in declared {
         let configured = super::configured_source(source, registry)?;
         let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
-        let engine = crate::oracle::build(source, configured, working_set)?;
+        let engine = crate::oracle::build(source, configured, pinned, working_set)?;
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),
             Some(open) => open.and(engine).map_err(super::flatten)?,
@@ -36,6 +37,7 @@ pub(crate) fn open_oracle(
 #[cfg(not(feature = "oracle"))]
 pub(crate) fn open_oracle(
     declared: &[&sutura_domain::model::SourceName],
+    _pinned: &sutura_domain::pinned::PinnedDefinitions,
     _registry: &sutura_config::SourceRegistry,
     _runtime: sutura_config::RuntimeSettings,
 ) -> Result<super::OpenedSources, String> {
