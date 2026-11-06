@@ -1605,6 +1605,7 @@ jobs:
       keycloak_served_test: ${{ steps.lookup.outputs.keycloak_served_test }}
       bigquery_driver_check: ${{ steps.lookup.outputs.bigquery_driver_check }}
       multi_node: ${{ steps.lookup.outputs.multi_node }}
+      multi_node_postgres: ${{ steps.lookup.outputs.multi_node_postgres }}
       k3s_autoscaling: ${{ steps.lookup.outputs.k3s_autoscaling }}
       oracle_tier: ${{ steps.lookup.outputs.oracle_tier }}
       ci_datahub_tier: ${{ steps.lookup.outputs.ci_datahub_tier }}
@@ -1626,7 +1627,7 @@ jobs:
               | jq -r --arg sha "$GITHUB_SHA" '.jobs[] | select(.head_sha == $sha and .status == "completed" and .conclusion == "success") | .name')" || jobs=""
             passed="$passed"$'\n'"$jobs"
           done
-          for leg in keycloak-served-test bigquery-driver-check multi-node k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
+          for leg in keycloak-served-test bigquery-driver-check multi-node multi-node-postgres k3s-autoscaling oracle-tier ci-datahub-tier ci-openmetadata-tier ci-cube-tier; do
             if printf '%s\n' "$passed" | grep -qxF -- "$leg"; then hit=true; else hit=false; fi
             echo "$leg: $hit"
             echo "${leg//-/_}=$hit" >> "$GITHUB_OUTPUT"
@@ -2314,6 +2315,45 @@ jobs:
       - name: Multi-node VM test
         run: nix build .#checks.x86_64-linux.multi-node -L
 
+  # A SERVING NODE, TWO READING WORKERS AND PostgreSQL IN FOUR NixOS VMs (`telekom/sutura#828`): a
+  # split lookup leg granted to the readers. `nix/multi-node-postgres.nix` says what that observes
+  # and what it does not. Its own job beside `multi-node`, so the two VM tests run in parallel and
+  # neither job's wall clock nears the merge queue's 90-minute check timeout. Category-gated on the
+  # PostgreSQL adapter and identity, and on `run_all` and `nix` as the PostgreSQL tier legs are.
+  # Held run-or-fail by `ci-aggregate`, and skipped on a push the merge queue already ran it for, as
+  # `multi-node` is. `/dev/kvm` and nix's feature as in `multi-node`.
+  multi-node-postgres:
+    needs: [ci, queue-validated]
+    if: (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_postgres != 'true'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    concurrency:
+      group: multi-node-postgres-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - name: Open KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Multi-node PostgreSQL VM test
+        run: nix build .#checks.x86_64-linux.multi-node-postgres -L
+
   # THIS CHART IN A k3s CLUSTER INSIDE A NixOS VM (`telekom/sutura#828`), scaled up by its CPU
   # autoscaler under load and back down, and its worker pool started by `sutura-operator` for a
   # federated question and stopped once idle. `nix/k3s-autoscaling.nix` and `nix/k3s-worker-pool.nix`
@@ -2582,6 +2622,7 @@ jobs:
       postgres-linked-driver,
       shipped-features,
       multi-node,
+      multi-node-postgres,
       k3s-autoscaling,
       cross,
       queue-validated,
@@ -2602,6 +2643,8 @@ jobs:
           ORACLE_SELECTED: ${{ (needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true') && needs.queue-validated.outputs.oracle_tier != 'true' }}
           MN_RESULT: ${{ needs.multi-node.result }}
           MN_SELECTED: ${{ (needs.ci.outputs.data_source_node == 'true' || needs.ci.outputs.data_source_clickhouse == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node != 'true' }}
+          MNPG_RESULT: ${{ needs.multi-node-postgres.result }}
+          MNPG_SELECTED: ${{ (needs.ci.outputs.run_all == 'true' || needs.ci.outputs.nix == 'true' || needs.ci.outputs.data_source_postgres == 'true' || needs.ci.outputs.identity == 'true') && needs.queue-validated.outputs.multi_node_postgres != 'true' }}
           K3S_RESULT: ${{ needs.k3s-autoscaling.result }}
           K3S_SELECTED: ${{ needs.ci.outputs.chart == 'true' && needs.queue-validated.outputs.k3s_autoscaling != 'true' }}
           DH_RESULT: ${{ needs.ci-datahub-tier.result }}
@@ -2715,6 +2758,17 @@ jobs:
             case "$MN_RESULT" in
               skipped|success) ;;
               *) fail "multi-node reported '$MN_RESULT' and was neither required to run nor allowed to skip" ;;
+            esac
+          fi
+          # The PostgreSQL multi-node VM test reads no secret either: the same rule, over its four selections.
+          if [ "$MNPG_SELECTED" = "true" ]; then
+            if [ "$MNPG_RESULT" != "success" ]; then
+              fail "multi-node-postgres must run (run_all, nix, data_source_postgres or identity selected) but reported '$MNPG_RESULT'"
+            fi
+          else
+            case "$MNPG_RESULT" in
+              skipped|success) ;;
+              *) fail "multi-node-postgres reported '$MNPG_RESULT' and was neither required to run nor allowed to skip" ;;
             esac
           fi
           # The k3s autoscaling VM test reads no secret either: the same rule, over the `chart` area.

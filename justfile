@@ -247,7 +247,7 @@ ci:
     # (NixOS VMs, KVM) run only on an x86_64-linux host; anywhere else each is a stub saying so.
     # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
     # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node k3s-autoscaling k3s-worker-pool vendored-oracledb slides; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node multi-node-postgres k3s-autoscaling k3s-worker-pool vendored-oracledb slides; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done

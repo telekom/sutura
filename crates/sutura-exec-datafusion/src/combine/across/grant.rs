@@ -49,6 +49,7 @@ use tonic::body::Body;
 use tonic::codegen::http::{self, HeaderMap, HeaderValue};
 
 use super::WorkerRefusal;
+use super::partition::Forwarded;
 
 const KEY: &str = "x-sutura-task-key";
 const GRANT: &str = "x-sutura-task-grant";
@@ -245,16 +246,15 @@ pub(super) fn verify_reading(
 
 /// Mints the grant for one partition of a split leg under a key drawn for that partition alone: the
 /// key's bytes, which only the task reading `partition` is handed, and the encoded grant naming
-/// `wire`'s leg, `source`, `partition`, `caller` masked, the deadline `until`, and a stream bound of
-/// `rows` rows and `bytes` bytes.
+/// `wire`'s leg, `source`, `partition`, `caller` masked, the deadline `until`, a stream bound of
+/// `rows` rows and `bytes` bytes, and the `forwarded` token the partition is read with, if any.
 pub(super) fn granted_read(
     wire: &[u8],
     source: &SourceName,
     partition: &[u8],
-    caller: &SubjectKey,
-    until: Duration,
-    rows: u32,
-    bytes: u32,
+    (caller, until): (&SubjectKey, Duration),
+    (rows, bytes): (u32, u32),
+    forwarded: Option<&Forwarded>,
 ) -> Result<KeyedGrant, DataFusionError> {
     let key = reading::ReadingKey::drawn()?;
     let grant = reading::ReadingGrant::new(
@@ -265,6 +265,10 @@ pub(super) fn granted_read(
         reading::MaskedCaller::of(caller),
         reading::StreamBound { rows, bytes },
     );
+    let grant = match forwarded {
+        Some(forwarded) => grant.forwarding(forwarded),
+        None => grant,
+    };
     let (grant, signature) = reading::mint(&key, grant);
     Ok((key.into_bytes(), reading::encode(&grant, &signature)))
 }

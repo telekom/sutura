@@ -21,7 +21,7 @@
 //!   wanting one states its own bound narrower before calling [`decide`].
 //! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
 //!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, made by
-//!   [`Grantee::grant`] for the asking caller; only a mixed-kind `sutura serve` deployment's
+//!   [`Grantee::grant`] for the asking caller; only a `sutura serve` deployment's
 //!   PostgreSQL source makes one, and only of two or more partitions (`github.com/telekom/sutura#828`).
 
 use core::fmt;
@@ -31,7 +31,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow_schema::SchemaRef;
 
-use crate::identity::{BoundToTheRequest, SubjectKey};
+use crate::identity::{BoundToTheRequest, SourceToken, SubjectKey};
 use crate::nonempty::NonEmpty;
 use crate::plan::leg::LegPlan;
 use crate::plan::remote::{NotSendable, PartitionLeg};
@@ -178,16 +178,25 @@ pub enum Partitioned<'r, E> {
 /// [`Partitioned`], or the source's failure to estimate or split the leg.
 pub type LookupSplit<'r, E> = Result<Partitioned<'r, E>, E>;
 
+/// How a node reading a granted partition reaches its source.
+#[derive(Debug)]
+pub enum ReadAs {
+    /// As the identity the deployment holds for the source, which is never the caller's.
+    ServiceUser,
+    /// With a token of the caller's own principal, forwarded to the reading node.
+    CallerToken(Box<SourceToken>),
+}
+
 /// A lookup leg its source split and granted to the nodes that read it, rather than read here.
 ///
 /// Every partition is read by a node reading the leg's source, for `caller`, until `until`, at most
-/// `stream_rows` rows a stream. `wire` is the leg as [`PartitionLeg::encode`] writes it from a
+/// `stream_rows` rows a stream, as `reads` says. `wire` is the leg as [`PartitionLeg::encode`] writes it from a
 /// [`Grantee`], and each partition the granting adapter's own descriptor, opaque here. `held` is
 /// what the source keeps open across the partitions - an exporting transaction - and lives as long
 /// as this value, which [`Legs`](crate::plan::Legs) borrows past the combine. It is `Send + Sync`
 /// because the combine's scoped join moves the borrowed legs across threads.
 ///
-/// **The limit:** only [`Grantee::grant`] builds one in production, for a mixed-kind deployment's
+/// **The limit:** only [`Grantee::grant`] builds one in production, for a `sutura serve` deployment's
 /// PostgreSQL source (`github.com/telekom/sutura#828`).
 pub struct Granted<'r> {
     wire: Vec<u8>,
@@ -197,6 +206,7 @@ pub struct Granted<'r> {
     until: SystemTime,
     stream_rows: NonZeroU32,
     estimate: EstimatedBytes,
+    reads: ReadAs,
     _held: Box<dyn Send + Sync + 'r>,
 }
 
@@ -209,7 +219,8 @@ pub struct GrantExpired {
 
 impl<'r> Granted<'r> {
     /// `partitions` of the leg `wire` encodes, answering `schema`, granted to `caller` until `until`
-    /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long.
+    /// at most `stream_rows` rows a stream, estimated at `estimate`, with `held` kept open as long,
+    /// read as [`ReadAs::ServiceUser`].
     ///
     /// # Errors
     ///
@@ -237,8 +248,24 @@ impl<'r> Granted<'r> {
             until,
             stream_rows,
             estimate,
+            reads: ReadAs::ServiceUser,
             _held: Box::new(held),
         })
+    }
+
+    /// This grant, read with the caller's forwarded `token`, checked against `now`.
+    ///
+    /// **Not built yet:** `token` is dropped, and the grant reads as it did and ends when it did.
+    ///
+    /// # Errors
+    ///
+    /// [`GrantExpired`] when the grant does not end after `now`.
+    pub fn forwarding(self, token: SourceToken, now: SystemTime) -> Result<Self, GrantExpired> {
+        drop(token);
+        if self.until <= now {
+            return Err(GrantExpired { until: self.until });
+        }
+        Ok(self)
     }
 
     /// The leg, as the granting adapter encoded it for its readers.
@@ -282,6 +309,12 @@ impl<'r> Granted<'r> {
     pub const fn estimate(&self) -> EstimatedBytes {
         self.estimate
     }
+
+    /// How every partition is read.
+    #[must_use]
+    pub const fn reads(&self) -> &ReadAs {
+        &self.reads
+    }
 }
 
 /// Whom a split lookup leg is granted for, and until when, read off the request's own grant.
@@ -317,6 +350,12 @@ pub enum NotGranted {
     Expired(#[from] GrantExpired),
 }
 
+/// Why [`Grantee::forwarding`] refused a token: it was exchanged from a credential other than the
+/// one the grantee's caller presented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a grant forwards only a token exchanged from its own caller's credential")]
+pub struct NotTheCallersToken;
+
 impl Grantee {
     /// `leg`, encoded as its readers re-certify it, granted for the caller `asked` names, until the
     /// earlier of `question_ends` and `asked`'s own expiry.
@@ -343,6 +382,22 @@ impl Grantee {
     #[must_use]
     pub const fn until(&self) -> SystemTime {
         self.until
+    }
+
+    /// This grantee, its partitions read with `token`.
+    ///
+    /// **Not built yet:** `token` is dropped, and the grant reads as [`ReadAs::ServiceUser`].
+    ///
+    /// # Errors
+    ///
+    /// None yet.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the tie to the caller's credential is what refuses, and it lands with the grant change"
+    )]
+    pub fn forwarding(self, token: SourceToken) -> Result<Self, NotTheCallersToken> {
+        drop(token);
+        Ok(self)
     }
 
     /// `partitions`, each a descriptor another node can read or `None` for one only this node can,
