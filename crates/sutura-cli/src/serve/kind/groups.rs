@@ -102,10 +102,12 @@ pub(super) fn clickhouse_group(
 #[cfg(feature = "oracle")]
 pub(super) fn oracle_group(
     sources: &[&SourceName],
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    let crate::serve::OpenedSources::Oracle(engines) = crate::serve::oracle::open_oracle(sources, registry, runtime)? else {
+    let crate::serve::OpenedSources::Oracle(engines) = crate::serve::oracle::open_oracle(sources, pinned, registry, runtime)?
+    else {
         return Err(String::from("`open_oracle` returned an arm this dispatcher does not expect"));
     };
     Ok(engines.into_mapped(|engine| AnyWarehouse::Oracle(Box::new(engine))))
@@ -115,10 +117,11 @@ pub(super) fn oracle_group(
 #[cfg(not(feature = "oracle"))]
 pub(super) fn oracle_group(
     sources: &[&SourceName],
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
-    crate::serve::oracle::open_oracle(sources, registry, runtime)?;
+    crate::serve::oracle::open_oracle(sources, pinned, registry, runtime)?;
     // Unreachable, for `bigquery_group`'s feature-off twin's exact reason.
     Err(String::from(
         "`open_oracle` returned an open registry on a build with no Oracle adapter linked",

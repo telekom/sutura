@@ -22,6 +22,7 @@ use crate::sources::OpenedWith;
 pub(super) fn open(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
     registry: &sutura_config::SourceRegistry,
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
@@ -37,7 +38,7 @@ pub(super) fn open(
              this process; no fallback. `sutura serve` is the root that attaches one"
         ));
     }
-    let engine = crate::oracle::build(source, configured, working_set)?;
+    let engine = crate::oracle::build(source, configured, pinned, working_set)?;
     Ok(Opened::Oracle(OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
         attached: None,
@@ -50,6 +51,7 @@ pub(super) fn open(
 pub(super) fn open(
     source: &SourceName,
     _configured: &sutura_config::ConfiguredSource,
+    _pinned: &sutura_domain::pinned::PinnedDefinitions,
     _registry: &sutura_config::SourceRegistry,
     _working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {

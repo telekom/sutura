@@ -141,6 +141,9 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
+    #[serde(default)]
+    pub(crate) split: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]
