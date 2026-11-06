@@ -7637,6 +7637,16 @@ metric's own is refused before this is called - <code>sutura_semantic::plan::pla
 <p><code>bind</code> is called only for the operators that compare against a value, and returns the index it
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.</p>
+<h3 id="use-addressfamily"><code>use AddressFamily</code><a class="headerlink" href="#use-addressfamily" title="Permanent link">&para;</a></h3>
+<p>The IP family a host in <code>server.nodes</code> is resolved to.</p>
+<p><strong>A rule over the addresses a name resolves to, and nothing more.</strong> <code>Self::Auto</code> keeps one
+family per host, so a dual-stack pod is not two nodes: its IPv4 addresses when it has any, else
+its IPv6 ones. <code>Self::Ipv4</code> and <code>Self::Ipv6</code> keep that family alone, which a name with none
+of it loses entirely.</p>
+<p><strong>Limit:</strong> it chooses among the addresses a resolver returns. It does not make a node reachable
+over a family the network between the nodes does not carry.</p>
+<h3 id="use-unknownaddressfamily"><code>use UnknownAddressFamily</code><a class="headerlink" href="#use-unknownaddressfamily" title="Permanent link">&para;</a></h3>
+<p>The written value named no family.</p>
 <h3 id="use-anchorplan"><code>use AnchorPlan</code><a class="headerlink" href="#use-anchorplan" title="Permanent link">&para;</a></h3>
 <p>The one thing <code>Warehouse::verify_anchor</code> accepts:
 a plan the pinned bundle itself agrees is one of its anchors' own.</p>

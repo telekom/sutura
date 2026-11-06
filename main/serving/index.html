@@ -3174,6 +3174,14 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Name the sources a reading-worker reads; remove them from a worker</td>
 </tr>
 <tr>
+<td>A <code>server.nodes.others</code> IP address of the other family than <code>server.nodes.address_family</code></td>
+<td>Write a host name or an address of that family, or set <code>auto</code></td>
+</tr>
+<tr>
+<td>A <code>server.nodes.address_family</code> that is not <code>auto</code>, <code>ipv4</code> or <code>ipv6</code></td>
+<td>Use one of the three</td>
+</tr>
+<tr>
 <td>Two <code>server.nodes.others</code> peers naming the same origin, or one naming this node's own <code>own</code> address</td>
 <td>Remove the duplicate, or the self-reference</td>
 </tr>
@@ -3651,6 +3659,7 @@ other build refuses the key at startup rather than combining on one node.</p>
 </span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">        </span><span class="nt">sources</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"warehouse"</span><span class="p p-Indicator">]</span>
 </span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="nt">across_above_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
 </span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">wait_for_workers_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">address_family</span><span class="p">:</span><span class="w"> </span><span class="s">"auto"</span>
 </span></code></pre></div>
 <p><code>own</code> is this node's address as the others reach it. Every address is an https URL, and the key is refused without
 <code>server.tls_node_authority</code>. The pair is this node's identity twice: the listener presents it, and so does every link
@@ -3673,10 +3682,16 @@ rows. When no declared reader resolves, the question is refused with <code>503 s
 here. A question that reads one source has no lookup leg: it is sent to that source whole, as one statement, and is
 never split.</p>
 <p>The chart renders a <code>worker</code> peer for its worker pool and a <code>reading-worker</code> peer for each group in its <code>readingWorkers.groups</code>, with the source aliases the group reads.</p>
-<p>A host in <code>others</code> is resolved when each question is planned, and each address it resolves to is one node, its IPv4
-ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
-that moment, each dialled at its address and checked against the host, so every worker's certificate carries that
-host. A host that resolves to nothing is no node, as an empty pool is, so a misspelled one is not refused.</p>
+<p>A host in <code>others</code> is resolved when each question is planned, and each address it resolves to is one node. A pool of
+workers behind one name, such as a headless Service, is then the workers it holds at that moment, each dialled at its
+address and checked against the host, so every worker's certificate carries that host. A host that resolves to nothing
+is no node, as an empty pool is, so a misspelled one is not refused.</p>
+<p><code>address_family</code> chooses which of a host's addresses are nodes. <code>auto</code>, the default, keeps one family per host: its IPv4
+addresses when it has any, else its IPv6 ones, so a dual-stack pod is not two nodes. <code>ipv4</code> keeps only IPv4 addresses and
+<code>ipv6</code> only IPv6 ones, and a host with none of that family is no node, like one that resolves to nothing. A peer written
+as an IP address, or with a <code>#&lt;ip&gt;</code> fragment, of the other family than <code>ipv4</code> or <code>ipv6</code> is refused at startup; <code>own</code> is
+not read. The setting is <code>SUTURA__SERVER__NODES__ADDRESS_FAMILY</code> in the environment. It chooses among the addresses the
+resolver returns and does not make a node reachable over a family the network between the nodes does not carry.</p>
 <p>A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than <code>across_above_bytes</code>, or more than its working-set ceiling when the key is unset. Otherwise this node combines
 it, and goes across only when that combine runs out of its ceiling. <code>0</code> is refused.</p>
