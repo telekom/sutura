@@ -2702,7 +2702,7 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
 <li><code>Connect</code></li>
 <li><code>RedirectRefused</code> - The listener answered with a redirect. Every redirect is refused before authentication: the address it names is one no source declared, so no declared transport governs it.</li>
 <li><code>Execute</code></li>
-<li><code>DivisionByZero</code> - The server refused a statement as <code>ORA-01476: divisor is equal to zero</code>.</li>
+<li><code>DivisionByZero</code> - The server refused a statement as <code>ORA-01476: divisor is equal to zero</code>. The generated ratio divides a <code>BINARY_DOUBLE</code>, which Oracle documents as not raising it, so no ratio this generator emits is expected to reach this variant.</li>
 <li><code>UnsupportedType</code> - A column came back as a type this adapter does not map. An error, not a stringified value.</li>
 <li><code>ValueDecode</code> - A value this adapter asked the driver to decode did not decode.</li>
 <li><code>NotFinite</code> - A <code>BINARY_DOUBLE</code> column came back as a value that is not a number.</li>
