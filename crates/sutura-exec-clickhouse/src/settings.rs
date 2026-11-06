@@ -11,11 +11,12 @@
 //! every request, not clamped.
 //!
 //! **The clause is the statement's own only if it is the first `SETTINGS` after a bare `SELECT`.**
-//! The server makes a `SETTINGS` output-level when it follows a `FORMAT`, a first `SETTINGS`, or a
-//! parenthesised last arm of a set operation, and `EXECUTE AS` lifts an output-level one onto the
-//! outer statement, past the switch. [`with_clause`] refuses a statement carrying any of those at
-//! its top level. Read from the server's source (26.9); measured by the `readonly` tier cells in
-//! `tests/adbc_execute_as.rs`, in CI only.
+//! The server makes a `SETTINGS` output-level when it follows a `FORMAT`, a first `SETTINGS`, an
+//! `INTO OUTFILE`, or a parenthesised last arm - a statement that is one parenthesised `SELECT` is
+//! one - and `EXECUTE AS` lifts an output-level one onto the outer statement, past the switch.
+//! [`with_clause`] refuses a statement that opens with a parenthesis or carries any of those
+//! keywords at its top level. Read from the server's source (26.9); measured by the `readonly`
+//! tier cells in `tests/adbc_execute_as.rs`, in CI only, for a bare `SELECT`.
 //!
 //! Limits: the server skips the check for a value the profile already holds, which leaves the
 //! setting as sutura needs it. Whether the outer statement still enforces the deadline under the
@@ -36,10 +37,14 @@ const ANSWER_SHAPING: [(&str, &str); 6] = [
 
 /// The top-level keywords after which a `SETTINGS` would be output-level, or would follow a
 /// possibly parenthesised last arm.
-const LIFTING: [&str; 5] = ["SETTINGS", "FORMAT", "UNION", "INTERSECT", "EXCEPT"];
+const LIFTING: [&str; 6] = ["SETTINGS", "FORMAT", "INTO", "UNION", "INTERSECT", "EXCEPT"];
 
-/// A statement whose top level carries this keyword, so a clause after it could be lifted past the
-/// switch.
+/// What [`Lifted`] names for a statement that opens with a parenthesis: its whole body is then one
+/// parenthesised arm, and a clause after it is output-level.
+const OPENING_PARENTHESIS: &str = "(";
+
+/// A statement whose top level carries this keyword, or that opens with a parenthesis, so a clause
+/// after it could be lifted past the switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Lifted(pub(crate) &'static str);
 
@@ -55,8 +60,8 @@ pub(crate) fn driver_options() -> impl Iterator<Item = (String, &'static str)> {
 ///
 /// # Errors
 ///
-/// [`Lifted`] for a `select` whose top level, outside parentheses and quotes, carries a keyword of
-/// [`LIFTING`].
+/// [`Lifted`] for a `select` that opens with a parenthesis, or whose top level, outside parentheses
+/// and quotes, carries a keyword of [`LIFTING`].
 pub(crate) fn with_clause(select: &str, max_execution_time: u64) -> Result<String, Lifted> {
     if let Some(keyword) = top_level_lifting(select) {
         return Err(Lifted(keyword));
@@ -77,9 +82,12 @@ pub(crate) fn with_clause(select: &str, max_execution_time: u64) -> Result<Strin
     ))
 }
 
-/// The first keyword of [`LIFTING`] that `select` spells as a word at depth zero, skipping string
-/// literals and quoted identifiers.
+/// [`OPENING_PARENTHESIS`] for a `select` that opens with one, else the first keyword of [`LIFTING`]
+/// that `select` spells as a word at depth zero, skipping string literals and quoted identifiers.
 fn top_level_lifting(select: &str) -> Option<&'static str> {
+    if select.trim_start().starts_with('(') {
+        return Some(OPENING_PARENTHESIS);
+    }
     let mut depth = 0_usize;
     let mut quote: Option<char> = None;
     let mut escaped = false;

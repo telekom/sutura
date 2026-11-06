@@ -25,9 +25,12 @@ fn a_statement_whose_clause_would_be_lifted_past_the_switch_is_refused() {
     for (select, keyword) in [
         ("SELECT 1 SETTINGS join_use_nulls = 0", "SETTINGS"),
         ("SELECT 1 FORMAT TSV", "FORMAT"),
-        ("(SELECT 1) UNION ALL (SELECT 2)", "UNION"),
+        ("SELECT 1 UNION ALL (SELECT 2)", "UNION"),
         ("select 1 intersect select 2", "INTERSECT"),
         ("SELECT 1 EXCEPT SELECT 2", "EXCEPT"),
+        ("SELECT 1 INTO OUTFILE 'answer.tsv'", "INTO"),
+        ("(SELECT 1)", "("),
+        (" \n(SELECT \"k\" FROM \"t\")", "("),
     ] {
         assert_eq!(with_clause(select, 30), Err(Lifted(keyword)), "{select}");
     }

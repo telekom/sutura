@@ -172,9 +172,10 @@ pub enum AdbcError {
     /// answered without the setting.
     #[error("ClickHouse refused a setting the answer needs: {0}")]
     SettingRefused(DriverMessage),
-    /// The rendered statement carries a top-level `keyword` after which its `SETTINGS` would be
-    /// output-level, so `EXECUTE AS` would lift it past the switch. Refused before it is sent.
-    #[error("the rendered statement carries a top-level {keyword}, so its settings would not be its own")]
+    /// The rendered statement carries a top-level `keyword`, or opens with a parenthesis (`(`), so
+    /// its `SETTINGS` would be output-level and `EXECUTE AS` would lift it past the switch. Refused
+    /// before it is sent.
+    #[error("the rendered statement carries `{keyword}` at its top level, so its settings would not be its own")]
     SettingsNotOwn { keyword: &'static str },
     #[error("could not read a ClickHouse ADBC result batch: {0}")]
     Batch(#[source] ArrowError),
