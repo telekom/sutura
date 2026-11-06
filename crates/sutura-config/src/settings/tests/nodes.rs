@@ -226,3 +226,76 @@ fn a_clickhouse_source_opting_into_hash_buckets_loads_carrying_the_reason() {
         );
     }
 }
+
+/// A hash-bucket reason, on the entry it follows.
+const BUCKET_REASON: &str = "    hash_buckets_acknowledged_because: \"each key's rows are read together\"\n";
+
+/// A loopback, shared `clickhouse` source under `alias`, carrying `extra`.
+fn bucketed_clickhouse(alias: &str, extra: &str) -> String {
+    format!(
+        "  {alias}:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"shared-service-user\"\n{extra}"
+    )
+}
+
+/// A serving node that verifies its callers, with one reading node that reads `read`, over `sources`.
+fn bucket_readers(read: &str, sources: &str) -> String {
+    format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    others:\n      \
+         - url: \"https://b.example:8443\"\n        role: \"reading-worker\"\n        sources:\n          - \"{read}\"\n\
+         sources:\n{sources}security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  \
+         tls_termination: \"in-process\"\n{}",
+        super::inbound::DIRECT_INBOUND,
+    )
+}
+
+/// What `overlay` is refused with at its posture, less the build's own TLS answer.
+fn bucket_refusals(overlay: String) -> Vec<NotFitToServe> {
+    refused_with(overlay)
+        .into_iter()
+        .filter(|refusal| *refusal != NotFitToServe::InProcessTlsNotCompiledIn)
+        .collect()
+}
+
+fn warehouse() -> sutura_domain::model::SourceName {
+    sutura_domain::model::SourceName::parse("warehouse").expect("a legal identifier")
+}
+
+/// `#828`: only a lookup leg of a federated answer is read in hash buckets, so an opt-in on the only
+/// source is refused before the deployment serves, naming the key.
+#[test]
+fn a_hash_bucket_opt_in_on_the_only_source_is_not_fit_to_serve() {
+    let refusals = bucket_refusals(bucket_readers("warehouse", &bucketed_clickhouse("warehouse", BUCKET_REASON)));
+    assert_eq!(
+        refusals,
+        vec![NotFitToServe::HashBucketsOnTheOnlySource { alias: warehouse() }]
+    );
+    let rendered = refusals.first().expect("one refusal").to_string();
+    assert!(
+        rendered.contains("sources.warehouse.hash_buckets_acknowledged_because"),
+        "{rendered}"
+    );
+}
+
+/// `#828`: a hash bucket is read on a reading node, so an opt-in no declared peer reads is refused
+/// before the deployment serves - with no `server.nodes` at all, and with a peer reading another
+/// source.
+#[test]
+fn a_hash_bucket_opt_in_that_no_node_reads_is_not_fit_to_serve() {
+    let two = format!(
+        "{}{}",
+        bucketed_clickhouse("warehouse", BUCKET_REASON),
+        bucketed_clickhouse("orders", "")
+    );
+    let refused = vec![NotFitToServe::HashBucketsReadByNoNode { alias: warehouse() }];
+    assert_eq!(
+        bucket_refusals(format!(
+            "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n{two}"
+        )),
+        refused
+    );
+    assert_eq!(bucket_refusals(bucket_readers("orders", &two)), refused);
+    // The CONTROL: the same sources, with the peer reading `warehouse`, serve.
+    assert_eq!(bucket_refusals(bucket_readers("warehouse", &two)), Vec::new());
+}

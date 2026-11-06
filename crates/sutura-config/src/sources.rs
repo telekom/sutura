@@ -759,7 +759,8 @@ impl SourceRegistry {
     ///
     /// # Errors
     ///
-    /// The key on an entry that is not `kind: clickhouse`, and a reason that is not usable text.
+    /// The key on an entry that is not `kind: clickhouse` or that declares a `delegation`, and a
+    /// reason that is not usable text.
     pub(crate) fn acknowledge_hash_buckets(&mut self, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
         clickhouse::acknowledge_hash_buckets(self, written, value)
     }
