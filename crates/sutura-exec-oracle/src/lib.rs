@@ -483,8 +483,9 @@ impl OracleWarehouse {
     /// # Errors
     ///
     /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`],
-    /// [`OracleError::FlashbackRoleNotEnabled`], and [`OracleError::FlashbackRefused`] naming the first table that does not read at a snapshot;
-    /// a probe the database fails otherwise is its own error.
+    /// [`OracleError::FlashbackRoleNotEnabled`], and [`OracleError::FlashbackRefused`] naming the
+    /// first table that does not read at a snapshot; a probe the database fails otherwise is its own
+    /// error.
     pub fn with_flashback(
         self,
         tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
