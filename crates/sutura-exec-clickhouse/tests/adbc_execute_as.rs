@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 //! Per-caller execution over the ADBC transport, the one `sutura serve` composes: a switched user is
 //! named in the statement under the deployment's own sign-in, and a caller presented with a token
-//! signs in with it. The first cell reads what the driver sends to a loopback listener; the second
-//! asks the tier's server, whose users `nix/clickhouse-tier-provision.sh` declares.
+//! signs in with it. The first cells read what the driver sends to a loopback listener; the others
+//! ask the tier's server, whose users `nix/clickhouse-tier-provision.sh` declares. The `readonly`
+//! cells hold that a switch to a user whose profile sets `readonly = 1` answers under the settings
+//! sutura sends, or is refused as `AdbcError::SettingRefused` - never an answer without them.
 
 #[cfg(test)]
 mod adbc_execute_as {
@@ -14,10 +16,17 @@ mod adbc_execute_as {
 
     use sutura_conformance::corpus::{self, Case};
     use sutura_dev::provisioned::{self, Provisioned};
+    use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::identity::{Presented, PrincipalName, Secret};
-    use sutura_domain::plan::Executable;
+    use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, RelationshipName, TableName};
+    use sutura_domain::nonempty::NonEmpty;
+    use sutura_domain::plan::{
+        Executable, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanJoinKey, PlanKey, PlanMeasure, PlanPredicate,
+        PlanTerm, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
+    };
     use sutura_domain::source::SourcePosture;
-    use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
+    use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content};
+    use sutura_domain::warehouse::{ParamValue, ResultBatches, ResultBudget, RowSet, Value, Warehouse as _};
     use sutura_exec_clickhouse::adbc::{AdbcClickHouseWarehouse, AdbcError, driver_location};
     use sutura_exec_clickhouse::fixture::credential_from_env;
 
@@ -224,6 +233,76 @@ mod adbc_execute_as {
         assert!(!warehouse.deadline_exceeded(&failed), "{failed}");
     }
 
+    /// Whether `error` is `AdbcError::SettingRefused`, read off its variant name so these cells also
+    /// compile against a tree without the variant, where they fail by their own assertion.
+    fn refused_a_setting(error: &AdbcError) -> bool {
+        format!("{error:?}").starts_with("SettingRefused(")
+    }
+
+    /// The settings sutura pins travel in the statement's own `SETTINGS` clause, the one `SETTINGS`
+    /// in it, after the switched `SELECT`, so the server checks them against the switched user's
+    /// profile. A second one would be output-level, which `EXECUTE AS` lifts past the switch.
+    #[test]
+    fn a_switched_statement_carries_the_answer_settings_in_its_own_clause() {
+        let switched = sent(&switched_to("sutura_switched"));
+        assert_eq!(switched.sql.matches(" SETTINGS ").count(), 1, "{}", switched.sql);
+        let Some((select, clause)) = switched.sql.split_once(" SETTINGS ") else {
+            panic!("the statement has no SETTINGS clause: {}", switched.sql);
+        };
+        assert!(
+            select.starts_with("EXECUTE AS \"sutura_switched\" SELECT "),
+            "{}",
+            switched.sql
+        );
+        let pinned: Vec<&str> = clause.split(", ").collect();
+        for setting in [
+            "join_use_nulls = 1",
+            "output_format_json_quote_denormals = 1",
+            "output_format_json_quote_64bit_integers = 1",
+            "output_format_json_quote_decimals = 1",
+            "output_format_decimal_trailing_zeros = 1",
+            "timeout_overflow_mode = 'throw'",
+        ] {
+            assert!(pinned.contains(&setting), "{setting} is not in {clause}");
+        }
+        let deadline = pinned
+            .iter()
+            .find_map(|setting| setting.strip_prefix("max_execution_time = "))
+            .and_then(|seconds| seconds.parse::<u64>().ok());
+        assert!(deadline.is_some_and(|seconds| seconds > 0), "{clause}");
+    }
+
+    /// The server's `READONLY` (164) and `SETTING_CONSTRAINT_VIOLATION` (452) read as a refused
+    /// setting, and as neither a refused identity nor a spent deadline; no other code does.
+    #[test]
+    fn a_readonly_or_constrained_setting_reads_as_a_refused_setting() {
+        let switched = switched_to("sutura_switched");
+        for (code, text) in [
+            (164, "Cannot modify 'join_use_nulls' setting in readonly mode. (READONLY)"),
+            (
+                452,
+                "Setting max_execution_time shouldn't be greater than 10. (SETTING_CONSTRAINT_VIOLATION)",
+            ),
+        ] {
+            let (warehouse, refused, _) = exchange(&switched, server_error(code, text));
+            assert!(refused_a_setting(&refused), "{code}: {refused:?}");
+            assert!(!warehouse.source_refused(&refused), "{code}: {refused}");
+            assert!(!warehouse.deadline_exceeded(&refused), "{code}: {refused}");
+        }
+        for (code, text) in [
+            (
+                60,
+                "Unknown table expression identifier 'conformance_events'. (UNKNOWN_TABLE)",
+            ),
+            (159, "Timeout exceeded: elapsed 30.1 seconds, maximum: 30. (TIMEOUT_EXCEEDED)"),
+            (497, "sutura_service: Not enough privileges. (ACCESS_DENIED)"),
+            (516, "sutura_service: Authentication failed. (AUTHENTICATION_FAILED)"),
+        ] {
+            let (_, other, _) = exchange(&switched, server_error(code, text));
+            assert!(!refused_a_setting(&other), "{code}: {other:?}");
+        }
+    }
+
     /// A federated leg never runs under a switch: it is refused before the driver is asked for
     /// anything, so nothing listens at the endpoint.
     #[test]
@@ -320,5 +399,284 @@ mod adbc_execute_as {
         let refused =
             run("adbc_switched", &signed_in_as("sutura_caller_b", &token)).expect_err("a token signs in only as its own `sub`");
         assert!(at("adbc_switched").source_refused(&refused), "{refused}");
+    }
+
+    /// The tier user whose profile sets `readonly = 1`, granted to the service user like
+    /// `sutura_switched`, and the one database it reads.
+    const READONLY_USER: &str = "sutura_switched_readonly";
+    const READONLY_READS: &str = "adbc_switched_legs";
+    /// A view in [`READONLY_READS`] answering, as text, the settings the statement reading it runs under.
+    const SETTINGS_VIEW: &str = "settings_in_effect";
+
+    /// The tier's server and its service user.
+    struct Tier {
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+    }
+
+    impl Tier {
+        fn up(cell: &str) -> Option<Self> {
+            match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
+                Provisioned::At(endpoint) => Some(Self {
+                    host: String::from(endpoint.host()),
+                    port: endpoint.port(),
+                    user: variable("SUTURA_CLICKHOUSE_TIER_USER"),
+                    password: variable("SUTURA_CLICKHOUSE_TIER_PASSWORD"),
+                }),
+                Provisioned::Skipped(absent) => {
+                    eprintln!("adbc_execute_as::{cell}: NOT RUN - {absent}");
+                    None
+                }
+            }
+        }
+
+        fn opened_in(&self, database: &str, posture: SourcePosture) -> AdbcClickHouseWarehouse {
+            warehouse_at(
+                format!("http://{}:{}/?database={database}", self.host, self.port),
+                posture,
+                &self.user,
+                &self.password,
+            )
+        }
+
+        /// `plan` in `database` switched to `user` under the service user's own sign-in.
+        fn as_user(&self, database: &str, plan: &QueryPlan, user: &str) -> Result<ResultBatches, AdbcError> {
+            self.opened_in(database, SourcePosture::ImpersonationAtSource).execute(
+                Executable::Query(plan),
+                &switched_to(user),
+                corpus::deadline(),
+            )
+        }
+
+        /// `plan` in `database` as the service user at a shared source: no switch.
+        fn shared(&self, database: &str, plan: &QueryPlan) -> RowSet {
+            self.opened_in(database, corpus::posture())
+                .execute(Executable::Query(plan), &corpus::presented(), corpus::deadline())
+                .unwrap_or_else(|e| panic!("the service user: {e}"))
+                .to_rows()
+                .unwrap_or_else(|e| panic!("the service user: {e}"))
+        }
+
+        /// The corpus and the regions table in `database`, loaded as the service user.
+        fn load_with_regions(&self, database: &str) {
+            let credential = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+            let loader = AdbcClickHouseWarehouse::connect_in_database(
+                corpus::source(),
+                corpus::posture(),
+                &self.host,
+                self.port,
+                &credential,
+                database,
+                test_budget(),
+            )
+            .unwrap_or_else(|e| panic!("clickhouse did not open {database}: {e}"));
+            loader
+                .load_conformance_csv(&corpus::table(), &corpus::on_disk())
+                .unwrap_or_else(|e| panic!("clickhouse could not load the corpus into {database}: {e}"));
+            loader
+                .load_federated_csv(&corpus::lookup_table(), &corpus::lookup_on_disk())
+                .unwrap_or_else(|e| panic!("clickhouse could not load the regions into {database}: {e}"));
+        }
+
+        /// Sends `sql`, which a plan cannot state, as the service user over HTTP/1.0.
+        fn posted(&self, sql: &str) {
+            let mut stream = TcpStream::connect((self.host.as_str(), self.port)).expect("the tier accepts a connection");
+            let request = format!(
+                "POST / HTTP/1.0\r\nHost: {}\r\nX-ClickHouse-User: {}\r\nX-ClickHouse-Key: {}\r\nContent-Length: {}\r\n\r\n{sql}",
+                self.host,
+                self.user,
+                self.password,
+                sql.len()
+            );
+            stream.write_all(request.as_bytes()).expect("the request writes");
+            let mut answer = String::new();
+            stream.read_to_string(&mut answer).expect("the answer reads");
+            assert!(
+                answer.lines().next().is_some_and(|status| status.contains(" 200 ")),
+                "{sql}: {answer}"
+            );
+        }
+    }
+
+    fn test_budget() -> ResultBudget {
+        ResultBudget::of_bytes(core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test budget is positive"))
+    }
+
+    fn warehouse_at(endpoint: String, posture: SourcePosture, user: &str, password: &str) -> AdbcClickHouseWarehouse {
+        let driver = driver_location().unwrap_or_else(|e| panic!("the dev shell and every nix check mount the driver: {e}"));
+        AdbcClickHouseWarehouse::new(
+            corpus::source(),
+            posture,
+            driver,
+            endpoint,
+            String::from(user),
+            Secret::new(String::from(password)),
+            None,
+            test_budget(),
+        )
+    }
+
+    fn day(of_january: u8) -> Date {
+        Date::new(2026, 1, of_january).expect("a January date in 2026 is a date")
+    }
+
+    fn table_named(name: &str) -> TableName {
+        TableName::parse(name).expect("a tier table is a name")
+    }
+
+    fn column_of(table: &TableName, name: &str) -> PlanColumn {
+        PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a tier column is a name"))
+    }
+
+    fn keyed(label: &str, on: PlanColumn) -> PlanKey {
+        PlanKey::new(
+            ResultLabel::dimension(&DimensionName::parse(label).expect("a dimension is a name")),
+            on,
+        )
+    }
+
+    /// A whole question over `tables`: `summed` summed by `keys` and by day, over January 1st and 2nd.
+    fn question(tables: StatementTables, keys: Vec<PlanKey>, summed: PlanColumn) -> QueryPlan {
+        let from = summed.table().clone();
+        let on = || column_of(&from, "day");
+        let from_day = PlanPredicate::AtOrAfter { column: on(), param: 0 };
+        let to_day = PlanPredicate::Before { column: on(), param: 1 };
+        let metric = MetricName::parse("amount_total").expect("a metric is a name");
+        QueryPlan::new(
+            corpus::source(),
+            metric.clone(),
+            tables,
+            PlanBucket::new(ResultLabel::bucket(), Grain::Day, on()),
+            keys,
+            PlanMeasure::Simple {
+                term: PlanTerm::Aggregate {
+                    aggregate: Aggregate::Sum,
+                    column: summed,
+                },
+            },
+            ResultLabel::measure(&metric),
+            PlanBindings::parse(
+                [from_day, to_day]
+                    .into_iter()
+                    .map(|bound| PlanFilter::new(PredicateOrigin::Definition, bound))
+                    .collect(),
+                vec![ParamValue::Date(day(1)), ParamValue::Date(day(3))],
+            )
+            .expect("each filter binds its own parameter in order"),
+            TimeRange::new(day(1), day(3)).expect("the range is not empty"),
+        )
+    }
+
+    /// `amount_cents` by region name: the corpus table left-joined to the regions table, so the
+    /// event with no region has no region name.
+    fn by_region_name() -> QueryPlan {
+        let events = corpus::table();
+        let regions = corpus::lookup_table();
+        let tables = StatementTables::parse(
+            events.clone(),
+            vec![PlanJoin::new(
+                RelationshipName::parse("event_region").expect("a relationship is a name"),
+                regions.clone(),
+                JoinType::ManyToOne,
+                NonEmpty::parse(vec![PlanJoinKey::Equal {
+                    origin: column_of(&events, "region"),
+                    target: column_of(&regions, "region"),
+                }])
+                .expect("the join declares one key"),
+            )],
+        )
+        .expect("two differently named tables are distinguishable");
+        question(
+            tables,
+            vec![keyed("region_name", column_of(&regions, "region_name"))],
+            column_of(&events, "amount_cents"),
+        )
+    }
+
+    /// The three settings [`SETTINGS_VIEW`] answers, each its own key.
+    fn settings_in_effect() -> QueryPlan {
+        let view = table_named(SETTINGS_VIEW);
+        question(
+            StatementTables::only(view.clone()),
+            ["join_use_nulls", "max_execution_time", "timeout_overflow_mode"]
+                .into_iter()
+                .map(|setting| keyed(setting, column_of(&view, setting)))
+                .collect(),
+            column_of(&view, "statements"),
+        )
+    }
+
+    /// The correct outcomes of a question switched to a `readonly = 1` user: an answer under the
+    /// settings sutura sends, or `AdbcError::SettingRefused`. `None` is that refusal. Anything
+    /// else fails the cell.
+    fn under_readonly(answered: Result<ResultBatches, AdbcError>, cell: &str) -> Option<RowSet> {
+        match answered {
+            Ok(batches) => Some(batches.to_rows().unwrap_or_else(|e| panic!("{READONLY_USER}: {e}"))),
+            Err(refused) if refused_a_setting(&refused) => {
+                eprintln!("adbc_execute_as::{cell}: OBSERVED - refused: {refused}");
+                None
+            }
+            Err(other) => panic!("{READONLY_USER}: neither an answer nor a refused setting: {other:?}"),
+        }
+    }
+
+    /// The LEFT JOIN's unmatched key reads NULL as the service user, and a question switched to a
+    /// `readonly = 1` user answers the same rows or is refused. A switch that dropped
+    /// `join_use_nulls` answers that key as the empty string instead.
+    #[test]
+    fn a_readonly_switched_query_reads_an_unmatched_left_join_key_as_null_or_is_refused() {
+        let Some(tier) = Tier::up("readonly_left_join") else {
+            return;
+        };
+        tier.load_with_regions(READONLY_READS);
+        let plan = by_region_name();
+        let shared = tier.shared(READONLY_READS, &plan);
+        assert!(
+            shared.rows().iter().any(|row| row.first() == Some(&Value::Null)),
+            "the unswitched question has an unmatched key: {shared:?}"
+        );
+        if let Some(switched) = under_readonly(tier.as_user(READONLY_READS, &plan, READONLY_USER), "readonly_left_join") {
+            agree_on_content(&shared, &switched, RealTolerance::DIFFERENTIAL).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
+
+    /// The settings a question runs under, read through a view by the question itself: as the
+    /// service user, and switched to a `readonly = 1` user, `join_use_nulls` is on and
+    /// `max_execution_time` is the deadline sutura sent rather than none - or the switch is refused.
+    /// `timeout_overflow_mode` is printed, not asserted: `throw` is also the server's default.
+    #[test]
+    fn a_readonly_switched_query_runs_under_the_settings_sutura_sends_or_is_refused() {
+        let Some(tier) = Tier::up("readonly_settings") else { return };
+        tier.posted(&format!("CREATE DATABASE IF NOT EXISTS {READONLY_READS}"));
+        tier.posted(&format!(
+            "CREATE OR REPLACE VIEW {READONLY_READS}.{SETTINGS_VIEW} SQL SECURITY INVOKER AS SELECT \
+             toDate('2026-01-01') AS day, toString(getSetting('join_use_nulls')) AS join_use_nulls, \
+             toString(getSetting('max_execution_time')) AS max_execution_time, \
+             toString(getSetting('timeout_overflow_mode')) AS timeout_overflow_mode, toInt64(1) AS statements"
+        ));
+        let plan = settings_in_effect();
+        sent_settings_in_effect(&tier.shared(READONLY_READS, &plan), "the service user");
+        if let Some(switched) = under_readonly(tier.as_user(READONLY_READS, &plan, READONLY_USER), "readonly_settings") {
+            sent_settings_in_effect(&switched, READONLY_USER);
+        }
+    }
+
+    fn sent_settings_in_effect(answered: &RowSet, who: &str) {
+        let [row] = answered.rows() else {
+            panic!("{who}: one row of settings: {answered:?}");
+        };
+        let setting = |at: usize| match row.get(at) {
+            Some(Value::Text(value)) => value.as_str(),
+            other => panic!("{who}: setting {at} is not text: {other:?}"),
+        };
+        assert!(matches!(setting(0), "1" | "true"), "{who}: join_use_nulls: {answered:?}");
+        assert_ne!(setting(1), "0", "{who}: max_execution_time: {answered:?}");
+        eprintln!(
+            "adbc_execute_as::readonly_settings: OBSERVED - {who}: max_execution_time {}, timeout_overflow_mode {}",
+            setting(1),
+            setting(2)
+        );
     }
 }
