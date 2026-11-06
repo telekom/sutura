@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
+--- a/crates/sutura-exec-datafusion/src/combine/arm.rs
++++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
+@@ -198,7 +198,7 @@
+             // inside it runs even when no row reaches it. The relation is the right side: LEFT
+             // keeping its rows becomes RIGHT.
+             let build = super::served::checked(context, scanned, table, &plan.link_labels(position))?;
+-            let kind = if kind == JoinType::Left { JoinType::Right } else { kind };
++            let kind = if kind == JoinType::Left && false { JoinType::Right } else { kind };
+             builder
+                 .build()
+                 .and_then(|relation| LogicalPlanBuilder::from(build).join_on(relation, kind, on))

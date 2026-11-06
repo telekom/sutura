@@ -198,7 +198,8 @@ fn parse_operator_text(name: &'static str, raw: &str, limit: usize) -> Result<St
     Ok(String::from(trimmed))
 }
 
-/// The operator's stated reason for serving one source under one identity for every caller.
+/// An operator's stated reason for accepting a weaker guarantee - one identity for every caller, or
+/// a source read in hash buckets.
 ///
 /// **A required value rather than a flag, because the reason is the part a reviewer needs and the
 /// part nobody writes unless the type demands it.** A boolean acknowledgement records that somebody
@@ -221,9 +222,8 @@ impl AcknowledgementReason {
     /// The canonical constructor: parses a reason written under `key`.
     ///
     /// `key` is carried into the refusal so a message names the entry an operator has to change
-    /// rather than describing a category. There are two keys in the settings tree that produce one of
-    /// these - a source's own acknowledgement and the single-user mode declaration - and one parse, so
-    /// a rule that held for one and not the other cannot exist.
+    /// rather than describing a category. Every key in the settings tree that produces one of these
+    /// parses here, so a rule that held for one key and not another cannot exist.
     pub fn written_under(key: &'static str, raw: impl AsRef<str>) -> Result<Self, InvalidOperatorText> {
         parse_operator_text(key, raw.as_ref(), MAX_REASON_LEN).map(Self)
     }
@@ -344,8 +344,8 @@ impl SharedIdentityDeclared {
 /// The witness that an operator let a lookup leg of one source be read in hash buckets, one read
 /// per bucket, on the nodes that read that source.
 ///
-/// It carries the reason and nothing else: a split read is unreachable without an operator's own
-/// words, as the shared posture is. **What the operator accepts is per-key consistency only** - each
+/// It carries the reason and nothing else. **Nothing reads it yet**: the adapter that splits a leg
+/// will take it, and until then no type holds that a split read needs it. **What the operator accepts is per-key consistency only** - each
 /// bucket is its own read, so the buckets share no snapshot, and a key that changes while they run
 /// can be read in one bucket, in two, or in none.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,7 +361,7 @@ impl HashBucketsDeclared {
         Self { reason }
     }
 
-    /// What the operator said, for the startup log.
+    /// What the operator said.
     #[inline]
     #[must_use]
     pub const fn reason(&self) -> &AcknowledgementReason {

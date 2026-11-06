@@ -422,6 +422,9 @@ pub(crate) struct RawNodes {
     /// Seconds a question that goes across waits for the other nodes it wants to resolve.
     #[serde(default)]
     pub(crate) wait_for_workers_seconds: Option<core::num::NonZeroU32>,
+    /// `auto`, `ipv4` or `ipv6`: which family of addresses a host in `others` is dialled at.
+    #[serde(default)]
+    pub(crate) address_family: sutura_domain::plan::AddressFamily,
 }
 
 /// One peer named by `server.nodes.others`: its address, its role (`worker` or
