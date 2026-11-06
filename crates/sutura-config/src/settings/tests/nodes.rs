@@ -1,6 +1,7 @@
 //! `server.nodes` through `Settings::load`: declared without a node authority it is refused, an
 //! address that is not `https` is refused naming it, a leg size above which a question goes
-//! across rides with the nodes, never as zero, and so does a bounded wait for other nodes.
+//! across rides with the nodes, never as zero, and so does a bounded wait for other nodes. A
+//! `clickhouse` source's hash-bucket reason rides with that source.
 //!
 //! The refusal cells read the refusal only through what the base tree already exports - its
 //! variant and `Display` - so they build there and fail on its behaviour.
@@ -179,4 +180,49 @@ fn declared_nodes_with_no_reading_node_and_no_inbound_identity_still_serve() {
     );
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
         .expect("nodes with no reading node and no inbound identity still load");
+}
+
+/// A serving node that verifies its callers, over two loopback `clickhouse` sources, with `warehouse`
+/// declared `posture`, carrying `extra`, and read by one reading node.
+fn hash_bucketed_deployment(posture: &str, extra: &str) -> Sources {
+    let entry = |alias: &str, posture: &str| {
+        format!(
+            "  {alias}:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+             password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    posture: \"{posture}\"\n"
+        )
+    };
+    Sources::defaults(Environment::Development).with_overlay(format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    others:\n      \
+         - url: \"https://b.example:8443\"\n        role: \"reading-worker\"\n        sources:\n          - \"warehouse\"\n\
+         sources:\n{}{extra}{}security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  \
+         tls_termination: \"in-process\"\n{}",
+        entry("warehouse", posture),
+        entry("orders", "shared-service-user"),
+        super::inbound::DIRECT_INBOUND,
+    ))
+}
+
+/// `#828`: a `clickhouse` source lets its lookup leg be read in hash buckets with the operator's
+/// reason, shared or switched to each caller, and the reason is carried on that source alone.
+#[test]
+fn a_clickhouse_source_opting_into_hash_buckets_loads_carrying_the_reason() {
+    let alias = |name: &str| sutura_domain::model::SourceName::parse(name).expect("a legal identifier");
+    for posture in ["shared-service-user", "impersonation-at-source"] {
+        let without = Settings::load(&hash_bucketed_deployment(posture, "")).expect("the deployment without the key loads");
+        let with = Settings::load(&hash_bucketed_deployment(
+            posture,
+            "    hash_buckets_acknowledged_because: \"each key's rows are read together; the buckets share no snapshot\"\n",
+        ))
+        .expect("the deployment with the key loads");
+        assert_ne!(
+            with.sources().get(&alias("warehouse")),
+            without.sources().get(&alias("warehouse")),
+            "{posture}: the reason is carried"
+        );
+        assert_eq!(
+            with.sources().get(&alias("orders")),
+            without.sources().get(&alias("orders")),
+            "{posture}"
+        );
+    }
 }

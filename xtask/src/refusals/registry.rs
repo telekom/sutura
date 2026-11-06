@@ -115,7 +115,9 @@ const STARTUP: Subject = Subject {
     // `DeclaredNodeReadsUndeclaredSource` (#828), a `server.nodes` peer naming a source alias this
     // deployment's own `sources:` section does not declare. 39: `ReadingNodeWithoutInboundIdentity`
     // (#828), a `server.nodes` peer reading a declared source on a deployment that verifies no caller.
-    variants: variants(39),
+    // 41: `HashBucketsOnTheOnlySource` and `HashBucketsReadByNoNode` (#828), a hash-bucket opt-in
+    // with no other source to federate with or no peer to read its buckets.
+    variants: variants(41),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

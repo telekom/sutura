@@ -565,6 +565,21 @@ pub enum NotFitToServe {
          `{alias}` from that node's sources"
     )]
     ReadingNodeWithoutInboundIdentity { url: String, alias: String },
+    /// A source declares `hash_buckets_acknowledged_because` and is the only source this
+    /// deployment declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and `{alias}` is the only \
+         source: only a lookup leg of a federated answer is read in hash buckets. Remove the key"
+    )]
+    HashBucketsOnTheOnlySource { alias: SourceName },
+    /// A source declares `hash_buckets_acknowledged_because`, and no `server.nodes` peer reads it,
+    /// so no node is there to read a bucket.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and no server.nodes peer \
+         lists `{alias}` in its sources: a hash bucket is read on a reading node. Declare one, or \
+         remove the key"
+    )]
+    HashBucketsReadByNoNode { alias: SourceName },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

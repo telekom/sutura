@@ -341,6 +341,34 @@ impl SharedIdentityDeclared {
     }
 }
 
+/// The witness that an operator let a lookup leg of one source be read in hash buckets, one read
+/// per bucket, on the nodes that read that source.
+///
+/// It carries the reason and nothing else: a split read is unreachable without an operator's own
+/// words, as the shared posture is. **What the operator accepts is per-key consistency only** - each
+/// bucket is its own read, so the buckets share no snapshot, and a key that changes while they run
+/// can be read in one bucket, in two, or in none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HashBucketsDeclared {
+    reason: AcknowledgementReason,
+}
+
+impl HashBucketsDeclared {
+    /// Wraps an operator's parsed reason as the witness.
+    #[inline]
+    #[must_use]
+    pub const fn of(reason: AcknowledgementReason) -> Self {
+        Self { reason }
+    }
+
+    /// What the operator said, for the startup log.
+    #[inline]
+    #[must_use]
+    pub const fn reason(&self) -> &AcknowledgementReason {
+        &self.reason
+    }
+}
+
 /// How a source establishes the identity a query runs as.
 ///
 /// **No `Default`, and that is where it differs from `sutura_config::TlsTermination`, which is

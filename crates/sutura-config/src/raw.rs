@@ -141,6 +141,10 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// The operator's reason for letting a `clickhouse` source's lookup leg be read in hash
+    /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
+    #[serde(default)]
+    pub(crate) hash_buckets_acknowledged_because: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]

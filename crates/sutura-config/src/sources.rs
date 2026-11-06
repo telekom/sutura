@@ -50,8 +50,8 @@ use crate::sources::workload_identity::{
 };
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::source::{
-    AcknowledgementReason, ConflictingSourceIdentity, InvalidOperatorText, SharedIdentityDeclared, SourceIdentity, SourcePosture,
-    VerificationIdentity,
+    AcknowledgementReason, ConflictingSourceIdentity, HashBucketsDeclared, InvalidOperatorText, SharedIdentityDeclared,
+    SourceIdentity, SourcePosture, VerificationIdentity,
 };
 
 /// The domains a `domain_delegation` source runs a caller as.
@@ -237,9 +237,18 @@ pub struct ConfiguredSource {
     identity: Option<SourceIdentity>,
     caller_identity: Option<CallerIdentity>,
     inbound_token_at_pool: Option<InboundTokenAtPool>,
+    hash_buckets: Option<HashBucketsDeclared>,
 }
 
 impl ConfiguredSource {
+    /// The operator's witness for reading this source's lookup leg in hash buckets, written as
+    /// `hash_buckets_acknowledged_because` on a `clickhouse` entry and refused on every other kind.
+    #[inline]
+    #[must_use]
+    pub const fn hash_buckets(&self) -> Option<&HashBucketsDeclared> {
+        self.hash_buckets.as_ref()
+    }
+
     /// Whether this source acknowledged presenting its caller's inbound token to the pool with no
     /// delegation hop - see [`InboundTokenAtPool`].
     #[inline]
@@ -597,6 +606,13 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: UnknownAcknowledgement,
     },
+    /// `hash_buckets_acknowledged_because` is written on a `clickhouse` entry whose callers sign in
+    /// with a `delegation` token. A bucket is read on another node, and no caller's token reaches it.
+    #[error(
+        "`sources.{alias}` declares `hash_buckets_acknowledged_because` and a `delegation`: a hash \
+         bucket is read on a reading node, which holds no caller's token - remove one of the two"
+    )]
+    HashBucketsBesideDelegation { alias: SourceName },
     /// The declared workload-identity value is not usable.
     #[error("`sources.{alias}.workload_identity` is not usable")]
     WorkloadIdentity {
@@ -736,6 +752,16 @@ impl SourceRegistry {
             source.inbound_token_at_pool = Some(acknowledged);
         }
         Ok(())
+    }
+
+    /// Records the `hash_buckets_acknowledged_because` written on the entry `written`, after the
+    /// entry itself parsed.
+    ///
+    /// # Errors
+    ///
+    /// The key on an entry that is not `kind: clickhouse`, and a reason that is not usable text.
+    pub(crate) fn acknowledge_hash_buckets(&mut self, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
+        clickhouse::acknowledge_hash_buckets(self, written, value)
     }
 
     /// Reads the whole `sources:` tree.
@@ -915,6 +941,7 @@ fn parse_entry(
         identity,
         caller_identity,
         inbound_token_at_pool: None,
+        hash_buckets: None,
     })
 }
 
