@@ -344,6 +344,11 @@ Limits:
 - **A refusal at a worker is an internal error.** A caller whose user the server refuses, for a
   missing grant or a missing `IMPERSONATE`, gets an internal error and not `source_refused`, as
   decision 4 of the first amendment decides for BigQuery.
+- **The switch is the deployment's credential, not the caller's.** The 2026-10-12 objection in the
+  federation record, kept as a limit by its fourth amendment, stands for a partition too.
+- **A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
+  answer wrongly without an error.** Measured for a leg, and a partition runs the same statement
+  shape under the same clamp. The federation record's fourth amendment states the requirement.
 - **Not built.** No ClickHouse leg is split, and no worker reads a ClickHouse partition. The tier
   cells that read a whole leg under the switch come with the change that lifts the adapter's
   refusal. No cell reads a split one.
