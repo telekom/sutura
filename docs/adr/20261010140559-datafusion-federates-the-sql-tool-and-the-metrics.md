@@ -506,3 +506,43 @@ for `run_sql`, from 5b. This follows from the owner decision of 2026-10-16: no e
 **What this changes in the record.** Decision 3 holds with the one point above. Q3 stays recorded and
 no PR applies it. If an engine cut returns to the metric path, it needs its own record that answers
 F1 to F4. The PR 4 row is marked not built. PRs 5a and 5b are as decision 5 says.
+
+## Fourth amendment, 2026-11-06: a ClickHouse leg runs under `EXECUTE AS`
+
+The owner decided that a federated ClickHouse leg runs as the same identity that a whole query on
+that source runs as. This replaces "Decision: ClickHouse with no `delegation`" of the 2026-10-12
+amendment, and the refusal of the second amendment.
+
+**Decision.** A ClickHouse source with posture `impersonation-at-source` and no `delegation` runs a
+federated leg as the caller's switched user: `EXECUTE AS "<user>" <statement>`, the per-statement
+form, as a whole query already does. The adapter's refusal `AdbcError::LegUnderExecuteAs` is
+deleted with the change that lifts it. Until that change lands, the adapter refuses the leg as the
+second amendment says. A leg on a remote node that owns a switching source also runs: that node's
+broker names the user from its own verification of the caller.
+
+**Why the refusal was a policy and not a technical limit.** The 2026-10-12 decision is about who
+holds the credential. It names no statement shape that fails under the switch. A leg is one
+statement: one `SELECT`, with no CTE, no `SET`, no `USE` and no `SETTINGS` clause. The adapter
+opens one connection for it and sends one SQL text, so the prefix reaches every statement the leg
+sends.
+
+**The operator requirement.** On each node that reads a switching source, the service user in
+`user` holds `GRANT IMPERSONATE ON <user>` only on the ClickHouse user of each caller it serves, by
+name. Never `IMPERSONATE ON *`, never `ALL ON *.*` (`ALL` includes `IMPERSONATE` on every user,
+ADR 0040), and never on itself, on `default` or on an administrative user. The server sets
+`access_control_improvements.allow_impersonate_user = 1`.
+
+**Limits.**
+
+- This is the deployment's credential switching identity, not the caller's credential. The
+  2026-10-12 objection stands as a stated limit. The server's `IMPERSONATE` grants decide which
+  users a switch can reach.
+- sutura holds no list of callers (Rejected, 2026-10-12 amendment). The server's grants are the
+  only bound on which user a verified `sub` becomes.
+- Inferred from the server's source and not measured: under the switch, the server applies the
+  target user's settings profile and then clamps the settings that sutura sent against it. A target
+  user whose profile sets `readonly = 1` drops them without an error, `join_use_nulls` among them,
+  so a left join under that user can read an unmatched key as the type's default and not as NULL.
+  Caller users must allow the settings that sutura sends (`readonly` is 0 or 2).
+- Statements that the driver sends on its own, if any, run as the service user and not as the
+  switched user. Not measured.
