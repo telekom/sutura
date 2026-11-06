@@ -456,3 +456,202 @@ fn a_stage_whose_granted_sources_each_have_readers_but_none_in_common_names_none
     let read: BTreeSet<Vec<u8>> = geo.iter().chain(&ops).flat_map(Peer::read).collect();
     assert_eq!(read, BTreeSet::new(), "a stage no node reads every source of was read");
 }
+
+use datafusion_distributed::Worker;
+use sutura_domain::identity::{Delegated, Secret, SourceToken, WorkloadPool};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
+use tonic::service::InterceptorLayer;
+use tonic::transport::Server;
+
+use super::Tls;
+use crate::combine::Unread;
+
+/// The token a granted `geo` leg is read with.
+const FORWARDED: &str = "a-forwarded-token-value";
+
+/// Each partition a reader read with a token, and the token.
+type Handed = Arc<Mutex<Vec<(Vec<u8>, String)>>>;
+
+/// Every header value a node was sent.
+type Seen = Arc<Mutex<Vec<Vec<u8>>>>;
+
+/// A reader that reads only with a token, answering as [`reader`] does and logging each token.
+struct ReadsWithTokens {
+    rows: Arc<dyn PartitionReader>,
+    handed: Handed,
+}
+
+impl PartitionReader for ReadsWithTokens {
+    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef) -> Result<SendableRecordBatchStream, Unread> {
+        Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test reader logs the token it was handed, so a cell can compare it with the one granted"
+    )]
+    fn read_forwarded(
+        &self,
+        wire: &[u8],
+        source: &SourceName,
+        partition: &[u8],
+        schema: &SchemaRef,
+        forwarded: crate::combine::Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        self.handed
+            .lock()
+            .push((partition.to_vec(), String::from(forwarded.into_token().expose_secret())));
+        self.rows.read(wire, source, partition, schema)
+    }
+}
+
+/// `worker` served over `tls` on a free localhost port, every header value it is sent logged in
+/// `seen`.
+fn served_seeing(servers: &Runtime, tls: Arc<ServerConfig>, worker: Worker, seen: Seen) -> Url {
+    let listener = servers
+        .block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0)))
+        .expect("a localhost port binds");
+    let port = listener.local_addr().expect("a bound port has an address").port();
+    let incoming = stream::unfold((listener, TlsAcceptor::from(tls)), |(listener, acceptor)| async move {
+        let accepted = match listener.accept().await {
+            Ok((tcp, _)) => acceptor.accept(tcp).await.map(Tls),
+            Err(cause) => Err(cause),
+        };
+        Some((accepted, (listener, acceptor)))
+    });
+    let seeing = InterceptorLayer::new(move |request: tonic::Request<()>| {
+        seen.lock().extend(
+            request
+                .metadata()
+                .clone()
+                .into_headers()
+                .values()
+                .map(|value| value.as_bytes().to_vec()),
+        );
+        Ok(request)
+    });
+    servers.spawn(
+        Server::builder()
+            .layer(seeing)
+            .add_service(worker.into_worker_server())
+            .serve_with_incoming(incoming),
+    );
+    Url::parse(&format!("https://127.0.0.1:{port}")).expect("a socket address is a URL's authority")
+}
+
+/// A reading node that reads only with a token, with each token it was handed and every header
+/// value it was sent.
+struct TokenPeer {
+    url: Url,
+    handed: Handed,
+    seen: Seen,
+}
+
+impl TokenPeer {
+    fn serve(servers: &Runtime, authority: &Authority) -> Self {
+        let signed = authority.sign();
+        let (handed, seen) = (Handed::default(), Seen::default());
+        let reading = ReadsWithTokens {
+            rows: reader(Asked::default()),
+            handed: Arc::clone(&handed),
+        };
+        let worker = Nodes::worker_reading(roomy(), authority.identity(&signed), Some(Arc::new(reading)))
+            .expect("a reading worker builds");
+        let url = served_seeing(servers, listening(&signed, authority.peers()), worker, Arc::clone(&seen));
+        Self { url, handed, seen }
+    }
+}
+
+/// [`DISTINCT`]'s partitions of a leg answering `schema`, granted to [`caller`] for an hour and read
+/// with [`FORWARDED`].
+fn granted_with_token(schema: SchemaRef) -> Looked<'static> {
+    let now = SystemTime::now();
+    let ends = now + Duration::from_secs(3600);
+    let pool = WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q")
+        .expect("a test pool is a pool");
+    let seconds = ends.duration_since(std::time::UNIX_EPOCH).expect("after the epoch").as_secs();
+    let token = SourceToken::exchanged(
+        &Secret::new("the-callers-assertion"),
+        &pool,
+        Delegated::new(Secret::new(FORWARDED), seconds),
+    );
+    let granted = Granted::new(
+        b"granted-leg".to_vec(),
+        schema,
+        NonEmpty::parse(partitions(DISTINCT)).expect("a test grant has a partition"),
+        caller(),
+        ends,
+        now,
+        NonZeroU32::new(1000).expect("a literal row bound is not zero"),
+        EstimatedBytes::parse(1 << 10),
+        (),
+    )
+    .and_then(|granted| granted.forwarding(token, now));
+    Looked::Granted(granted.expect("a grant ending in an hour is not past"))
+}
+
+/// A runner reading the fact leg here and granting the lookup leg as [`granted_with_token`].
+struct GrantingWithToken {
+    schema: SchemaRef,
+}
+
+impl LegRunner for GrantingWithToken {
+    type Error = Infallible;
+
+    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
+        Ok(fact())
+    }
+
+    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        Ok(granted_with_token(Arc::clone(&self.schema)))
+    }
+}
+
+#[test]
+fn a_granted_lookup_read_with_the_callers_token_hands_it_to_each_partition_read_and_to_no_header() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let payments = TokenPeer::serve(&servers, &authority);
+    let geo = [TokenPeer::serve(&servers, &authority), TokenPeer::serve(&servers, &authority)];
+    let others = core::iter::once(&payments).chain(&geo).map(|peer| peer.url.clone());
+    let nodes = planning(&servers, &authority, others)
+        .reading(source("geo"), geo.iter().map(|peer| peer.url.clone()))
+        .reading(source("payments"), [payments.url.clone()]);
+    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
+    let runner = GrantingWithToken {
+        schema: Arc::clone(whole(DISTINCT).schema()),
+    };
+
+    let answer = combiner.execute(combiner.plan(&sum_plan(true)), &runner, UNBOUNDED);
+
+    answer.expect("a granted lookup read with the caller's token answered");
+    let handed: Vec<_> = geo.iter().flat_map(|peer| peer.handed.lock().clone()).collect();
+    assert_eq!(
+        handed.iter().map(|(partition, _)| partition.clone()).collect::<BTreeSet<_>>(),
+        partitions(DISTINCT).into_iter().collect(),
+        "a partition was read by other than one of the leg's readers"
+    );
+    assert!(handed.iter().all(|(_, token)| token == FORWARDED), "{handed:?}");
+    assert!(
+        payments.handed.lock().is_empty(),
+        "a node reading another source was handed the token"
+    );
+    let hex: String = FORWARDED
+        .bytes()
+        .flat_map(|byte| [byte >> 4, byte & 0xf])
+        .filter_map(|digit| char::from_digit(u32::from(digit), 16))
+        .collect();
+    let headers: Vec<Vec<u8>> = core::iter::once(&payments)
+        .chain(&geo)
+        .flat_map(|peer| peer.seen.lock().clone())
+        .collect();
+    assert!(!headers.is_empty(), "no node was sent a header to look in");
+    assert!(
+        headers.iter().all(|value| {
+            let value = String::from_utf8_lossy(value);
+            !value.contains(FORWARDED) && !value.contains(&hex)
+        }),
+        "a header carried the forwarded token"
+    );
+}

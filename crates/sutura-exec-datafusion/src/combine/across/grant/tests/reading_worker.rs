@@ -449,3 +449,318 @@ fn a_reading_worker_refusing_to_certify_its_leg_is_read_back_as_the_planning_nod
             .leg_not_certified(&refused)
     );
 }
+
+use super::super::super::partition::Forwarded;
+
+fn pool() -> sutura_domain::identity::WorkloadPool {
+    sutura_domain::identity::WorkloadPool::parse(
+        "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q",
+    )
+    .expect("a test pool is a pool")
+}
+
+fn forwarded(token: &str) -> Forwarded {
+    Forwarded::new(sutura_domain::identity::Secret::new(token), &pool())
+}
+
+/// [`granted`], naming `token` as the token its partition is read with.
+fn granted_forwarding(key: &ReadingKey, wire: &[u8], partition: &[u8], token: &Forwarded) -> Vec<u8> {
+    let built = ReadingGrant::new(
+        LegDigest::of(wire),
+        source(),
+        Partition::of(partition.to_vec()),
+        Expiry::at(Duration::from_secs(4_000_000_000)),
+        MaskedCaller::of_masked(String::from("masked")),
+        StreamBound {
+            rows: 1000,
+            bytes: 1 << 20,
+        },
+    )
+    .forwarding(token);
+    let (built, signature) = mint(key, built);
+    encode(&built, &signature)
+}
+
+/// Each token a [`Forwards`] reader was handed, and whether it named [`pool`].
+type Handed = Arc<parking_lot::Mutex<Vec<(String, bool)>>>;
+
+/// A reader that reads only with a token, each one it was handed logged in its [`Handed`].
+struct Forwards(Handed);
+
+impl PartitionReader for Forwards {
+    fn read(
+        &self,
+        _wire: &[u8],
+        _source: &SourceName,
+        _partition: &[u8],
+        _schema: &SchemaRef,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test reader logs the token it was handed, so a cell can compare it with the one granted"
+    )]
+    fn read_forwarded(
+        &self,
+        _wire: &[u8],
+        _source: &SourceName,
+        _partition: &[u8],
+        schema: &SchemaRef,
+        forwarded: Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        let for_pool = forwarded.for_pool(&pool());
+        self.0
+            .lock()
+            .push((String::from(forwarded.into_token().expose_secret()), for_pool));
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(schema),
+            stream::empty::<Result<RecordBatch, DataFusionError>>(),
+        )))
+    }
+}
+
+/// `leaf` installed as task `task` on a reading worker reading with `reader`, and every failure
+/// its install, its one task's execution or that task's stream answered.
+fn installed_and_run(reader: Option<Arc<dyn PartitionReader>>, leaf: PartitionScanExec, task: &str) -> Vec<DataFusionError> {
+    let worker = Nodes::worker_reading(roomy(), identity(), reader).expect("a reading worker builds");
+    let (worker, planning, at) = declared(worker);
+    let leaf = Arc::new(leaf) as Arc<dyn ExecutionPlan>;
+    let task = task_key(task);
+    servers().block_on(async {
+        let encoded = MaybeEncoded::Decoded(leaf)
+            .encode(&planning.task_ctx())
+            .expect("a leaf encodes");
+        let installed = worker
+            .coordinator_channel(
+                HeaderMap::new(),
+                SetPlanRequest {
+                    task_key: task,
+                    task_count: 1,
+                    plan: MaybeEncoded::Encoded(encoded),
+                    work_unit_feed_declarations: vec![],
+                    target_worker_url: at,
+                    query_start_time_ns: 0,
+                },
+                Box::pin(stream::pending()),
+            )
+            .await;
+        if let Err(refused) = installed {
+            return vec![refused];
+        }
+        let executed = worker
+            .execute_task(ExecuteTaskRequest {
+                task_key: task,
+                target_partition_start: 0,
+                target_partition_end: 1,
+                producer_head: ProducerHead::None,
+            })
+            .await;
+        let streams = match executed {
+            Ok((streams, _)) => streams,
+            Err(failed) => return vec![failed],
+        };
+        stream::iter(streams)
+            .flatten()
+            .filter_map(|batch| async move { batch.err() })
+            .collect::<Vec<_>>()
+            .await
+    })
+}
+
+fn refused_as_not_naming(failures: &[DataFusionError]) -> bool {
+    matches!(
+        failures.first().map(DataFusionError::find_root),
+        Some(DataFusionError::External(cause)) if cause.downcast_ref::<WorkerRefusal>() == Some(&WorkerRefusal::GrantNotNaming)
+    )
+}
+
+#[test]
+fn a_granted_partition_read_hands_its_reader_the_token_and_pool_its_grant_names() {
+    let (wire, partition, key_bytes) = (b"wire-forwarded".to_vec(), b"partition-forwarded".to_vec(), [10_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let handed = Handed::default();
+    let leaf =
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-a"));
+
+    let failures = installed_and_run(
+        Some(Arc::new(Forwards(Arc::clone(&handed)))),
+        leaf,
+        "88888888-8888-8888-8888-888888888888",
+    );
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(*handed.lock(), vec![(String::from("token-a"), true)]);
+}
+
+#[test]
+fn a_partition_read_carrying_a_token_its_grant_does_not_name_is_refused() {
+    let (wire, partition, key_bytes) = (b"wire-swapped".to_vec(), b"partition-swapped".to_vec(), [11_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let handed = Handed::default();
+    let leaf =
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-b"));
+
+    let failures = installed_and_run(
+        Some(Arc::new(Forwards(Arc::clone(&handed)))),
+        leaf,
+        "99999999-9999-9999-9999-999999999999",
+    );
+
+    assert!(refused_as_not_naming(&failures), "{failures:?}");
+    assert!(
+        handed.lock().is_empty(),
+        "a reader was handed a token its grant does not name"
+    );
+}
+
+#[test]
+fn a_partition_read_carrying_no_token_where_its_grant_names_one_is_refused() {
+    let (wire, partition, key_bytes) = (b"wire-dropped".to_vec(), b"partition-dropped".to_vec(), [12_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let leaf = PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema());
+
+    let failures = installed_and_run(None, leaf, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    assert!(refused_as_not_naming(&failures), "{failures:?}");
+}
+
+#[test]
+fn a_partition_read_carrying_a_token_where_its_grant_names_none_is_refused() {
+    let (wire, partition, key_bytes) = (b"wire-added".to_vec(), b"partition-added".to_vec(), [13_u8; 32]);
+    let grant = granted(&ReadingKey::of(key_bytes), &wire, &partition);
+    let handed = Handed::default();
+    let leaf =
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-a"));
+
+    let failures = installed_and_run(
+        Some(Arc::new(Forwards(Arc::clone(&handed)))),
+        leaf,
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    );
+
+    assert!(refused_as_not_naming(&failures), "{failures:?}");
+    assert!(handed.lock().is_empty(), "a reader was handed a token no grant names");
+}
+
+#[test]
+fn a_reader_that_reads_with_no_token_refuses_a_partition_granted_with_one() {
+    let (wire, partition, key_bytes) = (b"wire-unforwarded".to_vec(), b"partition-unforwarded".to_vec(), [14_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let reader: Arc<dyn PartitionReader> = Arc::new(|_: &SourceName, _: &[u8], schema: &SchemaRef| {
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(schema),
+            stream::empty::<Result<RecordBatch, DataFusionError>>(),
+        )) as SendableRecordBatchStream)
+    });
+    let leaf =
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-a"));
+
+    let failures = installed_and_run(Some(reader), leaf, "cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+    assert!(
+        failures.iter().any(|failure| failure
+            .to_string()
+            .contains("reads no partition of `orders` with a caller's token")),
+        "{failures:?}"
+    );
+}
+
+/// `leaf` executed `times` times on this node under a [`Forwards`] reader, and what each answered.
+fn executed(leaf: &PartitionScanExec, handed: &Handed, times: usize) -> Vec<Result<(), DataFusionError>> {
+    let config = datafusion::prelude::SessionConfig::new().with_extension(Arc::new(
+        super::super::super::partition::ReaderExtension(Arc::new(Forwards(Arc::clone(handed)))),
+    ));
+    let context = SessionContext::new_with_config(config).task_ctx();
+    core::iter::repeat_with(|| leaf.execute(0, Arc::clone(&context)).map(drop))
+        .take(times)
+        .collect()
+}
+
+#[test]
+fn a_partition_scan_hands_out_its_token_once() {
+    let handed = Handed::default();
+    let leaf = PartitionScanExec::new(
+        b"wire-once".to_vec(),
+        source(),
+        b"partition-once".to_vec(),
+        [15_u8; 32],
+        None,
+        schema(),
+    )
+    .forwarding(forwarded("token-a"));
+
+    let answered = executed(&leaf, &handed, 2);
+
+    assert_eq!(*handed.lock(), vec![(String::from("token-a"), true)]);
+    assert!(answered.first().is_some_and(Result::is_ok), "{answered:?}");
+    assert!(
+        answered.get(1).is_some_and(Result::is_err),
+        "a second read of one scan was handed its token again: {answered:?}"
+    );
+}
+
+#[test]
+fn a_partition_scan_shows_whether_it_holds_a_token_and_never_the_token() {
+    let handed = Handed::default();
+    let leaf = PartitionScanExec::new(
+        b"wire-shown".to_vec(),
+        source(),
+        b"partition-shown".to_vec(),
+        [16_u8; 32],
+        None,
+        schema(),
+    )
+    .forwarding(forwarded("token-a"));
+    let shown = |leaf: &PartitionScanExec| {
+        (
+            format!("{leaf:?}"),
+            datafusion::physical_plan::displayable(leaf).one_line().to_string(),
+        )
+    };
+
+    let held = shown(&leaf);
+    drop(executed(&leaf, &handed, 1));
+    let taken = shown(&leaf);
+
+    assert!(
+        held.0.contains(r#"token: "held""#) && held.1.contains("token=held"),
+        "{held:?}"
+    );
+    assert!(
+        taken.0.contains(r#"token: "taken""#) && taken.1.contains("token=taken"),
+        "{taken:?}"
+    );
+    assert!(
+        [&held.0, &held.1, &taken.0, &taken.1]
+            .iter()
+            .all(|line| !line.contains("token-a")),
+        "{held:?} {taken:?}"
+    );
+}
+
+#[test]
+fn a_partition_read_carrying_a_pool_its_grant_does_not_name_is_refused() {
+    let (wire, partition, key_bytes) = (b"wire-repooled".to_vec(), b"partition-repooled".to_vec(), [17_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let elsewhere = sutura_domain::identity::WorkloadPool::parse(
+        "//iam.googleapis.com/projects/2/locations/global/workloadIdentityPools/p/providers/q",
+    )
+    .expect("a test pool is a pool");
+    let handed = Handed::default();
+    let leaf = PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema())
+        .forwarding(Forwarded::new(sutura_domain::identity::Secret::new("token-a"), &elsewhere));
+
+    let failures = installed_and_run(
+        Some(Arc::new(Forwards(Arc::clone(&handed)))),
+        leaf,
+        "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    );
+
+    assert!(refused_as_not_naming(&failures), "{failures:?}");
+    assert!(
+        handed.lock().is_empty(),
+        "a reader was handed a token for a pool its grant does not name"
+    );
+}
