@@ -1,5 +1,5 @@
 {
-  "observed_because": "An unfiltered lookup over part is 2,000,000 rows at SF10, exactly two streams of 1,000,000. A split leg is cut by pages, not rows, so one of its two partitions is likely past the bound and refused. These run on all three topologies and are compared when they answer, but are not required to; promote one to questions once a run shows it answers.",
+  "observed_because": "An observed question runs on all three topologies and is compared when it answers, but need not answer; a failure that is no refusal fails the run on any question. Nine read an unfiltered part leg, which at SF10 is 2,000,000 rows, exactly two streams of 1,000,000. A split leg is cut by pages, not rows, so one of its two partitions is past the bound: ONE refuses it as result_too_large, and MANY answered 503 in run 2, which fails the run until a granted partition past the bound is refused with a code. revenue-by-customer-and-supplier-region over seven years has a fact leg of about 60,000,000 rows, grouped by both links, which does not fit the working set on ONE or MANY, so its 1995 sibling is the listed one. Promote a question to questions once a run shows it answers.",
   "questions": [
     "revenue-by-segment-yearly",
     "revenue-by-customer-region-quarterly",
@@ -10,7 +10,7 @@
     "european-revenue-by-mode",
     "quantity-for-two-customer-nations",
     "shipping-volume-between-two-nations",
-    "revenue-by-customer-and-supplier-region",
+    "revenue-by-customer-and-supplier-region-1995",
     "revenue-per-order-by-segment",
     "returned-revenue-by-customer-region",
     "order-value-by-segment-monthly",
@@ -34,7 +34,8 @@
     "discount-by-brand-yearly",
     "orders-shipped-by-brand-yearly",
     "top-brands-by-revenue",
-    "tpch-q8-revenue-by-part-type-in-america"
+    "tpch-q8-revenue-by-part-type-in-america",
+    "revenue-by-customer-and-supplier-region"
   ],
   "controls": [
     "revenue-monthly-1995",

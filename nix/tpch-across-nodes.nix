@@ -41,6 +41,7 @@
   postgresDriver,
   duckdbDriver,
   agree,
+  cli,
   data,
   dimensions,
   corpus,
@@ -77,13 +78,97 @@ let
       '';
 
   # REF's catalog: the federated one with every dimension model on the DuckDB source, whose file
-  # holds all seven tables. A rewrite that no longer matches fails the build.
-  whole = pkgs.runCommand "tpch-across-nodes-whole-star" { } ''
+  # holds all seven tables. REF is one statement, and one statement cannot join `nation` and
+  # `region` twice (`plan_tables_share_an_identifier`), which a customer's and a supplier's
+  # geography in one question would. So the supplier side reads its own copies of the two tables,
+  # `supplier_side_nation` and `supplier_side_region`, which `roleplay` adds to the file: the same
+  # rows under other table names, with the supplier chains of the metrics pointed at them. The
+  # dimension names and their values do not change, so the answers compare as they were. A rewrite
+  # that no longer matches fails the build.
+  whole = pkgs.runCommand "tpch-across-nodes-whole-star" { nativeBuildInputs = [ pkgs.perl ]; } ''
     cp -r ${corpus}/catalog "$out"
     chmod -R u+w "$out"
     for model in customer nation part region supplier; do
       substituteInPlace "$out/models/$model.md" --replace-fail 'source: crm' 'source: lake'
     done
+
+    perl -0pi -e 's/- supplier_to_nation\n(\s+)- nation_to_region\n/- supplier_to_supplier_side_nation\n$1- supplier_side_nation_to_region\n/g; s/- supplier_to_nation\n/- supplier_to_supplier_side_nation\n/g' "$out"/metrics/*.md
+    if grep -rn 'supplier_to_nation' "$out/metrics"; then
+      echo 'a supplier chain still names the shared nation' >&2
+      exit 1
+    fi
+    test "$(cat "$out"/metrics/*.md | grep -c 'supplier_to_supplier_side_nation')" -ge 7
+    rm "$out/relationships/supplier_to_nation.md"
+
+    cat > "$out/models/supplier_side_nation.md" <<'EOF'
+    ---
+    kind: model
+    name: supplier_side_nation
+    source: lake
+    table: supplier_side_nation
+    columns:
+      - name: n_nationkey
+        type: BIGINT
+      - name: n_name
+        type: VARCHAR
+      - name: n_regionkey
+        type: BIGINT
+    ---
+
+    The nations again, the copy a supplier's nation is read through, so one statement joins two tables and not one twice.
+    EOF
+    cat > "$out/models/supplier_side_region.md" <<'EOF'
+    ---
+    kind: model
+    name: supplier_side_region
+    source: lake
+    table: supplier_side_region
+    columns:
+      - name: r_regionkey
+        type: BIGINT
+      - name: r_name
+        type: VARCHAR
+    ---
+
+    The regions again, the copy a supplier's region is read through.
+    EOF
+    cat > "$out/relationships/supplier_to_supplier_side_nation.md" <<'EOF'
+    ---
+    kind: relationship
+    name: supplier_to_supplier_side_nation
+    origin:
+      model: supplier
+      column: s_nationkey
+    target:
+      model: supplier_side_nation
+      column: n_nationkey
+    join_type: many_to_one
+    ---
+
+    Many suppliers to one nation, through the supplier side's own copy.
+    EOF
+    cat > "$out/relationships/supplier_side_nation_to_region.md" <<'EOF'
+    ---
+    kind: relationship
+    name: supplier_side_nation_to_region
+    origin:
+      model: supplier_side_nation
+      column: n_regionkey
+    target:
+      model: supplier_side_region
+      column: r_regionkey
+    join_type: many_to_one
+    ---
+
+    Many nations to one region, through the supplier side's own copy.
+    EOF
+  '';
+
+  # The two copies `whole` reads, added to the star's own copy on `query` with the DuckDB that wrote it.
+  roleplay = pkgs.writeText "tpch-across-nodes-roleplay.sql" ''
+    CREATE TABLE supplier_side_nation AS SELECT * FROM nation;
+    CREATE TABLE supplier_side_region AS SELECT * FROM region;
+    CHECKPOINT;
   '';
 
   # The five dimension tables, keyed and typed as `nix/tpch-refusal-rate.py` does: a name ending in
@@ -284,6 +369,8 @@ let
         many = 8443;
       };
       sutura = "${sutura}/bin/sutura";
+      duckdb = "${cli}/bin/duckdb";
+      roleplay = "${roleplay}";
       # What `sutura prompt` loads on each node before anything boots: the settings and the catalog
       # each service reads, which refuses what `sutura serve` would refuse of them at startup.
       preflight = [

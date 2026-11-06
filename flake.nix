@@ -306,6 +306,7 @@
               postgresDriver = postgresAdbcHostDriver;
               duckdbDriver = duckdbHostDriver;
               agree = suturaDevAgree;
+              inherit (tpchData) cli;
               data = tpchData.tpchSf scale;
               inherit (tpchData) dimensions;
               corpus = ./nix/tpch;

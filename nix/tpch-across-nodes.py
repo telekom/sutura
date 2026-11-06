@@ -55,7 +55,8 @@ LEG_OF = {
 
 SHAPE = (
     "{outcome: .outcome, code: .reason.code, detail: .reason.detail,"
-    " rows: ((.rows // []) | length)}"
+    " rows: ((.rows // []) | length),"
+    " text: (if .outcome == null then (tostring | .[0:300]) else null end)}"
 )
 
 # `table.ctid >= '(a,0)'` and `table.ctid < '(b,0)'`, the table and the quotes optional.
@@ -209,12 +210,18 @@ class Venue:
                 "ms": ms,
                 "file": out,
             }
-        return {
+        reply = {
             **json.loads(shape),
             "status": printed.strip()[-3:],
             "ms": ms,
             "file": out,
         }
+        text = reply.pop("text")
+        if reply["outcome"] not in ("answer", "refusal"):
+            # An answer and a refusal are the two bodies this service means to send; anything
+            # else, a 503 included, is a failure and is never a refusal.
+            return {**reply, "outcome": "error", "detail": text}
+        return reply
 
     def agree(self, left: str, right: str, body: dict, real: set[str]) -> str | None:
         """Why the two answers differ, or `None` where they are the same answer."""
@@ -437,15 +444,22 @@ def run(venue: Venue, corpus: Corpus, subtest) -> dict:
         splits = corpus.splits(name) if tier != "control" else {}
         statements = logs[name]
         read, range_problems = judge_ranges(splits, statements, readers)
+        # A failure that is no refusal is a defect on any question: listed, observed or control.
+        for result, label in ((ref, "REF"), (one, "ONE"), (many, "MANY")):
+            if result["outcome"] == "error":
+                problems.append(
+                    f"{label} failed with no refusal: {cell(result)}"
+                    f" {str(result.get('detail'))[:200]}"
+                )
         if tier == "listed" or tier == "control":
-            if ref["outcome"] != "answer" or ref["rows"] == 0:
+            if ref["outcome"] == "refusal" or (
+                ref["outcome"] == "answer" and ref["rows"] == 0
+            ):
                 problems.append(f"REF did not answer with rows: {cell(ref)}")
-            if many["outcome"] != "answer":
+            if many["outcome"] == "refusal":
                 problems.append(f"MANY did not answer: {cell(many)}")
             if one["outcome"] == "refusal" and one["code"] != "result_too_large":
                 problems.append(f"ONE refused `{one['code']}`, not result_too_large")
-            if one["outcome"] == "error":
-                problems.append(f"ONE failed: {cell(one)}")
             if many["outcome"] == "answer":
                 problems += range_problems
         for other, label in ((many, "MANY"), (one, "ONE")):
@@ -500,9 +514,14 @@ def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) ->
                 reader.succeed("systemctl start sutura")
             for reader in readers:
                 venue.wait_healthy(reader, "sutura", 8443, reader.name)
+            # A writable copy on local disk, given the two role-playing tables REF reads, then
+            # sealed. The DuckDB that wrote the file adds them, and a left WAL would be a bug.
             query.succeed(
-                f"install -d -m 0755 /var/lib/tpch && install -m 0444"
-                f" {plan['data']}/star.duckdb /var/lib/tpch/star.duckdb"
+                "install -d -m 0755 /var/lib/tpch"
+                f" && install -m 0644 {plan['data']}/star.duckdb /var/lib/tpch/star.duckdb"
+                f" && HOME=/tmp {plan['duckdb']} /var/lib/tpch/star.duckdb < {plan['roleplay']}"
+                " && test ! -e /var/lib/tpch/star.duckdb.wal"
+                " && chmod 0444 /var/lib/tpch/star.duckdb"
             )
         report = run(venue, corpus, subtest)
     except Exception:
