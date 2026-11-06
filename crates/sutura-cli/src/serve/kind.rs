@@ -203,12 +203,12 @@ fn billed_as<V, E>(billed: BilledResult<V, E>, into: impl FnOnce(E) -> AnyWareho
 /// One of the port's four failure PREDICATES: `&self` paired with `&Self::Error`, answering
 /// `$default` when the two do not name the same adapter.
 ///
-/// **That pairing cannot arise from this port's own contract**, so the fallback arm is defensive
-/// rather than reachable: every error a warehouse hands back is minted by THAT SAME instance's own
-/// `execute`/`dry_run`/`preflight`, never by a different variant's. `$default` is always the
-/// predicate's own safe direction (`false`, or `None`), so a pairing this port cannot actually
-/// produce still answers as if nothing here could tell - never as a capability this adapter never
-/// measured.
+/// **An adapter never mints the other kind's error**: every error a warehouse hands back is minted
+/// by THAT SAME instance's own `execute`/`dry_run`/`preflight`. The one error minted here rather
+/// than by an adapter, `AnyWarehouseError::NotTheCallersToken`, is paired with a `BigQuery`
+/// warehouse and so reaches the fallback arm. `$default` is always the predicate's own safe
+/// direction (`false`, or `None`), so a pairing no adapter produced still answers as if nothing
+/// here could tell - never as a capability this adapter never measured.
 macro_rules! any_predicate {
     ($self:expr, $error:expr, $method:ident, $default:expr) => {
         match ($self, $error) {

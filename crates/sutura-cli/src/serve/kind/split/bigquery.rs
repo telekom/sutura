@@ -7,9 +7,14 @@
 //! grantee, is read whole, as before. `above_bytes` is not read: the adapter answers no dry run,
 //! so the split is decided by the job's own stream count, which the driver aims at half the
 //! per-stream bound each - a leg of one stream is read here, with the forwarded token and no later
-//! than it lasts, never run twice. The grant carries no estimate of its own, and holds nothing open: the job's result lives
-//! at `BigQuery`. No offline cell reaches the driver, so which principal `BigQuery` lets read a
-//! stream is measured only by the `BigQuery` venue.
+//! than it lasts, never run twice. The grant carries no estimate of its own, and holds nothing open:
+//! the job's result lives at `BigQuery`.
+//!
+//! No offline cell reaches the driver, and no venue cell reads a split yet, so which principal
+//! `BigQuery` lets read a stream is not measured; only a venue run that reads one under two
+//! principals can measure it. [`Grantee::grant`] does not refuse a grant carrying no token, so only
+//! the call order here - [`Grantee::forwarding`] before it - forwards the token, and the reading
+//! worker's refusal of a task with none is the backstop.
 
 use core::iter;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -35,6 +40,9 @@ impl SplitKind for BigQuerySource {
     /// two or more streams are granted to the nodes that read the source, read with the forwarded
     /// token [`Grantee::forwarding`] ties to the credential the request presented for the leg's
     /// source, and fewer are read here with it. [`Grantee::grant`]'s refusal is the answer.
+    ///
+    /// **Limit:** `grant` itself takes the descriptors with or without a token, so the order of the
+    /// two calls below is what forwards it; the worker's refusal of a tokenless task backs it.
     fn split(
         &self,
         leg: &LegPlan,

@@ -247,7 +247,8 @@ pub(super) struct Split {
 ///
 /// **Two tokens for one subject, both live until Google's own expiry.** The forwarded one is asked
 /// for [`PoolScope::ReadOnly`], which still runs read queries, and nothing here shortens its
-/// lifetime. `until` is computed for a grant to end by; no grant reads it yet.
+/// lifetime. `until` is what a grant ends by, and what bounds the planning node's own read of a
+/// one-stream split.
 ///
 /// # Errors
 ///

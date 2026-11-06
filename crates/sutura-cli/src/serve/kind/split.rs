@@ -30,7 +30,10 @@ use super::grant::{self, Described, HeldSplit, Read};
 use super::{AnyWarehouse, AnyWarehouseError};
 
 /// A source kind whose lookup leg splits across the nodes that read its source.
-pub(crate) trait SplitKind {
+///
+/// Visible to [`kind`](super) alone, and [`read_forwarded`](SplitKind::read_forwarded) is banned by
+/// `clippy.toml` so that its one call site is a visible `#[expect]`.
+pub(super) trait SplitKind {
     /// `leg` split by this kind's own estimate: granted to `grantee`, read here, read whole, or
     /// refused - the port's [`Warehouse::split_lookup`] for this kind.
     ///
@@ -81,7 +84,7 @@ pub(crate) trait SplitKind {
 
 impl AnyWarehouse {
     /// This adapter as a kind that splits, `None` for one read whole.
-    pub(crate) fn splits(&self) -> Option<&dyn SplitKind> {
+    pub(super) fn splits(&self) -> Option<&dyn SplitKind> {
         match self {
             Self::Postgres(postgres) => Some(&**postgres),
             #[cfg(feature = "bigquery")]
@@ -176,6 +179,10 @@ struct Asked<'a> {
 }
 
 impl Asked<'_> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the reading worker's read: the token was forwarded for this source's own pool, its grant has not ended, and the leg is re-certified against this node's catalog first"
+    )]
     fn read_in<W>(
         self,
         pinned: &PinnedDefinitions,
