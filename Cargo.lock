@@ -4655,6 +4655,8 @@ dependencies = [
  "rcgen",
  "serde_json",
  "sha2",
+ "sutura-domain",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -41,6 +41,9 @@ fn parse_tls(raw: &RawSettings) -> Result<Option<crate::server::TlsMaterial>, Se
                 crate::server::DeclaredNodeRefusal::Tls(cause) => SettingsError::TlsMaterial { cause },
                 crate::server::DeclaredNodeRefusal::Node(cause) => SettingsError::InvalidDeclaredNode { cause },
             })?;
+            let tls = tls
+                .address_family(nodes.address_family)
+                .map_err(|cause| SettingsError::InvalidDeclaredNode { cause })?;
             Ok(Some(tls.across_above(nodes.across_above_bytes)))
         }
         (None, Some(_)) => Err(SettingsError::TlsMaterial {

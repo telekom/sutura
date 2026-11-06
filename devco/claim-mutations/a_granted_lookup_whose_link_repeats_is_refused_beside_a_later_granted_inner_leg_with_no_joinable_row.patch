@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
+--- a/crates/sutura-exec-datafusion/src/combine/served.rs
++++ b/crates/sutura-exec-datafusion/src/combine/served.rs
+@@ -158,7 +158,7 @@
+ /// other join keeps the relation as its build side, which a hash join always reads whole.
+ pub(super) fn counted_in_plan(reads: &[LookupRead<'_>]) -> Vec<bool> {
+     let granted = |read: &LookupRead<'_>| matches!(read, LookupRead::Granted(_));
+-    let one = reads.iter().filter(|read| granted(read)).count() == 1;
++    let one = reads.iter().filter(|read| granted(read)).count() >= 1;
+     reads.iter().map(|read| one && granted(read)).collect()
+ }
+ 
