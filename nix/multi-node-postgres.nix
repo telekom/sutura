@@ -256,6 +256,7 @@ pkgs.testers.runNixOSTest {
 
     start_all()
     db.wait_for_unit("postgresql.service")
+    db.wait_for_unit("postgresql-setup.service")
     db.succeed("runuser -u postgres -- psql -v ON_ERROR_STOP=1 -d sutura -f ${load}")
     reader1.succeed("systemctl start sutura")
     reader2.succeed("systemctl start sutura")
