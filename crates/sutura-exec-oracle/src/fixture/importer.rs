@@ -6,7 +6,7 @@
 //! | Classification | Oracle column | Bound as |
 //! | --- | --- | --- |
 //! | `Boolean` | `BOOLEAN` (23ai) | a boolean |
-//! | `Integer` | `NUMBER(18,0)` | a 64-bit integer |
+//! | `Integer` | `NUMBER(19,0)` | a 64-bit integer |
 //! | `WideInteger` | `NUMBER(38,0)` | a 64-bit unsigned integer |
 //! | `Decimal`, `Real` | `BINARY_DOUBLE` | a double |
 //! | `Date` | `DATE` | the text, through `TO_DATE(.., 'YYYY-MM-DD')` |
@@ -23,8 +23,10 @@
 //!   adapter reads a `NUMBER` with a scale back as text, so an exact column would answer differently
 //!   from every other adapter for a reason that is the importer's. A sum over one is therefore as
 //!   inexact as the other adapters' doubles, which the differential's real tolerance absorbs.
-//! - **An integer wider than 18 digits is refused**, by name, before any statement runs: the column
-//!   is `NUMBER(18,0)`.
+//! - **An integer column holds every `i64`**, which is nineteen digits, so `NUMBER(19,0)`; an integer
+//!   beyond `i64` is `WideInteger` and `NUMBER(38,0)`, which the shared classification decides before
+//!   this module sees a cell. A cell the importer cannot bind as its column's type is refused, by line
+//!   and column, before any statement runs.
 //! - **A text cell wider than 4000 bytes** is refused by the server, not here.
 //! - **One batch per table, one transaction.** The table is dropped and recreated, so a load
 //!   replaces what was there; a failure part-way leaves the dropped or empty table, and the
@@ -40,9 +42,6 @@ use crate::{DriverError, OracleWarehouse};
 
 #[cfg(test)]
 mod tests;
-
-/// The widest integer `NUMBER(18,0)` holds, as a count of digits.
-const INTEGER_DIGITS: u32 = 18;
 
 /// What one fixture column is declared as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,7 +69,7 @@ impl OracleType {
     const fn ddl(self) -> &'static str {
         match self {
             Self::Boolean => "BOOLEAN",
-            Self::Integer => "NUMBER(18,0)",
+            Self::Integer => "NUMBER(19,0)",
             Self::WideInteger => "NUMBER(38,0)",
             Self::Double => "BINARY_DOUBLE",
             Self::Date => "DATE",
@@ -105,7 +104,7 @@ impl Cell {
     fn parse(kind: OracleType, text: &str) -> Option<Self> {
         match kind {
             OracleType::Boolean => Self::of(text, parse_boolean, Self::Boolean),
-            OracleType::Integer => Self::of(text, parse_integer, Self::Integer),
+            OracleType::Integer => Self::of(text, |text| text.parse().ok(), Self::Integer),
             OracleType::WideInteger => Self::of(text, |text| text.parse().ok(), Self::Wide),
             OracleType::Double => Self::of(text, |text| text.parse().ok(), Self::Double),
             OracleType::Date | OracleType::Text => Self::of(text, |text| Some(String::from(text)), Self::Text),
@@ -142,20 +141,13 @@ const fn parse_boolean(text: &str) -> Option<bool> {
     }
 }
 
-fn parse_integer(text: &str) -> Option<i64> {
-    text.parse::<i64>()
-        .ok()
-        .filter(|value| value.unsigned_abs() < 10_u64.pow(INTEGER_DIGITS))
-}
-
 /// Why a fixture is not a table of the types it infers.
 #[derive(Debug, thiserror::Error)]
 pub enum Unloadable {
     /// The shared classification refused the fixture.
     #[error(transparent)]
     Schema(#[from] csv::InferenceError),
-    /// The cell is not a value of the column's declared Oracle type - for an integer column, one
-    /// wider than 18 digits.
+    /// The cell is not a value of the column's declared Oracle type.
     #[error("line {line}, column {column}: {cell:?} is not a {declared} value")]
     Cell {
         line: usize,
@@ -170,7 +162,7 @@ pub enum Unloadable {
 pub(super) struct Table {
     name: TableName,
     columns: Vec<(ColumnName, OracleType)>,
-    rows: Vec<Vec<Cell>>,
+    rows: Vec<Row>,
 }
 
 impl Table {
@@ -179,18 +171,7 @@ impl Table {
             .into_iter()
             .map(|column| (column.name().clone(), OracleType::of(column.kind())))
             .collect();
-        let mut rows = Vec::new();
-        for (index, line) in text.lines().enumerate().skip(1).filter(|(_, line)| !line.is_empty()) {
-            let cells = line.split(',').zip(&columns).map(|(text, &(ref column, kind))| {
-                Cell::parse(kind, text).ok_or_else(|| Unloadable::Cell {
-                    line: index.saturating_add(1),
-                    column: String::from(column.as_str()),
-                    cell: String::from(text),
-                    declared: kind.ddl(),
-                })
-            });
-            rows.push(cells.collect::<Result<Vec<_>, _>>()?);
-        }
+        let rows = rows(text, &columns)?;
         Ok(Self {
             name: name.clone(),
             columns,
@@ -234,6 +215,31 @@ impl Table {
             values.join(", ")
         ))
     }
+}
+
+/// One row's cells, in column order.
+type Row = Vec<Cell>;
+
+/// Every row of `text` after its header, each cell bound as its column's type.
+fn rows(text: &str, columns: &[(ColumnName, OracleType)]) -> Result<Vec<Row>, Unloadable> {
+    text.lines()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, line)| !line.is_empty())
+        .map(|(index, line)| {
+            line.split(',')
+                .zip(columns)
+                .map(|(text, &(ref column, kind))| {
+                    Cell::parse(kind, text).ok_or_else(|| Unloadable::Cell {
+                        line: index.saturating_add(1),
+                        column: String::from(column.as_str()),
+                        cell: String::from(text),
+                        declared: kind.ddl(),
+                    })
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// Loads a fixture CSV as the table `table` through `warehouse`'s own connection: see

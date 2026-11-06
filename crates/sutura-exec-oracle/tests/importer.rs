@@ -37,9 +37,9 @@ mod acceptance {
 
     /// What the dictionary says each column is: its name, its type, and a `NUMBER`'s precision and scale.
     const DECLARED: [&str; 8] = [
-        "id NUMBER(18,0)",
+        "id NUMBER(19,0)",
         "flag BOOLEAN",
-        "small NUMBER(18,0)",
+        "small NUMBER(19,0)",
         "wide NUMBER(38,0)",
         "ratio BINARY_DOUBLE",
         "real BINARY_DOUBLE",
