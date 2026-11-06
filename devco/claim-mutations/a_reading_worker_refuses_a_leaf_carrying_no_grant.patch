@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
-index 6fb79ecbb..3b0640a84 100644
 --- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
-@@ -225,7 +225,7 @@ pub(super) fn verify_reading(
-     now: Duration,
- ) -> Result<(), WorkerRefusal> {
-     let task = reading::task_id(wire, partition_bytes);
--    let (grant, signature) = grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
-+    let (grant, signature) = grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantExpired)?;
-     keys.admit(task, presented, |key| {
+@@ -234,7 +234,7 @@
+ /// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
+ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<(), WorkerRefusal> {
+     let task = reading::task_id(call.wire, call.partition);
+-    let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
++    let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantExpired)?;
+     keys.admit(task, call.key, |key| {
          reading::verify(&reading::Verification {
              key,
