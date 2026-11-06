@@ -5,10 +5,10 @@
 //! that run here. The columns it hashes by are the ones the data system itself described for the whole
 //! leg. The Oracle bucket is rendered and pinned in `sutura-sql`'s own cells and executed nowhere.
 //!
-//! **A limit of the `ClickHouse` cells:** they reach the tier over HTTP, whose rows carry no
-//! `CLICKHOUSE:type` metadata and describe a `Date` as text. The vendored ADBC driver, which
-//! `sutura serve` composes, describes a `Date` as `UInt16` with that metadata; `sutura-sql`'s own
-//! cells pin that shape, and no cell here runs a bucket over it.
+//! **A limit of the `ClickHouse` cells:** they reach the tier through the vendored ADBC driver, which
+//! `sutura serve` composes and which describes a `Date` as `UInt16` with `CLICKHOUSE:type` metadata.
+//! Whether the driver decodes a read of a `Date` leg is not measured: no run of these cells has been
+//! made, and `COALESCE(Date, 0)` is not measured on the server either.
 
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::model::{ColumnName, DimensionName, MetricName, SourceName, TableName};
