@@ -667,11 +667,43 @@ fn a_reader_that_reads_with_no_token_refuses_a_partition_granted_with_one() {
     );
 }
 
-/// `leaf` executed `times` times on this node under a [`Forwards`] reader, and what each answered.
-fn executed(leaf: &PartitionScanExec, handed: &Handed, times: usize) -> Vec<Result<(), DataFusionError>> {
-    let config = datafusion::prelude::SessionConfig::new().with_extension(Arc::new(
-        super::super::super::partition::ReaderExtension(Arc::new(Forwards(Arc::clone(handed)))),
-    ));
+/// A [`Forwards`] reader whose read with no token answers no rows, each such read counted.
+struct Either {
+    forwards: Forwards,
+    unforwarded: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl PartitionReader for Either {
+    fn read(
+        &self,
+        _wire: &[u8],
+        _source: &SourceName,
+        _partition: &[u8],
+        schema: &SchemaRef,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        self.unforwarded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            Arc::clone(schema),
+            stream::empty::<Result<RecordBatch, DataFusionError>>(),
+        )))
+    }
+
+    fn read_forwarded(
+        &self,
+        wire: &[u8],
+        source: &SourceName,
+        partition: &[u8],
+        schema: &SchemaRef,
+        forwarded: Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        self.forwards.read_forwarded(wire, source, partition, schema, forwarded)
+    }
+}
+
+/// `leaf` executed `times` times on this node under `reader`, and what each answered.
+fn executed(leaf: &PartitionScanExec, reader: Arc<dyn PartitionReader>, times: usize) -> Vec<Result<(), DataFusionError>> {
+    let config = datafusion::prelude::SessionConfig::new()
+        .with_extension(Arc::new(super::super::super::partition::ReaderExtension(reader)));
     let context = SessionContext::new_with_config(config).task_ctx();
     core::iter::repeat_with(|| leaf.execute(0, Arc::clone(&context)).map(drop))
         .take(times)
@@ -691,13 +723,27 @@ fn a_partition_scan_hands_out_its_token_once() {
     )
     .forwarding(forwarded("token-a"));
 
-    let answered = executed(&leaf, &handed, 2);
+    let unforwarded = Arc::default();
+    let reader = Either {
+        forwards: Forwards(Arc::clone(&handed)),
+        unforwarded: Arc::clone(&unforwarded),
+    };
+
+    let answered = executed(&leaf, Arc::new(reader), 2);
 
     assert_eq!(*handed.lock(), vec![(String::from("token-a"), true)]);
     assert!(answered.first().is_some_and(Result::is_ok), "{answered:?}");
     assert!(
-        answered.get(1).is_some_and(Result::is_err),
-        "a second read of one scan was handed its token again: {answered:?}"
+        matches!(
+            answered.get(1),
+            Some(Err(DataFusionError::Execution(refused))) if refused.contains("hands out its caller's token once")
+        ),
+        "a second read of one scan was not refused for its token being taken: {answered:?}"
+    );
+    assert_eq!(
+        unforwarded.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "a second read of one scan read with no token"
     );
 }
 
@@ -721,7 +767,7 @@ fn a_partition_scan_shows_whether_it_holds_a_token_and_never_the_token() {
     };
 
     let held = shown(&leaf);
-    drop(executed(&leaf, &handed, 1));
+    drop(executed(&leaf, Arc::new(Forwards(Arc::clone(&handed))), 1));
     let taken = shown(&leaf);
 
     assert!(

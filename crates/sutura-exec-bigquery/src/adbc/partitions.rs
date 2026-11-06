@@ -135,8 +135,8 @@ impl SplitLeg {
 
     /// The question's end as it was handed in, or the forwarded token's expiry where that is
     /// earlier. **Computed, not applied:** no grant reads it yet. A grant read with a forwarded
-    /// token ends at that token's own expiry (`Granted::forwarding`), and nothing hands a grant this
-    /// one before the reading worker's `BigQuery` arm.
+    /// token ends no later than that token's expiry (`Grantee::grant`), and nothing hands a grant
+    /// this one before the reading worker's `BigQuery` arm.
     #[must_use]
     pub const fn until(&self) -> SystemTime {
         self.until

@@ -457,54 +457,25 @@ fn a_stage_whose_granted_sources_each_have_readers_but_none_in_common_names_none
     assert_eq!(read, BTreeSet::new(), "a stage no node reads every source of was read");
 }
 
+use std::collections::BTreeMap;
+
 use datafusion_distributed::Worker;
-use sutura_domain::identity::{Delegated, Secret, SourceToken, WorkloadPool};
+use sutura_domain::identity::{
+    Agreed, Delegated, Expiry, LegCredentials, Minted, Presented, Secret, SourceSet, SourceToken, Subject, WorkloadPool,
+};
+use sutura_domain::plan::Grantee;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
 use tonic::service::InterceptorLayer;
 use tonic::transport::Server;
 
-use super::Tls;
-use crate::combine::Unread;
+use super::{Handed, ReadsWithTokens, Tls};
 
 /// The token a granted `geo` leg is read with.
 const FORWARDED: &str = "a-forwarded-token-value";
 
-/// Each partition a reader read with a token, and the token.
-type Handed = Arc<Mutex<Vec<(Vec<u8>, String)>>>;
-
 /// Every header value a node was sent.
 type Seen = Arc<Mutex<Vec<Vec<u8>>>>;
-
-/// A reader that reads only with a token, answering as [`reader`] does and logging each token.
-struct ReadsWithTokens {
-    rows: Arc<dyn PartitionReader>,
-    handed: Handed,
-}
-
-impl PartitionReader for ReadsWithTokens {
-    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef) -> Result<SendableRecordBatchStream, Unread> {
-        Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
-    }
-
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a test reader logs the token it was handed, so a cell can compare it with the one granted"
-    )]
-    fn read_forwarded(
-        &self,
-        wire: &[u8],
-        source: &SourceName,
-        partition: &[u8],
-        schema: &SchemaRef,
-        forwarded: crate::combine::Forwarded,
-    ) -> Result<SendableRecordBatchStream, Unread> {
-        self.handed
-            .lock()
-            .push((partition.to_vec(), String::from(forwarded.into_token().expose_secret())));
-        self.rows.read(wire, source, partition, schema)
-    }
-}
 
 /// `worker` served over `tls` on a free localhost port, every header value it is sent logged in
 /// `seen`.
@@ -549,7 +520,7 @@ struct TokenPeer {
 }
 
 impl TokenPeer {
-    fn serve(servers: &Runtime, authority: &Authority) -> Self {
+    fn started(servers: &Runtime, authority: &Authority) -> Self {
         let signed = authority.sign();
         let (handed, seen) = (Handed::default(), Seen::default());
         let reading = ReadsWithTokens {
@@ -563,31 +534,48 @@ impl TokenPeer {
     }
 }
 
-/// [`DISTINCT`]'s partitions of a leg answering `schema`, granted to [`caller`] for an hour and read
-/// with [`FORWARDED`].
-fn granted_with_token(schema: SchemaRef) -> Looked<'static> {
+/// [`DISTINCT`]'s partitions of `leg`, answering `schema`, granted through a [`Grantee`] for an hour
+/// and read with [`FORWARDED`], exchanged from the subject token the request presented for `leg`'s
+/// source.
+fn granted_with_token(leg: &LegPlan, schema: SchemaRef) -> Looked<'static> {
     let now = SystemTime::now();
-    let ends = now + Duration::from_secs(3600);
+    let presented = Secret::new("the-callers-assertion");
+    let subject = Subject::verified("user@example.com").expect("a test caller is a subject");
+    let sources = SourceSet::of(leg.source().clone());
+    let credentials = LegCredentials::minted(
+        subject.clone(),
+        Expiry::NothingExpires,
+        &sources,
+        BTreeMap::from([(
+            leg.source().clone(),
+            Presented::SubjectToken {
+                material: presented.clone(),
+            },
+        )]),
+    )
+    .expect("one leg covers its one source");
+    let Ok(Agreed::Granted { credentials }) = (Minted::Granted { credentials }).agreeing_with(&subject, &sources, 0) else {
+        panic!("a fixture grant agrees with its own request");
+    };
     let pool = WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q")
         .expect("a test pool is a pool");
-    let seconds = ends.duration_since(std::time::UNIX_EPOCH).expect("after the epoch").as_secs();
-    let token = SourceToken::exchanged(
-        &Secret::new("the-callers-assertion"),
-        &pool,
-        Delegated::new(Secret::new(FORWARDED), seconds),
-    );
-    let granted = Granted::new(
-        b"granted-leg".to_vec(),
-        schema,
-        NonEmpty::parse(partitions(DISTINCT)).expect("a test grant has a partition"),
-        caller(),
-        ends,
-        now,
-        NonZeroU32::new(1000).expect("a literal row bound is not zero"),
-        EstimatedBytes::parse(1 << 10),
-        (),
-    )
-    .and_then(|granted| granted.forwarding(token, now));
+    let ends = (now + Duration::from_secs(3600))
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    let token = SourceToken::exchanged(&presented, &pool, Delegated::new(Secret::new(FORWARDED), ends));
+    let granted = Grantee::new(leg, &credentials, now + Duration::from_secs(3600))
+        .expect("a verified caller's lookup leg is offered")
+        .forwarding(token)
+        .expect("a token exchanged from the caller's own credential is forwarded")
+        .grant(
+            schema,
+            partitions(DISTINCT).into_iter().map(Some),
+            NonZeroU32::new(1000).expect("a literal row bound is not zero"),
+            EstimatedBytes::parse(1 << 10),
+            (),
+            now,
+        );
     Looked::Granted(granted.expect("a grant ending in an hour is not past"))
 }
 
@@ -603,8 +591,8 @@ impl LegRunner for GrantingWithToken {
         Ok(fact())
     }
 
-    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
-        Ok(granted_with_token(Arc::clone(&self.schema)))
+    fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        Ok(granted_with_token(leg, Arc::clone(&self.schema)))
     }
 }
 
@@ -612,8 +600,11 @@ impl LegRunner for GrantingWithToken {
 fn a_granted_lookup_read_with_the_callers_token_hands_it_to_each_partition_read_and_to_no_header() {
     let servers = servers();
     let authority = Authority::generate();
-    let payments = TokenPeer::serve(&servers, &authority);
-    let geo = [TokenPeer::serve(&servers, &authority), TokenPeer::serve(&servers, &authority)];
+    let payments = TokenPeer::started(&servers, &authority);
+    let geo = [
+        TokenPeer::started(&servers, &authority),
+        TokenPeer::started(&servers, &authority),
+    ];
     let others = core::iter::once(&payments).chain(&geo).map(|peer| peer.url.clone());
     let nodes = planning(&servers, &authority, others)
         .reading(source("geo"), geo.iter().map(|peer| peer.url.clone()))

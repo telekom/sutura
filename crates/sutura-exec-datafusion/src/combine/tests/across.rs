@@ -8,12 +8,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
 use datafusion::arrow::array::{ArrayRef, StringArray};
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::{DataType, SchemaRef};
 use datafusion::error::DataFusionError;
+use datafusion::execution::SendableRecordBatchStream;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
 use datafusion_distributed::{DistributedConfig, MaybeEncoded, SetPlanRequest, TaskKey, Worker};
 use futures_util::stream;
 use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
+use sutura_domain::model::SourceName;
 use sutura_domain::plan::{FederatedPlan, FederationCombiner as _, LegResult};
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Value};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -33,7 +35,7 @@ use url::Url;
 
 use super::{UNBOUNDED, assigned, combiner, fact, fact_linked, fact_row, lookup, lookup_linked, sum_plan, text};
 use crate::combine::across::StageReadsASource;
-use crate::combine::{CombineError, DataFusionCombiner, NodeIdentity, Nodes};
+use crate::combine::{CombineError, DataFusionCombiner, Forwarded, NodeIdentity, Nodes, PartitionReader, Unread};
 use crate::pool::WorkingSet;
 
 /// A deployment's node authority.
@@ -749,6 +751,41 @@ fn a_node_declared_by_a_host_is_dialled_where_it_resolves_and_one_resolving_nowh
         sent.load(Ordering::SeqCst) > 0,
         "the node declared by a host was sent no request, so its stage ran here"
     );
+}
+
+/// Each partition a reader read with a token, and the token.
+type Handed = Arc<parking_lot::Mutex<Vec<(Vec<u8>, String)>>>;
+
+/// A reader that reads only with a token, answering as `rows` does and logging each token. Not
+/// beside its one cell: the causality gate matches a helper by name, and would read each cell there
+/// that names another `read` as calling this one.
+struct ReadsWithTokens {
+    rows: Arc<dyn PartitionReader>,
+    handed: Handed,
+}
+
+impl PartitionReader for ReadsWithTokens {
+    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef) -> Result<SendableRecordBatchStream, Unread> {
+        Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
+    }
+
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test reader logs the token it was handed, so a cell can compare it with the one granted"
+    )]
+    fn read_forwarded(
+        &self,
+        wire: &[u8],
+        source: &SourceName,
+        partition: &[u8],
+        schema: &SchemaRef,
+        forwarded: Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        self.handed
+            .lock()
+            .push((partition.to_vec(), String::from(forwarded.into_token().expose_secret())));
+        self.rows.read(wire, source, partition, schema)
+    }
 }
 
 /// A peer's Explain or Unnest stage missing a field the decoder used to unwrap, `telekom/sutura#1680`.

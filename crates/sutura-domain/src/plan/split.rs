@@ -25,8 +25,10 @@
 //!   PostgreSQL source makes one, and only of two or more partitions (`github.com/telekom/sutura#828`).
 //! - A grant read with the caller's own token ([`ReadAs::CallerToken`]) takes only a token whose
 //!   [`SourceToken::exchanged_from`] is the fingerprint of the subject token the request presented
-//!   for the leg's source, and ends no later than the token. That fingerprint is what the
-//!   exchanging adapter states, and no source makes such a grant yet.
+//!   for the leg's source, and ends no later than the token. Only [`Grantee::grant`] adds a token
+//!   to a grant - [`Granted::new`] is public and takes any caller, but reads as
+//!   [`ReadAs::ServiceUser`]. That fingerprint is what the exchanging adapter states, and no source
+//!   makes such a grant yet.
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -263,7 +265,7 @@ impl<'r> Granted<'r> {
     /// # Errors
     ///
     /// [`GrantExpired`] when the earlier end is not after `now`.
-    pub fn forwarding(mut self, token: SourceToken, now: SystemTime) -> Result<Self, GrantExpired> {
+    pub(crate) fn forwarding(mut self, token: SourceToken, now: SystemTime) -> Result<Self, GrantExpired> {
         self.until = self.until.min(token.not_after());
         if self.until <= now {
             return Err(GrantExpired { until: self.until });
@@ -399,7 +401,7 @@ impl Grantee {
         self.until
     }
 
-    /// This grantee, its partitions read with `token` ([`Granted::forwarding`]), when `token` was
+    /// This grantee, its partitions read with `token` ([`ReadAs::CallerToken`]), when `token` was
     /// exchanged from the credential the request presented for this leg's source.
     ///
     /// # Errors
