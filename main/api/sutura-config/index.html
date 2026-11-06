@@ -7635,9 +7635,9 @@ request, and it does not belong in a log.</p>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="module-split">Module <code>split</code><a class="headerlink" href="#module-split" title="Permanent link">&para;</a></h3>
 <p><code>sources.&lt;alias&gt;.split</code>: how a source's lookup legs may be read in partitions.</p>
-<p>The nodes that read the source read the partitions (<code>github.com/telekom/sutura#828</code>).</p>
-<p><strong>Not built yet:</strong> <code>split</code> is not a key of a source entry, so a deployment that writes it is
-refused as an unknown key, and no source declares a split.</p>
+<p>The nodes that read the source read the partitions (<code>github.com/telekom/sutura#828</code>). Written
+after the entry itself parsed, as <code>inbound_token_at_pool</code> is, so the refusals can read the
+entry's kind and posture.</p>
 <h4 id="enum-sourcesplit"><code>enum SourceSplit</code><a class="headerlink" href="#enum-sourcesplit" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-424-1"><a id="__codelineno-424-1" name="__codelineno-424-1" href="#__codelineno-424-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SourceSplit</span>
 </span></code></pre></div>
@@ -7646,7 +7646,7 @@ refused as an unknown key, and no source declares a split.</p>
 entry without the key reads every leg whole.</p>
 <h5 id="variants_56">Variants<a class="headerlink" href="#variants_56" title="Permanent link">&para;</a></h5>
 <ul>
-<li><code>Flashback</code> - An <code>oracle</code> source read as its shared service user: every partition reads <code>AS OF</code> the one system change number taken when the leg is split. The service user holds the <code>FLASHBACK</code> object privilege on each table it reads, never <code>FLASHBACK ANY TABLE</code>, and the source's boot probe refuses one that holds the system privilege.</li>
+<li><code>Flashback</code> - An <code>oracle</code> source read as its shared service user: every partition reads <code>AS OF</code> the one system change number taken when the leg is split. The operator grants the service user the <code>FLASHBACK</code> object privilege on each table it reads. The source's boot probe reads the privileges granted to the service user when it runs: directly, through <code>PUBLIC</code>, and through roles granted to the service user, and it refuses <code>FLASHBACK ANY TABLE</code> held that way.</li>
 </ul>
 <h5 id="methods_75">Methods<a class="headerlink" href="#methods_75" title="Permanent link">&para;</a></h5>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-425-1"><a id="__codelineno-425-1" name="__codelineno-425-1" href="#__codelineno-425-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">SplitRefused</span><span class="o">&gt;</span>
