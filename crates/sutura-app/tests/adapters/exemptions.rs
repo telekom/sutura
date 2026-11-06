@@ -93,9 +93,17 @@ const EXEMPTIONS: &[Exemption] = &[
     Exemption {
         system: "oracle",
         from: Exempt::Unavailable,
+        runs_in: Some("oracle-tier"),
+        because: "opt-in: it executes where `SUTURA_ORACLE_TIER` names the compose `oracle` profile, which \
+                  the `oracle-tier` job (`nix run .#oracle-acceptance`) and `just oracle-acceptance` start, \
+                  and no other gate starts one",
+    },
+    Exemption {
+        system: "oracle",
+        from: Exempt::DryRun,
         runs_in: None,
-        because: "no gate provisions an Oracle and no CSV importer attaches this corpus to one - see its \
-                  impl; its acceptance cell runs one whole-plan case outside this matrix",
+        because: "`OracleWarehouse` takes the port's default `dry_run`, so it answers `NotAsked` and asks Oracle \
+                  nothing; the cell asserts that answer, so this reddens the day it prices a statement",
     },
 ];
 

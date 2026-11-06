@@ -607,17 +607,14 @@ impl Warehouse for OracleWarehouse {
     /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
     /// [`Dialect::Oracle`] and is handed to [`Self::execute`] as any other statement.
     ///
-    /// **Rendered and gate-checked, never executed, and that asymmetry with
-    /// `sutura-exec-postgres` is the whole of what this constant is worth here.** No venue any
-    /// gate reaches can provision an Oracle (this module's header and
+    /// **Executed in the `oracle-tier` CI job alone, and nowhere a `just validate` leg reaches.** No
+    /// gate can provision an Oracle (this module's header and
     /// `xtask/src/conformance/reconcile.rs`'s `UNBOUND` entry say why), so this crate has no
-    /// conformance binding and the golden matrix's `oracle` cells answer
-    /// `DataSystemUnderTest::available() == false` unconditionally. What holds the wiring is
-    /// this module's own `a_leg_renders_through_the_oracle_dialect` cell plus
-    /// `crates/sutura-app/tests/golden/legs.rs`'s Oracle statements - both renderings. **Nothing
-    /// establishes that an Oracle server accepts a leg**, which is exactly the shape
-    /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
-    /// dialect and that declaration is unchanged by this constant.
+    /// conformance binding; the golden matrix's `oracle` cells run where `SUTURA_ORACLE_TIER` names
+    /// the compose profile, and `crates/sutura-app/tests/differential/federated/two_fact.rs` runs a
+    /// leg there. Elsewhere the wiring is held by this module's own
+    /// `a_leg_renders_through_the_oracle_dialect` cell and `crates/sutura-app/tests/golden/legs.rs`'s
+    /// Oracle statements, both renderings.
     ///
     /// A leg is answered on the session its presented credential selects, as any other statement.
     const EXECUTES_LEGS: bool = true;

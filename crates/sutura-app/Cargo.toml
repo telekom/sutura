@@ -87,14 +87,12 @@ sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 # `fixtures` for the tier's token.
 sutura-exec-cube = { workspace = true, features = ["fixtures"] }
 # A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
-# Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
-# reserves its registration point. `available()` answers `false` unconditionally, under a named
-# exemption in the matrix: `just validate` brings up no venue for it (Oracle Database is not
-# packaged in `nixpkgs`, so there is no nix-native tier the way Postgres has one), and no
-# CSV-fixture importer exists yet to attach the example corpus to a live instance even where a
-# developer's own docker socket could reach `compose.services.yaml`'s `oracle` profile. Default
-# features only - the `fixtures` feature exists for a future importer, not for this registration.
-sutura-exec-oracle = { workspace = true }
+# Postgres are: it runs the matrix's cells against a live instance. Its cells execute only where
+# `SUTURA_ORACLE_TIER` names the compose `oracle` profile - the `oracle-tier` CI job starts it - and
+# skip under a named exemption in the matrix everywhere else, since Oracle Database is not packaged
+# in `nixpkgs` and no `just validate` leg can provision one. `fixtures` for the tier's credential, a
+# private user per open and the CSV importer - a DEV-dependency's features reach no consumer.
+sutura-exec-oracle = { workspace = true, features = ["fixtures"] }
 # A third DATA SOURCE, and the one with no local venue at all: its cells execute only where
 # `SUTURA_BQ_DATASET` names the dataset the `bigquery-conformance` job provisioned, and skip under a
 # named exemption everywhere else. `adbc` for the transport those cells open, `fixtures` for the

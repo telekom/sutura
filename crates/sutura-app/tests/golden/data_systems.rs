@@ -680,6 +680,34 @@ fn a_live_bigquery_cell_is_refused_outside_ci() {
     );
 }
 
+/// **A named Oracle tier that does not answer is refused, not skipped**, offline: a child of this
+/// binary runs one `oracle` cell with `SUTURA_ORACLE_TIER` set and every other variable cleared, and
+/// must stop at the venue with the rule's message. The `oracle-tier` job sets the variable to say an
+/// Oracle is up, so a skip there would be a green run that executed nothing. The venue is read once
+/// per process, so a child is the only way to give it another environment.
+///
+/// **The limit:** a worktree whose own `just dev-up-oracle` is up answers discovery, so the child
+/// runs its cell and this fails there; `just test` and every gate provision no Oracle.
+#[test]
+fn an_oracle_tier_that_is_named_and_does_not_answer_is_refused_rather_than_skipped() {
+    let output = std::process::Command::new(std::env::current_exe().expect("the test executable is known"))
+        .args([
+            "--exact",
+            "data_systems::oracle::every_declared_anchor_reproduces_its_number",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env("SUTURA_ORACLE_TIER", "1")
+        .env("INSTA_UPDATE", "no")
+        .output()
+        .expect("a child of the test binary starts");
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && said.contains("`SUTURA_ORACLE_TIER` is set and no Oracle tier answered discovery"),
+        "the child must stop at the venue with the opt-in rule, and said:\n{said}"
+    );
+}
+
 /// One cell of the data-system axis.
 macro_rules! cell {
     ($name:ident, $adapter:ty) => {

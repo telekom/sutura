@@ -2360,7 +2360,9 @@ jobs:
   #
   # Category-gated on `data_source_oracle` or `catalog_rdbms` (whose Oracle dictionary reader's live
   # cells run here, #972), like `bigquery-driver-check` on its own category, and
-  # held run-or-fail by `ci-aggregate`. An app rather than a `checks.*` entry because it needs a
+  # held run-or-fail by `ci-aggregate`. It also runs `sutura-app`'s golden and differential cells for
+  # the `oracle` data system, each opening its own user on the tier; the cap is 50 minutes rather
+  # than 30 for an estimated fifteen more, not a measurement. An app rather than a `checks.*` entry because it needs a
   # docker socket, and because its cell panics on a missing endpoint, which would go fatal on every
   # `just validate`. `SUTURA_DOCKER_PROBE_TIMEOUT_SECS` for `e2e-datahub-adbc`'s reason: `docker
   # info` inside the 10s default has wedged on this runner.
@@ -2368,7 +2370,7 @@ jobs:
     needs: [ci, queue-validated]
     if: (needs.ci.outputs.data_source_oracle == 'true' || needs.ci.outputs.catalog_rdbms == 'true') && needs.queue-validated.outputs.oracle_tier != 'true'
     runs-on: rust-mcp-16core
-    timeout-minutes: 30
+    timeout-minutes: 50
     permissions:
       contents: read
     env:
