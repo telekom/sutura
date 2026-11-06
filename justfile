@@ -320,7 +320,7 @@ gates: hygiene
 bigquery-declared-principal *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the three hosted cells: two read \`SESSION_USER()\` per declared subject, one expects the pool to refuse a token minted for another audience."
+    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the hosted cells: two read \`SESSION_USER()\` per declared subject, one expects the pool to refuse a token minted for another audience, and \`declared_principal::split\` reads a split leg's streams with the forwarded token."
     echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'test(/declared_principal::/)' {{ args }}

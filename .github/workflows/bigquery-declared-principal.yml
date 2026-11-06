@@ -176,6 +176,13 @@ jobs:
       # asserts the two answers differ from each other and from the deployment's own. The first
       # `assert_ne!` refuses a MISCONFIGURED venue (one assertion presented twice).
       #
+      # `declared_principal::split` reads a split leg's streams with caller A's forwarded token.
+      # Its two tables are named by `SUTURA_BQ_SPLIT_TABLE` and `SUTURA_BQ_A_ONLY_TABLE`, which this
+      # step does NOT pass yet: `check-venues` refuses a variable the bq-test sync script does not
+      # push, and the environment's provisioning is the owner's. Until both land, each split cell
+      # panics naming the variable, so the run is red by name and never green over nothing.
+      # `--no-fail-fast`, so those reds do not hide what the other cells observed.
+      #
       # With `--no-capture`, a refusal renders the driver's own error text. A missing pool provider
       # can refuse the assertion at STS; a missing BigQuery grant can refuse jobs or reads after it.
       # Read the error to distinguish a venue misconfiguration from an adapter defect.
@@ -212,7 +219,7 @@ jobs:
           SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
           SUTURA_BQ_INBOUND_A="$(cat "$SUTURA_BQ_INBOUND_A_FILE")" \
           SUTURA_BQ_INBOUND_B="$(cat "$SUTURA_BQ_INBOUND_B_FILE")" \
-            nix run .#bigquery-declared-principal -- --no-capture
+            nix run .#bigquery-declared-principal -- --no-capture --no-fail-fast
 
       - name: Remove the credentials
         if: always()

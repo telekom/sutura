@@ -6,7 +6,8 @@
 //! human caller*, minus the served binary** - and that split is the honest half of the claim. The
 //! oracle for WHICH ACCOUNT is `SELECT SESSION_USER()`, which `BigQueryWarehouse::session_user`
 //! reads and no HTTP route exposes (`ACCEPTS_RAW_STATEMENTS` is `false`), so it can only be asked
-//! here. WHICH ROWS a caller sees needs the served surface and is not asked at all yet.
+//! here. WHICH ROWS a caller sees is asked here only by `split`, of one table `BigQuery` grants one
+//! subject alone, at the adapter; over the served surface it is not asked at all yet.
 //!
 //! **Why the served half is still absent, measured rather than deferred** (`telekom/sutura#929`'s
 //! re-review asked for it). Over the served surface a caller's capabilities are decided by the
@@ -50,8 +51,8 @@
 //! service accepted that assertion against the declared pool. A run here is what turns the venue
 //! from wired into proven.
 //!
-//! Does NOT establish: which ROWS each principal may read, which needs the served surface and the
-//! two principals' grants.
+//! Does NOT establish: which ROWS each principal may read over the served surface, which needs that
+//! surface and the two principals' grants.
 //!
 //! **The delegation hop is in front of the pool, as a `direct` deployment requires by default.** Each
 //! subject's question starts from an inbound token minted for this deployment's audience, and a
@@ -74,6 +75,8 @@
 // exempt test code, and a helper at file scope is not test code as far as clippy is concerned.
 #[cfg(test)]
 mod declared_principal {
+    #[path = "split.rs"]
+    mod split;
     #[path = "support.rs"]
     mod support;
 
@@ -166,6 +169,12 @@ mod declared_principal {
         reason = "the exchanged token is handed on as the subject token, as the broker presents it"
     )]
     fn executed_through_the_hop(inbound: &str) -> String {
+        executed_as(through_the_hop(inbound).expose_secret())
+    }
+
+    /// `inbound`, exchanged through [`PoolHop`] for the token with the pool's audience that the
+    /// job minted for the same subject.
+    fn through_the_hop(inbound: &str) -> Secret {
         let pool = live_env("SUTURA_BQ_AUDIENCE");
         let hop = PoolHop {
             pool: pool.clone(),
@@ -178,10 +187,10 @@ mod declared_principal {
             Arc::new(hop),
             RequestedAudience::parse(&pool).expect("the pool audience is a requestable audience"),
         );
-        let exchanged = delegation
+        delegation
             .exchange(&Secret::new(inbound))
-            .expect("the hop answers each subject's inbound token");
-        executed_as(exchanged.into_token().expose_secret())
+            .expect("the hop answers each subject's inbound token")
+            .into_token()
     }
 
     /// The identity a question runs as when this source is asked with `assertion`.
