@@ -708,6 +708,46 @@ fn an_oracle_tier_that_is_named_and_does_not_answer_is_refused_rather_than_skipp
     );
 }
 
+/// **A system `SUTURA_ONLY_SYSTEMS` leaves out is skipped under a line that names it, and refused
+/// where `SUTURA_DEV_REQUIRE_TIER` says every tier is up**, offline: a child of this binary runs one
+/// `postgres` cell with the list narrowed to `duckdb`, once without the second variable and once
+/// with it. The narrowing is read once per process, so a child is the only way to give it another
+/// environment.
+///
+/// **The limit:** this holds the guard in `runs_here`; a cell that skipped on its own would not meet
+/// it, and review holds that.
+#[test]
+fn a_system_the_only_list_leaves_out_is_named_and_refused_where_every_tier_is_required() {
+    let child = |required: bool| {
+        let mut command = std::process::Command::new(std::env::current_exe().expect("the test executable is known"));
+        command
+            .args([
+                "--exact",
+                "data_systems::postgres::every_declared_anchor_reproduces_its_number",
+                "--nocapture",
+            ])
+            .env_clear()
+            .env("SUTURA_ONLY_SYSTEMS", "duckdb")
+            .env("INSTA_UPDATE", "no");
+        if required {
+            command.env("SUTURA_DEV_REQUIRE_TIER", "1");
+        }
+        command.output().expect("a child of the test binary starts")
+    };
+    let skipped = child(false);
+    let said = String::from_utf8_lossy(&skipped.stderr);
+    assert!(
+        skipped.status.success() && said.contains("exempt: postgres from SUTURA_ONLY_SYSTEMS"),
+        "a system the list leaves out must skip under a line naming it, and said:\n{said}"
+    );
+    let refused = child(true);
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        !refused.status.success() && said.contains("`SUTURA_DEV_REQUIRE_TIER` is set"),
+        "a system the list leaves out must be refused beside the tier requirement, and said:\n{said}"
+    );
+}
+
 /// One cell of the data-system axis.
 macro_rules! cell {
     ($name:ident, $adapter:ty) => {

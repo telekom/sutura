@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
+use sutura_dev::requirement::{FORCE, Requirement};
+
 use super::{DataSystemUnderTest, registered};
 
 /// What a registered data system is excused from HERE.
@@ -114,9 +116,12 @@ const EXEMPTIONS: &[Exemption] = &[
 /// For a venue that starts one tier beside another it cannot credential: the `oracle-tier` job's
 /// compose profile also starts a `ClickHouse`, which discovery finds and which then has no fixture
 /// credential. A name the registry lacks is a panic, so a typo is a red and not a run that asked
-/// less. **The limit:** a system left off the list is skipped without a line, so the venue's own
-/// check of what ran (`nix/oracle-app-cells.sh` asks for oracle in the two-fact walk's output) is
-/// what holds the list from being too narrow.
+/// less. A system left off the list is skipped under an `exempt:` line, and is a panic where
+/// `SUTURA_DEV_REQUIRE_TIER` is also set: that variable says every tier was provisioned, so a skip
+/// beside it is a green run that executed nothing. **The limit:** that holds only where a cell asks
+/// [`runs_here`], and the line proves nothing about which systems DID run, so the venue's own check
+/// of what ran (`nix/oracle-app-cells.sh` asks for oracle in the two-fact walk's output) is what
+/// holds the list from being too narrow.
 fn only() -> Option<&'static [String]> {
     static ONLY: OnceLock<Option<Vec<String>>> = OnceLock::new();
     ONLY.get_or_init(|| {
@@ -156,6 +161,16 @@ where
     W: DataSystemUnderTest,
 {
     if only().is_some_and(|listed| !listed.iter().any(|name| name == W::NAME)) {
+        assert!(
+            !Requirement::from_env().is_required(),
+            "{} is not in `SUTURA_ONLY_SYSTEMS` and `{FORCE}` is set, so this run says every tier is \
+             provisioned and then skips one - unset one of the two",
+            W::NAME
+        );
+        eprintln!(
+            "exempt: {} from SUTURA_ONLY_SYSTEMS - this run narrows to the systems it lists",
+            W::NAME
+        );
         return false;
     }
     if W::available() {
