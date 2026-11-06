@@ -100,6 +100,8 @@ VARS = {
     "SUTURA_BQ_DATASET": "ci_dataset",
     "SUTURA_BQ_REGION": "ci_dataset_location",
     "SUTURA_BQ_TABLE": "ci_table",
+    "SUTURA_BQ_SPLIT_TABLE": "split_table",
+    "SUTURA_BQ_A_ONLY_TABLE": "a_only_table",
     # The policied dataset `cross_resource.rs`'s live fixture reads alongside `SUTURA_BQ_RLS_PROJECT`
     # (`crates/sutura-exec-bigquery/tests/cross_resource_fixture/live.rs`, removed with the HTTP wire
     # in #929) - read by nothing now; kept only because the stack still provisions it.

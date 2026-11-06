@@ -673,10 +673,6 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
-# ------------------------------------------------------------------ test-infra ---
-# The Pulumi test infrastructure under `test-infra/`. The `infra-` prefix keeps these out of the way
-# of the Rust surface's tasks; everything runs through pixi, so there is no venv to keep in step.
-
 # Maps to pixi's `gl` task, which runs BOTH gcloud logins into ~/.config/gcloud: the CLI's own
 # credentials, and ADC, which client libraries read. `-e gcloud` is required because pixi declares
 # `gl` in that FEATURE's tasks. The same task as `gcloud-login` above.
@@ -697,6 +693,10 @@ infra-preview *flags:
     # acceptance legs use. just runs each line in a fresh shell, so the identity is set per command.
     PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
     PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
+
+# Offline resource declarations only; BigQuery enforces the live grants.
+infra-test *args:
+    pixi run -e infra python test-infra/pulumi/google/test_split.py {{args}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:

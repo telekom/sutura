@@ -95,6 +95,8 @@ jobs:
         env:
           K: ${{ runner.temp }}/bq-ci-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
         run: |
           set -eu
           project="$(python3 -c 'import json,os;print(json.load(open(os.environ["K"]))["project_id"])' 2>/dev/null)" \
@@ -110,7 +112,12 @@ jobs:
           fi
           printf '::add-mask::%s\n' "$SUTURA_BQ_DATASET"
           printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-          echo "two resource names masked for the rest of this job"
+          for name in SUTURA_BQ_SPLIT_TABLE SUTURA_BQ_A_ONLY_TABLE; do
+            value="${!name}"
+            test -n "$value" || { echo "the bq-test environment defines no $name" >&2; exit 1; }
+            printf '::add-mask::%s\n' "$value"
+          done
+          echo "four resource names masked for the rest of this job"
 
       # The driver, built for this runner's own triple. It is a REAL artefact of this repository -
       # the same derivation `checks.adbc-driver-bigquery` realises - rather than a CDN download, so
@@ -191,6 +198,8 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
           SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
           SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
           SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
