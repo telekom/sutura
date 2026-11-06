@@ -473,11 +473,13 @@ impl OracleWarehouse {
     /// No deadline: the boot path has no caller's budget to spend, as [`Warehouse::verify_anchor`]
     /// has none.
     ///
+    /// **Not built yet:** the posture is not checked and no snapshot is read, so a probe that passes
+    /// the privilege check fails as [`OracleError::Unanswered`].
+    ///
     /// # Errors
     ///
-    /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`], and
-    /// [`OracleError::FlashbackRefused`] naming the first table that does not read at a snapshot;
-    /// a probe the database fails otherwise is its own error.
+    /// [`OracleError::FlashbackAnyTable`], then [`OracleError::Unanswered`]; a probe the database
+    /// fails otherwise is its own error.
     pub fn with_flashback(
         self,
         tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
