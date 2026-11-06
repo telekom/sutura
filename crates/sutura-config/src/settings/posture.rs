@@ -543,6 +543,15 @@ pub enum NotFitToServe {
          reading worker certifies a leg against its own catalog before it reads. Declare the catalog"
     )]
     ReadingWorkerWithoutCatalog,
+    /// A reading worker declares a `BigQuery` source that does not federate at a workload identity
+    /// pool. A `BigQuery` partition is read only with the caller's token forwarded for the source's
+    /// pool, so a shared, `google_login` or `domain_delegation` source has nothing to read one with.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is a BigQuery source without \
+         `workload_identity`. A reading worker reads a BigQuery partition only with the caller's \
+         token forwarded for the source's pool. Declare the source's `workload_identity`, or remove it"
+    )]
+    ReadingWorkerBigQueryOutsideAPool { alias: SourceName },
     /// A question would wait for other nodes as long as the request it serves may take, or longer,
     /// so the wait would end in the deadline rather than in planning across the nodes that did start.
     #[error(
