@@ -73,6 +73,10 @@ PY
 # ClickHouse's `GET` with 200 only for a valid token whose `sub` is the Basic user. A row policy on
 # `signed_in.conformance_events` shows `sutura_caller_a` every row and `sutura_caller_b` none; both
 # also read `adbc_switched`, which has no row policy, for the ADBC sign-in cell.
+#
+# The ADBC `readonly` cells: `sutura_switched_readonly` has no password, reads `adbc_switched_legs`
+# only, its profile sets `readonly = 1`, and `IMPERSONATE` is granted on it - so a switched statement
+# reaches it, and the server decides what the settings sutura sends become under that profile.
 write_config() {
   digest="$(printf '%s' "$password" | sha256sum | cut -d' ' -f1)"
   unusable="$(od -An -v -tx1 -N24 < /dev/urandom | tr -d ' \n' | sha256sum | cut -d' ' -f1)"
@@ -103,6 +107,7 @@ users:
         - GRANT IMPERSONATE ON sutura_analyst_a
         - GRANT IMPERSONATE ON sutura_analyst_b
         - GRANT IMPERSONATE ON sutura_switched
+        - GRANT IMPERSONATE ON sutura_switched_readonly
 $(for analyst in sutura_analyst_a:1 sutura_analyst_b:0 sutura_ungranted:0; do
     printf '  %s:\n    password_sha256_hex: %s\n' "${analyst%:*}" "$unusable"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
@@ -114,6 +119,15 @@ $(for switched in sutura_switched sutura_switched_ungranted; do
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
     printf '    grants:\n      query:\n        - GRANT SELECT ON adbc_switched.*\n'
   done)
+  sutura_switched_readonly:
+    no_password: 1
+    networks:
+      ip: 127.0.0.1
+    profile: read_only_caller
+    quota: default
+    grants:
+      query:
+        - GRANT SELECT ON adbc_switched_legs.*
 $(for caller in sutura_caller_a:1 sutura_caller_b:0; do
     printf '  %s:\n    http_authentication:\n      server: checker\n      scheme: basic\n' "${caller%:*}"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
@@ -125,6 +139,8 @@ http_authentication_servers:
     uri: http://127.0.0.1:$checker_port/
 profiles:
   default: {}
+  read_only_caller:
+    readonly: 1
 quotas:
   default: {}
 EOC
