@@ -539,10 +539,18 @@ ADR 0040), and never on itself, on `default` or on an administrative user. The s
   users a switch can reach.
 - sutura holds no list of callers (Rejected, 2026-10-12 amendment). The server's grants are the
   only bound on which user a verified `sub` becomes.
-- Inferred from the server's source and not measured: under the switch, the server applies the
-  target user's settings profile and then clamps the settings that sutura sent against it. A target
-  user whose profile sets `readonly = 1` drops them without an error, `join_use_nulls` among them,
-  so a left join under that user can read an unmatched key as the type's default and not as NULL.
-  Caller users must allow the settings that sutura sends (`readonly` is 0 or 2).
-- Statements that the driver sends on its own, if any, run as the service user and not as the
-  switched user. Not measured.
+- Measured on the 26.9.15.5 tier: under the switch, the server applies the target user's settings
+  profile and then clamps the settings that sutura sent against it. A target user whose profile sets
+  `readonly = 1` drops them without an error, `join_use_nulls` among them, and a left join under
+  that user answers an unmatched key as the type's empty value and not as NULL: a silent wrong
+  answer for a leg. A whole query runs the same statement shape under the same clamp, and that was
+  not measured separately. A caller's profile must neither set `readonly = 1` nor constrain, as
+  `const`, `readonly`, `min` or `max`, a setting that sutura sends: the clamp also drops or bounds
+  those, with no error. `readonly` of 0 or 2 alone is not enough.
+- A node that reads a leg learns the caller's unmasked name, because the ClickHouse user is that
+  name.
+- The vendored driver sends no request when it connects: its connection constructor runs no query,
+  and its only send is a statement's fetch. The tier's `system.query_log` shows, for that database,
+  the wrapper and the inner `SELECT` and no other finished statement. A statement that a later
+  driver adds would run as the service user and not as the switched user, and nothing here would
+  catch it.
