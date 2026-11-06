@@ -3691,7 +3691,8 @@ addresses when it has any, else its IPv6 ones, so a dual-stack pod is not two no
 <code>ipv6</code> only IPv6 ones, and a host with none of that family is no node, like one that resolves to nothing. A peer written
 as an IP address, or with a <code>#&lt;ip&gt;</code> fragment, of the other family than <code>ipv4</code> or <code>ipv6</code> is refused at startup; <code>own</code> is
 not read. The setting is <code>SUTURA__SERVER__NODES__ADDRESS_FAMILY</code> in the environment. It chooses among the addresses the
-resolver returns and does not make a node reachable over a family the network between the nodes does not carry.</p>
+resolver returns and does not make a node reachable over a family the network between the nodes does not carry.
+The chart sets it from <code>workerPool.addressFamily</code>, left unset for <code>auto</code>.</p>
 <p>A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than <code>across_above_bytes</code>, or more than its working-set ceiling when the key is unset. Otherwise this node combines
 it, and goes across only when that combine runs out of its ceiling. <code>0</code> is refused.</p>
