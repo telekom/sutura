@@ -403,7 +403,7 @@ mod adbc_execute_as {
     }
 
     impl Tier {
-        fn here(cell: &str) -> Option<Self> {
+        fn up(cell: &str) -> Option<Self> {
             match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
                 Provisioned::At(endpoint) => Some(Self {
                     host: String::from(endpoint.host()),
@@ -418,7 +418,7 @@ mod adbc_execute_as {
             }
         }
 
-        fn at(&self, database: &str, posture: SourcePosture) -> AdbcClickHouseWarehouse {
+        fn opened_in(&self, database: &str, posture: SourcePosture) -> AdbcClickHouseWarehouse {
             warehouse_at(
                 format!("http://{}:{}/?database={database}", self.host, self.port),
                 posture,
@@ -428,8 +428,8 @@ mod adbc_execute_as {
         }
 
         /// `plan` in `database` switched to `user` under the service user's own sign-in.
-        fn switched(&self, database: &str, plan: &QueryPlan, user: &str) -> Result<ResultBatches, AdbcError> {
-            self.at(database, SourcePosture::ImpersonationAtSource).execute(
+        fn as_user(&self, database: &str, plan: &QueryPlan, user: &str) -> Result<ResultBatches, AdbcError> {
+            self.opened_in(database, SourcePosture::ImpersonationAtSource).execute(
                 Executable::Query(plan),
                 &switched_to(user),
                 corpus::deadline(),
@@ -438,7 +438,7 @@ mod adbc_execute_as {
 
         /// `plan` in `database` as the service user at a shared source: no switch.
         fn shared(&self, database: &str, plan: &QueryPlan) -> RowSet {
-            self.at(database, corpus::posture())
+            self.opened_in(database, corpus::posture())
                 .execute(Executable::Query(plan), &corpus::presented(), corpus::deadline())
                 .unwrap_or_else(|e| panic!("the service user: {e}"))
                 .to_rows()
@@ -467,7 +467,7 @@ mod adbc_execute_as {
         }
 
         /// Sends `sql`, which a plan cannot state, as the service user over HTTP/1.0.
-        fn sent(&self, sql: &str) {
+        fn posted(&self, sql: &str) {
             let mut stream = TcpStream::connect((self.host.as_str(), self.port)).expect("the tier accepts a connection");
             let request = format!(
                 "POST / HTTP/1.0\r\nHost: {}\r\nX-ClickHouse-User: {}\r\nX-ClickHouse-Key: {}\r\nContent-Length: {}\r\n\r\n{sql}",
@@ -613,7 +613,7 @@ mod adbc_execute_as {
     /// `join_use_nulls` answers that key as the empty string instead.
     #[test]
     fn a_readonly_switched_query_reads_an_unmatched_left_join_key_as_null_or_is_refused() {
-        let Some(tier) = Tier::here("readonly_left_join") else {
+        let Some(tier) = Tier::up("readonly_left_join") else {
             return;
         };
         tier.load_with_regions(READONLY_READS);
@@ -623,7 +623,7 @@ mod adbc_execute_as {
             shared.rows().iter().any(|row| row.first() == Some(&Value::Null)),
             "the unswitched question has an unmatched key: {shared:?}"
         );
-        if let Some(switched) = under_readonly(tier.switched(READONLY_READS, &plan, READONLY_USER), "readonly_left_join") {
+        if let Some(switched) = under_readonly(tier.as_user(READONLY_READS, &plan, READONLY_USER), "readonly_left_join") {
             agree_on_content(&shared, &switched, RealTolerance::DIFFERENTIAL).unwrap_or_else(|e| panic!("{e}"));
         }
     }
@@ -634,9 +634,9 @@ mod adbc_execute_as {
     /// `timeout_overflow_mode` is printed, not asserted: `throw` is also the server's default.
     #[test]
     fn a_readonly_switched_query_runs_under_the_settings_sutura_sends_or_is_refused() {
-        let Some(tier) = Tier::here("readonly_settings") else { return };
-        tier.sent(&format!("CREATE DATABASE IF NOT EXISTS {READONLY_READS}"));
-        tier.sent(&format!(
+        let Some(tier) = Tier::up("readonly_settings") else { return };
+        tier.posted(&format!("CREATE DATABASE IF NOT EXISTS {READONLY_READS}"));
+        tier.posted(&format!(
             "CREATE OR REPLACE VIEW {READONLY_READS}.{SETTINGS_VIEW} SQL SECURITY INVOKER AS SELECT \
              toDate('2026-01-01') AS day, toString(getSetting('join_use_nulls')) AS join_use_nulls, \
              toString(getSetting('max_execution_time')) AS max_execution_time, \
@@ -644,7 +644,7 @@ mod adbc_execute_as {
         ));
         let plan = settings_in_effect();
         sent_settings_in_effect(&tier.shared(READONLY_READS, &plan), "the service user");
-        if let Some(switched) = under_readonly(tier.switched(READONLY_READS, &plan, READONLY_USER), "readonly_settings") {
+        if let Some(switched) = under_readonly(tier.as_user(READONLY_READS, &plan, READONLY_USER), "readonly_settings") {
             sent_settings_in_effect(&switched, READONLY_USER);
         }
     }
