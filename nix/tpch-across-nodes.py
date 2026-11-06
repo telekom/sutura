@@ -164,11 +164,21 @@ class Venue:
     def say(self, text: str) -> None:
         print(f"tpch-across-nodes: {text}", flush=True)
 
-    def wait_healthy(self, host: str, port: int) -> None:
-        self.query.wait_until_succeeds(
-            f"curl -fsS --cacert {self.ca} https://{host}:{port}/health",
-            timeout=dt.timedelta(minutes=30),
-        )
+    def wait_healthy(self, machine, unit: str, port: int, host: str) -> None:
+        """Waits for `unit` on `machine` to answer `/health`, and fails at once if it stops."""
+        deadline = time.monotonic() + 1800
+        while time.monotonic() < deadline:
+            status, _ = self.query.execute(
+                f"curl -fsS --max-time 10 --cacert {self.ca} https://{host}:{port}/health",
+                timeout=dt.timedelta(seconds=30),
+            )
+            if status == 0:
+                return
+            _, state = machine.execute(f"systemctl show -p ActiveState --value {unit}")
+            if state.strip() not in ("active", "activating"):
+                refuse(f"{unit} on {machine.name} is {state.strip()!r}, not serving")
+            time.sleep(1)
+        refuse(f"{unit} on {machine.name} did not answer /health in 30 minutes")
 
     def ask(self, topology: str, name: str, body: dict, suffix: str = "") -> dict:
         port = self.plan["ports"][topology]
@@ -338,7 +348,31 @@ def table_of(report: dict) -> str:
 
 def start_service(venue: Venue, topology: str) -> None:
     venue.query.succeed(f"systemctl start sutura-{topology}")
-    venue.wait_healthy("query", venue.plan["ports"][topology])
+    unit = f"sutura-{topology}"
+    venue.wait_healthy(venue.query, unit, venue.plan["ports"][topology], "query")
+
+
+def preflight(venue: Venue) -> None:
+    """Every node's settings and catalog, loaded as `sutura serve` loads them.
+
+    `sutura prompt` reads the same settings and applies every refusal a deployment is held to at
+    startup, then the catalog, and starts no listener and opens no source. A refusal is found here
+    in seconds on each node, together, and not after a service has failed to start.
+    """
+    machines = {"query": venue.query, **{r.name: r for r in venue.readers}}
+    problems = []
+    for node in venue.plan["preflight"]:
+        command = (
+            "SUTURA_ENVIRONMENT=development "
+            f"{shlex.quote(venue.plan['sutura'])} prompt"
+            f" {shlex.quote(node['catalog'])} {shlex.quote(node['config'])} 2>&1 >/dev/null"
+        )
+        status, said = machines[node["machine"]].execute(command)
+        venue.say(f"preflight {node['name']}: {'ok' if status == 0 else 'refused'}")
+        if status != 0:
+            problems.append(f"{node['name']}:\n{said.strip()}")
+    if problems:
+        refuse("a node's settings are refused at load:\n" + "\n".join(problems))
 
 
 def stop_service(venue: Venue, topology: str) -> None:
@@ -453,6 +487,8 @@ def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) ->
     venue = Venue(plan, query, db, readers)
     start_all()
     try:
+        with subtest("every node's settings and catalog load"):
+            preflight(venue)
         with subtest("PostgreSQL holds the dimension tables, counted"):
             db.wait_for_unit("postgresql.service")
             db.succeed(
@@ -462,7 +498,8 @@ def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) ->
         with subtest("the readers and the star are up"):
             for reader in readers:
                 reader.succeed("systemctl start sutura")
-                venue.wait_healthy(reader.name, 8443)
+            for reader in readers:
+                venue.wait_healthy(reader, "sutura", 8443, reader.name)
             query.succeed(
                 f"install -d -m 0755 /var/lib/tpch && install -m 0444"
                 f" {plan['data']}/star.duckdb /var/lib/tpch/star.duckdb"

@@ -131,6 +131,8 @@ let
             request_timeout_seconds = 300;
           };
           inherit security sources;
+          # A node reachable from other hosts is refused without it (`RateLimitingDisabled`).
+          rate_limit.enabled = true;
           telemetry.format = "bunyan";
           governance.federated_row_ceiling = 1000000;
           catalogs = [
@@ -191,13 +193,9 @@ let
   };
   acknowledged.acknowledged_because = "every node reads generated tables as one identity";
 
-  reader = own: {
-    virtualisation = {
-      memorySize = 4096;
-      cores = 2;
-    };
-    networking.firewall.allowedTCPPorts = [ 8443 ];
-    systemd.services.sutura = service (settings {
+  readerConfig =
+    own:
+    settings {
       dir = "${corpus}/catalog";
       server = node own // {
         role = "reading-worker";
@@ -209,7 +207,53 @@ let
       sources = {
         inherit crm;
       };
-    });
+    };
+  refConfig = settings {
+    dir = "${whole}";
+    server = listener "query" 8444;
+    security = offHost // multiUser;
+    sources.lake = lake // acknowledged;
+    runtime = large;
+  };
+  oneConfig = settings {
+    dir = "${corpus}/catalog";
+    server = listener "query" 8445;
+    security = offHost // multiUser;
+    sources = {
+      lake = lake // acknowledged;
+      crm = crm // acknowledged;
+    };
+    runtime = large;
+  };
+  manyConfig = settings {
+    dir = "${corpus}/catalog";
+    server = node "query" // {
+      # One byte, so every combine reading both sources goes across: a granted leg does anyway.
+      nodes = {
+        own = "https://query:8443";
+        others = map (other: {
+          url = "https://${other}:8443";
+          role = "reading-worker";
+          sources = [ "crm" ];
+        }) [ "reader1" "reader2" ];
+        across_above_bytes = 1;
+      };
+    };
+    security = offHost // multiUser;
+    sources = {
+      lake = lake // acknowledged;
+      crm = crm // acknowledged;
+    };
+    runtime = large;
+  };
+
+  reader = own: {
+    virtualisation = {
+      memorySize = 4096;
+      cores = 2;
+    };
+    networking.firewall.allowedTCPPorts = [ 8443 ];
+    systemd.services.sutura = service (readerConfig own);
   };
 
   # Started by the test script, once what it dials is up.
@@ -239,6 +283,41 @@ let
         one = 8445;
         many = 8443;
       };
+      sutura = "${sutura}/bin/sutura";
+      # What `sutura prompt` loads on each node before anything boots: the settings and the catalog
+      # each service reads, which refuses what `sutura serve` would refuse of them at startup.
+      preflight = [
+        {
+          machine = "query";
+          name = "ref";
+          config = "${refConfig}";
+          catalog = "${whole}";
+        }
+        {
+          machine = "query";
+          name = "one";
+          config = "${oneConfig}";
+          catalog = "${corpus}/catalog";
+        }
+        {
+          machine = "query";
+          name = "many";
+          config = "${manyConfig}";
+          catalog = "${corpus}/catalog";
+        }
+        {
+          machine = "reader1";
+          name = "reader1";
+          config = "${readerConfig "reader1"}";
+          catalog = "${corpus}/catalog";
+        }
+        {
+          machine = "reader2";
+          name = "reader2";
+          config = "${readerConfig "reader2"}";
+          catalog = "${corpus}/catalog";
+        }
+      ];
       load = "${load}";
       role = "${role}";
       tables = builtins.attrNames dimensions;
@@ -308,44 +387,9 @@ pkgs.testers.runNixOSTest {
       8444
       8445
     ];
-    systemd.services.sutura-ref = service (settings {
-      dir = "${whole}";
-      server = listener "query" 8444;
-      security = offHost // multiUser;
-      sources.lake = lake // acknowledged;
-      runtime = large;
-    });
-    systemd.services.sutura-one = service (settings {
-      dir = "${corpus}/catalog";
-      server = listener "query" 8445;
-      security = offHost // multiUser;
-      sources = {
-        lake = lake // acknowledged;
-        crm = crm // acknowledged;
-      };
-      runtime = large;
-    });
-    systemd.services.sutura-many = service (settings {
-      dir = "${corpus}/catalog";
-      server = node "query" // {
-        # One byte, so every combine reading both sources goes across: a granted leg does anyway.
-        nodes = {
-          own = "https://query:8443";
-          others = map (other: {
-            url = "https://${other}:8443";
-            role = "reading-worker";
-            sources = [ "crm" ];
-          }) [ "reader1" "reader2" ];
-          across_above_bytes = 1;
-        };
-      };
-      security = offHost // multiUser;
-      sources = {
-        lake = lake // acknowledged;
-        crm = crm // acknowledged;
-      };
-      runtime = large;
-    });
+    systemd.services.sutura-ref = service refConfig;
+    systemd.services.sutura-one = service oneConfig;
+    systemd.services.sutura-many = service manyConfig;
   };
 
   testScript =
