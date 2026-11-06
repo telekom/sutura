@@ -7238,9 +7238,9 @@ be skipped" look like the same sentence and are not.</p>
   under the identity the deployment declared, the password read from a FILE at boot and never
   written in the settings tree. There is no <code>unix_socket</code> and no <code>database</code> key, and both
   absences are deliberate rather than pending: <code>ClickHouse</code>'s HTTP interface is dialled over
-  TCP only, and <code>sutura_exec_clickhouse::transport::Http</code> sends no <code>database</code> parameter - so a
-  <code>database:</code> here would be a key an operator wrote and the deployment reads past, which is
-  exactly what <code>parse_placement</code>'s foreign-key rule refuses on every other kind.
+  TCP only, and the adapter's endpoint names no <code>database</code> - so a <code>database:</code> here would be a
+  key an operator wrote and the deployment reads past, which is exactly what
+  <code>parse_placement</code>'s foreign-key rule refuses on every other kind.
 - <code>Oracle</code> - An Oracle Database, reached over its TCP listener.</p>
 <p><strong>The static-credential half, in <code>Self::ClickHouse</code>'s shape - with an <code>OracleChannel</code>
   rather than a <code>SourceTransport</code></strong>, because the driver verifies against a PEM bundle and
