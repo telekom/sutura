@@ -47,8 +47,8 @@ pub(super) fn acknowledge_hash_buckets(
             key: "hash_buckets_acknowledged_because",
         });
     }
-    // A bucket is read on another node, which holds no caller's token, so a source whose callers
-    // sign in is refused here rather than read whole in silence.
+    // A hash bucket of a delegated source is not read with the caller's token, so a source whose
+    // callers sign in is refused here rather than read whole in silence.
     if matches!(*source.placement(), SourcePlacement::ClickHouse { ref delegation, .. } if !delegation.is_empty()) {
         return Err(InvalidSourceRegistry::HashBucketsBesideDelegation { alias });
     }

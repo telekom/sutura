@@ -41,7 +41,7 @@ Each hop in `delegation` has the keys of an [Oracle](oracle.md#settings) hop.
 `hash_buckets_acknowledged_because` (string, default none) is your reason to let a lookup leg of
 this source be read in hash buckets on the nodes that read the source. The value must not be
 empty. Other kinds of data system refuse the key, and so does an entry with `delegation`, because a
-bucket is read on another node that has no token of the caller. A serving deployment does not start
+bucket of a delegated source is not read with the token of the caller. A serving deployment does not start
 when the source with the key is its only source, or when no `server.nodes` peer lists the source in
 its `sources`.
 

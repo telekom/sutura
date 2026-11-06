@@ -607,10 +607,11 @@ pub enum InvalidSourceRegistry {
         cause: UnknownAcknowledgement,
     },
     /// `hash_buckets_acknowledged_because` is written on a `clickhouse` entry whose callers sign in
-    /// with a `delegation` token. A bucket is read on another node, and no caller's token reaches it.
+    /// with a `delegation` token. A hash bucket of a delegated source is not read with the caller's
+    /// token, so it would not run as that caller.
     #[error(
         "`sources.{alias}` declares `hash_buckets_acknowledged_because` and a `delegation`: a hash \
-         bucket is read on a reading node, which holds no caller's token - remove one of the two"
+         bucket of a delegated source is not read with the caller's token - remove one of the two"
     )]
     HashBucketsBesideDelegation { alias: SourceName },
     /// The declared workload-identity value is not usable.
