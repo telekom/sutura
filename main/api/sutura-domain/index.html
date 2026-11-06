@@ -5238,6 +5238,14 @@ no rendering surface (<code>Debug</code>, <code>Display</code>, <code>Self::as_s
 at the boundary that turns a wire value into this type, not at print time. There is no
 other way in: the field is private, there is no <code>Deserialize</code>, and <code>TryFrom&lt;String&gt;</code>
 delegates to the same constructor.</p>
+<h3 id="use-sourcetoken"><code>use SourceToken</code><a class="headerlink" href="#use-sourcetoken" title="Permanent link">&para;</a></h3>
+<p>An access token of the caller's pool principal, exchanged from the credential the caller
+presented, for the node that reads a partition of that caller's split leg.</p>
+<p>It keeps the fingerprint of the credential it was exchanged from, never that credential, so a
+grant can refuse a token exchanged for someone other than its caller. Its <code>Debug</code> prints neither
+the token nor the fingerprint.</p>
+<p><strong>The limit:</strong> the constructor is <code>pub</code>, so the fingerprint states what the exchanging adapter
+says it exchanged. Nothing here can tell that an exchange took place.</p>
 <h3 id="module-correlation">Module <code>correlation</code><a class="headerlink" href="#module-correlation" title="Permanent link">&para;</a></h3>
 <p>One identifier per request, so a request's log lines and the data-system jobs it ran can be
 found together.</p>
@@ -8666,7 +8674,7 @@ estimate. What a source cannot estimate at all - PostgreSQL's <code>reltuples = 
 <h3 id="use-granted"><code>use Granted</code><a class="headerlink" href="#use-granted" title="Permanent link">&para;</a></h3>
 <p>A lookup leg its source split and granted to the nodes that read it, rather than read here.</p>
 <p>Every partition is read by a node reading the leg's source, for <code>caller</code>, until <code>until</code>, at most
-<code>stream_rows</code> rows a stream. <code>wire</code> is the leg as <code>PartitionLeg::encode</code> writes it from a
+<code>stream_rows</code> rows a stream, as <code>reads</code> says. <code>wire</code> is the leg as <code>PartitionLeg::encode</code> writes it from a
 <code>Grantee</code>, and each partition the granting adapter's own descriptor, opaque here. <code>held</code> is
 what the source keeps open across the partitions - an exporting transaction - and lives as long
 as this value, which <code>Legs</code> borrows past the combine. It is <code>Send + Sync</code>
@@ -8684,6 +8692,9 @@ grant ends no later than that answer does.</p>
 <p>Why <code>Grantee::grant</code> made no grant. Each is a refusal of the leg, never a read here instead.</p>
 <h3 id="use-notoffered"><code>use NotOffered</code><a class="headerlink" href="#use-notoffered" title="Permanent link">&para;</a></h3>
 <p>Why <code>Grantee::new</code> offered no grant.</p>
+<h3 id="use-notthecallerstoken"><code>use NotTheCallersToken</code><a class="headerlink" href="#use-notthecallerstoken" title="Permanent link">&para;</a></h3>
+<p>Why <code>Grantee::forwarding</code> refused a token: it was exchanged from a credential other than the
+one the grantee's caller presented.</p>
 <h3 id="use-partitionreader"><code>use PartitionReader</code><a class="headerlink" href="#use-partitionreader" title="Permanent link">&para;</a></h3>
 <p>A split leg's partitions, read in order: each item is the next partition's rows, or why it was
 not read.</p>
@@ -8693,6 +8704,8 @@ ends the read: what a source holds open across its partitions - PostgreSQL's exp
 transaction - is released then, every partition read or not.</p>
 <h3 id="use-partitioned"><code>use Partitioned</code><a class="headerlink" href="#use-partitioned" title="Permanent link">&para;</a></h3>
 <p>What <code>Warehouse::split_lookup</code> answers for one leg.</p>
+<h3 id="use-readas"><code>use ReadAs</code><a class="headerlink" href="#use-readas" title="Permanent link">&para;</a></h3>
+<p>How a node reading a granted partition reaches its source.</p>
 <h3 id="use-splitdecision"><code>use SplitDecision</code><a class="headerlink" href="#use-splitdecision" title="Permanent link">&para;</a></h3>
 <p><code>decide</code>'s one output: a leg's root read whole, split into this many partitions, or refused.</p>
 <h3 id="use-splitrefusal"><code>use SplitRefusal</code><a class="headerlink" href="#use-splitrefusal" title="Permanent link">&para;</a></h3>
