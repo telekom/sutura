@@ -197,11 +197,13 @@ pkgs.testers.runNixOSTest {
     import json
 
     QUESTION = '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
-    ADDRESS = {
-        "query": "${nodes.query.networking.primaryIPv6Address}",
-        "reader1": "${nodes.reader1.networking.primaryIPv6Address}",
-        "reader2": "${nodes.reader2.networking.primaryIPv6Address}",
+    # Both families: PostgreSQL logs whichever one the client connected over.
+    ADDRESSES = {
+        "query": {"${nodes.query.networking.primaryIPAddress}", "${nodes.query.networking.primaryIPv6Address}"},
+        "reader1": {"${nodes.reader1.networking.primaryIPAddress}", "${nodes.reader1.networking.primaryIPv6Address}"},
+        "reader2": {"${nodes.reader2.networking.primaryIPAddress}", "${nodes.reader2.networking.primaryIPv6Address}"},
     }
+    NODE = {address: node for node, addresses in ADDRESSES.items() for address in addresses}
 
 
     def cell(raw: str) -> str:
@@ -237,14 +239,14 @@ pkgs.testers.runNixOSTest {
         client = ""
         for line in lines:
             first = line.split(" ", 1)[0]
-            if first in ADDRESS.values() or first == "[local]":
-                client = first
+            if first in NODE or first == "[local]":
+                client = NODE.get(first, first)
             seen.setdefault(client, []).append(line)
         return seen
 
 
     def ranges(lines: list[str], node: str) -> int:
-        return sum(1 for line in by_client(lines).get(ADDRESS[node], []) if "ctid" in line)
+        return sum(1 for line in by_client(lines).get(node, []) if "ctid" in line)
 
 
     def readers_up() -> None:
@@ -270,7 +272,7 @@ pkgs.testers.runNixOSTest {
         lines = statements()[before:]
         assert ranges(lines, "reader1") > 0 and ranges(lines, "reader2") > 0, lines
         assert ranges(lines, "query") == 0, lines
-        assert any("pg_export_snapshot" in line for line in by_client(lines).get(ADDRESS["query"], [])), lines
+        assert any("pg_export_snapshot" in line for line in by_client(lines).get("query", [])), lines
 
     with subtest("with both readers stopped the question is refused as node_lost and nothing reads a range"):
         reader1.succeed("systemctl stop sutura")
@@ -280,7 +282,7 @@ pkgs.testers.runNixOSTest {
         body = query.succeed("cat /tmp/lost.json")
         assert status == "503" and json.loads(body)["reason"]["code"] == "node_lost", (status, body)
         lines = statements()[before:]
-        assert sum(ranges(lines, node) for node in ADDRESS) == 0, lines
+        assert sum(ranges(lines, node) for node in ADDRESSES) == 0, lines
 
     with subtest("started again, the readers answer the question"):
         reader1.succeed("systemctl start sutura")
