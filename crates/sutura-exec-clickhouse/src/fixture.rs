@@ -37,10 +37,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use sutura_domain::identity::Secret;
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::source::SourcePosture;
+use sutura_domain::warehouse::RowSet;
 use sutura_domain::warehouse::csv::{self, FixtureType, InferenceError};
+use sutura_domain::warehouse::deadline::Deadline;
+use sutura_sql::GeneratedQuery;
 
-use crate::ClickHouseWarehouse;
 use crate::transport::{BasicAuth, Endpoint, Http, HttpError};
+use crate::{ClickHouseError, ClickHouseWarehouse};
 
 /// One of the two values the `ClickHouse` fixture tier publishes into the environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -189,6 +192,16 @@ impl ClickHouseWarehouse<Http> {
     /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
     pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
         self.load_csv_with_types(table, path, Columns::Conformance)
+    }
+
+    /// `query` run as the deployment and answered as rows, for a fixture cell whose statement the
+    /// port has no [`Executable`](sutura_domain::plan::Executable) for.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal, or an answer this adapter cannot read.
+    pub fn rows_of(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<RowSet, ClickHouseError<HttpError>> {
+        self.run(query, deadline)
     }
 
     fn load_csv_with_types(&self, table: &TableName, path: &Path, load: Columns) -> Result<(), FixtureError> {

@@ -1,8 +1,10 @@
 //! A bucket's refusals, and the statement each dialect hashes a lookup leg's integer keys with.
 //!
-//! The statements are pinned as text. That a `DuckDB` bucket holds the rows it should is executed in
-//! `crates/sutura-app/tests/differential/buckets.rs`; the `ClickHouse` and Oracle ones are rendered
-//! here and run nowhere offline.
+//! The statements are pinned as text. That a `DuckDB` and a `ClickHouse` bucket hold the rows they
+//! should is executed in `crates/sutura-app/tests/differential/buckets.rs`; the Oracle one is rendered
+//! here and runs nowhere offline.
+
+use std::collections::HashMap;
 
 use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::definitions::DefinitionDigest;
@@ -151,19 +153,77 @@ fn postgres_and_bigquery_are_not_split_into_hash_buckets() {
     }
 }
 
+/// Oracle's hash takes one value, and any subset of the keys is exact, so it hashes the first.
 #[test]
-fn oracle_refuses_a_leg_with_two_integer_keys() {
+fn oracle_hashes_the_first_of_two_integer_keys() {
     let leg = lookup(vec![link(0, "customer_key"), link(1, "contract_key")]);
     let described = described(&[("0_link", DataType::Int64), ("1_link", DataType::Int64)]);
-    let refused = generate_leg_buckets(&leg, &described, bucket(0, 2), Dialect::Oracle);
+    let query = generate_leg_buckets(&leg, &described, bucket(1, 4), Dialect::Oracle).expect("the leg renders a bucket");
     assert!(
-        matches!(
-            refused,
-            Err(BucketsRefused::CompoundKey {
-                dialect: Dialect::Oracle,
-                keys: 2
-            })
-        ),
-        "{refused:?}"
+        query
+            .sql()
+            .contains(r#"WHERE ORA_HASH(COALESCE("dim_customer"."customer_key", 0), 3) = 1 "#),
+        "{}",
+        query.sql()
     );
+}
+
+/// A field as the vendored `ClickHouse` driver describes it: an Arrow type and the column's own.
+fn from_clickhouse(name: &str, arrow: DataType, declared: &str) -> Field {
+    Field::new(name, arrow, true).with_metadata(HashMap::from([(String::from("CLICKHOUSE:type"), String::from(declared))]))
+}
+
+/// The driver describes a `Date` as `UInt16`, a `DateTime` or `IPv4` as `UInt32` and an `Enum` as an
+/// integer too, and `COALESCE(k, 0)` over a `Date` has no common type in `ClickHouse` (predicted, not run).
+#[test]
+fn a_clickhouse_key_the_driver_calls_an_integer_but_its_source_does_not_is_not_hashed() {
+    let leg = lookup(vec![link(0, "customer_key")]);
+    for (arrow, declared) in [
+        (DataType::UInt16, "Date"),
+        (DataType::UInt32, "DateTime('UTC')"),
+        (DataType::UInt32, "Nullable(IPv4)"),
+        (DataType::Int8, "Enum8('a' = 1, 'b' = 2)"),
+        (DataType::UInt16, "LowCardinality(Nullable(Date))"),
+    ] {
+        let described = Schema::new(vec![from_clickhouse("0_link", arrow.clone(), declared)]);
+        let refused = generate_leg_buckets(&leg, &described, bucket(0, 2), Dialect::ClickHouse);
+        assert!(
+            matches!(refused, Err(BucketsRefused::NoIntegerKey)),
+            "{declared} as {arrow}: {refused:?}"
+        );
+    }
+}
+
+/// A date key beside an integer one is grouped and not hashed, so its bucket still renders.
+#[test]
+fn a_date_key_beside_an_integer_key_is_grouped_and_not_hashed() {
+    let leg = lookup(vec![link(0, "customer_key"), dimension("signed_on")]);
+    let described = Schema::new(vec![
+        from_clickhouse("0_link", DataType::Int64, "Int64"),
+        from_clickhouse("signed_on", DataType::UInt16, "Date"),
+    ]);
+    let query = generate_leg_buckets(&leg, &described, bucket(0, 2), Dialect::ClickHouse).expect("the leg renders a bucket");
+    assert!(
+        query
+            .sql()
+            .contains(r#"WHERE cityHash64(COALESCE("dim_customer"."customer_key", 0)) % 2 = 0 "#),
+        "{}",
+        query.sql()
+    );
+}
+
+#[test]
+fn a_clickhouse_integer_is_one_under_any_nullable_or_low_cardinality() {
+    let leg = lookup(vec![link(0, "customer_key")]);
+    for declared in [
+        "Int8",
+        "UInt64",
+        "Nullable(Int32)",
+        "LowCardinality(UInt16)",
+        "LowCardinality(Nullable(UInt32))",
+    ] {
+        let described = Schema::new(vec![from_clickhouse("0_link", DataType::Int64, declared)]);
+        let query = generate_leg_buckets(&leg, &described, bucket(0, 2), Dialect::ClickHouse);
+        assert!(query.is_ok(), "{declared}: {query:?}");
+    }
 }
