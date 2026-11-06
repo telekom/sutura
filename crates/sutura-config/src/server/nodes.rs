@@ -3,9 +3,8 @@
 //!
 //! **What [`DeclaredNodes::reading`] does not do.** It answers "which declared peers named this
 //! source alias", read from this node's own configuration. Its count sizes a lookup leg's split at
-//! that source, and the planner places a split leg's partitions only on these peers, but no served
-//! question builds one yet - every partition is still read on this node - and readiness is
-//! unaffected by it: a node that failed to resolve or is unreachable is still
+//! that source, and the planner places a granted split leg's partitions only on these peers. Readiness
+//! is unaffected by it: a node that failed to resolve or is unreachable is still
 //! *declared*, so this accessor is a configuration fact, not a liveness one. Readiness stays exactly
 //! where it already was, with resolving the node.
 
