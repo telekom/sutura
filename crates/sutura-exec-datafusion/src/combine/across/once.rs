@@ -6,12 +6,18 @@
 //! [`CombineError::AmbiguousLink`](crate::combine::CombineError::AmbiguousLink) is read back from
 //! when a count passes one. The join reads the grouped relation as its build side, which a hash
 //! join reads whole before the other side, so the check runs even when the side it joins onto has
-//! no row to match.
+//! no row to match. Only an arm's one granted leg is checked here
+//! (`served::counted_in_plan` says why).
 //!
 //! # Limits
 //!
 //! - The build side is the join order this plan builds, kept only because the session's
 //!   statistics-driven join reordering is turned off for the whole combine that reads a granted leg.
+//! - The whole leg is held, as the count's group state and then as the join's build side, on a
+//!   worker whose pool spills nowhere: a large leg can be refused for its working set. Not measured.
+//! - Each other column is carried as `max` of its group, which is that group's one value in every
+//!   group that is not refused. A column of a type `max` does not take fails the plan when it is
+//!   built, as `CombineError::Build`; no cell carries such a column.
 //! - The count is a stage of the question, so the refusal is an engine failure of that stage, read
 //!   back by its code: a peer can raise it for a question it fails, never answer one with it.
 //! - Every node must register the filter's function by name: a node built without it cannot decode
@@ -24,7 +30,7 @@ use datafusion::arrow::datatypes::{DataType, Int64Type};
 use datafusion::common::{Column, ScalarValue};
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
-use datafusion::functions_aggregate::expr_fn::{count, first_value};
+use datafusion::functions_aggregate::expr_fn::{count, max};
 use datafusion::logical_expr::{
     ColumnarValue, Expr, LogicalPlan, LogicalPlanBuilder, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
     lit,
@@ -39,7 +45,8 @@ const NAME: &str = "sutura_one_row_per_link";
 
 /// True for every group whose row count is at most one, and the plan's failure otherwise.
 ///
-/// Volatile, so no optimizer rule folds, moves or drops the filter it is.
+/// Volatile, as a guard: no optimizer rule may fold or move the filter it is. No cell tells that
+/// from `Immutable`, which a filter over an aggregate's own output is not moved under either.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct OneRowPerLink {
     signature: Signature,
@@ -109,7 +116,7 @@ pub(crate) fn checked(scanned: LogicalPlan, table: &str, on: &[String]) -> Resul
     let carried = names
         .iter()
         .filter(|name| !on.contains(name))
-        .map(|name| first_value(qualified(table, name), Vec::new()).alias(name.as_str()))
+        .map(|name| max(qualified(table, name)).alias(name.as_str()))
         .chain([count(lit(1_i64)).alias(probe.as_str())]);
     let kept = names.iter().map(|name| {
         if on.contains(name) {

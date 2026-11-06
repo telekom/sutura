@@ -10,7 +10,7 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-ex
  use datafusion::functions_aggregate::expr_fn::{count_distinct, max, min, sum};
  use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
  use datafusion::prelude::SessionContext;
-@@ -189,7 +189,7 @@
+@@ -190,7 +190,7 @@
          let on = plan
              .link_labels(position)
              .iter()
@@ -18,4 +18,4 @@ diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-ex
 +            .map(|link| Ok(lower(qualified(table_at(lookup.onto(), link)?, link)).eq(lower(qualified(table, link)))))
              .collect::<Result<Vec<Expr>, CombineError>>()?;
          let scanned = scan(context, table).await?;
-         builder = if matches!(reads.get(position), Some(LookupRead::Granted(_))) {
+         builder = if in_plan.get(position) == Some(&true) {

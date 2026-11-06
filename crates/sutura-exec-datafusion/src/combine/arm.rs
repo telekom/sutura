@@ -9,7 +9,7 @@ use datafusion::prelude::SessionContext;
 use sutura_domain::federation::{Above, Carried, Federation};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::Aggregate;
-use sutura_domain::plan::{FederatedPlan, InternalLabel, LookupRead, labels};
+use sutura_domain::plan::{FederatedPlan, InternalLabel, labels};
 
 use super::schema::{FACT, LeafKind, LegSchema};
 use super::{CombineError, EXACT_SUM_PRECISION, FACT_TABLE, LOOKUP_TABLES, SECOND_FACT_TABLE, table_at};
@@ -95,14 +95,15 @@ pub(super) fn qualified(table: &str, label: &str) -> Expr {
     Expr::Column(Column::new(Some(TableReference::bare(table)), label))
 }
 
-/// The whole combine, as one logical plan, each lookup leg read as `reads` names by its position.
+/// The whole combine, as one logical plan, each lookup leg whose position `in_plan` marks true
+/// joined over its own link check (`super::served::counted_in_plan`).
 pub(super) async fn combine_plan(
     plan: &FederatedPlan,
     context: &SessionContext,
     links: &[String],
     leaves: &[Leaf],
     second_table: Option<&str>,
-    reads: &[LookupRead<'_>],
+    in_plan: &[bool],
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
     // A second fact leg (`telekom/sutura#780`) is joined on every link AND the bucket: both legs are
@@ -192,7 +193,7 @@ pub(super) async fn combine_plan(
             .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
             .collect::<Result<Vec<Expr>, CombineError>>()?;
         let scanned = scan(context, table).await?;
-        builder = if matches!(reads.get(position), Some(LookupRead::Granted(_))) {
+        builder = if in_plan.get(position) == Some(&true) {
             // The build side, which a hash join reads whole before the other, so the link check
             // inside it runs even when no row reaches it. The relation is the right side: LEFT
             // keeping its rows becomes RIGHT.

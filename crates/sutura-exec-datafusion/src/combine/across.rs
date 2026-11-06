@@ -63,14 +63,18 @@
 //!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
 //!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
-//!   [`CombineError::Execute`], unless the failure carries the code of a stage a node refused for
-//!   rows past the federated row ceiling, which leaves as [`CombineError::RowsOverCeiling`]. A cell
+//!   [`CombineError::Execute`], unless the failure carries a code `relay` reads back: a stage refused
+//!   for rows past the federated row ceiling ([`CombineError::RowsOverCeiling`]), a leg a reading
+//!   worker did not certify ([`CombineError::LegNotCertified`]), or a granted leg's link value held
+//!   more than once ([`CombineError::AmbiguousLink`]). A cell
 //!   loses a node nothing listens on and one that drops its connection under a call, over plain
 //!   TCP; the multi-node VM check kills one while it answers.
-//! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
-//!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
-//!   in an Arrow or an external error crosses its next link as text and stays a failure. One stage
-//!   raises it: a final-stage task past the worker's row ceiling.
+//! - Each code is read only exactly, only off a failure, and answered from this node's own
+//!   configuration: a peer can turn a failed question into one of those refusals, never into an
+//!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
+//!   stays a failure. Three stages raise one: a final-stage task past the worker's row ceiling, a
+//!   reading worker's partition scan whose reader did not certify its leg, and a granted leg's link
+//!   count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is

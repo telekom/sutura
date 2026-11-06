@@ -7,9 +7,16 @@
 //!
 //! - A served question is granted a leg only by a mixed-kind `sutura serve` deployment's PostgreSQL
 //!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
-//! - The ambiguous-link check is part of the plan that joins the leg, so each partition is read once.
-//!   That plan keeps the join order it builds only because the session's statistics-driven join
+//! - The ambiguous-link check is part of the plan that joins the leg, so each partition is read once,
+//!   only when the leg is its arm's one granted leg (`counted_in_plan`). With two or more, each
+//!   is checked before the join, as a leg held here is, and each partition is read twice.
+//! - That plan keeps the join order it builds only because the session's statistics-driven join
 //!   reordering is off for the whole combine, every other join in it included.
+//! - Reading once moves the leg from the join's streamed side to its held side: the whole leg is held
+//!   as the count's group state and then as the join's build side, on workers that spill nowhere,
+//!   where the leg read twice streamed through the join and held only its link values and counts.
+//!   A large granted leg the twice-read plan answered may now be refused for its working set. Not
+//!   measured.
 //! - A granted leg is planned across whatever its size and never tried on this node. A combiner
 //!   with no other node, or a stage no resolved node reads the leg's source for, refuses it as
 //!   [`CombineError::NoReadingNode`], which `sutura_app` answers as `SourceUnavailable` naming that
@@ -138,6 +145,21 @@ fn registered_split(
     Err(CombineError::NoReadingNode {
         source_name: source.clone(),
     })
+}
+
+/// Whether each lookup leg of `reads`, by position, has its link check inside the plan that joins it:
+/// a granted leg, when it is the only granted one.
+///
+/// Only one, because a hash join whose build side is empty, or holds only null keys, does not read
+/// its other side when its type is INNER (`empty_build_side_produces_empty_result` in the engine).
+/// Each granted leg is the build side of its own join, over the relation every earlier leg built, so
+/// a later granted leg joined INNER with no joinable row would end the plan before an earlier
+/// granted leg's count ran, and a repeated link there would be answered instead of refused. Every
+/// other join keeps the relation as its build side, which a hash join always reads whole.
+pub(super) fn counted_in_plan(reads: &[LookupRead<'_>]) -> Vec<bool> {
+    let granted = |read: &LookupRead<'_>| matches!(read, LookupRead::Granted(_));
+    let one = reads.iter().filter(|read| granted(read)).count() == 1;
+    reads.iter().map(|read| one && granted(read)).collect()
 }
 
 /// `scanned`, the granted leg registered as `table`, as the relation its join reads with its link

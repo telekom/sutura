@@ -659,11 +659,12 @@ async fn arm_plan(
 
     // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
     // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
-    // table over all its partitions, so a tuple repeated across two of them is refused too. A
-    // granted leg is counted inside the plan that joins it instead (`served::checked`), so each of
-    // its partitions is read once.
-    for (position, &(_, table, read, _)) in lookups.iter().enumerate() {
-        if matches!(read, sutura_domain::plan::LookupRead::Granted(_)) {
+    // table over all its partitions, so a tuple repeated across two of them is refused too. An
+    // arm's one granted leg is counted inside the plan that joins it instead (`served::checked`), so
+    // each of its partitions is read once; see `served::counted_in_plan` for why only one.
+    let in_plan = served::counted_in_plan(&lookups.iter().map(|&(_, _, read, _)| read).collect::<Vec<_>>());
+    for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
+        if in_plan.get(position) == Some(&true) {
             continue;
         }
         let own = plan.link_labels(position);
@@ -682,8 +683,7 @@ async fn arm_plan(
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    let reads: Vec<_> = lookups.iter().map(|&(_, _, read, _)| read).collect();
-    combine_plan(plan, context, &links, &leaves, second_table, &reads).await
+    combine_plan(plan, context, &links, &leaves, second_table, &in_plan).await
 }
 
 /// Whether `sources` name more than one data system.
