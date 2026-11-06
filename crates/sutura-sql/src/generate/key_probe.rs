@@ -115,8 +115,11 @@ fn all_not_null(over: &[Expr]) -> Result<Expr, GenerateError> {
 /// ```sql
 /// SELECT COALESCE(SUM("key_groups"."group_rows"), 0) AS "0_key_rows", COUNT(*) AS "0_key_distinct"
 /// FROM (SELECT COUNT(*) AS "group_rows" FROM "t"
-///       WHERE "t"."a" IS NOT NULL AND "t"."b" IS NOT NULL GROUP BY "t"."a", "t"."b") "key_groups"
+///       WHERE NOT "t"."a" IS NULL AND NOT "t"."b" IS NULL GROUP BY "t"."a", "t"."b") "key_groups"
 /// ```
+///
+/// (polyglot's `is_not_null` is `NOT x IS NULL`, which the generator writes as the prefix form
+/// above: the same predicate as `x IS NOT NULL`.)
 ///
 /// **Null tuples, in each dialect.** `DuckDB` and Postgres count the tuple through polyglot's
 /// `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END`, so `COUNT(DISTINCT ..)` skips a tuple with

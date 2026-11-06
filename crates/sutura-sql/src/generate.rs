@@ -128,10 +128,9 @@ pub enum GenerateError {
     /// list its grammar does not mean by it, not the tuple this crate intends. **Not reproduced
     /// against a live instance** - stated from its documented `DISTINCT` syntax, not from an
     /// observed rejection. Refused here, at generation time, rather than handed to the data system
-    /// as SQL that may be rejected: the boot-time probe for a `many_to_one` relationship declaring
-    /// more than one join key is the only caller, so this is reachable only from a compound key on
-    /// that dialect, and a caller cannot narrow a catalog document out of it - an operator changes
-    /// the relationship or the dialect.
+    /// as SQL that may be rejected. **No adapter reaches it today:** the one dialect it refuses,
+    /// `BigQuery`, takes the port's default `declared_key` and never calls `generate_key_probe`, so
+    /// only a direct call to this generator sees it.
     #[error("a compound declared-key probe cannot be rendered for {dialect}: it accepts one column inside DISTINCT")]
     CompoundKeyProbeUnsupported { dialect: Dialect },
     /// The rendered statement's bind placeholders do not match its bound parameters.
