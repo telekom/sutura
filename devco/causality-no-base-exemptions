@@ -396,3 +396,5 @@ ipv4_keeps_only_ipv4_addresses_and_none_of_an_ipv6_only_host # a cell of plan/ad
 ipv6_keeps_only_ipv6_addresses_and_none_of_an_ipv4_only_host # a cell of plan/address_family_tests.rs, which this change adds; names `plan::AddressFamily`, new here
 a_host_that_resolved_to_nothing_keeps_nothing_in_any_family # a cell of plan/address_family_tests.rs, which this change adds; names `plan::AddressFamily`, new here
 a_literal_is_admitted_by_auto_and_by_its_own_family_alone # a cell of plan/address_family_tests.rs, which this change adds; names `plan::AddressFamily`, new here
+every_spelling_the_setting_takes_parses_to_the_family_that_names_it # a cell of plan/address_family_tests.rs, which this change adds; names `plan::AddressFamily`, new here
+an_unknown_spelling_is_refused_naming_the_value_and_the_choices # a cell of plan/address_family_tests.rs, which this change adds; names `plan::AddressFamily`, new here
