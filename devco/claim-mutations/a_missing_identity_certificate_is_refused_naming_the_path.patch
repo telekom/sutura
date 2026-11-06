@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-clickhouse/src/tls.rs b/crates/sutura-exec-clickhouse/src/tls.rs
+--- a/crates/sutura-exec-clickhouse/src/tls.rs
++++ b/crates/sutura-exec-clickhouse/src/tls.rs
+@@ -150,7 +150,7 @@ fn from_load_error(cause: sutura_tls::LoadError) -> TlsError {
+         sutura_tls::LoadError::AnchorsEmpty { path } => TlsError::AnchorsEmpty { path },
+         sutura_tls::LoadError::SystemStoreRead { errors, cause } => TlsError::SystemStoreRead { errors, cause },
+         sutura_tls::LoadError::SystemStoreEmpty => TlsError::SystemStoreEmpty,
+-        sutura_tls::LoadError::IdentityRead { path, cause } => TlsError::IdentityRead { path, cause },
++        sutura_tls::LoadError::IdentityRead { path, cause: _ } => TlsError::IdentityKey { path },
+         sutura_tls::LoadError::IdentityIncomplete { path, what } => TlsError::IdentityIncomplete { path, what },
+         sutura_tls::LoadError::IdentityKey { path } => TlsError::IdentityKey { path },
+     }
