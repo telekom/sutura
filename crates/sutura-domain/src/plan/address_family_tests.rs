@@ -46,3 +46,24 @@ fn a_literal_is_admitted_by_auto_and_by_its_own_family_alone() {
     assert!(AddressFamily::Ipv4.admits(FIRST_V4) && !AddressFamily::Ipv4.admits(FIRST_V6));
     assert!(AddressFamily::Ipv6.admits(FIRST_V6) && !AddressFamily::Ipv6.admits(FIRST_V4));
 }
+
+#[test]
+fn every_spelling_the_setting_takes_parses_to_the_family_that_names_it() {
+    for family in [AddressFamily::Auto, AddressFamily::Ipv4, AddressFamily::Ipv6] {
+        assert_eq!(family.name().parse::<AddressFamily>(), Ok(family));
+    }
+    assert_eq!(AddressFamily::NAMES, ["auto", "ipv4", "ipv6"]);
+}
+
+#[test]
+fn an_unknown_spelling_is_refused_naming_the_value_and_the_choices() {
+    for written in ["ipv5", "IPV4", " auto", ""] {
+        let refused = written
+            .parse::<AddressFamily>()
+            .expect_err("not a spelling the setting takes");
+        assert_eq!(
+            refused.to_string(),
+            format!("`{written}` is not an address family - one of: auto, ipv4, ipv6")
+        );
+    }
+}

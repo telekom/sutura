@@ -246,7 +246,8 @@ fn an_unknown_address_family_is_refused_naming_the_value_and_the_choices() {
     assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
     let rendered = format!("{error:?}");
     assert!(
-        rendered.contains("unknown variant") && rendered.contains("ipv5") && rendered.contains("`auto`, `ipv4`, `ipv6`"),
+        rendered.contains("`ipv5` is not an address family - one of: auto, ipv4, ipv6")
+            && rendered.contains("server.nodes.address_family"),
         "{rendered}"
     );
 }

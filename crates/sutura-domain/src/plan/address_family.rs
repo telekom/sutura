@@ -2,6 +2,7 @@
 
 use core::fmt;
 use core::net::IpAddr;
+use core::str::FromStr;
 
 /// The IP family a host in `server.nodes` is resolved to.
 ///
@@ -13,7 +14,7 @@ use core::net::IpAddr;
 /// **Limit:** it chooses among the addresses a resolver returns. It does not make a node reachable
 /// over a family the network between the nodes does not carry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(try_from = "String")]
 pub enum AddressFamily {
     #[default]
     Auto,
@@ -21,7 +22,17 @@ pub enum AddressFamily {
     Ipv6,
 }
 
+/// The written value named no family.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{found}` is not an address family - one of: {}", AddressFamily::NAMES.join(", "))]
+pub struct UnknownAddressFamily {
+    found: String,
+}
+
 impl AddressFamily {
+    /// Every accepted spelling, so a refusal and the parser cannot disagree.
+    pub const NAMES: &'static [&'static str] = &["auto", "ipv4", "ipv6"];
+
     /// The spelling the setting takes.
     #[inline]
     pub const fn name(self) -> &'static str {
@@ -57,5 +68,27 @@ impl AddressFamily {
 impl fmt::Display for AddressFamily {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
+    }
+}
+
+impl FromStr for AddressFamily {
+    type Err = UnknownAddressFamily;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "auto" => Ok(Self::Auto),
+            "ipv4" => Ok(Self::Ipv4),
+            "ipv6" => Ok(Self::Ipv6),
+            other => Err(UnknownAddressFamily { found: other.to_owned() }),
+        }
+    }
+}
+
+/// Delegates to [`FromStr`], so `serde(try_from)` above and a direct parse are one code path.
+impl TryFrom<String> for AddressFamily {
+    type Error = UnknownAddressFamily;
+
+    fn try_from(raw: String) -> Result<Self, Self::Error> {
+        raw.parse()
     }
 }

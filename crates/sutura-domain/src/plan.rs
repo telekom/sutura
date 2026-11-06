@@ -51,7 +51,7 @@ mod anchor_tests;
 #[cfg(test)]
 mod split_tests;
 
-pub use crate::plan::address_family::AddressFamily;
+pub use crate::plan::address_family::{AddressFamily, UnknownAddressFamily};
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{
