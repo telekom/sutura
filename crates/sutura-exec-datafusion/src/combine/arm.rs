@@ -96,7 +96,7 @@ pub(super) fn qualified(table: &str, label: &str) -> Expr {
 }
 
 /// The whole combine, as one logical plan, each lookup leg whose position `in_plan` marks true
-/// joined over its own link check (`super::served::counted_in_plan`).
+/// joined over its own link check (`super::served::joined`).
 pub(super) async fn combine_plan(
     plan: &FederatedPlan,
     context: &SessionContext,
@@ -194,18 +194,15 @@ pub(super) async fn combine_plan(
             .collect::<Result<Vec<Expr>, CombineError>>()?;
         let scanned = scan(context, table).await?;
         builder = if in_plan.get(position) == Some(&true) {
-            // The build side, which a hash join reads whole before the other, so the link check
-            // inside it runs even when no row reaches it. The relation is the right side: LEFT
-            // keeping its rows becomes RIGHT.
-            let build = super::served::checked(context, scanned, table, &plan.link_labels(position))?;
-            let kind = if kind == JoinType::Left { JoinType::Right } else { kind };
-            builder
-                .build()
-                .and_then(|relation| LogicalPlanBuilder::from(build).join_on(relation, kind, on))
+            let relation = builder.build().map_err(|cause| CombineError::Build { cause })?;
+            let links = plan.link_labels(position);
+            let joined = super::served::joined(context, relation, scanned, table, &links, on, lookup.include_unmatched())?;
+            LogicalPlanBuilder::from(joined)
         } else {
-            builder.join_on(scanned, kind, on)
-        }
-        .map_err(|cause| CombineError::Build { cause })?;
+            builder
+                .join_on(scanned, kind, on)
+                .map_err(|cause| CombineError::Build { cause })?
+        };
     }
 
     // Keys in question order, then the bucket - the order `answer_labels` states, so the aggregate's
