@@ -439,8 +439,9 @@ Limits:
 
 ## Fifth amendment, 2026-11-06: a ClickHouse lookup leg splits by hash bucket, read as the caller's switched user
 
-The owner decided that ClickHouse is W4, after Oracle as W3, and that a partition runs as the same
-identity that a whole read of the leg runs as.
+The owner decided that a ClickHouse lookup leg is split, and that a partition runs as the same
+identity that a whole read of the leg runs as. This record calls ClickHouse W4, after Oracle as W3;
+that label is the record's own ordering and not an owner decision.
 
 1. **A partition is a hash bucket.** It is `cityHash64(<integer keys>) % N = i`, applied before
    the leg's `GROUP BY`. A read is consistent per key only.
@@ -472,8 +473,15 @@ Limits:
 - **The switch is the deployment's credential, not the caller's.** The 2026-10-12 objection in the
   federation record, kept as a limit by its fourth amendment, stands for a partition too.
 - **A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
-  answer wrongly without an error.** Measured for a leg, and a partition runs the same statement
-  shape under the same clamp. The federation record's fourth amendment states the requirement.
+  answer wrongly without an error.** The clamp is read from the ClickHouse server source and not
+  measured. Measured once, for a leg: under `readonly = 1`, a left join answered an unmatched key
+  as the empty value, with no error. No constraint was run, and a partition runs the same
+  statement shape under the same clamp. The federation record's fourth amendment states the
+  requirement.
+- **A statement that a later driver adds would run as the service user.** The vendored driver sends
+  no request when it connects and its only send is a statement's fetch, and a partition goes
+  through the same driver. The tier's `system.query_log` shows, for that database, the wrapper and
+  the inner `SELECT` and no other finished statement. Nothing here would catch the later one.
 - **Not built.** No ClickHouse leg is split, and no worker reads a ClickHouse partition. The tier
   cells that read a whole leg under the switch come with the change that lifts the adapter's
   refusal. No cell reads a split one.
