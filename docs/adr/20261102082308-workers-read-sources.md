@@ -47,12 +47,12 @@ answers as the design that follows from them, not asked as its own question.
 ## Decision
 
 1. **A leg on PostgreSQL or BigQuery may be read in partitions, on workers** - and a lookup leg on
-   Oracle, since the third amendment below. The coordinating node
-   plans the leg as partitions, and each partition is one task of a source-reading stage. A worker
-   reads its partition and feeds the rows to the combine's next stage on that node, so no node
-   holds the whole leg. A leg on any other data system (for Oracle, any leg the third amendment does
-   not split), and a remote leg, is still read whole where shuffle Decision 3 reads it. A stage that reads no source still holds no credential, and its
-   worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is
+   Oracle, since the third amendment below. The coordinating node plans the leg as partitions, and
+   each partition is one task of a source-reading stage. A worker reads its partition and feeds the
+   rows to the combine's next stage on that node, so no node holds the whole leg. A leg on any
+   other data system (for Oracle, any leg the third amendment does not split), and a remote leg, is
+   still read whole where shuffle Decision 3 reads it. A stage that reads no source still holds no
+   credential, and its worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is
    decided below.
 2. **The result-stream bound is per stream.** Each partition's stream is bounded at 1,000,000 rows
    and 256 MiB while it is read, as a leg's stream is today. A leg of N partitions can carry N times
@@ -124,7 +124,7 @@ answers as the design that follows from them, not asked as its own question.
 
 Each row was posted as a proposal and accepted by the owner as a decision on 2026-11-02. Its text
 is the proposal's, except a row marked *(2026-11-03)*, which records the owner's answer that day to
-a question building it raised.
+a question building it raised, and a clause marked *(third amendment)*, which that amendment added.
 
 | Question                                                               | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -132,7 +132,7 @@ a question building it raised.
 | Which legs are split?                                                  | A lookup leg, and a fact leg whose partial groups are grouped again on the leg's own keys after a repartition, before they join anything. A fact leg's partial groups from two partitions joined to another fact leg would double a value                                                                                                                                                                                                                                                       |
 | The ambiguous-link check over a split lookup leg                       | Plan it across, after a repartition on the link key, so a key duplicated across two partitions meets in one task. Today `refuse_ambiguous_link` scans one in-memory leg                                                                                                                                                                                                                                                                                                                         |
 | When is a leg split, given the size rule measures legs one node holds? | W1: by the source's own estimate before reading, `pg_class.relpages` times the page size, against `server.nodes.across_above_bytes`. *(2026-11-03)* W2: by the job's result row count, which the driver patch reports from `ExecutePartitions`, against the per-stream bound. The ADBC adapter answers no dry run, so W2 has no estimate before the job runs                                                                                                                                    |
-| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, W2's row count over the streams, or W3's `NUM_ROWS` over the buckets) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                                       |
+| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, W2's row count over the streams, or *(third amendment)* W3's `NUM_ROWS` over the buckets) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                   |
 | Pages past `relpages`, and a root that is not a plain table            | The last range has no upper bound, because `relpages` is an estimate. A view, a partitioned table's parent or a foreign table is read whole, as today                                                                                                                                                                                                                                                                                                                                           |
 | What bounds the exporting transaction (W1)?                            | The question's deadline. A worker that cannot import the snapshot fails the question                                                                                                                                                                                                                                                                                                                                                                                                            |
 | How the coordinating node gets a source token to forward (W2)          | Today the driver runs the exchange itself from a loopback credential source, and sutura never holds the token. sutura runs the exchange and hands the token to the driver at the coordinating node and at each reading worker                                                                                                                                                                                                                                                                   |
@@ -329,15 +329,16 @@ still pushed down whole, and a fact leg on Oracle is still read whole.
    to split. Without it, every leg is read whole. A source that declares it is probed at boot, and a
    failed probe refuses startup. The service user gets the `FLASHBACK` object privilege on each
    table it reads, never `FLASHBACK ANY TABLE`. *(design)* The key is refused on any other kind and
-   on an `impersonation-at-source` source. The probe refuses a service user that holds `FLASHBACK
-   ANY TABLE`, and reads each table the source's models name at a snapshot: the models' own tables
-   only, not tables their joins reach.
+   on an `impersonation-at-source` source. The probe refuses `FLASHBACK ANY TABLE` however it is
+   granted, directly or through any role, and refuses a service user holding a role that is not
+   enabled when it signs in. It then reads each table the source's models name at a snapshot: the
+   models' own tables only, not tables their joins reach.
 3. **One snapshot per split leg, taken when the leg is split (D3).** The snapshot is
    `TIMESTAMP_TO_SCN(SYSTIMESTAMP)`, read once for the leg. Every table reference of every
    partition's statement carries `AS OF SCN` with that number, so the leg's partitions read one
    consistent state. Two split legs of one question read at two SCNs, and an Oracle leg of the same
-   question that is read whole reads the database as it is when that leg runs. The snapshot is in the statement and not in the session:
-   no partition calls `DBMS_FLASHBACK`.
+   question that is read whole reads the database as it is when that leg runs. The snapshot is in
+   the statement and not in the session: no partition calls `DBMS_FLASHBACK`.
 4. **A reading worker refuses a stale snapshot (D4).** Before it reads, the worker asks the
    database when the snapshot was taken (`SCN_TO_TIMESTAMP`) and refuses a snapshot older than its
    own request budget. A snapshot the database can no longer read is refused, never read fresh
@@ -376,8 +377,9 @@ Limits:
   is its undo retention, which the operator configures and nothing here sets.
 - **A reading worker's credential reads history.** The `FLASHBACK` object privilege serves flashback
   version queries as well as flashback queries. A leaked service-user credential from any node
-  that reads Oracle can read every version of a granted table's rows still in undo, rows deleted or
-  updated since included. D4 bounds only what an honest worker reads.
+  that reads Oracle can read every version still in undo of the rows of each table the service user
+  is granted `FLASHBACK` on or owns - an owner needs no grant - rows deleted or updated since
+  included. D4 bounds only what an honest worker reads.
 - **The boot probe reads the models' own tables.** A table that only a join reaches, with no
   `FLASHBACK` grant, passes the probe and fails the partition read.
 - **Hashing one integer key is exact only for a lookup leg.** Every row of one group has the same
