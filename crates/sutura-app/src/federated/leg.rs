@@ -349,7 +349,7 @@ where
             Err(NotOffered::NotSendable(_)) => None,
             Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
         };
-        match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee) {
+        match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee, self.labels) {
             Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
                 warehouse,
                 (self.credentials, self.labels),
