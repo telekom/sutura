@@ -14,7 +14,8 @@
 //! **A `reading-worker` built with the `postgres` adapter keeps them for its partition reader**
 //! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
 //! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
-//! read. A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
+//! read as its service user, or for a `BigQuery` pool source with the caller's token the grant
+//! named. A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
 //!
 //! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the
 //! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
@@ -22,10 +23,10 @@
 //! only a call that carries its question's task grant, under the key the first call of that
 //! question installed: a node of the same authority installs that key. The planning node routes a
 //! split leg's partition only to a node `server.nodes` declares as reading its source, and only a
-//! mixed-kind deployment's PostgreSQL source grants one, so no other served lookup leg reaches the
-//! reader. A source
-//! of any kind but `PostgreSQL` - `BigQuery` among them - is refused, and a build without the
-//! `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
+//! mixed-kind deployment's PostgreSQL source or `BigQuery` pool source grants one, so no other
+//! served lookup leg reaches the reader. A source of any other kind is refused, a `reading-worker`
+//! declaring a `BigQuery` source outside a pool does not start (`sutura_config`), and a build
+//! without the `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 
 use std::sync::Arc;
 

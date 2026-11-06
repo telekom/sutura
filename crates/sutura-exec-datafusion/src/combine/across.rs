@@ -96,7 +96,8 @@
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
 //!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
 //!   under the one snapshot its source holds open across both. Only a mixed-kind `sutura serve`
-//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   deployment's PostgreSQL source or `BigQuery` pool source grants a served leg
+//!   (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;

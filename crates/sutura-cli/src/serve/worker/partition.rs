@@ -1,15 +1,17 @@
 //! A reading worker's [`PartitionReader`]: the leg a task carries is re-certified against this node's
 //! own pinned catalog through [`sutura_app::read_recertified`], and only then is the granted
-//! partition read, for a kind `split` dispatches - `PostgreSQL` alone.
+//! partition read, for a kind `split` dispatches - `PostgreSQL` as this node's service user, and
+//! `BigQuery` with the caller's token the task's grant named.
 //!
-//! **Limits.** Only a `PostgreSQL` source is read. Any other kind whose leg this node certifies is
-//! refused as a failed read - `BigQuery` among them, whose read needs the caller's forwarded source
-//! token; a leg it does not certify is refused as uncertified first, whatever the kind. A task
-//! carrying a caller's token is refused (`split::worker_read_forwarded`). Each read is bounded by this node's own `server.request_timeout`, opened when the read
-//! starts: the planning node's deadline does not reach the worker, the grant's expiry is checked
-//! once, at admission, and dropping the stream does not stop a read already running - the deadline
-//! does. The read runs as this node's own declared service user for the source,
-//! `AdbcPostgres::read_partition`'s own limit; nothing checks it against the planning node's.
+//! **Limits.** Any other kind whose leg this node certifies is refused as a failed read, and a leg
+//! it does not certify is refused as uncertified first, whatever the kind. A task carrying a token
+//! is read only at a source of its name this node federates at the token's pool, else refused as
+//! uncertified, and only while its grant lasts. Each read is bounded by this node's own
+//! `server.request_timeout`, opened when the read starts, and a token's read by its grant's end
+//! too: the planning node's deadline does not reach the worker, and dropping the stream does not
+//! stop a read already running - the deadline does. A `PostgreSQL` read runs as this node's own
+//! declared service user for the source, `AdbcPostgres::read_partition`'s own limit; nothing
+//! checks it against the planning node's.
 
 use std::sync::Arc;
 use std::time::Instant;

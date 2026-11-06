@@ -1,11 +1,11 @@
-//! A reading worker reads only a `PostgreSQL` partition.
+//! A reading worker reads no partition of a kind that does not split.
 
 use sutura_domain::model::SourceName;
 use sutura_exec_datafusion::Unread;
 
 /// A partition of a source that is not `PostgreSQL` is refused as a failed read naming the source,
-/// never read and never answered as an uncertified leg. A files source stands in for `BigQuery`,
-/// which no offline test opens: every kind but `PostgreSQL` reaches the same arm.
+/// never read and never answered as an uncertified leg. A files source stands in for every kind but
+/// `PostgreSQL` and `BigQuery`, which reach the same arm.
 #[test]
 fn a_partition_of_a_source_that_is_not_postgres_is_refused_naming_it() {
     let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player");
@@ -43,3 +43,6 @@ fn a_partition_of_a_source_that_is_not_postgres_is_refused_naming_it() {
         "a files partition was not refused as a source a reading worker does not read: {read:?}"
     );
 }
+
+#[cfg(feature = "bigquery")]
+mod tokens;

@@ -1,4 +1,6 @@
-//! `server.role: reading-worker`: its spelling, and the two refusals only it raises.
+//! `server.role: reading-worker`: its spelling, and the refusals only it raises.
+
+use sutura_domain::model::SourceName;
 
 use crate::server::ServerRole;
 use crate::settings::{Environment, NotFitToServe, Settings, SettingsError, Sources};
@@ -53,5 +55,35 @@ fn a_reading_worker_without_a_source_is_not_fit_to_serve() {
             NotFitToServe::ReadingWorkerWithoutSources,
             NotFitToServe::ReadingWorkerWithoutCatalog,
         ]
+    );
+}
+
+/// A shared `BigQuery` source and a `BigQuery` source at a pool.
+const BIGQUERY_SOURCES: &str = "  warehouse:\n    kind: \"bigquery\"\n    billing:\n      service_account_project: \
+                                \"acme-analytics\"\n    max_bytes_billed: 1073741824\n    posture: \
+                                \"shared-service-user\"\n  pooled:\n    kind: \"bigquery\"\n    max_bytes_billed: \
+                                1073741824\n    posture: \"impersonation-at-source\"\n    workload_identity:\n      \
+                                audience: \"//iam.googleapis.com/projects/acme-analytics/locations/global/\
+                                workloadIdentityPools/analysts/providers/sso\"\n";
+
+#[test]
+fn a_reading_worker_declaring_a_bigquery_source_outside_a_pool_does_not_start() {
+    let found = refused(&format!("{READING}{SOURCE}{BIGQUERY_SOURCES}"));
+    let outside = |alias: &str| NotFitToServe::ReadingWorkerBigQueryOutsideAPool {
+        alias: SourceName::parse(alias).expect("a test alias is a source name"),
+    };
+    assert!(
+        found.contains(&outside("warehouse")),
+        "the shared BigQuery source is refused: {found:?}"
+    );
+    assert!(
+        !found.contains(&outside("pooled")),
+        "a BigQuery source at a pool is not: {found:?}"
+    );
+    assert!(!found.contains(&outside("local")), "a files source is not: {found:?}");
+    let rendered = outside("warehouse").to_string();
+    assert!(
+        rendered.contains("sources.warehouse") && rendered.contains("workload_identity"),
+        "the refusal names the source and the key to declare: {rendered}"
     );
 }

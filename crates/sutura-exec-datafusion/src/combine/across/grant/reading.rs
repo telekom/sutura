@@ -235,6 +235,11 @@ impl ReadingGrant {
         self
     }
 
+    /// When this grant ends, since the epoch.
+    pub(super) const fn ends(&self) -> Duration {
+        self.expiry.0
+    }
+
     /// The bytes an HMAC signs: [`SCHEME`] followed by every field's own fixed-width digest
     /// ([`feed_field`]), so every field - including [`Self::expiry`], [`Self::caller`] and
     /// [`Self::bound`] - is covered by the signature, not only the three [`verify`] matches by

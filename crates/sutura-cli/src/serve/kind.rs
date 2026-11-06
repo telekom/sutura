@@ -118,6 +118,11 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "node")]
     #[error(transparent)]
     Node(sutura_exec_node::NodeError),
+    /// A split's forwarded token was exchanged from a credential other than the one the request
+    /// presented for the leg's source: the leg is refused, never granted or read.
+    #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
+    #[error(transparent)]
+    NotTheCallersToken(sutura_domain::plan::NotTheCallersToken),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant

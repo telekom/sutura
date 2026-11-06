@@ -230,9 +230,10 @@ pub(super) struct ReadingCall<'a> {
 /// ([`reading::task_id`]), decodes its grant under the key `keys` kept for that task - the first
 /// presented for it - checks the decoded grant names the wire's leg digest, the source and the
 /// partition and is not yet past `now` ([`reading::verify`]), then that it names exactly the token
-/// the task carries, or none where it carries none ([`reading::forwards`]). A missing or malformed
-/// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
-pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<(), WorkerRefusal> {
+/// the task carries, or none where it carries none ([`reading::forwards`]), and answers when the
+/// admitted grant ends, since the epoch. A missing or malformed grant reads the same as one wrongly
+/// named: [`WorkerRefusal::GrantNotNaming`].
+pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<Duration, WorkerRefusal> {
     let task = reading::task_id(call.wire, call.partition);
     let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
     keys.admit(task, call.key, |key| {
@@ -246,7 +247,8 @@ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Du
             now,
         })?;
         reading::forwards(&grant, call.forwarded)
-    })
+    })?;
+    Ok(grant.ends())
 }
 
 /// Mints the grant for one partition of a split leg under a key drawn for that partition alone: the
