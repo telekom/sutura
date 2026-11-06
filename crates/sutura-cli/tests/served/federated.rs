@@ -22,9 +22,8 @@ mod tests {
 
     use sutura_domain::model::{SourceName, TableName};
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
+    use sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
     use sutura_exec_clickhouse::fixture::{FixtureVariable, credential_from_env};
-    use sutura_exec_clickhouse::transport::Endpoint;
 
     use crate::harness::{config_path, derived_beside, example_root, load_into_tier, start_configured, v1};
 
@@ -46,13 +45,14 @@ mod tests {
     fn load_dimension(host: &str, port: u16) {
         let reason = AcknowledgementReason::parse("the served federated example uses one fixture user")
             .expect("the fixture reason is an acknowledgement");
-        let loader = ClickHouseWarehouse::connect_in_database(
+        let loader = AdbcClickHouseWarehouse::connect_in_database(
             SourceName::parse("fixture").expect("a fixture source is a source"),
             SourcePosture::SharedServiceUser {
                 declared: SharedIdentityDeclared::of(reason),
             },
-            Endpoint::plaintext(host, port),
-            credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
+            host,
+            port,
+            &credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
             "default",
             sutura_domain::warehouse::ResultBudget::of_bytes(
                 core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive"),

@@ -18,10 +18,8 @@ mod adbc_execute_as {
     use sutura_domain::plan::Executable;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
     use sutura_exec_clickhouse::adbc::{AdbcClickHouseWarehouse, AdbcError, driver_location};
     use sutura_exec_clickhouse::fixture::credential_from_env;
-    use sutura_exec_clickhouse::transport::Endpoint;
 
     fn warehouse(endpoint: String, user: String, password: String) -> AdbcClickHouseWarehouse {
         let driver = driver_location().unwrap_or_else(|e| panic!("the dev shell and every nix check mount the driver: {e}"));
@@ -250,12 +248,13 @@ mod adbc_execute_as {
 
     /// Loads the corpus into `database` as the service user, over the fixture loader.
     fn load(host: &str, port: u16, database: &str) {
-        let auth = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        ClickHouseWarehouse::connect_in_database(
+        let credential = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        AdbcClickHouseWarehouse::connect_in_database(
             corpus::source(),
             SourcePosture::ImpersonationAtSource,
-            Endpoint::plaintext(host, port),
-            auth,
+            host,
+            port,
+            &credential,
             database,
             ResultBudget::of_bytes(core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test budget is positive")),
         )

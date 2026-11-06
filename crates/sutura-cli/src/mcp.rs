@@ -131,7 +131,7 @@ pub(crate) fn mcp() -> ExitCode {
             #[cfg(feature = "clickhouse")]
             Opened::ClickHouse(opened) => {
                 // A `clickhouse` source attaches nothing and reports no table inventory, for the
-                // `postgres` arm's reason exactly - `ClickHouseWarehouse` takes the port's default
+                // `postgres` arm's reason exactly - `AdbcClickHouseWarehouse` takes the port's default
                 // `preflight`, so `refuse_absent_tables` would have nothing to add.
                 serve(&catalogs, opened, &settings)
             }
