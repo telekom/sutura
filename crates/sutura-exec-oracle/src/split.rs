@@ -28,21 +28,19 @@
 //!   uniform, and every NULL key lands in bucket 0.
 //! - Nothing calls this yet: no composition root offers an Oracle leg for splitting, and no reading
 //!   worker reads an Oracle partition.
-//! - **Not built yet:** every root estimates at zero, so every leg reads whole, and every
-//!   partition read is refused before a round trip.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::collections::BTreeSet;
 
 use sutura_domain::identity::Presented;
 use sutura_domain::model::QualifiedTable;
-use sutura_domain::plan::{EstimatedRows, LegPlan, SplitDecision, SplitRefusal, decide};
+use sutura_domain::plan::{EstimatedRows, KeyValue, LegPlan, SplitDecision, SplitRefusal, decide};
 use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ParamValue, ResultBatches, RowSet, Value};
-use sutura_sql::{Scn, generate_leg_as_of, generate_table_as_of};
+use sutura_sql::{KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 
 use crate::{OracleError, OracleWarehouse, Session};
 
@@ -218,12 +216,13 @@ pub(super) fn read_partition(
 }
 
 /// The descriptor `bytes` parse into, at a source that declared and probed its flashback split.
-///
-/// **Not built yet:** every partition is refused, as at a source that declared no split.
-fn admit(_flashback: bool, at: &sutura_domain::model::SourceName, _bytes: &[u8]) -> Result<PartitionDescriptor, OracleError> {
-    Err(OracleError::FlashbackNotDeclared {
-        at: String::from(at.as_str()),
-    })
+fn admit(flashback: bool, at: &sutura_domain::model::SourceName, bytes: &[u8]) -> Result<PartitionDescriptor, OracleError> {
+    if !flashback {
+        return Err(OracleError::FlashbackNotDeclared {
+            at: String::from(at.as_str()),
+        });
+    }
+    PartitionDescriptor::try_from(bytes).map_err(|cause| OracleError::MalformedDescriptor { cause })
 }
 
 /// [`OracleError::SnapshotGone`] for a statement the database refused for its snapshot; every other
@@ -247,40 +246,61 @@ struct Root {
 
 /// [`ROOT_IN_SCHEMA`]'s answer: `None` where the dictionary holds no table of that name - a view, a
 /// synonym, a table in another schema. A table with no statistics estimates at zero.
-///
-/// **Not built yet:** the answer is not read, and every root estimates at zero rows of no integer
-/// column, so every leg reads whole.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "reading the answer is what fails, and it lands with the partition read"
-)]
-const fn root(_answer: &RowSet) -> Result<Option<Root>, OracleError> {
+fn root(answer: &RowSet) -> Result<Option<Root>, OracleError> {
+    let Some(first) = answer.rows().first() else {
+        return Ok(None);
+    };
+    let statistic = |index: usize| match first.get(index) {
+        Some(&Value::Null) => Ok(0),
+        Some(&Value::Integer(value)) => u64::try_from(value).map_err(|_negative| unanswered("the root's statistics")),
+        _ => Err(unanswered("the root's statistics")),
+    };
+    let (rows, width) = (statistic(0)?, statistic(1)?);
+    let mut integers = BTreeSet::new();
+    for row in answer.rows() {
+        match row.get(2) {
+            Some(Value::Text(name)) => {
+                integers.insert(name.clone());
+            }
+            Some(&Value::Null) => {}
+            _ => return Err(unanswered("the root's statistics")),
+        }
+    }
     Ok(Some(Root {
-        rows: EstimatedRows::parse(0),
-        bytes: EstimatedBytes::parse(0),
-        integers: BTreeSet::new(),
+        rows: EstimatedRows::parse(rows),
+        bytes: EstimatedBytes::parse(rows.saturating_mul(width)),
+        integers,
     }))
 }
 
 /// The position of the leg's first key that is a column of its root table among `integers`.
-///
-/// **Not built yet:** no key is hashed.
-const fn hashed_key(_leg: &LegPlan, _integers: &BTreeSet<String>) -> Option<u16> {
-    None
+fn hashed_key(leg: &LegPlan, integers: &BTreeSet<String>) -> Option<u16> {
+    let position = leg.keys().iter().position(|key| {
+        matches!(key.value(), KeyValue::Column(column)
+            if column.table() == leg.table_name() && integers.contains(column.column().as_str()))
+    })?;
+    u16::try_from(position).ok()
 }
 
 /// One descriptor per bucket of `partitions`, each of `key` at `scn`.
-///
-/// **Not built yet:** no bucket is cut.
-const fn cut(_scn: Scn, _key: u16, _partitions: NonZeroUsize) -> Vec<PartitionDescriptor> {
-    Vec::new()
+fn cut(scn: Scn, key: u16, partitions: NonZeroUsize) -> Vec<PartitionDescriptor> {
+    let count = u32::try_from(partitions.get()).unwrap_or(u32::MAX);
+    (0..count)
+        .filter_map(|index| KeyBucket::new(key, index, count).ok())
+        .map(|bucket| PartitionDescriptor::new(scn, bucket))
+        .collect()
 }
 
 /// [`SNAPSHOT`]'s one positive number.
-///
-/// **Not built yet:** the answer is not read, so no snapshot is taken.
-const fn snapshot(_answer: &RowSet) -> Result<Scn, OracleError> {
-    Err(unanswered("the snapshot"))
+fn snapshot(answer: &RowSet) -> Result<Scn, OracleError> {
+    match *answer.rows() {
+        [ref row] => match row.as_slice() {
+            &[Value::Integer(scn)] => u64::try_from(scn).ok().and_then(Scn::parse),
+            _ => None,
+        },
+        _ => None,
+    }
+    .ok_or_else(|| unanswered("the snapshot"))
 }
 
 /// A one-row, one-number answer, read as a count.
@@ -296,12 +316,14 @@ fn count(answer: &RowSet, asked: &'static str) -> Result<u64, OracleError> {
 }
 
 /// [`FRESH`]'s answer: `1` reads, `0` is [`OracleError::SnapshotStale`].
-///
-/// **Not built yet:** the answer is not read, and every snapshot is stale.
-const fn fresh(_answer: &RowSet, budget: Budget) -> Result<(), OracleError> {
-    Err(OracleError::SnapshotStale {
-        most_seconds: budget.seconds(),
-    })
+fn fresh(answer: &RowSet, budget: Budget) -> Result<(), OracleError> {
+    match count(answer, "the snapshot's age")? {
+        1 => Ok(()),
+        0 => Err(OracleError::SnapshotStale {
+            most_seconds: budget.seconds(),
+        }),
+        _ => Err(unanswered("the snapshot's age")),
+    }
 }
 
 const fn unanswered(asked: &'static str) -> OracleError {

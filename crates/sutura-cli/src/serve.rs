@@ -893,7 +893,7 @@ fn open_engine(
         }
         (true, true, false, true, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
         (true, true, true, false, true, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, pinned, registry, runtime),
         (true, true, true, true, true, false, true, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
         (true, true, true, true, true, true, false, true) => cube::open_cube(&grouped.cube, registry, outbound),
         // A `node` group always opens in the mix: it runs legs of a federated answer only.
