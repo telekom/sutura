@@ -49,6 +49,7 @@ use tonic::body::Body;
 use tonic::codegen::http::{self, HeaderMap, HeaderValue};
 
 use super::WorkerRefusal;
+use super::partition::Forwarded;
 
 const KEY: &str = "x-sutura-task-key";
 const GRANT: &str = "x-sutura-task-grant";
@@ -214,47 +215,51 @@ impl ReadingKeys {
     }
 }
 
-/// Admits a source-reading task's call: identifies the task from `wire` and `partition_bytes`
-/// ([`reading::task_id`]), decodes `grant` under the key `keys` kept for that task - the first
-/// `presented` for it - and checks the decoded grant names `wire`'s leg digest, `source` and
-/// `partition_bytes` and is not yet past `now` ([`reading::verify`]). A missing or malformed
-/// `grant` reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
-pub(super) fn verify_reading(
-    keys: &ReadingKeys,
-    wire: &[u8],
-    source: &SourceName,
-    partition_bytes: &[u8],
-    presented: [u8; 32],
-    grant: Option<&[u8]>,
-    now: Duration,
-) -> Result<(), WorkerRefusal> {
-    let task = reading::task_id(wire, partition_bytes);
-    let (grant, signature) = grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
-    keys.admit(task, presented, |key| {
+/// What a source-reading task's call presents to be admitted: the leg's wire, its source, the
+/// partition, the reading key, the grant, and the caller's token the task carries, if any.
+pub(super) struct ReadingCall<'a> {
+    pub(super) wire: &'a [u8],
+    pub(super) source: &'a SourceName,
+    pub(super) partition: &'a [u8],
+    pub(super) key: [u8; 32],
+    pub(super) grant: Option<&'a [u8]>,
+    pub(super) forwarded: Option<&'a Forwarded>,
+}
+
+/// Admits a source-reading task's call: identifies the task from its wire and partition
+/// ([`reading::task_id`]), decodes its grant under the key `keys` kept for that task - the first
+/// presented for it - checks the decoded grant names the wire's leg digest, the source and the
+/// partition and is not yet past `now` ([`reading::verify`]), then that it names exactly the token
+/// the task carries, or none where it carries none ([`reading::forwards`]). A missing or malformed
+/// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
+pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<(), WorkerRefusal> {
+    let task = reading::task_id(call.wire, call.partition);
+    let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+    keys.admit(task, call.key, |key| {
         reading::verify(&reading::Verification {
             key,
             grant: &grant,
             signature: &signature,
-            wanted_leg: reading::LegDigest::of(wire),
-            wanted_source: source,
-            wanted_partition: &reading::Partition::of(partition_bytes.to_vec()),
+            wanted_leg: reading::LegDigest::of(call.wire),
+            wanted_source: call.source,
+            wanted_partition: &reading::Partition::of(call.partition.to_vec()),
             now,
-        })
+        })?;
+        reading::forwards(&grant, call.forwarded)
     })
 }
 
 /// Mints the grant for one partition of a split leg under a key drawn for that partition alone: the
 /// key's bytes, which only the task reading `partition` is handed, and the encoded grant naming
-/// `wire`'s leg, `source`, `partition`, `caller` masked, the deadline `until`, and a stream bound of
-/// `rows` rows and `bytes` bytes.
+/// `wire`'s leg, `source`, `partition`, `caller` masked, the deadline `until`, a stream bound of
+/// `rows` rows and `bytes` bytes, and the `forwarded` token the partition is read with, if any.
 pub(super) fn granted_read(
     wire: &[u8],
     source: &SourceName,
     partition: &[u8],
-    caller: &SubjectKey,
-    until: Duration,
-    rows: u32,
-    bytes: u32,
+    (caller, until): (&SubjectKey, Duration),
+    (rows, bytes): (u32, u32),
+    forwarded: Option<&Forwarded>,
 ) -> Result<KeyedGrant, DataFusionError> {
     let key = reading::ReadingKey::drawn()?;
     let grant = reading::ReadingGrant::new(
@@ -265,6 +270,10 @@ pub(super) fn granted_read(
         reading::MaskedCaller::of(caller),
         reading::StreamBound { rows, bytes },
     );
+    let grant = match forwarded {
+        Some(forwarded) => grant.forwarding(forwarded),
+        None => grant,
+    };
     let (grant, signature) = reading::mint(&key, grant);
     Ok((key.into_bytes(), reading::encode(&grant, &signature)))
 }

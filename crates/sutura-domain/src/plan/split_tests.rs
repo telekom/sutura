@@ -346,3 +346,79 @@ fn a_grant_both_unportable_and_expired_is_refused_as_unportable() {
     );
     assert!(matches!(refused, Err(crate::plan::NotGranted::NotPortable)), "{refused:?}");
 }
+
+/// `at`, truncated to the whole second a token service states an expiry in.
+fn whole_second(at: SystemTime) -> SystemTime {
+    let seconds = at
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("now is after the epoch")
+        .as_secs();
+    std::time::UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+/// A token the pool issued until `not_after`, in exchange for the subject token `from`.
+fn exchanged(from: &str, not_after: SystemTime) -> crate::identity::SourceToken {
+    use crate::identity::{Delegated, Secret, SourceToken, WorkloadPool};
+
+    let pool = WorkloadPool::parse("//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q")
+        .expect("a test pool is a pool");
+    let seconds = not_after
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_secs();
+    SourceToken::exchanged(
+        &Secret::new(from),
+        &pool,
+        Delegated::new(Secret::new("a-forwarded-token"), seconds),
+    )
+}
+
+#[test]
+fn a_grant_forwards_no_token_exchanged_from_a_credential_its_caller_did_not_present() {
+    let now = SystemTime::now();
+    let refused =
+        grantee(now + Duration::from_secs(30)).forwarding(exchanged("another-callers-token", now + Duration::from_secs(60)));
+    assert!(matches!(refused, Err(crate::plan::NotTheCallersToken)), "{refused:?}");
+}
+
+#[test]
+fn a_grant_read_with_its_callers_token_ends_when_the_token_does() {
+    let now = SystemTime::now();
+    let token_ends = whole_second(now + Duration::from_secs(20));
+    let granted = grantee(now + Duration::from_secs(60))
+        .forwarding(exchanged("a-test-token", token_ends))
+        .expect("a token exchanged from the caller's own credential is forwarded")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+            now,
+        )
+        .expect("a grant ending with a live token is granted");
+
+    assert_eq!(granted.until(), token_ends, "the grant outlives the token it is read with");
+    assert!(
+        matches!(granted.reads(), crate::plan::ReadAs::CallerToken(token) if token.not_after() == token_ends),
+        "{:?}",
+        granted.reads()
+    );
+}
+
+#[test]
+fn a_grant_whose_forwarded_token_has_ended_is_refused_as_expired() {
+    let now = SystemTime::now();
+    let refused = grantee(now + Duration::from_secs(60))
+        .forwarding(exchanged("a-test-token", whole_second(now)))
+        .expect("a token exchanged from the caller's own credential is forwarded")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+            now,
+        );
+    assert!(matches!(refused, Err(crate::plan::NotGranted::Expired(_))), "{refused:?}");
+}

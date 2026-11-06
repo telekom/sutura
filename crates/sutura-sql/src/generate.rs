@@ -57,11 +57,10 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw, Tuple};
+use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, Qualification, QualifiedTable, TableName};
 use sutura_domain::plan::{KeyValue, LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanJoinKey, PlanKey, PlanPredicate, QueryPlan};
 use sutura_domain::warehouse::ParamValue;
-use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use crate::GeneratedQuery;
 use crate::dialect::{DateTruncShape, Dialect, PlaceholderStyle};
@@ -117,22 +116,21 @@ pub enum GenerateError {
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
     /// A compound declared key's fan-out probe, for a dialect this crate has no null-safe
-    /// multi-column `DISTINCT` rendering for.
+    /// multi-column count for.
     ///
-    /// **An allowlist (`DuckDb`, `Postgres`, `ClickHouse`), not a denylist.** `Tuple` renders as a
-    /// plain argument list, `DISTINCT a, b`, on every dialect this crate does not special-case -
-    /// which is the tuple `DuckDB` and Postgres read (polyglot 0.12.0's generator rewrites it to
-    /// the null-safe `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` for both, `multi_arg_distinct:
-    /// false`) and the shape `ClickHouse`'s own multi-argument `DISTINCT` already treats as one,
-    /// null-safely, without any rewrite. Oracle and `BigQuery` both document `DISTINCT` as taking one
-    /// expression, and `Tuple` there is `DISTINCT a, b` - a plain argument list neither grammar
-    /// means by it, not the tuple this crate intends. **Not reproduced against a live instance of
-    /// either** - stated from each dialect's documented `DISTINCT` syntax, not from an observed
-    /// rejection. Refused here, at generation time, rather than handed to the data system as SQL
-    /// that may be rejected: the boot-time probe for a `many_to_one` relationship declaring more
-    /// than one join key is the only caller, so this is reachable only from a compound key on one
-    /// of these dialects, and a caller cannot narrow a catalog document out of it - an operator
-    /// changes the relationship or the dialect.
+    /// **An allowlist (`DuckDb`, `Postgres`, `ClickHouse` by tuple, Oracle by a grouped subquery),
+    /// not a denylist.** `Tuple` renders as a plain argument list, `DISTINCT a, b`, on every dialect
+    /// this crate does not special-case - which is the tuple `DuckDB` and Postgres read (polyglot
+    /// 0.12.0's generator rewrites it to the null-safe `CASE WHEN a IS NULL THEN NULL … ELSE (a, b)
+    /// END` for both, `multi_arg_distinct: false`) and the shape `ClickHouse`'s own multi-argument
+    /// `DISTINCT` already treats as one, null-safely, without any rewrite. `BigQuery` documents
+    /// `DISTINCT` as taking one expression, and `Tuple` there is `DISTINCT a, b` - a plain argument
+    /// list its grammar does not mean by it, not the tuple this crate intends. **Not reproduced
+    /// against a live instance** - stated from its documented `DISTINCT` syntax, not from an
+    /// observed rejection. Refused here, at generation time, rather than handed to the data system
+    /// as SQL that may be rejected. **No adapter reaches it today:** the one dialect it refuses,
+    /// `BigQuery`, takes the port's default `declared_key` and never calls `generate_key_probe`, so
+    /// only a direct call to this generator sees it.
     #[error("a compound declared-key probe cannot be rendered for {dialect}: it accepts one column inside DISTINCT")]
     CompoundKeyProbeUnsupported { dialect: Dialect },
     /// The rendered statement's bind placeholders do not match its bound parameters.
@@ -551,6 +549,10 @@ mod measure;
 mod pages;
 /// Several metrics on one data system, as one statement.
 mod stacked;
+
+/// One declared join key's uniqueness probe.
+mod key_probe;
+pub use key_probe::generate_key_probe;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
 pub use pages::generate_leg_pages;
 pub use stacked::generate_stacked;
@@ -885,95 +887,6 @@ fn leg_within(leg: &LegPlan, dialect: Dialect, also: Option<Expr>) -> Result<Gen
     let sql = render(&ast, dialect)?;
     assert_placeholder_count(&ast, dialect, &params)?;
     Ok(GeneratedQuery::new(leg.source().clone(), sql, params))
-}
-
-/// Renders one declared join key's uniqueness probe as one statement.
-///
-/// **Two counts over the target side of a whole key set, and nothing else.** A row count beside
-/// `COUNT(DISTINCT key_1, key_2, …)` is the whole question a `many_to_one` declaration can be
-/// contradicted by, and the pair is equal exactly when the declaration holds over the WHOLE set -
-/// the one shape a compound key can be proved by, because no single column of a compound key need
-/// identify a row on its own. There is no `WHERE`, no `GROUP BY`, no `HAVING` and no `LIMIT`: the
-/// declaration is unconditional, so a probe carrying a filter would answer a narrower question than
-/// the one the join path spends.
-///
-/// **No parameter, and nothing from a question.** A [`DeclaredKey`] is built out of a pinned
-/// bundle's own parsed names, so the statement has nowhere for a caller's value to arrive; the
-/// returned [`GeneratedQuery`] carries an empty parameter list rather than one this could fill.
-///
-/// **No key value is projected**, which is the same decision the answer type makes and for the same
-/// reason: what comes back reaches a boot log, and a duplicated dimension key printed there is
-/// source data copied into a sink nobody scoped for it.
-///
-/// The distinct count is over a TUPLE of the target columns for `DuckDb`, `Postgres` and
-/// `ClickHouse` (the allowlist [`GenerateError::CompoundKeyProbeUnsupported`]'s rustdoc argues
-/// for), and Oracle and `BigQuery` refuse a compound probe by name instead. Only
-/// `sutura-domain`'s own parse-check family measures the rendered tuple text, over the three
-/// allowed dialects; this comment does not claim Oracle or `BigQuery`. The row count stays
-/// `COUNT(col)` for one key, unchanged, so an existing single-pair golden keeps its rendered
-/// text, and for a compound key becomes `COUNT(CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN 1
-/// END)`: a row null in ANY column of the set cannot match on either side of a join, the same
-/// reason a single null key is excluded, so `rows` and `distinct` stay comparable under
-/// `COUNT(DISTINCT …)`'s own per-tuple null exclusion.
-///
-/// Shared with [`generate`] and [`generate_leg`]: [`qualified`], [`aliased`], [`table_path`] and
-/// [`render`], so identifier quoting, column qualification and path depth cannot be one thing here
-/// and another there. The two aliases are `sutura-domain`'s constants rather than this crate's
-/// literals, so the label an adapter reads the count back under is the label the statement asked
-/// for.
-pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
-    // The path goes in the `FROM` and the qualifier is the table's own NAME, so a two-part or
-    // three-part table still renders a two-part column reference - `qualified` is the one place that
-    // is decided.
-    let over: Vec<Expr> = key
-        .target_columns()
-        .map(|column| qualified(key.table().name(), column))
-        .collect();
-    let first = over.first().ok_or(GenerateError::NoPredicate)?;
-    // A row's key is non-null only when every column of the whole set is non-null - the same
-    // "excluded from both counts" decision the module header states, extended to a compound key:
-    // a row where one column of the pair is null cannot match on either side of any join, so it
-    // is not a key row. One column keeps `COUNT(col)`'s existing shape; a compound key folds the
-    // per-column nullness checks into the `CASE` that `COUNT` then counts non-null results of, so
-    // the two counts stay comparable under `COUNT(DISTINCT …)`'s own null-exclusion.
-    let rows = if over.len() == 1 {
-        builder::count(first.clone())
-    } else {
-        let all_not_null = over
-            .iter()
-            .cloned()
-            .map(Expr::is_not_null)
-            .reduce(Expr::and)
-            .ok_or(GenerateError::NoPredicate)?;
-        let marker = builder::case().when(all_not_null, builder::lit(1)).build();
-        builder::count(marker)
-    };
-    let distinct = if over.len() == 1 {
-        builder::count_distinct(first.clone())
-    } else {
-        // An allowlist, not a denylist: DuckDB and Postgres get polyglot's null-safe
-        // `CASE WHEN a IS NULL THEN NULL … ELSE (a, b) END` rewrite (`multi_arg_distinct: false`
-        // in polyglot 0.12.0's generator), and ClickHouse's own multi-argument `DISTINCT` already
-        // skips a row where any argument is null, natively. Every other dialect this crate renders
-        // a `Tuple` for keeps `DISTINCT` a single-expression form - Oracle's grammar accepts one
-        // argument (`ORA-00909` on more, per Oracle's documented syntax; not reproduced against a
-        // live instance here) and BigQuery's `COUNT(DISTINCT …)` is documented as one expression
-        // too - so a `Tuple` there renders a plain argument list neither dialect means by it.
-        // Refused rather than rendered: see `GenerateError::CompoundKeyProbeUnsupported`.
-        if !matches!(dialect, Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse) {
-            return Err(GenerateError::CompoundKeyProbeUnsupported { dialect });
-        }
-        let tuple = Expr(Expression::Tuple(Box::new(Tuple {
-            expressions: over.into_iter().map(|e| e.0).collect(),
-        })));
-        builder::count_distinct(tuple)
-    };
-    let projection = vec![aliased(rows, ROWS_LABEL)?, aliased(distinct, DISTINCT_LABEL)?];
-    let ast = builder::select(projection).from(&table_path(key.table(), dialect)?).build();
-    let params = Vec::new();
-    let sql = render(&ast, dialect)?;
-    assert_placeholder_count(&ast, dialect, &params)?;
-    Ok(GeneratedQuery::new(key.source().clone(), sql, params))
 }
 
 /// What this module claims about the dialect layer, measured against the layer itself.
