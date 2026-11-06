@@ -140,5 +140,5 @@ let
       '';
 in
 {
-  inherit cli tpchSf;
+  inherit cli tpchSf dimensions;
 }

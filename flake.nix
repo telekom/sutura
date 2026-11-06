@@ -278,6 +278,60 @@
             python3 ${./nix/tpch-refusal-rate.py} --corpus ${./nix/tpch} --data ${tpchData.tpchSf scale} "$@"
           '');
         };
+        # `sutura-dev agree`: the one comparison policy of two answers (`dev/src/agree.rs`), behind
+        # the default-off `agreement` feature, so the across-nodes acceptance judges with it and
+        # with no second copy. Built on `ciArtifacts` as `packages.xtask` is. Nothing ships it.
+        suturaDevAgree = craneLib.buildPackage (ciArgs // inheritedArtifacts ciArtifacts // {
+          pname = "sutura-dev";
+          cargoExtraArgs = "--package sutura-dev --features agreement";
+          doCheck = false;
+          meta.mainProgram = "sutura-dev";
+        });
+
+        # TPC-H across nodes against one node, in four NixOS VMs (`telekom/sutura#828`) -
+        # `nix/tpch-across-nodes.nix` says what it observes and what it does not. The served binary
+        # is the shipped one, so the times are a release build's. A function of the scale; SF10 is
+        # the first published scale that splits both tables, and `apps.tpch-across-nodes` is it.
+        #
+        # AN APP AND NOT A CHECK, for two reasons that are both gates. `just ci` builds every check
+        # and this is the better part of an hour. And `check-workflows` refuses a literal `nix
+        # build` of anything but a check in a pull-request workflow, which this one is. The app
+        # holds the test as a dependency, so it is built before the script runs and a failed
+        # test leaves nothing to copy. A stub on any other system, for `multi-node`'s reason.
+        tpchAcrossNodes = scale:
+          let
+            test = import ./nix/tpch-across-nodes.nix {
+              inherit pkgs scale;
+              sutura = shipped.nativeBinaries.sutura;
+              postgresDriver = postgresAdbcHostDriver;
+              duckdbDriver = duckdbHostDriver;
+              agree = suturaDevAgree;
+              data = tpchData.tpchSf scale;
+              inherit (tpchData) dimensions;
+              corpus = ./nix/tpch;
+            };
+          in
+          {
+            type = "app";
+            program = builtins.toString (
+              if system == "x86_64-linux" then
+                pkgs.writeShellScript "sutura-tpch-across-nodes-sf${toString scale}" ''
+                  set -euo pipefail
+                  if [ "$#" -ne 2 ] || [ "$1" != --out ]; then
+                    echo 'usage: nix run .#tpch-across-nodes -- --out DIR' >&2
+                    exit 2
+                  fi
+                  mkdir -p "$2"
+                  cp -L ${test}/results.json ${test}/ranges.md "$2"/
+                ''
+              else
+                pkgs.writeShellScript "sutura-tpch-across-nodes-not-on-${system}" ''
+                  echo 'only x86_64-linux runs the VM test' >&2
+                  exit 1
+                ''
+            );
+          };
+
         # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
         # start the same script, so the golden matrix's `clickhouse` cells execute in both.
         clickhouseTier = import ./nix/clickhouse-tier.nix { inherit pkgs; };
@@ -1541,6 +1595,11 @@
         # that is not run is not generated (`tpchRefusalRate`).
         apps.tpch-refusal-rate-sf1 = tpchRefusalRate 1;
         apps.tpch-refusal-rate-sf10 = tpchRefusalRate 10;
+
+        # `nix run .#tpch-across-nodes -- --out DIR` - SF10 of `tpchAcrossNodes`, which says what it is
+        # and why it is an app. Dispatched, and run on the paths it reads, by
+        # `.github/workflows/tpch-across-nodes.yml`; it gates nothing.
+        apps.tpch-across-nodes = tpchAcrossNodes 10;
 
         apps.default-features = {
           type = "app";

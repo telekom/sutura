@@ -1,0 +1,43 @@
+{
+  "observed_because": "An unfiltered lookup over part is 2,000,000 rows at SF10, exactly two streams of 1,000,000. A split leg is cut by pages, not rows, so one of its two partitions is likely past the bound and refused. These run on all three topologies and are compared when they answer, but are not required to; promote one to questions once a run shows it answers.",
+  "questions": [
+    "revenue-by-segment-yearly",
+    "revenue-by-customer-region-quarterly",
+    "revenue-by-customer-nation-yearly",
+    "revenue-by-supplier-nation-quarterly",
+    "revenue-by-segment-and-mode",
+    "building-revenue-by-priority",
+    "european-revenue-by-mode",
+    "quantity-for-two-customer-nations",
+    "shipping-volume-between-two-nations",
+    "revenue-by-customer-and-supplier-region",
+    "revenue-per-order-by-segment",
+    "returned-revenue-by-customer-region",
+    "order-value-by-segment-monthly",
+    "order-count-by-customer-nation-yearly",
+    "customers-ordering-by-region-quarterly",
+    "industrial-order-value-by-priority",
+    "top-nation-months-by-revenue",
+    "orders-shipped-by-customer-region-monthly",
+    "three-brands-quantity-monthly",
+    "ground-revenue-by-customer-region",
+    "tpch-q5-revenue-by-nation-in-asia",
+    "tpch-q10-returned-revenue-by-nation",
+    "tpch-q12-lines-by-mode-and-priority"
+  ],
+  "observed": [
+    "quantity-by-brand-monthly",
+    "lines-by-container-yearly",
+    "revenue-by-part-type-1997",
+    "revenue-by-segment-brand-supplier-region",
+    "asian-supplied-lines-by-manufacturer",
+    "discount-by-brand-yearly",
+    "orders-shipped-by-brand-yearly",
+    "top-brands-by-revenue",
+    "tpch-q8-revenue-by-part-type-in-america"
+  ],
+  "controls": [
+    "revenue-monthly-1995",
+    "pricing-summary-by-flag-and-status"
+  ]
+}
