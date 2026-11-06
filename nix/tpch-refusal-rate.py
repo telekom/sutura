@@ -1,10 +1,12 @@
 """Measure how often a TPC-H-shaped corpus is refused, split over DuckDB and PostgreSQL.
 
-`nix run .#tpch-refusal-rate -- --scale N --out DIR` generates TPC-H at scale factor N with DuckDB's
-`dbgen`, keeps `lineitem` and `orders` in a DuckDB file (source `lake`) and moves the dimension
-tables into the running PostgreSQL tier (source `crm`). It then serves `nix/tpch/catalog` once per
-point in POINTS and asks every question in `nix/tpch/questions.json`, one at a time. `results.json`
-and `summary.md` land in DIR, and the summary is appended to `$GITHUB_STEP_SUMMARY` when set.
+`nix run .#tpch-refusal-rate-sf<N> -- --out DIR` takes TPC-H at scale factor N from the `tpch-sf<N>`
+derivation (`nix/tpch-data.nix`), whose build already failed unless every row count was the
+specification's. It serves the derivation's DuckDB star as source `lake` and loads the dimension
+tables from its CSVs into the running PostgreSQL tier (source `crm`). It then serves
+`nix/tpch/catalog` once per point in POINTS and asks every question in `nix/tpch/questions.json`,
+one at a time. `results.json` and `summary.md` land in DIR, and the summary is appended to
+`$GITHUB_STEP_SUMMARY` when set.
 
 Dispatch only (`.github/workflows/tpch-refusal-rate.yml`), never a gate. Exits 1 after writing its
 outputs when any question failed for a reason that means the corpus or the deployment is wrong
@@ -12,7 +14,8 @@ rather than measured: a non-refusal HTTP failure, or a refusal code in CORPUS_ER
 that never reports `listening` ends the run at once, with its log in DIR and no summary.
 
 Limits: one client asks sequentially, so the latencies are single-flight and say nothing about
-contention. `partsupp` is not loaded and no question needs it.
+contention. `partsupp` is not generated and no question needs it. The PostgreSQL column types are
+read from the CSV headers: a name ending in `key` is BIGINT, every other column VARCHAR.
 """
 
 import argparse
@@ -20,6 +23,7 @@ import json
 import os
 import queue
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,23 +34,7 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-import duckdb
-
-DIMENSION_TABLES = {
-    "customer": ["c_custkey", "c_nationkey", "c_mktsegment"],
-    "part": ["p_partkey", "p_mfgr", "p_brand", "p_type", "p_container"],
-    "supplier": ["s_suppkey", "s_nationkey"],
-    "nation": ["n_nationkey", "n_name", "n_regionkey"],
-    "region": ["r_regionkey", "r_name"],
-}
-
-# The fact-side keys a federated join compares with a PostgreSQL key, which is BIGINT. Widened in
-# DuckDB too, so the link's two types agree whatever integer width `dbgen` chose.
-CROSS_KEYS = [
-    ("lineitem", "l_partkey"),
-    ("lineitem", "l_suppkey"),
-    ("orders", "o_custkey"),
-]
+DIMENSION_TABLES = ["customer", "part", "supplier", "nation", "region"]
 
 # Point (a) is what ships. Point (b) raises the two settings a federated answer is bounded by; the
 # single-source row cap and `governance.top_row_ceiling` stay at their defaults in both.
@@ -90,31 +78,19 @@ STARTUP_SECONDS = 1800
 CLIENT_SECONDS = 300
 
 
-def generate(work: Path, scale: int) -> Path:
+def stage(data: Path, work: Path) -> Path:
+    """A writable copy of the derivation's DuckDB star, which is read-only in the store."""
     lake = work / "lake.duckdb"
     lake.unlink(missing_ok=True)
-    # The Python package's release build, not the Nix CLI: the CLI names itself by a git describe
-    # for which no `tpch` extension is published, so `dbgen` cannot load there.
-    script = ["INSTALL tpch", "LOAD tpch", f"CALL dbgen(sf = {scale})"]
-    script += [
-        f"ALTER TABLE {table} ALTER {column} SET DATA TYPE BIGINT"
-        for table, column in CROSS_KEYS
-    ]
-    for table, columns in DIMENSION_TABLES.items():
-        script.append(
-            f"COPY (SELECT {', '.join(columns)} FROM {table}) TO '{work / table}.csv' (HEADER)"
-        )
-        script.append(f"DROP TABLE {table}")
-    script += ["DROP TABLE partsupp", "CHECKPOINT"]
-    with duckdb.connect(str(lake)) as connection:
-        for statement in script:
-            connection.execute(statement)
+    shutil.copyfile(data / "star.duckdb", lake)
     return lake
 
 
-def load_dimensions(work: Path, tier: dict) -> None:
+def load_dimensions(data: Path, tier: dict) -> None:
     script = []
-    for table, columns in DIMENSION_TABLES.items():
+    for table in DIMENSION_TABLES:
+        csv = data / "dimensions" / f"{table}.csv"
+        columns = csv.read_text().split("\n", 1)[0].split(",")
         definitions = ", ".join(
             f"{column} {'BIGINT' if column.endswith('key') else 'VARCHAR'} NOT NULL{' PRIMARY KEY' if i == 0 else ''}"
             for i, column in enumerate(columns)
@@ -122,7 +98,7 @@ def load_dimensions(work: Path, tier: dict) -> None:
         script += [
             f"DROP TABLE IF EXISTS {table};",
             f"CREATE TABLE {table} ({definitions});",
-            f"\\copy {table} FROM '{work / table}.csv' WITH (FORMAT csv, HEADER true)",
+            f"\\copy {table} FROM '{csv}' WITH (FORMAT csv, HEADER true)",
             f"ANALYZE {table};",
         ]
     psql = [
@@ -392,7 +368,12 @@ def main() -> int:
         required=True,
         help="directory holding catalog/ and questions.json",
     )
-    parser.add_argument("--scale", type=int, required=True, help="TPC-H scale factor")
+    parser.add_argument(
+        "--data",
+        type=Path,
+        required=True,
+        help="the tpch-sf<N> derivation: star.duckdb, dimensions/ and counts.json",
+    )
     parser.add_argument(
         "--out", type=Path, required=True, help="where results.json and summary.md land"
     )
@@ -400,24 +381,26 @@ def main() -> int:
 
     corpus = args.corpus.resolve()
     out = args.out.resolve()
-    work = Path(".sutura-dev", f"tpch-sf{args.scale}").resolve()
+    data = args.data.resolve()
+    scale = json.loads((data / "counts.json").read_text())["scale"]
+    work = Path(".sutura-dev", f"tpch-sf{scale}").resolve()
     out.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
     questions = json.loads((corpus / "questions.json").read_text())
 
     started = time.monotonic()
-    lake = generate(work, args.scale)
+    lake = stage(data, work)
     tier = discover_tier(work)
-    load_dimensions(work, tier)
+    load_dimensions(data, tier)
     print(
-        f"tpch-refusal-rate: SF{args.scale} loaded in {time.monotonic() - started:.0f} s",
+        f"tpch-refusal-rate: SF{scale} staged in {time.monotonic() - started:.0f} s",
         flush=True,
     )
 
     token = secrets.token_urlsafe(32)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     report = {
-        "scale": args.scale,
+        "scale": scale,
         "points": {},
         "questions": {q["name"]: {"path": q["path"]} for q in questions},
     }
@@ -455,7 +438,7 @@ def main() -> int:
         report["points"][point] = by_path
 
     (out / "results.json").write_text(json.dumps(report, indent=2) + "\n")
-    text = summary(args.scale, report)
+    text = summary(scale, report)
     (out / "summary.md").write_text(text)
     if step_summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(step_summary, "a") as handle:

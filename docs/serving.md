@@ -96,6 +96,8 @@ address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` 
 | `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                                | Lower the wait                                                                              |
 | A peer in `server.nodes.others` with an unknown `role`, or `role: "serving"`                                                      | Use `worker` or `reading-worker`                                                            |
 | A `server.nodes.others` peer declaring `role: "reading-worker"` with no `sources`, or `role: "worker"` with any                   | Name the sources a reading-worker reads; remove them from a worker                          |
+| A `server.nodes.others` IP address of the other family than `server.nodes.address_family`                                         | Write a host name or an address of that family, or set `auto`                               |
+| A `server.nodes.address_family` that is not `auto`, `ipv4` or `ipv6`                                                              | Use one of the three                                                                        |
 | Two `server.nodes.others` peers naming the same origin, or one naming this node's own `own` address                               | Remove the duplicate, or the self-reference                                                 |
 | A `server.nodes` address with a path, query, userinfo or a fragment that is not an IP address                                     | Use the bare `https://host:port` origin, or `#<ip>` to dial it at that address              |
 | A `server.nodes.others` peer declaring `role: "reading-worker"` reading a source this deployment's own `sources` does not declare | Declare the source here too, or remove it from the peer's list                              |
@@ -362,6 +364,7 @@ server:
         sources: ["warehouse"]
     across_above_bytes: 268435456
     wait_for_workers_seconds: 10
+    address_family: "auto"
 ```
 
 `own` is this node's address as the others reach it. Every address is an https URL, and the key is refused without
@@ -389,10 +392,17 @@ never split.
 
 The chart renders a `worker` peer for its worker pool and a `reading-worker` peer for each group in its `readingWorkers.groups`, with the source aliases the group reads.
 
-A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
-ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
-that moment, each dialled at its address and checked against the host, so every worker's certificate carries that
-host. A host that resolves to nothing is no node, as an empty pool is, so a misspelled one is not refused.
+A host in `others` is resolved when each question is planned, and each address it resolves to is one node. A pool of
+workers behind one name, such as a headless Service, is then the workers it holds at that moment, each dialled at its
+address and checked against the host, so every worker's certificate carries that host. A host that resolves to nothing
+is no node, as an empty pool is, so a misspelled one is not refused.
+
+`address_family` chooses which of a host's addresses are nodes. `auto`, the default, keeps one family per host: its IPv4
+addresses when it has any, else its IPv6 ones, so a dual-stack pod is not two nodes. `ipv4` keeps only IPv4 addresses and
+`ipv6` only IPv6 ones, and a host with none of that family is no node, like one that resolves to nothing. A peer written
+as an IP address, or with a `#<ip>` fragment, of the other family than `ipv4` or `ipv6` is refused at startup; `own` is
+not read. The setting is `SUTURA__SERVER__NODES__ADDRESS_FAMILY` in the environment. It chooses among the addresses the
+resolver returns and does not make a node reachable over a family the network between the nodes does not carry.
 
 A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
