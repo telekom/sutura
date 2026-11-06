@@ -163,7 +163,10 @@ Seven source-level adaptations, recorded here so nothing is silent:
   descriptor carries only the Storage Read API stream name (plus a version byte) - never a
   credential, token, or anything else identity-bearing - so `ReadPartition` can decode it and open
   `ReadRows` on that stream with whichever connection calls it, using that connection's own
-  credentials, not the credentials of the connection `ExecutePartitions` ran on. A malformed
+  credentials, not the credentials of the connection `ExecutePartitions` ran on. That read sends
+  no per-request serialization options - `BigQuery` refuses them on a session stream with
+  `InvalidArgument` ("only supported for job streams"), measured at the venue - so the session
+  carries the ZSTD buffer compression the job's default-stream read asks per request. A malformed
   descriptor is refused as `InvalidArgument`, never a panic. `ExecutePartitions` refuses a
   `bigquery.query.dry_run` statement outright (a dry run has no destination table to partition)
   rather than returning a partition list or substituting a row-count estimate.
@@ -174,18 +177,22 @@ Seven source-level adaptations, recorded here so nothing is silent:
   is divided into stream-sized chunks, rounded up and capped at `max_streams`; unset keeps today's
   behaviour of always asking for `max_streams`). `partitionStreamCountFor` is the pure split
   function; neither option is clamped silently - zero, negative or non-integer is refused at
-  `SetOption` with `InvalidArgument`. **Limit: streams asked for are not streams returned** - the
-  Storage Read API session may hand back fewer than requested (never more), so a per-stream row
+  `SetOption` with `InvalidArgument`. The session asks for that count as both its
+  `MaxStreamCount` and its `PreferredMinStreamCount`, since a ceiling alone lets the server answer
+  one stream for a small table. **Limit: streams asked for are not streams returned** - the
+  preferred minimum is best effort, and the Storage Read API session may hand back fewer than
+  requested (never more), so a per-stream row
   bound enforced at read time remains the real guard regardless of this split, and the exact row
   count costs one extra round trip beyond what `ExecuteQuery` needs. The patch reuses
   `job_query.go`'s existing `streamRecordBatches`/channel machinery for `ReadPartition` rather than
   building a second kind of stream reader, and needs no new Go module: the Storage Read API client
   was already a dependency of the default-stream read path. The patch adds `partitions_test.go`
   (descriptor round trip, malformed descriptor refused, dry run and empty query refused, the
-  stream-count split function, and both options' value refusals), which `nix/bigquery-adbc.nix`'s
-  check phase runs by name on a host that can run its target; no test here exercises
-  `CreateReadSession` or `ReadRows` against real BigQuery. **Limit: nothing in sutura calls `ExecutePartitions` or `ReadPartition` yet** - wiring
-  a caller through them needs the worker transport and is a later slice. Upstream issue:
+  stream-count split function, both options' value refusals, and the `CreateReadSession` and
+  `ReadRows` requests as a fake Storage Read API on loopback receives them), which
+  `nix/bigquery-adbc.nix`'s check phase runs by name on a host that can run its target; only the
+  dispatch-only BigQuery venue sends them to real BigQuery, through `sutura-exec-bigquery`'s
+  `split_leg` and `read_partition`. Upstream issue:
   `adbc-drivers/bigquery#367`; `telekom/sutura#1742` tracks deleting this patch once a pinned driver
   release carries it.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`

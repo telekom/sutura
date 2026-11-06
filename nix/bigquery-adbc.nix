@@ -97,16 +97,18 @@ buildGoModule {
   # `bigquery-adbc-jobs-query.patch` adds for its jobs.query option and
   # for the labels it carries, and `bigquery-adbc-partitions.patch` adds for its partition
   # descriptor and its refusals, its stream-count split (a pure function of the row count and
-  # its two statement options), and those two options' own value refusals. A build whose host
+  # its two statement options), those two options' own value refusals, and the requests a
+  # partition's read session and stream read send. A build whose host
   # cannot run its target skips the check phase, and this with it. The test resolves into its own
   # module cache: the modules only `_test.go` files import stay out of the licence record below.
   # The whole phase is replaced because the default one loops over `getGoDirs`, which only the
   # default `buildPhase` defines.
-  # `TestAccessToken`, `TestQueryLabels` and the jobs.query tests serve a fake BigQuery endpoint on loopback.
+  # `TestAccessToken`, `TestQueryLabels` and the jobs.query tests serve a fake BigQuery endpoint on loopback,
+  # and the two partition request tests a fake Storage Read API.
   __darwinAllowLocalNetworking = true;
   checkPhase = ''
     runHook preCheck
-    tests='TestErrToAdbcErrMapsRestForbidden|TestSafeWaitForJobBacksOffBetweenPolls|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestExternalAccountFileReachesDomainDelegationSignJwt|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused|TestQueryLabelsThroughJobsQuery|TestPartitionDescriptorRoundTrip|TestPartitionDescriptorMalformedRefused|TestExecutePartitionsRefusesDryRun|TestExecutePartitionsRefusesEmptyQuery|TestPartitionStreamCountFor|TestPartitionsOptionsValidTaken|TestPartitionsOptionsInvalidRefused'
+    tests='TestErrToAdbcErrMapsRestForbidden|TestSafeWaitForJobBacksOffBetweenPolls|TestAccessToken|TestEmptyAccessTokenRefused|TestAccessTokenUnderImpersonationRefused|TestAccessTokenUnderOtherAuthTypeRefused|TestImpersonateSubject|TestExternalAccountFileReachesDomainDelegationSignJwt|TestSubjectWithoutTargetPrincipalRefused|TestQueryLabels|TestQueryLabelsNotAnObjectRefused|TestThroughJobsQuery|TestWithoutThroughJobsQueryInserts|TestThroughJobsQueryDryRun|TestThroughJobsQueryRefusesWhatItCannotCarry|TestThroughJobsQueryWithoutAJobRefused|TestThroughJobsQueryWithAnEmptyJobIdRefused|TestThroughJobsQueryNotABoolRefused|TestQueryLabelsThroughJobsQuery|TestPartitionDescriptorRoundTrip|TestPartitionDescriptorMalformedRefused|TestExecutePartitionsRefusesDryRun|TestExecutePartitionsRefusesEmptyQuery|TestPartitionStreamCountFor|TestPartitionsOptionsValidTaken|TestPartitionsOptionsInvalidRefused|TestPartitionReadSendsNoRequestSerializationOptions|TestPartitionReadSessionCompressesAndAsksForAMinimum'
     GOMODCACHE=$TMPDIR/test-modcache go test -v -run "^($tests)$" . > "$TMPDIR/go-test.log" || { cat "$TMPDIR/go-test.log"; exit 1; }
     cat "$TMPDIR/go-test.log"
     # `-run` passes when a name stops matching, so every listed name has to pass.
