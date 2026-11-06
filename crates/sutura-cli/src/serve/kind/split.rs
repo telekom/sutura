@@ -7,7 +7,7 @@
 //! methods that name the kind (see the PR's limits). Every other kind is read whole by the planning
 //! node and refused by a reading worker, naming the source. `PostgreSQL` is the one kind that splits.
 //!
-//! **Limit:** `BigQuery`'s split needs what [`SplitKind`] does not carry - the caller's forwarded
+//! **Limit:** `BigQuery`'s split needs what [`SplitKind`](crate::serve::kind::split::SplitKind) does not carry - the caller's forwarded
 //! token for a read, and the job `ends` and `labels` for a split - so it does not fit this seam as it
 //! stands, and the trait grows before a second kind joins it.
 
