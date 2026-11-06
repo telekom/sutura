@@ -255,6 +255,29 @@
         # devenv.nix imports so the dev shell and CI cannot open two different libduckdbs.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+        # TPC-H generated from the pinned DuckDB with its `tpch` extension linked in, one derivation
+        # per scale factor (`nix/tpch-data.nix`), failing the build unless the row counts are the
+        # specification's.
+        tpchData = import ./nix/tpch-data.nix { inherit pkgs; };
+
+        # The refusal-rate measurement at one scale. The served binary is the shipped one, so the
+        # latencies are a release build's. Not `exec`'d, so the trap that stops a tier this run
+        # started still fires.
+        tpchRefusalRate = scale: {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-tpch-refusal-rate-sf${toString scale}" ''
+            set -euo pipefail
+            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${pkgs.python3}/bin:$PATH"
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_DUCKDB_ADBC_DRIVER="${duckdbHostDriver}"
+            # `nix/with-tier.sh`'s Postgres arm without its ClickHouse one, which this corpus never reads.
+            rc=0
+            sutura-postgres-tier status >/dev/null 2>&1 || rc=$?
+            if [ "$rc" = 1 ]; then trap 'sutura-postgres-tier stop || true' EXIT; fi
+            sutura-postgres-tier start
+            python3 ${./nix/tpch-refusal-rate.py} --corpus ${./nix/tpch} --data ${tpchData.tpchSf scale} "$@"
+          '');
+        };
         # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
         # start the same script, so the golden matrix's `clickhouse` cells execute in both.
         clickhouseTier = import ./nix/clickhouse-tier.nix { inherit pkgs; };
@@ -1513,27 +1536,13 @@
           '');
         };
 
-        # `nix run .#tpch-refusal-rate -- --scale N --out DIR` - how often a TPC-H-shaped corpus is
+        # `nix run .#tpch-refusal-rate-sf<N> -- --out DIR` - how often a TPC-H-shaped corpus is
         # refused when its star is split over DuckDB and PostgreSQL, at the shipped defaults and at
         # one large point. `nix/tpch-refusal-rate.py` carries the design; dispatched by hand from
-        # `.github/workflows/tpch-refusal-rate.yml`, and gates nothing. The served binary is the
-        # shipped one, so the latencies are a release build's. Not `exec`'d, so the trap that stops a
-        # tier this run started still fires.
-        apps.tpch-refusal-rate = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-tpch-refusal-rate" ''
-            set -euo pipefail
-            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${pkgs.python3.withPackages (p: [ p.duckdb ])}/bin:$PATH"
-            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
-            export SUTURA_DUCKDB_ADBC_DRIVER="${duckdbHostDriver}"
-            # `nix/with-tier.sh`'s Postgres arm without its ClickHouse one, which this corpus never reads.
-            rc=0
-            sutura-postgres-tier status >/dev/null 2>&1 || rc=$?
-            if [ "$rc" = 1 ]; then trap 'sutura-postgres-tier stop || true' EXIT; fi
-            sutura-postgres-tier start
-            python3 ${./nix/tpch-refusal-rate.py} --corpus ${./nix/tpch} "$@"
-          '');
-        };
+        # `.github/workflows/tpch-refusal-rate.yml`, and gates nothing. One app per scale, so a scale
+        # that is not run is not generated (`tpchRefusalRate`).
+        apps.tpch-refusal-rate-sf1 = tpchRefusalRate 1;
+        apps.tpch-refusal-rate-sf10 = tpchRefusalRate 10;
 
         apps.default-features = {
           type = "app";
