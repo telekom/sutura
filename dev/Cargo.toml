@@ -33,6 +33,18 @@ path = "src/lib.rs"
 # tested on every run.
 mock-issuer = ["dep:base64", "dep:jsonwebtoken", "dep:rcgen"]
 
+# `sutura-dev agree <a.json> <b.json>`: two `sutura serve` answers, judged by the domain's own
+# `warehouse::agreement` policy (`src/agree.rs`).
+#
+# **Default-off, because it is the only thing in this crate that links `sutura-domain`.** `xtask` and
+# every crate that dev-depends on `sutura-dev` take it for a port number or a fixture, and none of
+# them should compile the interior for it. It never ships: `sutura-dev` is a dev tool, and
+# `check-default-features` refuses `sutura-domain/agreement` in a shipped root's normal graph, which
+# this edge does not reach. Limit: that gate resolves the default feature set, so it would not see a
+# shipped root that named `sutura-dev/agreement` as a normal dependency - nothing does, and nothing
+# but review would stop one.
+agreement = ["dep:sutura-domain", "dep:thiserror"]
+
 [dependencies]
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -47,6 +59,13 @@ sha2 = { workspace = true }
 base64 = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
+
+# The two `agreement` needs. `sutura-domain` is asked for its own `agreement` feature, which is the
+# whole point of the edge: what makes two answers the same answer is that module's to decide, and a
+# copy here would be a second policy. Both are already in the workspace graph, so no crate is added
+# to `Cargo.lock` and no licence to `deny.toml`'s allowlist.
+sutura-domain = { workspace = true, features = ["agreement"], optional = true }
+thiserror = { workspace = true, optional = true }
 
 [lints]
 workspace = true
