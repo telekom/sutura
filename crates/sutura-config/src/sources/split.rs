@@ -1,11 +1,13 @@
 //! `sources.<alias>.split`: how a source's lookup legs may be read in partitions.
 //!
-//! The nodes that read the source read the partitions (`github.com/telekom/sutura#828`).
-//!
-//! **Not built yet:** `split` is not a key of a source entry, so a deployment that writes it is
-//! refused as an unknown key, and no source declares a split.
+//! The nodes that read the source read the partitions (`github.com/telekom/sutura#828`). Written
+//! after the entry itself parsed, as `inbound_token_at_pool` is, so the refusals can read the
+//! entry's kind and posture.
 
-use super::SourceKind;
+use sutura_domain::model::SourceName;
+use sutura_domain::source::SourcePosture;
+
+use super::{InvalidSourceRegistry, SourceKind, SourceRegistry};
 
 /// How a source's lookup legs may be split.
 ///
@@ -14,9 +16,10 @@ use super::SourceKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSplit {
     /// An `oracle` source read as its shared service user: every partition reads `AS OF` the one
-    /// system change number taken when the leg is split. The service user holds the `FLASHBACK`
-    /// object privilege on each table it reads, never `FLASHBACK ANY TABLE`, and the source's boot
-    /// probe refuses one that holds the system privilege.
+    /// system change number taken when the leg is split. The operator grants the service user the
+    /// `FLASHBACK` object privilege on each table it reads. The source's boot probe reads the
+    /// privileges granted to the service user when it runs: directly, through `PUBLIC`, and through
+    /// roles granted to the service user, and it refuses `FLASHBACK ANY TABLE` held that way.
     Flashback,
 }
 
@@ -49,6 +52,30 @@ pub enum SplitRefused {
     /// A partition is read as the shared service user, and this source reads as each caller.
     #[error("a partition is read as the shared service user, and this source is `impersonation-at-source`")]
     Impersonating,
+}
+
+/// Records on `registry` the `split` written on the entry `written`, after the entry itself parsed.
+pub(crate) fn declare(registry: &mut SourceRegistry, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
+    let alias = SourceName::parse(written).map_err(|cause| InvalidSourceRegistry::Alias {
+        written: String::from(written),
+        cause,
+    })?;
+    let Some(source) = registry.by_alias.get_mut(&alias) else {
+        return Ok(());
+    };
+    let refused = |cause| InvalidSourceRegistry::Split {
+        alias: alias.clone(),
+        cause,
+    };
+    let split = SourceSplit::parse(value).map_err(refused)?;
+    if source.kind() != SourceKind::Oracle {
+        return Err(refused(SplitRefused::NotOracle { kind: source.kind() }));
+    }
+    if matches!(source.posture(), Some(SourcePosture::ImpersonationAtSource)) {
+        return Err(refused(SplitRefused::Impersonating));
+    }
+    source.split = Some(split);
+    Ok(())
 }
 
 #[cfg(test)]
