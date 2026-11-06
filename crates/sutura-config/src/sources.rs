@@ -620,9 +620,8 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: UnknownAcknowledgement,
     },
-    /// `hash_buckets_acknowledged_because` is written on a `clickhouse` entry whose callers sign in
-    /// with a `delegation` token. A hash bucket of a delegated source is not read with the caller's
-    /// token, so it would not run as that caller.
+    /// `hash_buckets_acknowledged_because` is written beside a `delegation`: a hash bucket of a
+    /// delegated source is not read with the caller's token, so it would not run as that caller.
     #[error(
         "`sources.{alias}` declares `hash_buckets_acknowledged_because` and a `delegation`: a hash \
          bucket of a delegated source is not read with the caller's token - remove one of the two"
@@ -774,8 +773,7 @@ impl SourceRegistry {
     ///
     /// # Errors
     ///
-    /// The key on an entry that is not `kind: clickhouse` or that declares a `delegation`, and a
-    /// reason that is not usable text.
+    /// The key on a delegated or non-`clickhouse` entry, and a reason that is not usable text.
     pub(crate) fn acknowledge_hash_buckets(&mut self, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
         clickhouse::acknowledge_hash_buckets(self, written, value)
     }
