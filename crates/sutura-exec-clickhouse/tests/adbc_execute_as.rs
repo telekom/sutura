@@ -4,7 +4,7 @@
 //! signs in with it. The first cells read what the driver sends to a loopback listener; the others
 //! ask the tier's server, whose users `nix/clickhouse-tier-provision.sh` declares. The `readonly`
 //! cells hold that a switch to a user whose profile sets `readonly = 1` answers under the settings
-//! sutura sends, or is refused - never an answer without them.
+//! sutura sends, or is refused as `AdbcError::SettingRefused` - never an answer without them.
 
 #[cfg(test)]
 mod adbc_execute_as {
@@ -231,6 +231,62 @@ mod adbc_execute_as {
         );
         assert!(!warehouse.source_refused(&failed), "{failed}");
         assert!(!warehouse.deadline_exceeded(&failed), "{failed}");
+    }
+
+    /// Whether `error` is `AdbcError::SettingRefused`, read off its variant name so these cells also
+    /// compile against a tree without the variant, where they fail by their own assertion.
+    fn refused_a_setting(error: &AdbcError) -> bool {
+        format!("{error:?}").starts_with("SettingRefused(")
+    }
+
+    /// The settings the answer needs travel in the statement's own `SETTINGS` clause, after the
+    /// switched `SELECT`, so the server checks them against the switched user's profile.
+    #[test]
+    fn a_switched_statement_carries_the_answer_settings_in_its_own_clause() {
+        let switched = sent(&switched_to("sutura_switched"));
+        let Some((select, clause)) = switched.sql.rsplit_once(" SETTINGS ") else {
+            panic!("the statement has no SETTINGS clause: {}", switched.sql);
+        };
+        assert!(
+            select.starts_with("EXECUTE AS \"sutura_switched\" SELECT "),
+            "{}",
+            switched.sql
+        );
+        let pinned: Vec<&str> = clause.split(", ").collect();
+        for setting in [
+            "join_use_nulls = 1",
+            "output_format_json_quote_denormals = 1",
+            "output_format_json_quote_64bit_integers = 1",
+            "output_format_json_quote_decimals = 1",
+            "output_format_decimal_trailing_zeros = 1",
+            "timeout_overflow_mode = 'throw'",
+        ] {
+            assert!(pinned.contains(&setting), "{setting} is not in {clause}");
+        }
+        let deadline = pinned
+            .iter()
+            .find_map(|setting| setting.strip_prefix("max_execution_time = "))
+            .and_then(|seconds| seconds.parse::<u64>().ok());
+        assert!(deadline.is_some_and(|seconds| seconds > 0), "{clause}");
+    }
+
+    /// The server's `READONLY` (164) and `SETTING_CONSTRAINT_VIOLATION` (452) read as a refused
+    /// setting, and as neither a refused identity nor a spent deadline.
+    #[test]
+    fn a_readonly_or_constrained_setting_reads_as_a_refused_setting() {
+        let switched = switched_to("sutura_switched");
+        for (code, text) in [
+            (164, "Cannot modify 'join_use_nulls' setting in readonly mode. (READONLY)"),
+            (
+                452,
+                "Setting max_execution_time shouldn't be greater than 10. (SETTING_CONSTRAINT_VIOLATION)",
+            ),
+        ] {
+            let (warehouse, refused, _) = exchange(&switched, server_error(code, text));
+            assert!(refused_a_setting(&refused), "{code}: {refused:?}");
+            assert!(!warehouse.source_refused(&refused), "{code}: {refused}");
+            assert!(!warehouse.deadline_exceeded(&refused), "{code}: {refused}");
+        }
     }
 
     /// A federated leg never runs under a switch: it is refused before the driver is asked for
@@ -539,16 +595,16 @@ mod adbc_execute_as {
     }
 
     /// The correct outcomes of a question switched to a `readonly = 1` user: an answer under the
-    /// settings sutura sends, or the server's refusal to change them (`READONLY`, code 164). `None`
-    /// is that refusal, which reaches here only as the driver's text. Anything else fails the cell.
+    /// settings sutura sends, or `AdbcError::SettingRefused`. `None` is that refusal. Anything
+    /// else fails the cell.
     fn under_readonly(answered: Result<ResultBatches, AdbcError>, cell: &str) -> Option<RowSet> {
         match answered {
             Ok(batches) => Some(batches.to_rows().unwrap_or_else(|e| panic!("{READONLY_USER}: {e}"))),
-            Err(AdbcError::Driver(refused)) if refused.to_string().contains("(READONLY)") => {
+            Err(refused) if refused_a_setting(&refused) => {
                 eprintln!("adbc_execute_as::{cell}: OBSERVED - refused: {refused}");
                 None
             }
-            Err(other) => panic!("{READONLY_USER}: neither an answer nor a READONLY refusal: {other:?}"),
+            Err(other) => panic!("{READONLY_USER}: neither an answer nor a refused setting: {other:?}"),
         }
     }
 

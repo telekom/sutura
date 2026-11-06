@@ -163,3 +163,33 @@ service user for each declared user; the boot probe refuses to start without the
 includes `IMPERSONATE` on every user (measured on the 26.8 tier), so a service user with `ALL` can
 become any user, declared or not. ClickHouse Cloud offers neither requirement.
 `where-identity-is-proven.md` records no venue for this claim yet.
+
+## Second amendment, 2026-11-06: each switched statement carries its own settings
+
+The adapter sends the settings that decide what the rows say (`join_use_nulls = 1`,
+`max_execution_time`, `timeout_overflow_mode = 'throw'` and four `output_format_*` settings) as
+driver options on the connection. Under `EXECUTE AS`, the server switches to the named user's
+profile and clamps those settings to it. A `readonly = 1` profile drops them all without an error,
+so a left join answered an unmatched `String` key as `''` instead of `NULL`. A tier cell measured
+that on ClickHouse 26.9.15.5.
+
+**Decision.** Every statement the adapter runs also carries the same settings in its own `SETTINGS`
+clause, after the `SELECT` and before any `FORMAT`. The server checks a statement's own settings
+against the switched user's profile and refuses a forbidden one: `READONLY` (164), or
+`SETTING_CONSTRAINT_VIOLATION` (452) for a constraint. The adapter reads both codes as
+`AdbcError::SettingRefused`. The caller is refused and never answered without the settings. The
+connection options stay.
+
+**Why the clause stays on the switched statement.** `EXECUTE AS` lifts only an output-level
+`SETTINGS` (one after `FORMAT`) onto the outer statement. A `SETTINGS` that follows the `SELECT`
+belongs to the `SELECT`, and the switched statement applies it under the switched user's profile
+with the constraint check that throws. Read from the server's 26.9 source; the `readonly` tier cells
+in `crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it, in CI only.
+
+**Limits.**
+
+- The server skips the check for a value that the profile already holds. That case stays silent,
+  and it is harmless: the setting already has the value that sutura needs.
+- Whether the outer statement still enforces `max_execution_time` under the switch is not measured.
+  The clause also sends the deadline to the switched statement.
+- The settings that the driver itself sends are not in the clause.

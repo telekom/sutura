@@ -90,11 +90,19 @@ Requirements:
   `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`. Grant `IMPERSONATE` on
   each caller's user by name and never `IMPERSONATE ON *`, because a wildcard lets a verified caller
   run as any user their `sub` names.
+- A settings profile for each caller's user that lets sutura set `join_use_nulls`,
+  `max_execution_time`, `timeout_overflow_mode` and the `output_format_*` settings it sends: not
+  `readonly = 1`, and no constraint that holds one of them away from sutura's value.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
 A caller with no ClickHouse user, or one that the user in `user` may not become, is refused; the
 query never runs as `user`. A caller whose `sub` is the user in `user` is refused.
+
+Each statement carries the settings that decide what the rows say in its own `SETTINGS` clause.
+Under `EXECUTE AS`, ClickHouse drops a connection setting that the caller's profile forbids without
+an error, but refuses a statement whose own setting that profile forbids. So a caller whose profile
+forbids one of them is refused, and never answered without it.
 
 ### Token sign-in
 
