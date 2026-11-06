@@ -5,13 +5,14 @@
 //! [`Nodes::reading`](crate::Nodes::reading) names for the leg's source. The planning node reads none
 //! of it.
 //!
-//! A partition's key and grant ride in its task's own plan variant, which the engine encodes for,
-//! and sends to, the one node that task is routed to: no other stage node is sent them.
+//! A partition's key and grant, and the caller's token where the leg is read with one, ride in its
+//! task's own plan variant, which the engine encodes for, and sends to, the one node that task is
+//! routed to: no other stage node is sent them, and no header carries the token.
 //!
 //! # Limits
 //!
 //! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
-//!   checks its link values across its partitions in the same session it joins in. Only a mixed-kind
+//!   checks its link values across its partitions in the same session it joins in. Only a
 //!   `sutura serve` deployment's PostgreSQL source grants a served leg
 //!   (`github.com/telekom/sutura#828`); every other served lookup leg is read whole, or partition by
 //!   partition, on the planning node, which checks its link values there.
@@ -33,7 +34,9 @@
 //!   `SourceUnavailable` naming it. Sources that each have a reader but none in
 //!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
-//! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
+//! - No source grants a `BigQuery` leg yet, so no served question forwards a token. The planning
+//!   node keeps its copy of the token as long as the leg's table is registered, and does not wipe
+//!   the plan bytes it encodes the token into for each task.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
 //! - A worker admits a partition's first key: the same leg's same partition asked of it again within
 //!   that key's idle window, under a fresh key, is refused.
@@ -66,7 +69,7 @@ use url::Url;
 
 use super::NoReadingNode;
 use super::grant;
-use super::partition::PartitionScanExec;
+use super::partition::{Forwarded, PartitionScanExec};
 
 /// A leg split into partitions, each read only by a task on a worker that reads its source.
 #[derive(Debug)]
@@ -77,6 +80,7 @@ struct Leg {
     source: SourceName,
     schema: SchemaRef,
     partitions: Vec<Granted>,
+    forwarded: Option<Forwarded>,
 }
 
 impl fmt::Debug for Leg {
@@ -84,6 +88,7 @@ impl fmt::Debug for Leg {
         f.debug_struct("Leg")
             .field("source", &self.source)
             .field("partitions", &self.partitions.len())
+            .field("forwarded", &self.forwarded.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -127,12 +132,47 @@ impl SplitScan {
         until: SystemTime,
         bound: StreamBound,
     ) -> Result<Self, DataFusionError> {
+        Self::minted((wire, source, schema), partitions, (caller, until), bound, None)
+    }
+
+    /// [`Self::granted`], each partition read with `forwarded`, the caller's own token.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::granted`].
+    pub(crate) fn granted_forwarding(
+        wire: Vec<u8>,
+        source: SourceName,
+        schema: SchemaRef,
+        partitions: impl IntoIterator<Item = Vec<u8>>,
+        caller: &SubjectKey,
+        until: SystemTime,
+        bound: StreamBound,
+        forwarded: Forwarded,
+    ) -> Result<Self, DataFusionError> {
+        Self::minted((wire, source, schema), partitions, (caller, until), bound, Some(forwarded))
+    }
+
+    fn minted(
+        (wire, source, schema): (Vec<u8>, SourceName, SchemaRef),
+        partitions: impl IntoIterator<Item = Vec<u8>>,
+        (caller, until): (&SubjectKey, SystemTime),
+        bound: StreamBound,
+        forwarded: Option<Forwarded>,
+    ) -> Result<Self, DataFusionError> {
         // A deadline before the epoch is already past: every grant under it is refused.
         let until = until.duration_since(UNIX_EPOCH).unwrap_or_default();
         let partitions = partitions
             .into_iter()
             .map(|partition| {
-                let (key, grant) = grant::granted_read(&wire, &source, &partition, caller, until, bound.rows, bound.bytes)?;
+                let (key, grant) = grant::granted_read(
+                    &wire,
+                    &source,
+                    &partition,
+                    (caller, until),
+                    (bound.rows, bound.bytes),
+                    forwarded.as_ref(),
+                )?;
                 Ok(Granted { partition, key, grant })
             })
             .collect::<Result<Vec<_>, DataFusionError>>()?;
@@ -144,6 +184,7 @@ impl SplitScan {
             source,
             schema,
             partitions,
+            forwarded,
         })))
     }
 }
@@ -287,14 +328,18 @@ pub(super) fn scaled(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLe
                         .enumerate()
                         .map(|(index, granted)| {
                             if index.checked_rem(tasks) == Some(task) {
-                                Arc::new(PartitionScanExec::new(
+                                let scan = PartitionScanExec::new(
                                     leg.wire.clone(),
                                     leg.source.clone(),
                                     granted.partition.clone(),
                                     granted.key,
                                     Some(granted.grant.clone()),
                                     Arc::clone(&leg.schema),
-                                )) as Arc<dyn ExecutionPlan>
+                                );
+                                Arc::new(match &leg.forwarded {
+                                    Some(forwarded) => scan.forwarding(forwarded.copied()),
+                                    None => scan,
+                                }) as Arc<dyn ExecutionPlan>
                             } else {
                                 Arc::new(EmptyExec::new(Arc::clone(&leg.schema)))
                             }

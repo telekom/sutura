@@ -1,13 +1,12 @@
-//! A split PostgreSQL lookup leg granted to the nodes that read its source, or read here.
+//! A split lookup leg granted to the nodes that read its source, or read here.
 //!
-//! [`granted_or_read`](grant::granted_or_read) is the arm [`AnyWarehouse`] runs from
-//! `split_lookup` once `split_by_estimate` split a leg, over [`HeldSplit`](grant::HeldSplit) so a
-//! fake can stand in for the driver.
+//! [`granted_or_read`](grant::granted_or_read) is the arm each [`SplitKind`](crate::serve::kind::split::SplitKind)
+//! runs once its source split a leg, over [`HeldSplit`](grant::HeldSplit) so a fake can stand in for
+//! the driver.
 //!
 //! **Limits:** a split of one partition is read here, never granted: the combine plans a granted leg
-//! of one partition as one task, and that task's leaf only reads inside a reading task. A split with
-//! a column whose type its cells decide (`NUMERIC`) is read here too, because no one schema stands
-//! for every partition.
+//! of one partition as one task, and that task's leaf only reads inside a reading task. A split whose
+//! columns no one schema stands for is read here too.
 
 use core::num::NonZeroU32;
 use std::time::SystemTime;
@@ -17,15 +16,12 @@ use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_exec_datafusion::SchemaRef;
-use sutura_exec_postgres::adbc::SplitLeg;
-
-use super::AnyWarehouseError;
 
 /// The columns every partition answers, `None` where no one schema stands for them, or the failure.
-type Described<E> = Result<Option<SchemaRef>, E>;
+pub(super) type Described<E> = Result<Option<SchemaRef>, E>;
 
 /// One partition read here, `None` past the last.
-type Read<E> = Option<Result<ResultBatches, E>>;
+pub(super) type Read<E> = Option<Result<ResultBatches, E>>;
 
 /// A split its source holds open across its partitions, as the grant arm reads it.
 pub(super) trait HeldSplit: Send + Sync {
@@ -47,30 +43,6 @@ pub(super) trait HeldSplit: Send + Sync {
 
     /// Partition `index` read here, or `None` past the last.
     fn read(&self, index: usize, deadline: Deadline) -> Read<Self::Error>;
-}
-
-impl HeldSplit for SplitLeg<'_> {
-    type Error = AnyWarehouseError;
-
-    fn descriptors(&self) -> Vec<Option<Vec<u8>>> {
-        self.partitions()
-            .map(|partition| partition.descriptor().map(|descriptor| descriptor.to_bytes()))
-            .collect()
-    }
-
-    fn columns(&mut self, deadline: Deadline) -> Described<Self::Error> {
-        self.schema(deadline).map_err(AnyWarehouseError::Postgres)
-    }
-
-    fn estimate(&self) -> EstimatedBytes {
-        SplitLeg::estimate(self)
-    }
-
-    fn read(&self, index: usize, deadline: Deadline) -> Read<Self::Error> {
-        self.partitions()
-            .nth(index)
-            .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
-    }
 }
 
 /// `split` granted to `grantee` when it has two or more partitions and one schema, held by the

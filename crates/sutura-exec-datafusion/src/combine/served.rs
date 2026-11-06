@@ -5,16 +5,17 @@
 //!
 //! # Limits
 //!
-//! - A served question is granted a leg only by a mixed-kind `sutura serve` deployment's PostgreSQL
+//! - A served question is granted a leg only by a `sutura serve` deployment's PostgreSQL
 //!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
 //! - The ambiguous-link check and the join each read every partition, so each partition is read
 //!   twice, under the one snapshot its source holds open across both. Accepted.
 //! - A granted leg is planned across whatever its size and never tried on this node. A combiner
 //!   with no other node, or a stage no resolved node reads the leg's source for, refuses it as
 //!   [`CombineError::NoReadingNode`], which `sutura_app` answers as `SourceUnavailable` naming that
-//!   source. A granted source no other node is declared as reading is refused
-//!   before any granted partition is read; one whose declared readers do not resolve only when its
-//!   stage is routed, after an earlier leg's partitions may have been read.
+//!   source. A granted source no other node is declared as reading, or none of whose declared
+//!   readers resolves once the session is planned, is refused before the combine runs; one whose
+//!   readers resolve but share no node with another split leg's only when its stage is routed,
+//!   after an earlier leg's partitions may have been read.
 //! - A granted leg whose link the relationship casts is refused as a registration failure: the cast
 //!   applies to rows this node holds, and a granted leg's are not here. `sutura_app` grants no leg
 //!   whose link the plan declares a comparison for (`LinkCast::Declared`), so only a runner that
@@ -36,6 +37,8 @@ use datafusion::common::TableReference;
 use datafusion::error::DataFusionError;
 use datafusion::prelude::SessionContext;
 use sutura_domain::model::SourceName;
+#[cfg(feature = "distributed")]
+use sutura_domain::plan::ReadAs;
 use sutura_domain::plan::{Granted, InternalLabel, Legs, LookupLeg, LookupRead};
 use sutura_domain::warehouse::ResultBatches;
 
@@ -43,7 +46,7 @@ use super::cast::Cast;
 use super::schema::LegSchema;
 use super::{CombineError, DataFusionCombiner, held, missing_lookup, register_link};
 #[cfg(feature = "distributed")]
-use super::{SplitScan, StreamBound, across, working_set_of};
+use super::{Forwarded, SplitScan, StreamBound, across, working_set_of};
 use crate::pool::WorkingSet;
 
 /// The source of each lookup leg of `legs` granted rather than read here, in order.
@@ -96,7 +99,8 @@ pub(super) fn register_lookup(
 }
 
 /// `granted` as one [`SplitScan`](crate::SplitScan) table, each partition's stream bounded at
-/// `ceiling_bytes` clamped to `u32` and at the grant's row bound.
+/// `ceiling_bytes` clamped to `u32` and at the grant's row bound, and read with the caller's token
+/// where the grant reads with one.
 #[cfg(feature = "distributed")]
 fn registered_split(
     context: &SessionContext,
@@ -107,15 +111,32 @@ fn registered_split(
 ) -> Result<(), CombineError> {
     let unregistered = |cause| CombineError::Register { side: table, cause };
     let bound = StreamBound::new(granted.stream_rows().get(), u32::try_from(ceiling_bytes).unwrap_or(u32::MAX));
-    let scan = SplitScan::granted(
+    let (wire, schema, partitions) = (
         granted.wire().to_vec(),
-        source.clone(),
         Arc::clone(granted.schema()),
         granted.partitions().iter().cloned(),
-        granted.caller(),
-        granted.until(),
-        bound,
-    )
+    );
+    let scan = match granted.reads() {
+        ReadAs::ServiceUser => SplitScan::granted(
+            wire,
+            source.clone(),
+            schema,
+            partitions,
+            granted.caller(),
+            granted.until(),
+            bound,
+        ),
+        ReadAs::CallerToken(token) => SplitScan::granted_forwarding(
+            wire,
+            source.clone(),
+            schema,
+            partitions,
+            granted.caller(),
+            granted.until(),
+            bound,
+            Forwarded::new(token.secret().clone(), token.pool()),
+        ),
+    }
     .map_err(unregistered)?;
     context.deregister_table(TableReference::bare(table)).map_err(unregistered)?;
     context
@@ -144,8 +165,8 @@ fn registered_split(
 /// # Errors
 ///
 /// [`CombineError::NoReadingNode`] for a combiner with no other node, or for the first granted
-/// source no other node is declared as reading, asking none, and every failure of a combine across
-/// them.
+/// source no other node is declared as reading or none of whose readers resolves, asking none, and
+/// every failure of a combine across them.
 #[cfg_attr(
     not(feature = "distributed"),
     expect(unused_variables, reason = "reads `combiner.nodes`, which only `distributed` declares")
@@ -167,8 +188,15 @@ pub(super) fn combined(
         let legs_bytes = super::legs_held(legs);
         let working_set = working_set_of(ceiling_bytes);
         let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
-        return run(&nodes.session_for(working_set, legs_bytes, ceiling_bytes)?, working_set)
-            .map_err(|error| across::relayed(across::lost(error)));
+        let session = nodes.session_for(working_set, legs_bytes, ceiling_bytes)?;
+        // With no other node resolved the stage is not refused by `split::routed`: the leg's leaf
+        // fails as one task (`SplitLeafExec::execute`), an engine error and no source's refusal.
+        if let Some(unread) = granted(legs).find(|&leg_source| !nodes.resolves_a_reader(leg_source)) {
+            return Err(CombineError::NoReadingNode {
+                source_name: unread.clone(),
+            });
+        }
+        return run(&session, working_set).map_err(|error| across::relayed(across::lost(error)));
     }
     Err(CombineError::NoReadingNode {
         source_name: source.clone(),
