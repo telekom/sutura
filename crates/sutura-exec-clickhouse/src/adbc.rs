@@ -15,7 +15,7 @@ use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
 use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
-use arrow_array::{Array as _, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
+use arrow_array::{Array, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
 use arrow_schema::{ArrowError, Field, Schema};
 
 use sutura_adbc::DriverLocation;
@@ -34,6 +34,7 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 use crate::deadline;
 use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
+use crate::sum::{self, SlotScale, SumType};
 
 const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
@@ -170,6 +171,8 @@ pub enum AdbcError {
     Parameters(#[source] ArrowError),
     #[error("the ClickHouse ADBC result could not be read as domain values: {0}")]
     Decode(#[source] UnreadableCell),
+    #[error("column {column}'s decimal total has a digit past its column's scale of {scale}")]
+    DecimalTotalPastScale { column: String, scale: usize },
     #[error("the request deadline was already spent before the statement was sent")]
     DeadlineSpent,
     #[error("the plan could not be rendered for ClickHouse")]
@@ -445,6 +448,8 @@ impl AdbcClickHouseWarehouse {
 }
 
 #[cfg(test)]
+mod sum_slot;
+#[cfg(test)]
 mod tests;
 
 /// Who a statement runs as. `Switched` signs in as the deployment and sends the one statement as
@@ -539,7 +544,8 @@ where
 
 /// The `ClickHouse` sum expression is a tuple carrying a type name and three nullable slots. The
 /// ADBC driver reports that tuple faithfully as an Arrow `Struct`; the domain reader accepts the
-/// scalar total, so select the slot named by the type before the batch enters `Accumulating`.
+/// scalar total, so select the slot named by the type before the batch enters `Accumulating`, and
+/// read a decimal slot at the column's own scale.
 fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
     let schema = batch.schema();
     let mut fields = Vec::with_capacity(schema.fields().len());
@@ -561,7 +567,7 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
         if type_names.is_null(0) {
             return Err(unsupported_struct(field));
         }
-        let Some(sum_type) = crate::sum::SumType::parse(type_names.value(0)) else {
+        let Some(sum_type) = SumType::parse(type_names.value(0)) else {
             return Err(unsupported_struct(field));
         };
         for row in 1..type_names.len() {
@@ -569,7 +575,17 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
                 return Err(unsupported_struct(field));
             }
         }
-        let selected = Arc::clone(struct_array.column(sum_type.slot()));
+        let slot = struct_array.column(sum_type.slot());
+        let selected: Arc<dyn Array> = match sum_type {
+            SumType::Decimal { scale } => Arc::new(sum::at_scale(slot, scale).map_err(|refused| match refused {
+                SlotScale::NotADecimalSlot => unsupported_struct(field),
+                SlotScale::PastScale => AdbcError::DecimalTotalPastScale {
+                    column: field.name().to_owned(),
+                    scale,
+                },
+            })?),
+            SumType::Integer | SumType::Float => Arc::clone(slot),
+        };
         fields.push(Arc::new(field.as_ref().clone().with_data_type(selected.data_type().clone())));
         columns.push(selected);
     }

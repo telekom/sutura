@@ -4695,6 +4695,7 @@ dependencies = [
  "adbc_core",
  "adbc_driver_manager",
  "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
  "rcgen",
  "rustls-native-certs",

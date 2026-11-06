@@ -33,6 +33,8 @@ thiserror = { workspace = true }
 adbc_core = "0.24"
 adbc_driver_manager = "0.24"
 arrow-array = "59"
+# `i256`, the native of the `Decimal256` slot a decimal sum arrives in, to put its scale back.
+arrow-buffer = { workspace = true }
 arrow-schema = "59"
 sutura-adbc = { workspace = true }
 
