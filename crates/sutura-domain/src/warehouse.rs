@@ -636,7 +636,8 @@ pub trait Warehouse {
     ///
     /// **Defaults to [`Partitioned::Whole`]**: a source that does not override this reads every leg
     /// through [`Self::execute`]. Takes no payer: the caller asks it only of a leg that names none,
-    /// and runs every other through [`Self::execute_billed`].
+    /// and runs every other through [`Self::execute_billed`]. A source whose split runs a job labels
+    /// it with `labels`, as [`Self::execute_billed`] labels a leg.
     ///
     /// # Errors
     ///
@@ -649,6 +650,7 @@ pub trait Warehouse {
         _above_bytes: NonZeroU64,
         _readers: NonZeroUsize,
         _grantee: Option<Grantee>,
+        _labels: &labels::JobLabels,
     ) -> LookupSplit<'_, Self::Error> {
         Ok(Partitioned::Whole)
     }

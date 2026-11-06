@@ -469,7 +469,7 @@ fn from_the_registry(
                     given.display()
                 ));
             }
-            oracle::open(source, configured, registry, working_set(runtime))
+            oracle::open(source, configured, pinned, registry, working_set(runtime))
         }
         sutura_config::SourceKind::Cube => {
             if let Some(given) = data {

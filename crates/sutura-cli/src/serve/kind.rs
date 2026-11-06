@@ -317,11 +317,12 @@ impl Warehouse for AnyWarehouse {
         above_bytes: core::num::NonZeroU64,
         readers: core::num::NonZeroUsize,
         grantee: Option<sutura_domain::plan::Grantee>,
+        labels: &JobLabels,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
         let Some(kind) = self.splits() else {
             return Ok(sutura_domain::plan::Partitioned::Whole);
         };
-        kind.split(leg, presented, deadline, above_bytes, readers, grantee)
+        kind.split(leg, presented, deadline, above_bytes, readers, grantee, labels)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -528,7 +529,10 @@ pub(crate) fn open_mixed(
         trust_into(&mut attached, pinned, &grouped.clickhouse);
     }
     if !grouped.oracle.is_empty() {
-        engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry, runtime)?)?);
+        engines = Some(accumulate(
+            engines,
+            oracle_group(&grouped.oracle, pinned, registry, runtime)?,
+        )?);
         trust_into(&mut attached, pinned, &grouped.oracle);
     }
     if !grouped.duckdb.is_empty() {

@@ -80,11 +80,29 @@ impl PartitionDescriptor {
 impl TryFrom<&[u8]> for PartitionDescriptor {
     type Error = InvalidDescriptor;
 
-    /// **Not built yet:** no version is read, so every descriptor is refused naming its first byte.
+    #[expect(
+        clippy::big_endian_bytes,
+        reason = "a descriptor crosses hosts, so its numbers are in network byte order"
+    )]
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Err(InvalidDescriptor::Version {
-            found: bytes.first().copied().unwrap_or(0),
-        })
+        let (&version, rest) = bytes.split_first().ok_or(InvalidDescriptor::Truncated)?;
+        if version != VERSION {
+            return Err(InvalidDescriptor::Version { found: version });
+        }
+        let (scn, rest) = rest.split_first_chunk::<8>().ok_or(InvalidDescriptor::Truncated)?;
+        let (key, rest) = rest.split_first_chunk::<2>().ok_or(InvalidDescriptor::Truncated)?;
+        let (index, rest) = rest.split_first_chunk::<4>().ok_or(InvalidDescriptor::Truncated)?;
+        let (count, rest) = rest.split_first_chunk::<4>().ok_or(InvalidDescriptor::Truncated)?;
+        if !rest.is_empty() {
+            return Err(InvalidDescriptor::Trailing { extra: rest.len() });
+        }
+        let scn = Scn::parse(u64::from_be_bytes(*scn)).ok_or(InvalidDescriptor::NoSnapshot)?;
+        let bucket = KeyBucket::new(
+            u16::from_be_bytes(*key),
+            u32::from_be_bytes(*index),
+            u32::from_be_bytes(*count),
+        )?;
+        Ok(Self { scn, bucket })
     }
 }
 

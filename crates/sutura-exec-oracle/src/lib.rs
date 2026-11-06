@@ -223,10 +223,16 @@ pub enum OracleError {
          this source reads instead"
     )]
     FlashbackAnyTable,
+    /// The service user holds a system privilege that grants it privileges or roles.
+    #[error(
+        "the service user holds `{privilege}`; revoke it, and grant the service user only the \
+         per-table `FLASHBACK` it needs"
+    )]
+    FlashbackPrivilegeHeld { privilege: &'static str },
     /// A role granted to the service user is not enabled when it signs in.
     #[error(
-        "a role granted to the service user is not enabled when it signs in; make every role it \
-         holds a default role, or revoke it"
+        "a role granted to the service user is not enabled when it signs in; grant the service user \
+         only the per-table `FLASHBACK` it needs, and no role it does not enable at sign-in"
     )]
     FlashbackRoleNotEnabled,
     /// The service user could not read `table` at a snapshot.
@@ -255,6 +261,9 @@ pub enum OracleError {
     },
     /// The database can no longer read the partition's snapshot: `ORA-01555` (snapshot too old),
     /// `ORA-08181` (not a valid system change number) or `ORA-01466` (the table's definition changed).
+    ///
+    /// Only the top error of the server's stack is read: one of these codes nested under another
+    /// stays [`Self::Execute`], refused but not as this variant.
     #[error("the partition's snapshot can no longer be read")]
     SnapshotGone {
         #[source]
@@ -469,19 +478,25 @@ impl OracleWarehouse {
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot
-    /// probe passed over `tables`: the service user holds no `FLASHBACK ANY TABLE`, the database
-    /// answers a snapshot, and each of `tables` reads at it.
+    /// probe passed over `tables`. The probe reads the privileges granted to the service user when it
+    /// runs: directly, through `PUBLIC`, and through roles granted to the service user. It passes
+    /// where none of them is `FLASHBACK ANY TABLE`, `GRANT ANY PRIVILEGE` or `GRANT ANY ROLE`, every
+    /// role granted to the service user is enabled when it signs in, the database answers a
+    /// snapshot, and each of `tables` reads at it.
+    ///
+    /// That Oracle refuses that zero-row read without a `FLASHBACK` grant on the table is read from
+    /// its documentation, not measured here; the Oracle tier's probe cell measures it.
     ///
     /// No deadline: the boot path has no caller's budget to spend, as [`Warehouse::verify_anchor`]
     /// has none.
     ///
-    /// **Not built yet:** the posture is not checked and no snapshot is read, so a probe that passes
-    /// the privilege check fails as [`OracleError::Unanswered`].
-    ///
     /// # Errors
     ///
-    /// [`OracleError::FlashbackAnyTable`], then [`OracleError::Unanswered`]; a probe the database
-    /// fails otherwise is its own error.
+    /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`],
+    /// [`OracleError::FlashbackPrivilegeHeld`], [`OracleError::FlashbackRoleNotEnabled`], and
+    /// [`OracleError::FlashbackRefused`] naming the
+    /// first table that does not read at a snapshot; a probe the database fails otherwise is its own
+    /// error.
     pub fn with_flashback(
         self,
         tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
