@@ -109,8 +109,10 @@ cell plus the differential are the whole of THAT path's evidence. *None of those
 release executes* was the wording here and is spent: `sutura-exec-postgres` declares
 `EXECUTES_LEGS` and `nix/shipped.nix` carries the `postgres` feature, so the Postgres statements are
 the shape a published binary sends, and its conformance binding executes a leg against the
-provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
-rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
+provisioned tier. Oracle declares the constant too and executes a leg in ONE venue and no gate: the `oracle-tier`
+CI job's two-fact walk compared an Oracle leg with the engines' answer (its `two-fact: compared`
+line names `oracle`, observed at run 42306715669). One job, the example corpus's two-fact ratio only,
+and no `just validate` leg reaches it - and `sutura-exec-bigquery`'s leg is bound the same way
 Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
 a provisioned tier or a live dataset - and a BigQuery leg also executes live, in the two-fact
 differential (`crates/sutura-app/tests/differential/federated/two_fact.rs`), in the
