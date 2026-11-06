@@ -4,15 +4,22 @@
 //! The leg is grouped by its link columns, none of them null, each other column carried as its
 //! group's one value, and a filter over each group's row count fails the plan under the code
 //! [`CombineError::AmbiguousLink`](crate::combine::CombineError::AmbiguousLink) is read back from
-//! when a count passes one. The join reads the grouped relation as its build side, which a hash
-//! join reads whole before the other side, so the check runs even when the side it joins onto has
-//! no row to match. Only an arm's one granted leg is checked here
-//! (`served::counted_in_plan` says why).
+//! when a count passes one. That relation is the build side of a RIGHT join onto the relation every
+//! earlier leg built. A hash join reads its build side whole before its probe side, and a RIGHT
+//! one reads its probe side even when its build side is empty or holds no joinable row, so no join
+//! skips a count: neither this leg's when the relation has no row to match, nor an earlier granted
+//! leg's, inside the relation, when this leg has none. An INNER leg drops the relation's unmatched
+//! rows above the join, under a function the engine cannot read as rejecting nulls, so no rule
+//! turns the join back into the INNER one that would skip its probe side.
 //!
 //! # Limits
 //!
 //! - The build side is the join order this plan builds, kept only because the session's
 //!   statistics-driven join reordering is turned off for the whole combine that reads a granted leg.
+//! - No filter reaches the count from outside it: the engine pushes none into the build side of a
+//!   RIGHT join, and a RIGHT join pushes no dynamic filter into its probe side. So an INNER leg's
+//!   unmatched relation rows are not pruned at their scan either, and flow through the join to the
+//!   filter that drops them. Not measured.
 //! - The whole leg is held, as the count's group state and then as the join's build side, on a
 //!   worker whose pool spills nowhere: a large leg can be refused for its working set. Not measured.
 //! - Each other column is carried as `max` of its group, which is that group's one value in every
@@ -22,14 +29,16 @@
 //!   such a column.
 //! - The count is a stage of the question, so the refusal is an engine failure of that stage, read
 //!   back by its code: a peer can raise it for a question it fails, never answer one with it.
-//! - Every node must register the filter's function by name: a node built without it cannot decode
-//!   the stage, and the question fails as [`CombineError::Execute`](crate::combine::CombineError::Execute).
+//! - Every node must register both filters' functions by name: a node built without them cannot
+//!   decode the stage, and the question fails as
+//!   [`CombineError::Execute`](crate::combine::CombineError::Execute).
 
 use std::sync::Arc;
 
 use datafusion::arrow::array::AsArray as _;
+use datafusion::arrow::compute::is_not_null;
 use datafusion::arrow::datatypes::{DataType, Int64Type};
-use datafusion::common::{Column, ScalarValue};
+use datafusion::common::{Column, JoinType, ScalarValue};
 use datafusion::error::DataFusionError;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::{count, max};
@@ -42,8 +51,11 @@ use super::relay;
 use crate::combine::arm::qualified;
 use crate::combine::probe_label;
 
-/// The name the filter's function is registered and sent under.
+/// The name the count's filter function is registered and sent under.
 const NAME: &str = "sutura_one_row_per_link";
+
+/// The name the INNER leg's filter function is registered and sent under.
+const MATCHED: &str = "sutura_matched";
 
 /// True for every group whose row count is at most one, and the plan's failure otherwise.
 ///
@@ -94,23 +106,87 @@ impl ScalarUDFImpl for OneRowPerLink {
     }
 }
 
-/// `builder`, its sessions able to decode the stage [`checked`] plans.
+/// True where its argument is not null, which for a link column of the build side is a row the
+/// RIGHT join matched.
+///
+/// Not strict, the engine's default, and truly so: a null answers false. A function declared strict
+/// over the build side's columns would let the engine's outer-join elimination make the join INNER.
+/// Volatile as a guard, as the count's filter is; no cell tells that from `Immutable`.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct Matched {
+    signature: Signature,
+}
+
+impl Matched {
+    fn new() -> Self {
+        Self {
+            signature: Signature::any(1, Volatility::Volatile),
+        }
+    }
+}
+
+impl ScalarUDFImpl for Matched {
+    fn name(&self) -> &str {
+        MATCHED
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _: &[DataType]) -> Result<DataType, DataFusionError> {
+        Ok(DataType::Boolean)
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue, DataFusionError> {
+        let [value] = args.args.as_slice() else {
+            return Err(DataFusionError::Internal(format!("`{MATCHED}` reads one column")));
+        };
+        let values = value.to_array(args.number_rows)?;
+        Ok(ColumnarValue::Array(Arc::new(is_not_null(&values)?)))
+    }
+}
+
+/// `builder`, its sessions able to decode the stages [`joined`] plans.
 pub(super) fn knowing(mut builder: SessionStateBuilder) -> SessionStateBuilder {
+    let functions = builder.scalar_functions().get_or_insert_default();
+    functions.push(Arc::new(ScalarUDF::new_from_impl(OneRowPerLink::new())));
+    functions.push(Arc::new(ScalarUDF::new_from_impl(Matched::new())));
     builder
-        .scalar_functions()
-        .get_or_insert_default()
-        .push(Arc::new(ScalarUDF::new_from_impl(OneRowPerLink::new())));
-    builder
+}
+
+/// `scanned`, the granted leg registered as `table`, [`checked`] on its link columns `links` and
+/// joined onto `relation` on `on` as the build side of a RIGHT join, which keeps the relation's rows
+/// the leg has none for when `include_unmatched` and drops them otherwise.
+///
+/// # Errors
+///
+/// The engine's failure to build the plan, and [`DataFusionError::Internal`] for a leg with no
+/// link column, which nothing would drop an unmatched row on.
+pub(crate) fn joined(
+    relation: LogicalPlan,
+    scanned: LogicalPlan,
+    table: &str,
+    links: &[String],
+    on: Vec<Expr>,
+    include_unmatched: bool,
+) -> Result<LogicalPlan, DataFusionError> {
+    let joined = LogicalPlanBuilder::from(checked(scanned, table, links)?).join_on(relation, JoinType::Right, on)?;
+    if include_unmatched {
+        return joined.build();
+    }
+    let matched = links
+        .iter()
+        .map(|link| ScalarUDF::new_from_impl(Matched::new()).call(vec![qualified(table, link)]))
+        .reduce(Expr::and)
+        .ok_or_else(|| DataFusionError::Internal(format!("the granted leg `{table}` joins on no link column")))?;
+    joined.filter(matched)?.build()
 }
 
 /// `scanned`, the granted leg registered as `table`, as the relation its join reads: one row per
 /// value of its link columns `on`, none of them null, and the plan failing as an ambiguous link
 /// where a value has more than one.
-///
-/// # Errors
-///
-/// The engine's failure to build the plan.
-pub(crate) fn checked(scanned: LogicalPlan, table: &str, on: &[String]) -> Result<LogicalPlan, DataFusionError> {
+fn checked(scanned: LogicalPlan, table: &str, on: &[String]) -> Result<LogicalPlan, DataFusionError> {
     let probe = probe_label();
     let links: Vec<Expr> = on.iter().map(|label| qualified(table, label)).collect();
     let joinable = links.iter().fold(lit(true), |all, link| all.and(link.clone().is_not_null()));
