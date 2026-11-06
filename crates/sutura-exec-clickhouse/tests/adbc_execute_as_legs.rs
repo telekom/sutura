@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 //! A federated leg under `EXECUTE AS`, over the ADBC transport: the switched user is named in the
-//! leg's one statement under the deployment's own sign-in, and the tier's server answers the leg
+//! leg's statement under the deployment's own sign-in, and the tier's server answers the leg
 //! under that user's grants. The first cell reads what the driver sends to a loopback listener; the
 //! others ask the tier's server, whose users `nix/clickhouse-tier-provision.sh` declares.
 
@@ -364,10 +364,10 @@ mod adbc_execute_as_legs {
         })
     }
 
-    /// A leg under a switch is one statement, sent under the deployment's own sign-in and prefixed
-    /// with the switched user, and its date parameters still bind under the prefix.
+    /// The first request of a leg under a switch is sent under the deployment's own sign-in, its
+    /// statement starts with the switched user, and its date parameters still bind under the prefix.
     #[test]
-    fn a_switched_leg_is_named_in_its_one_statement_under_the_deployment_sign_in() {
+    fn a_switched_leg_is_named_in_its_first_request_under_the_deployment_sign_in() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port is free");
         let endpoint = format!("http://{}", listener.local_addr().expect("a bound listener has an address"));
         listener.set_nonblocking(true).expect("the listener goes non-blocking");
@@ -390,7 +390,8 @@ mod adbc_execute_as_legs {
         let (head, body) = request.split_once("\r\n\r\n").expect("the request has a head");
         assert_eq!(header(head, "x-clickhouse-user"), Some("sutura_service"), "{head}");
         assert_eq!(header(head, "x-clickhouse-key"), Some("deployment-secret"), "{head}");
-        assert!(body.contains("EXECUTE AS \"sutura_switched\" SELECT "), "{body}");
+        let statement = body.strip_prefix("EXECUTE AS \"sutura_switched\" SELECT ");
+        assert!(statement.is_some(), "{body}");
         assert!(body.contains("{p0:Date}") && body.contains("{p1:Date}"), "{body}");
     }
 
@@ -466,42 +467,33 @@ mod adbc_execute_as_legs {
         agreeing(&shared, &tier.answered_as(LEGS, &leg, "sutura_switched"));
     }
 
-    /// RECORDS what the server does with a leg switched to a user whose profile sets `readonly = 1`.
-    /// The server's source reads as though the switch clamps sutura's settings against that profile
-    /// and drops them without an error, `join_use_nulls` among them; no run here has observed it.
-    /// The cell holds only that the leg reaches the server, and prints what came back.
+    /// KNOWN DEFECT, fixed in a separate change: a leg switched to a user whose profile sets
+    /// `readonly = 1` is answered without an error and without sutura's settings. The server clamps
+    /// them against the profile, `join_use_nulls` among them, so the LEFT JOIN's unmatched key reads
+    /// as the empty string and not as NULL. This cell pins that wrong answer as the current
+    /// behaviour, as measured on the tier; the change that fixes it turns this cell red and flips
+    /// the expectation to NULL.
     #[test]
-    fn a_switched_leg_under_a_readonly_profile_reaches_the_server() {
+    fn a_switched_leg_under_a_readonly_profile_reads_an_unmatched_key_as_empty() {
         let Some(tier) = Tier::here("readonly") else { return };
         tier.load(LEGS);
-        let leg = joined();
-        let (warehouse, answered) = tier.switched(LEGS, &leg, "sutura_switched_readonly");
-        let observed = match answered {
-            Ok(answered) => {
-                let unmatched = answered
-                    .rows()
-                    .iter()
-                    .find(|row| row.last() == Some(&Value::Integer(50)))
-                    .and_then(|row| row.first().cloned());
-                format!(
-                    "answered {} rows; the unmatched key read as {unmatched:?}",
-                    answered.rows().len()
-                )
-            }
-            Err(refused @ AdbcError::Driver(_)) => format!(
-                "refused by the server (source_refused: {}): {refused}",
-                warehouse.source_refused(&refused)
-            ),
-            Err(refused) => panic!("the leg did not reach the server: {refused:?}"),
-        };
-        eprintln!("adbc_execute_as_legs::readonly: OBSERVED - {observed}");
+        let (_, answered) = tier.switched(LEGS, &joined(), "sutura_switched_readonly");
+        let answered = answered.unwrap_or_else(|refused| panic!("the server refused the leg: {refused}"));
+        let unmatched = answered
+            .rows()
+            .iter()
+            .find(|row| row.last() == Some(&Value::Integer(50)))
+            .and_then(|row| row.first());
+        assert_eq!(answered.rows().len(), 5, "{answered:?}");
+        assert_eq!(unmatched, Some(&Value::Text(String::new())), "{answered:?}");
     }
 
-    /// RECORDS what `system.query_log` holds for one switched leg: every statement the leg's
-    /// connection sent in its database, each with its `user` and `initial_user`. It holds that
-    /// exactly one of them is the switched statement, and prints them all.
+    /// `system.query_log` holds, for one switched leg, exactly two finished statements in its
+    /// database, as measured on the tier: the leg's own `SELECT` under the switched user, and the
+    /// `EXECUTE AS` wrapper under the service user. The log keeps the statement re-formatted after
+    /// its parameters are bound, so the cell reads the columns and not the text.
     #[test]
-    fn a_switched_leg_is_logged_once_as_its_one_switched_statement() {
+    fn a_switched_leg_is_logged_as_one_select_under_the_switched_user() {
         let Some(tier) = Tier::here("query_log") else { return };
         tier.load(LOGGED);
         let since = tier.asked("SELECT toUnixTimestamp64Micro(now64(6))");
@@ -509,15 +501,23 @@ mod adbc_execute_as_legs {
         drop(tier.answered_as(LOGGED, corpus::leg_case().leg(), "sutura_switched"));
         drop(tier.asked("SYSTEM FLUSH LOGS"));
         let logged = tier.asked(&format!(
-            "SELECT user, initial_user, toString(query_kind), \
-             if(startsWith(query, 'EXECUTE AS \"sutura_switched\" '), 'switched', 'unswitched') \
+            "SELECT user, initial_user, toString(query_kind), substring(query, 1, 80) \
              FROM system.query_log \
              WHERE toUnixTimestamp64Micro(event_time_microseconds) >= {since} \
              AND current_database = '{LOGGED}' AND type = 'QueryFinish' \
              ORDER BY event_time_microseconds FORMAT TSV"
         ));
-        eprintln!("adbc_execute_as_legs::query_log: OBSERVED user, initial_user, kind, prefix\n{logged}");
-        let switched = logged.lines().filter(|line| line.ends_with("\tswitched")).count();
-        assert_eq!(switched, 1, "{logged}");
+        eprintln!("adbc_execute_as_legs::query_log: OBSERVED user, initial_user, kind, query\n{logged}");
+        let mut identities: Vec<_> = logged
+            .lines()
+            .map(|line| line.splitn(4, '\t').take(3).collect::<Vec<_>>())
+            .collect();
+        identities.sort();
+        let mut expected = vec![
+            vec![tier.user.as_str(), tier.user.as_str(), "None"],
+            vec!["sutura_switched", "sutura_switched", "Select"],
+        ];
+        expected.sort();
+        assert_eq!(identities, expected, "{logged}");
     }
 }
