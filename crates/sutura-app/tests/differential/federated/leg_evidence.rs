@@ -114,30 +114,30 @@ fn hold(name: &str, evidence: LegEvidence, available: bool) {
     eprintln!("leg evidence: {name} cites {cited}; its venue {venue} here");
 }
 
-macro_rules! leg_capability {
-    ($name:ident, $adapter:ty) => {
-        mod $name {
-            use crate::adapters::DataSystemUnderTest;
-            use sutura_domain::warehouse::Warehouse;
+/// One cell over the registry rather than one per entry, so the assertion sits in the cell's own fn:
+/// a failure panics at the `registered!` line below, inside it, which is where a claim's killing
+/// mutation is read.
+#[test]
+fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
+    use crate::adapters::DataSystemUnderTest;
+    use sutura_domain::warehouse::Warehouse;
 
-            #[test]
-            fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
-                let name = <$adapter as DataSystemUnderTest>::NAME;
-                let declared = super::leg_evidence(name);
-                assert_eq!(
-                    <$adapter as Warehouse>::EXECUTES_LEGS,
-                    declared.is_some(),
-                    "{name} changed its leg capability; \
-                     crates/sutura-app/tests/differential/federated/leg_evidence.rs is where a \
-                     leg-executing adapter declares where its executed leg evidence is, and an \
-                     adapter that declares the constant owes an entry"
-                );
-                if let Some(evidence) = declared {
-                    super::hold(name, evidence, <$adapter as DataSystemUnderTest>::available());
-                }
+    macro_rules! leg_capability {
+        ($name:ident, $adapter:ty) => {{
+            let name = <$adapter as DataSystemUnderTest>::NAME;
+            let declared = leg_evidence(name);
+            assert_eq!(
+                <$adapter as Warehouse>::EXECUTES_LEGS,
+                declared.is_some(),
+                "{name} changed its leg capability; \
+                 crates/sutura-app/tests/differential/federated/leg_evidence.rs is where a \
+                 leg-executing adapter declares where its executed leg evidence is, and an \
+                 adapter that declares the constant owes an entry"
+            );
+            if let Some(evidence) = declared {
+                hold(name, evidence, <$adapter as DataSystemUnderTest>::available());
             }
-        }
-    };
+        }};
+    }
+    crate::adapters::registered!(data_systems: leg_capability);
 }
-
-crate::adapters::registered!(data_systems: leg_capability);

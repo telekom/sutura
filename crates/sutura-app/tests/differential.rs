@@ -432,9 +432,7 @@ mod tests {
     /// `a_federated_answer_is_refused_when_only_one_leg_can_execute` in
     /// `sutura-app`'s `federated/tests.rs`. An entry `runs_here` admits and the walk did not ask is
     /// a finding, and the entries compared are printed, so the `bigquery-conformance` job's log
-    /// names `bigquery`. `SUTURA_TWO_FACT_ONLY`, a comma-separated list, narrows which entries are
-    /// asked, for a venue that starts a tier beside one it cannot credential - unset, no gate is
-    /// narrowed - and a name the registry lacks is refused.
+    /// names `bigquery`.
     /// One cell over the registry rather than one per entry, and one assertion in it:
     /// `federated::two_fact::compared` says what each entry did, and the two engines it compares
     /// against are held to hand-worked figures by that file's own cell. **The first finding stops the
@@ -444,31 +442,22 @@ mod tests {
     #[test]
     fn leg_executing_data_systems_agree_with_the_engines_and_a_legless_one_is_refused() {
         use crate::federated::two_fact::{TwoFact, compared};
-        let only = std::env::var("SUTURA_TWO_FACT_ONLY").unwrap_or_default();
-        let only: Vec<&str> = only.split(',').map(str::trim).filter(|name| !name.is_empty()).collect();
         let mut found: Option<String> = None;
         let mut asked: Vec<&str> = Vec::new();
-        let mut registered: Vec<&str> = Vec::new();
         macro_rules! two_fact {
-            ($name:ident, $adapter:ty) => {{
-                let name = <$adapter as crate::adapters::DataSystemUnderTest>::NAME;
-                registered.push(name);
-                if found.is_none() && (only.is_empty() || only.contains(&name)) && crate::adapters::runs_here::<$adapter>() {
+            ($name:ident, $adapter:ty) => {
+                if found.is_none() && crate::adapters::runs_here::<$adapter>() {
+                    let name = <$adapter as crate::adapters::DataSystemUnderTest>::NAME;
                     match compared::<$adapter>() {
                         TwoFact::Held => asked.push(name),
                         TwoFact::Broke(finding) => found = Some(finding),
                         TwoFact::NotAsked => found = Some(format!("{name} runs here and the two-fact walk did not ask it")),
                     }
                 }
-            }};
+            };
         }
         crate::adapters::registered!(data_systems: two_fact);
         eprintln!("two-fact: compared {asked:?}");
-        let unknown: Vec<&&str> = only.iter().filter(|name| !registered.contains(name)).collect();
-        assert!(
-            unknown.is_empty(),
-            "SUTURA_TWO_FACT_ONLY names {unknown:?}, which `registered!(data_systems:)` does not"
-        );
         assert!(found.is_none(), "{}", found.unwrap_or_default());
     }
 
