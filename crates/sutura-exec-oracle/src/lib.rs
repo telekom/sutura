@@ -221,10 +221,16 @@ pub enum OracleError {
          this source reads instead"
     )]
     FlashbackAnyTable,
+    /// The service user holds a system privilege that grants it privileges or roles.
+    #[error(
+        "the service user holds `{privilege}`; revoke it, and grant the service user only the \
+         per-table `FLASHBACK` it needs"
+    )]
+    FlashbackPrivilegeHeld { privilege: &'static str },
     /// A role granted to the service user is not enabled when it signs in.
     #[error(
-        "a role granted to the service user is not enabled when it signs in; make every role it \
-         holds a default role, or revoke it"
+        "a role granted to the service user is not enabled when it signs in; grant the service user \
+         only the per-table `FLASHBACK` it needs, and no role it does not enable at sign-in"
     )]
     FlashbackRoleNotEnabled,
     /// The service user could not read `table` at a snapshot.
@@ -470,8 +476,10 @@ impl OracleWarehouse {
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot
-    /// probe passed over `tables`: the service user holds `FLASHBACK ANY TABLE` in no way, directly
-    /// or through any role, every role it holds is enabled when it signs in, the database answers a
+    /// probe passed over `tables`. The probe reads the privileges granted to the service user when it
+    /// runs: directly, through `PUBLIC`, and through roles granted to the service user. It passes
+    /// where none of them is `FLASHBACK ANY TABLE`, `GRANT ANY PRIVILEGE` or `GRANT ANY ROLE`, every
+    /// role granted to the service user is enabled when it signs in, the database answers a
     /// snapshot, and each of `tables` reads at it.
     ///
     /// That Oracle refuses that zero-row read without a `FLASHBACK` grant on the table is read from
@@ -483,7 +491,8 @@ impl OracleWarehouse {
     /// # Errors
     ///
     /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`],
-    /// [`OracleError::FlashbackRoleNotEnabled`], and [`OracleError::FlashbackRefused`] naming the
+    /// [`OracleError::FlashbackPrivilegeHeld`], [`OracleError::FlashbackRoleNotEnabled`], and
+    /// [`OracleError::FlashbackRefused`] naming the
     /// first table that does not read at a snapshot; a probe the database fails otherwise is its own
     /// error.
     pub fn with_flashback(

@@ -16,9 +16,10 @@ use super::{InvalidSourceRegistry, SourceKind, SourceRegistry};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceSplit {
     /// An `oracle` source read as its shared service user: every partition reads `AS OF` the one
-    /// system change number taken when the leg is split. The service user holds the `FLASHBACK`
-    /// object privilege on each table it reads, never `FLASHBACK ANY TABLE`: the source's boot probe
-    /// refuses the system privilege however it is granted, directly or through any role.
+    /// system change number taken when the leg is split. The operator grants the service user the
+    /// `FLASHBACK` object privilege on each table it reads. The source's boot probe reads the
+    /// privileges granted to the service user when it runs: directly, through `PUBLIC`, and through
+    /// roles granted to the service user, and it refuses `FLASHBACK ANY TABLE` held that way.
     Flashback,
 }
 

@@ -9,10 +9,12 @@
 //! database when the snapshot was taken and refuses one older than its own request budget, then
 //! runs the statement. Every statement runs on the boot connection, as the declared service user.
 //!
-//! **Only a source [`OracleWarehouse::with_flashback`] probed splits.** Its probe refuses
-//! `FLASHBACK ANY TABLE` however it is granted, directly or through any role, a service user holding
-//! a role that is not enabled when it signs in, and one that cannot read each table it is handed at
-//! a snapshot. Every other source, a fact leg, a root the dictionary holds no table row for (a view, a
+//! **Only a source [`OracleWarehouse::with_flashback`] probed splits.** Its probe reads the
+//! privileges granted to the service user when it runs at boot: directly, through `PUBLIC`, and
+//! through roles granted to the service user. It refuses `FLASHBACK ANY TABLE`, `GRANT ANY
+//! PRIVILEGE` and `GRANT ANY ROLE` held that way, a role granted
+//! to the service user that is not enabled when it signs in, and a table it is handed that does not
+//! read at a snapshot. Every other source, a fact leg, a root the dictionary holds no table row for (a view, a
 //! synonym), a root with no integer `NUMBER` column among the leg's keys, and an estimate at or
 //! under the threshold are read whole.
 //!
@@ -53,14 +55,14 @@ mod descriptor;
 pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
 
 /// The root's statistics and its integer columns, in the session's own schema.
-const ROOT_IN_SCHEMA: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM ALL_TABLES t LEFT JOIN \
-                              ALL_TAB_COLUMNS c ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND \
+const ROOT_IN_SCHEMA: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM SYS.ALL_TABLES t LEFT \
+                              JOIN SYS.ALL_TAB_COLUMNS c ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND \
                               c.DATA_TYPE = 'NUMBER' AND c.DATA_SCALE = 0 WHERE t.TABLE_NAME = :1 AND \
                               t.OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')";
 
 /// [`ROOT_IN_SCHEMA`], for a root its leg names the schema of.
-const ROOT_IN_OWNER: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM ALL_TABLES t LEFT JOIN \
-                             ALL_TAB_COLUMNS c ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND \
+const ROOT_IN_OWNER: &str = "SELECT t.NUM_ROWS, t.AVG_ROW_LEN, c.COLUMN_NAME FROM SYS.ALL_TABLES t LEFT \
+                             JOIN SYS.ALL_TAB_COLUMNS c ON c.OWNER = t.OWNER AND c.TABLE_NAME = t.TABLE_NAME AND \
                              c.DATA_TYPE = 'NUMBER' AND c.DATA_SCALE = 0 WHERE t.TABLE_NAME = :1 AND t.OWNER = :2";
 
 /// The question's snapshot (D3).
@@ -70,19 +72,23 @@ const SNAPSHOT: &str = "SELECT TIMESTAMP_TO_SCN(SYSTIMESTAMP) FROM DUAL";
 const FRESH: &str = "SELECT CASE WHEN SCN_TO_TIMESTAMP(TO_NUMBER(:1)) >= CAST(SYSTIMESTAMP AS TIMESTAMP) - \
                      NUMTODSINTERVAL(TO_NUMBER(:2), 'SECOND') THEN 1 ELSE 0 END FROM DUAL";
 
-/// How often the system privilege the probe refuses is held: by the session, directly, or through a
-/// role (`SESSION_PRIVS`, `USER_SYS_PRIVS`, `ROLE_SYS_PRIVS`).
-const ANY_TABLE: &str = "SELECT COUNT(*) FROM (SELECT PRIVILEGE FROM SESSION_PRIVS UNION ALL SELECT PRIVILEGE FROM \
-                         USER_SYS_PRIVS UNION ALL SELECT PRIVILEGE FROM ROLE_SYS_PRIVS) WHERE PRIVILEGE = \
-                         'FLASHBACK ANY TABLE'";
+/// The system privileges the probe refuses: reading every table at a snapshot, and granting the
+/// service user a privilege or a role.
+const REFUSED: [&str; 3] = ["FLASHBACK ANY TABLE", "GRANT ANY PRIVILEGE", "GRANT ANY ROLE"];
+
+/// How often the system privilege `:1` is held: in the session (`SESSION_PRIVS`, the privileges
+/// granted directly, through `PUBLIC` and through the roles enabled) or through a role granted to
+/// the service user (`ROLE_SYS_PRIVS`).
+const HELD: &str = "SELECT COUNT(*) FROM (SELECT PRIVILEGE FROM SYS.SESSION_PRIVS UNION ALL SELECT PRIVILEGE FROM \
+                    SYS.ROLE_SYS_PRIVS) WHERE PRIVILEGE = :1";
 
 /// How many roles granted to the service user, directly or through a role (`USER_ROLE_PRIVS`,
 /// `ROLE_ROLE_PRIVS`), are not enabled in its session (`SESSION_ROLES`). At sign-in Oracle enables
 /// the privileges granted to the user and those of its default roles, so with none, `SESSION_PRIVS`
-/// holds every privilege a role can give it.
-const ROLES_NOT_ENABLED: &str = "SELECT COUNT(*) FROM (SELECT GRANTED_ROLE FROM USER_ROLE_PRIVS UNION SELECT \
-                                 GRANTED_ROLE FROM ROLE_ROLE_PRIVS) WHERE GRANTED_ROLE NOT IN (SELECT ROLE FROM \
-                                 SESSION_ROLES)";
+/// holds the privileges of every role granted to it.
+const ROLES_NOT_ENABLED: &str = "SELECT COUNT(*) FROM (SELECT GRANTED_ROLE FROM SYS.USER_ROLE_PRIVS UNION SELECT \
+                                 GRANTED_ROLE FROM SYS.ROLE_ROLE_PRIVS) WHERE GRANTED_ROLE NOT IN (SELECT ROLE FROM \
+                                 SYS.SESSION_ROLES)";
 
 /// The Oracle error numbers of a snapshot the database can no longer read: `ORA-01555` snapshot too
 /// old, `ORA-08181` not a valid system change number, `ORA-01466` the table's definition changed.
@@ -134,8 +140,14 @@ pub(super) fn with_flashback(
     tables: &BTreeSet<QualifiedTable>,
 ) -> Result<OracleWarehouse, OracleError> {
     refuse_impersonating(&warehouse.routing.posture, &warehouse.routing.source)?;
-    if count(&warehouse.run((ANY_TABLE, &[]))?, "the system privilege")? > 0 {
-        return Err(OracleError::FlashbackAnyTable);
+    for privilege in REFUSED {
+        let asked = [ParamValue::Text(String::from(privilege))];
+        if count(&warehouse.run((HELD, &asked))?, "the system privilege")? > 0 {
+            return Err(match privilege {
+                "FLASHBACK ANY TABLE" => OracleError::FlashbackAnyTable,
+                privilege => OracleError::FlashbackPrivilegeHeld { privilege },
+            });
+        }
     }
     if count(&warehouse.run((ROLES_NOT_ENABLED, &[]))?, "the roles not enabled")? > 0 {
         return Err(OracleError::FlashbackRoleNotEnabled);

@@ -24,6 +24,7 @@ mod acceptance {
     use sutura_domain::model::{ColumnName, DimensionName, MetricName, QualifiedTable, TableName};
     use sutura_domain::pinned::MetricDigest;
     use sutura_domain::plan::{Executable, InternalLabel, LegPlan, PlanBindings, PlanColumn, PlanKey, ResultLabel};
+    use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::deadline::{Budget, Deadline};
     use sutura_domain::warehouse::{ResultBudget, Value, Warehouse as _};
     use sutura_exec_oracle::{Channel, Dial, OracleError, OracleWarehouse, Planned, SplitLeg};
@@ -68,9 +69,14 @@ mod acceptance {
 
         /// The adapter, as `user`.
         fn adapter(&self, user: &str, password: &str) -> OracleWarehouse {
+            self.adapter_as(corpus::posture(), user, password)
+        }
+
+        /// The adapter, as `user`, declared with `posture`.
+        fn adapter_as(&self, posture: SourcePosture, user: &str, password: &str) -> OracleWarehouse {
             OracleWarehouse::connect(
                 corpus::source(),
-                corpus::posture(),
+                posture,
                 Dial::new(
                     &self.host,
                     self.port,
@@ -413,11 +419,8 @@ mod acceptance {
         not_by_default();
         let later = probe();
         assert!(
-            matches!(
-                later,
-                Err(OracleError::FlashbackAnyTable | OracleError::FlashbackRoleNotEnabled)
-            ),
-            "the same role, not enabled at sign-in: {later:?}"
+            matches!(later, Err(OracleError::FlashbackAnyTable)),
+            "the same role, not enabled at sign-in, read through ROLE_SYS_PRIVS: {later:?}"
         );
 
         execute(&administrator, &format!("REVOKE \"{any}\" FROM \"{reader}\""));
@@ -425,11 +428,8 @@ mod acceptance {
         not_by_default();
         let nested = probe();
         assert!(
-            matches!(
-                nested,
-                Err(OracleError::FlashbackAnyTable | OracleError::FlashbackRoleNotEnabled)
-            ),
-            "the role nested in another, not enabled at sign-in: {nested:?}"
+            matches!(nested, Err(OracleError::FlashbackAnyTable)),
+            "the role nested in another, not enabled at sign-in, read through ROLE_SYS_PRIVS: {nested:?}"
         );
 
         execute(&administrator, &format!("REVOKE \"{nesting}\" FROM \"{reader}\""));
@@ -446,5 +446,88 @@ mod acceptance {
             drop_role(&administrator, role);
         }
         drop_table(&owner, TABLE);
+    }
+
+    /// **The probe refuses a service user that can grant itself privileges or roles**: `GRANT ANY
+    /// PRIVILEGE` and `GRANT ANY ROLE`, each refused naming it. Read through the refusal's text,
+    /// which names the privilege.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn the_flashback_probe_refuses_grant_any_privilege_and_grant_any_role() {
+        const TABLE: &str = "flashback_grants";
+        let tier = tier();
+        let owner = tier.session(&tier.user, &tier.password);
+        customers(&owner, TABLE);
+        let administrator = tier.session("SYSTEM", &tier.password);
+        let (reader, password) = signing_in(&administrator, "FLASHBACK_GRANTS");
+        execute(&owner, &format!("GRANT SELECT, FLASHBACK ON \"{TABLE}\" TO \"{reader}\""));
+        let tables = BTreeSet::from([QualifiedTable::parse(format!("{}.{TABLE}", tier.schema())).expect("a two-part path")]);
+        for privilege in ["GRANT ANY PRIVILEGE", "GRANT ANY ROLE"] {
+            execute(&administrator, &format!("GRANT {privilege} TO \"{reader}\""));
+            let refused = tier.adapter(&reader, &password).with_flashback(&tables);
+            assert!(
+                matches!(refused, Err(ref cause) if cause.to_string().contains(&format!("`{privilege}`"))),
+                "{privilege} is refused naming it: {refused:?}"
+            );
+            execute(&administrator, &format!("REVOKE {privilege} FROM \"{reader}\""));
+        }
+        drop(
+            tier.adapter(&reader, &password)
+                .with_flashback(&tables)
+                .expect("with both revoked the probe passes"),
+        );
+        execute(&administrator, &format!("DROP USER \"{reader}\" CASCADE"));
+        drop_table(&owner, TABLE);
+    }
+
+    /// **The adapter itself refuses a flashback split at a source that reads as each caller**, before
+    /// any probe statement, whatever its user may read.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn an_impersonating_source_is_refused_its_flashback_probe() {
+        let tier = tier();
+        let refused = tier
+            .adapter_as(SourcePosture::ImpersonationAtSource, &tier.user, &tier.password)
+            .with_flashback(&BTreeSet::new());
+        assert!(
+            matches!(refused, Err(OracleError::FlashbackAtImpersonatingSource { .. })),
+            "{refused:?}"
+        );
+    }
+
+    /// **Only a lookup leg of a probed source splits**: the same leg over a source that was not
+    /// probed, and a fact leg over one that was, are read whole where the probed lookup leg splits.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_leg_is_read_whole_unless_it_is_a_lookup_leg_of_a_probed_source() {
+        const TABLE: &str = "flashback_whole";
+        let tier = tier();
+        let session = tier.session(&tier.user, &tier.password);
+        customers(&session, TABLE);
+        let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
+        let leg = lookup(TABLE);
+        let ask = |warehouse: &OracleWarehouse, leg: &LegPlan| {
+            warehouse
+                .split_by_estimate(
+                    leg,
+                    &corpus::presented(),
+                    deadline(60),
+                    core::num::NonZeroU64::MIN,
+                    core::num::NonZeroUsize::new(13).expect("thirteen"),
+                    core::num::NonZeroUsize::new(3).expect("three"),
+                )
+                .expect("the split is asked")
+        };
+        let unprobed = ask(&tier.adapter(&tier.user, &tier.password), &leg);
+        assert!(matches!(unprobed, Planned::Whole), "an unprobed source: {unprobed:?}");
+        let probed = tier
+            .adapter(&tier.user, &tier.password)
+            .with_flashback(&tables)
+            .expect("the probe passes");
+        let case = corpus::leg_case();
+        let fact = ask(&probed, case.leg());
+        assert!(matches!(fact, Planned::Whole), "a fact leg: {fact:?}");
+        drop(split(&probed, &leg));
+        drop_table(&session, TABLE);
     }
 }
