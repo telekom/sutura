@@ -381,10 +381,10 @@ mod acceptance {
         drop_table(&owner, TABLE);
     }
 
-    /// **The probe refuses `FLASHBACK ANY TABLE` however it is granted, through any role**: a
+    /// **The probe refuses `FLASHBACK ANY TABLE` through roles granted to the service user**: a
     /// default role carrying it, the same role as a role the user does not enable at sign-in, and
-    /// that role nested in another; and a service user holding any role it does not enable at
-    /// sign-in, whatever the role carries.
+    /// that role nested in another; and a role granted to the service user that it does not enable
+    /// at sign-in, whatever the role carries.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
     fn the_flashback_probe_refuses_the_privilege_through_any_role() {
@@ -497,6 +497,8 @@ mod acceptance {
 
     /// **Only a lookup leg of a probed source splits**: the same leg over a source that was not
     /// probed, and a fact leg over one that was, are read whole where the probed lookup leg splits.
+    /// The fact leg groups by the same integer key of the same table, so only its being a fact leg
+    /// keeps it whole; it is never rendered, because it is read whole before any statement.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
     fn a_leg_is_read_whole_unless_it_is_a_lookup_leg_of_a_probed_source() {
@@ -524,9 +526,36 @@ mod acceptance {
             .adapter(&tier.user, &tier.password)
             .with_flashback(&tables)
             .expect("the probe passes");
-        let case = corpus::leg_case();
-        let fact = ask(&probed, case.leg());
-        assert!(matches!(fact, Planned::Whole), "a fact leg: {fact:?}");
+        let LegPlan::Fact {
+            source,
+            metric,
+            bucket,
+            terms,
+            bindings,
+            range,
+            ..
+        } = corpus::leg_case().leg().clone()
+        else {
+            panic!("the corpus leg is a fact leg");
+        };
+        let LegPlan::Lookup { table, keys, .. } = leg.clone() else {
+            panic!("`lookup` builds a lookup leg");
+        };
+        let fact = LegPlan::Fact {
+            source,
+            metric,
+            tables: table,
+            bucket,
+            keys,
+            terms,
+            bindings,
+            range,
+        };
+        let read = ask(&probed, &fact);
+        assert!(
+            matches!(read, Planned::Whole),
+            "a fact leg keyed by the integer link: {read:?}"
+        );
         drop(split(&probed, &leg));
         drop_table(&session, TABLE);
     }
