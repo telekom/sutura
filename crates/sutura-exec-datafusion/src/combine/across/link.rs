@@ -8,8 +8,10 @@
 //!
 //! # Limits
 //!
-//! - No served question calls this check: a combine checks a granted leg's link values in its own
-//!   session instead, and a served split leg that is not granted is read on the planning node.
+//! - No served question calls this function: a combine checks a granted leg's link values in its own
+//!   session, inside the plan that joins an arm's one granted leg or, with two or more granted legs,
+//!   before the join (`served::counted_in_plan`), and a served split leg that is not granted is read
+//!   on the planning node.
 //! - The repartition is the engine's, added because a split leaf claims no partitioning. A leaf
 //!   claiming hash partitioning by the link columns would be counted per partition, wrongly.
 //! - The session runs over the other nodes resolved when it is built, and never waits for one.

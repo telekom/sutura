@@ -7,8 +7,16 @@
 //!
 //! - A served question is granted a leg only by a `sutura serve` deployment's PostgreSQL
 //!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
-//! - The ambiguous-link check and the join each read every partition, so each partition is read
-//!   twice, under the one snapshot its source holds open across both. Accepted.
+//! - The ambiguous-link check is part of the plan that joins the leg, so each partition is read once,
+//!   only when the leg is its arm's one granted leg (`counted_in_plan`). With two or more, each
+//!   is checked before the join, as a leg held here is, and each partition is read twice.
+//! - That plan keeps the join order it builds only because the session's statistics-driven join
+//!   reordering is off for the whole combine, every other join in it included.
+//! - Reading once moves the leg from the join's streamed side to its held side: the whole leg is held
+//!   as the count's group state and then as the join's build side, on workers that spill nowhere,
+//!   where the leg read twice streamed through the join and held only its link values and counts.
+//!   A large granted leg the twice-read plan answered may now be refused for its working set. Not
+//!   measured.
 //! - A granted leg is planned across whatever its size and never tried on this node. A combiner
 //!   with no other node, or a stage no resolved node reads the leg's source for, refuses it as
 //!   [`CombineError::NoReadingNode`], which `sutura_app` answers as `SourceUnavailable` naming that
@@ -35,6 +43,7 @@ use std::sync::Arc;
 #[cfg(feature = "distributed")]
 use datafusion::common::TableReference;
 use datafusion::error::DataFusionError;
+use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::SessionContext;
 use sutura_domain::model::SourceName;
 #[cfg(feature = "distributed")]
@@ -156,6 +165,53 @@ fn registered_split(
 ) -> Result<(), CombineError> {
     Err(CombineError::NoReadingNode {
         source_name: source.clone(),
+    })
+}
+
+/// Whether each lookup leg of `reads`, by position, has its link check inside the plan that joins it:
+/// a granted leg, when it is the only granted one.
+///
+/// Only one, because a hash join whose build side is empty, or holds only null keys, does not read
+/// its other side when its type is INNER (`empty_build_side_produces_empty_result` in the engine).
+/// Each granted leg is the build side of its own join, over the relation every earlier leg built, so
+/// a later granted leg joined INNER with no joinable row would end the plan before an earlier
+/// granted leg's count ran, and a repeated link there would be answered instead of refused. Every
+/// other join keeps the relation as its build side, which a hash join always reads whole.
+pub(super) fn counted_in_plan(reads: &[LookupRead<'_>]) -> Vec<bool> {
+    let granted = |read: &LookupRead<'_>| matches!(read, LookupRead::Granted(_));
+    let one = reads.iter().filter(|read| granted(read)).count() == 1;
+    reads.iter().map(|read| one && granted(read)).collect()
+}
+
+/// `scanned`, the granted leg registered as `table`, as the relation its join reads with its link
+/// values on `on` checked inside that plan, `context` keeping the join order the plan builds.
+#[cfg(feature = "distributed")]
+pub(super) fn checked(
+    context: &SessionContext,
+    scanned: LogicalPlan,
+    table: &str,
+    on: &[String],
+) -> Result<LogicalPlan, CombineError> {
+    context
+        .state_ref()
+        .write()
+        .config_mut()
+        .options_mut()
+        .optimizer
+        .join_reordering = false;
+    across::checked(scanned, table, on).map_err(|cause| CombineError::Build { cause })
+}
+
+/// No granted leg is registered in a build without `distributed`, so none is joined.
+#[cfg(not(feature = "distributed"))]
+pub(super) fn checked(
+    _context: &SessionContext,
+    _scanned: LogicalPlan,
+    table: &str,
+    _on: &[String],
+) -> Result<LogicalPlan, CombineError> {
+    Err(CombineError::Build {
+        cause: DataFusionError::Plan(format!("the granted leg `{table}` is joined only under `distributed`")),
     })
 }
 
