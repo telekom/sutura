@@ -15,10 +15,12 @@
 //! it for its working set. A link costs latency a question one node answers does not need to pay.
 //!
 //! **A node may be declared by a host, which is resolved when each question is planned.** Each
-//! address it resolves to is one node, its IPv4 ones when it has any so a dual-stack pod is not two,
-//! dialled at that address and checked against the host: a pool of workers behind one name, as a
-//! headless service's is, is the nodes it holds at that moment
-//! (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! address it resolves to is one node, of the family `server.nodes.address_family` names
+//! ([`AddressFamily`](sutura_domain::plan::AddressFamily)), dialled at that address and checked
+//! against the host: a pool of workers behind one name, as a headless service's is, is the nodes it
+//! holds at that moment (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! `auto`, the default, keeps one family per host - its IPv4 addresses when it has any, so a
+//! dual-stack pod is not two nodes - while `ipv4` and `ipv6` keep that family alone.
 //!
 //! **A question that goes across may wait for other nodes, bounded.** With
 //! `server.nodes.wait_for_workers_seconds` declared, it wants one other node for each share of
@@ -53,7 +55,10 @@
 //!   so a host whose addresses change keeps one for each it was ever dialled at.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
 //!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
-//!   and no other node resolves, which is refused once the wait ends.
+//!   and no other node resolves, which is refused once the wait ends. So does a host with no address
+//!   of the family `ipv4` or `ipv6` chose; an IP literal of the other family is refused at startup.
+//!   The family is chosen among the addresses the resolver returns and makes no node reachable over
+//!   a family the network between the nodes does not carry.
 //! - Only an empty pool is refused, which keeps the refusal's "retry" truthful: a pool already at its
 //!   largest would otherwise turn a question too large for it into a retry that never succeeds. A
 //!   question planned across fewer nodes than it wanted may still be refused for its working set.
@@ -103,7 +108,7 @@ use core::num::NonZeroU64;
 use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
+use std::net::{IpAddr, ToSocketAddrs as _};
 use std::sync::Arc;
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
@@ -124,7 +129,7 @@ use datafusion_distributed::{
 };
 use hyper_util::rt::TokioIo;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::{FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
+use sutura_domain::plan::{AddressFamily, FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -197,6 +202,8 @@ pub struct Nodes {
     row_ceiling: FederatedRowCeiling,
     /// The other nodes declared as reading each source, as declared.
     readers: HashMap<SourceName, Vec<Url>>,
+    /// Which family of address a host among `others` is dialled at.
+    address_family: AddressFamily,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -231,6 +238,7 @@ impl Nodes {
             keys: grant::Keys::default(),
             row_ceiling: FederatedRowCeiling::LOOSEST,
             readers: HashMap::new(),
+            address_family: AddressFamily::Auto,
         }
     }
 
@@ -267,6 +275,15 @@ impl Nodes {
     pub fn row_ceiling(self, ceiling: FederatedRowCeiling) -> Self {
         Self {
             row_ceiling: ceiling,
+            ..self
+        }
+    }
+
+    /// The same nodes, a host among the other nodes dialled at `family` addresses.
+    #[must_use]
+    pub fn address_family(self, family: AddressFamily) -> Self {
+        Self {
+            address_family: family,
             ..self
         }
     }
@@ -389,7 +406,7 @@ impl Nodes {
             || self.session(working_set),
             |wait| {
                 let wanted = wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes);
-                let ready = wait::ready(wanted, wait, || self.others.iter().flat_map(resolved).collect())?;
+                let ready = wait::ready(wanted, wait, || self.resolved().collect())?;
                 self.session_over(working_set, ready)
             },
         )
@@ -397,7 +414,14 @@ impl Nodes {
 
     /// A session over the other nodes resolved now. See [`Self::session_over`].
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
-        self.session_over(working_set, self.others.iter().flat_map(resolved))
+        self.session_over(working_set, self.resolved())
+    }
+
+    /// The other nodes declared, resolved now.
+    fn resolved(&self) -> impl Iterator<Item = Url> {
+        self.others
+            .iter()
+            .flat_map(|declared| resolved(declared, self.address_family))
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across this
@@ -496,19 +520,20 @@ fn chain<'a>(error: &'a (dyn core::error::Error + 'static)) -> impl Iterator<Ite
 }
 
 /// The nodes `declared` names now: itself when its host is an address, and otherwise one for each
-/// address its host resolves to, of one family, with that address in its fragment.
-fn resolved(declared: &Url) -> Vec<Url> {
+/// address its host resolves to, of `family`, with that address in its fragment.
+fn resolved(declared: &Url, family: AddressFamily) -> Vec<Url> {
     let (Some(Host::Domain(host)), Some(port)) = (declared.host(), declared.port_or_known_default()) else {
         return vec![declared.clone()];
     };
-    let addresses: Vec<SocketAddr> = (host, port).to_socket_addrs().map_or_default(Iterator::collect);
-    let ipv4 = addresses.iter().any(SocketAddr::is_ipv4);
-    addresses
+    let resolved = (host, port)
+        .to_socket_addrs()
+        .map_or_default(|addresses| addresses.map(|address| address.ip()).collect::<Vec<_>>());
+    family
+        .keep(resolved)
         .into_iter()
-        .filter(|address| address.is_ipv4() == ipv4)
         .map(|address| {
             let mut node = declared.clone();
-            node.set_fragment(Some(&address.ip().to_string()));
+            node.set_fragment(Some(&address.to_string()));
             node
         })
         .collect()

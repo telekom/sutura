@@ -1,6 +1,7 @@
 //! `server.nodes` through `Settings::load`: declared without a node authority it is refused, an
 //! address that is not `https` is refused naming it, a leg size above which a question goes
-//! across rides with the nodes, never as zero, and so does a bounded wait for other nodes.
+//! across rides with the nodes, never as zero, and so does a bounded wait for other nodes, and the
+//! family of address a peer declared by a host is dialled at.
 //!
 //! The refusal cells read the refusal only through what the base tree already exports - its
 //! variant and `Display` - so they build there and fail on its behaviour.
@@ -179,4 +180,113 @@ fn declared_nodes_with_no_reading_node_and_no_inbound_identity_still_serve() {
     );
     Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
         .expect("nodes with no reading node and no inbound identity still load");
+}
+
+/// `server.nodes` over `others`, each a worker, with `extra` appended under `nodes`.
+fn nodes_over(others: &[&str], extra: &str) -> String {
+    let peers = others
+        .iter()
+        .map(|url| format!("      - url: \"{url}\"\n        role: \"worker\"\n"))
+        .collect::<Vec<_>>()
+        .concat();
+    format!(
+        "{PAIR}  tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    others:\n{peers}{extra}\
+         security:\n  tls_termination: \"in-process\"\n"
+    )
+}
+
+/// The nodes `sources` declare, as `Debug` renders them: the family is read off the one public view
+/// the base tree already has, so these cells build there and fail on its refusal of the key.
+fn declared_nodes(sources: &Sources) -> String {
+    let settings = Settings::load(sources).expect("these nodes load");
+    format!(
+        "{:?}",
+        settings
+            .server()
+            .tls()
+            .and_then(TlsMaterial::nodes)
+            .expect("the nodes are declared")
+    )
+}
+
+fn loaded(overlay: String) -> String {
+    declared_nodes(&Sources::defaults(Environment::Development).with_overlay(overlay))
+}
+
+#[test]
+fn each_address_family_loads_and_rides_with_the_nodes() {
+    for (written, read) in [("auto", "Auto"), ("ipv4", "Ipv4"), ("ipv6", "Ipv6")] {
+        let rendered = loaded(nodes_over(
+            &["https://b.example:8443"],
+            &format!("    address_family: \"{written}\"\n"),
+        ));
+        assert!(rendered.contains(&format!("address_family: {read}")), "{written}: {rendered}");
+    }
+}
+
+#[test]
+fn a_node_with_no_address_family_dials_either() {
+    let rendered = loaded(nodes_over(&["https://b.example:8443"], ""));
+    assert!(rendered.contains("address_family: Auto"), "{rendered}");
+}
+
+#[test]
+fn the_address_family_can_be_set_by_a_variable() {
+    let sources = Sources::defaults(Environment::Development)
+        .with_overlay(nodes_over(&["https://b.example:8443"], ""))
+        .with_variables(super::variables(&[("SUTURA__SERVER__NODES__ADDRESS_FAMILY", "ipv6")]));
+    assert!(declared_nodes(&sources).contains("address_family: Ipv6"));
+}
+
+#[test]
+fn an_unknown_address_family_is_refused_naming_the_value_and_the_choices() {
+    let overlay = nodes_over(&["https://b.example:8443"], "    address_family: \"ipv5\"\n");
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+        .expect_err("a family that is not auto, ipv4 or ipv6 is refused");
+    assert!(matches!(*error.reason(), SettingsError::Source { .. }), "{error:?}");
+    let rendered = format!("{error:?}");
+    assert!(
+        rendered.contains("unknown variant") && rendered.contains("ipv5") && rendered.contains("`auto`, `ipv4`, `ipv6`"),
+        "{rendered}"
+    );
+}
+
+/// The refusal as `Display` renders it, through the variant the base tree already has.
+fn declared_node_refusal(overlay: String) -> String {
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
+        .expect_err("a peer of the other family is refused");
+    let SettingsError::InvalidDeclaredNode { ref cause } = *error.reason() else {
+        panic!("expected a refused peer, got {error:?}");
+    };
+    cause.to_string()
+}
+
+#[test]
+fn a_peer_given_as_an_ip_literal_of_the_other_family_is_refused_at_load() {
+    for (family, url) in [
+        ("ipv6", "https://192.0.2.7:8443"),
+        ("ipv4", "https://[2001:db8::7]:8443"),
+        ("ipv6", "https://192.0.2.7:8443#192.0.2.7"),
+        ("ipv4", "https://b.example:8443#2001:db8::7"),
+    ] {
+        let overlay = nodes_over(&[url], &format!("    address_family: \"{family}\"\n"));
+        let written = url.split_once('#').map_or(url, |(origin, _)| origin);
+        let refused = declared_node_refusal(overlay);
+        assert!(
+            refused.contains(&format!("`{written}")) && refused.contains(&format!("address_family `{family}`")),
+            "{family} {url}: {refused}"
+        );
+    }
+}
+
+#[test]
+fn a_peer_of_the_chosen_family_and_a_host_name_load_under_each_family() {
+    for (family, read, peers) in [
+        ("auto", "Auto", ["https://192.0.2.7:8443", "https://[2001:db8::7]:8443"]),
+        ("ipv4", "Ipv4", ["https://192.0.2.7:8443", "https://b.example:8443"]),
+        ("ipv6", "Ipv6", ["https://[2001:db8::7]:8443", "https://b.example:8443"]),
+    ] {
+        let rendered = loaded(nodes_over(&peers, &format!("    address_family: \"{family}\"\n")));
+        assert!(rendered.contains(&format!("address_family: {read}")), "{family}: {rendered}");
+    }
 }

@@ -14,7 +14,8 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
 use sutura_domain::model::SourceName;
-use url::Url;
+use sutura_domain::plan::AddressFamily;
+use url::{Host, Url};
 
 use super::{ServerRole, TlsMaterial};
 
@@ -88,6 +89,7 @@ pub struct DeclaredNodes {
     authority: PathBuf,
     across_above: Option<NonZeroU64>,
     wait_for_workers: Option<NonZeroU32>,
+    address_family: AddressFamily,
 }
 
 impl DeclaredNodes {
@@ -128,6 +130,13 @@ impl DeclaredNodes {
     #[inline]
     pub const fn wait_for_workers(&self) -> Option<NonZeroU32> {
         self.wait_for_workers
+    }
+
+    /// The family of address a peer declared by a host is dialled at, [`AddressFamily::Auto`] when
+    /// undeclared.
+    #[inline]
+    pub const fn address_family(&self) -> AddressFamily {
+        self.address_family
     }
 }
 
@@ -194,6 +203,10 @@ pub enum InvalidDeclaredNode {
     /// A peer entry named this node's own address.
     #[error("`{url}` in server.nodes is this node's own address, named under `own`")]
     NodeNamesItself { url: String },
+    /// A peer's address is an IP literal of the other family than `server.nodes.address_family`,
+    /// so it could never be dialled.
+    #[error("`{url}` in server.nodes is an IP address of the other family than server.nodes.address_family `{family}`")]
+    AddressOfOtherFamily { url: String, family: AddressFamily },
 }
 
 /// Why [`TlsMaterial::with_nodes`] refused.
@@ -329,6 +342,7 @@ impl TlsMaterial {
             authority,
             across_above: None,
             wait_for_workers: None,
+            address_family: AddressFamily::Auto,
         };
         Ok(Self {
             nodes: Some(nodes),
@@ -356,11 +370,46 @@ impl TlsMaterial {
         self
     }
 
+    /// The same material, a peer declared by a host dialled at `family` addresses.
+    ///
+    /// Without declared nodes there is no peer to dial, and this is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// A peer whose address, or the `#<ip>` fragment it is dialled at, is an IP literal `family` does
+    /// not dial. `own` is how the others reach this node and is not read.
+    pub fn address_family(mut self, family: AddressFamily) -> Result<Self, InvalidDeclaredNode> {
+        if let Some(nodes) = self.nodes.as_mut() {
+            if let Some(node) = nodes.others.iter().find(|node| !dials(family, &node.url)) {
+                return Err(InvalidDeclaredNode::AddressOfOtherFamily {
+                    url: node.url.to_string(),
+                    family,
+                });
+            }
+            nodes.address_family = family;
+        }
+        Ok(self)
+    }
+
     /// The nodes a combine is planned across, if any were declared.
     #[inline]
     pub const fn nodes(&self) -> Option<&DeclaredNodes> {
         self.nodes.as_ref()
     }
+}
+
+/// Whether `family` dials `url`: a host name is resolved to it, and an IP literal in the host or the
+/// fragment must be of it.
+fn dials(family: AddressFamily, url: &Url) -> bool {
+    let host = match url.host() {
+        Some(Host::Ipv4(address)) => family.admits(IpAddr::V4(address)),
+        Some(Host::Ipv6(address)) => family.admits(IpAddr::V6(address)),
+        Some(Host::Domain(_)) | None => true,
+    };
+    host && url
+        .fragment()
+        .and_then(|address| address.parse::<IpAddr>().ok())
+        .is_none_or(|address| family.admits(address))
 }
 
 /// A peer's role: only `worker` and `reading-worker` are declarable for another node -

@@ -58,7 +58,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
         identity,
     )
     .across_above(nodes.across_above())
-    .wait_for_workers(wait);
+    .wait_for_workers(wait)
+    .address_family(nodes.address_family());
     let across = nodes
         .others()
         .iter()

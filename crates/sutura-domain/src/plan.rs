@@ -28,6 +28,7 @@ use crate::query::Top;
 use crate::warehouse::ParamValue;
 
 use crate::nonempty::NonEmpty;
+mod address_family;
 mod anchor;
 pub mod bindings;
 mod ceiling;
@@ -42,11 +43,15 @@ pub mod stacked;
 pub mod tables;
 
 #[cfg(test)]
+mod address_family_tests;
+
+#[cfg(test)]
 mod anchor_tests;
 
 #[cfg(test)]
 mod split_tests;
 
+pub use crate::plan::address_family::AddressFamily;
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{
