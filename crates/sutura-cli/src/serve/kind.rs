@@ -301,8 +301,9 @@ impl Warehouse for AnyWarehouse {
     }
 
     /// The leg of a kind that splits through its [`SplitKind`](split::SplitKind), every other kind
-    /// read whole. A single-kind deployment holds the adapter itself rather than this enum and reads
-    /// every leg whole.
+    /// read whole. A deployment whose sources are all `postgres` holds this enum only where a
+    /// declared peer reads one of its sources (`postgres::served`); otherwise it holds the adapter
+    /// itself and reads every leg whole.
     ///
     /// Built with `distributed` only: a build without it refuses `server.nodes` at boot
     /// (`nodes::combiner`), so no source is named for splitting and the default reads every leg
