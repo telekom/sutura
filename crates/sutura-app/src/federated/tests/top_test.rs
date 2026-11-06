@@ -134,3 +134,196 @@ fn the_same_combined_set_under_a_wide_enough_ceiling_answers_instead() {
         "the same two groups under the default ceiling must answer, not {outcome:?}"
     );
 }
+
+/// A combiner that answers one fixed combined answer, whatever its legs returned - so a cell can
+/// hand the rank a measure column of a type no leg fake's `Value` rows can build.
+struct Combined(ResultBatches);
+
+impl sutura_domain::plan::FederationCombiner for Combined {
+    type Error = core::fmt::Error;
+
+    fn combine(
+        &self,
+        _plan: &sutura_domain::plan::FederatedPlan,
+        _legs: sutura_domain::plan::federated::Legs<'_>,
+        _working_set_bytes: u64,
+    ) -> Result<ResultBatches, Self::Error> {
+        Ok(self.0.clone())
+    }
+
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        None
+    }
+
+    fn answer_not_well_formed(&self, _error: &Self::Error) -> Option<sutura_domain::plan::federated::FederatedAnswerRefusal> {
+        None
+    }
+
+    fn workers_not_ready(&self, _error: &Self::Error) -> Option<sutura_domain::plan::WorkersShort> {
+        None
+    }
+
+    fn node_lost(&self, _error: &Self::Error) -> bool {
+        false
+    }
+}
+
+/// One family's row: its key, and its measure in hundredths, or `None` for a null measure.
+type Family<'a> = (&'a str, Option<i128>);
+
+/// A combined answer in the combine's own column order - keys, bucket, measure - whose measure is
+/// a `Decimal128(38, 2)`: what `sum` over a scale-2 `DECIMAL` answers. One row per family, in key
+/// order, each measure given as its unscaled value in hundredths.
+fn decimal_answer(families: &[Family<'_>]) -> ResultBatches {
+    use std::sync::Arc;
+
+    use arrow_array::{ArrayRef, Decimal128Array, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+
+    let every_row = |value: &str| -> ArrayRef { Arc::new(StringArray::from(vec![value; families.len()])) };
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("product_family", DataType::Utf8, false),
+        Field::new("region", DataType::Utf8, false),
+        Field::new(sutura_domain::catalog::TIME_BUCKET_LABEL, DataType::Utf8, false),
+        Field::new("revenue", DataType::Decimal128(38, 2), true),
+    ]));
+    let measure = Decimal128Array::from(families.iter().map(|&(_, cents)| cents).collect::<Vec<_>>())
+        .with_precision_and_scale(38, 2)
+        .expect("38, 2 is a decimal type");
+    let batch = RecordBatch::try_new(
+        Arc::clone(&schema),
+        vec![
+            Arc::new(StringArray::from(
+                families.iter().map(|&(family, _)| family).collect::<Vec<_>>(),
+            )),
+            every_row("north"),
+            every_row("2026-06"),
+            Arc::new(measure),
+        ],
+    )
+    .expect("four columns for four fields");
+    let budget = sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::MAX);
+    let mut accumulating = sutura_domain::warehouse::Accumulating::announcing(schema, families.len(), budget);
+    accumulating.push(batch).expect("the batch carries the schema it announces");
+    accumulating.finish()
+}
+
+/// The ranked answer to a case-2 `top` over `combined`, as each row's family and measure cell.
+fn ranked_over(combined: ResultBatches, n: u32, direction: sutura_domain::query::TopDirection) -> Vec<(Value, Value)> {
+    let top = sutura_domain::query::Top::new(
+        sutura_domain::query::TopN::parse(n).expect("a row count"),
+        sutura_domain::query::TopBy::Metric,
+        direction,
+    );
+    let source = |name| SourceName::parse(name).expect("a test source");
+    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
+        source("facts"),
+        shared(),
+        federated_fact_rows(),
+    ))
+    .and(crate::tests_support::LegsWarehouse::answering(
+        source("geo"),
+        shared(),
+        federated_lookup_rows(),
+    ))
+    .expect("two sources, one registry");
+    let outcome = answer_federated(
+        (&bundle(), PinnedSchemas::default().digest()),
+        &federated_plan().with_top(top),
+        &asked_by_a_person(),
+        &crate::tests_support::CountingBroker::default(),
+        &warehouses,
+        &Combined(combined),
+        FEDERATED_BUDGET,
+        test_deadline(),
+        &SpendLedger::no_budget(),
+        sutura_domain::plan::Ceilings::DEFAULT,
+    )
+    .expect("a case-2 top is answered or refused, never an error")
+    .into_outcome();
+    let ToolOutcome::Answer { rows, .. } = outcome else {
+        panic!("a within-ceiling case-2 top is answered, not {outcome:?}");
+    };
+    let family = rows.column_index("product_family").expect("product_family is projected");
+    let measure = rows.column_index("revenue").expect("the measure is projected");
+    rows.rows()
+        .iter()
+        .map(|row| {
+            (
+                row.get(family).cloned().unwrap_or(Value::Null),
+                row.get(measure).cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect()
+}
+
+fn text(value: &str) -> Value {
+    Value::Text(String::from(value))
+}
+
+/// A decimal measure ranks by its number: 1000.00 outranks 999.00. Ranked over the decoded rows,
+/// both are text and `"999.00"` sorts after `"1000.00"` by bytes, so the top one was 999.00.
+#[test]
+fn a_federated_top_ranks_a_decimal_measure_by_its_number_not_its_text() {
+    let ranked = ranked_over(
+        decimal_answer(&[("A", Some(99_900)), ("B", Some(100_000))]),
+        1,
+        sutura_domain::query::TopDirection::Desc,
+    );
+    assert_eq!(ranked, vec![(text("B"), text("1000.00"))], "1000.00 outranks 999.00");
+}
+
+/// Ascending over negative values and differing digit counts, with a null: by number, nulls last.
+/// By bytes `"-1.50"` sorts before `"-10.00"` and `"10.00"` before `"2.50"`.
+#[test]
+fn a_federated_top_ascending_orders_negative_decimals_by_value_and_nulls_last() {
+    let ranked = ranked_over(
+        decimal_answer(&[
+            ("A", Some(-150)),
+            ("B", Some(-1_000)),
+            ("C", Some(250)),
+            ("D", Some(1_000)),
+            ("E", None),
+        ]),
+        5,
+        sutura_domain::query::TopDirection::Asc,
+    );
+    assert_eq!(
+        ranked,
+        vec![
+            (text("B"), text("-10.00")),
+            (text("A"), text("-1.50")),
+            (text("C"), text("2.50")),
+            (text("D"), text("10.00")),
+            (text("E"), Value::Null),
+        ],
+        "ascending by value, the null after every value"
+    );
+}
+
+/// Descending over differing digit counts, a tie and a null: the widest number first, the tie in
+/// its key order, the null last. By bytes `"999.00"` and `"99.50"` both outrank `"1000.00"`.
+#[test]
+fn a_federated_top_descending_puts_the_largest_decimal_first_ties_in_key_order_and_nulls_last() {
+    let ranked = ranked_over(
+        decimal_answer(&[
+            ("A", Some(9_950)),
+            ("B", Some(100_000)),
+            ("C", None),
+            ("D", Some(99_900)),
+            ("E", Some(100_000)),
+        ]),
+        4,
+        sutura_domain::query::TopDirection::Desc,
+    );
+    assert_eq!(
+        ranked,
+        vec![
+            (text("B"), text("1000.00")),
+            (text("E"), text("1000.00")),
+            (text("D"), text("999.00")),
+            (text("A"), text("99.50")),
+        ],
+        "descending by value, a tie stable in key order, and top 4 drops the null"
+    );
+}

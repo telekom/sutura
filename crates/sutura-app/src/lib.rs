@@ -304,14 +304,15 @@ pub enum FederationMiswired {
         /// `at` for the reason [`Self::LegsCollide`] gives.
         at: sutura_domain::model::SourceName,
     },
-    /// Ranking a combined answer produced a row set whose rows contradict its own columns.
+    /// A combined answer could not be ranked: it is narrower than the combine's own column order,
+    /// or its ranked column is of a type Arrow cannot compare.
     ///
-    /// `FederatedPlan::rank` re-orders and truncates rows it was handed, so it cannot change a
-    /// width.
-    #[error("the ranked answer is not rectangular")]
+    /// The combine states that order - every key, then the bucket, then the measure - so either is
+    /// a wiring defect between a combiner and `FederatedPlan::rank`.
+    #[error("the combined answer could not be ranked")]
     RankedAnswer {
         #[source]
-        cause: sutura_domain::warehouse::MalformedRowSet,
+        cause: sutura_domain::warehouse::UnorderedResult,
     },
 }
 

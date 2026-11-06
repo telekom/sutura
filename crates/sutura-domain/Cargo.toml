@@ -65,6 +65,11 @@ secrecy = { workspace = true }
 # records what naming the type does and does not change.
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+# A federated `top` ranks the combined answer on its typed Arrow values, so a decimal orders by its
+# number and not by its text (`warehouse::arrow::ordered`). Both were already in the lock under the
+# engine, at its major.
+arrow-ord = { workspace = true }
+arrow-select = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 

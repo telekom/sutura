@@ -181,7 +181,13 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     "arrow-array",
     "arrow-buffer",
     "arrow-data",
+    // `arrow-ord` and `arrow-select`: the typed comparator, concat and take a federated `top`
+    // ranks with, in `sutura_domain::warehouse::arrow::ordered`. Compute KERNELS over a batch the
+    // interior already holds - no runtime, no client, no engine - and their own dependencies are
+    // all already above.
+    "arrow-ord",
     "arrow-schema",
+    "arrow-select",
     "autocfg",
     "bitflags",
     "bumpalo",
