@@ -330,6 +330,12 @@ fn a_clickhouse_source_opting_into_hash_buckets_loads_carrying_the_reason() {
             without.sources().get(&alias("warehouse")),
             "{posture}: the reason is carried"
         );
+        // The operator's own words, not a reason of some other text: `Debug` is what base exports.
+        let carried = format!("{:?}", with.sources().get(&alias("warehouse")));
+        assert!(
+            carried.contains("each key's rows are read together; the buckets share no snapshot"),
+            "{posture}: {carried}"
+        );
         assert_eq!(
             with.sources().get(&alias("orders")),
             without.sources().get(&alias("orders")),
