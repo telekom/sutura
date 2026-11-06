@@ -92,10 +92,9 @@ Requirements:
   run as any user their `sub` names.
 - The settings profile of each caller's user neither sets `readonly = 1` nor constrains, as
   `const`, `readonly`, `min` or `max`, a setting that sutura sends with each statement. Under
-  `EXECUTE AS`, ClickHouse drops or bounds such a setting without an error. Measured on the
-  26.9.15.5 tier: under `readonly = 1`, `join_use_nulls` is dropped and a left join answers an
-  unmatched key as an empty value and not as NULL. Setting `readonly` to 0 or 2 alone does not
-  remove a constraint.
+  `EXECUTE AS`, ClickHouse drops or bounds such a setting without an error. Under `readonly = 1`,
+  a left join then answers an unmatched key as an empty value and not as NULL. Setting `readonly`
+  to 0 or 2 alone does not remove a constraint.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
