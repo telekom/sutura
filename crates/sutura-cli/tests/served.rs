@@ -3,14 +3,12 @@
 //! token, one question, rows.
 //!
 //! **This is the only place in the repository where anything asks the SERVED deployment a
-//! question.** `github.com/telekom/sutura#117` is the measurement that says why it had to exist:
-//! `sutura-serve`'s twenty-one named tests (now `sutura serve`'s, folded in by
-//! `github.com/telekom/sutura#685` step 2) are all startup refusals, `sutura_http::harness`
-//! exercises the router in-crate over a fake service, and `crates/sutura-cli/tests/example.rs` runs
-//! the example through a different command with a different composition and no HTTP at all. So
-//! every invariant that lives only on the composed path - the bearer gate, route governance, the
-//! generated document as SERVED, the refusal statuses out of a real transport - had no end-to-end
-//! evidence on any command in any tier.
+//! question.** `github.com/telekom/sutura#117` is why it had to exist: `sutura serve`'s own named
+//! tests are all startup refusals, `sutura_http::harness` exercises the router in-crate over a fake
+//! service, and `crates/sutura-cli/tests/example.rs` runs the example through a different command
+//! with no HTTP at all. So every invariant that lives only on the composed path - the bearer gate,
+//! route governance, the generated document as SERVED, the refusal statuses out of a real transport
+//! - had no end-to-end evidence on any command in any tier.
 //!
 //! # It spawns the binary, and that is not a shortcut
 //!
@@ -24,10 +22,9 @@
 //!
 //! # Why it can be a gate rather than a `nix run` app
 //!
-//! A files-backed source needs no network and no credential, so unlike the removed `BigQuery`
-//! acceptance leg this runs inside `checks.nextest` - which is what makes it a real gate. The port comes from the
-//! kernel (`server.port: 0`, read back off the socket and printed by `sutura_http::server::serve`),
-//! because two checks share one sandbox and a fixed port is how that becomes a flake.
+//! A files-backed source needs no network and no credential, so this runs inside `checks.nextest`,
+//! which makes it a real gate. The port comes from the kernel (`server.port: 0`, read back off the
+//! socket), because two checks share one sandbox and a fixed port is how that becomes a flake.
 //!
 //! # What the harness reads, and why the log is the channel
 //!
@@ -39,16 +36,13 @@
 //!
 //! # `unix` only
 //!
-//! Stopping the process is `SIGTERM`, because that is the shutdown path a deployment takes and the
-//! one `sutura_runtime::shutdown` installs a handler for. `unsafe_code` is `forbid` in this
-//! workspace, so `libc::kill` is not available to a test, and `Child::kill` is `SIGKILL` - which
-//! proves the process can be destroyed rather than that it drains. So the signal is sent through
-//! `/bin/sh`, whose `kill` is a shell builtin present in every sandbox this suite runs in, and the
-//! whole module is `cfg(unix)`.
+//! Stopping is `SIGTERM`, the shutdown path `sutura_runtime::shutdown` handles. `unsafe_code` is
+//! `forbid`, so there is no `libc::kill`, and `Child::kill` is `SIGKILL`, which proves destruction
+//! rather than a drain. So the signal goes through `/bin/sh`'s builtin `kill`, and the module is
+//! `cfg(unix)`.
 
-// `cfg(test)` for the reason `crates/sutura-cli/tests/example.rs` gives: clippy honours
-// `allow-expect-in-tests` only inside a `#[cfg(test)]` item, and without it every `expect` in this
-// file and in `served/harness.rs` is a lint error.
+// `cfg(test)` because clippy honours `allow-expect-in-tests` only inside a `#[cfg(test)]` item
+// (`crates/sutura-cli/tests/example.rs`); without it every `expect` here and in the harness errs.
 // `cfg(unix)` and `cfg(test)` as TWO attributes rather than `cfg(all(test, unix))`, which is not a
 // style choice: clippy looks for a literal `#[cfg(test)]` on an ancestor module to decide whether
 // `allow-expect-in-tests` applies and whether `tests_outside_test_module` fires, and it does not
@@ -218,6 +212,13 @@ mod bound_value;
 #[cfg(feature = "agent")]
 #[path = "served/no_echo.rs"]
 mod no_echo;
+
+// A split PostgreSQL lookup leg granted to reading workers, across spawned nodes (#828).
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(all(feature = "postgres", feature = "distributed"))]
+#[path = "served/split_grant.rs"]
+mod split_grant;
 
 #[cfg(unix)]
 #[cfg(test)]

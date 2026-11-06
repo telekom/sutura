@@ -4,7 +4,7 @@
 //!
 //! A [`SplitScan`](crate::SplitScan) plans one `PartitionScanExec` per partition, placed on a node
 //! reading its source; a served question builds one only for a granted lookup leg, which only a
-//! mixed-kind `sutura serve` deployment's PostgreSQL source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
+//! `sutura serve` deployment's PostgreSQL source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
 //! construction, parallel to [`Nodes::worker`](crate::Nodes::worker); `crates/sutura-cli` builds one
 //! for its reading role.
 //!
@@ -18,6 +18,9 @@
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
 //!   admit rule, not the codec, decides what a missing grant means
 //!   ([`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming), widened for exactly this case).
+//! - A leaf carrying a token, or a grant naming one, is admitted only when the grant names exactly
+//!   the token and pool the leaf carries. The token leaves the leaf when its read starts, and a
+//!   second read of that leaf is refused. The wire bytes it was decoded from are not wiped.
 
 use core::fmt;
 use core::future::Future;
@@ -37,6 +40,7 @@ use datafusion_distributed::{WorkerPlanRewriteEvent, WorkerPlanRewriteEventRespo
 use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConverterExtension};
 use datafusion_proto::protobuf::Schema as ProtoSchema;
 use futures_util::{StreamExt as _, stream};
+use parking_lot::Mutex;
 use prost::Message as _;
 use ring::digest;
 use sutura_domain::identity::{Secret, WorkloadPool};
@@ -121,6 +125,14 @@ impl Forwarded {
             token: self.token.clone(),
             pool: self.pool,
         }
+    }
+
+    pub(super) const fn token(&self) -> &Secret {
+        &self.token
+    }
+
+    pub(super) const fn pool(&self) -> [u8; 32] {
+        self.pool
     }
 }
 
@@ -208,15 +220,35 @@ pub fn read_later(
 pub(super) struct ReaderExtension(pub(super) Arc<dyn PartitionReader>);
 
 /// A granted read of one source's one partition: the leg it reads, the partition descriptor, the
-/// reading key this call presented, and the grant and signature naming the read - or no grant, a
-/// case the admit rule reads as [`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming).
+/// reading key this call presented, the grant and signature naming the read - or no grant, a case
+/// the admit rule reads as [`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming) -
+/// and the caller's token the grant names, if any, handed out once.
 pub(super) struct PartitionScanExec {
     wire: Vec<u8>,
     source: SourceName,
     partition: Vec<u8>,
     presented_key: [u8; 32],
     grant: Option<Vec<u8>>,
+    carried: Mutex<Carried>,
     properties: Arc<PlanProperties>,
+}
+
+/// The caller's token a scan carries. A worker keeps an installed plan for minutes after its read,
+/// so the token leaves the scan when the read starts and is dropped with it if the read never does.
+enum Carried {
+    Nothing,
+    Token(Forwarded),
+    Taken,
+}
+
+impl Carried {
+    const fn shown(&self) -> &'static str {
+        match self {
+            Self::Nothing => "none",
+            Self::Token(_) => "held",
+            Self::Taken => "taken",
+        }
+    }
 }
 
 impl fmt::Debug for PartitionScanExec {
@@ -224,6 +256,7 @@ impl fmt::Debug for PartitionScanExec {
         f.debug_struct("PartitionScanExec")
             .field("source", &self.source)
             .field("grant", &self.grant.is_some())
+            .field("token", &self.shown())
             .finish_non_exhaustive()
     }
 }
@@ -249,22 +282,48 @@ impl PartitionScanExec {
             partition,
             presented_key,
             grant,
+            carried: Mutex::new(Carried::Nothing),
             properties,
         }
     }
 
     /// This scan, read with `forwarded`.
-    ///
-    /// **Not built yet:** `forwarded` is dropped, and the scan reads as it did.
     pub(super) fn forwarding(self, forwarded: Forwarded) -> Self {
-        drop(forwarded);
+        *self.carried.lock() = Carried::Token(forwarded);
         self
+    }
+
+    /// Whether this scan holds a token, never the token. A scan whose token is being moved shows
+    /// `busy` rather than waiting on it.
+    fn shown(&self) -> &'static str {
+        self.carried.try_lock().map_or("busy", |carried| carried.shown())
+    }
+
+    /// The token this scan carries, moved out for the one read it is handed to: `None` for a scan
+    /// that carries none, and refused once it was taken.
+    fn taken(&self) -> Result<Option<Forwarded>, DataFusionError> {
+        let was = {
+            let mut carried = self.carried.lock();
+            let next = if matches!(*carried, Carried::Nothing) {
+                Carried::Nothing
+            } else {
+                Carried::Taken
+            };
+            core::mem::replace(&mut *carried, next)
+        };
+        match was {
+            Carried::Nothing => Ok(None),
+            Carried::Token(forwarded) => Ok(Some(forwarded)),
+            Carried::Taken => Err(DataFusionError::Execution(String::from(
+                "a partition scan hands out its caller's token once, and this one's was taken",
+            ))),
+        }
     }
 }
 
 impl DisplayAs for PartitionScanExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PartitionScanExec: source={}", self.source)
+        write!(f, "PartitionScanExec: source={}, token={}", self.source, self.shown())
     }
 }
 
@@ -311,13 +370,15 @@ impl ExecutionPlan for PartitionScanExec {
             .session_config()
             .get_extension::<ReaderExtension>()
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
-        reader
-            .0
-            .read(
-                &self.wire,
-                &self.source,
-                &self.partition,
-                self.properties.eq_properties.schema(),
+        let schema = self.properties.eq_properties.schema();
+        self.taken()?
+            .map_or_else(
+                || reader.0.read(&self.wire, &self.source, &self.partition, schema),
+                |forwarded| {
+                    reader
+                        .0
+                        .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded)
+                },
             )
             .map_err(Unread::into_error)
     }
@@ -405,17 +466,24 @@ fn decode_partition(buf: &[u8]) -> DecodedPartitionScan {
     let presented_key = <[u8; 32]>::try_from(key.as_slice()).map_err(|_length| malformed())?;
     let grant_bytes = take_field(&mut rest).ok_or_else(malformed)?;
     let grant = (!grant_bytes.is_empty()).then_some(grant_bytes);
+    let token = take_field(&mut rest).ok_or_else(malformed)?;
+    let pool = take_field(&mut rest).ok_or_else(malformed)?;
+    let forwarded = match (token.is_empty(), <[u8; 32]>::try_from(pool.as_slice())) {
+        (true, _) if pool.is_empty() => None,
+        (false, Ok(pool)) => Some(Forwarded {
+            token: Secret::new(String::from_utf8(token).map_err(|_utf8| malformed())?),
+            pool,
+        }),
+        _ => return Err(malformed()),
+    };
     let schema_bytes = take_field(&mut rest).ok_or_else(malformed)?;
     let proto_schema = ProtoSchema::decode(schema_bytes.as_slice()).map_err(|_proto| malformed())?;
     let schema: Schema = (&proto_schema).try_into().map_err(|_arrow| malformed())?;
-    Ok(Arc::new(PartitionScanExec::new(
-        wire,
-        source,
-        part,
-        presented_key,
-        grant,
-        Arc::new(schema),
-    )))
+    let scan = PartitionScanExec::new(wire, source, part, presented_key, grant, Arc::new(schema));
+    Ok(Arc::new(match forwarded {
+        Some(forwarded) => scan.forwarding(forwarded),
+        None => scan,
+    }))
 }
 
 fn encode_partition(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<(), DataFusionError> {
@@ -434,6 +502,21 @@ fn encode_partition(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<
     put_field(buf, &leaf.partition);
     put_field(buf, &leaf.presented_key);
     put_field(buf, leaf.grant.as_deref().unwrap_or_default());
+    match &*leaf.carried.lock() {
+        Carried::Token(forwarded) => {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the caller's token, written only into the plan of the one task that reads its partition"
+            )]
+            let token = forwarded.token.expose_secret().as_bytes();
+            put_field(buf, token);
+            put_field(buf, &forwarded.pool);
+        }
+        Carried::Nothing | Carried::Taken => {
+            put_field(buf, &[]);
+            put_field(buf, &[]);
+        }
+    }
     put_field(buf, &proto_schema.encode_to_vec());
     Ok(())
 }
@@ -451,15 +534,25 @@ pub(super) fn reads_partition_or_nothing(
     let mut refusal: Option<DataFusionError> = None;
     event.plan.apply(|node| {
         if let Some(leaf) = node.downcast_ref::<PartitionScanExec>() {
-            if let Err(cause) = grant::verify_reading(
+            let carried = leaf.carried.lock();
+            let forwarded = match &*carried {
+                Carried::Token(forwarded) => Some(forwarded),
+                Carried::Nothing | Carried::Taken => None,
+            };
+            let verified = grant::verify_reading(
                 keys,
-                &leaf.wire,
-                &leaf.source,
-                &leaf.partition,
-                leaf.presented_key,
-                leaf.grant.as_deref(),
+                &grant::ReadingCall {
+                    wire: &leaf.wire,
+                    source: &leaf.source,
+                    partition: &leaf.partition,
+                    key: leaf.presented_key,
+                    grant: leaf.grant.as_deref(),
+                    forwarded,
+                },
                 now,
-            ) {
+            );
+            drop(carried);
+            if let Err(cause) = verified {
                 refusal = Some(DataFusionError::External(Box::new(cause)));
                 return Ok(TreeNodeRecursion::Stop);
             }

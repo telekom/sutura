@@ -345,8 +345,8 @@ pub(crate) fn run() -> Result<(), String> {
             // its `preflight` is `NotReported` by construction - which `refuse_absent_tables` treats
             // as a WARN rather than a refusal, so the call would add a misleading permission
             // sentence and nothing else. A mistyped `table:` is caught on the first question against
-            // it, as the port itself documents.
-            (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
+            // it, as the port itself documents. A source a declared peer reads is split as a mix's is.
+            (postgres::served(&catalogs, engines, combiner, &settings)?, None)
         }
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
@@ -863,6 +863,18 @@ fn open_engine(
     if declared.is_empty() {
         return Err(String::from("this catalog declares no models, so there is nothing to open"));
     }
+    open_named(&declared, pinned, registry, runtime, request_timeout, outbound)
+}
+
+/// [`open_engine`] over `declared`, the sources of `pinned` to open, which is not empty.
+fn open_named(
+    declared: &[&SourceName],
+    pinned: &PinnedDefinitions,
+    registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedSources, String> {
     // Before the engines are built, and the order is the classic one: the cheap check that reads the
     // parsed tree runs before the expensive one that starts a runtime and a memory pool. It also puts
     // the more actionable message first - an anchor with no identity to run it as names the metric.
@@ -874,7 +886,7 @@ fn open_engine(
     // through. Every declared source sharing one kind takes the ORIGINAL single-registry path -
     // no erasure, no `kind::AnyWarehouse` anywhere in the type - and [`kind::open_mixed`] is
     // reached only once more than one group is non-empty.
-    let grouped = kind::group_by_kind(&declared, registry)?;
+    let grouped = kind::group_by_kind(declared, registry)?;
     match (
         grouped.files.is_empty(),
         grouped.bigquery.is_empty(),

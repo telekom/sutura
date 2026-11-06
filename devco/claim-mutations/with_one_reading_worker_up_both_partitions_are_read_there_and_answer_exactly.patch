@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -268,7 +268,7 @@ pub(super) fn desired(
+     let tasks = if reading == 0 {
+         partitions
+     } else {
+-        partitions.min(reading).max(2)
++        partitions.min(reading)
+     };
+     Some(Ok(DesiredTaskCountEventResponse::maximum(tasks)))
+ }

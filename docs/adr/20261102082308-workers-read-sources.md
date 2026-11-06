@@ -47,10 +47,10 @@ answers as the design that follows from them, not asked as its own question.
 ## Decision
 
 1. **A leg on PostgreSQL or BigQuery may be read in partitions, on workers** - and a lookup leg on
-   Oracle, since the third amendment below. The coordinating node plans the leg as partitions, and
+   Oracle, since the fourth amendment below. The coordinating node plans the leg as partitions, and
    each partition is one task of a source-reading stage. A worker reads its partition and feeds the
    rows to the combine's next stage on that node, so no node holds the whole leg. A leg on any
-   other data system (for Oracle, any leg the third amendment does not split), and a remote leg, is
+   other data system (for Oracle, any leg the fourth amendment does not split), and a remote leg, is
    still read whole where shuffle Decision 3 reads it. A stage that reads no source still holds no
    credential, and its worker still refuses a stage whose leaf reads a source. Which legs are split,
    and when, is decided below.
@@ -98,7 +98,7 @@ answers as the design that follows from them, not asked as its own question.
    | ------------ | --------------------------------------------------------------------------------------------- |
    | Leg digest   | The worker reads only the leg the grant was issued for                                        |
    | Source       | The worker refuses a partition of a source the grant does not name                            |
-   | Partition    | The `ctid` range (W1), the stream (W2) or the bucket at its SCN (W3, third amendment)         |
+   | Partition    | The `ctid` range (W1), the stream (W2) or the bucket at its SCN (W3, fourth amendment)        |
    | Expiry       | The worker refuses a grant past it                                                            |
    | Caller key   | For the worker's audit line and the source's labels, so a read names whose question it served |
    | Limit shares | The limits this task applies. Decision 4 fixes the federated ceiling's as the whole ceiling   |
@@ -124,7 +124,7 @@ answers as the design that follows from them, not asked as its own question.
 
 Each row was posted as a proposal and accepted by the owner as a decision on 2026-11-02. Its text
 is the proposal's, except a row marked *(2026-11-03)*, which records the owner's answer that day to
-a question building it raised, and a clause marked *(third amendment)*, which that amendment added.
+a question building it raised, and a clause marked *(fourth amendment)*, which that amendment added.
 
 | Question                                                               | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -132,7 +132,7 @@ a question building it raised, and a clause marked *(third amendment)*, which th
 | Which legs are split?                                                  | A lookup leg, and a fact leg whose partial groups are grouped again on the leg's own keys after a repartition, before they join anything. A fact leg's partial groups from two partitions joined to another fact leg would double a value                                                                                                                                                                                                                                                       |
 | The ambiguous-link check over a split lookup leg                       | Plan it across, after a repartition on the link key, so a key duplicated across two partitions meets in one task. Today `refuse_ambiguous_link` scans one in-memory leg                                                                                                                                                                                                                                                                                                                         |
 | When is a leg split, given the size rule measures legs one node holds? | W1: by the source's own estimate before reading, `pg_class.relpages` times the page size, against `server.nodes.across_above_bytes`. *(2026-11-03)* W2: by the job's result row count, which the driver patch reports from `ExecutePartitions`, against the per-stream bound. The ADBC adapter answers no dry run, so W2 has no estimate before the job runs                                                                                                                                    |
-| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, W2's row count over the streams, or *(third amendment)* W3's `NUM_ROWS` over the buckets) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                   |
+| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, W2's row count over the streams, or *(fourth amendment)* W3's `NUM_ROWS` over the buckets) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                  |
 | Pages past `relpages`, and a root that is not a plain table            | The last range has no upper bound, because `relpages` is an estimate. A view, a partitioned table's parent or a foreign table is read whole, as today                                                                                                                                                                                                                                                                                                                                           |
 | What bounds the exporting transaction (W1)?                            | The question's deadline. A worker that cannot import the snapshot fails the question                                                                                                                                                                                                                                                                                                                                                                                                            |
 | How the coordinating node gets a source token to forward (W2)          | Today the driver runs the exchange itself from a loopback credential source, and sutura never holds the token. sutura runs the exchange and hands the token to the driver at the coordinating node and at each reading worker                                                                                                                                                                                                                                                                   |
@@ -313,7 +313,52 @@ Limits, beside the first amendment's:
   than asked, each then larger, and a stream past 1,000,000 rows or 256 MiB is still refused when
   it is read. The byte bound plays no part in the stream count.
 
-## Third amendment, 2026-11-06: an Oracle lookup leg splits by flashback query, under the shared service user
+## Third amendment, 2026-11-06: a grant carries the caller's token and refuses another caller's
+
+What is built, in the domain and the combine, and still with no source that makes such a grant:
+
+- `SourceToken` holds a forwarded token, its expiry, its pool, and a fingerprint of the credential
+  it was exchanged from, never that credential. Its `Debug` prints the expiry and the pool only.
+- `Grantee::forwarding` takes only a token whose fingerprint is the subject token the request
+  presented for the leg's source, and refuses any other as `NotTheCallersToken`. That request is
+  the one the grant names its caller from, so a grant for one caller does not carry a token
+  exchanged from another caller's credential. `Grantee::grant` is the only way to build a grant
+  read with a token: `Granted::forwarding` and `SplitScan::granted_forwarding` are crate-private.
+  `Granted::new` is public and takes any caller, but reads as the service user.
+- `Granted::forwarding` ends the grant no later than its token, and refuses it as expired when that
+  end has passed. This replaces the second amendment's statement that no grant takes an earlier end.
+  A worker refuses a grant past its end when it admits the task, on its own clock, so it refuses a
+  task whose token has already expired by then. A read that starts later fails at the source.
+- A grant read with the token signs a SHA-256 digest of the token and of the pool's audience. A
+  worker admits a task only when the grant names exactly the token and pool the task carries, or
+  none where it carries none, and refuses every other as `GrantNotNaming`. This guards against a
+  mix-up, not against a holder of the task: the signing key travels in the same task as the grant,
+  so anyone who can rewrite the task can mint a grant that names any token.
+- The token rides only in the scan of each task that reads a partition, beside its reading key, so
+  only the node that task is routed to is sent it, and no header carries it. The scan hands the
+  token to its reader once, when the read starts. That is once per scan, not per question: a
+  question scans a split table twice, for the link check and for the join, and each scan carries
+  its own copy. A second read of one scan is refused, and
+  `Debug` and `Display` show only whether it holds a token.
+- A reader that reads no source with a caller's token, the PostgreSQL reader among them, refuses a
+  task that carries one.
+
+The `split_lookup` arm that offers a BigQuery leg for splitting, and the reading worker's BigQuery
+arm, are still not built, so nothing in production forwards a token.
+
+Limits, beside the earlier amendments':
+
+- **The tie is as true as the fingerprint the exchanging adapter states.** `SourceToken::exchanged`
+  is public and records the credential it is told the token was exchanged from. Nothing here sees
+  the exchange, and a worker still cannot tell whose token it holds.
+- **A request that presented no subject token for the leg's source forwards nothing.** The grant
+  then refuses every token.
+- **Copies outlive the read.** The planning node keeps its copy of the token while the leg's table
+  is registered. Neither the plan bytes the planning node encodes for a task nor the bytes a worker
+  decodes the token from are wiped.
+- **A node that reads a grant reads the token's digest.** It names the token; it does not reveal it.
+
+## Fourth amendment, 2026-11-06: an Oracle lookup leg splits by flashback query, under the shared service user
 
 The owner decided four questions for Oracle as a third data system (W3), D1 to D4 below. Each item
 also says what follows from it with the design; a sentence marked *(design)* is that, not the
