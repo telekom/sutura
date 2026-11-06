@@ -690,8 +690,12 @@ impl FederatedPlan {
     ///
     /// # Errors
     ///
-    /// [`UnorderedResult`], for an answer narrower than its own contract or a column type Arrow
-    /// cannot compare.
+    /// [`UnorderedResult::NoSuchColumn`] for an answer with no column at all, and
+    /// [`UnorderedResult::Arrow`] where Arrow refuses to concatenate, compare or take its arrays.
+    /// **An answer narrower than the contract but not empty is NOT refused**: the position
+    /// saturates at the first column, so a `Period` rank of a one-column answer ranks that column.
+    /// The plan makes that unreachable - its bucket is not optional, so a combined answer has at
+    /// least the bucket and the measure.
     pub fn rank(combined: ResultBatches, top: Top) -> Result<ResultBatches, UnorderedResult> {
         let width = combined.schema().fields().len();
         // Measure is the last column, bucket the one before it - see this method's own doc.

@@ -304,11 +304,13 @@ pub enum FederationMiswired {
         /// `at` for the reason [`Self::LegsCollide`] gives.
         at: sutura_domain::model::SourceName,
     },
-    /// A combined answer could not be ranked: it is narrower than the combine's own column order,
-    /// or its ranked column is of a type Arrow cannot compare.
+    /// A combined answer could not be ranked: it has no column at all, or Arrow refused to
+    /// concatenate, compare or take its arrays.
     ///
-    /// The combine states that order - every key, then the bucket, then the measure - so either is
-    /// a wiring defect between a combiner and `FederatedPlan::rank`.
+    /// The combine states its column order - every key, then the bucket, then the measure - so
+    /// either is a wiring defect between a combiner and `FederatedPlan::rank`. A narrower answer
+    /// that is not empty is ranked rather than refused; `FederatedPlan::rank` says why that is
+    /// unreachable.
     #[error("the combined answer could not be ranked")]
     RankedAnswer {
         #[source]
