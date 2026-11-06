@@ -73,6 +73,7 @@ const ANY_TABLE: &str = "SELECT COUNT(*) FROM SESSION_PRIVS WHERE PRIVILEGE = 'F
 
 /// The Oracle error numbers of a snapshot the database can no longer read: `ORA-01555` snapshot too
 /// old, `ORA-08181` not a valid system change number, `ORA-01466` the table's definition changed.
+#[expect(dead_code, reason = "read by `snapshot_gone`, which lands with the partition read")]
 const GONE: [usize; 3] = [1555, 8181, 1466];
 
 /// [`OracleWarehouse::split_by_estimate`]'s outcome.
@@ -120,11 +121,7 @@ pub(super) fn with_flashback(
     mut warehouse: OracleWarehouse,
     tables: &BTreeSet<QualifiedTable>,
 ) -> Result<OracleWarehouse, OracleError> {
-    if matches!(warehouse.routing.posture, SourcePosture::ImpersonationAtSource) {
-        return Err(OracleError::FlashbackAtImpersonatingSource {
-            at: String::from(warehouse.routing.source.as_str()),
-        });
-    }
+    refuse_impersonating(&warehouse.routing.posture, &warehouse.routing.source)?;
     if count(&warehouse.run((ANY_TABLE, &[]))?, "the system privilege")? > 0 {
         return Err(OracleError::FlashbackAnyTable);
     }
@@ -153,21 +150,17 @@ pub(super) fn split_by_estimate(
     per_stream_bound: NonZeroUsize,
     ready_workers: NonZeroUsize,
 ) -> Result<Planned, OracleError> {
-    if !warehouse.flashback || !matches!(*leg, LegPlan::Lookup { .. }) {
-        return Ok(Planned::Whole);
-    }
-    let Session::Boot = warehouse.routing.deliverable(presented)? else {
+    let boot = matches!(warehouse.routing.deliverable(presented)?, Session::Boot);
+    let Some(asked) = dictionary(warehouse.flashback, leg, boot) else {
         return Ok(Planned::Whole);
     };
-    let table = leg.table();
-    let name = ParamValue::Text(String::from(table.name().as_str()));
-    let answer = match table.qualifier() {
-        None => warehouse.run_with_deadline(Session::Boot, (ROOT_IN_SCHEMA, &[name]), deadline, None)?,
-        Some(qualifier) if qualifier.project().is_none() => {
-            let owner = ParamValue::Text(String::from(qualifier.dataset().as_str()));
+    let name = ParamValue::Text(String::from(leg.table().name().as_str()));
+    let answer = match asked {
+        Dictionary::Schema => warehouse.run_with_deadline(Session::Boot, (ROOT_IN_SCHEMA, &[name]), deadline, None)?,
+        Dictionary::Owner(owner) => {
+            let owner = ParamValue::Text(String::from(owner));
             warehouse.run_with_deadline(Session::Boot, (ROOT_IN_OWNER, &[name, owner]), deadline, None)?
         }
-        Some(_) => return Ok(Planned::Whole),
     };
     let Some(root) = root(&answer)? else {
         return Ok(Planned::Whole);
@@ -230,11 +223,45 @@ fn admit(_flashback: bool, at: &sutura_domain::model::SourceName, _bytes: &[u8])
 /// error unchanged.
 fn gone(error: OracleError) -> OracleError {
     match error {
-        OracleError::Execute { cause } if GONE.iter().any(|&code| cause.has_ora_code(code)) => {
-            OracleError::SnapshotGone { cause }
-        }
+        OracleError::Execute { cause } if cause.ora_code().is_some_and(snapshot_gone) => OracleError::SnapshotGone { cause },
         other => other,
     }
+}
+
+/// Whether Oracle error number `code` says a snapshot can no longer be read - one of [`GONE`].
+///
+/// **Not built yet:** no code is.
+const fn snapshot_gone(_code: usize) -> bool {
+    false
+}
+
+/// [`OracleError::FlashbackAtImpersonatingSource`] for a source that reads as each caller.
+///
+/// **Not built yet:** no source is refused.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the refusal is what fails, and it lands with the partition read"
+)]
+const fn refuse_impersonating(_posture: &SourcePosture, _at: &sutura_domain::model::SourceName) -> Result<(), OracleError> {
+    Ok(())
+}
+
+/// Where the dictionary is asked about a leg's root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(dead_code, reason = "built by `dictionary`, which lands with the split")]
+enum Dictionary<'leg> {
+    /// The root names no schema: the session's own.
+    Schema,
+    /// The root names this schema.
+    Owner(&'leg str),
+}
+
+/// Where the dictionary is asked about `leg`'s root, or `None` for a leg read whole: a fact leg, a
+/// source whose split was not probed, a session other than the boot one, a root path of three parts.
+///
+/// **Not built yet:** every leg is read whole.
+const fn dictionary(_flashback: bool, _leg: &LegPlan, _boot: bool) -> Option<Dictionary<'_>> {
+    None
 }
 
 /// What the dictionary holds for a leg's root table.

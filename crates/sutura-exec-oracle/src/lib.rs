@@ -221,6 +221,12 @@ pub enum OracleError {
          this source reads instead"
     )]
     FlashbackAnyTable,
+    /// A role granted to the service user is not enabled when it signs in.
+    #[error(
+        "a role granted to the service user is not enabled when it signs in; make every role it \
+         holds a default role, or revoke it"
+    )]
+    FlashbackRoleNotEnabled,
     /// The service user could not read `table` at a snapshot.
     #[error("the service user could not read {table} at a snapshot; grant it `FLASHBACK` and `READ` on that table")]
     FlashbackRefused {
@@ -628,7 +634,16 @@ impl DriverError {
     /// of a stack - an `ORA-01476` the server nests under another code no longer matches, where
     /// the old substring match did. Not measured against a server.
     fn has_ora_code(&self, code: usize) -> bool {
-        matches!(self.0.kind(), oracledb::ErrorKind::DbError(db_error) if db_error.code() == code)
+        self.ora_code() == Some(code)
+    }
+
+    /// The Oracle error number the server refused with, where it refused - the TOP error of a
+    /// stack, as [`Self::has_ora_code`] reads it.
+    fn ora_code(&self) -> Option<usize> {
+        match *self.0.kind() {
+            oracledb::ErrorKind::DbError(ref db_error) => Some(db_error.code()),
+            _ => None,
+        }
     }
 
     /// Whether this is the driver's own `CallTimeoutExceeded` - the per-read idle timeout firing,
