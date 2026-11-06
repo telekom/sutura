@@ -8685,7 +8685,9 @@ PostgreSQL source (<code>github.com/telekom/sutura#828</code>).</p>
 <p>Whom a split lookup leg is granted for, and until when, read off the request's own grant.</p>
 <p>Only <code>Self::new</code> builds one, from a <code>BoundToTheRequest</code>: the caller is the one the broker
 answered for and the request agreed with, never a value a caller of this type supplies, and the
-grant ends no later than that answer does.</p>
+grant ends no later than that answer does. It keeps the fingerprint of the subject token that
+request presented for the leg's source, so <code>Self::forwarding</code> takes only a token exchanged from
+that credential.</p>
 <h3 id="use-lookupsplit"><code>use LookupSplit</code><a class="headerlink" href="#use-lookupsplit" title="Permanent link">&para;</a></h3>
 <p><code>Partitioned</code>, or the source's failure to estimate or split the leg.</p>
 <h3 id="use-notgranted"><code>use NotGranted</code><a class="headerlink" href="#use-notgranted" title="Permanent link">&para;</a></h3>
