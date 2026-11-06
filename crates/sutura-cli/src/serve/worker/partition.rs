@@ -4,7 +4,8 @@
 //! `BigQuery` with the caller's token the task's grant named.
 //!
 //! **Limits.** Any other kind whose leg this node certifies is refused as a failed read, and a leg
-//! it does not certify is refused as uncertified first, whatever the kind. A task carrying a token
+//! it does not certify is refused as uncertified first, except in a deployment that holds no kind
+//! that splits, which names the source without certifying anything. A task carrying a token
 //! is read only at a source of its name this node federates at the token's pool, else refused as
 //! uncertified, and only while its grant lasts. Each read is bounded by this node's own
 //! `server.request_timeout`, opened when the read starts, and a token's read by its grant's end

@@ -12,7 +12,7 @@
 //! # Limits
 //!
 //! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
-//!   checks its link values across its partitions in the same session it joins in. Only a mixed-kind
+//!   checks its link values across its partitions in the same session it joins in. Only a
 //!   `sutura serve` deployment's PostgreSQL source or `BigQuery` pool source grants a served leg
 //!   (`github.com/telekom/sutura#828`); every other served lookup leg is read whole, or partition by
 //!   partition, on the planning node, which checks its link values there.

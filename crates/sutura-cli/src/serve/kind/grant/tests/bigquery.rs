@@ -136,6 +136,10 @@ fn a_bigquery_lookup_leg_is_split_only_at_a_pool_source_and_only_when_offered_to
 /// A granted `BigQuery` partition whose task carries no token is refused naming the source, never
 /// read as this node's own identity: the backstop to a grant the planning node made with none.
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the cell asks the kind's own read of a partition that carries no token, which answers without reading anything"
+)]
 fn a_granted_bigquery_partition_with_no_token_is_refused_naming_the_source() {
     let bigquery = opened_as(at_a_pool());
     let deadline = Deadline::opened_at(Instant::now(), Budget::parse(Duration::from_secs(30)).expect("a budget"));

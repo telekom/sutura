@@ -4,10 +4,11 @@
 //! A kind that splits implements [`SplitKind`](crate::serve::kind::split::SplitKind) and takes one
 //! arm in [`AnyWarehouse::splits`], and a single-kind deployment of it one arm in
 //! [`worker_read`](crate::serve::kind::split::worker_read) and
-//! [`worker_read_forwarded`](crate::serve::kind::split::worker_read_forwarded). Every other kind is
-//! read whole by the planning node and refused by a reading worker, naming the source.
-//! `PostgreSQL` splits, read as its service user; `BigQuery` splits at a pool source only, read
-//! with the caller's forwarded token (`bigquery`).
+//! [`worker_read_forwarded`](crate::serve::kind::split::worker_read_forwarded), plus the `cfg` of the
+//! modules and methods that name the kind (see the PR's limits). Every other kind is read whole by
+//! the planning node and refused by a reading worker, naming the source. `PostgreSQL` splits, read
+//! as its service user; `BigQuery` splits at a pool source only, read with the caller's forwarded
+//! token (`bigquery`).
 //!
 //! **Limit:** the `BigQuery` arm is built only with `postgres` too, as this module is.
 
@@ -31,8 +32,9 @@ use super::{AnyWarehouse, AnyWarehouseError};
 
 /// A source kind whose lookup leg splits across the nodes that read its source.
 ///
-/// Visible to [`kind`](super) alone, and [`read_forwarded`](SplitKind::read_forwarded) is banned by
-/// `clippy.toml` so that its one call site is a visible `#[expect]`.
+/// Visible to [`kind`](super) alone, and [`read_granted`](SplitKind::read_granted) is banned by
+/// `clippy.toml` beyond the one call in [`worker_read`], as [`read_forwarded`](SplitKind::read_forwarded)
+/// is, so that its one call site is a visible `#[expect]`.
 pub(super) trait SplitKind {
     /// `leg` split by this kind's own estimate: granted to `grantee`, read here, read whole, or
     /// refused - the port's [`Warehouse::split_lookup`] for this kind.
@@ -99,8 +101,9 @@ impl AnyWarehouse {
 ///
 /// # Errors
 ///
-/// [`Unread::LegNotCertified`] for a leg `pinned` does not certify, whatever the kind; then a source
-/// of a kind that does not split, named; then the source's own failure to read.
+/// [`Unread::LegNotCertified`] for a leg `pinned` does not certify, in a deployment that holds a kind
+/// that splits; a source of a kind that does not split, named - without certifying anything when the
+/// deployment holds no kind that splits; then the source's own failure to read.
 pub(crate) fn worker_read(
     pinned: &PinnedDefinitions,
     sources: &OpenedSources,
@@ -113,15 +116,15 @@ pub(crate) fn worker_read(
     match sources {
         #[cfg(feature = "bigquery")]
         OpenedSources::BigQuery(sources) => read_in(pinned, sources, source, wire, |bigquery, leg| {
-            bigquery.read_granted(leg, partition, deadline)
+            read_here(bigquery, leg, partition, deadline)
         }),
         OpenedSources::Postgres(sources) => read_in(pinned, sources, source, wire, |postgres, leg| {
-            postgres.read_granted(leg, partition, deadline)
+            read_here(postgres, leg, partition, deadline)
         }),
         OpenedSources::Mixed(mixed) => read_in(pinned, &mixed.engines, source, wire, |engine, leg| {
             engine
                 .splits()
-                .map_or_else(|| Err(not_split()), |kind| kind.read_granted(leg, partition, deadline))
+                .map_or_else(|| Err(not_split()), |kind| read_here(kind, leg, partition, deadline))
         }),
         _ => Err(not_split()),
     }
@@ -207,6 +210,16 @@ impl Asked<'_> {
             })
         })
     }
+}
+
+/// `kind`'s read of the granted `partition` of `leg`, the one call site of
+/// [`read_granted`](SplitKind::read_granted).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "only worker_read calls this, and only from inside read_recertified: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
+)]
+fn read_here(kind: &dyn SplitKind, leg: &LegPlan, partition: &[u8], deadline: Deadline) -> Result<ResultBatches, Unread> {
+    kind.read_granted(leg, partition, deadline)
 }
 
 /// [`sutura_app::read_recertified`] over `opened`, a refusal answered as an uncertified leg.
