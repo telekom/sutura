@@ -11,8 +11,9 @@
 //! # Limits
 //!
 //! - [`PartitionReader`](partition::PartitionReader) is a port: this crate holds no implementation,
-//!   the composition root does. A reader that answers [`Unread::LegNotCertified`] fails the task
-//!   under the relay code [`relay`] reads back; what it re-certified against is the reader's.
+//!   the composition root does. A reader that answers [`Unread::LegNotCertified`] or
+//!   [`Unread::DidNotFit`] fails the task under a relay code [`relay`] reads back; what it
+//!   re-certified against, and the bound it read under, are the reader's.
 //! - The leaf's schema crosses the wire through `datafusion_proto`'s own `Schema` protobuf, the same
 //!   round trip `combine::tests::across::decode` already exercises for one.
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
@@ -59,7 +60,8 @@ pub trait PartitionReader: Send + Sync {
     /// # Errors
     ///
     /// [`Unread::LegNotCertified`] when this node does not certify the leg `wire` carries;
-    /// [`Unread::Failed`] for anything else.
+    /// [`Unread::DidNotFit`] for a partition past this node's per-stream bound; [`Unread::Failed`]
+    /// for anything else.
     fn read(
         &self,
         wire: &[u8],
@@ -172,7 +174,7 @@ pub enum Unread {
     /// the planning node maps to its own refusal, never as text.
     LegNotCertified,
     /// The partition's rows did not fit the bound this node reads one stream under. Crosses the link
-    /// as a code, never as text.
+    /// as a code, for [`Self::LegNotCertified`]'s reason.
     DidNotFit,
     /// The read failed, as the engine's failure.
     Failed(DataFusionError),

@@ -76,16 +76,17 @@
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
 //!   [`CombineError::Execute`], unless the failure carries a code `relay` reads back: a stage refused
 //!   for rows past the federated row ceiling ([`CombineError::RowsOverCeiling`]), a leg a reading
-//!   worker did not certify ([`CombineError::LegNotCertified`]), or a granted leg's link value held
-//!   more than once ([`CombineError::AmbiguousLink`]). A cell
+//!   worker did not certify ([`CombineError::LegNotCertified`]), a granted partition past a reading
+//!   worker's per-stream bound ([`CombineError::PartitionDidNotFit`]), or a granted leg's link value
+//!   held more than once ([`CombineError::AmbiguousLink`]). A cell
 //!   loses a node nothing listens on and one that drops its connection under a call, over plain
 //!   TCP; the multi-node VM check kills one while it answers.
 //! - Each code is read only exactly, only off a failure, and answered from this node's own
 //!   configuration: a peer can turn a failed question into one of those refusals, never into an
 //!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
-//!   stays a failure. Three stages raise one: a final-stage task past the worker's row ceiling, a
-//!   reading worker's partition scan whose reader did not certify its leg, and a granted leg's link
-//!   count.
+//!   stays a failure. Four stages raise one: a final-stage task past the worker's row ceiling, a
+//!   reading worker's partition scan whose reader did not certify its leg or whose partition did not
+//!   fit its per-stream bound, and a granted leg's link count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is

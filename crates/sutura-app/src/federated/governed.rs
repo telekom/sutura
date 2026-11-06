@@ -41,16 +41,26 @@ where
 }
 
 /// [`refusal`], then a stage another node refused over the federated row ceiling, answered with
-/// `ceiling` - this node's own - and never a number the combiner read off that node.
+/// `ceiling` - this node's own - and never a number the combiner read off that node; then a granted
+/// partition past a reading node's per-stream bound, answered as a leg read whole here that did not
+/// fit is: [`ResultBound::Volume`], which carries no number.
 pub(super) fn refusal_within<C>(combiner: &C, cause: &C::Error, ceiling: FederatedRowCeiling) -> Option<RefusalReason>
 where
     C: FederationCombiner,
 {
-    refusal(combiner, cause).or_else(|| {
-        combiner.rows_over_ceiling(cause).then_some(RefusalReason::ResultTooLarge {
-            bound: ResultBound::Rows { limit: ceiling.get() },
+    refusal(combiner, cause)
+        .or_else(|| {
+            combiner.rows_over_ceiling(cause).then_some(RefusalReason::ResultTooLarge {
+                bound: ResultBound::Rows { limit: ceiling.get() },
+            })
         })
-    })
+        .or_else(|| {
+            combiner
+                .partition_did_not_fit(cause)
+                .then_some(RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Volume,
+                })
+        })
 }
 
 /// [`refusal_within`], then a reading node refusing to certify a leg it was asked to read, answered
@@ -89,6 +99,9 @@ mod certified;
 /// A node lost while the combine ran, over a combiner that reads every failure as one.
 #[cfg(test)]
 mod lost;
+/// A granted partition past a reading node's per-stream bound, answered as a leg that did not fit.
+#[cfg(test)]
+mod partition;
 /// A stage another node refused over the federated row ceiling, answered with this node's own.
 #[cfg(test)]
 mod rows;

@@ -54,7 +54,8 @@ pub(super) trait SplitKind {
     ///
     /// # Errors
     ///
-    /// The source's failure to read it, as [`Unread::Failed`].
+    /// A partition past the source's per-stream bound, as [`Unread::DidNotFit`]; the source's other
+    /// failures to read it, as [`Unread::Failed`].
     fn read_granted(&self, leg: &LegPlan, partition: &[u8], deadline: Deadline) -> Result<ResultBatches, Unread>;
 }
 
@@ -172,9 +173,18 @@ impl SplitKind for PostgresSource {
     }
 }
 
-/// `cause` as this reader answers it: the engine's failure.
-fn unread(_source: &SourceName, cause: PostgresError) -> Unread {
-    Unread::failed(cause)
+/// `cause` as this reader answers it: a partition past the per-stream bound as
+/// [`Unread::DidNotFit`], which the planning node refuses as a result that did not fit, and anything
+/// else as the engine's failure. Logged here, naming the source and never the cause's text, which
+/// can quote what the server read.
+fn unread(source: &SourceName, cause: PostgresError) -> Unread {
+    if cause.did_not_fit() {
+        tracing::warn!(%source, "a granted partition did not fit this reader's per-stream bound, refused");
+        Unread::DidNotFit
+    } else {
+        tracing::warn!(%source, "a granted partition could not be read");
+        Unread::failed(cause)
+    }
 }
 
 /// A split with a column whose type its cells decide (`NUMERIC`) describes no one schema, so it is
@@ -202,3 +212,7 @@ impl HeldSplit for SplitLeg<'_> {
             .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
     }
 }
+
+/// A reader's failure answered by its kind: a partition past the bound, typed.
+#[cfg(test)]
+mod tests;

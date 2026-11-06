@@ -5,7 +5,8 @@
 //! the call's status, and a `Context` error keeps its text and the error under it there. A node that
 //! refuses a stage fails it under a `Context` whose text is a code; the node that planned the
 //! question reads that code back and answers [`CombineError::RowsOverCeiling`],
-//! [`CombineError::LegNotCertified`] or [`CombineError::AmbiguousLink`], variants with no fields, so
+//! [`CombineError::LegNotCertified`], [`CombineError::PartitionDidNotFit`] or
+//! [`CombineError::AmbiguousLink`], variants with no fields, so
 //! what the caller is told - the ceiling, the source - is this node's own configuration.
 //!
 //! **Limits, next to the claim.**
@@ -16,9 +17,10 @@
 //! - A code a node wraps in an Arrow error or an external one crosses its next link as text, which
 //!   is not read, and stays the engine's failure. So does a code in a collection of errors past its
 //!   first, and a code carried as an error's message rather than its context.
-//! - Three stages raise a code: a task of a question's final stage past the worker's row ceiling, a
-//!   reading worker's partition scan whose reader did not certify its leg, and the count of a granted
-//!   leg's link values that finds one held twice. The row count is per task, so tasks that each stay
+//! - Four stages raise a code: a task of a question's final stage past the worker's row ceiling, a
+//!   reading worker's partition scan whose reader did not certify its leg or whose partition did not
+//!   fit the reader's per-stream bound, and the count of a granted leg's link values that finds one
+//!   held twice. Any other failure of a reader crosses as text and stays [`CombineError::Execute`]. The row count is per task, so tasks that each stay
 //!   under the ceiling can sum past it, which only the planning node's own exact count refuses.
 //! - [`CombineError::NoReadingNode`] is no peer's code: it is read off this node's own routing of a
 //!   split leg to no node, as the typed error itself, which no link carries. It names the first
@@ -65,14 +67,16 @@ pub(crate) fn ambiguous(cause: DataFusionError) -> DataFusionError {
     DataFusionError::Context(String::from(AMBIGUOUS_LINK), Box::new(cause))
 }
 
-/// `error` as [`CombineError::RowsOverCeiling`], [`CombineError::LegNotCertified`] or
-/// [`CombineError::AmbiguousLink`] when a node relayed that refusal in it, and as
+/// `error` as [`CombineError::RowsOverCeiling`], [`CombineError::LegNotCertified`],
+/// [`CombineError::PartitionDidNotFit`] or [`CombineError::AmbiguousLink`] when a node relayed that
+/// refusal in it, and as
 /// [`CombineError::NoReadingNode`] when this node routed a split leg of a source no resolved node
 /// reads.
 pub(crate) fn relayed(error: CombineError) -> CombineError {
     match error {
         CombineError::Execute { cause } if carries(&cause, ROWS_OVER_CEILING) => CombineError::RowsOverCeiling,
         CombineError::Execute { cause } if carries(&cause, LEG_NOT_CERTIFIED) => CombineError::LegNotCertified,
+        CombineError::Execute { cause } if carries(&cause, PARTITION_DID_NOT_FIT) => CombineError::PartitionDidNotFit,
         CombineError::Execute { cause } if carries(&cause, AMBIGUOUS_LINK) => CombineError::AmbiguousLink,
         CombineError::Execute { cause } => {
             let unread = chain(&cause)
