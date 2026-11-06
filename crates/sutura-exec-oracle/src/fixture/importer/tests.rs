@@ -1,7 +1,7 @@
-use sutura_domain::model::TableName;
+use sutura_domain::model::{ColumnName, TableName};
 use sutura_domain::warehouse::csv::InferenceError;
 
-use super::{Cell, OracleType, Table, Unloadable};
+use super::{Cell, OracleType, Table, Unloadable, rows};
 
 /// One column of every classification, one row of values, one of the other spellings, one empty.
 const EVERY_TYPE: &str = "id,flag,small,wide,ratio,real,day,label\n\
@@ -17,7 +17,7 @@ fn table(text: &str) -> Table {
 fn each_classification_is_declared_as_the_oracle_type_the_header_names() {
     assert_eq!(
         table(EVERY_TYPE).create_statement(),
-        "CREATE TABLE \"t\" (\"id\" NUMBER(18,0), \"flag\" BOOLEAN, \"small\" NUMBER(18,0), \"wide\" NUMBER(38,0), \
+        "CREATE TABLE \"t\" (\"id\" NUMBER(19,0), \"flag\" BOOLEAN, \"small\" NUMBER(19,0), \"wide\" NUMBER(38,0), \
          \"ratio\" BINARY_DOUBLE, \"real\" BINARY_DOUBLE, \"day\" DATE, \"label\" VARCHAR2(4000))"
     );
     assert_eq!(table(EVERY_TYPE).drop_statement(), "DROP TABLE IF EXISTS \"t\" PURGE");
@@ -90,10 +90,22 @@ fn a_cell_that_is_not_its_columns_type_is_not_a_cell() {
 }
 
 #[test]
-fn an_integer_wider_than_its_column_is_refused_by_line_and_column() {
+fn an_integer_column_holds_every_i64_and_a_wider_integer_is_the_wide_classification() {
     let name = TableName::parse("t").expect("a table name");
-    drop(Table::parse(&name, "n\n999999999999999999\n-999999999999999999\n").expect("eighteen digits fit"));
-    let refused = Table::parse(&name, "n\n1\n1000000000000000000\n");
+    let extremes = Table::parse(&name, "n\n9223372036854775807\n-9223372036854775808\n").expect("every i64 fits");
+    assert_eq!(extremes.create_statement(), "CREATE TABLE \"t\" (\"n\" NUMBER(19,0))");
+    assert_eq!(
+        extremes.rows,
+        vec![vec![Cell::Integer(Some(i64::MAX))], vec![Cell::Integer(Some(i64::MIN))]]
+    );
+    let wider = Table::parse(&name, "n\n9223372036854775808\n").expect("a u64 fits");
+    assert_eq!(wider.create_statement(), "CREATE TABLE \"t\" (\"n\" NUMBER(38,0))");
+}
+
+#[test]
+fn an_integer_wider_than_its_column_is_refused_by_line_and_column() {
+    let columns = [(ColumnName::parse("n").expect("a column name"), OracleType::Integer)];
+    let refused = rows("n\n1\n9223372036854775808\n", &columns);
     let Err(Unloadable::Cell {
         line,
         column,
@@ -101,11 +113,11 @@ fn an_integer_wider_than_its_column_is_refused_by_line_and_column() {
         declared,
     }) = refused
     else {
-        panic!("a nineteen-digit integer does not fit NUMBER(18,0): {refused:?}");
+        panic!("an integer beyond i64 does not bind as an Integer column: {refused:?}");
     };
     assert_eq!(
         (line, column.as_str(), cell.as_str(), declared),
-        (3, "n", "1000000000000000000", "NUMBER(18,0)")
+        (3, "n", "9223372036854775808", "NUMBER(19,0)")
     );
 }
 
