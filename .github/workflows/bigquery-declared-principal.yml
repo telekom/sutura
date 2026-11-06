@@ -213,7 +213,7 @@ jobs:
           SUTURA_BQ_INBOUND_A_FILE: ${{ runner.temp }}/inbound-a.txt
           SUTURA_BQ_INBOUND_B_FILE: ${{ runner.temp }}/inbound-b.txt
         run: |
-          set -eu
+          set -euo pipefail
           if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
             echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the principals live in" >&2
             exit 1
@@ -231,14 +231,32 @@ jobs:
           # The assertions reach the leg as VALUES rather than paths, because the transport posts
           # each one to Google's token service from memory and never writes it to a file. Read
           # here, in one step, from files this job placed and removes.
+          # The job log of this environment is not readable, so the output is also kept in a raw file
+          # that `nix/bigquery-leg-digest.py` reduces to outcome, panic, assertion and `observed,`
+          # lines, redacted, for the artifact below. The cell's own exit code is what the step returns.
+          umask 077
+          status=0
           SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
           SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
           SUTURA_BQ_INBOUND_A="$(cat "$SUTURA_BQ_INBOUND_A_FILE")" \
           SUTURA_BQ_INBOUND_B="$(cat "$SUTURA_BQ_INBOUND_B_FILE")" \
-            nix run .#bigquery-declared-principal -- --no-capture --no-fail-fast
+            nix run .#bigquery-declared-principal -- --no-capture --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/leg-raw.log" || status=$?
+          python3 -I nix/bigquery-leg-digest.py "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt" \
+            || echo "the digest could not be written" >&2
+          exit "$status"
+
+      - name: Upload the redacted digest
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bigquery-declared-principal-digest
+          path: ${{ runner.temp }}/leg-digest.txt
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Remove the credentials
         if: always()
         run: |
           rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
           rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt" "$RUNNER_TEMP/inbound-a.txt" "$RUNNER_TEMP/inbound-b.txt"
+          rm -f "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt"
