@@ -15,9 +15,9 @@ parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `click
 
 - Your data is in ClickHouse, and one ClickHouse user may read it for all callers, or each caller
   has a ClickHouse user whose grants and row policies the server applies.
-- A ClickHouse source can be one leg of a federated answer when it runs as the shared `user` or
-  signs each caller in with a `delegation` token. A leg that would run through `EXECUTE AS` is
-  refused.
+- A ClickHouse source can be one leg of a federated answer. The leg runs as the identity that a
+  whole query on the source runs as: the shared `user`, the caller's user through `EXECUTE AS`, or
+  the caller signed in with a `delegation` token.
 
 ## Settings
 
@@ -90,6 +90,10 @@ Requirements:
   `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`. Grant `IMPERSONATE` on
   each caller's user by name and never `IMPERSONATE ON *`, because a wildcard lets a verified caller
   run as any user their `sub` names.
+- The profile of each caller's user allows the settings that sutura sends with each statement, so
+  it does not set `readonly = 1`. Under `EXECUTE AS`, ClickHouse can drop a setting that the
+  caller's profile does not allow, without an error. Without `join_use_nulls`, a join can answer an
+  unmatched key as an empty value and not as NULL.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 

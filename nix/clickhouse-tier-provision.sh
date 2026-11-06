@@ -53,7 +53,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
 PY
 }
 
-# Only the HTTP interface, on loopback, and no system log tables: nothing here is kept past `stop`.
+# Only the HTTP interface, on loopback, and one system log table, `query_log`, for the leg cell that
+# reads it: it is under the home, so nothing here is kept past `stop`.
 # `$user` is the one the adapter connects as; its password is stored as a digest, and the plaintext
 # lives only in `$cred`, 0600, removed with the home. YAML rather than XML because every path here
 # is under the worktree, and an XML closing tag for the server's scratch directory spells a
@@ -65,9 +66,11 @@ PY
 # nobody keeps. A row policy on `execute_as.conformance_events` (the conformance corpus table) shows
 # `sutura_analyst_a` every row and `sutura_analyst_b` none; `$user` has no policy and reads all.
 #
-# The ADBC cells (crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs): `sutura_switched` and
-# `sutura_switched_ungranted` have no password and may read `adbc_switched` only, and `IMPERSONATE`
-# is granted on the first alone - so a statement switched to the second is refused by the server.
+# The ADBC cells (crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs and adbc_execute_as_legs.rs):
+# `sutura_switched` and `sutura_switched_ungranted` have no password and may read `adbc_switched`
+# and the two `adbc_switched_legs` databases only, and `IMPERSONATE` is granted on the first alone -
+# so a statement switched to the second is refused by the server. `sutura_switched_readonly` is
+# granted, reads `adbc_switched_legs`, and its profile sets `readonly = 1`.
 #
 # Token sign-in: `sutura_caller_a` and `sutura_caller_b` sign in through `checker`, which answers
 # ClickHouse's `GET` with 200 only for a valid token whose `sub` is the Basic user. A row policy on
@@ -103,6 +106,7 @@ users:
         - GRANT IMPERSONATE ON sutura_analyst_a
         - GRANT IMPERSONATE ON sutura_analyst_b
         - GRANT IMPERSONATE ON sutura_switched
+        - GRANT IMPERSONATE ON sutura_switched_readonly
 $(for analyst in sutura_analyst_a:1 sutura_analyst_b:0 sutura_ungranted:0; do
     printf '  %s:\n    password_sha256_hex: %s\n' "${analyst%:*}" "$unusable"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
@@ -113,7 +117,17 @@ $(for switched in sutura_switched sutura_switched_ungranted; do
     printf '  %s:\n    no_password: 1\n' "$switched"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
     printf '    grants:\n      query:\n        - GRANT SELECT ON adbc_switched.*\n'
+    printf '        - GRANT SELECT ON adbc_switched_legs.*\n        - GRANT SELECT ON adbc_switched_legs_log.*\n'
   done)
+  sutura_switched_readonly:
+    no_password: 1
+    networks:
+      ip: 127.0.0.1
+    profile: read_only_caller
+    quota: default
+    grants:
+      query:
+        - GRANT SELECT ON adbc_switched_legs.*
 $(for caller in sutura_caller_a:1 sutura_caller_b:0; do
     printf '  %s:\n    http_authentication:\n      server: checker\n      scheme: basic\n' "${caller%:*}"
     printf '    networks:\n      ip: 127.0.0.1\n    profile: default\n    quota: default\n'
@@ -125,8 +139,14 @@ http_authentication_servers:
     uri: http://127.0.0.1:$checker_port/
 profiles:
   default: {}
+  read_only_caller:
+    readonly: 1
 quotas:
   default: {}
+query_log:
+  database: system
+  table: query_log
+  flush_interval_milliseconds: 1000
 EOC
 }
 
