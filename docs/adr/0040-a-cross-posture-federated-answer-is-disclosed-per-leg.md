@@ -192,8 +192,9 @@ follows a `FORMAT`, a first `SETTINGS`, an `INTO OUTFILE`, or a parenthesised la
 that is one parenthesised `SELECT` is one - and `EXECUTE AS` lifts an output-level `SETTINGS` onto
 the outer statement, where the clamp drops it again. Every statement the adapter renders is a bare
 `SELECT`; a stacked plan is one `SELECT` over a `UNION ALL` subquery. The adapter refuses, as
-`AdbcError::SettingsNotOwn`, a statement that opens with a parenthesis or whose top level carries
-`SETTINGS`, `FORMAT`, `INTO`, `UNION`, `INTERSECT` or `EXCEPT`, before it sends it. Read from the
+`AdbcError::SettingsNotOwn`, a statement that does not open with `SELECT` or `WITH`, and one whose
+top level carries `SETTINGS`, `FORMAT`, `INTO`, `UNION`, `INTERSECT` or `EXCEPT`, before it sends
+it. The opening is an allow-list, so a shape not named here is refused rather than sent. Read from the
 server's 26.9 source; the `readonly` tier cells in
 `crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it for a whole question, in CI
 only. No tier cell runs a switched stacked plan.

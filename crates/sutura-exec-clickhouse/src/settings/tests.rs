@@ -18,6 +18,8 @@ fn a_bare_select_takes_the_clause_once_at_its_end() {
     );
     let quoted = "SELECT 'UNION' AS \"SETTINGS\", `FORMAT` FROM \"t\"";
     assert!(with_clause(quoted, 30).is_ok(), "a quoted keyword is not one");
+    let common = " \n with \"k\" AS (SELECT 1) SELECT \"k\" FROM \"k\"";
+    assert!(with_clause(common, 30).is_ok(), "WITH opens a statement too, after blanks");
 }
 
 #[test]
@@ -29,8 +31,13 @@ fn a_statement_whose_clause_would_be_lifted_past_the_switch_is_refused() {
         ("select 1 intersect select 2", "INTERSECT"),
         ("SELECT 1 EXCEPT SELECT 2", "EXCEPT"),
         ("SELECT 1 INTO OUTFILE 'answer.tsv'", "INTO"),
-        ("(SELECT 1)", "("),
-        (" \n(SELECT \"k\" FROM \"t\")", "("),
+        ("(SELECT 1)", "no opening SELECT or WITH"),
+        (" \n(SELECT \"k\" FROM \"t\")", "no opening SELECT or WITH"),
+        ("-- a comment\nSELECT 1", "no opening SELECT or WITH"),
+        ("/* a comment */ SELECT 1", "no opening SELECT or WITH"),
+        ("SELECTED 1", "no opening SELECT or WITH"),
+        ("SHOW TABLES", "no opening SELECT or WITH"),
+        ("", "no opening SELECT or WITH"),
     ] {
         assert_eq!(with_clause(select, 30), Err(Lifted(keyword)), "{select}");
     }

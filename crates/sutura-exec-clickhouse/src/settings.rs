@@ -16,8 +16,8 @@
 //! The server makes a `SETTINGS` output-level when it follows a `FORMAT`, a first `SETTINGS`, an
 //! `INTO OUTFILE`, or a parenthesised last arm - a statement that is one parenthesised `SELECT` is
 //! one - and `EXECUTE AS` lifts an output-level one onto the outer statement, past the switch.
-//! [`with_clause`] refuses a statement that opens with a parenthesis or carries any of those
-//! keywords at its top level. Read from the server's source (26.9); measured by the `readonly`
+//! [`with_clause`] refuses a statement that does not open with `SELECT` or `WITH`, and one that
+//! carries any of those keywords at its top level. Read from the server's source (26.9); measured by the `readonly`
 //! tier cells in `tests/adbc_execute_as.rs`, in CI only, for a bare `SELECT`.
 //!
 //! Limits: the server skips the check for a value the profile already holds, which leaves the
@@ -43,12 +43,15 @@ const ANSWER_SHAPING: [(&str, &str); 6] = [
 /// possibly parenthesised last arm.
 const LIFTING: [&str; 6] = ["SETTINGS", "FORMAT", "INTO", "UNION", "INTERSECT", "EXCEPT"];
 
-/// What [`Lifted`] names for a statement that opens with a parenthesis: its whole body is then one
-/// parenthesised arm, and a clause after it is output-level.
-const OPENING_PARENTHESIS: &str = "(";
+/// The words a statement may open with, after leading blanks. Anything else is refused: the
+/// clause is held to be the statement's own only for a statement these open.
+const OPENING: [&str; 2] = ["SELECT", "WITH"];
 
-/// A statement whose top level carries this keyword, or that opens with a parenthesis, so a clause
-/// after it could be lifted past the switch.
+/// What [`Lifted`] names for a statement that does not open with a word of [`OPENING`].
+const NOT_OPENED: &str = "no opening SELECT or WITH";
+
+/// A statement whose top level carries this keyword, or that does not open with a word of
+/// [`OPENING`], so a clause after it could be lifted past the switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Lifted(pub(crate) &'static str);
 
@@ -64,8 +67,8 @@ pub(crate) fn driver_options() -> impl Iterator<Item = (String, &'static str)> {
 ///
 /// # Errors
 ///
-/// [`Lifted`] for a `select` that opens with a parenthesis, or whose top level, outside parentheses
-/// and quotes, carries a keyword of [`LIFTING`].
+/// [`Lifted`] for a `select` that does not open with a word of [`OPENING`], or whose top level,
+/// outside parentheses and quotes, carries a keyword of [`LIFTING`].
 pub(crate) fn with_clause(select: &str, max_execution_time: u64) -> Result<String, Lifted> {
     if let Some(keyword) = top_level_lifting(select) {
         return Err(Lifted(keyword));
@@ -86,11 +89,17 @@ pub(crate) fn with_clause(select: &str, max_execution_time: u64) -> Result<Strin
     ))
 }
 
-/// [`OPENING_PARENTHESIS`] for a `select` that opens with one, else the first keyword of [`LIFTING`]
-/// that `select` spells as a word at depth zero, skipping string literals and quoted identifiers.
+/// [`NOT_OPENED`] for a `select` whose first word after leading blanks is not one of [`OPENING`],
+/// else the first keyword of [`LIFTING`] that `select` spells as a word at depth zero, skipping
+/// string literals and quoted identifiers.
 fn top_level_lifting(select: &str) -> Option<&'static str> {
-    if select.trim_start().starts_with('(') {
-        return Some(OPENING_PARENTHESIS);
+    let opening: String = select
+        .trim_start()
+        .chars()
+        .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+        .collect();
+    if !OPENING.iter().any(|word| word.eq_ignore_ascii_case(&opening)) {
+        return Some(NOT_OPENED);
     }
     let mut depth = 0_usize;
     let mut quote: Option<char> = None;
