@@ -16,6 +16,11 @@
 # is tight for that and this host is not, so SF3 - the fallback - is not needed. Unmeasured until
 # the first dispatch: the peak memory and disk of either scale.
 #
+# THE DATA IS A DERIVATION (`nix/tpch-data.nix`): the pinned DuckDB rebuilt with its in-tree `tpch`
+# extension linked in, and one `tpch-sf<N>` build per scale that fails unless every row count is the
+# specification's. Nothing is downloaded at run time. Neither is in a store this repository
+# publishes, so every dispatch builds the rebuilt DuckDB and each scale's data on its runner.
+#
 # IT GATES NOTHING. Dispatch only, absent from `devco/required-contexts` and `ci-aggregate`, for the
 # runner probe's reason: a measurement for the owner, not a check a commit must pass. A run exits 1
 # only when a question failed for a reason that says the corpus or the deployment is wrong.
@@ -60,7 +65,7 @@ jobs:
       - name: Measure
         env:
           SCALE: ${{ matrix.scale }}
-        run: nix run .#tpch-refusal-rate -- --scale "$SCALE" --out "tpch-sf$SCALE"
+        run: nix run ".#tpch-refusal-rate-sf$SCALE" -- --out "tpch-sf$SCALE"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
