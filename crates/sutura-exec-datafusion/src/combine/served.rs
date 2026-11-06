@@ -155,7 +155,9 @@ fn registered_split(
 /// Every granted leg is the build side of a RIGHT join (`across::joined`): a hash join reads its
 /// build side whole, and a RIGHT one reads its probe side, the relation every earlier leg built,
 /// even when the build side has no joinable row. Every other join keeps the relation as its build
-/// side, so no join skips a granted leg's count.
+/// side, so no join skips a granted leg's count. The limit: a LEFT leg no column of which is read
+/// above its join is removed with its count by the engine's `EliminateJoin` rule, and no planned
+/// question has that shape today (the limit in `across::once`); nothing holds that.
 pub(super) fn counted_in_plan(reads: &[LookupRead<'_>]) -> Vec<bool> {
     reads.iter().map(|read| matches!(read, LookupRead::Granted(_))).collect()
 }

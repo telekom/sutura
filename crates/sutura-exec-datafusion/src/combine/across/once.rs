@@ -6,20 +6,21 @@
 //! [`CombineError::AmbiguousLink`](crate::combine::CombineError::AmbiguousLink) is read back from
 //! when a count passes one. That relation is the build side of a RIGHT join onto the relation every
 //! earlier leg built. A hash join reads its build side whole before its probe side, and a RIGHT
-//! one reads its probe side even when its build side is empty or holds no joinable row, so no join
-//! skips a count: neither this leg's when the relation has no row to match, nor an earlier granted
-//! leg's, inside the relation, when this leg has none. An INNER leg drops the relation's unmatched
-//! rows above the join, under a function the engine cannot read as rejecting nulls, so no rule
-//! turns the join back into the INNER one that would skip its probe side.
+//! one reads its probe side even when its build side is empty or holds no joinable row, so the
+//! join does not skip a count: neither this leg's when the relation has no row to match, nor an
+//! earlier granted leg's, inside the relation, when this leg has none. An INNER leg drops the
+//! relation's unmatched rows above the join, under a function the engine cannot read as rejecting
+//! nulls, so the outer-join elimination does not turn the join back into the INNER one that would
+//! skip its probe side. Both hold only while the join stays in the plan: see the limit on a leg nothing above reads.
 //!
 //! # Limits
 //!
 //! - The build side is the join order this plan builds, kept only because the session's
 //!   statistics-driven join reordering is turned off for the whole combine that reads a granted leg.
-//! - No filter reaches the count from outside it: the engine pushes none into the build side of a
-//!   RIGHT join, and a RIGHT join pushes no dynamic filter into its probe side. So an INNER leg's
-//!   unmatched relation rows are not pruned at their scan either, and flow through the join to the
-//!   filter that drops them. Not measured.
+//! - No filter the plan builds reaches the count from outside it: the engine pushes none into the
+//!   build side of a RIGHT join, and a RIGHT join pushes no dynamic filter into its probe side. So
+//!   an INNER leg's unmatched relation rows are not pruned at their scan either, and flow through
+//!   the join to the filter that drops them. Not measured.
 //! - The whole leg is held, as the count's group state and then as the join's build side, on a
 //!   worker whose pool spills nowhere: a large leg can be refused for its working set. Not measured.
 //! - Each other column is carried as `max` of its group, which is that group's one value in every
@@ -27,6 +28,17 @@
 //!   of a type it cannot compare is refused only when a worker updates its accumulator, after the
 //!   partitions are read, as `CombineError::Execute` and not `CombineError::Build`; no cell carries
 //!   such a column.
+//! - A leg nothing above reads: a LEFT granted leg none of whose columns is read above its join is
+//!   removed from the plan, count included, by `datafusion-optimizer` 55.1.0's default
+//!   `EliminateJoin` rule. It replaces a RIGHT join with its probe side when no build-side column is
+//!   read above the join and the build side is unique on the join keys, which the group by the link
+//!   columns makes it. An ambiguous link on that leg would then be answered, not refused, and
+//!   volatility does not stop the rule, which does not read it. No planned question has that shape
+//!   today, since the planner gives every LEFT leg a dimension key or a later leg's link
+//!   (`sutura-semantic`'s `lookup_legs`), and no type or gate holds that. A null-rejecting filter on
+//!   a leg's column would make the RIGHT join INNER, which skips its probe side, and a filter on the
+//!   relation's join key would be inferred onto the link and pushed into the count: the plan builds
+//!   neither today, and nothing holds that either.
 //! - The count is a stage of the question, so the refusal is an engine failure of that stage, read
 //!   back by its code: a peer can raise it for a question it fails, never answer one with it.
 //! - Every node must register both filters' functions by name: a node built without them cannot
@@ -61,6 +73,7 @@ const MATCHED: &str = "sutura_matched";
 ///
 /// Volatile, as a guard: no optimizer rule may fold or move the filter it is. No cell tells that
 /// from `Immutable`, which a filter over an aggregate's own output is not moved under either.
+/// It does not keep the count in the plan: see the module's limit on a leg nothing above reads.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct OneRowPerLink {
     signature: Signature,
@@ -111,7 +124,9 @@ impl ScalarUDFImpl for OneRowPerLink {
 ///
 /// Not strict, the engine's default, and truly so: a null answers false. A function declared strict
 /// over the build side's columns would let the engine's outer-join elimination make the join INNER.
-/// Volatile as a guard, as the count's filter is; no cell tells that from `Immutable`.
+/// Volatile as a guard, as the count's filter is; no cell tells that from `Immutable`. It keeps its
+/// link column read above the join, so the join is not removed as unread: that holds for an INNER
+/// leg only.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct Matched {
     signature: Signature,
