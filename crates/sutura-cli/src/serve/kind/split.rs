@@ -200,7 +200,7 @@ impl SplitKind for PostgresSource {
 /// [`Unread::DidNotFit`], which the planning node refuses as a result that did not fit, and anything
 /// else as the engine's failure. Logged here, naming the source and never the cause's text, which
 /// can quote what the server read.
-fn unread(source: &SourceName, cause: PostgresError) -> Unread {
+pub(super) fn unread(source: &SourceName, cause: PostgresError) -> Unread {
     if cause.did_not_fit() {
         tracing::warn!(%source, "a granted partition did not fit this reader's per-stream bound, refused");
         Unread::DidNotFit
