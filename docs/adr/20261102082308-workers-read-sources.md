@@ -52,8 +52,8 @@ answers as the design that follows from them, not asked as its own question.
    rows to the combine's next stage on that node, so no node holds the whole leg. A leg on any
    other data system (for Oracle, any leg the third amendment does not split), and a remote leg, is
    still read whole where shuffle Decision 3 reads it. A stage that reads no source still holds no
-   credential, and its worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is
-   decided below.
+   credential, and its worker still refuses a stage whose leaf reads a source. Which legs are split,
+   and when, is decided below.
 2. **The result-stream bound is per stream.** Each partition's stream is bounded at 1,000,000 rows
    and 256 MiB while it is read, as a leg's stream is today. A leg of N partitions can carry N times
    that. No constant is raised, and none becomes a setting. SF10's `customer` and `part` lookup
@@ -327,12 +327,14 @@ still pushed down whole, and a fact leg on Oracle is still read whole.
    whole. A per-task source token, as W2 forwards one, stays possible and is not built.
 2. **Each source opts in (D2).** `split: flashback` on a `kind: oracle` source allows its lookup legs
    to split. Without it, every leg is read whole. A source that declares it is probed at boot, and a
-   failed probe refuses startup. The service user gets the `FLASHBACK` object privilege on each
-   table it reads, never `FLASHBACK ANY TABLE`. *(design)* The key is refused on any other kind and
-   on an `impersonation-at-source` source. The probe refuses `FLASHBACK ANY TABLE` however it is
-   granted, directly or through any role, and refuses a service user holding a role that is not
-   enabled when it signs in. It then reads each table the source's models name at a snapshot: the
-   models' own tables only, not tables their joins reach.
+   failed probe refuses startup. The operator grants the service user the `FLASHBACK` object
+   privilege on each table it reads, and not `FLASHBACK ANY TABLE`. *(design)* The key is refused on
+   any other kind and on an `impersonation-at-source` source. The probe reads the privileges granted
+   to the service user when it runs at boot: directly, through `PUBLIC`, and through roles granted
+   to the service user. It refuses `FLASHBACK ANY TABLE`, `GRANT ANY PRIVILEGE` and `GRANT ANY
+   ROLE` held that way, and a role granted to the service user that is not enabled when it signs
+   in. It then reads each table the source's models name at a snapshot: the models' own tables only,
+   not tables their joins reach.
 3. **One snapshot per split leg, taken when the leg is split (D3).** The snapshot is
    `TIMESTAMP_TO_SCN(SYSTIMESTAMP)`, read once for the leg. Every table reference of every
    partition's statement carries `AS OF SCN` with that number, so the leg's partitions read one
