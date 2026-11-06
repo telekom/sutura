@@ -13,11 +13,10 @@ mod execute_as {
     use sutura_domain::plan::Executable;
     use sutura_domain::source::SourcePosture;
     use sutura_domain::warehouse::Warehouse as _;
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
+    use sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
     use sutura_exec_clickhouse::fixture::credential_from_env;
-    use sutura_exec_clickhouse::transport::{Endpoint, Http};
 
-    fn open(case: &str, database: &str) -> Option<ClickHouseWarehouse<Http>> {
+    fn open(case: &str, database: &str) -> Option<AdbcClickHouseWarehouse> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(absent) => {
@@ -25,12 +24,13 @@ mod execute_as {
                 return None;
             }
         };
-        let auth = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
-        let warehouse = ClickHouseWarehouse::connect_in_database(
+        let credential = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let warehouse = AdbcClickHouseWarehouse::connect_in_database(
             corpus::source(),
             SourcePosture::ImpersonationAtSource,
-            Endpoint::plaintext(endpoint.host(), endpoint.port()),
-            auth,
+            endpoint.host(),
+            endpoint.port(),
+            &credential,
             database,
             budget(),
         )

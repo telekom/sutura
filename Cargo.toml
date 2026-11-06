@@ -565,7 +565,7 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack
 # (`rustls`, `ring`, `webpki-roots` and the others) is reached through other first-party paths too.
 # A build compiles it for the TARGET when a feature it turns on brings in a crate that dials out
-# over it: this `wire` is one, the catalogs' `http` another, and `sutura-exec-clickhouse` a third.
+# over it: this `wire` is one, and the catalogs' `http` another.
 #
 # `default-features = false` and then back only what is used:
 #

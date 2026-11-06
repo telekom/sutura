@@ -4,17 +4,13 @@
 //! `tuple(<type name>, <integer>, <decimal>, <float>)`. The type name is a per-query constant - `Int128`
 //! for a widened integer sum, otherwise the server's own `toTypeName` of the sum - and names the one
 //! slot that holds the total; the other two are `NULL`. A [`SumType`] is what the name says the total
-//! is, and [`read`] takes the total from the slot the name points at.
+//! is, and [`SumType::slot`] is where the adapter's batch normaliser takes it from.
 //!
-//! **A decimal's slot is `Decimal(76, 38)`, whatever the column's scale**, so the scale comes from the
-//! type name and is put back: `3.000..` (38 digits) under `Decimal(38, 2)` is the exact text `3.00`. A
-//! column of a scale above 38 would have lost digits in the server's conversion, so it is refused by
-//! name, as is every other type this adapter does not read as a sum (`UInt128`, `Int256`).
-
-use sutura_domain::warehouse::{NotFinite, Real, Value};
-
-/// The `ClickHouse` type of the generated sum tuple, as the server names it in a result's header.
-pub(crate) const TUPLE: &str = "Tuple(String, Nullable(Decimal(76, 0)), Nullable(Decimal(76, 38)), Nullable(Float64))";
+//! **A decimal's slot is `Decimal(76, 38)`, whatever the column's scale.** A column of a scale above
+//! 38 would have lost digits in the server's conversion, so it is refused by name, as is every other
+//! type this adapter does not read as a sum (`UInt128`, `Int256`). **The limit:** the slot is read as
+//! the driver typed it, so the column's own scale is parsed here and not applied - the exact text a
+//! decimal total answers on this path carries the slot's 38 fractional digits.
 
 /// The widest scale a sum's decimal slot keeps.
 const DECIMAL_SLOT_SCALE: usize = 38;
@@ -28,15 +24,6 @@ pub(crate) enum SumType {
     Float,
     /// A decimal total with this many fractional digits.
     Decimal { scale: usize },
-}
-
-/// Why a sum could not be read.
-#[derive(Debug, PartialEq)]
-pub(crate) enum SumTextError {
-    /// The tuple, its type name or its total is not what the generated sum answers.
-    Malformed,
-    /// A float total that is not a finite number.
-    NotFinite(NotFinite),
 }
 
 impl SumType {
@@ -66,70 +53,6 @@ impl SumType {
             Self::Float => 3,
         }
     }
-
-    /// The total as a domain value: an integer that fits an `i64` is [`Value::Integer`] and a wider one
-    /// its exact digits; a float is [`Value::Real`]; a decimal is its exact text at its scale, widened to
-    /// [`Value::Integer`] only where the scale is zero and the value fits an `i64`.
-    fn value(self, text: &str) -> Result<Value, SumTextError> {
-        match self {
-            Self::Integer => {
-                let digits = text.parse::<i128>().map_err(|_cause| SumTextError::Malformed)?;
-                Ok(i64::try_from(digits).map_or_else(|_| Value::Text(digits.to_string()), Value::Integer))
-            }
-            Self::Float => {
-                let number = text.parse::<f64>().map_err(|_cause| SumTextError::Malformed)?;
-                Real::parse(number).map(Value::Real).map_err(SumTextError::NotFinite)
-            }
-            Self::Decimal { scale } => {
-                let exact = at_scale(text, scale).ok_or(SumTextError::Malformed)?;
-                if scale == 0 {
-                    Ok(exact.parse::<i64>().map_or_else(|_cause| Value::Text(exact), Value::Integer))
-                } else {
-                    Ok(Value::Text(exact))
-                }
-            }
-        }
-    }
-}
-
-/// The sum a `Tuple(String, Nullable(Decimal(76, 0)), ..)` cell holds: `NULL` where the total is, a
-/// domain value where it is not, and a refusal for a type name this adapter does not read as a sum.
-pub(crate) fn read(cell: serde_json::Value) -> Result<Value, SumTextError> {
-    let serde_json::Value::Array(slots) = cell else {
-        return Err(SumTextError::Malformed);
-    };
-    let mut slots = slots.into_iter();
-    let Some(serde_json::Value::String(name)) = slots.next() else {
-        return Err(SumTextError::Malformed);
-    };
-    let sum_type = SumType::parse(&name).ok_or(SumTextError::Malformed)?;
-    match slots.nth(sum_type.slot() - 1) {
-        Some(serde_json::Value::Null) => Ok(Value::Null),
-        Some(serde_json::Value::String(text)) => sum_type.value(&text),
-        Some(serde_json::Value::Number(number)) => sum_type.value(&number.to_string()),
-        _ => Err(SumTextError::Malformed),
-    }
-}
-
-/// `text` with exactly `scale` fractional digits, or `None` where it is not a decimal that fits them.
-/// A slot is written at its own, wider scale, so the digits past `scale` must be zeros to be dropped.
-fn at_scale(text: &str, scale: usize) -> Option<String> {
-    let (sign, unsigned) = text.strip_prefix('-').map_or(("", text), |rest| ("-", rest));
-    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
-    let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
-    if whole.is_empty() || !digits(whole) || !digits(fraction) {
-        return None;
-    }
-    let (kept, dropped) = fraction.split_at(fraction.len().min(scale));
-    if dropped.bytes().any(|byte| byte != b'0') {
-        return None;
-    }
-    let padding = "0".repeat(scale - kept.len());
-    Some(if scale == 0 {
-        format!("{sign}{whole}")
-    } else {
-        format!("{sign}{whole}.{kept}{padding}")
-    })
 }
 
 #[cfg(test)]

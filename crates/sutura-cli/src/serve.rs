@@ -350,8 +350,8 @@ pub(crate) fn run() -> Result<(), String> {
         }
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
-            // No pre-flight, for the `Postgres` arm's reason exactly: `ClickHouseWarehouse` takes
-            // the port's default `preflight`, so there is nothing for the table check to read. The
+            // No pre-flight, for the `Postgres` arm's reason exactly: `AdbcClickHouseWarehouse`
+            // takes the port's default `preflight`, so there is nothing for the table check to read. The
             // declared-map broker, because an `impersonation-at-source` source switches per subject.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (compose::started(&catalogs, engines, broker, combiner, None, &settings)?, None)

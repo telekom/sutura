@@ -1,13 +1,12 @@
-//! The `ClickHouse` ADBC transport.
+//! The `ClickHouse` ADBC transport, the only one this adapter has.
 //!
 //! The driver is the vendored, linked-or-mounted archive prepared by #1571. This module keeps the
-//! request identity and channel options on one per-call database, then hands the driver's Arrow
-//! stream straight to `Accumulating`. The older HTTP transport remains available only to the
-//! fixture and conformance targets while those loaders are migrated separately.
+//! request identity and channel options on one per-call connection, then hands the driver's Arrow
+//! stream straight to `Accumulating`.
 //!
 //! An `impersonation-at-source` caller presented as a principal is run through `EXECUTE AS` on the
-//! deployment's own sign-in, as the HTTP transport runs it; a caller presented with an exchanged
-//! token signs in with that token instead.
+//! deployment's own sign-in; a caller presented with an exchanged token signs in with that token
+//! instead.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,13 +14,15 @@ use std::time::Instant;
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
 use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
-use adbc_driver_manager::ManagedDriver;
+use adbc_driver_manager::{ManagedConnection, ManagedDriver};
 use arrow_array::{Array as _, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
 use arrow_schema::{ArrowError, Field, Schema};
 
 use sutura_adbc::DriverLocation;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
 use sutura_domain::model::SourceName;
+#[cfg(feature = "fixtures")]
+use sutura_domain::model::TableName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -93,7 +94,7 @@ pub enum DriverLocationError {
 
 /// Resolves the mounted driver used by source builds, or the archive carried by a release binary.
 pub fn driver_location() -> Result<DriverLocation, DriverLocationError> {
-    match std::env::var("SUTURA_CLICKHOUSE_ADBC_DRIVER") {
+    match std::env::var(crate::MOUNTED_DRIVER) {
         Ok(path) => DriverLocation::parse(&path).map_err(DriverLocationError::InvalidPath),
         Err(std::env::VarError::NotPresent) => DriverLocation::clickhouse_linked_in().ok_or(DriverLocationError::NoDriver),
         Err(std::env::VarError::NotUnicode(_)) => Err(DriverLocationError::NotUnicode),
@@ -261,27 +262,16 @@ impl AdbcClickHouseWarehouse {
         .map_err(AdbcError::Render)
     }
 
-    fn run(
-        &self,
-        query: &GeneratedQuery,
-        deadline: Deadline,
-        most_rows: usize,
-        runs_as: &RunsAs<'_>,
-    ) -> Result<ResultBatches, AdbcError> {
-        if deadline::refuse_if_spent(deadline).is_err() {
-            return Err(AdbcError::DeadlineSpent);
-        }
+    /// One connection to `endpoint` signed in as `username`, carrying the request settings that
+    /// decide what the rows say and the declared channel's TLS material.
+    fn connect(&self, endpoint: &str, username: &str, password: &Secret) -> Result<ManagedConnection, AdbcError> {
         let mut driver = load_driver(&self.driver)?;
-        let (username, password) = match *runs_as {
-            RunsAs::Deployment | RunsAs::Switched(_) => (self.username.as_str(), &self.password),
-            RunsAs::SignedIn { ref user, token } => (user.as_str(), token),
-        };
         #[expect(
             clippy::disallowed_methods,
             reason = "the deployment password's destination is the ADBC driver's connection handshake, which is the one place the value itself is the payload"
         )]
         let mut options = vec![
-            (OptionDatabase::Uri, self.endpoint.clone().into()),
+            (OptionDatabase::Uri, endpoint.to_owned().into()),
             (OptionDatabase::Username, username.to_owned().into()),
             (OptionDatabase::Password, password.expose_secret().to_owned().into()),
             (OptionDatabase::Other(JOIN_USE_NULLS.to_owned()), "1".into()),
@@ -302,12 +292,128 @@ impl AdbcClickHouseWarehouse {
                 options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), value.clone().into()));
             }
         }
-        let database = driver
+        driver
             .new_database_with_opts(options)
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let mut connection = database
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?
             .new_connection()
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))
+    }
+
+    /// Opens the adapter on the tier at `host:port`, as the tier's one declared user and resolving
+    /// every unqualified table name in `database`.
+    ///
+    /// The database is created here if absent, so several opens can share one server without
+    /// clobbering each other's tables. `sutura_exec_postgres::fixture::FixtureCredential::conninfo_in`'s
+    /// shape, over a database because that is `ClickHouse`'s namespace for a table. The driver is
+    /// the one a served source reads, named by [`driver_location`].
+    ///
+    /// # Errors
+    ///
+    /// A `database` that is not a word, no driver to reach the tier, and the server refusing the
+    /// statement that creates the database.
+    #[cfg(feature = "fixtures")]
+    pub fn connect_in_database(
+        source: SourceName,
+        posture: SourcePosture,
+        host: &str,
+        port: u16,
+        credential: &crate::fixture::FixtureCredential,
+        database: &str,
+        result_budget: ResultBudget,
+    ) -> Result<Self, crate::fixture::FixtureError> {
+        crate::fixture::connect_in_database(source, posture, host, port, credential, database, result_budget)
+    }
+
+    /// Exposes a fixture CSV as a table.
+    ///
+    /// Columns are typed by `sutura_domain::warehouse::csv::infer` (see [`crate::fixture`] for the
+    /// one deliberate departure), and the rows go to the server as one bulk-ingested batch of those
+    /// types.
+    ///
+    /// The rows go into a staging table of this load's own, which then replaces `table` in one
+    /// `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
+    /// ones, never an empty table, and a load refused before the swap leaves `table` as it was.
+    ///
+    /// # Errors
+    ///
+    /// An unreadable or unclassifiable file, an empty cell (which a non-`Nullable` column would read
+    /// as its type's default), a blank line, and the server refusing a statement.
+    #[cfg(feature = "fixtures")]
+    pub fn load_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_csv(self, table, path)
+    }
+
+    /// [`Self::load_csv`], except a column holding an empty cell is `Nullable`, so the cell is NULL.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::load_csv`]'s, bar the empty cell.
+    #[cfg(feature = "fixtures")]
+    pub fn load_federated_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_federated_csv(self, table, path)
+    }
+
+    /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::load_csv`]'s, bar the empty cell.
+    #[cfg(feature = "fixtures")]
+    pub fn load_conformance_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_conformance_csv(self, table, path)
+    }
+
+    /// Runs `sql`, which answers no rows, against this source's own endpoint.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn command(&self, sql: &str) -> Result<(), AdbcError> {
+        self.command_at(&self.endpoint, sql)
+    }
+
+    /// Runs `sql`, which answers no rows, against `endpoint` - one that names no database, for the
+    /// statement that creates this source's.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn command_at(&self, endpoint: &str, sql: &str) -> Result<(), AdbcError> {
+        let mut connection = self.connect(endpoint, &self.username, &self.password)?;
+        let mut statement = connection
+            .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .set_sql_query(sql)
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        update(&mut statement)
+    }
+
+    /// Appends `batch` to `table`, which already exists, through the driver's bulk ingest.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn ingest(&self, table: &str, batch: RecordBatch) -> Result<(), AdbcError> {
+        let mut connection = self.connect(&self.endpoint, &self.username, &self.password)?;
+        let mut statement = connection
+            .new_statement()
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .set_option(OptionStatement::TargetTable, table.into())
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .bind(batch)
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        update(&mut statement)
+    }
+
+    fn run(
+        &self,
+        query: &GeneratedQuery,
+        deadline: Deadline,
+        most_rows: usize,
+        runs_as: &RunsAs<'_>,
+    ) -> Result<ResultBatches, AdbcError> {
+        if deadline::refuse_if_spent(deadline).is_err() {
+            return Err(AdbcError::DeadlineSpent);
+        }
+        let (username, password) = match *runs_as {
+            RunsAs::Deployment | RunsAs::Switched(_) => (self.username.as_str(), &self.password),
+            RunsAs::SignedIn { ref user, token } => (user.as_str(), token),
+        };
+        let mut connection = self.connect(&self.endpoint, username, password)?;
         let mut statement = connection
             .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
@@ -337,6 +443,9 @@ impl AdbcClickHouseWarehouse {
         execute_to_completion(&mut statement, most_rows, self.result_budget)
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Who a statement runs as. `Switched` signs in as the deployment and sends the one statement as
 /// [`ClickHouseUser::execute_as`] - the per-statement form, so the switch ends with the statement.
@@ -384,6 +493,23 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
     }
     out.push_str(tail);
     Ok(out)
+}
+
+/// Runs the statement for its effect. The fixture loader's only call of the method the workspace
+/// bans for PostgreSQL's simple protocol, kept on the one statement it names.
+#[cfg(feature = "fixtures")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the text is a fixture load's DDL or a bulk ingest, built from a parsed table name, a validated database word and the loader's own staging name - never caller text - and the ClickHouse driver sends one statement per request"
+)]
+fn update<S>(statement: &mut S) -> Result<(), AdbcError>
+where
+    S: adbc_core::Statement,
+{
+    statement
+        .execute_update()
+        .map(|_rows| ())
+        .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))
 }
 
 fn execute_to_completion<S>(statement: &mut S, most_rows: usize, budget: ResultBudget) -> Result<ResultBatches, AdbcError>
