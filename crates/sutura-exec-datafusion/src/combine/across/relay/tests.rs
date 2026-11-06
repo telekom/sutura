@@ -91,10 +91,15 @@ fn only_a_readers_did_not_fit_code_is_read_back_as_this_nodes_refusal() {
     assert!(combiner.partition_did_not_fit(&refused));
     assert!(!combiner.leg_not_certified(&refused));
     assert!(combiner.answer_not_well_formed(&refused).is_none());
-    let text = Unread::Failed(DataFusionError::Execution(String::from(
-        "a partition did not fit, said as text",
-    )));
-    let failure = failed(unread_stage(text));
-    assert!(matches!(failure, CombineError::Execute { .. }), "{failure:?}");
-    assert!(!combiner.partition_did_not_fit(&failure));
+    let code = "sutura.refusal.partition-did-not-fit";
+    let texts = [
+        DataFusionError::Execution(String::from("a partition did not fit, said as text")),
+        DataFusionError::Execution(String::from(code)),
+        DataFusionError::External(String::from(code).into()),
+    ];
+    for text in texts {
+        let failure = failed(unread_stage(Unread::Failed(text)));
+        assert!(matches!(failure, CombineError::Execute { .. }), "{failure:?}");
+        assert!(!combiner.partition_did_not_fit(&failure));
+    }
 }

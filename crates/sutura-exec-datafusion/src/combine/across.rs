@@ -84,9 +84,9 @@
 //! - Each code is read only exactly, only off a failure, and answered from this node's own
 //!   configuration: a peer can turn a failed question into one of those refusals, never into an
 //!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
-//!   stays a failure. Four stages raise one: a final-stage task past the worker's row ceiling, a
-//!   reading worker's partition scan whose reader did not certify its leg or whose partition did not
-//!   fit its per-stream bound, and a granted leg's link count.
+//!   stays a failure. Three stages raise the four codes: a final-stage task past the worker's row
+//!   ceiling; a reading worker's partition scan, whose reader did not certify its leg or whose
+//!   partition did not fit its per-stream bound (two codes); and a granted leg's link count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is

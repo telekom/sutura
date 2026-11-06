@@ -99,10 +99,8 @@ mod certified;
 /// A node lost while the combine ran, over a combiner that reads every failure as one.
 #[cfg(test)]
 mod lost;
-/// A granted partition past a reading node's per-stream bound, answered as a leg that did not fit.
-#[cfg(test)]
-mod partition;
-/// A stage another node refused over the federated row ceiling, answered with this node's own.
+/// A stage another node refused over the federated row ceiling, answered with this node's own, and a
+/// granted partition past a reading node's bound, answered as a leg that did not fit.
 #[cfg(test)]
 mod rows;
 /// The order the refusals are read in, over a combiner that reads each as it is told.

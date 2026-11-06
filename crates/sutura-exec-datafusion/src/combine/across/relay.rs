@@ -17,11 +17,12 @@
 //! - A code a node wraps in an Arrow error or an external one crosses its next link as text, which
 //!   is not read, and stays the engine's failure. So does a code in a collection of errors past its
 //!   first, and a code carried as an error's message rather than its context.
-//! - Four stages raise a code: a task of a question's final stage past the worker's row ceiling, a
-//!   reading worker's partition scan whose reader did not certify its leg or whose partition did not
-//!   fit the reader's per-stream bound, and the count of a granted leg's link values that finds one
-//!   held twice. Any other failure of a reader crosses as text and stays [`CombineError::Execute`]. The row count is per task, so tasks that each stay
-//!   under the ceiling can sum past it, which only the planning node's own exact count refuses.
+//! - Three stages raise the four codes: a task of a question's final stage past the worker's row
+//!   ceiling; a reading worker's partition scan, whose reader did not certify its leg or whose
+//!   partition did not fit the reader's per-stream bound (two codes); and the count of a granted
+//!   leg's link values that finds one held twice. Any other failure of a reader crosses as text and
+//!   stays [`CombineError::Execute`]. The row count is per task, so tasks that each stay under the
+//!   ceiling can sum past it, which only the planning node's own exact count refuses.
 //! - [`CombineError::NoReadingNode`] is no peer's code: it is read off this node's own routing of a
 //!   split leg to no node, as the typed error itself, which no link carries. It names the first
 //!   source of a stage no resolved node reads at all; a stage whose sources each have a reader but

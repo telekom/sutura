@@ -238,7 +238,3 @@ impl HeldSplit for SplitLeg<'_> {
 
 #[cfg(feature = "bigquery")]
 mod bigquery;
-
-/// A reader's failure answered by its kind: a partition past the bound, typed.
-#[cfg(test)]
-mod tests;
