@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/plan/split.rs
 --- a/crates/sutura-domain/src/plan/split.rs
 +++ b/crates/sutura-domain/src/plan/split.rs
-@@ -363,8 +363,8 @@
+@@ -434,8 +434,8 @@
      ) -> Result<Granted<'r>, NotGranted> {
          let portable = partitions
              .into_iter()
@@ -10,5 +10,5 @@ diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/p
 +            .flatten()
 +            .collect::<Vec<_>>();
          let partitions = NonEmpty::parse(portable).map_err(|_none| NotGranted::NotPortable)?;
-         Ok(Granted::new(
+         let granted = Granted::new(
              self.wire,
