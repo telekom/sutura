@@ -110,7 +110,8 @@ fn hold(name: &str, evidence: LegEvidence, available: bool) {
         .unwrap_or_else(|cause| panic!("{name} cites {cited} as its leg evidence and it did not read: {cause}"))
         .len();
     assert!(size > 0, "{name} cites {cited} as its leg evidence and that file is empty");
-    eprintln!("leg evidence: {name} cites {cited}; its venue answers here: {available}");
+    let venue = if available { "answers" } else { "does not answer" };
+    eprintln!("leg evidence: {name} cites {cited}; its venue {venue} here");
 }
 
 macro_rules! leg_capability {
