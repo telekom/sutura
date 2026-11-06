@@ -1,8 +1,9 @@
-//! A combine whose lookup leg its source granted rather than read here, planned across four
-//! localhost nodes - this planning node, a reader of another source and two readers of the leg's
-//! own - the leg's partitions checked for a repeated link and joined only by tasks on the nodes
-//! declared as reading its source. Two cells grant two legs instead, each source read by its own
-//! pair of nodes or by none.
+//! A combine whose lookup leg its source granted rather than read here, planned across localhost
+//! nodes - this planning node and two readers of the leg's own, with a reader of another source
+//! beside them in the cells built by `granted_across`, and no other node in one cell - the leg's
+//! partitions checked for a repeated link and joined only by tasks on the nodes declared as reading
+//! its source. Cells granting two legs instead read one source by a pair of nodes and the other by
+//! none, each source by its own pair (five nodes), or both by one shared pair.
 //!
 //! # What this does not exercise
 //!
@@ -37,7 +38,9 @@ use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::leg::LegPlan;
-use sutura_domain::plan::{ExecuteError, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked};
+use sutura_domain::plan::{
+    ExecuteError, FederatedPlan, FederationCombiner as _, Granted, InternalLabel, LegRunner, LinkCast, Looked,
+};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{ResultBatches, Value};
 use tokio::runtime::Runtime;
@@ -242,8 +245,7 @@ fn both_readers(geo: &[Peer; 2]) -> Vec<Url> {
     geo.iter().map(|peer| peer.url.clone()).collect()
 }
 
-/// The check and the join each read every partition, so a partition is counted once however often
-/// it was read.
+/// A partition is counted once here however often it was read, which a cell below counts.
 #[test]
 fn a_granted_lookup_is_read_only_by_its_source_s_readers_and_answers_what_the_whole_leg_answers() {
     let across = granted_across(DISTINCT, both_readers);
@@ -305,6 +307,54 @@ fn a_granted_lookup_whose_link_repeats_across_two_partitions_is_refused_as_ambig
         matches!(across.answer, Err(ExecuteError::Combine(CombineError::AmbiguousLink))),
         "a link value two granted partitions each held once was not refused: {:?}",
         across.answer
+    );
+}
+
+/// The link check is part of the plan that joins the leg, so no partition is read a second time.
+#[test]
+fn a_granted_lookup_reads_each_of_its_partitions_once() {
+    let across = granted_across(DISTINCT, both_readers);
+
+    assert!(
+        across.answer.is_ok(),
+        "a granted lookup read across its readers did not answer: {:?}",
+        across.answer
+    );
+    let mut asked: Vec<Vec<u8>> = across.geo.iter().flat_map(|peer| peer.asked.lock().clone()).collect();
+    asked.sort();
+    assert_eq!(asked, partitions(DISTINCT), "a granted partition was read other than once");
+}
+
+/// A runner whose fact leg holds no row, its lookup leg of `geo` granted as [`REPEATED`]'s partitions.
+struct NoFactRow;
+
+impl LegRunner for NoFactRow {
+    type Error = Infallible;
+
+    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
+        Ok(fact_linked(DataType::Utf8, Arc::new(StringArray::from(Vec::<&str>::new()))))
+    }
+
+    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        Ok(grant(Arc::clone(whole(REPEATED).schema()), partitions(REPEATED), &caller()))
+    }
+}
+
+/// No fact row reaches the granted leg, and its repeated link is refused all the same: the check is
+/// the join's build side, which the join reads whole before the fact leg.
+#[test]
+fn a_granted_lookup_whose_link_repeats_is_refused_though_no_fact_row_joins_it() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let geo = [Peer::serve(&servers, &authority), Peer::serve(&servers, &authority)];
+    let nodes = planning(&servers, &authority, both_readers(&geo)).reading(source("geo"), both_readers(&geo));
+    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
+
+    let answer = combiner.execute(combiner.plan(&sum_plan(true)), &NoFactRow, UNBOUNDED);
+
+    assert!(
+        matches!(answer, Err(ExecuteError::Combine(CombineError::AmbiguousLink))),
+        "a repeated granted link no fact row joins was not refused: {answer:?}"
     );
 }
 
@@ -455,6 +505,236 @@ fn a_stage_whose_granted_sources_each_have_readers_but_none_in_common_names_none
     );
     let read: BTreeSet<Vec<u8>> = geo.iter().chain(&ops).flat_map(Peer::read).collect();
     assert_eq!(read, BTreeSet::new(), "a stage no node reads every source of was read");
+}
+
+/// [`DISTINCT`], but partition 5 holds `c9`, which no fact row carries, and no partition holds `c5`,
+/// which a fact row does.
+const UNMATCHED: Links = [0, 1, 2, 3, 4, 9];
+
+/// The fact row the granted leg has no row for is kept and the leg's row no fact row carries is
+/// dropped, as when the leg is read whole.
+#[test]
+fn a_granted_lookup_with_a_link_unmatched_on_each_side_answers_what_the_whole_leg_answers() {
+    let across = granted_across(UNMATCHED, both_readers);
+
+    let answer = across
+        .answer
+        .expect("a granted lookup with unmatched links answered")
+        .to_rows()
+        .expect("a combined answer decodes");
+    let read_whole = combined(&sum_plan(true), &fact(), &whole(UNMATCHED), UNBOUNDED);
+    assert_eq!(answer.rows(), read_whole.rows());
+}
+
+/// The byte a partition's descriptor carries for a null link.
+const NULL: u8 = u8::MAX;
+
+/// One row per entry of `links`, each column of `schema` holding that entry's label, or null for
+/// [`NULL`].
+fn filled(schema: &SchemaRef, links: &[u8]) -> Result<RecordBatch, DataFusionError> {
+    let column = || -> ArrayRef {
+        Arc::new(StringArray::from_iter(
+            links.iter().map(|&link| (link != NULL).then(|| label(link))),
+        ))
+    };
+    Ok(RecordBatch::try_new(
+        Arc::clone(schema),
+        schema.fields().iter().map(|_| column()).collect(),
+    )?)
+}
+
+/// A reader answering a partition with [`filled`]'s one row for its link, each ask logged in `asked`.
+fn filling(asked: Asked) -> Arc<dyn PartitionReader> {
+    Arc::new(
+        move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
+            asked.lock().push(partition.to_vec());
+            let batch = filled(schema, partition.get(1..).unwrap_or_default())?;
+            Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(schema),
+                stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
+            )))
+        },
+    )
+}
+
+/// [`Peer::serve`], each partition read by [`filling`].
+fn filling_peer(servers: &Runtime, authority: &Authority) -> Peer {
+    let signed = authority.sign();
+    let asked = Asked::default();
+    let worker = Nodes::worker_reading(roomy(), authority.identity(&signed), Some(filling(Arc::clone(&asked))))
+        .expect("a reading worker builds");
+    let sent = Arc::new(AtomicUsize::new(0));
+    let url = served(servers, listening(&signed, authority.peers()), worker, Arc::clone(&sent));
+    Peer { url, sent, asked }
+}
+
+/// `plan` answered for `runner` across this planning node and two nodes reading `geo` and `crm`,
+/// each partition read by [`filling`].
+fn answered_filling<R>(plan: &FederatedPlan, runner: &R) -> Answer
+where
+    R: LegRunner<Error = Infallible> + Sync,
+{
+    let servers = servers();
+    let authority = Authority::generate();
+    let readers = [filling_peer(&servers, &authority), filling_peer(&servers, &authority)];
+    let nodes = planning(&servers, &authority, both_readers(&readers))
+        .reading(source("geo"), both_readers(&readers))
+        .reading(source("crm"), both_readers(&readers));
+    let combiner = DataFusionCombiner::across(nodes).map_err(ExecuteError::Combine)?;
+    combiner.execute(combiner.plan(plan), runner, UNBOUNDED)
+}
+
+/// [`DISTINCT`]'s first four links, and two partitions each holding a null link.
+const NULLS: Links = [0, 1, 2, 3, NULL, NULL];
+
+/// `sum_plan`'s question, its lookup leg of `geo` granted as [`NULLS`]'s partitions.
+struct GrantingNulls;
+
+impl LegRunner for GrantingNulls {
+    type Error = Infallible;
+
+    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
+        Ok(fact())
+    }
+
+    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        Ok(grant(Arc::clone(whole(NULLS).schema()), partitions(NULLS), &caller()))
+    }
+}
+
+/// Two rows of a granted leg whose link is null are not ambiguous: a null link joins nothing.
+#[test]
+fn a_granted_lookup_with_two_null_linked_rows_answers_what_the_whole_leg_answers() {
+    let answer = answered_filling(&sum_plan(true), &GrantingNulls)
+        .expect("a granted lookup with two null-linked rows answered")
+        .to_rows()
+        .expect("a combined answer decodes");
+
+    let schema = Arc::clone(whole(NULLS).schema());
+    let rows = filled(&schema, &NULLS).expect("a test batch is well formed");
+    let link = link();
+    let read = typed(
+        vec![(link.as_str(), DataType::Utf8), ("region", DataType::Utf8)],
+        rows.columns().to_vec(),
+        NULLS.len(),
+    );
+    assert_eq!(answer.rows(), combined(&sum_plan(true), &fact(), &read, UNBOUNDED).rows());
+}
+
+/// [`fan_in_plan`]'s question: a fact row per entry of `fact`, under its link value for both `geo`
+/// and `ops`, `geo` and `crm` granted as their partitions, and `ops` read here holding `c1`.
+struct GrantingGeoAndCrm {
+    fact: Vec<(&'static str, i64)>,
+    geo: Vec<Vec<u8>>,
+    crm: Vec<Vec<u8>>,
+}
+
+impl LegRunner for GrantingGeoAndCrm {
+    type Error = Infallible;
+
+    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
+        Ok(batches_of(
+            vec![linked(0), linked(2), String::from(TIME_BUCKET_LABEL), leaf(0)],
+            self.fact
+                .iter()
+                .map(|&(link, cents)| vec![text(link), text(link), text("2026-06"), Value::Integer(cents)])
+                .collect(),
+        ))
+    }
+
+    fn lookup(&self, leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        if *leg.source() == source("ops") {
+            return Ok(Looked::Rows(vec![batches_of(
+                vec![linked(2), String::from("tier")],
+                vec![vec![text("c1"), text("gold")]],
+            )]));
+        }
+        let (columns, granted) = if *leg.source() == source("geo") {
+            (vec![linked(0), linked(1), String::from("region")], &self.geo)
+        } else {
+            (vec![linked(1), String::from("area")], &self.crm)
+        };
+        let fields: Vec<Field> = columns
+            .into_iter()
+            .map(|name| Field::new(name, DataType::Utf8, true))
+            .collect();
+        Ok(grant(Arc::new(Schema::new(fields)), granted.clone(), &caller()))
+    }
+}
+
+/// `crm`, granted and joined INNER onto `geo`, has no row its join can match: each partition holds
+/// a null link, or no row at all. An INNER join of it would end the plan before `geo`'s count ran;
+/// its RIGHT join reads `geo`'s, so the repeated link is refused all the same.
+#[test]
+fn a_granted_lookup_whose_link_repeats_is_refused_beside_a_later_granted_inner_leg_with_no_joinable_row() {
+    for crm in [partitions([NULL; 6]), vec![vec![6], vec![7]]] {
+        let runner = GrantingGeoAndCrm {
+            fact: vec![("c1", 10)],
+            geo: partitions(REPEATED),
+            crm: crm.clone(),
+        };
+
+        let answer = answered_filling(&fan_in_plan(), &runner);
+
+        assert!(
+            matches!(answer, Err(ExecuteError::Combine(CombineError::AmbiguousLink))),
+            "a repeated link beside a later granted leg with no joinable row, partitions {crm:?}, was not \
+             refused: {answer:?}"
+        );
+    }
+}
+
+/// Partition descriptors, one per partition.
+type Partitions = Vec<Vec<u8>>;
+
+/// [`answered_filling`]'s combine, and every partition either reader was asked for, sorted.
+fn asked_filling(plan: &FederatedPlan, runner: &GrantingGeoAndCrm) -> (Answer, Partitions) {
+    let servers = servers();
+    let authority = Authority::generate();
+    let readers = [filling_peer(&servers, &authority), filling_peer(&servers, &authority)];
+    let nodes = planning(&servers, &authority, both_readers(&readers))
+        .reading(source("geo"), both_readers(&readers))
+        .reading(source("crm"), both_readers(&readers));
+    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
+    let answer = combiner.execute(combiner.plan(plan), runner, UNBOUNDED);
+    let mut asked: Partitions = readers.iter().flat_map(|peer| peer.asked.lock().clone()).collect();
+    asked.sort();
+    (answer, asked)
+}
+
+/// Two granted legs on one shared pair of readers, `crm` joined INNER onto `geo`, each holding a null
+/// link: the fact's `c2` reaches `geo` but no `crm` row, its `c5` no `geo` row, and `crm`'s `c3` and
+/// `c9` meet no joined `geo` row. Each leg is counted in the plan that joins it, so every partition
+/// of both is read once, and INNER drops what it does not match.
+#[test]
+fn two_granted_lookups_read_each_partition_once_and_drop_what_an_inner_leg_does_not_match() {
+    let geo = partitions([0, 1, 2, 3, 4, NULL]);
+    let crm: Partitions = (6..)
+        .zip([0, 1, 3, 9, NULL, NULL])
+        .map(|(index, link)| vec![index, link])
+        .collect();
+    let runner = GrantingGeoAndCrm {
+        fact: vec![("c0", 10), ("c1", 20), ("c2", 30), ("c5", 40)],
+        geo: geo.clone(),
+        crm: crm.clone(),
+    };
+
+    let (answer, asked) = asked_filling(&fan_in_plan(), &runner);
+
+    let answer = answer
+        .expect("two granted lookups answered")
+        .to_rows()
+        .expect("a combined answer decodes");
+    assert_eq!(
+        answer.rows(),
+        &[
+            vec![text("c0"), text("c0"), Value::Null, text("2026-06"), Value::Integer(10)],
+            vec![text("c1"), text("c1"), text("gold"), text("2026-06"), Value::Integer(20)],
+        ]
+    );
+    let mut every: Partitions = geo.into_iter().chain(crm).collect();
+    every.sort();
+    assert_eq!(asked, every, "a granted partition was read other than once");
 }
 
 use std::collections::BTreeMap;

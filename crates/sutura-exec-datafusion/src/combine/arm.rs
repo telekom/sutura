@@ -95,13 +95,15 @@ pub(super) fn qualified(table: &str, label: &str) -> Expr {
     Expr::Column(Column::new(Some(TableReference::bare(table)), label))
 }
 
-/// The whole combine, as one logical plan.
+/// The whole combine, as one logical plan, each lookup leg whose position `in_plan` marks true
+/// joined over its own link check (`super::served::joined`).
 pub(super) async fn combine_plan(
     plan: &FederatedPlan,
     context: &SessionContext,
     links: &[String],
     leaves: &[Leaf],
     second_table: Option<&str>,
+    in_plan: &[bool],
 ) -> Result<LogicalPlan, CombineError> {
     let fact = scan(context, FACT_TABLE).await?;
     // A second fact leg (`telekom/sutura#780`) is joined on every link AND the bucket: both legs are
@@ -190,9 +192,17 @@ pub(super) async fn combine_plan(
             .iter()
             .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
             .collect::<Result<Vec<Expr>, CombineError>>()?;
-        builder = builder
-            .join_on(scan(context, table).await?, kind, on)
-            .map_err(|cause| CombineError::Build { cause })?;
+        let scanned = scan(context, table).await?;
+        builder = if in_plan.get(position) == Some(&true) {
+            let relation = builder.build().map_err(|cause| CombineError::Build { cause })?;
+            let links = plan.link_labels(position);
+            let joined = super::served::joined(context, relation, scanned, table, &links, on, lookup.include_unmatched())?;
+            LogicalPlanBuilder::from(joined)
+        } else {
+            builder
+                .join_on(scanned, kind, on)
+                .map_err(|cause| CombineError::Build { cause })?
+        };
     }
 
     // Keys in question order, then the bucket - the order `answer_labels` states, so the aggregate's
