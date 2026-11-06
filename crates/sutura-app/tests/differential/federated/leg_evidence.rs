@@ -99,24 +99,28 @@ fn leg_evidence(name: &str) -> Option<LegEvidence> {
         .map(|&(_, evidence)| evidence)
 }
 
-/// Holds one declaration against the tree, and says whether its venue answers HERE.
-///
-/// **`available` is reported and never asserted**: a host whose venue comes up is not a defect, and
-/// the line is what shows a run's reader which entries' evidence this run could have exercised.
-fn hold(name: &str, evidence: LegEvidence, available: bool) {
+/// Holds one declaration against the tree: the file it cites exists and is not empty.
+fn hold(name: &str, evidence: LegEvidence) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let LegEvidence::Executed { at: cited } = evidence;
     let size = std::fs::metadata(root.join(cited))
         .unwrap_or_else(|cause| panic!("{name} cites {cited} as its leg evidence and it did not read: {cause}"))
         .len();
     assert!(size > 0, "{name} cites {cited} as its leg evidence and that file is empty");
-    let venue = if available { "answers" } else { "does not answer" };
-    eprintln!("leg evidence: {name} cites {cited}; its venue {venue} here");
 }
 
-/// One cell over the registry rather than one per entry, so the assertion sits in the cell's own fn:
-/// a failure panics at the `registered!` line below, inside it, which is where a claim's killing
-/// mutation is read.
+/// One cell over the registry rather than one per entry, so the assertions sit in the cell's own fn:
+/// a failure panics at the first `registered!` line below, inside it, which is where a claim's
+/// killing mutation is read.
+///
+/// **Two passes, and the first reads no `available()`.** Under `SUTURA_DEV_REQUIRE_TIER`,
+/// `available()` of a tier-backed system panics where its tier is not provisioned, and the registry
+/// walks `clickhouse` before `oracle`: the claim's kill worktree provisions Postgres only, so one
+/// pass that asked both stopped at `clickhouse` before `oracle`'s `EXECUTES_LEGS` was asserted.
+/// **The limit:** that is read from `dev/src/provisioned.rs` and the kill worktree's tier, not
+/// reproduced. The second pass only reports, and a report is never asserted: a host whose venue
+/// comes up is not a defect, and the line shows a run's reader which entries' evidence this run
+/// could have exercised.
 #[test]
 fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
     use crate::adapters::DataSystemUnderTest;
@@ -135,9 +139,24 @@ fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
                  adapter that declares the constant owes an entry"
             );
             if let Some(evidence) = declared {
-                hold(name, evidence, <$adapter as DataSystemUnderTest>::available());
+                hold(name, evidence);
             }
         }};
     }
     crate::adapters::registered!(data_systems: leg_capability);
+
+    macro_rules! venue_report {
+        ($name:ident, $adapter:ty) => {{
+            let name = <$adapter as DataSystemUnderTest>::NAME;
+            if let Some(LegEvidence::Executed { at: cited }) = leg_evidence(name) {
+                let venue = if <$adapter as DataSystemUnderTest>::available() {
+                    "answers"
+                } else {
+                    "does not answer"
+                };
+                eprintln!("leg evidence: {name} cites {cited}; its venue {venue} here");
+            }
+        }};
+    }
+    crate::adapters::registered!(data_systems: venue_report);
 }
