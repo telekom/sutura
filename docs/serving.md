@@ -406,7 +406,8 @@ and so is a wait that is not below `server.request_timeout_seconds`.
 
 A stage another node cannot hold in its own working set is refused there, and the question is refused with
 `resources_exhausted`. A node the question was planned onto that cannot be reached while it runs fails the question, which
-is refused with `503 node_lost`. Asked again, it is planned across the nodes there then.
+is refused with `503 node_lost`. Asked again, it is planned across the nodes there then, and a node that has restarted
+since is dialled again.
 
 Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
 restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size

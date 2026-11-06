@@ -49,8 +49,11 @@
 //!   worker that asks for it runs a stage of a question only for a node that holds that question's
 //!   key, or was itself installed with one of its stages. Who may install a stage is the link's
 //!   mutual TLS alone. A worker served without [`TaskGrant`] admits any call.
-//! - A channel, once dialled, is kept for the process's life, one for every address it has dialled,
-//!   so a host whose addresses change keeps one for each it was ever dialled at.
+//! - A channel, once dialled, is kept until a call on it fails or is given up on before its reply,
+//!   one for every address it has dialled, so a host whose addresses change keeps one for each it
+//!   was ever dialled at. The next call dials again, so a node that restarted serves the next
+//!   question; the question that lost it still fails, and nothing is retried. A question that
+//!   answers but gave up on a call before its reply costs its next call there a new handshake.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
 //!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
 //!   and no other node resolves, which is refused once the wait ends.
@@ -104,7 +107,7 @@ use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
@@ -167,6 +170,10 @@ pub(super) use relay::relayed;
 
 #[cfg(test)]
 mod lost;
+
+/// A link whose dial a call gave up on is dialled again by the next call.
+#[cfg(test)]
+mod redial;
 
 /// A final-stage task over the ceiling, run on a worker. `#![cfg(test)]` sits in the file rather
 /// than on this declaration, which the causality gate's base run then restores away with the rest of
@@ -660,7 +667,7 @@ impl NodeIdentity {
         Ok(Self(TlsConnector::from(Arc::new(config))))
     }
 
-    /// A node signed for 127.0.0.1 by an authority of its own: no caller of this dials a link.
+    /// A node signed for 127.0.0.1 by an authority of its own: no caller of this finishes a handshake.
     #[cfg(test)]
     pub(super) fn signed_for_localhost() -> Self {
         let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("no names are valid parameters");
@@ -681,18 +688,89 @@ impl NodeIdentity {
     }
 }
 
-/// The channels a node reaches other nodes on, each dialled once as `identity` and kept.
+/// The channels a node reaches other nodes on, each dialled as `identity` when first asked for and
+/// kept until a call on it fails, or is given up on, before its reply.
 ///
 /// A channel's connection runs on the runtime that first used it and works only while that runtime
 /// does, so every runtime a worker or a combine runs on has to run on threads of its own for the
 /// process's life - [`DataFusionCombiner::across`](super::DataFusionCombiner::across)'s does.
+///
+/// A channel left without a reply is forgotten because it may still hold a dial its call gave up
+/// on: `tonic` keeps that dial and hands how it ended to the channel's next call, however much
+/// later, so a node that refused it and has since restarted would fail the next question too.
 #[derive(Clone)]
 struct Links {
     identity: NodeIdentity,
-    channels: Arc<tokio::sync::Mutex<Kept>>,
+    channels: Arc<parking_lot::Mutex<Kept>>,
 }
 
-type Kept = HashMap<Url, BoxCloneSyncChannel>;
+/// Each kept channel, and how many dials these links have made.
+#[derive(Default)]
+struct Kept {
+    dials: u64,
+    channels: HashMap<Url, Dialled>,
+}
+
+/// A kept channel under the number of the dial that made it, unique among its links.
+struct Dialled {
+    dial: u64,
+    channel: BoxCloneSyncChannel,
+}
+
+impl Kept {
+    /// The channel kept for `url`, or the one `dial` makes under the next dial's number.
+    fn or_dial(
+        &mut self,
+        url: &Url,
+        dial: impl FnOnce(u64) -> Result<BoxCloneSyncChannel, DataFusionError>,
+    ) -> Result<BoxCloneSyncChannel, DataFusionError> {
+        match self.channels.entry(url.clone()) {
+            Entry::Occupied(held) => Ok(held.get().channel.clone()),
+            Entry::Vacant(unseen) => {
+                self.dials = self.dials.wrapping_add(1);
+                let channel = dial(self.dials)?;
+                let kept = unseen.insert(Dialled {
+                    dial: self.dials,
+                    channel,
+                });
+                Ok(kept.channel.clone())
+            }
+        }
+    }
+}
+
+/// The kept channel a call forgets when it ends without a reply: the one its dial made, and not
+/// one dialled since.
+#[derive(Clone)]
+struct Forget {
+    channels: Weak<parking_lot::Mutex<Kept>>,
+    dial: u64,
+}
+
+impl Forget {
+    fn now(&self) {
+        if let Some(channels) = self.channels.upgrade() {
+            channels.lock().channels.retain(|_, kept| kept.dial != self.dial);
+        }
+    }
+}
+
+/// A call on a kept channel, forgetting it unless the call is answered.
+struct Unanswered(Option<Forget>);
+
+impl Unanswered {
+    fn answered(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Unanswered {
+    fn drop(&mut self) {
+        if let Some(forget) = self.0.take() {
+            forget.now();
+        }
+    }
+}
 
 impl Links {
     fn of(identity: NodeIdentity) -> Self {
@@ -711,9 +789,19 @@ impl Links {
         }
     }
 
+    /// The channel kept for `url`, dialled now when none is.
+    fn channel(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
+        let forget = |dial| Forget {
+            channels: Arc::downgrade(&self.channels),
+            dial,
+        };
+        self.channels.lock().or_dial(url, |dial| self.dial(url, forget(dial)))
+    }
+
     /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used, at
-    /// the address its fragment names when it names one, and checks the peer against its host.
-    fn dial(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
+    /// the address its fragment names when it names one, and checks the peer against its host. Each
+    /// call on it that fails or is dropped before its reply runs `forget`.
+    fn dial(&self, url: &Url, forget: Forget) -> Result<BoxCloneSyncChannel, DataFusionError> {
         let host = match url.host() {
             Some(Host::Domain(name)) => String::from(name),
             Some(Host::Ipv4(address)) => address.to_string(),
@@ -745,7 +833,19 @@ impl Links {
         let endpoint = tonic::transport::Endpoint::from_shared(origin.to_string())
             .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
         Ok(BoxCloneSyncChannel::new(
-            endpoint.connect_with_connector_lazy(dial).map_request(grant::keyless),
+            endpoint
+                .connect_with_connector_lazy(dial)
+                .map_request(grant::keyless)
+                .map_future(move |reply| {
+                    let mut unanswered = Unanswered(Some(forget.clone()));
+                    async move {
+                        let reply = reply.await;
+                        if reply.is_ok() {
+                            unanswered.answered();
+                        }
+                        reply
+                    }
+                }),
         ))
     }
 }
@@ -766,12 +866,8 @@ struct Bounded {
 #[async_trait::async_trait]
 impl ChannelResolver for Bounded {
     async fn get_worker_client_for_url(&self, url: &Url) -> Result<Box<dyn WorkerChannel>, DataFusionError> {
-        let channel = match self.links.channels.lock().await.entry(url.clone()) {
-            Entry::Occupied(kept) => kept.get().clone(),
-            Entry::Vacant(unseen) => unseen.insert(self.links.dial(url)?).clone(),
-        };
         Ok(create_worker_client_with_decode_limit(
-            channel,
+            self.links.channel(url)?,
             self.working_set.bytes().max(LEAST_REPLY),
         ))
     }
