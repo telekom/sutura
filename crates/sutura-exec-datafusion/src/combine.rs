@@ -325,6 +325,10 @@ pub enum CombineError {
     /// was asked to read. Carries nothing, for [`CombineError::RowsOverCeiling`]'s reason.
     #[error("a node the combine was planned across did not certify a leg it was asked to read")]
     LegNotCertified,
+    /// A reading worker read a granted partition past its per-stream bound. Carries nothing, for
+    /// [`CombineError::RowsOverCeiling`]'s reason.
+    #[error("a node the combine was planned across read a granted partition that did not fit its bound")]
+    PartitionDidNotFit,
     /// A lookup leg of `source` was granted to the nodes that read it, and no node this combine can
     /// reach does: it is read on none, never on this node.
     #[error("no node the combine can reach reads `{source_name}`, so its granted leg is read on none")]
@@ -770,6 +774,10 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::LegNotCertified)
     }
 
+    fn partition_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::PartitionDidNotFit)
+    }
+
     fn no_reading_node<'e>(&self, error: &'e Self::Error) -> Option<&'e SourceName> {
         match error {
             CombineError::NoReadingNode { source_name } => Some(source_name),
@@ -796,10 +804,9 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
             CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
-            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
-            // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost`, `RowsOverCeiling`,
-            // `LegNotCertified` and `NoReadingNode`, which the predicate of each one's own name answers.
+            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is deliberately
+            // here: `working_set_exhausted` answers it, and `sutura_app` asks that first. So is every
+            // variant below that a predicate of its own name answers, from `WorkersNotReady` on.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -818,6 +825,7 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::NodeLost { .. }
             | CombineError::RowsOverCeiling
             | CombineError::LegNotCertified
+            | CombineError::PartitionDidNotFit
             | CombineError::NoReadingNode { .. } => None,
         }
     }

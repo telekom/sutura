@@ -49,6 +49,14 @@ pub(crate) fn not_certified(cause: DataFusionError) -> DataFusionError {
     DataFusionError::Context(String::from(LEG_NOT_CERTIFIED), Box::new(cause))
 }
 
+/// The code a reading worker's granted partition past its per-stream bound crosses a link under.
+const PARTITION_DID_NOT_FIT: &str = "sutura.refusal.partition-did-not-fit";
+
+/// `cause` as a reading worker's partition that did not fit the bound it reads one stream under.
+pub(crate) fn did_not_fit(cause: DataFusionError) -> DataFusionError {
+    DataFusionError::Context(String::from(PARTITION_DID_NOT_FIT), Box::new(cause))
+}
+
 /// The code a granted leg's link value held by more than one of its rows crosses a link under.
 const AMBIGUOUS_LINK: &str = "sutura.refusal.ambiguous-link";
 

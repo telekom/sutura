@@ -171,6 +171,9 @@ pub enum Unread {
     /// This node's own catalog does not certify the leg the task carries. Crosses the link as a code
     /// the planning node maps to its own refusal, never as text.
     LegNotCertified,
+    /// The partition's rows did not fit the bound this node reads one stream under. Crosses the link
+    /// as a code, never as text.
+    DidNotFit,
     /// The read failed, as the engine's failure.
     Failed(DataFusionError),
 }
@@ -193,6 +196,9 @@ impl Unread {
         match self {
             Self::LegNotCertified => super::relay::not_certified(DataFusionError::Execution(String::from(
                 "this worker's catalog does not certify the leg it was asked to read",
+            ))),
+            Self::DidNotFit => super::relay::did_not_fit(DataFusionError::Execution(String::from(
+                "a granted partition did not fit this worker's per-stream bound",
             ))),
             Self::Failed(cause) => cause,
         }
