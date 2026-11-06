@@ -3114,6 +3114,10 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare the catalog</td>
 </tr>
 <tr>
+<td><code>server.role: reading-worker</code> and a catalog that reads none of its <code>sources</code></td>
+<td>Declare a source the catalog reads</td>
+</tr>
+<tr>
 <td><code>server.port: 0</code> in production</td>
 <td>Set a port</td>
 </tr>
@@ -3130,7 +3134,7 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Write the reason on the source</td>
 </tr>
 <tr>
-<td>A source that the catalog reads and no <code>sources.&lt;alias&gt;</code> entry declares</td>
+<td>A source that the catalog reads and no <code>sources.&lt;alias&gt;</code> entry declares, on a serving node</td>
 <td>Declare the source</td>
 </tr>
 <tr>
@@ -3661,6 +3665,13 @@ declare is refused too, once the posture check runs. So is a <code>reading-worke
 deployment with no <code>security.inbound</code>: a lookup leg read on a reading node is granted for a verified caller, and a
 question with no verified caller is refused before such a source is asked anything. A lookup leg that names a payer is
 not split, so it is read whole, as the deployment.</p>
+<p>A lookup leg of a PostgreSQL source that <code>reading-worker</code> peers read is granted to them when the source estimates it
+above <code>across_above_bytes</code> (or the working-set ceiling) and splits it into two or more partitions, at most one for each
+declared reader. The same holds in a deployment whose sources are all PostgreSQL: two or more databases that sutura
+joins. Each reader reads its partitions under the snapshot this node exported, and this node reads none of the leg's
+rows. When no declared reader resolves, the question is refused with <code>503 source_unavailable</code> and the leg is not read
+here. A question that reads one source has no lookup leg: it is sent to that source whole, as one statement, and is
+never split.</p>
 <p>The chart renders a <code>worker</code> peer for its worker pool and a <code>reading-worker</code> peer for each group in its <code>readingWorkers.groups</code>, with the source aliases the group reads.</p>
 <p>A host in <code>others</code> is resolved when each question is planned, and each address it resolves to is one node, its IPv4
 ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
@@ -3676,9 +3687,11 @@ resolves again every 200 ms until the wait ends, then plans across those that di
 and so is a wait that is not below <code>server.request_timeout_seconds</code>.</p>
 <p>A stage another node cannot hold in its own working set is refused there, and the question is refused with
 <code>resources_exhausted</code>. A node the question was planned onto that cannot be reached while it runs fails the question, which
-is refused with <code>503 node_lost</code>. Asked again, it is planned across the nodes there then.</p>
-<p>Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
-restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
+is refused with <code>503 node_lost</code>. Asked again, it is planned across the nodes there then, and a node that has restarted
+since is dialled again.</p>
+<p>Limits: no link is probed, so a node that vanished after a reply without closing its connection is not noticed until a
+question fails on it, and a call already holding a forgotten link still uses it. The pair and the authority are read once
+at startup for links, so a renewed certificate reaches them after a restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
 that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
 <code>runtime.max_concurrent_queries</code> slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
@@ -3705,12 +3718,15 @@ the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the d
 </span></code></pre></div>
 <p>A worker is asked for no <code>security.access_token</code> or <code>security.inbound</code>, because no route on it reads either. In
 production or off-host it still needs <code>security.metrics_token</code> and <code>rate_limit.enabled</code>.</p>
-<p><code>server.role: reading-worker</code> is the worker that is to read a split leg's partitions. It is configured as above, and
-it declares the sources it reads and a catalog in a file or a variable, so it needs <code>security.identity</code> like any node
-with a source. <strong>It reads nothing yet:</strong> it opens neither the sources nor the catalog, and it serves the same worker
-transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
-chart's worker pool runs <code>worker</code>, and each of its <code>readingWorkers.groups</code> runs <code>reading-worker</code>.</p>
-<p>Limit: a catalog counts only when a file or a variable declares it.
+<p><code>server.role: reading-worker</code> is the worker that reads a granted leg's partitions. It is configured as above, and it
+declares the sources it reads and a catalog in a file or a variable, so it needs <code>security.identity</code> like any node with
+a source. At startup it opens its catalog and each source the catalog reads that its own <code>sources:</code> declares. A source
+the catalog reads and <code>sources:</code> does not declare is not opened and needs no credential there. Before it reads a
+partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
+leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+runs <code>worker</code>, and each of its <code>readingWorkers.groups</code> runs <code>reading-worker</code>.</p>
+<p>Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
+worker. The catalog and the sources are read once, at startup.
 <code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
 alone. The worker carries the limits of the node links above.</p>
 <h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
