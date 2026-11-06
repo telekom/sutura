@@ -198,6 +198,13 @@ impl ReadingGrant {
         }
     }
 
+    /// This grant, naming `forwarded`, the caller's token its partition is read with.
+    ///
+    /// **Not built yet:** the grant names no token.
+    pub(super) const fn forwarding(self, _forwarded: &super::super::partition::Forwarded) -> Self {
+        self
+    }
+
     /// The bytes an HMAC signs: [`SCHEME`] followed by every field's own fixed-width digest
     /// ([`feed_field`]), so every field - including [`Self::expiry`], [`Self::caller`] and
     /// [`Self::bound`] - is covered by the signature, not only the three [`verify`] matches by

@@ -76,6 +76,8 @@ impl Ungoverned {
     }
 
     /// The fallible form, for a layer that can itself refuse to attach (leg 1's own gate check).
+    /// Only the agent and Flight mounts attach such a layer, so a build with neither has no caller.
+    #[cfg(any(feature = "agent", feature = "flight"))]
     pub(crate) fn try_layered<E>(self, f: impl FnOnce(Router) -> Result<Router, E>) -> Result<Self, E> {
         Ok(Self {
             router: f(self.router)?,
