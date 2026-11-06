@@ -7,15 +7,18 @@ use core::time::Duration;
 use std::collections::BTreeSet;
 
 use sutura_domain::definitions::DefinitionDigest;
-use sutura_domain::model::{ColumnName, DimensionName, MetricName, SourceName, TableName};
+use sutura_domain::model::{ColumnName, DimensionName, MetricName, QualifiedTable, SourceName, TableName};
 use sutura_domain::pinned::MetricDigest;
-use sutura_domain::plan::{EstimatedRows, InternalLabel, LegPlan, PlanBindings, PlanColumn, PlanKey, ResultLabel};
+use sutura_domain::plan::{
+    EstimatedRows, InternalLabel, LegPlan, PlanBindings, PlanColumn, PlanKey, ResultLabel, StatementTables,
+};
+use sutura_domain::source::SourcePosture;
 use sutura_domain::warehouse::deadline::Budget;
 use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::{RowSet, Value};
 use sutura_sql::{KeyBucket, Scn};
 
-use super::{Root, admit, cut, fresh, hashed_key, root, snapshot};
+use super::{Dictionary, Root, admit, cut, dictionary, fresh, hashed_key, refuse_impersonating, root, snapshot, snapshot_gone};
 use crate::OracleError;
 
 fn answer(columns: &[&str], rows: Vec<Vec<Value>>) -> RowSet {
@@ -35,13 +38,21 @@ fn column(table: &str, name: &str) -> PlanColumn {
 
 /// A lookup leg over `dim_customer`, keyed by `keys` in order.
 fn lookup(keys: Vec<PlanKey>) -> LegPlan {
+    lookup_at(
+        TableName::parse("dim_customer").expect("a test table is a table").into(),
+        keys,
+    )
+}
+
+/// A lookup leg over `table`, keyed by `keys` in order.
+fn lookup_at(table: StatementTables, keys: Vec<PlanKey>) -> LegPlan {
     LegPlan::Lookup {
         source: SourceName::parse("crm").expect("a test source is a source"),
         metric: MetricDigest::new(
             MetricName::parse("revenue").expect("a test metric is a metric"),
             DefinitionDigest::parse("a".repeat(64)).expect("a digest"),
         ),
-        table: TableName::parse("dim_customer").expect("a test table is a table").into(),
+        table,
         keys,
         bindings: PlanBindings::none(),
     }
@@ -173,4 +184,54 @@ fn a_partition_at_a_source_without_a_flashback_split_is_refused() {
         matches!(malformed, Err(OracleError::MalformedDescriptor { .. })),
         "{malformed:?}"
     );
+}
+
+/// **The adapter refuses a flashback split at a source that reads as each caller**, naming it; a
+/// shared source passes.
+#[test]
+fn an_impersonating_source_is_refused_a_flashback_split() {
+    let at = SourceName::parse("crm").expect("a test source is a source");
+    let refused = refuse_impersonating(&SourcePosture::ImpersonationAtSource, &at);
+    assert!(
+        matches!(refused, Err(OracleError::FlashbackAtImpersonatingSource { ref at }) if at == "crm"),
+        "{refused:?}"
+    );
+    refuse_impersonating(&sutura_conformance::corpus::posture(), &at).expect("a shared source is not refused");
+}
+
+/// **Only a lookup leg of a probed source, on the boot session, whose root path has at most two
+/// parts asks the dictionary**: a fact leg, an unprobed source, another session and a three-part
+/// path each read whole, and a two-part path asks in the schema it names.
+#[test]
+fn only_a_probed_lookup_leg_on_the_boot_session_asks_the_dictionary() {
+    let keys = || vec![dimension("dim_customer", "segment")];
+    let bare = lookup(keys());
+    assert_eq!(dictionary(true, &bare, true), Some(Dictionary::Schema));
+    let path = |raw: &str| {
+        StatementTables::parse(QualifiedTable::parse(raw).expect("a test path parses"), Vec::new())
+            .expect("one table is not ambiguous")
+    };
+    let owned = lookup_at(path("sales.dim_customer"), keys());
+    assert_eq!(dictionary(true, &owned, true), Some(Dictionary::Owner("sales")));
+
+    assert_eq!(dictionary(false, &bare, true), None, "an unprobed source reads whole");
+    assert_eq!(dictionary(true, &bare, false), None, "another session reads whole");
+    let deep = lookup_at(path("warehouse.sales.dim_customer"), keys());
+    assert_eq!(dictionary(true, &deep, true), None, "a three-part path reads whole");
+    let case = sutura_conformance::corpus::leg_case();
+    assert!(matches!(*case.leg(), LegPlan::Fact { .. }), "the corpus leg is a fact leg");
+    assert_eq!(dictionary(true, case.leg(), true), None, "a fact leg reads whole");
+}
+
+/// **The three codes of a snapshot the database can no longer read, and no other**: `ORA-01555`,
+/// `ORA-08181` and `ORA-01466` are a gone snapshot; division by zero, a missing privilege and a
+/// missing table are not.
+#[test]
+fn only_the_three_snapshot_codes_read_as_a_gone_snapshot() {
+    for code in [1555, 8181, 1466] {
+        assert!(snapshot_gone(code), "ORA-{code:05}");
+    }
+    for code in [1476, 1031, 942, 0] {
+        assert!(!snapshot_gone(code), "ORA-{code:05}");
+    }
 }

@@ -308,6 +308,33 @@ mod acceptance {
         drop_table(&session, TABLE);
     }
 
+    /// A new user named `prefix` and this process, that may sign in and nothing else, and its
+    /// password. Dropped first where an earlier run left it.
+    fn signing_in(administrator: &oracledb::Connection, prefix: &str) -> (String, String) {
+        let reader = format!("{prefix}_{}", std::process::id());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("the clock is past 1970")
+            .subsec_nanos();
+        let password = format!("P{:x}x{nanos:x}", std::process::id());
+        if let Err(cause) = administrator.execute(&format!("DROP USER \"{reader}\" CASCADE"), &[]) {
+            assert!(cause.to_string().contains("ORA-01918"), "{reader} did not drop: {cause}");
+        }
+        execute(
+            administrator,
+            &format!("CREATE USER \"{reader}\" IDENTIFIED BY \"{password}\""),
+        );
+        execute(administrator, &format!("GRANT CREATE SESSION TO \"{reader}\""));
+        (reader, password)
+    }
+
+    /// Drops `role` where it exists.
+    fn drop_role(administrator: &oracledb::Connection, role: &str) {
+        if let Err(cause) = administrator.execute(&format!("DROP ROLE \"{role}\""), &[]) {
+            assert!(cause.to_string().contains("ORA-01919"), "{role} did not drop: {cause}");
+        }
+    }
+
     /// **D2's probe**: a service user that may read a table but holds no `FLASHBACK` on it is
     /// refused naming the table; granted `FLASHBACK` on it, it passes; granted `FLASHBACK ANY TABLE`
     /// as well, it is refused again.
@@ -319,20 +346,7 @@ mod acceptance {
         let owner = tier.session(&tier.user, &tier.password);
         customers(&owner, TABLE);
         let administrator = tier.session("SYSTEM", &tier.password);
-        let reader = format!("FLASHBACK_PROBE_{}", std::process::id());
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("the clock is past 1970")
-            .subsec_nanos();
-        let password = format!("P{:x}x{nanos:x}", std::process::id());
-        if let Err(cause) = administrator.execute(&format!("DROP USER \"{reader}\" CASCADE"), &[]) {
-            assert!(cause.to_string().contains("ORA-01918"), "{reader} did not drop: {cause}");
-        }
-        execute(
-            &administrator,
-            &format!("CREATE USER \"{reader}\" IDENTIFIED BY \"{password}\""),
-        );
-        execute(&administrator, &format!("GRANT CREATE SESSION TO \"{reader}\""));
+        let (reader, password) = signing_in(&administrator, "FLASHBACK_PROBE");
         execute(&owner, &format!("GRANT SELECT ON \"{TABLE}\" TO \"{reader}\""));
         let table = format!("{}.{TABLE}", tier.schema());
         let tables = BTreeSet::from([QualifiedTable::parse(&table).expect("a two-part path")]);
@@ -358,6 +372,79 @@ mod acceptance {
         );
 
         execute(&administrator, &format!("DROP USER \"{reader}\" CASCADE"));
+        drop_table(&owner, TABLE);
+    }
+
+    /// **The probe refuses `FLASHBACK ANY TABLE` however it is granted, through any role**: a
+    /// default role carrying it, the same role as a role the user does not enable at sign-in, and
+    /// that role nested in another; and a service user holding any role it does not enable at
+    /// sign-in, whatever the role carries.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn the_flashback_probe_refuses_the_privilege_through_any_role() {
+        const TABLE: &str = "flashback_roles";
+        let tier = tier();
+        let owner = tier.session(&tier.user, &tier.password);
+        customers(&owner, TABLE);
+        let administrator = tier.session("SYSTEM", &tier.password);
+        let (reader, password) = signing_in(&administrator, "FLASHBACK_ROLES");
+        execute(&owner, &format!("GRANT SELECT, FLASHBACK ON \"{TABLE}\" TO \"{reader}\""));
+        let tables = BTreeSet::from([QualifiedTable::parse(format!("{}.{TABLE}", tier.schema())).expect("a two-part path")]);
+        let probe = || tier.adapter(&reader, &password).with_flashback(&tables);
+        drop(probe().expect("FLASHBACK on the table alone passes the probe"));
+
+        let [any, nesting, plain] = ["ANY", "NEST", "PLAIN"].map(|role| format!("FLASHBACK_ROLES_{role}_{}", std::process::id()));
+        for role in [&any, &nesting, &plain] {
+            drop_role(&administrator, role);
+            execute(&administrator, &format!("CREATE ROLE \"{role}\""));
+        }
+        execute(&administrator, &format!("GRANT FLASHBACK ANY TABLE TO \"{any}\""));
+        execute(&administrator, &format!("GRANT \"{any}\" TO \"{nesting}\""));
+        execute(&administrator, &format!("GRANT CREATE TABLE TO \"{plain}\""));
+        let not_by_default = || execute(&administrator, &format!("ALTER USER \"{reader}\" DEFAULT ROLE NONE"));
+
+        execute(&administrator, &format!("GRANT \"{any}\" TO \"{reader}\""));
+        execute(&administrator, &format!("ALTER USER \"{reader}\" DEFAULT ROLE ALL"));
+        let default = probe();
+        assert!(
+            matches!(default, Err(OracleError::FlashbackAnyTable)),
+            "a default role carrying the privilege: {default:?}"
+        );
+        not_by_default();
+        let later = probe();
+        assert!(
+            matches!(
+                later,
+                Err(OracleError::FlashbackAnyTable | OracleError::FlashbackRoleNotEnabled)
+            ),
+            "the same role, not enabled at sign-in: {later:?}"
+        );
+
+        execute(&administrator, &format!("REVOKE \"{any}\" FROM \"{reader}\""));
+        execute(&administrator, &format!("GRANT \"{nesting}\" TO \"{reader}\""));
+        not_by_default();
+        let nested = probe();
+        assert!(
+            matches!(
+                nested,
+                Err(OracleError::FlashbackAnyTable | OracleError::FlashbackRoleNotEnabled)
+            ),
+            "the role nested in another, not enabled at sign-in: {nested:?}"
+        );
+
+        execute(&administrator, &format!("REVOKE \"{nesting}\" FROM \"{reader}\""));
+        execute(&administrator, &format!("GRANT \"{plain}\" TO \"{reader}\""));
+        not_by_default();
+        let plain_refused = probe();
+        assert!(
+            matches!(plain_refused, Err(OracleError::FlashbackRoleNotEnabled)),
+            "any role not enabled at sign-in: {plain_refused:?}"
+        );
+
+        execute(&administrator, &format!("DROP USER \"{reader}\" CASCADE"));
+        for role in [&any, &nesting, &plain] {
+            drop_role(&administrator, role);
+        }
         drop_table(&owner, TABLE);
     }
 }

@@ -9,9 +9,10 @@
 //! database when the snapshot was taken and refuses one older than its own request budget, then
 //! runs the statement. Every statement runs on the boot connection, as the declared service user.
 //!
-//! **Only a source [`OracleWarehouse::with_flashback`] probed splits.** Its probe refuses a service
-//! user holding `FLASHBACK ANY TABLE`, and one that cannot read each table it is handed at a
-//! snapshot. Every other source, a fact leg, a root the dictionary holds no table row for (a view, a
+//! **Only a source [`OracleWarehouse::with_flashback`] probed splits.** Its probe refuses
+//! `FLASHBACK ANY TABLE` however it is granted, directly or through any role, a service user holding
+//! a role that is not enabled when it signs in, and one that cannot read each table it is handed at
+//! a snapshot. Every other source, a fact leg, a root the dictionary holds no table row for (a view, a
 //! synonym), a root with no integer `NUMBER` column among the leg's keys, and an estimate at or
 //! under the threshold are read whole.
 //!
@@ -26,8 +27,11 @@
 //!   configures and nothing here sets. A snapshot past it is [`OracleError::SnapshotGone`].
 //! - Every partition reads the whole root table and keeps its bucket; `ORA_HASH` buckets are not
 //!   uniform, and every NULL key lands in bucket 0.
-//! - Nothing calls this yet: no composition root offers an Oracle leg for splitting, and no reading
-//!   worker reads an Oracle partition.
+//! - Only the boot probe runs: `sutura-cli`'s Oracle build calls [`OracleWarehouse::with_flashback`]
+//!   for a source that declares `split: flashback`. No composition root offers an Oracle leg for
+//!   splitting yet, and no reading worker reads an Oracle partition.
+//! - The probe reads the tables it is handed, the models' own; a table only a join reaches is not
+//!   read until a partition reads it.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::collections::BTreeSet;
@@ -66,12 +70,22 @@ const SNAPSHOT: &str = "SELECT TIMESTAMP_TO_SCN(SYSTIMESTAMP) FROM DUAL";
 const FRESH: &str = "SELECT CASE WHEN SCN_TO_TIMESTAMP(TO_NUMBER(:1)) >= CAST(SYSTIMESTAMP AS TIMESTAMP) - \
                      NUMTODSINTERVAL(TO_NUMBER(:2), 'SECOND') THEN 1 ELSE 0 END FROM DUAL";
 
-/// Whether the session holds the system privilege the probe refuses.
-const ANY_TABLE: &str = "SELECT COUNT(*) FROM SESSION_PRIVS WHERE PRIVILEGE = 'FLASHBACK ANY TABLE'";
+/// How often the system privilege the probe refuses is held: by the session, directly, or through a
+/// role (`SESSION_PRIVS`, `USER_SYS_PRIVS`, `ROLE_SYS_PRIVS`).
+const ANY_TABLE: &str = "SELECT COUNT(*) FROM (SELECT PRIVILEGE FROM SESSION_PRIVS UNION ALL SELECT PRIVILEGE FROM \
+                         USER_SYS_PRIVS UNION ALL SELECT PRIVILEGE FROM ROLE_SYS_PRIVS) WHERE PRIVILEGE = \
+                         'FLASHBACK ANY TABLE'";
+
+/// How many roles granted to the service user, directly or through a role (`USER_ROLE_PRIVS`,
+/// `ROLE_ROLE_PRIVS`), are not enabled in its session (`SESSION_ROLES`). At sign-in Oracle enables
+/// the privileges granted to the user and those of its default roles, so with none, `SESSION_PRIVS`
+/// holds every privilege a role can give it.
+const ROLES_NOT_ENABLED: &str = "SELECT COUNT(*) FROM (SELECT GRANTED_ROLE FROM USER_ROLE_PRIVS UNION SELECT \
+                                 GRANTED_ROLE FROM ROLE_ROLE_PRIVS) WHERE GRANTED_ROLE NOT IN (SELECT ROLE FROM \
+                                 SESSION_ROLES)";
 
 /// The Oracle error numbers of a snapshot the database can no longer read: `ORA-01555` snapshot too
 /// old, `ORA-08181` not a valid system change number, `ORA-01466` the table's definition changed.
-#[expect(dead_code, reason = "read by `snapshot_gone`, which lands with the partition read")]
 const GONE: [usize; 3] = [1555, 8181, 1466];
 
 /// [`OracleWarehouse::split_by_estimate`]'s outcome.
@@ -122,6 +136,9 @@ pub(super) fn with_flashback(
     refuse_impersonating(&warehouse.routing.posture, &warehouse.routing.source)?;
     if count(&warehouse.run((ANY_TABLE, &[]))?, "the system privilege")? > 0 {
         return Err(OracleError::FlashbackAnyTable);
+    }
+    if count(&warehouse.run((ROLES_NOT_ENABLED, &[]))?, "the roles not enabled")? > 0 {
+        return Err(OracleError::FlashbackRoleNotEnabled);
     }
     let scn = snapshot(&warehouse.run((SNAPSHOT, &[]))?)?;
     for table in tables {
@@ -228,26 +245,22 @@ fn gone(error: OracleError) -> OracleError {
 }
 
 /// Whether Oracle error number `code` says a snapshot can no longer be read - one of [`GONE`].
-///
-/// **Not built yet:** no code is.
-const fn snapshot_gone(_code: usize) -> bool {
-    false
+fn snapshot_gone(code: usize) -> bool {
+    GONE.contains(&code)
 }
 
 /// [`OracleError::FlashbackAtImpersonatingSource`] for a source that reads as each caller.
-///
-/// **Not built yet:** no source is refused.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the refusal is what fails, and it lands with the partition read"
-)]
-const fn refuse_impersonating(_posture: &SourcePosture, _at: &sutura_domain::model::SourceName) -> Result<(), OracleError> {
+fn refuse_impersonating(posture: &SourcePosture, at: &sutura_domain::model::SourceName) -> Result<(), OracleError> {
+    if matches!(*posture, SourcePosture::ImpersonationAtSource) {
+        return Err(OracleError::FlashbackAtImpersonatingSource {
+            at: String::from(at.as_str()),
+        });
+    }
     Ok(())
 }
 
 /// Where the dictionary is asked about a leg's root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(dead_code, reason = "built by `dictionary`, which lands with the split")]
 enum Dictionary<'leg> {
     /// The root names no schema: the session's own.
     Schema,
@@ -257,10 +270,15 @@ enum Dictionary<'leg> {
 
 /// Where the dictionary is asked about `leg`'s root, or `None` for a leg read whole: a fact leg, a
 /// source whose split was not probed, a session other than the boot one, a root path of three parts.
-///
-/// **Not built yet:** every leg is read whole.
-const fn dictionary(_flashback: bool, _leg: &LegPlan, _boot: bool) -> Option<Dictionary<'_>> {
-    None
+fn dictionary(flashback: bool, leg: &LegPlan, boot: bool) -> Option<Dictionary<'_>> {
+    if !flashback || !boot || !matches!(*leg, LegPlan::Lookup { .. }) {
+        return None;
+    }
+    match leg.table().qualifier() {
+        None => Some(Dictionary::Schema),
+        Some(qualifier) if qualifier.project().is_none() => Some(Dictionary::Owner(qualifier.dataset().as_str())),
+        Some(_) => None,
+    }
 }
 
 /// What the dictionary holds for a leg's root table.

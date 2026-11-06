@@ -160,6 +160,9 @@ pub fn generate_leg_as_of(leg: &LegPlan, scn: Scn, bucket: Option<KeyBucket>) ->
 /// `SELECT 1 FROM <table> AS OF SCN <scn> WHERE 1 = 0`: reads no row, and is refused where the
 /// session may not read `table` at a snapshot.
 ///
+/// That Oracle refuses this zero-row read without a `FLASHBACK` grant is read from its
+/// documentation, not measured by any cell here.
+///
 /// # Errors
 ///
 /// [`AsOfRefused::Generate`] for a table path Oracle does not resolve.

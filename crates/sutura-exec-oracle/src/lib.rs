@@ -253,6 +253,9 @@ pub enum OracleError {
     },
     /// The database can no longer read the partition's snapshot: `ORA-01555` (snapshot too old),
     /// `ORA-08181` (not a valid system change number) or `ORA-01466` (the table's definition changed).
+    ///
+    /// Only the top error of the server's stack is read: one of these codes nested under another
+    /// stays [`Self::Execute`], refused but not as this variant.
     #[error("the partition's snapshot can no longer be read")]
     SnapshotGone {
         #[source]
@@ -467,16 +470,20 @@ impl OracleWarehouse {
     }
 
     /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot
-    /// probe passed over `tables`: the service user holds no `FLASHBACK ANY TABLE`, the database
-    /// answers a snapshot, and each of `tables` reads at it.
+    /// probe passed over `tables`: the service user holds `FLASHBACK ANY TABLE` in no way, directly
+    /// or through any role, every role it holds is enabled when it signs in, the database answers a
+    /// snapshot, and each of `tables` reads at it.
+    ///
+    /// That Oracle refuses that zero-row read without a `FLASHBACK` grant on the table is read from
+    /// its documentation, not measured here; the Oracle tier's probe cell measures it.
     ///
     /// No deadline: the boot path has no caller's budget to spend, as [`Warehouse::verify_anchor`]
     /// has none.
     ///
     /// # Errors
     ///
-    /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`], and
-    /// [`OracleError::FlashbackRefused`] naming the first table that does not read at a snapshot;
+    /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`],
+    /// [`OracleError::FlashbackRoleNotEnabled`], and [`OracleError::FlashbackRefused`] naming the first table that does not read at a snapshot;
     /// a probe the database fails otherwise is its own error.
     pub fn with_flashback(
         self,

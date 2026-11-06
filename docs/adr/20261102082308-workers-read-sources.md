@@ -384,8 +384,8 @@ Limits:
   `FLASHBACK` grant, passes the probe and fails the partition read.
 - **Hashing one integer key is exact only for a lookup leg.** Every row of one group has the same
   key, so every group is in one bucket. A fact leg is not split.
-- **Nothing is built yet.** This record decides to build the split in the Oracle adapter, the
-  setting and the boot probe, and the two changes stacked on it deliver them: one adds the types
-  with today's behaviour, the next the behaviour. Even then no composition root offers an Oracle
-  leg for splitting, and no reading worker reads an Oracle partition, until the grant and the
-  reading worker gain an Oracle arm.
+- **Only the adapter's halves, the setting and the boot probe are built.** The Oracle adapter
+  estimates, splits and reads a partition, `split: flashback` parses, and the boot probe runs at
+  startup for a source that declares it. No composition root offers an Oracle leg for splitting,
+  and no reading worker reads an Oracle partition, until the grant and the reading worker gain an
+  Oracle arm.
