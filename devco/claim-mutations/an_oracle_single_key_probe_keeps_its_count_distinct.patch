@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-sql/src/generate/key_probe.rs b/crates/sutura-sql/src/generate/key_probe.rs
+index 1ed7d73de..f41a794bf 100644
+--- a/crates/sutura-sql/src/generate/key_probe.rs
++++ b/crates/sutura-sql/src/generate/key_probe.rs
+@@ -63,7 +63,7 @@ pub fn generate_key_probe(key: &DeclaredKey<'_>, dialect: Dialect) -> Result<Gen
+         .map(|column| qualified(key.table().name(), column))
+         .collect();
+     let first = over.first().ok_or(GenerateError::NoPredicate)?;
+-    if over.len() > 1 && dialect == Dialect::Oracle {
++    if dialect == Dialect::Oracle {
+         return finished(key, &oracle_compound_probe(key, over, dialect)?, dialect);
+     }
+     // A row's key is non-null only when every column of the whole set is non-null - the same

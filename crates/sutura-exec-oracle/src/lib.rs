@@ -114,7 +114,9 @@ pub enum OracleError {
         #[source]
         cause: DriverError,
     },
-    /// The server refused a statement as `ORA-01476: divisor is equal to zero`.
+    /// The server refused a statement as `ORA-01476: divisor is equal to zero`. The generated
+    /// ratio divides a `BINARY_DOUBLE`, which Oracle documents as not raising it, so no ratio this
+    /// generator emits is expected to reach this variant.
     #[error("the statement was refused by the server as a division by zero")]
     DivisionByZero {
         #[source]
@@ -685,12 +687,16 @@ fn connect_err(cause: oracledb::Error) -> OracleError {
 }
 
 /// The error from the RUN of a statement, with the one server refusal this adapter refuses to
-/// re-render as a generic `Execute`: `ORA-01476: divisor is equal to zero` is how Oracle honors
-/// `zero_denominator: fails`, the same split the Postgres adapter's `DivisionByZero` draws for
-/// `22012`.
+/// re-render as a generic `Execute`: `ORA-01476: divisor is equal to zero`, the same split the
+/// Postgres adapter's `DivisionByZero` draws for `22012`.
+///
+/// The generated ratio divides a `BINARY_DOUBLE`, whose documented IEEE behaviour is infinity or
+/// NaN for a zero denominator rather than this error, so `zero_denominator: fails` is held by the
+/// domain reader refusing the non-finite value (`UnreadableCell::NotFinite`), not by this mapping.
 ///
 /// **Not measured against a live Oracle** - the module header's own limit; `1476` is Oracle's
-/// documented error number for this condition.
+/// documented error number for this condition, and the infinity/NaN behaviour is documented, not
+/// observed.
 pub(crate) fn execute_err_mapped(cause: oracledb::Error) -> OracleError {
     if let oracledb::ErrorKind::UnsupportedDbType(db_type) = *cause.kind() {
         return OracleError::UnsupportedType {
