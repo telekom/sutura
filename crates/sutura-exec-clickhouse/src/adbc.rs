@@ -169,7 +169,8 @@ pub enum AdbcError {
     Driver(DriverMessage),
     /// The profile of the user the statement runs as forbids a setting the answer needs: it is
     /// `readonly`, or a constraint holds the setting away from sutura's value. Refused rather than
-    /// answered without the setting.
+    /// answered without the setting, and [`source_refused`](Warehouse::source_refused): the same
+    /// profile refuses the same statement again, so it is not an outage to retry.
     #[error("ClickHouse refused a setting the answer needs: {0}")]
     SettingRefused(DriverMessage),
     /// The rendered statement carries a top-level `keyword`, or opens with a parenthesis (`(`), so
@@ -675,6 +676,7 @@ impl Warehouse for AdbcClickHouseWarehouse {
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdbcError::Driver(message) | AdbcError::Load(message) if message.refused_identity())
+            || matches!(error, AdbcError::SettingRefused(_))
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {

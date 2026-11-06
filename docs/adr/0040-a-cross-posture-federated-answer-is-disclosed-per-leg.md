@@ -169,17 +169,22 @@ become any user, declared or not. ClickHouse Cloud offers neither requirement.
 The adapter sends the settings that sutura pins (`join_use_nulls = 1`, `max_execution_time`,
 `timeout_overflow_mode = 'throw'` and four `output_format_*` settings) as driver options on the
 connection. Under `EXECUTE AS`, the server switches to the named user's profile and clamps those
-settings to it. A `readonly = 1` profile drops them all without an error, so a left join answered an
-unmatched `String` key as `''` instead of `NULL`. A tier cell measured that on ClickHouse 26.9.15.5,
-at `github.com/telekom/sutura/actions/runs/42211816787`.
+settings to it. A `readonly = 1` profile drops them all without an error, so a whole switched
+question with a left join answered an unmatched `String` key as `''` instead of `NULL`. A tier cell
+measured that on ClickHouse 26.9.15.5 against the tree before this amendment, at
+`github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`.
 
 **Decision.** Every statement the adapter runs for an answer also carries the same settings in its
 own `SETTINGS` clause. The fixture loader's statements do not. The server checks a statement's own
-settings against the switched user's profile and refuses a forbidden one: `READONLY` (164), or
-`SETTING_CONSTRAINT_VIOLATION` (452) for a constraint. The adapter reads both codes as
-`AdbcError::SettingRefused`. The caller is refused and never answered without the settings. The
-connection options stay. A profile that caps `max_execution_time` below the time a query has left
-is now refused with 452 on every request; before, the server held the query to the cap.
+settings against the switched user's profile and refuses a forbidden one: `READONLY` (164),
+measured at `github.com/telekom/sutura/actions/runs/42293738301/job/128153500961`, or
+`SETTING_CONSTRAINT_VIOLATION` (452) for a constraint, read from the server source, not measured.
+The adapter reads both codes as `AdbcError::SettingRefused`, which its `source_refused` answers
+`true`: the caller gets `source_refused` (403), not the retryable `503` of an outage, because the
+same profile refuses the same statement again. The caller is never answered without the settings.
+The connection options stay. A profile that caps `max_execution_time` below the time a query has
+left is now refused with 452 on every request (read from the server source, not measured); before,
+the server held the query to the cap.
 
 **Why the clause stays on the switched statement.** The clause is the statement's own only when it
 is the first `SETTINGS` after a bare `SELECT`. The server makes a `SETTINGS` output-level when it
@@ -200,8 +205,11 @@ only. No tier cell runs a switched stacked plan.
 - Whether the outer statement still enforces `max_execution_time` under the switch is not measured.
   The clause also sends the deadline to the switched statement.
 - The caller's profile still decides every setting that sutura does not pin, for example `limit`,
-  `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone` and
-  `count_distinct_implementation`. Any of them can change the rows with no error. Not measured.
+  `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone`,
+  `count_distinct_implementation`, `join_default_strictness`, `group_by_use_nulls`,
+  `transform_null_in` and `aggregate_functions_null_for_empty`. Any of them can change the rows with
+  no error, and nothing in sutura detects such a profile: the operator keeps them at their defaults.
+  Not measured.
 - On the answering path the driver itself sends only output-level request parameters
   (`output_format_arrow_compression_method`, `default_format`, the session and query ids). They
   apply to the outer statement and are not in the clause.

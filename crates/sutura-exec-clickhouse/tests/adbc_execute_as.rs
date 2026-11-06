@@ -273,7 +273,9 @@ mod adbc_execute_as {
     }
 
     /// The server's `READONLY` (164) and `SETTING_CONSTRAINT_VIOLATION` (452) read as a refused
-    /// setting, and as neither a refused identity nor a spent deadline; no other code does.
+    /// setting, which the port answers as refused by the data system - a refusal the caller is told
+    /// not to retry, not the retryable failure an outage is - and not as a spent deadline; no other
+    /// code reads as a refused setting.
     #[test]
     fn a_readonly_or_constrained_setting_reads_as_a_refused_setting() {
         let switched = switched_to("sutura_switched");
@@ -286,7 +288,7 @@ mod adbc_execute_as {
         ] {
             let (warehouse, refused, _) = exchange(&switched, server_error(code, text));
             assert!(refused_a_setting(&refused), "{code}: {refused:?}");
-            assert!(!warehouse.source_refused(&refused), "{code}: {refused}");
+            assert!(warehouse.source_refused(&refused), "{code}: {refused}");
             assert!(!warehouse.deadline_exceeded(&refused), "{code}: {refused}");
         }
         for (code, text) in [

@@ -96,9 +96,10 @@ Requirements:
   caps `max_execution_time` below the time a query has left is refused on every query, not held to
   the cap.
 - A profile that leaves the settings sutura does not pin at their defaults. sutura does not set
-  them, so the caller's profile decides them, and some change the rows with no error: `limit`,
-  `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone` and
-  `count_distinct_implementation`, for example.
+  them and does not check them, so the caller's profile decides them, and some change the rows with
+  no error: `limit`, `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone`,
+  `count_distinct_implementation`, `join_default_strictness`, `group_by_use_nulls`,
+  `transform_null_in` and `aggregate_functions_null_for_empty`, for example.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
@@ -108,7 +109,8 @@ query never runs as `user`. A caller whose `sub` is the user in `user` is refuse
 Each statement that sutura runs for an answer carries the settings that sutura pins in its own
 `SETTINGS` clause. Under `EXECUTE AS`, ClickHouse drops a connection setting that the caller's
 profile forbids without an error, but refuses a statement whose own setting that profile forbids.
-So a caller whose profile forbids one of them is refused, and never answered without it.
+So a caller whose profile forbids one of them is refused with `source_refused`, and never answered
+without it.
 
 ### Token sign-in
 

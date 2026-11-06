@@ -8,7 +8,9 @@
 //! unmatched `String` key. A statement's own `SETTINGS` is checked against the same profile and
 //! refused instead: `READONLY` (164) under `readonly = 1`, `SETTING_CONSTRAINT_VIOLATION` (452) for
 //! a constraint - so a profile that caps `max_execution_time` below the deadline is refused on
-//! every request, not clamped.
+//! every request, not clamped. 164 is measured by the `readonly` tier cells; 452 is read from the
+//! server's source, not measured. The port reads both as a refusal by the data system, not as an
+//! outage: the same profile refuses the same statement again.
 //!
 //! **The clause is the statement's own only if it is the first `SETTINGS` after a bare `SELECT`.**
 //! The server makes a `SETTINGS` output-level when it follows a `FORMAT`, a first `SETTINGS`, an
@@ -22,8 +24,10 @@
 //! setting as sutura needs it. Whether the outer statement still enforces the deadline under the
 //! switch is not measured; the clause sends it to the switched statement too. The caller's profile
 //! still decides every setting sutura does not pin - `limit`, `max_result_rows` with
-//! `result_overflow_mode = 'break'`, `session_timezone`, `count_distinct_implementation` among
-//! them - and any of those can change the rows with no error; not measured.
+//! `result_overflow_mode = 'break'`, `session_timezone`, `count_distinct_implementation`,
+//! `join_default_strictness`, `group_by_use_nulls`, `transform_null_in`,
+//! `aggregate_functions_null_for_empty` among them - and any of those can change the rows with no
+//! error; not measured. Nothing here detects such a profile.
 
 /// Each setting and the value sutura needs, as the driver option and the clause both send it.
 const ANSWER_SHAPING: [(&str, &str); 6] = [
