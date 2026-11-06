@@ -2,6 +2,7 @@
 //! cell may skip on. Declared by `adapters.rs`, so it is shared by every test target that is.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use super::{DataSystemUnderTest, registered};
 
@@ -93,11 +94,56 @@ const EXEMPTIONS: &[Exemption] = &[
     Exemption {
         system: "oracle",
         from: Exempt::Unavailable,
+        runs_in: Some("oracle-tier"),
+        because: "opt-in: it executes where `SUTURA_ORACLE_TIER` names the compose `oracle` profile, which \
+                  the `oracle-tier` job (`nix run .#oracle-acceptance`) and `just oracle-acceptance` start, \
+                  and no other gate starts one",
+    },
+    Exemption {
+        system: "oracle",
+        from: Exempt::DryRun,
         runs_in: None,
-        because: "no gate provisions an Oracle and no CSV importer attaches this corpus to one - see its \
-                  impl; its acceptance cell runs one whole-plan case outside this matrix",
+        because: "`OracleWarehouse` takes the port's default `dry_run`, so it answers `NotAsked` and asks Oracle \
+                  nothing; the cell asserts that answer, so this reddens the day it prices a statement",
     },
 ];
+
+/// The data systems `SUTURA_ONLY_SYSTEMS` narrows this run to, as a comma-separated list of
+/// [`DataSystemUnderTest::NAME`]; unset or blank narrows nothing, so no other gate is changed.
+///
+/// For a venue that starts one tier beside another it cannot credential: the `oracle-tier` job's
+/// compose profile also starts a `ClickHouse`, which discovery finds and which then has no fixture
+/// credential. A name the registry lacks is a panic, so a typo is a red and not a run that asked
+/// less. **The limit:** a system left off the list is skipped without a line, so the venue's own
+/// check of what ran (`nix/oracle-app-cells.sh` asks for oracle in the two-fact walk's output) is
+/// what holds the list from being too narrow.
+fn only() -> Option<&'static [String]> {
+    static ONLY: OnceLock<Option<Vec<String>>> = OnceLock::new();
+    ONLY.get_or_init(|| {
+        let value = std::env::var("SUTURA_ONLY_SYSTEMS").unwrap_or_default();
+        let listed: Vec<String> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(String::from)
+            .collect();
+        if listed.is_empty() {
+            return None;
+        }
+        let mut registered: Vec<&str> = Vec::new();
+        macro_rules! named {
+            ($name:ident, $adapter:ty) => {
+                registered.push(<$adapter as DataSystemUnderTest>::NAME);
+            };
+        }
+        registered!(data_systems: named);
+        if let Some(unknown) = listed.iter().find(|name| !registered.contains(&name.as_str())) {
+            panic!("SUTURA_ONLY_SYSTEMS names {unknown}, which `registered!(data_systems:)` does not");
+        }
+        Some(listed)
+    })
+    .as_deref()
+}
 
 /// Whether `W` executes HERE: `true`, or `false` after printing its named exemption.
 ///
@@ -109,6 +155,9 @@ pub(crate) fn runs_here<W>() -> bool
 where
     W: DataSystemUnderTest,
 {
+    if only().is_some_and(|listed| !listed.iter().any(|name| name == W::NAME)) {
+        return false;
+    }
     if W::available() {
         return true;
     }
