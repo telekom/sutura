@@ -501,6 +501,73 @@ def pool_principal(sa: gcp.serviceaccount.Account) -> pulumi.Output[str]:
 principal_a = pool_principal(sa_a)
 principal_b = pool_principal(sa_b)
 
+# Separate from datasets with inherited principal grants: B must not read A's table.
+split_dataset_id = f"{dataset_id}_split"
+if split_dataset_id in (dataset_id, ci_dataset, cross_dataset):
+    raise ValueError("the split fixture dataset must be separate from the other venues")
+split_dataset = gcp.bigquery.Dataset(
+    "split-dataset",
+    dataset_id=split_dataset_id,
+    location=region,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+)
+for fixture, row_count, readers, output in (
+    ("shared", 600_000, (("a", principal_a), ("b", principal_b)), "split_table"),
+    ("a_only", 1, (("a", principal_a),), "a_only_table"),
+):
+    fixture_table = gcp.bigquery.Table(
+        f"split-{fixture}",
+        dataset_id=split_dataset.dataset_id,
+        table_id=fixture,
+        schema=json.dumps([{"name": "id", "type": "INTEGER", "mode": "REQUIRED"}]),
+        deletion_protection=False,
+        opts=pulumi.ResourceOptions(provider=gcp_provider),
+    )
+    statement = f"SELECT id FROM UNNEST(GENERATE_ARRAY(1, {row_count})) AS id"
+    fixture_seed = gcp.bigquery.Job(
+        f"split-{fixture}-seed",
+        job_id=pulumi.Output.concat(
+            pulumi.get_stack(),
+            "-split-",
+            fixture,
+            "-",
+            fixture_table.creation_time.apply(str),
+            "-",
+            hashlib.sha256(statement.encode()).hexdigest()[:16],
+        ),
+        location=region,
+        query=gcp.bigquery.JobQueryArgs(
+            query=statement,
+            use_legacy_sql=False,
+            destination_table=gcp.bigquery.JobQueryDestinationTableArgs(
+                project_id=project,
+                dataset_id=split_dataset.dataset_id,
+                table_id=fixture_table.table_id,
+            ),
+            create_disposition="CREATE_NEVER",
+            write_disposition="WRITE_TRUNCATE",
+        ),
+        opts=pulumi.ResourceOptions(provider=gcp_provider),
+    )
+    for tag, reader in readers:
+        gcp.bigquery.IamMember(
+            f"split-{fixture}-{tag}-dataviewer",
+            project=project,
+            dataset_id=split_dataset.dataset_id,
+            table_id=fixture_table.table_id,
+            role="roles/bigquery.dataViewer",
+            member=reader,
+            opts=pulumi.ResourceOptions(
+                provider=gcp_provider, depends_on=[fixture_seed]
+            ),
+        )
+    pulumi.export(
+        output,
+        pulumi.Output.concat(
+            project, ".", split_dataset.dataset_id, ".", fixture_table.table_id
+        ),
+    )
+
 # The isolation: principal A is granted rows where the grouping column equals A's value,
 # principal B where it equals B's. Disjoint by construction. Two separate policies (one per
 # principal) so each grant is stated on its own line. `grantees` is the subject's pool principal
