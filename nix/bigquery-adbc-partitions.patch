@@ -59,7 +59,7 @@
  	JobCreationModeOptional    = "optional"
 --- a/job_query.go
 +++ b/job_query.go
-@@ -323,6 +323,45 @@
+@@ -323,6 +323,50 @@
  	return bigqueryRdr, totalRows, nil
  }
 
@@ -69,8 +69,17 @@
 +// rather than new machinery. There is no known BigQuery schema for a bare
 +// stream name, so ipcReaderFromArrowIterator falls back to the schema
 +// carried in the Arrow IPC stream itself, exactly as it already does when a
-+// job's reported schema field count does not match.
-+func readPartitionRecordReader(ctx context.Context, client *bigquery.Client, readStream string, alloc memory.Allocator, resultRecordBufferSize int) (array.RecordReader, error) {
++// job's reported schema field count does not match. A failure before the
++// reader exists cancels the stream's context, so its gRPC stream does not
++// stay open; once it exists, releasing it cancels the stream.
++func readPartitionRecordReader(ctx context.Context, client *bigquery.Client, readStream string, alloc memory.Allocator, resultRecordBufferSize int) (_ array.RecordReader, err error) {
++	ctx, cancelFn := context.WithCancel(ctx)
++	defer func() {
++		if err != nil {
++			cancelFn()
++		}
++	}()
++
 +	// A session stream takes no per-request serialization options: BigQuery refuses
 +	// them with InvalidArgument ("only supported for job streams"). Its compression
 +	// is the session's own, set by createPartitionReadSession.
@@ -84,14 +93,10 @@
 +		return nil, errToAdbcErr(adbc.StatusIO, err, "decode read partition stream")
 +	}
 +
-+	chs := make([]chan arrow.RecordBatch, 1)
-+	ctx, cancelFn := context.WithCancel(ctx)
 +	ch := make(chan arrow.RecordBatch, resultRecordBufferSize)
-+	chs[0] = ch
-+
 +	result := &reader{
 +		refCount:   1,
-+		chs:        chs,
++		chs:        []chan arrow.RecordBatch{ch},
 +		curChIndex: 0,
 +		err:        nil,
 +		cancelFn:   cancelFn,
@@ -105,7 +110,7 @@
  // streamRecordBatches reads a RecordReader into a channel; it terminates if the supplied context is cancelled.
  func streamRecordBatches(ctx context.Context, source array.RecordReader, result *reader, ch chan arrow.RecordBatch) {
  	defer close(ch)
-@@ -476,6 +515,27 @@
+@@ -476,6 +520,27 @@
  }
 
  func newReadRowsArrowIterator(ctx context.Context, client *bigquery.Client, job *bigquery.Job, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
@@ -133,7 +138,7 @@
  	rc := client.StorageReadClient()
  	if rc == nil {
  		// TODO(lidavidm): eventually we will need to support disabling this
-@@ -487,18 +547,8 @@
+@@ -487,18 +552,8 @@
  		// https://cloud.google.com/bigquery/quotas#storage-limits
  		grpc.MaxCallRecvMsgSize(1024 * 1024 * 129),
  	)
@@ -328,7 +333,7 @@
 +}
 --- /dev/null
 +++ b/partitions_test.go
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,372 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -354,6 +359,8 @@
 +	"cloud.google.com/go/bigquery"
 +	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
 +	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/array"
 +	"github.com/apache/arrow-go/v18/arrow/memory"
 +	"google.golang.org/api/option"
 +	"google.golang.org/grpc"
@@ -449,6 +456,35 @@
 +	}
 +}
 +
++func TestExecutePartitionsRefusesBoundParameters(t *testing.T) {
++	params, err := array.NewRecordReader(arrow.NewSchema(nil, nil), nil)
++	if err != nil {
++		t.Fatalf("array.NewRecordReader: %v", err)
++	}
++	st := &statement{
++		queryConfig: bigquery.QueryConfig{Q: "SELECT 1"},
++		params:      params,
++	}
++
++	_, partitions, rows, err := st.ExecutePartitions(context.Background())
++	if err == nil {
++		t.Fatal("ExecutePartitions: expected an error for bound parameters, got nil")
++	}
++	adbcErr, ok := err.(adbc.Error)
++	if !ok {
++		t.Fatalf("ExecutePartitions: error %v is not an adbc.Error", err)
++	}
++	if adbcErr.Code != adbc.StatusNotImplemented {
++		t.Fatalf("ExecutePartitions: code = %v, want StatusNotImplemented", adbcErr.Code)
++	}
++	if partitions.NumPartitions != 0 || len(partitions.PartitionIDs) != 0 {
++		t.Fatalf("ExecutePartitions: expected no partitions on refusal, got %+v", partitions)
++	}
++	if rows != -1 {
++		t.Fatalf("ExecutePartitions: rows = %d, want -1", rows)
++	}
++}
++
 +func TestPartitionStreamCountFor(t *testing.T) {
 +	cases := []struct {
 +		name                string
@@ -537,6 +573,9 @@
 +	storagepb.UnimplementedBigQueryReadServer
 +	sessions chan *storagepb.CreateReadSessionRequest
 +	reads    chan *storagepb.ReadRowsRequest
++	// read, when set, serves a ReadRows call after its request is recorded;
++	// unset, the call is refused.
++	read func(storagepb.BigQueryRead_ReadRowsServer) error
 +}
 +
 +func (f *fakeStorageRead) CreateReadSession(_ context.Context, req *storagepb.CreateReadSessionRequest) (*storagepb.ReadSession, error) {
@@ -544,8 +583,11 @@
 +	return nil, status.Error(codes.InvalidArgument, "fake: recorded")
 +}
 +
-+func (f *fakeStorageRead) ReadRows(req *storagepb.ReadRowsRequest, _ storagepb.BigQueryRead_ReadRowsServer) error {
++func (f *fakeStorageRead) ReadRows(req *storagepb.ReadRowsRequest, stream storagepb.BigQueryRead_ReadRowsServer) error {
 +	f.reads <- req
++	if f.read != nil {
++		return f.read(stream)
++	}
 +	return status.Error(codes.InvalidArgument, "fake: recorded")
 +}
 +
@@ -630,6 +672,40 @@
 +		t.Fatalf("session stream counts max=%d preferred_min=%d, want 2 and 2", req.GetMaxStreamCount(), req.GetPreferredMinStreamCount())
 +	}
 +}
++
++// A stream whose Arrow schema does not decode leaves ReadPartition with an
++// error and no reader to release, so nothing but ReadPartition itself can
++// close the gRPC stream it opened.
++func TestPartitionReadClosesStreamWhenDecodingFails(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++	closed := make(chan struct{})
++	fake.read = func(stream storagepb.BigQueryRead_ReadRowsServer) error {
++		// A message length of 2 where the schema message belongs: it cannot be decoded.
++		undecodable := []byte{2, 0, 0, 0}
++		if err := stream.Send(&storagepb.ReadRowsResponse{
++			Schema: &storagepb.ReadRowsResponse_ArrowSchema{
++				ArrowSchema: &storagepb.ArrowSchema{SerializedSchema: undecodable},
++			},
++		}); err != nil {
++			return err
++		}
++		<-stream.Context().Done()
++		close(closed)
++		return stream.Context().Err()
++	}
++
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++	if _, err := readPartitionRecordReader(context.Background(), client, streamName, memory.DefaultAllocator, 1); err == nil {
++		t.Fatal("readPartitionRecordReader: the stream's schema cannot be decoded, got no error")
++	}
++	recorded(t, fake.reads)
++
++	select {
++	case <-closed:
++	case <-time.After(10 * time.Second):
++		t.Fatal("the read stream stayed open after its schema failed to decode")
++	}
++}
 --- a/statement.go
 +++ b/statement.go
 @@ -28,6 +28,7 @@
@@ -691,7 +767,7 @@
  // ExecutePartitions executes the current statement and gets the results
  // as a partitioned result set.
  //
-@@ -954,13 +985,112 @@
+@@ -954,13 +985,121 @@
  // descriptors and the number of rows affected, if known. If unknown,
  // the number of rows affected will be -1.
  //
@@ -716,6 +792,9 @@
 +// A dry run (bigquery.query.dry_run) never runs the query to a destination
 +// table, so it cannot be partitioned either; this returns an error rather
 +// than a partition list or a row-count estimate.
++//
++// Bound parameters are not supported either: a statement with parameters
++// bound is refused as StatusNotImplemented rather than run with them ignored.
  func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc.Partitions, int64, error) {
 -	return nil, adbc.Partitions{}, -1, adbc.Error{
 -		Code: adbc.StatusNotImplemented,
@@ -734,7 +813,13 @@
 +			Code: adbc.StatusInvalidState,
 +			Msg:  "[bq] ExecutePartitions does not support bigquery.query.dry_run: a dry run has no destination table to partition",
 +		}
- 	}
++	}
++	if st.params != nil {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusNotImplemented,
++			Msg:  "[bq] ExecutePartitions does not support bound parameters",
++		}
++	}
 +
 +	query := st.query()
 +
@@ -765,7 +850,7 @@
 +	cfg, err := job.Config()
 +	if err != nil {
 +		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "read job config")
-+	}
+ 	}
 +	queryCfg, ok := cfg.(*bigquery.QueryConfig)
 +	if !ok || queryCfg.Dst == nil {
 +		return nil, adbc.Partitions{}, -1, adbc.Error{

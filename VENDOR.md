@@ -169,7 +169,10 @@ Seven source-level adaptations, recorded here so nothing is silent:
   carries the ZSTD buffer compression the job's default-stream read asks per request. A malformed
   descriptor is refused as `InvalidArgument`, never a panic. `ExecutePartitions` refuses a
   `bigquery.query.dry_run` statement outright (a dry run has no destination table to partition)
-  rather than returning a partition list or substituting a row-count estimate.
+  rather than returning a partition list or substituting a row-count estimate, and refuses a
+  statement with bound parameters as `NotImplemented` rather than running it with them ignored.
+  `ReadPartition` cancels the stream's context when opening or decoding it fails, so no gRPC stream
+  stays open behind an error that returns no reader to release.
   **Two statement options decide `CreateReadSession`'s `MaxStreamCount`:**
   `bigquery.query.partitions.max_streams` (a positive integer bounding how many streams are ever
   asked for; unset keeps `partitionStreamCount`, 4, today's fixed value) and
@@ -187,14 +190,19 @@ Seven source-level adaptations, recorded here so nothing is silent:
   `job_query.go`'s existing `streamRecordBatches`/channel machinery for `ReadPartition` rather than
   building a second kind of stream reader, and needs no new Go module: the Storage Read API client
   was already a dependency of the default-stream read path. The patch adds `partitions_test.go`
-  (descriptor round trip, malformed descriptor refused, dry run and empty query refused, the
-  stream-count split function, both options' value refusals, and the `CreateReadSession` and
-  `ReadRows` requests as a fake Storage Read API on loopback receives them), which
+  (descriptor round trip, malformed descriptor refused, dry run, empty query and bound parameters
+  refused, the stream-count split function, both options' value refusals, the `CreateReadSession`
+  and `ReadRows` requests as a fake Storage Read API on loopback receives them, and that a stream is
+  closed when its schema fails to decode), which
   `nix/bigquery-adbc.nix`'s check phase runs by name on a host that can run its target; only the
   dispatch-only BigQuery venue sends them to real BigQuery, through `sutura-exec-bigquery`'s
-  `split_leg` and `read_partition`. Upstream issue:
-  `adbc-drivers/bigquery#367`; `telekom/sutura#1742` tracks deleting this patch once a pinned driver
-  release carries it.
+  `split_leg` and `read_partition`. Upstream issue
+  `adbc-drivers/bigquery#367`, upstream change
+  [`adbc-drivers/bigquery#371`](https://github.com/adbc-drivers/bigquery/pull/371) (open, same
+  behaviour on upstream's current source). Removal condition: the first `adbc-drivers/bigquery`
+  driver release (`go/v*` tag) that contains #371; bump `bigquery-adbc-src` to it and delete the
+  patch, its `nix/bigquery-adbc-drivers.nix` line and its check names. `telekom/sutura#1742`
+  tracks that deletion.
 - **`-tags driverlib` facade.** The c-shared driver lives in `go/pkg` behind the `driverlib`
   build tag (upstream's `adbc-make` passes the same); the derivation rebuilds that condition.
 - **Go module graph is vendored hermetically** by `buildGoModule`'s fixed-output derivation
