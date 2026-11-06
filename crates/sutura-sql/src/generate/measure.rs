@@ -256,6 +256,23 @@ fn ratio_term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: Dialec
     }
 }
 
+/// `over` as a floating-point number, the numerator of a ratio.
+///
+/// **Oracle gets `TO_BINARY_DOUBLE(..)`, not a cast.** polyglot's Oracle generator writes a
+/// `BINARY_DOUBLE` cast target as `DOUBLE PRECISION`, which is `FLOAT(126)`: a `NUMBER` in Oracle, so
+/// the division stayed exact and the adapter read it back as text where every other adapter answers a
+/// double - observed in the `oracle-tier` job as `0.0483870967741935483870967741935483870968` against
+/// `0.04838709677419355`. `TO_BINARY_DOUBLE` is the one spelling that is a `BINARY_DOUBLE` regardless
+/// of how a cast target is canonicalised, and dividing it by the `NUMBER` count converts the count to
+/// binary as well.
+fn as_double(over: Expr, dialect: Dialect) -> Expr {
+    if dialect == Dialect::Oracle {
+        builder::func("TO_BINARY_DOUBLE", [over])
+    } else {
+        over.cast("DOUBLE")
+    }
+}
+
 /// The measure, as one expression.
 ///
 /// A ratio is rendered as a division with a `NULLIF` on the denominator, rather than through the
@@ -294,7 +311,7 @@ pub(super) fn measure_expression(
             ref denominator,
             zero_denominator,
         } => {
-            let top = ratio_term_expression(numerator, guard, dialect, emitted).cast("DOUBLE");
+            let top = as_double(ratio_term_expression(numerator, guard, dialect, emitted), dialect);
             let bottom = ratio_term_expression(denominator, guard, dialect, emitted);
             let bottom = match zero_denominator {
                 ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),
