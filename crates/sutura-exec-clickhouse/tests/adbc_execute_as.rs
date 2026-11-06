@@ -239,12 +239,14 @@ mod adbc_execute_as {
         format!("{error:?}").starts_with("SettingRefused(")
     }
 
-    /// The settings the answer needs travel in the statement's own `SETTINGS` clause, after the
-    /// switched `SELECT`, so the server checks them against the switched user's profile.
+    /// The settings sutura pins travel in the statement's own `SETTINGS` clause, the one `SETTINGS`
+    /// in it, after the switched `SELECT`, so the server checks them against the switched user's
+    /// profile. A second one would be output-level, which `EXECUTE AS` lifts past the switch.
     #[test]
     fn a_switched_statement_carries_the_answer_settings_in_its_own_clause() {
         let switched = sent(&switched_to("sutura_switched"));
-        let Some((select, clause)) = switched.sql.rsplit_once(" SETTINGS ") else {
+        assert_eq!(switched.sql.matches(" SETTINGS ").count(), 1, "{}", switched.sql);
+        let Some((select, clause)) = switched.sql.split_once(" SETTINGS ") else {
             panic!("the statement has no SETTINGS clause: {}", switched.sql);
         };
         assert!(
@@ -271,7 +273,7 @@ mod adbc_execute_as {
     }
 
     /// The server's `READONLY` (164) and `SETTING_CONSTRAINT_VIOLATION` (452) read as a refused
-    /// setting, and as neither a refused identity nor a spent deadline.
+    /// setting, and as neither a refused identity nor a spent deadline; no other code does.
     #[test]
     fn a_readonly_or_constrained_setting_reads_as_a_refused_setting() {
         let switched = switched_to("sutura_switched");
@@ -286,6 +288,18 @@ mod adbc_execute_as {
             assert!(refused_a_setting(&refused), "{code}: {refused:?}");
             assert!(!warehouse.source_refused(&refused), "{code}: {refused}");
             assert!(!warehouse.deadline_exceeded(&refused), "{code}: {refused}");
+        }
+        for (code, text) in [
+            (
+                60,
+                "Unknown table expression identifier 'conformance_events'. (UNKNOWN_TABLE)",
+            ),
+            (159, "Timeout exceeded: elapsed 30.1 seconds, maximum: 30. (TIMEOUT_EXCEEDED)"),
+            (497, "sutura_service: Not enough privileges. (ACCESS_DENIED)"),
+            (516, "sutura_service: Authentication failed. (AUTHENTICATION_FAILED)"),
+        ] {
+            let (_, other, _) = exchange(&switched, server_error(code, text));
+            assert!(!refused_a_setting(&other), "{code}: {other:?}");
         }
     }
 

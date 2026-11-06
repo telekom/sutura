@@ -198,8 +198,9 @@ filter = "(binary_id(sutura-bounded-read) & test(/^walk::walk_entry_cap_tests::(
 test-group = "entry-cap"
 slow-timeout = { period = "60s", terminate-after = 10 }
 
-# The two ClickHouse tier `readonly` cells pass on an answer under sutura's settings OR on a
-# `READONLY` refusal; their `OBSERVED` line says which, so it is shown rather than captured.
+# The two ClickHouse tier `readonly` cells pass on an answer under sutura's settings OR on a refused
+# setting (`SettingRefused`: server code 164 `READONLY` or 452 `SETTING_CONSTRAINT_VIOLATION`); their
+# `OBSERVED` line says which, so it is shown rather than captured.
 [[profile.default.overrides]]
 filter = "binary_id(sutura-exec-clickhouse::adbc_execute_as) & test(/^adbc_execute_as::a_readonly_switched_/)"
 success-output = "immediate"

@@ -32,10 +32,11 @@
 //! was measured about that setting's semantics and its limit, mirroring
 //! `sutura_exec_postgres::deadline`'s own record for `SET LOCAL statement_timeout`.
 //!
-//! # Every connection and every statement pin the server settings that decide what the rows say
+//! # Every connection and every answering statement pin the server settings sutura needs
 //!
 //! Each is a driver option on the connection and a setting in the statement's own `SETTINGS`
-//! clause; under `EXECUTE AS` only the clause holds - see [`settings`].
+//! clause; under `EXECUTE AS` only the clause holds - see [`settings`], which also states what the
+//! pin does not cover: the fixture loader's statements, and every setting sutura does not pin.
 //!
 //! `join_use_nulls=1`: under `ClickHouse`'s default `0`, the unmatched side of an outer join
 //! answers the column type's default - `''` for a `String` - where the SQL standard answers `NULL`.

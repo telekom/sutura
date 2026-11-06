@@ -172,6 +172,10 @@ pub enum AdbcError {
     /// answered without the setting.
     #[error("ClickHouse refused a setting the answer needs: {0}")]
     SettingRefused(DriverMessage),
+    /// The rendered statement carries a top-level `keyword` after which its `SETTINGS` would be
+    /// output-level, so `EXECUTE AS` would lift it past the switch. Refused before it is sent.
+    #[error("the rendered statement carries a top-level {keyword}, so its settings would not be its own")]
+    SettingsNotOwn { keyword: &'static str },
     #[error("could not read a ClickHouse ADBC result batch: {0}")]
     Batch(#[source] ArrowError),
     #[error("the ClickHouse ADBC result stream was refused: {0}")]
@@ -434,7 +438,8 @@ impl AdbcClickHouseWarehouse {
                 seconds.to_string().into(),
             )
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds);
+        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
+            .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
             RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,

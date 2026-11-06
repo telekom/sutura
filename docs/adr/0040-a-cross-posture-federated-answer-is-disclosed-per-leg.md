@@ -166,25 +166,31 @@ become any user, declared or not. ClickHouse Cloud offers neither requirement.
 
 ## Second amendment, 2026-11-06: each switched statement carries its own settings
 
-The adapter sends the settings that decide what the rows say (`join_use_nulls = 1`,
-`max_execution_time`, `timeout_overflow_mode = 'throw'` and four `output_format_*` settings) as
-driver options on the connection. Under `EXECUTE AS`, the server switches to the named user's
-profile and clamps those settings to it. A `readonly = 1` profile drops them all without an error,
-so a left join answered an unmatched `String` key as `''` instead of `NULL`. A tier cell measured
-that on ClickHouse 26.9.15.5.
+The adapter sends the settings that sutura pins (`join_use_nulls = 1`, `max_execution_time`,
+`timeout_overflow_mode = 'throw'` and four `output_format_*` settings) as driver options on the
+connection. Under `EXECUTE AS`, the server switches to the named user's profile and clamps those
+settings to it. A `readonly = 1` profile drops them all without an error, so a left join answered an
+unmatched `String` key as `''` instead of `NULL`. A tier cell measured that on ClickHouse 26.9.15.5,
+at `github.com/telekom/sutura/actions/runs/42211816787`.
 
-**Decision.** Every statement the adapter runs also carries the same settings in its own `SETTINGS`
-clause, after the `SELECT` and before any `FORMAT`. The server checks a statement's own settings
-against the switched user's profile and refuses a forbidden one: `READONLY` (164), or
+**Decision.** Every statement the adapter runs for an answer also carries the same settings in its
+own `SETTINGS` clause. The fixture loader's statements do not. The server checks a statement's own
+settings against the switched user's profile and refuses a forbidden one: `READONLY` (164), or
 `SETTING_CONSTRAINT_VIOLATION` (452) for a constraint. The adapter reads both codes as
 `AdbcError::SettingRefused`. The caller is refused and never answered without the settings. The
-connection options stay.
+connection options stay. A profile that caps `max_execution_time` below the time a query has left
+is now refused with 452 on every request; before, the server held the query to the cap.
 
-**Why the clause stays on the switched statement.** `EXECUTE AS` lifts only an output-level
-`SETTINGS` (one after `FORMAT`) onto the outer statement. A `SETTINGS` that follows the `SELECT`
-belongs to the `SELECT`, and the switched statement applies it under the switched user's profile
-with the constraint check that throws. Read from the server's 26.9 source; the `readonly` tier cells
-in `crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it, in CI only.
+**Why the clause stays on the switched statement.** The clause is the statement's own only when it
+is the first `SETTINGS` after a bare `SELECT`. The server makes a `SETTINGS` output-level when it
+follows a `FORMAT`, a first `SETTINGS`, or a parenthesised last arm of a set operation, and
+`EXECUTE AS` lifts an output-level `SETTINGS` onto the outer statement, where the clamp drops it
+again. Every statement the adapter renders is a bare `SELECT`; a stacked plan is one `SELECT` over a
+`UNION ALL` subquery. The adapter refuses, as `AdbcError::SettingsNotOwn`, a statement whose top
+level carries `SETTINGS`, `FORMAT`, `UNION`, `INTERSECT` or `EXCEPT`, before it sends it. Read from
+the server's 26.9 source; the `readonly` tier cells in
+`crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it for a whole question, in CI
+only. No tier cell runs a switched stacked plan.
 
 **Limits.**
 
@@ -192,4 +198,9 @@ in `crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it, in CI on
   and it is harmless: the setting already has the value that sutura needs.
 - Whether the outer statement still enforces `max_execution_time` under the switch is not measured.
   The clause also sends the deadline to the switched statement.
-- The settings that the driver itself sends are not in the clause.
+- The caller's profile still decides every setting that sutura does not pin, for example `limit`,
+  `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone` and
+  `count_distinct_implementation`. Any of them can change the rows with no error. Not measured.
+- On the answering path the driver itself sends only output-level request parameters
+  (`output_format_arrow_compression_method`, `default_format`, the session and query ids). They
+  apply to the outer statement and are not in the clause.
