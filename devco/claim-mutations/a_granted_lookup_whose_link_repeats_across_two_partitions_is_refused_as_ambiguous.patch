@@ -1,15 +1,12 @@
-diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
---- a/crates/sutura-exec-datafusion/src/combine.rs
-+++ b/crates/sutura-exec-datafusion/src/combine.rs
-@@ -661,7 +661,10 @@ async fn arm_plan(
-     // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
-     // table over all its partitions, so a tuple repeated across two of them is refused too - a
-     // granted one counted on the nodes reading its source, each partition read again by the join.
--    for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
-+    for (position, &(_, table, read, _)) in lookups.iter().enumerate() {
-+        if matches!(read, sutura_domain::plan::LookupRead::Granted(_)) {
-+            continue;
-+        }
-         let own = plan.link_labels(position);
-         let on: Vec<&str> = own.iter().map(String::as_str).collect();
-         refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/once.rs b/crates/sutura-exec-datafusion/src/combine/across/once.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/once.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/once.rs
+@@ -75,7 +75,7 @@
+             .as_primitive_opt::<Int64Type>()
+             .ok_or_else(|| DataFusionError::Internal(format!("`{NAME}` reads a 64-bit row count")))?
+             .iter()
+-            .any(|rows| rows.is_some_and(|rows| rows > 1));
++            .any(|rows| rows.is_some_and(|rows| rows > 1) && false);
+         if repeated {
+             return Err(relay::ambiguous(DataFusionError::Execution(String::from(
+                 "a link value maps to more than one row of a granted leg",
