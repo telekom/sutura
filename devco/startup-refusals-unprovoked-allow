@@ -2,5 +2,6 @@
 # Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
 # Dates are shape-checked; stale and unknown entries fail.
 # Name coverage is not proof of provocation or execution in a venue.
+ReadingWorkerBigQueryOutsideAPool 2026-11-06 declared with the API it belongs to and raised by no load yet; the next change wires it into the reading-worker refusals with its cell, which ends this exception
 HashBucketsOnTheOnlySource 2026-11-06 nothing raises it yet; the boot refusal that does lands with the cells naming it (#828), which delete this line
 HashBucketsReadByNoNode 2026-11-06 nothing raises it yet; the boot refusal that does lands with the cells naming it (#828), which delete this line
