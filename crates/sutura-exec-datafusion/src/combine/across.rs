@@ -178,7 +178,7 @@ mod once;
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
-pub use partition::{Forwarded, PartitionReader, Unread, read_later};
+pub use partition::{Forwarded, PartitionReader, TokenUnread, Unread, read_later};
 pub use split::{SplitScan, StreamBound};
 
 /// A refusal another node raised in a stage, read back off the failure its link relays.

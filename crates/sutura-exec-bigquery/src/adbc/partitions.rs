@@ -26,7 +26,7 @@ use std::time::{Instant, SystemTime};
 use adbc_core::options::{OptionStatement, OptionValue};
 use adbc_core::{Connection, Statement};
 use arrow_schema::SchemaRef;
-use sutura_domain::identity::Delegated;
+use sutura_domain::identity::SourceToken;
 
 use super::{AdbcError, DriverMessage, MOST_RESULT_ROWS, accumulate_bounded, race_to_deadline};
 use crate::transport::JobDeadline;
@@ -96,19 +96,24 @@ pub(crate) struct Partitioned {
     pub(crate) rows: Option<u64>,
 }
 
+/// Each stream's descriptor of a [`SplitLeg`], in the driver's own encoding, and the forwarded token
+/// every one of them is read with.
+pub type Streams = (Vec<Vec<u8>>, SourceToken);
+
 /// A leg run once at its source as the asking subject, its result split into streams for the
 /// nodes that read them.
 ///
 /// **It holds the forwarded token**: a bearer token for the asking subject's pool principal,
-/// asked for `bigquery.readonly`. Its `Debug` prints neither the token nor a descriptor.
+/// asked for `bigquery.readonly`, with the fingerprint of the assertion it was exchanged from. Its
+/// `Debug` prints neither the token nor a descriptor.
 pub struct SplitLeg {
     partitioned: Partitioned,
-    forwarded: Delegated,
+    forwarded: SourceToken,
     until: SystemTime,
 }
 
 impl SplitLeg {
-    pub(super) const fn new(partitioned: Partitioned, forwarded: Delegated, until: SystemTime) -> Self {
+    pub(super) const fn new(partitioned: Partitioned, forwarded: SourceToken, until: SystemTime) -> Self {
         Self {
             partitioned,
             forwarded,
@@ -133,19 +138,25 @@ impl SplitLeg {
         self.partitioned.descriptors.iter().map(PartitionDescriptor::as_bytes)
     }
 
-    /// The question's end as it was handed in, or the forwarded token's expiry where that is
-    /// earlier. **Computed, not applied:** no grant reads it yet. A grant read with a forwarded
-    /// token ends no later than that token's expiry (`Grantee::grant`), and nothing hands a grant
-    /// this one before the reading worker's `BigQuery` arm.
+    /// The end handed in, or the forwarded token's expiry where that is earlier: when a read of one
+    /// of these streams with the token can still start. A grant read with the token is clamped to
+    /// its expiry on its own (`Grantee::grant`).
     #[must_use]
     pub const fn until(&self) -> SystemTime {
         self.until
     }
 
-    /// The forwarded token, moved out: the one value a reading node needs beside a descriptor.
+    /// Each stream's descriptor and the forwarded token, moved out: what a grant carries to the
+    /// nodes that read the streams.
     #[must_use]
-    pub fn into_forwarded(self) -> Delegated {
-        self.forwarded
+    pub fn into_parts(self) -> Streams {
+        let descriptors = self
+            .partitioned
+            .descriptors
+            .into_iter()
+            .map(|descriptor| descriptor.0)
+            .collect();
+        (descriptors, self.forwarded)
     }
 }
 

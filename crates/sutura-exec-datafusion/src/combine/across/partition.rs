@@ -91,21 +91,40 @@ pub trait PartitionReader: Send + Sync {
     }
 }
 
-/// The caller's own token a granted partition is read with, and a digest of the pool whose
-/// principal it is. Its `Debug` prints neither.
+/// The caller's own token a granted partition is read with, a digest of the pool whose principal
+/// it is, and when the grant a worker admitted it under ends. Its `Debug` prints none of them.
 pub struct Forwarded {
     token: Secret,
     pool: [u8; 32],
+    ends: SystemTime,
 }
 
 impl Forwarded {
-    /// `token`, a token of `pool`'s principal for the caller.
+    /// `token`, a token of `pool`'s principal for the caller, admitted under no grant yet.
     #[must_use]
     pub fn new(token: Secret, pool: &WorkloadPool) -> Self {
         Self {
             token,
             pool: pool_digest(pool),
+            ends: SystemTime::UNIX_EPOCH,
         }
+    }
+
+    /// When the grant this worker admitted the token under ends, on this worker's clock. The
+    /// epoch, already ended, for a token no admission named - every token, until admission records
+    /// its grant's end.
+    #[must_use]
+    pub const fn ends(&self) -> SystemTime {
+        self.ends
+    }
+
+    /// How long the token's grant lasts from now, on this worker's clock: `None` once it has ended.
+    #[must_use]
+    pub fn left(&self) -> Option<Duration> {
+        self.ends
+            .duration_since(SystemTime::now())
+            .ok()
+            .filter(|left| !left.is_zero())
     }
 
     /// Whether this token was forwarded for `pool`'s principal, the one a reader's own source
@@ -126,6 +145,7 @@ impl Forwarded {
         Self {
             token: self.token.clone(),
             pool: self.pool,
+            ends: self.ends,
         }
     }
 
@@ -165,6 +185,20 @@ where
     ) -> Result<SendableRecordBatchStream, Unread> {
         self(source, partition, schema).map_err(Unread::Failed)
     }
+}
+
+/// Why a reading worker read nothing with a caller's token.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenUnread {
+    /// The grant the token was admitted under has ended on this node's clock, so the token may have.
+    #[error("the grant a partition of `{at}` was admitted under has ended")]
+    Ended { at: SourceName },
+    /// A source of this kind reads no partition with a caller's token.
+    #[error("this reading worker reads no partition of `{at}` with a caller's token")]
+    NotReadWithAToken { at: SourceName },
+    /// A source of this kind reads a partition only with the caller's token, and none was granted.
+    #[error("a partition of `{at}` is read only with its caller's token, and its grant names none")]
+    NoToken { at: SourceName },
 }
 
 /// Why a [`PartitionReader`] read nothing.
@@ -481,6 +515,7 @@ fn decode_partition(buf: &[u8]) -> DecodedPartitionScan {
         (false, Ok(pool)) => Some(Forwarded {
             token: Secret::new(String::from_utf8(token).map_err(|_utf8| malformed())?),
             pool,
+            ends: SystemTime::UNIX_EPOCH,
         }),
         _ => return Err(malformed()),
     };

@@ -51,9 +51,9 @@ mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
 pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
-pub use partitions::SplitLeg;
 #[cfg(test)]
 pub(crate) use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
+pub use partitions::{SplitLeg, Streams};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -423,6 +423,15 @@ impl AdbcBigQuery {
     pub fn exchanging_through(mut self, exchange: Box<dyn PoolExchange>) -> Self {
         self.exchange = Some(exchange);
         self
+    }
+
+    /// The pool a [`Impersonation::ThroughPool`] source federates at, `None` for every other mode.
+    #[must_use]
+    pub const fn federates_at(&self) -> Option<&WorkloadPool> {
+        match self.impersonation {
+            Impersonation::ThroughPool(ref pool) => Some(pool),
+            Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => None,
+        }
     }
 
     /// Does this artefact's driver load and initialise at all?
