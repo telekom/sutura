@@ -293,6 +293,6 @@ pkgs.testers.runNixOSTest {
         assert status == "401", status
 
     with subtest("a worker call to a reader with a certificate another authority signed fails its handshake"):
-        query.fail(f"curl -sS -o /dev/null --http2 --cacert ${material}/ca.pem -X POST -H 'Content-Type: application/grpc' --cert ${material}/stranger.pem --key ${material}/stranger.key https://reader1:8443/worker.WorkerService/ExecuteTask")
+        query.fail("curl -sS -o /dev/null --http2 --cacert ${material}/ca.pem -X POST -H 'Content-Type: application/grpc' --cert ${material}/stranger.pem --key ${material}/stranger.key https://reader1:8443/worker.WorkerService/ExecuteTask")
   '';
 }
