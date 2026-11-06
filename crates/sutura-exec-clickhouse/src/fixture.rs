@@ -4,6 +4,13 @@
 //! reason: nothing here belongs in a composition root, and `--all-features` compiles, lints and
 //! tests it on every run.
 //!
+//! # The loader runs over the transport the adapter ships
+//!
+//! A table is created with a statement through the ADBC driver and its rows travel through the
+//! driver's bulk ingest as one Arrow batch, so a fixture is loaded by the same transport a served
+//! source reads it back with. The CSV is parsed here, under the types [`csv::infer`] classified,
+//! and the server converts the batch's Arrow types into the declared ones.
+//!
 //! # The credential is configured or refused by name
 //!
 //! `nix/clickhouse-tier.nix` generates a password per start and prints the two exports from
@@ -20,27 +27,33 @@
 //! inference), so a `Decimal` column here would answer the same question as text rather than as a
 //! real and differ from all three for a reason that is the importer's, not the server's.
 //!
-//! **No column is `Nullable`, and an empty cell is refused.** `transport`'s `JOIN_USE_NULLS` is
-//! measured to matter only over a non-`Nullable` schema, so a nullable importer would make the
-//! executed goldens blind to that setting. And a non-`Nullable` column reads an empty CSV cell as
+//! **No column is `Nullable`, and an empty cell is refused.** The `JOIN_USE_NULLS` setting in
+//! `adbc` is measured to matter only over a non-`Nullable` schema, so a nullable importer would make
+//! the executed goldens blind to that setting. And a non-`Nullable` column reads an empty cell as
 //! the type's default - `0`, `''` - where every other adapter reads `NULL`: a silently different
 //! fixture. No golden-matrix fixture has one; a future one is refused rather than rewritten.
 //!
-//! The federated corpus holds one absent key on purpose, so [`ClickHouseWarehouse::load_federated_csv`]
-//! declares `Nullable` exactly the columns holding an empty cell, at the matrix's type, and every
-//! other column as the matrix does.
+//! The federated corpus holds one absent key on purpose, so
+//! [`AdbcClickHouseWarehouse::load_federated_csv`] declares `Nullable` exactly the columns holding
+//! an empty cell, at the matrix's type, and every other column as the matrix does.
+//!
+//! **A blank line is refused, whichever load reads it.** [`csv::infer`] skips one, and a server
+//! reading the file as text refused it; the batch is built here, so the refusal is too.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use arrow_schema::ArrowError;
 use sutura_domain::identity::Secret;
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::source::SourcePosture;
+use sutura_domain::warehouse::ResultBudget;
 use sutura_domain::warehouse::csv::{self, FixtureType, InferenceError};
 
-use crate::ClickHouseWarehouse;
-use crate::transport::{BasicAuth, Endpoint, Http, HttpError};
+use crate::adbc::{AdbcClickHouseWarehouse, AdbcError, DriverLocationError, driver_location};
+
+mod batch;
 
 /// One of the two values the `ClickHouse` fixture tier publishes into the environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -87,14 +100,35 @@ pub enum UnconfiguredFixture {
     Blank(FixtureVariable),
 }
 
+/// The tier's one declared user, as it published them.
+#[derive(Debug, Clone)]
+pub struct FixtureCredential {
+    user: String,
+    password: Secret,
+}
+
+impl FixtureCredential {
+    /// The user the tier's `users.xml` declares.
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    /// That user's password.
+    #[must_use]
+    pub const fn password(&self) -> &Secret {
+        &self.password
+    }
+}
+
 /// This process's fixture credential, as the tier exported it.
-pub fn credential_from_env() -> Result<BasicAuth, UnconfiguredFixture> {
+pub fn credential_from_env() -> Result<FixtureCredential, UnconfiguredFixture> {
     parse(|variable| std::env::var(variable.name()).ok())
 }
 
 /// The parse over a lookup rather than the process environment, because `std::env::set_var` is
 /// `unsafe` in Rust 2024 and this workspace forbids `unsafe` - so the refusals stay provokable.
-fn parse(lookup: impl Fn(FixtureVariable) -> Option<String>) -> Result<BasicAuth, UnconfiguredFixture> {
+fn parse(lookup: impl Fn(FixtureVariable) -> Option<String>) -> Result<FixtureCredential, UnconfiguredFixture> {
     let present = |variable: FixtureVariable| match lookup(variable) {
         None => Err(UnconfiguredFixture::Unset(variable)),
         Some(value) if value.trim().is_empty() => Err(UnconfiguredFixture::Blank(variable)),
@@ -102,7 +136,7 @@ fn parse(lookup: impl Fn(FixtureVariable) -> Option<String>) -> Result<BasicAuth
     };
     let user = present(FixtureVariable::User)?;
     let password = Secret::new(present(FixtureVariable::Password)?);
-    Ok(BasicAuth::new(user, password))
+    Ok(FixtureCredential { user, password })
 }
 
 /// Why the fixture tier could not be given a table.
@@ -111,6 +145,12 @@ pub enum FixtureError {
     /// A database name reaches `CREATE DATABASE` as an identifier, so it has to be a word.
     #[error("{database:?} is not a word, so it cannot name a fixture database")]
     InvalidDatabaseName { database: String },
+    /// The tier is up and no ADBC driver is named to reach it.
+    #[error("no ADBC driver is named to reach the fixture tier")]
+    Driver {
+        #[source]
+        cause: DriverLocationError,
+    },
     #[error("could not read the fixture {path}")]
     Read {
         path: String,
@@ -126,112 +166,140 @@ pub enum FixtureError {
     /// See the module header: a non-`Nullable` column would read this cell as a type default.
     #[error("the fixture {path} has an empty cell on line {line}, which a non-Nullable column would read as its type's default")]
     EmptyCell { path: String, line: usize },
+    #[error("the fixture {path} has rows this importer cannot send")]
+    Rows {
+        path: String,
+        #[source]
+        cause: BatchError,
+    },
     #[error("the server refused the fixture statement for {subject}")]
     Server {
         subject: String,
         #[source]
-        cause: HttpError,
+        cause: AdbcError,
     },
 }
 
-impl ClickHouseWarehouse<Http> {
-    /// Opens the adapter over `endpoint`, resolving every unqualified table name in `database`.
-    ///
-    /// The database is created here if absent, so several opens can share one server without
-    /// clobbering each other's tables. `sutura_exec_postgres::fixture::FixtureCredential::conninfo_in`'s
-    /// shape, over a database because that is `ClickHouse`'s namespace for a table.
-    pub fn connect_in_database(
-        source: SourceName,
-        posture: SourcePosture,
-        endpoint: Endpoint,
-        auth: BasicAuth,
-        database: &str,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Result<Self, FixtureError> {
-        if database.is_empty() || !database.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err(FixtureError::InvalidDatabaseName {
-                database: String::from(database),
-            });
-        }
-        let transport = Http::connect(endpoint, Some(auth), result_budget.bytes() as u64);
-        transport
-            .command(&format!("CREATE DATABASE IF NOT EXISTS \"{database}\""), &[])
-            .map_err(|cause| FixtureError::Server {
-                subject: format!("database {database}"),
-                cause,
-            })?;
-        Ok(Self::of(
-            source,
-            posture,
-            transport.in_database(String::from(database)),
-            result_budget,
-        ))
-    }
+/// Why a fixture's rows could not become one Arrow batch.
+#[derive(Debug, thiserror::Error)]
+pub enum BatchError {
+    /// See the module header: a server reading the file as text refused it, so this does too.
+    #[error("line {line} is blank")]
+    BlankRow { line: usize },
+    /// A cell that [`csv::infer`] classified its column by and that the column's type cannot hold.
+    #[error("the {column} cell on line {line} is not a value of the column's type")]
+    Cell { line: usize, column: String },
+    /// [`csv::infer`] refused the text, which [`FixtureError::Schema`] has already seen it accept.
+    #[error("the fixture's columns could not be classified")]
+    Schema(#[source] InferenceError),
+    #[error("the rows could not be assembled into a batch")]
+    Assembly(#[source] ArrowError),
+}
 
-    /// Exposes a fixture CSV as a table.
-    ///
-    /// Columns are typed by [`csv::infer`] (see the module header for the one deliberate
-    /// departure), and the file is sent as the body of an `INSERT ... FORMAT CSVWithNames` the
-    /// SERVER parses against those types.
-    ///
-    /// The rows go into a staging table of this load's own, which then replaces `table` in one
-    /// `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
-    /// ones, never an empty table, and a load refused before the swap leaves `table` as it was.
-    pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
-        self.load_csv_with_types(table, path, Columns::Matrix)
+/// [`AdbcClickHouseWarehouse::connect_in_database`]'s body.
+pub(crate) fn connect_in_database(
+    source: SourceName,
+    posture: SourcePosture,
+    host: &str,
+    port: u16,
+    credential: &FixtureCredential,
+    database: &str,
+    result_budget: ResultBudget,
+) -> Result<AdbcClickHouseWarehouse, FixtureError> {
+    if database.is_empty() || !database.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(FixtureError::InvalidDatabaseName {
+            database: String::from(database),
+        });
     }
-
-    /// [`Self::load_csv`], except a column holding an empty cell is `Nullable`, so the cell is NULL.
-    pub fn load_federated_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
-        self.load_csv_with_types(table, path, Columns::Federated)
-    }
-
-    /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
-    pub fn load_conformance_csv(&self, table: &TableName, path: &Path) -> Result<(), FixtureError> {
-        self.load_csv_with_types(table, path, Columns::Conformance)
-    }
-
-    fn load_csv_with_types(&self, table: &TableName, path: &Path, load: Columns) -> Result<(), FixtureError> {
-        let shown = || path.display().to_string();
-        let text = std::fs::read_to_string(path).map_err(|cause| FixtureError::Read { path: shown(), cause })?;
-        if load == Columns::Matrix
-            && let Some(line) = first_empty_cell(&text)
-        {
-            return Err(FixtureError::EmptyCell { path: shown(), line });
-        }
-        let declared = declared_columns(&text, load).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
-        let server = |cause| FixtureError::Server {
-            subject: format!("table {table}"),
+    let driver = driver_location().map_err(|cause| FixtureError::Driver { cause })?;
+    let warehouse = AdbcClickHouseWarehouse::new(
+        source,
+        posture,
+        driver,
+        format!("http://{host}:{port}/?database={database}"),
+        String::from(credential.user()),
+        credential.password().clone(),
+        None,
+        result_budget,
+    );
+    // The statement that creates the database cannot be sent to it.
+    warehouse
+        .command_at(
+            &format!("http://{host}:{port}/"),
+            &format!("CREATE DATABASE IF NOT EXISTS \"{database}\""),
+        )
+        .map_err(|cause| FixtureError::Server {
+            subject: format!("database {database}"),
             cause,
-        };
-        let staging = format!(
-            "{}_loading_{}_{}",
-            table.as_str(),
-            std::process::id(),
-            LOADS.fetch_add(1, Ordering::Relaxed)
-        );
-        let create = format!(
-            "CREATE OR REPLACE TABLE \"{staging}\" ({}) ENGINE = MergeTree ORDER BY tuple()",
-            declared.join(", ")
-        );
-        self.transport.command(&create, &[]).map_err(server)?;
-        let insert = format!("INSERT INTO \"{staging}\" FORMAT CSVWithNames");
-        // Several cells load one table into the tier's shared `default` database at once (#1499).
-        // One statement, so a reader never sees it half done: the server runs it atomically on an
-        // `Atomic` database and refuses it on any other, so a load there fails rather than runs
-        // non-atomically. Nothing but review holds that this stays ONE statement: a CREATE followed
-        // by an `INSERT ... SELECT` keeps `reload.rs` green and brings the empty window back.
-        let replace = format!(
-            "CREATE OR REPLACE TABLE \"{}\" ENGINE = MergeTree ORDER BY tuple() AS SELECT * FROM \"{staging}\"",
-            table.as_str()
-        );
-        let loaded = self
-            .transport
-            .command(&insert, text.as_bytes())
-            .and_then(|()| self.transport.command(&replace, &[]));
-        let dropped = self.transport.command(&format!("DROP TABLE IF EXISTS \"{staging}\""), &[]);
-        loaded.and(dropped).map_err(server)
+        })?;
+    Ok(warehouse)
+}
+
+/// [`AdbcClickHouseWarehouse::load_csv`]'s body.
+pub(crate) fn load_csv(warehouse: &AdbcClickHouseWarehouse, table: &TableName, path: &Path) -> Result<(), FixtureError> {
+    load_csv_with_types(warehouse, table, path, Columns::Matrix)
+}
+
+/// [`AdbcClickHouseWarehouse::load_federated_csv`]'s body.
+pub(crate) fn load_federated_csv(
+    warehouse: &AdbcClickHouseWarehouse,
+    table: &TableName,
+    path: &Path,
+) -> Result<(), FixtureError> {
+    load_csv_with_types(warehouse, table, path, Columns::Federated)
+}
+
+/// [`AdbcClickHouseWarehouse::load_conformance_csv`]'s body.
+pub(crate) fn load_conformance_csv(
+    warehouse: &AdbcClickHouseWarehouse,
+    table: &TableName,
+    path: &Path,
+) -> Result<(), FixtureError> {
+    load_csv_with_types(warehouse, table, path, Columns::Conformance)
+}
+
+fn load_csv_with_types(
+    warehouse: &AdbcClickHouseWarehouse,
+    table: &TableName,
+    path: &Path,
+    load: Columns,
+) -> Result<(), FixtureError> {
+    let shown = || path.display().to_string();
+    let text = std::fs::read_to_string(path).map_err(|cause| FixtureError::Read { path: shown(), cause })?;
+    if load == Columns::Matrix
+        && let Some(line) = first_empty_cell(&text)
+    {
+        return Err(FixtureError::EmptyCell { path: shown(), line });
     }
+    let declared = declared_columns(&text, load).map_err(|cause| FixtureError::Schema { path: shown(), cause })?;
+    let batch = batch::of(&text, load).map_err(|cause| FixtureError::Rows { path: shown(), cause })?;
+    let server = |cause| FixtureError::Server {
+        subject: format!("table {table}"),
+        cause,
+    };
+    let staging = format!(
+        "{}_loading_{}_{}",
+        table.as_str(),
+        std::process::id(),
+        LOADS.fetch_add(1, Ordering::Relaxed)
+    );
+    let create = format!(
+        "CREATE OR REPLACE TABLE \"{staging}\" ({}) ENGINE = MergeTree ORDER BY tuple()",
+        declared.join(", ")
+    );
+    warehouse.command(&create).map_err(server)?;
+    // Several cells load one table into the tier's shared `default` database at once (#1499).
+    // One statement, so a reader never sees it half done: the server runs it atomically on an
+    // `Atomic` database and refuses it on any other, so a load there fails rather than runs
+    // non-atomically. Nothing but review holds that this stays ONE statement: a CREATE followed
+    // by an `INSERT ... SELECT` keeps `reload.rs` green and brings the empty window back.
+    let replace = format!(
+        "CREATE OR REPLACE TABLE \"{}\" ENGINE = MergeTree ORDER BY tuple() AS SELECT * FROM \"{staging}\"",
+        table.as_str()
+    );
+    let loaded = warehouse.ingest(&staging, batch).and_then(|()| warehouse.command(&replace));
+    let dropped = warehouse.command(&format!("DROP TABLE IF EXISTS \"{staging}\""));
+    loaded.and(dropped).map_err(server)
 }
 
 /// Loads this process has started, so two concurrent loads of one table stage under two names.
@@ -248,20 +316,25 @@ enum Columns {
     Conformance,
 }
 
+/// The index of each column `load` declares `Nullable`.
+fn nullable_columns(text: &str, width: usize, load: Columns) -> BTreeSet<usize> {
+    match load {
+        Columns::Matrix => BTreeSet::new(),
+        Columns::Federated => columns_with_an_empty_cell(text),
+        Columns::Conformance => (0..width).collect(),
+    }
+}
+
 /// Each column of a fixture CSV as `CREATE TABLE` declares it under `load`.
 fn declared_columns(text: &str, load: Columns) -> Result<Vec<String>, InferenceError> {
-    let nullable = if load == Columns::Federated {
-        columns_with_an_empty_cell(text)
-    } else {
-        BTreeSet::new()
-    };
-    Ok(csv::infer(text)?
+    let columns = csv::infer(text)?;
+    let nullable = nullable_columns(text, columns.len(), load);
+    Ok(columns
         .iter()
         .enumerate()
         .map(|(index, column)| {
             let kind = match (load, column.kind()) {
                 (Columns::Conformance, FixtureType::Decimal { scale }) => format!("Nullable(Decimal(38,{scale}))"),
-                (Columns::Conformance, other) => format!("Nullable({})", clickhouse_type(other)),
                 (_, other) if nullable.contains(&index) => format!("Nullable({})", clickhouse_type(other)),
                 (_, other) => String::from(clickhouse_type(other)),
             };

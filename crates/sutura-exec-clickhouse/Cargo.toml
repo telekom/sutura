@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 # Not published to a registry: sutura ships as an OCI image, not as crates.
 publish = false
-description = "A Warehouse adapter over ClickHouse, rendered through the compiled ClickHouse dialect."
+description = "A Warehouse adapter over ClickHouse, through its ADBC driver and the compiled ClickHouse dialect."
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -16,53 +16,29 @@ sutura-domain = { workspace = true }
 # NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter
 # never compiles anything.
 sutura-sql = { workspace = true }
-# The one round trip the port's `execute`/`verify_anchor`/`declared_key` make is synchronous
-# (`Warehouse` carries no `async fn`), and `ureq` is natively blocking - no runtime, no `block_on`,
-# for the reason `sutura-exec-bigquery`'s own `wire` entry states at length: a driver that already
-# blocks needs neither, and starting one anyway is what `reqwest::blocking` would do wrapped in a
-# call already on `sutura_runtime::spawn_carrying_span`'s pool thread.
-ureq = { workspace = true }
-# The one constructor of a `ureq::Agent` (`clippy.toml` bans the others): it keeps a plaintext or
-# loopback request off any proxy. Already linked by every other `ureq` user in the workspace.
-sutura-http-client = { workspace = true }
 # The bundle-or-system-store read and the client-identity read, shared with the Postgres source
 # channel and the BigQuery wire so the refusals for an unreadable, empty or malformed
-# bundle/identity are not re-derived a third time. This crate's own `tls` module folds the result
-# into the `ureq::tls::TlsConfig` [`transport::Http::connect_secured`] connects with; `sutura-tls` builds neither.
+# bundle/identity are not re-derived a third time. This crate's own `tls` module hands the result
+# to the driver as PEM text; `sutura-tls` builds no connection.
 sutura-tls = { workspace = true }
 # `sutura-cli` is the one composition root that links this crate, behind its default-off
-# `clickhouse` feature (see the crate's own `src/lib.rs` module header). `ureq`/`sutura-tls` are
-# therefore plain dependencies here rather than feature-gated ones - the gating `crate-map` asks
-# for lives on the composition root's feature edge, which keeps the adapter and its outbound TLS
-# stack out of a source build that did not ask for it.
+# `clickhouse` feature (see the crate's own `src/lib.rs` module header), which keeps the adapter and
+# its driver out of a source build that did not ask for it.
 #
-# Both already resolved at these versions: `rustls-pki-types` via `sutura-tls`/`rustls-native-
-# certs`, `rustls-native-certs` via `sutura-exec-postgres`. Named directly because `tls.rs` reads
-# both types by name (a declared client key's `PrivateKeyDer` shape, and the host-store read's own
-# error), not because either adds a new package to `Cargo.lock`.
-rustls-pki-types = { workspace = true }
+# Named directly because `tls.rs` reads the host-store error by name, not because it adds a new
+# package to `Cargo.lock`.
 rustls-native-certs = { workspace = true }
-# HTTP Basic authentication's one call site - already resolved via `jsonwebtoken`/`sutura-http`.
-base64 = { workspace = true }
-url = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
-adbc_core = { version = "0.24", optional = true }
-adbc_driver_manager = { version = "0.24", optional = true }
-arrow-array = { version = "59", optional = true }
-arrow-schema = { version = "59", optional = true }
-sutura-adbc = { workspace = true, optional = true }
+# The driver manager, its trait surface and Arrow: the vendored ClickHouse driver's one interface.
+adbc_core = "0.24"
+adbc_driver_manager = "0.24"
+arrow-array = "59"
+# `i256`, the native of the `Decimal256` slot a decimal sum arrives in, to put its scale back.
+arrow-buffer = { workspace = true }
+arrow-schema = "59"
+sutura-adbc = { workspace = true }
 
 [features]
-# The ADBC transport (`src/adbc.rs`): the vendored ClickHouse driver and its Arrow stream.
-# Default-off at this crate boundary; the CLI's `clickhouse` feature opts in for a served source.
-adbc = [
-  "dep:adbc_core",
-  "dep:adbc_driver_manager",
-  "dep:arrow-array",
-  "dep:arrow-schema",
-  "dep:sutura-adbc",
-]
 # The fixture tier - its credential, a private database per open and a CSV importer - for the golden
 # matrix in `sutura-app`'s tests. `sutura-domain/fixtures` is the shared CSV classification it types
 # columns with. Default-off, like `sutura-exec-postgres`'s feature of the same name.
@@ -78,7 +54,7 @@ required-features = ["fixtures"]
 
 [[test]]
 name = "adbc_execute_as"
-required-features = ["adbc", "fixtures"]
+required-features = ["fixtures"]
 
 [[test]]
 name = "reload"
@@ -86,20 +62,14 @@ required-features = ["fixtures"]
 
 [dev-dependencies]
 sutura-dev = { workspace = true }
-# `sutura_conformance::corpus` supplies this crate's own unit tests a real plan, posture and
-# credential fixture, so `src/tests.rs` drives the port against a real corpus question rather than
-# a hand-built plan nobody reviewed.
+# `sutura_conformance::corpus` supplies this crate's own tests a real plan, posture and credential
+# fixture, so they drive the port against a real corpus question rather than a hand-built plan
+# nobody reviewed.
 sutura-conformance = { workspace = true }
 # A generated self-signed pair, for the in-crate tests that exercise the TLS construction refusals
 # against real anchor/identity material - the same crate `sutura-exec-postgres` and `sutura-http`
 # rest their own TLS tests on, so no new crate enters the dev graph.
 rcgen = { workspace = true }
-# `clippy.toml` bans `std::sync::Mutex` workspace-wide, including in test code; already resolved
-# via `sutura-exec-bigquery`'s exchanged-credential cache, so this adds no new package.
-parking_lot = { workspace = true }
-# The loopback fake the proxy cell in `src/transport.rs` dials, the one the catalog readers' own
-# proxy cells use.
-sutura-http-client = { workspace = true, features = ["test"] }
 
 [lints]
 workspace = true

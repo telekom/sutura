@@ -393,8 +393,7 @@ fn an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary
 #[cfg(feature = "clickhouse")]
 #[test]
 fn a_clickhouse_source_password_reaches_no_reply_and_no_log_line() {
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
-    use sutura_exec_clickhouse::transport::Endpoint;
+    use sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
 
     let provisioned = sutura_dev::provisioned::here(std::path::Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse");
     let Some(endpoint) = provisioned.endpoint() else {
@@ -407,7 +406,7 @@ fn a_clickhouse_source_password_reaches_no_reply_and_no_log_line() {
         required("SUTURA_CLICKHOUSE_TIER_PASSWORD"),
     );
     // The served source names no database, so the example goes where it reads: `default`.
-    let loader = ClickHouseWarehouse::connect_in_database(
+    let loader = AdbcClickHouseWarehouse::connect_in_database(
         sutura_domain::model::SourceName::parse("fixture").expect("a fixture source is a source"),
         sutura_domain::source::SourcePosture::SharedServiceUser {
             declared: sutura_domain::source::SharedIdentityDeclared::of(
@@ -415,8 +414,9 @@ fn a_clickhouse_source_password_reaches_no_reply_and_no_log_line() {
                     .expect("the fixture reason is an acknowledgement"),
             ),
         },
-        Endpoint::plaintext(endpoint.host(), endpoint.port()),
-        sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
+        endpoint.host(),
+        endpoint.port(),
+        &sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
         "default",
         sutura_domain::warehouse::ResultBudget::of_bytes(core::num::NonZeroUsize::new(1 << 30).expect("a gibibyte is positive")),
     )

@@ -190,6 +190,9 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
                 .acknowledge_hash_buckets(written, value)
                 .map_err(|cause| SettingsError::Sources { cause })?;
         }
+        if let Some(value) = source.split.as_deref() {
+            crate::sources::split::declare(&mut registry, written, value).map_err(|cause| SettingsError::Sources { cause })?;
+        }
     }
     Ok(registry)
 }

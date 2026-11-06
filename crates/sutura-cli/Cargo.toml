@@ -56,13 +56,13 @@ postgres = ["dep:sutura-exec-postgres"]
 
 # The ClickHouse adapter, over its ADBC driver.
 # Default-off for a SOURCE build, and in `nix/shipped.nix`'s `features` like the other shipped adapters.
-# `sutura-exec-clickhouse` depends on `ureq`/`sutura-tls` non-optionally, so this optional edge
+# `sutura-exec-clickhouse` depends on its driver crates non-optionally, so this optional edge
 # keeps the adapter and its transport out of a build that did not ask for it. It was held out of
 # the release until `github.com/telekom/sutura#955`: under ClickHouse's default
 # `join_use_nulls = 0` an outer join's unmatched side answered `''` where the engine says `NULL`.
-# `JOIN_USE_NULLS` in `request_settings` now asks for `1` on every request, held by
-# `every_request_asks_the_server_for_standard_outer_join_nulls`.
-clickhouse = ["dep:sutura-exec-clickhouse", "sutura-exec-clickhouse/adbc", "dep:sutura-http-client"]
+# `JOIN_USE_NULLS` in `sutura_exec_clickhouse::adbc` now asks for `1` on every connection; the
+# executed cells in the golden matrix hold what that makes the server answer.
+clickhouse = ["dep:sutura-exec-clickhouse", "dep:sutura-http-client"]
 
 # The Oracle adapter, over Oracle's own pure-Rust driver, and with `rdbms` the Oracle dictionary
 # reader (`sutura-catalog-rdbms/live-oracle`): a build without this feature refuses an Oracle

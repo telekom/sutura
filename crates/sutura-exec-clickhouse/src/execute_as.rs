@@ -3,9 +3,9 @@
 //! **The per-statement form only.** `ClickHouse` also has `EXECUTE AS <user>` with no statement,
 //! which switches the user for the rest of a session. This adapter never renders it:
 //! [`ClickHouseUser::execute_as`] is the one place the keyword is written, and it always carries the
-//! statement. Each request is also stateless - `transport::Http` sends no `session_id`, and the
-//! ADBC path opens a connection per statement, under a session id the driver draws for it - so no
-//! switch can outlive the request that asked for it, and two callers cannot inherit each other's user.
+//! statement. Each request is also stateless - the ADBC path opens a connection per statement, under a
+//! session id the driver draws for it - so no switch can outlive the request that asked for it, and
+//! two callers cannot inherit each other's user.
 //!
 //! **The user is the caller's verified subject, never caller text.** Leg 1 verified the token that
 //! carries it, the broker presents it, and it is parsed here to a closed character set and quoted

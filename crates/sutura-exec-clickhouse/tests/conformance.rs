@@ -7,24 +7,24 @@ mod conformance {
 
     use sutura_conformance::{Fixture, Missing, corpus};
     use sutura_dev::provisioned::{self, Provisioned};
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
+    use sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
     use sutura_exec_clickhouse::fixture::credential_from_env;
-    use sutura_exec_clickhouse::transport::{Endpoint, Http};
 
     const SERVICE: &str = "clickhouse";
 
-    fn open() -> Fixture<ClickHouseWarehouse<Http>> {
+    fn open() -> Fixture<AdbcClickHouseWarehouse> {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), SERVICE) {
             Provisioned::At(endpoint) => endpoint,
             Provisioned::Skipped(absent) => return Fixture::Absent(Missing::tier(SERVICE, &absent)),
         };
-        let auth = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        let credential = credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
         let database = format!("conformance_{}_{}", std::process::id(), schema_counter());
-        let warehouse = ClickHouseWarehouse::connect_in_database(
+        let warehouse = AdbcClickHouseWarehouse::connect_in_database(
             corpus::source(),
             corpus::posture(),
-            Endpoint::plaintext(endpoint.host(), endpoint.port()),
-            auth,
+            endpoint.host(),
+            endpoint.port(),
+            &credential,
             &database,
             sutura_domain::warehouse::ResultBudget::of_bytes(
                 core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive"),
@@ -44,7 +44,7 @@ mod conformance {
 
     sutura_conformance::execute_packs! {
         adapter: clickhouse,
-        warehouse: sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>,
+        warehouse: sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse,
         open: crate::conformance::open,
         executes_legs,
     }
