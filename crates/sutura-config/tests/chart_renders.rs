@@ -348,7 +348,12 @@ mod tests {
 
     /// The settings the worker pool render's Deployment `deployment` loads.
     fn pool_settings(deployment: &str) -> Settings {
-        let golden = testdata().join("golden/pool/worker-pool.yaml");
+        settings_of("worker-pool", deployment)
+    }
+
+    /// The settings the Deployment `deployment` of the pool golden `render` loads.
+    fn settings_of(render: &str, deployment: &str) -> Settings {
+        let golden = testdata().join(format!("golden/pool/{render}.yaml"));
         let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
         let Inputs {
             environment,
@@ -378,6 +383,21 @@ mod tests {
             .expect("the serving pod declares nodes");
         let peer_urls: Vec<&str> = nodes.others().iter().map(|node| node.url().as_str()).collect();
         assert_eq!(peer_urls, ["https://test-release-workers.default.svc:8080/"]);
+    }
+
+    #[test]
+    fn the_worker_pools_address_family_reaches_the_serving_pods_nodes() {
+        let family = |render| {
+            let settings = settings_of(render, "test-release");
+            let nodes = settings
+                .server()
+                .tls()
+                .and_then(TlsMaterial::nodes)
+                .expect("the serving pod declares nodes");
+            nodes.address_family().to_string()
+        };
+        assert_eq!(family("worker-pool"), "auto", "an unset value leaves the binary's default");
+        assert_eq!(family("worker-pool-ipv6"), "ipv6");
     }
 
     #[test]
@@ -495,7 +515,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 46] = [
+    const REFUSALS: [(&str, Binary); 47] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -678,6 +698,7 @@ mod tests {
             "reading-workers-without-worker-pool",
             Binary::NeverReads("the worker pool's issuer, which every reading worker's certificate comes from"),
         ),
+        ("worker-pool-address-family-unknown", Binary::Derivation),
         (
             "worker-pool-issuer-missing",
             Binary::NeverReads("the cert-manager issuer every node's certificate comes from"),
