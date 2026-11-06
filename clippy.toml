@@ -77,10 +77,13 @@ disallowed-methods = [
   # Not a port method, the same hazard: `read_partition` takes no presented identity - who may ask is
   # the task grant's to decide before the call, `github.com/telekom/sutura#828` - so each call reads
   # as the declared service user for whoever holds the descriptor's bytes. The one production caller,
-  # a reading worker's partition reader in `crates/sutura-cli/src/serve/worker/partition.rs`, holds an
-  # `#[expect]` beside the one in `tests/partition_read.rs`, and a resolved path is what lets each be
-  # fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
+  # a reading worker's read through `SplitKind::read_granted` in `crates/sutura-cli/src/serve/kind/split.rs`,
+  # holds an `#[expect]` beside the one in `tests/partition_read.rs`, and a resolved path is what lets
+  # each be fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
   { path = "sutura_exec_postgres::adbc::AdbcPostgres::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, and holds an #[expect] naming it" },
+  # The seam over that call, so a call from anywhere else in `sutura-cli` is also a visible diff: the
+  # trait is private to `serve::kind`, and the one call site holds an `#[expect]`.
+  { path = "sutura::serve::kind::split::SplitKind::read_granted", reason = "a partition read that takes no presented identity; only the reading worker's read, after re-certifying the leg, may call it, and that one call site holds an #[expect]" },
   # The `BigQuery` partition read, for the same reason: it takes no presented identity, any token and
   # any descriptor bytes, and its caller decides that the token is the one forwarded for that
   # descriptor's task. It has no caller yet; the reading worker's `BigQuery` arm will hold the

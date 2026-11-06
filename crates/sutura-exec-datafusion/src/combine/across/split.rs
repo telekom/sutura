@@ -5,8 +5,9 @@
 //! [`Nodes::reading`](crate::Nodes::reading) names for the leg's source. The planning node reads none
 //! of it.
 //!
-//! A partition's key and grant ride in its task's own plan variant, which the engine encodes for,
-//! and sends to, the one node that task is routed to: no other stage node is sent them.
+//! A partition's key and grant, and the caller's token where the leg is read with one, ride in its
+//! task's own plan variant, which the engine encodes for, and sends to, the one node that task is
+//! routed to: no other stage node is sent them, and no header carries the token.
 //!
 //! # Limits
 //!
@@ -33,7 +34,9 @@
 //!   `SourceUnavailable` naming it. Sources that each have a reader but none in
 //!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
-//! - A `BigQuery` leg is not read on a worker: its token handoff is not built.
+//! - No source grants a `BigQuery` leg yet, so no served question forwards a token. The planning
+//!   node keeps its copy of the token as long as the leg's table is registered, and does not wipe
+//!   the plan bytes it encodes the token into for each task.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
 //! - A worker admits a partition's first key: the same leg's same partition asked of it again within
 //!   that key's idle window, under a fresh key, is refused.
@@ -85,6 +88,7 @@ impl fmt::Debug for Leg {
         f.debug_struct("Leg")
             .field("source", &self.source)
             .field("partitions", &self.partitions.len())
+            .field("forwarded", &self.forwarded.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -136,7 +140,7 @@ impl SplitScan {
     /// # Errors
     ///
     /// As [`Self::granted`].
-    pub fn granted_forwarding(
+    pub(crate) fn granted_forwarding(
         wire: Vec<u8>,
         source: SourceName,
         schema: SchemaRef,

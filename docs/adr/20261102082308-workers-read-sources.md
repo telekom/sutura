@@ -46,13 +46,14 @@ answers as the design that follows from them, not asked as its own question.
 
 ## Decision
 
-1. **A leg on PostgreSQL or BigQuery may be read in partitions, on workers.** The coordinating node
-   plans the leg as partitions, and each partition is one task of a source-reading stage. A worker
-   reads its partition and feeds the rows to the combine's next stage on that node, so no node
-   holds the whole leg. A leg on any other data system, and a remote leg, is still read whole where
-   shuffle Decision 3 reads it. A stage that reads no source still holds no credential, and its
-   worker still refuses a stage whose leaf reads a source. Which legs are split, and when, is
-   decided below.
+1. **A leg on PostgreSQL or BigQuery may be read in partitions, on workers** - and a lookup leg on
+   Oracle, since the fourth amendment below. The coordinating node plans the leg as partitions, and
+   each partition is one task of a source-reading stage. A worker reads its partition and feeds the
+   rows to the combine's next stage on that node, so no node holds the whole leg. A leg on any
+   other data system (for Oracle, any leg the fourth amendment does not split), and a remote leg, is
+   still read whole where shuffle Decision 3 reads it. A stage that reads no source still holds no
+   credential, and its worker still refuses a stage whose leaf reads a source. Which legs are split,
+   and when, is decided below.
 2. **The result-stream bound is per stream.** Each partition's stream is bounded at 1,000,000 rows
    and 256 MiB while it is read, as a leg's stream is today. A leg of N partitions can carry N times
    that. No constant is raised, and none becomes a setting. SF10's `customer` and `part` lookup
@@ -97,7 +98,7 @@ answers as the design that follows from them, not asked as its own question.
    | ------------ | --------------------------------------------------------------------------------------------- |
    | Leg digest   | The worker reads only the leg the grant was issued for                                        |
    | Source       | The worker refuses a partition of a source the grant does not name                            |
-   | Partition    | The `ctid` range (W1) or the stream (W2), so a grant reads one partition                      |
+   | Partition    | The `ctid` range (W1), the stream (W2) or the bucket at its SCN (W3, fourth amendment)        |
    | Expiry       | The worker refuses a grant past it                                                            |
    | Caller key   | For the worker's audit line and the source's labels, so a read names whose question it served |
    | Limit shares | The limits this task applies. Decision 4 fixes the federated ceiling's as the whole ceiling   |
@@ -123,7 +124,7 @@ answers as the design that follows from them, not asked as its own question.
 
 Each row was posted as a proposal and accepted by the owner as a decision on 2026-11-02. Its text
 is the proposal's, except a row marked *(2026-11-03)*, which records the owner's answer that day to
-a question building it raised.
+a question building it raised, and a clause marked *(fourth amendment)*, which that amendment added.
 
 | Question                                                               | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,7 +132,7 @@ a question building it raised.
 | Which legs are split?                                                  | A lookup leg, and a fact leg whose partial groups are grouped again on the leg's own keys after a repartition, before they join anything. A fact leg's partial groups from two partitions joined to another fact leg would double a value                                                                                                                                                                                                                                                       |
 | The ambiguous-link check over a split lookup leg                       | Plan it across, after a repartition on the link key, so a key duplicated across two partitions meets in one task. Today `refuse_ambiguous_link` scans one in-memory leg                                                                                                                                                                                                                                                                                                                         |
 | When is a leg split, given the size rule measures legs one node holds? | W1: by the source's own estimate before reading, `pg_class.relpages` times the page size, against `server.nodes.across_above_bytes`. *(2026-11-03)* W2: by the job's result row count, which the driver patch reports from `ExecutePartitions`, against the per-stream bound. The ADBC adapter answers no dry run, so W2 has no estimate before the job runs                                                                                                                                    |
-| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, or W2's row count over the streams) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                                                                         |
+| How many partitions?                                                   | Enough that each partition's estimate (`pg_class.reltuples` over the range's pages, W2's row count over the streams, or *(fourth amendment)* W3's `NUM_ROWS` over the buckets) sits well under the per-stream bound, at most the ready reading workers. A partition over the bound is refused, not split again                                                                                                                                                                                  |
 | Pages past `relpages`, and a root that is not a plain table            | The last range has no upper bound, because `relpages` is an estimate. A view, a partitioned table's parent or a foreign table is read whole, as today                                                                                                                                                                                                                                                                                                                                           |
 | What bounds the exporting transaction (W1)?                            | The question's deadline. A worker that cannot import the snapshot fails the question                                                                                                                                                                                                                                                                                                                                                                                                            |
 | How the coordinating node gets a source token to forward (W2)          | Today the driver runs the exchange itself from a loopback credential source, and sutura never holds the token. sutura runs the exchange and hands the token to the driver at the coordinating node and at each reading worker                                                                                                                                                                                                                                                                   |
@@ -311,3 +312,127 @@ Limits, beside the first amendment's:
 - **Half the bound is a target, not a guarantee.** The Storage Read API may answer fewer streams
   than asked, each then larger, and a stream past 1,000,000 rows or 256 MiB is still refused when
   it is read. The byte bound plays no part in the stream count.
+
+## Third amendment, 2026-11-06: a grant carries the caller's token and refuses another caller's
+
+What is built, in the domain and the combine, and still with no source that makes such a grant:
+
+- `SourceToken` holds a forwarded token, its expiry, its pool, and a fingerprint of the credential
+  it was exchanged from, never that credential. Its `Debug` prints the expiry and the pool only.
+- `Grantee::forwarding` takes only a token whose fingerprint is the subject token the request
+  presented for the leg's source, and refuses any other as `NotTheCallersToken`. That request is
+  the one the grant names its caller from, so a grant for one caller does not carry a token
+  exchanged from another caller's credential. `Grantee::grant` is the only way to build a grant
+  read with a token: `Granted::forwarding` and `SplitScan::granted_forwarding` are crate-private.
+  `Granted::new` is public and takes any caller, but reads as the service user.
+- `Granted::forwarding` ends the grant no later than its token, and refuses it as expired when that
+  end has passed. This replaces the second amendment's statement that no grant takes an earlier end.
+  A worker refuses a grant past its end when it admits the task, on its own clock, so it refuses a
+  task whose token has already expired by then. A read that starts later fails at the source.
+- A grant read with the token signs a SHA-256 digest of the token and of the pool's audience. A
+  worker admits a task only when the grant names exactly the token and pool the task carries, or
+  none where it carries none, and refuses every other as `GrantNotNaming`. This guards against a
+  mix-up, not against a holder of the task: the signing key travels in the same task as the grant,
+  so anyone who can rewrite the task can mint a grant that names any token.
+- The token rides only in the scan of each task that reads a partition, beside its reading key, so
+  only the node that task is routed to is sent it, and no header carries it. The scan hands the
+  token to its reader once, when the read starts. That is once per scan, not per question: a
+  question scans a split table twice, for the link check and for the join, and each scan carries
+  its own copy. A second read of one scan is refused, and
+  `Debug` and `Display` show only whether it holds a token.
+- A reader that reads no source with a caller's token, the PostgreSQL reader among them, refuses a
+  task that carries one.
+
+The `split_lookup` arm that offers a BigQuery leg for splitting, and the reading worker's BigQuery
+arm, are still not built, so nothing in production forwards a token.
+
+Limits, beside the earlier amendments':
+
+- **The tie is as true as the fingerprint the exchanging adapter states.** `SourceToken::exchanged`
+  is public and records the credential it is told the token was exchanged from. Nothing here sees
+  the exchange, and a worker still cannot tell whose token it holds.
+- **A request that presented no subject token for the leg's source forwards nothing.** The grant
+  then refuses every token.
+- **Copies outlive the read.** The planning node keeps its copy of the token while the leg's table
+  is registered. Neither the plan bytes the planning node encodes for a task nor the bytes a worker
+  decodes the token from are wiped.
+- **A node that reads a grant reads the token's digest.** It names the token; it does not reveal it.
+
+## Fourth amendment, 2026-11-06: an Oracle lookup leg splits by flashback query, under the shared service user
+
+The owner decided four questions for Oracle as a third data system (W3), D1 to D4 below. Each item
+also says what follows from it with the design; a sentence marked *(design)* is that, not the
+owner's answer. This replaces the first row of "Out of scope" for Oracle only, and amends Decision
+1, Decision 5's Partition row and the row "How many partitions?" above to name Oracle: a lookup leg
+on an Oracle source may be read in partitions, on workers. A question that reads Oracle alone is
+still pushed down whole, and a fact leg on Oracle is still read whole.
+
+1. **The shared service user only (D1).** A reading worker reads as the source's declared service
+   user and holds its credential, as W1 does. An `impersonation-at-source` Oracle source is read
+   whole. A per-task source token, as W2 forwards one, stays possible and is not built.
+2. **Each source opts in (D2).** `split: flashback` on a `kind: oracle` source allows its lookup legs
+   to split. Without it, every leg is read whole. A source that declares it is probed at boot, and a
+   failed probe refuses startup. The operator grants the service user the `FLASHBACK` object
+   privilege on each table it reads, and not `FLASHBACK ANY TABLE`. *(design)* The key is refused on
+   any other kind and on an `impersonation-at-source` source. The probe reads the privileges granted
+   to the service user when it runs at boot: directly, through `PUBLIC`, and through roles granted
+   to the service user. It refuses `FLASHBACK ANY TABLE`, `GRANT ANY PRIVILEGE` and `GRANT ANY
+   ROLE` held that way, and a role granted to the service user that is not enabled when it signs
+   in. It then reads each table the source's models name at a snapshot: the models' own tables only,
+   not tables their joins reach.
+3. **One snapshot per split leg, taken when the leg is split (D3).** The snapshot is
+   `TIMESTAMP_TO_SCN(SYSTIMESTAMP)`, read once for the leg. Every table reference of every
+   partition's statement carries `AS OF SCN` with that number, so the leg's partitions read one
+   consistent state. Two split legs of one question read at two SCNs, and an Oracle leg of the same
+   question that is read whole reads the database as it is when that leg runs. The snapshot is in
+   the statement and not in the session: no partition calls `DBMS_FLASHBACK`.
+4. **A reading worker refuses a stale snapshot (D4).** Before it reads, the worker asks the
+   database when the snapshot was taken (`SCN_TO_TIMESTAMP`) and refuses a snapshot older than its
+   own request budget. A snapshot the database can no longer read is refused, never read fresh
+   instead. *(design)* The refusal is one typed error for `ORA-01555` (snapshot too old), `ORA-08181`
+   (not a valid system change number) and `ORA-01466` (table definition has changed).
+
+|                             | W3 Oracle                                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A partition                 | One hash bucket of one integer key of the leg's root table: `ORA_HASH(key, N - 1) = i`. A row whose key is NULL is in bucket 0 only                     |
+| Where the statement runs    | On each reading worker: the leg's statement, `AS OF SCN` on every table, restricted to its bucket                                                       |
+| One consistent read         | The one SCN read at split time                                                                                                                          |
+| Who the read runs as        | The shared service user                                                                                                                                 |
+| What a reading worker holds | The service user's credential                                                                                                                           |
+| When the leg is split       | By the dictionary's estimate, `ALL_TABLES.NUM_ROWS` times `AVG_ROW_LEN`, against `server.nodes.across_above_bytes`. No row or no statistics: read whole |
+| Which key is hashed         | The leg's first key that is a column of its root table declared `NUMBER` with scale 0. None: read whole                                                 |
+
+The partition descriptor, version 1, in order: the version byte `1`; the SCN as eight big-endian
+bytes, never zero; the hashed key's position in the leg as two big-endian bytes; the bucket's index
+and the bucket count as four big-endian bytes each. A reading worker refuses a version it does not
+read, bytes cut short or past the last field, an SCN of zero, fewer than two buckets, an index at or
+past the count, and a position the leg holds no key at.
+
+Limits:
+
+- **The dictionary's statistics are an estimate.** A table whose statistics are stale or missing is
+  read whole, or split into buckets whose real sizes differ from the estimate. A bucket past the
+  per-stream bound is refused, not split again.
+- **A bucket is not a range.** Every partition reads the whole root table and filters it, so a leg
+  of N partitions reads it N times. `ORA_HASH` buckets are not uniform, and every NULL key lands in
+  bucket 0.
+- **The snapshot is a few seconds old when it is taken.** Oracle maps a time to an SCN at a
+  granularity of about three seconds, so `TIMESTAMP_TO_SCN(SYSTIMESTAMP)` can name an SCN up to
+  about three seconds before the split, and a row committed in those seconds is not read (D3).
+- **The snapshot's age is approximate.** `SCN_TO_TIMESTAMP` is precise to about three seconds, so
+  D4's refusal is that close to the budget and no closer. How long the database can read a snapshot
+  is its undo retention, which the operator configures and nothing here sets.
+- **A reading worker's credential reads history.** The `FLASHBACK` object privilege serves flashback
+  version queries as well as flashback queries. A leaked service-user credential from any node
+  that reads Oracle can read every version still in undo of the rows of each table the service user
+  is granted `FLASHBACK` on or owns - an owner needs no grant - rows deleted or updated since
+  included. D4 bounds only what an honest worker reads.
+- **The boot probe reads the models' own tables.** A table that only a join reaches, with no
+  `FLASHBACK` grant, passes the probe and fails the partition read.
+- **Hashing one integer key is exact only for a lookup leg.** Every row of one group has the same
+  key, so every group is in one bucket. A fact leg is not split.
+- **Nothing is built yet.** This record decides to build the split in the Oracle adapter, the
+  setting and the boot probe, and the two changes stacked on it deliver them: one adds the types
+  with today's behaviour, the next the behaviour. Even then no composition root offers an Oracle
+  leg for splitting, and no reading worker reads an Oracle partition, until the grant and the
+  reading worker gain an Oracle arm.
