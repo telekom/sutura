@@ -44,6 +44,12 @@ impl SourceToken {
         &self.secret
     }
 
+    /// The token, moved out.
+    #[must_use]
+    pub fn into_token(self) -> Secret {
+        self.secret
+    }
+
     /// When the token service said the token stops being one.
     #[must_use]
     pub const fn not_after(&self) -> SystemTime {
