@@ -1,7 +1,7 @@
-diff --git a/crates/sutura-sql/src/generate.rs b/crates/sutura-sql/src/generate.rs
---- a/crates/sutura-sql/src/generate.rs
-+++ b/crates/sutura-sql/src/generate.rs
-@@ -807,7 +807,7 @@
+diff --git a/crates/sutura-sql/src/generate/leg.rs b/crates/sutura-sql/src/generate/leg.rs
+--- a/crates/sutura-sql/src/generate/leg.rs
++++ b/crates/sutura-sql/src/generate/leg.rs
+@@ -52,7 +52,7 @@
                      term.label(),
                  )?);
              }

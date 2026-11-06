@@ -1,0 +1,23 @@
+# The worker pool beside `workerPool.addressFamily`: the serving pod's `server.nodes.address_family`
+# is `ipv6`, so it dials a worker's host name at its IPv6 addresses only.
+environment: production
+security:
+  accessToken:
+    secretName: sutura-access-token
+  metricsToken:
+    secretName: sutura-metrics-token
+workerPool:
+  enabled: true
+  addressFamily: ipv6
+  issuer:
+    name: sutura-nodes
+  max: 3
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+config:
+  base:
+    security:
+      identity: single-user
+      single_user_because: "a test deployment one operator runs with their own credentials"
