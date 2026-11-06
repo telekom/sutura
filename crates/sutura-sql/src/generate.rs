@@ -547,10 +547,13 @@ mod top;
 /// One measure, as one expression - the guard/aggregate rendering.
 mod measure;
 
+/// One leg, restricted to one hash bucket of its integer keys.
+mod buckets;
 /// One leg, restricted to a range of its root table's pages.
 mod pages;
 /// Several metrics on one data system, as one statement.
 mod stacked;
+pub use buckets::{Bucket, BucketsRefused, InvalidBucket, generate_leg_buckets};
 use measure::{Guard, measure_expression, predicate_values, term_expression};
 pub use pages::generate_leg_pages;
 pub use stacked::generate_stacked;

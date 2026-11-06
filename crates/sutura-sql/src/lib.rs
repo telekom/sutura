@@ -73,7 +73,10 @@ pub mod generate;
 pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
-pub use crate::generate::{GenerateError, generate, generate_key_probe, generate_leg, generate_leg_pages, generate_stacked};
+pub use crate::generate::{
+    Bucket, BucketsRefused, GenerateError, InvalidBucket, generate, generate_key_probe, generate_leg, generate_leg_buckets,
+    generate_leg_pages, generate_stacked,
+};
 
 /// A statement, its parameters, and the one data system it runs against.
 ///
