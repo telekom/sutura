@@ -55,3 +55,17 @@ fn a_reading_worker_without_a_source_is_not_fit_to_serve() {
         ]
     );
 }
+
+/// `#828`: a reading worker's own entry opts its source into hash buckets, and it declares one
+/// source and reads for others, so neither hash-bucket boot refusal is its to raise - only the
+/// refusals a reading worker always has.
+#[test]
+fn a_reading_worker_opting_its_own_source_into_hash_buckets_is_not_refused_for_it() {
+    let source = "sources:\n  warehouse:\n    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    \
+                  user: \"sutura\"\n    password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+                  posture: \"shared-service-user\"\n    hash_buckets_acknowledged_because: \"each key's rows are read together\"\n";
+    assert_eq!(
+        refused(&format!("{READING}{source}")),
+        vec![NotFitToServe::ReadingWorkerWithoutCatalog]
+    );
+}
