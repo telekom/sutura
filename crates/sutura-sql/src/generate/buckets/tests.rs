@@ -1,8 +1,8 @@
 //! A bucket's refusals, and the statement each dialect hashes a lookup leg's integer keys with.
 //!
 //! The statements are pinned as text. That a `DuckDB` and a `ClickHouse` bucket hold the rows they
-//! should is executed in `crates/sutura-app/tests/differential/buckets.rs`; the Oracle one is rendered
-//! here and runs nowhere offline.
+//! should is executed in `crates/sutura-app/tests/differential/buckets.rs`. An Oracle leg is refused:
+//! its buckets are the flashback ones.
 
 use std::collections::HashMap;
 
@@ -89,7 +89,6 @@ fn each_dialect_hashes_the_integer_keys_with_a_null_key_as_zero() {
     let key = r#"COALESCE("dim_customer"."customer_key", 0)"#;
     for (dialect, within, order) in [
         (Dialect::ClickHouse, format!("cityHash64({key}) % 3 = 1"), String::from(order)),
-        (Dialect::Oracle, format!("ORA_HASH({key}, 2) = 1"), String::from(order)),
         (
             Dialect::DuckDb,
             format!("HASH({key}) % 3 = 1"),
@@ -124,7 +123,7 @@ fn clickhouse_hashes_every_integer_key_in_one_call() {
 fn a_leg_with_no_integer_key_is_refused() {
     let leg = lookup(vec![link(0, "customer_key"), dimension("region")]);
     let described = described(&[("0_link", DataType::Utf8), ("region", DataType::Float64)]);
-    for dialect in [Dialect::ClickHouse, Dialect::Oracle, Dialect::DuckDb] {
+    for dialect in [Dialect::ClickHouse, Dialect::DuckDb] {
         let refused = generate_leg_buckets(&leg, &described, bucket(0, 2), dialect);
         assert!(matches!(refused, Err(BucketsRefused::NoIntegerKey)), "{dialect}: {refused:?}");
     }
@@ -153,18 +152,15 @@ fn postgres_and_bigquery_are_not_split_into_hash_buckets() {
     }
 }
 
-/// Oracle's hash takes one value, and any subset of the keys is exact, so it hashes the first.
+/// An Oracle leg's buckets are `generate_leg_as_of`'s, which read one snapshot and put a NULL key in
+/// bucket 0 alone; this function renders none.
 #[test]
-fn oracle_hashes_the_first_of_two_integer_keys() {
-    let leg = lookup(vec![link(0, "customer_key"), link(1, "contract_key")]);
-    let described = described(&[("0_link", DataType::Int64), ("1_link", DataType::Int64)]);
-    let query = generate_leg_buckets(&leg, &described, bucket(1, 4), Dialect::Oracle).expect("the leg renders a bucket");
+fn an_oracle_leg_is_not_split_into_hash_buckets_here() {
+    let (leg, described) = customer_lookup();
+    let refused = generate_leg_buckets(&leg, &described, bucket(0, 2), Dialect::Oracle);
     assert!(
-        query
-            .sql()
-            .contains(r#"WHERE ORA_HASH(COALESCE("dim_customer"."customer_key", 0), 3) = 1 "#),
-        "{}",
-        query.sql()
+        matches!(refused, Err(BucketsRefused::Unsupported { dialect }) if dialect == Dialect::Oracle),
+        "{refused:?}"
     );
 }
 

@@ -1,9 +1,9 @@
 //! A lookup leg split into hash buckets, executed: the buckets together are the leg read whole.
 //!
 //! Over one embedded `DuckDB` database, and over the `ClickHouse` tier where one is provisioned (a
-//! cell skips it by its named exemption elsewhere), the two dialects of `sutura_sql::generate_leg_buckets`
-//! that run here. The columns it hashes by are the ones the data system itself described for the whole
-//! leg. The Oracle bucket is rendered and pinned in `sutura-sql`'s own cells and executed nowhere.
+//! cell skips it by its named exemption elsewhere), the two dialects `sutura_sql::generate_leg_buckets`
+//! renders. The columns it hashes by are the ones the data system itself described for the whole leg.
+//! An Oracle leg is refused there: its buckets are `sutura_sql::generate_leg_as_of`'s.
 //!
 //! **A limit of the `ClickHouse` cells:** they reach the tier through the vendored ADBC driver, which
 //! `sutura serve` composes and which describes a `Date` as `UInt16` with `CLICKHOUSE:type` metadata.

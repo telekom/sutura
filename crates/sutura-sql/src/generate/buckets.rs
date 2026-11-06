@@ -18,9 +18,12 @@
 //! describes `Date` as `UInt16`, `DateTime` and `IPv4` as `UInt32` and an `Enum` as `Int8` or
 //! `Int16`, and records the column's own type in its field metadata. A `ClickHouse` key counts as
 //! an integer only when that type is one (`Int8`..`UInt64`, under any `Nullable` or
-//! `LowCardinality`); a described field with no such metadata is read by its Arrow type alone. An
-//! Oracle column is an Arrow integer only as `NUMBER(p, 0)` with `p` up to 18 (the vendored driver's
-//! `fetch.rs`), and a `DuckDB` one only as an integer type, so neither needs the metadata.
+//! `LowCardinality`); a described field with no such metadata is read by its Arrow type alone. A
+//! `DuckDB` column is an Arrow integer only as an integer type, so it needs no metadata.
+//!
+//! **Oracle is not split here.** Its buckets are the flashback ones, read at one snapshot: one key
+//! the caller picks, rendered by `generate_leg_as_of`. A second Oracle rendering here would be a
+//! second partition of the same leg.
 
 use arrow_schema::{Field, Schema};
 use polyglot_sql::builder;
@@ -84,7 +87,8 @@ impl Bucket {
 /// Why a leg was not split into hash buckets.
 #[derive(Debug, thiserror::Error)]
 pub enum BucketsRefused {
-    /// No hash here for this dialect: `Postgres` cuts page ranges and `BigQuery` read streams.
+    /// No hash here for this dialect: `Postgres` cuts page ranges, `BigQuery` read streams, and Oracle
+    /// reads flashback buckets ([`super::generate_leg_as_of`]).
     #[error("a leg is not split into hash buckets for {dialect}")]
     Unsupported { dialect: Dialect },
     /// A key of the leg its source did not describe, so its type is unknown.
@@ -102,9 +106,8 @@ pub enum BucketsRefused {
 ///
 /// `described` is the leg's columns as its source described them; a key is integer when its
 /// column there is, by the source's own type where it states one (see the module doc). `ClickHouse`
-/// hashes every integer key as `cityHash64(k1, k2, …) % count`, Oracle its first integer key as
-/// `ORA_HASH(k, count - 1)` (it hashes one value, and any subset of the keys is exact), and `DuckDB`
-/// as `HASH(k1, k2, …) % count`. Each key is `COALESCE(k, 0)` inside the hash, so a row whose key is
+/// hashes every integer key as `cityHash64(k1, k2, …) % count` and `DuckDB` as
+/// `HASH(k1, k2, …) % count`. Each key is `COALESCE(k, 0)` inside the hash, so a row whose key is
 /// NULL lands in exactly one bucket whatever the dialect's hash makes of a NULL.
 ///
 /// **Limits:** a NULL key and a `0` share a bucket, and a key of `Decimal(p, 0)` is not an integer
@@ -140,12 +143,7 @@ pub fn generate_leg_buckets(
     let within = match dialect {
         Dialect::ClickHouse => builder::func("cityHash64", hashed).modulo(builder::lit(count)).eq(index),
         Dialect::DuckDb => builder::func("HASH", hashed).modulo(builder::lit(count)).eq(index),
-        Dialect::Oracle => {
-            hashed.truncate(1);
-            hashed.push(builder::lit(count.saturating_sub(1)));
-            builder::func("ORA_HASH", hashed).eq(index)
-        }
-        Dialect::Postgres | Dialect::BigQuery => return Err(BucketsRefused::Unsupported { dialect }),
+        Dialect::Postgres | Dialect::BigQuery | Dialect::Oracle => return Err(BucketsRefused::Unsupported { dialect }),
     };
     leg_within(leg, dialect, Some(within)).map_err(BucketsRefused::Generate)
 }
