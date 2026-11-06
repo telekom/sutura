@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-cli/src/serve/kind/split.rs b/crates/sutura-cli/src/serve/kind/split.rs
 --- a/crates/sutura-cli/src/serve/kind/split.rs
 +++ b/crates/sutura-cli/src/serve/kind/split.rs
-@@ -85,7 +85,7 @@ pub(crate) fn worker_read(
+@@ -93,7 +93,7 @@
                  .splits()
-                 .map_or_else(|| Err(not_split()), |kind| kind.read_granted(leg, partition, deadline))
+                 .map_or_else(|| Err(not_split()), |kind| read_here(kind, leg, partition, deadline))
          }),
 -        _ => Err(not_split()),
 +        _ => Err(Unread::LegNotCertified),

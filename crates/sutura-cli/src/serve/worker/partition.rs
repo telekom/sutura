@@ -4,8 +4,8 @@
 //!
 //! **Limits.** Only a `PostgreSQL` source is read. Any other kind whose leg this node certifies is
 //! refused as a failed read - `BigQuery` among them, whose read needs the caller's forwarded source
-//! token a task does not carry; a leg it does not certify is refused as uncertified first, whatever
-//! the kind. Each read is bounded by this node's own `server.request_timeout`, opened when the read
+//! token a task does not carry; a leg it does not certify is refused as uncertified first, except in a
+//! deployment that holds no kind that splits, which names the source without certifying anything. Each read is bounded by this node's own `server.request_timeout`, opened when the read
 //! starts: the planning node's deadline does not reach the worker, the grant's expiry is checked
 //! once, at admission, and dropping the stream does not stop a read already running - the deadline
 //! does. The read runs as this node's own declared service user for the source,
