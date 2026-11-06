@@ -1,6 +1,6 @@
 //! A reading worker's [`PartitionReader`]: the leg a task carries is re-certified against this node's
 //! own pinned catalog through [`sutura_app::read_recertified`], and only then is the granted
-//! partition of a `PostgreSQL` source read.
+//! partition read, for a kind `split` dispatches - `PostgreSQL` alone.
 //!
 //! **Limits.** Only a `PostgreSQL` source is read. Any other kind whose leg this node certifies is
 //! refused as a failed read - `BigQuery` among them, whose read needs the caller's forwarded source
@@ -16,13 +16,12 @@ use std::time::Instant;
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::LegPlan;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_exec_datafusion::{PartitionReader, SchemaRef, SendableRecordBatchStream, Unread, read_later};
 
-use super::super::kind::AnyWarehouse;
-use super::super::{OpenedSources, PostgresSource};
+use super::super::OpenedSources;
+use super::super::kind::split;
 
 /// What a reading worker pinned and opened at boot, shared with every read it moves off the runtime.
 pub(super) struct Reader(Arc<Opened>);
@@ -62,36 +61,8 @@ impl Opened {
     /// `source`'s `partition` of the leg `wire` holds, read only once this node certified the leg.
     fn read(&self, wire: &[u8], source: &SourceName, partition: &[u8]) -> Result<ResultBatches, Unread> {
         let deadline = Deadline::opened_at(Instant::now(), self.budget);
-        let not_postgres = || Unread::source_not_read(source);
-        let read = match &self.sources {
-            OpenedSources::Postgres(sources) => {
-                sutura_app::read_recertified(&self.pinned, sources, source, wire, |postgres, leg| {
-                    read_partition(postgres, &leg, partition, deadline)
-                })
-            }
-            OpenedSources::Mixed(mixed) => {
-                sutura_app::read_recertified(&self.pinned, &mixed.engines, source, wire, |engine, leg| match engine {
-                    AnyWarehouse::Postgres(postgres) => read_partition(postgres, &leg, partition, deadline),
-                    _ => Err(not_postgres()),
-                })
-            }
-            _ => Ok(Err(not_postgres())),
-        };
-        read.unwrap_or_else(|_refused| Err(Unread::LegNotCertified))
+        split::worker_read(&self.pinned, &self.sources, source, wire, partition, deadline)
     }
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the one production caller: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
-)]
-fn read_partition(
-    postgres: &PostgresSource,
-    leg: &LegPlan,
-    partition: &[u8],
-    deadline: Deadline,
-) -> Result<ResultBatches, Unread> {
-    postgres.read_partition(leg, partition, deadline).map_err(Unread::failed)
 }
 
 #[cfg(test)]
