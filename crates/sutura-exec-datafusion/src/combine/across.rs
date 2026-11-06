@@ -94,9 +94,10 @@
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
-//!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Only a mixed-kind `sutura serve`
-//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   nodes, never on this one, in one plan whose join reads the scan the check counts, so each
+//!   partition is read once. A link value held twice fails that plan under a code this node reads
+//!   back as [`CombineError::AmbiguousLink`]. Only a mixed-kind `sutura serve` deployment's
+//!   PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
@@ -154,6 +155,9 @@ mod split;
 /// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
 mod link;
 
+/// A granted lookup leg's ambiguous-link check, inside the plan that joins it.
+mod once;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
@@ -163,6 +167,7 @@ pub use split::{SplitScan, StreamBound};
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;
 
+pub(super) use once::checked;
 pub(super) use relay::relayed;
 
 #[cfg(test)]
@@ -316,7 +321,7 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let bounded = bounded.clone();
             async move {
-                Ok(grant::forwarded(context.builder, &context.headers)?
+                Ok(once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .with_distributed_user_codec(partition::Codec)
@@ -351,7 +356,7 @@ impl Nodes {
             let keys = keys.clone();
             let reader = reader.clone();
             async move {
-                let mut builder = grant::forwarded(context.builder, &context.headers)?
+                let mut builder = once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(
                         move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {

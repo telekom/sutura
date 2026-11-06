@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/arm.rs b/crates/sutura-exec-datafusion/src/combine/arm.rs
-index 2fb2ad841..8f84bdc39 100644
 --- a/crates/sutura-exec-datafusion/src/combine/arm.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/arm.rs
-@@ -188,7 +188,7 @@ pub(super) async fn combine_plan(
+@@ -189,7 +189,7 @@
          let on = plan
              .link_labels(position)
              .iter()
 -            .map(|link| Ok(qualified(table_at(lookup.onto(), link)?, link).eq(qualified(table, link))))
 +            .map(|link| Ok(qualified(table_at(sutura_domain::plan::LegAt::Fact, link)?, link).eq(qualified(table, link))))
              .collect::<Result<Vec<Expr>, CombineError>>()?;
-         builder = builder
-             .join_on(scan(context, table).await?, kind, on)
+         let scanned = scan(context, table).await?;
+         builder = if matches!(reads.get(position), Some(LookupRead::Granted(_))) {

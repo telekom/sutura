@@ -242,8 +242,7 @@ fn both_readers(geo: &[Peer; 2]) -> Vec<Url> {
     geo.iter().map(|peer| peer.url.clone()).collect()
 }
 
-/// The check and the join each read every partition, so a partition is counted once however often
-/// it was read.
+/// A partition is counted once here however often it was read, which a cell below counts.
 #[test]
 fn a_granted_lookup_is_read_only_by_its_source_s_readers_and_answers_what_the_whole_leg_answers() {
     let across = granted_across(DISTINCT, both_readers);
@@ -305,6 +304,54 @@ fn a_granted_lookup_whose_link_repeats_across_two_partitions_is_refused_as_ambig
         matches!(across.answer, Err(ExecuteError::Combine(CombineError::AmbiguousLink))),
         "a link value two granted partitions each held once was not refused: {:?}",
         across.answer
+    );
+}
+
+/// The link check is part of the plan that joins the leg, so no partition is read a second time.
+#[test]
+fn a_granted_lookup_reads_each_of_its_partitions_once() {
+    let across = granted_across(DISTINCT, both_readers);
+
+    assert!(
+        across.answer.is_ok(),
+        "a granted lookup read across its readers did not answer: {:?}",
+        across.answer
+    );
+    let mut asked: Vec<Vec<u8>> = across.geo.iter().flat_map(|peer| peer.asked.lock().clone()).collect();
+    asked.sort();
+    assert_eq!(asked, partitions(DISTINCT), "a granted partition was read other than once");
+}
+
+/// A runner whose fact leg holds no row, its lookup leg of `geo` granted as [`REPEATED`]'s partitions.
+struct NoFactRow;
+
+impl LegRunner for NoFactRow {
+    type Error = Infallible;
+
+    fn run(&self, _leg: &LegPlan) -> Result<ResultBatches, Infallible> {
+        Ok(fact_linked(DataType::Utf8, Arc::new(StringArray::from(Vec::<&str>::new()))))
+    }
+
+    fn lookup(&self, _leg: &LegPlan, _link: LinkCast) -> Result<Looked<'_>, Infallible> {
+        Ok(grant(Arc::clone(whole(REPEATED).schema()), partitions(REPEATED), &caller()))
+    }
+}
+
+/// No fact row reaches the granted leg, and its repeated link is refused all the same: the check is
+/// the join's build side, which the join reads whole before the fact leg.
+#[test]
+fn a_granted_lookup_whose_link_repeats_is_refused_though_no_fact_row_joins_it() {
+    let servers = servers();
+    let authority = Authority::generate();
+    let geo = [Peer::serve(&servers, &authority), Peer::serve(&servers, &authority)];
+    let nodes = planning(&servers, &authority, both_readers(&geo)).reading(source("geo"), both_readers(&geo));
+    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
+
+    let answer = combiner.execute(combiner.plan(&sum_plan(true)), &NoFactRow, UNBOUNDED);
+
+    assert!(
+        matches!(answer, Err(ExecuteError::Combine(CombineError::AmbiguousLink))),
+        "a repeated granted link no fact row joins was not refused: {answer:?}"
     );
 }
 

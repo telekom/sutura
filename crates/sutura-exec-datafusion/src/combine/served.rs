@@ -7,8 +7,9 @@
 //!
 //! - A served question is granted a leg only by a mixed-kind `sutura serve` deployment's PostgreSQL
 //!   source that `server.nodes` declares readers for; every other served lookup leg arrives as rows.
-//! - The ambiguous-link check and the join each read every partition, so each partition is read
-//!   twice, under the one snapshot its source holds open across both. Accepted.
+//! - The ambiguous-link check is part of the plan that joins the leg, so each partition is read once.
+//!   That plan keeps the join order it builds only because the session's statistics-driven join
+//!   reordering is off for the whole combine, every other join in it included.
 //! - A granted leg is planned across whatever its size and never tried on this node. A combiner
 //!   with no other node, or a stage no resolved node reads the leg's source for, refuses it as
 //!   [`CombineError::NoReadingNode`], which `sutura_app` answers as `SourceUnavailable` naming that
@@ -34,6 +35,7 @@ use std::sync::Arc;
 #[cfg(feature = "distributed")]
 use datafusion::common::TableReference;
 use datafusion::error::DataFusionError;
+use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::SessionContext;
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{Granted, InternalLabel, Legs, LookupLeg, LookupRead};
@@ -135,6 +137,38 @@ fn registered_split(
 ) -> Result<(), CombineError> {
     Err(CombineError::NoReadingNode {
         source_name: source.clone(),
+    })
+}
+
+/// `scanned`, the granted leg registered as `table`, as the relation its join reads with its link
+/// values on `on` checked inside that plan, `context` keeping the join order the plan builds.
+#[cfg(feature = "distributed")]
+pub(super) fn checked(
+    context: &SessionContext,
+    scanned: LogicalPlan,
+    table: &str,
+    on: &[String],
+) -> Result<LogicalPlan, CombineError> {
+    context
+        .state_ref()
+        .write()
+        .config_mut()
+        .options_mut()
+        .optimizer
+        .join_reordering = false;
+    across::checked(scanned, table, on).map_err(|cause| CombineError::Build { cause })
+}
+
+/// No granted leg is registered in a build without `distributed`, so none is joined.
+#[cfg(not(feature = "distributed"))]
+pub(super) fn checked(
+    _context: &SessionContext,
+    _scanned: LogicalPlan,
+    table: &str,
+    _on: &[String],
+) -> Result<LogicalPlan, CombineError> {
+    Err(CombineError::Build {
+        cause: DataFusionError::Plan(format!("the granted leg `{table}` is joined only under `distributed`")),
     })
 }
 
