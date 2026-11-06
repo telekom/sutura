@@ -16,8 +16,10 @@
 //! - The whole leg is held, as the count's group state and then as the join's build side, on a
 //!   worker whose pool spills nowhere: a large leg can be refused for its working set. Not measured.
 //! - Each other column is carried as `max` of its group, which is that group's one value in every
-//!   group that is not refused. A column of a type `max` does not take fails the plan when it is
-//!   built, as `CombineError::Build`; no cell carries such a column.
+//!   group that is not refused. `max` takes every column type when the plan is built, so a column
+//!   of a type it cannot compare is refused only when a worker updates its accumulator, after the
+//!   partitions are read, as `CombineError::Execute` and not `CombineError::Build`; no cell carries
+//!   such a column.
 //! - The count is a stage of the question, so the refusal is an engine failure of that stage, read
 //!   back by its code: a peer can raise it for a question it fails, never answer one with it.
 //! - Every node must register the filter's function by name: a node built without it cannot decode

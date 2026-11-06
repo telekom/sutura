@@ -98,9 +98,11 @@
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
-//!   nodes, never on this one, in one plan whose join reads the scan the check counts, so each
-//!   partition is read once. A link value held twice fails that plan under a code this node reads
-//!   back as [`CombineError::AmbiguousLink`]. Only a mixed-kind `sutura serve` deployment's
+//!   nodes, never on this one. An arm's one granted leg is checked in the plan that joins it, whose
+//!   join reads the scan the check counts, so each partition is read once; with two or more granted
+//!   legs, each is checked before the join and each partition is read twice
+//!   (`served::counted_in_plan`). A link value held twice fails that plan under a code this node
+//!   reads back as [`CombineError::AmbiguousLink`]. Only a mixed-kind `sutura serve` deployment's
 //!   PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
@@ -159,7 +161,7 @@ mod split;
 /// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
 mod link;
 
-/// A granted lookup leg's ambiguous-link check, inside the plan that joins it.
+/// An arm's one granted lookup leg's ambiguous-link check, inside the plan that joins it.
 mod once;
 
 pub use ceiling::WorkerRefusal;

@@ -1,8 +1,9 @@
-//! A combine whose lookup leg its source granted rather than read here, planned across four
-//! localhost nodes - this planning node, a reader of another source and two readers of the leg's
-//! own - the leg's partitions checked for a repeated link and joined only by tasks on the nodes
-//! declared as reading its source. Two cells grant two legs instead, each source read by its own
-//! pair of nodes or by none.
+//! A combine whose lookup leg its source granted rather than read here, planned across localhost
+//! nodes - this planning node and two readers of the leg's own, with a reader of another source
+//! beside them in the cells built by `granted_across`, and no other node in one cell - the leg's
+//! partitions checked for a repeated link and joined only by tasks on the nodes declared as reading
+//! its source. Three cells grant two legs instead: one source read by a pair of nodes and the other
+//! by none, each source read by its own pair (five nodes), or both read by one shared pair.
 //!
 //! # What this does not exercise
 //!
@@ -654,8 +655,9 @@ impl LegRunner for GrantingGeoAndCrm {
     }
 }
 
-/// `crm`, granted and joined INNER onto `geo`, has no row its join can match, so that join reads
-/// nothing below it; `geo`'s repeated link is refused all the same.
+/// `crm`, granted and joined INNER onto `geo`, has no row its join can match, which would end a plan
+/// that counted `geo` inside its join before the count ran. Two granted legs are each checked before
+/// the join, so `geo`'s repeated link is refused all the same.
 #[test]
 fn a_granted_lookup_whose_link_repeats_is_refused_beside_a_later_granted_inner_leg_with_no_joinable_row() {
     let answer = answered_filling(&fan_in_plan(), &GrantingGeoAndCrm);

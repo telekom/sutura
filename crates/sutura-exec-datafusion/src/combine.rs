@@ -58,7 +58,7 @@
 //! | two legs whose link columns can never match | ditto, and it no longer depends on which cell happened to be first |
 //! | a non-numeric leaf | ditto |
 //! | a link pair its relationship declares a cast for | `cast`: the link column cast with `safe: false`, so a value that does not cast refuses the answer |
-//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one; a granted leg's count is inside the join's own plan |
+//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one; an arm's one granted leg's count is inside the join's own plan |
 //! | a non-finite measure | one pass over the answer's measure column, and only when it is a float |
 //! | a leaf column mixing integer and real cells | **not representable**: an Arrow column has one type |
 //! | a leaf total past `i64::MAX` | **answered exactly** instead of refused - see `leaf_sum` below |
@@ -906,8 +906,9 @@ fn register_parts(
 /// **The cost, stated where it is paid:** each checked leg is scanned twice, once here and once in the
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
-/// separable from the number. A granted leg, whose scan reads its source, is the exception:
-/// `served::checked` fails the join's own plan instead, under a code read back as the refusal.
+/// separable from the number. An arm's one granted leg, whose scan reads its source, is the
+/// exception: `served::checked` fails the join's own plan instead, under a code read back as the
+/// refusal. With two or more granted legs this function checks each (`served::counted_in_plan`).
 async fn refuse_ambiguous_link(
     context: &SessionContext,
     table: &str,
