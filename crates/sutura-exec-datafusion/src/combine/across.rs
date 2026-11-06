@@ -53,7 +53,10 @@
 //!   one for every address it has dialled, so a host whose addresses change keeps one for each it
 //!   was ever dialled at. The next call dials again, so a node that restarted serves the next
 //!   question; the question that lost it still fails, and nothing is retried. A question that
-//!   answers but gave up on a call before its reply costs its next call there a new handshake.
+//!   answers but gave up on a call before its reply costs its next call there a new handshake. A
+//!   call that already holds a forgotten channel still uses it. A peer that vanished after a reply
+//!   without closing its connection is not detected, as no keepalive is set: the next question goes
+//!   to that connection and fails or waits out its deadline.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
 //!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
 //!   and no other node resolves, which is refused once the wait ends.

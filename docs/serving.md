@@ -409,8 +409,9 @@ A stage another node cannot hold in its own working set is refused there, and th
 is refused with `503 node_lost`. Asked again, it is planned across the nodes there then, and a node that has restarted
 since is dialled again.
 
-Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
-restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
+Limits: no link is probed, so a node that vanished after a reply without closing its connection is not noticed until a
+question fails on it, and a call already holding a forgotten link still uses it. The pair and the authority are read once
+at startup for links, so a renewed certificate reaches them after a restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
 that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
 `runtime.max_concurrent_queries` slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
