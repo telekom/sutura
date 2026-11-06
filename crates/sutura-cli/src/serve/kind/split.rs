@@ -196,7 +196,7 @@ impl SplitKind for PostgresSource {
 }
 
 /// `cause` as this reader answers it: the engine's failure.
-fn unread(_source: &SourceName, cause: PostgresError) -> Unread {
+pub(super) fn unread(_source: &SourceName, cause: PostgresError) -> Unread {
     Unread::failed(cause)
 }
 
