@@ -69,6 +69,10 @@ With `min: 0` no worker runs until a question wants one.
 The pool needs cert-manager and its CSI driver, and a CA issuer named in `workerPool.issuer`.
 Every pod gets its own certificate from that issuer and ends TLS itself, so the chart refuses `tls.enabled` or a `security.tlsTermination` other than `in-process`.
 A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
+`workerPool.addressFamily` is `auto` (the default), `ipv4` or `ipv6`: which family of address the serving pod dials a worker's host name at, written as `server.nodes.address_family`.
+`auto` takes one family per host, its IPv4 addresses when it has any, so a dual-stack pod is not two workers; `ipv6` suits an IPv6-only cluster.
+The chart refuses any other spelling at render time.
+It chooses among the addresses the name resolves to and does not make a worker reachable over a family the cluster network does not carry.
 The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
 The operator's Role may `get` the serving and worker Deployments' `scale` by name and `patch` only the
 worker's, both narrowed to those two names by `resourceNames`, which the API server itself enforces

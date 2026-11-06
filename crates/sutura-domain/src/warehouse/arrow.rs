@@ -369,8 +369,8 @@ impl ResultBatches {
         // result, and whether this workspace maps a type depended on what the data happened to be.
         // `sutura-exec-bigquery`'s own decoder had this pass and the engine did not; it is here now,
         // so **every adapter that hands its Arrow batches on** gets it - the engine, `BigQuery` and
-        // the two ADBC adapters, `sutura-exec-duckdb` and `sutura-exec-postgres`, all of which
-        // decode through this function.
+        // the other ADBC adapters, `sutura-exec-clickhouse`, `sutura-exec-duckdb` and
+        // `sutura-exec-postgres`, all of which decode through this function.
         //
         // **NOT every adapter, which is what this comment used to claim.** A row-speaking adapter
         // decodes its own driver's vocabulary and builds Arrow from the rows it read, so the hole
@@ -380,9 +380,7 @@ impl ResultBatches {
         //   * `sutura-exec-oracle`'s `cell` dispatches on the column's declared type, so the
         //     all-null half is closed and the ZERO-ROW half is not: no rows means `cell` is never
         //     called, `of_rows` types every column of a zero-row result as `Int64`, and an unmapped
-        //     column passes as a successful empty result exactly as it used to here;
-        //   * `sutura-exec-clickhouse` is the other row-speaking adapter, and this paragraph does
-        //     not measure it.
+        //     column passes as a successful empty result exactly as it used to here.
         for (label, field) in columns.iter().zip(self.schema.fields()) {
             mapped(label, field.data_type())?;
         }

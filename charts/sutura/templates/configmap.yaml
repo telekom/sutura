@@ -18,6 +18,8 @@ with the source aliases the group reads.
 {{- $nodes := dict "others" $peers -}}
 {{- with .Values.workerPool.acrossAboveBytes }}{{ $_ := set $nodes "across_above_bytes" (int64 .) }}{{ end -}}
 {{- with .Values.workerPool.waitForWorkersSeconds }}{{ $_ := set $nodes "wait_for_workers_seconds" (int .) }}{{ end -}}
+{{- $family := include "sutura.addressFamily" . -}}
+{{- with $family }}{{ $_ := set $nodes "address_family" . }}{{ end -}}
 {{- $_ := set $defaults "server" (dict "nodes" $nodes) -}}
 {{- end -}}
 apiVersion: v1

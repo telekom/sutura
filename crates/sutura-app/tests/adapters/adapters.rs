@@ -489,10 +489,11 @@ impl DataSystemUnderTest for sutura_exec_postgres::adbc::AdbcPostgres {
     }
 }
 
-/// A DATA SOURCE over HTTP, executed against the worktree's `nix/clickhouse-tier.nix` server -
-/// `github.com/telekom/sutura#920`. Postgres's registration, ported: discovery decides `available()`,
-/// the tier publishes the credential and nothing here defaults one, and each open gets a private
-/// database so parallel cells sharing one server cannot clobber one another's tables.
+/// A DATA SOURCE over ADBC, the transport `sutura serve` ships, executed against the worktree's
+/// `nix/clickhouse-tier.nix` server - `github.com/telekom/sutura#920`. Postgres's registration,
+/// ported: discovery decides `available()`, the tier publishes the credential and nothing here
+/// defaults one, and each open gets a private database so parallel cells sharing one server cannot
+/// clobber one another's tables.
 ///
 /// **What it executes as:** the tier's one declared user, over plaintext loopback - the
 /// `shared-service-user` posture every entry here is opened with, never a caller's own identity.
@@ -508,19 +509,24 @@ impl DataSystemUnderTest for ClickHouse {
     }
 }
 
-pub(crate) type ClickHouse = sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>;
+pub(crate) type ClickHouse = sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
 type ClickHouseLoad = fn(&ClickHouse, &TableName, &Path) -> Result<(), sutura_exec_clickhouse::fixture::FixtureError>;
 
-/// Opens the `ClickHouse` tier as `name`, each table attached by `load`.
+/// Opens the `ClickHouse` tier as `name` over ADBC, each table attached by `load`.
+///
+/// A tier that is up with no driver to reach it is a provisioner that half-ran, so it panics rather
+/// than skipping: a skip here would read as a cell the shipped transport passed.
 pub(crate) fn clickhouse_on(name: SourceName, tables: Vec<(TableName, PathBuf)>, load: ClickHouseLoad) -> ClickHouse {
     let endpoint = clickhouse_tier().expect("`available()` guards the Open of every clickhouse cell");
-    let auth = sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+    let credential =
+        sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
     let database = format!("cell_{}_{}", std::process::id(), schema_counter());
     let warehouse = ClickHouse::connect_in_database(
         name,
         posture(),
-        sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
-        auth,
+        endpoint.host(),
+        endpoint.port(),
+        &credential,
         &database,
         result_budget(),
     )
@@ -864,12 +870,10 @@ macro_rules! registered {
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
         $cell!(postgres, sutura_exec_postgres::adbc::AdbcPostgres);
-        // A DATA SOURCE over HTTP, likewise a development dependency, and likewise run against this
-        // worktree's provisioned tier (`nix/clickhouse-tier.nix`) and skipped where none is up.
-        $cell!(
-            clickhouse,
-            sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>
-        );
+        // A DATA SOURCE over ADBC, the transport `sutura serve` ships, likewise a development
+        // dependency, and likewise run against this worktree's provisioned tier
+        // (`nix/clickhouse-tier.nix`) and skipped where none is up.
+        $cell!(clickhouse, sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse);
         // CLOUD-ONLY: it executes where `SUTURA_BQ_DATASET` names the dataset the
         // `bigquery-conformance` job provisioned, and skips under a named exemption elsewhere.
         $cell!(

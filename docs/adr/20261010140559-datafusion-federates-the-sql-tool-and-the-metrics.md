@@ -438,7 +438,7 @@ at every source. The catalog read needs none at a source. PR 2 deletes the code 
 ClickHouse now declares `EXECUTES_LEGS`, so the sentence *ClickHouse and Cube cannot run a leg* in
 the amendment above holds for Cube only. The ClickHouse decision above holds in the adapter: a
 leg presented as a principal with no token would run through `EXECUTE AS`, and the adapter refuses
-it as `ClickHouseError::LegUnderExecuteAs` before it sends anything. A leg runs as the shared
+it as `AdbcError::LegUnderExecuteAs` before it sends anything. A leg runs as the shared
 `user` of a `shared-service-user` source, or signed in with the caller's `delegation` token.
 **Limit.** The adapter refuses that leg after the mint, so the answer fails with the adapter's
 error and not with the `federation_not_executable` refusal.
