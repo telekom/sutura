@@ -3,9 +3,13 @@
 //!
 //! A kind that splits implements [`SplitKind`](crate::serve::kind::split::SplitKind) and takes one
 //! arm in [`AnyWarehouse::splits`], and a single-kind deployment of it one arm in
-//! [`worker_read`](crate::serve::kind::split::worker_read). Every other kind is read whole by the
-//! planning node and refused by a reading worker, naming the source. `PostgreSQL` is the one kind
-//! that splits.
+//! [`worker_read`](crate::serve::kind::split::worker_read), plus the `cfg` of the modules and
+//! methods that name the kind (see the PR's limits). Every other kind is read whole by the planning
+//! node and refused by a reading worker, naming the source. `PostgreSQL` is the one kind that splits.
+//!
+//! **Limit:** `BigQuery`'s split needs what [`SplitKind`](crate::serve::kind::split::SplitKind) does not carry - the caller's forwarded
+//! token for a read, and the job `ends` and `labels` for a split - so it does not fit this seam as it
+//! stands, and the trait grows before a second kind joins it.
 
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::SystemTime;
@@ -26,7 +30,10 @@ use super::grant::{self, Described, HeldSplit, Read};
 use super::{AnyWarehouse, AnyWarehouseError};
 
 /// A source kind whose lookup leg splits across the nodes that read its source.
-pub(crate) trait SplitKind {
+///
+/// Visible to [`kind`](super) alone, and [`read_granted`](SplitKind::read_granted) is banned by
+/// `clippy.toml` beyond the one call in [`worker_read`].
+pub(super) trait SplitKind {
     /// `leg` split by this kind's own estimate: granted to `grantee`, read here, read whole, or
     /// refused - the port's [`Warehouse::split_lookup`] for this kind.
     ///
@@ -54,7 +61,7 @@ pub(crate) trait SplitKind {
 
 impl AnyWarehouse {
     /// This adapter as a kind that splits, `None` for one read whole.
-    pub(crate) fn splits(&self) -> Option<&dyn SplitKind> {
+    pub(super) fn splits(&self) -> Option<&dyn SplitKind> {
         match self {
             Self::Postgres(postgres) => Some(&**postgres),
             _ => None,
@@ -67,8 +74,9 @@ impl AnyWarehouse {
 ///
 /// # Errors
 ///
-/// [`Unread::LegNotCertified`] for a leg `pinned` does not certify, whatever the kind; then a source
-/// of a kind that does not split, named; then the source's own failure to read.
+/// [`Unread::LegNotCertified`] for a leg `pinned` does not certify, in a deployment that holds a kind
+/// that splits; a source of a kind that does not split, named - without certifying anything when the
+/// deployment holds no kind that splits; then the source's own failure to read.
 pub(crate) fn worker_read(
     pinned: &PinnedDefinitions,
     sources: &OpenedSources,
@@ -80,12 +88,12 @@ pub(crate) fn worker_read(
     let not_split = || Unread::source_not_read(source);
     match sources {
         OpenedSources::Postgres(sources) => read_in(pinned, sources, source, wire, |postgres, leg| {
-            postgres.read_granted(leg, partition, deadline)
+            read_here(postgres, leg, partition, deadline)
         }),
         OpenedSources::Mixed(mixed) => read_in(pinned, &mixed.engines, source, wire, |engine, leg| {
             engine
                 .splits()
-                .map_or_else(|| Err(not_split()), |kind| kind.read_granted(leg, partition, deadline))
+                .map_or_else(|| Err(not_split()), |kind| read_here(kind, leg, partition, deadline))
         }),
         _ => Err(not_split()),
     }
@@ -109,6 +117,16 @@ pub(crate) fn worker_read_forwarded(
 ) -> Result<ResultBatches, Unread> {
     drop(forwarded);
     Err(Unread::failed(TokenUnread::NotReadWithAToken { at: source.clone() }))
+}
+
+/// `kind`'s read of the granted `partition` of `leg`, the one call site of
+/// [`read_granted`](SplitKind::read_granted).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "only worker_read calls this, and only from inside read_recertified: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
+)]
+fn read_here(kind: &dyn SplitKind, leg: &LegPlan, partition: &[u8], deadline: Deadline) -> Result<ResultBatches, Unread> {
+    kind.read_granted(leg, partition, deadline)
 }
 
 /// [`sutura_app::read_recertified`] over `opened`, a refusal answered as an uncertified leg.
