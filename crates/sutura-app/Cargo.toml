@@ -77,11 +77,12 @@ sutura-exec-duckdb = { workspace = true, features = ["fixtures"] }
 # `fixtures` for `sutura_exec_postgres::fixture::FixtureCredential::conninfo`, which the harness opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
-# A fifth DATA SOURCE, over HTTP, and a development dependency for Postgres's reason: it proves the
-# ClickHouse statement we render is accepted by a real ClickHouse and answers the same rows. Its
-# cells run against the worktree's `nix/clickhouse-tier.nix` server and skip where none is up.
-# `fixtures` for the tier's credential, its per-open database and the CSV importer.
-sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
+# A fifth DATA SOURCE, over ADBC like the one `sutura serve` ships, and a development dependency for
+# Postgres's reason: it proves the ClickHouse statement we render is accepted by a real ClickHouse
+# and answers the same rows. Its cells run against the worktree's `nix/clickhouse-tier.nix` server
+# and skip where none is up. `adbc` for the shipped transport; `fixtures` for the tier's
+# credential, its per-open database and the CSV importer.
+sutura-exec-clickhouse = { workspace = true, features = ["adbc", "fixtures"] }
 # A metrics serving layer over HTTP: the plan becomes a Cube JSON query and Cube computes each metric.
 # Its cells run against the compose `cube` profile (`just dev-up-cube`) and skip where none is up.
 # `fixtures` for the tier's token.
