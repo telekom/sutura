@@ -1,12 +1,12 @@
 diff --git a/crates/sutura-domain/src/plan/split.rs b/crates/sutura-domain/src/plan/split.rs
 --- a/crates/sutura-domain/src/plan/split.rs
 +++ b/crates/sutura-domain/src/plan/split.rs
-@@ -331,7 +331,7 @@
+@@ -378,7 +378,7 @@
              .not_after()
              .unix_seconds()
              .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
 -            .map_or(question_ends, |expires| expires.min(question_ends));
 +            .map_or(question_ends, |_expires| question_ends);
-         Ok(Self {
-             wire: PartitionLeg::encode(leg).map_err(NotOffered::NotSendable)?,
-             caller,
+         let presented = match asked.presented_for(leg.source()) {
+             Ok(Presented::SubjectToken { material }) => Some(AssertionDigest::of(material)),
+             Ok(Presented::SubjectPrincipal { .. } | Presented::SubjectSignIn { .. } | Presented::SharedServiceUser { .. })

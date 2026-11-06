@@ -300,26 +300,10 @@ impl Warehouse for AnyWarehouse {
         any_billed!(self, execute_billed, executable, presented, bill_to, labels, deadline)
     }
 
-    /// A `PostgreSQL` lookup leg through `split_by_estimate`, every other kind read whole.
-    ///
-    /// A split of two or more partitions offered a `grantee` is granted to the nodes that read the
-    /// source (`grant::granted_or_read`): its columns described on the exporting connection, each
-    /// partition's descriptor, and the [`SplitLeg`](sutura_exec_postgres::adbc::SplitLeg) itself
-    /// held by the grant, so the exporting transaction stays open as long as the grant does.
-    /// [`Grantee::grant`](sutura_domain::plan::Grantee::grant)'s refusal is the answer, and no
-    /// partition of a granted or refused leg is read here.
-    ///
-    /// Without a `grantee`, with one partition, or with a column whose type its cells decide
-    /// (`NUMERIC`), the reader owns the split and reads by position until it holds no further
-    /// partition, so each is read once, in page order, and the exporting transaction stays open until
-    /// the reader is dropped. A single-kind `postgres` deployment holds the adapter itself rather than
-    /// this enum and reads every leg whole.
-    ///
-    /// **Limits:** a leg answered [`Partitioned::Whole`](sutura_domain::plan::Partitioned::Whole)
-    /// was estimated first, one round trip more than reading it whole outright; a granted one is
-    /// described too, one more. And a link value two partitions both carry is one table's repeated
-    /// tuple to the combine, refused as an ambiguous link - so a leg the whole read answered can be
-    /// refused once split, never answered differently.
+    /// The leg of a kind that splits through its [`SplitKind`](split::SplitKind), every other kind
+    /// read whole. A deployment whose sources are all `postgres` holds this enum only where a
+    /// declared peer reads one of its sources (`postgres::served`); otherwise it holds the adapter
+    /// itself and reads every leg whole.
     ///
     /// Built with `distributed` only: a build without it refuses `server.nodes` at boot
     /// (`nodes::combiner`), so no source is named for splitting and the default reads every leg
@@ -334,22 +318,10 @@ impl Warehouse for AnyWarehouse {
         readers: core::num::NonZeroUsize,
         grantee: Option<sutura_domain::plan::Grantee>,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
-        use core::num::{NonZeroU32, NonZeroUsize};
-        use sutura_domain::plan::Partitioned;
-        use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned};
-
-        let Self::Postgres(postgres) = self else {
-            return Ok(Partitioned::Whole);
+        let Some(kind) = self.splits() else {
+            return Ok(sutura_domain::plan::Partitioned::Whole);
         };
-        let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
-        let split = match postgres.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
-            Ok(Planned::Whole) => return Ok(Partitioned::Whole),
-            Ok(Planned::Refused(refusal)) => return Ok(Partitioned::Refused(refusal)),
-            Ok(Planned::Split(split)) => split,
-            Err(cause) => return Err(AnyWarehouseError::Postgres(cause)),
-        };
-        let rows = NonZeroU32::try_from(stream_rows).unwrap_or(NonZeroU32::MAX);
-        grant::granted_or_read(split, grantee, deadline, rows, std::time::SystemTime::now)
+        kind.split(leg, presented, deadline, above_bytes, readers, grantee)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -636,11 +608,14 @@ fn accumulate(
     }
 }
 
-/// A split PostgreSQL lookup leg granted to the nodes that read its source, or read here.
+/// A split lookup leg granted to the nodes that read its source, or read here.
 #[cfg(all(feature = "postgres", feature = "distributed"))]
 mod grant;
 /// Each kind's group opener, split out for the line cap.
 mod groups;
+/// The one per-kind split dispatch, for the planning node and a reading worker.
+#[cfg(all(feature = "postgres", feature = "distributed"))]
+pub(super) mod split;
 use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, oracle_group, postgres_group};
 
 /// The labels this enum forwards, observed through a fake variant.

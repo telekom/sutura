@@ -70,10 +70,11 @@ tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
 # and it was already a DEV-dependency here for the deadline test's hand-rolled `PartitionStream`.
 futures-util = { workspace = true }
 thiserror = { workspace = true }
-# The lock `ReadingKeys` holds: `std::sync::Mutex` is disallowed crate-wide, and a reading task's
-# admit rule is synchronous, never held across an `.await`, matching the carve-out the root
-# manifest's own `parking_lot` entry already documents. Optional and only under `distributed`, the
-# one feature that reaches `combine::across::grant` at all.
+# The locks `ReadingKeys` and the links' kept channels hold: `std::sync::Mutex` is disallowed
+# crate-wide, and a reading task's admit rule and a channel's lookup are synchronous, never held
+# across an `.await` - a call given up on forgets its channel in a `Drop`, which cannot await -
+# matching the carve-out the root manifest's own `parking_lot` entry already documents. Optional
+# and only under `distributed`, the one feature that reaches `combine::across` at all.
 parking_lot = { workspace = true, optional = true }
 
 # The conformance packs, which `tests/conformance.rs` binds this engine to. A DEV-dependency, for
@@ -112,7 +113,7 @@ fixtures = ["sutura-domain/fixtures"]
 measurement = []
 # A combine whose stages above a repartition run on several nodes, `combine::across`. Default-off: no
 # binary plans a combine across nodes yet. `tokio/net` for the runtime's I/O driver, which the links
-# to the other nodes need, and `tokio/sync` for the lock their channels are kept under.
+# to the other nodes need, and `tokio/sync` for the lock their question keys are kept under.
 distributed = [
   "dep:datafusion-distributed",
   "dep:url",
