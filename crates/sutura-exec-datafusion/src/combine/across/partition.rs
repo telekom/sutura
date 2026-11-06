@@ -38,6 +38,8 @@ use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConve
 use datafusion_proto::protobuf::Schema as ProtoSchema;
 use futures_util::{StreamExt as _, stream};
 use prost::Message as _;
+use ring::digest;
+use sutura_domain::identity::{Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::ResultBatches;
 
@@ -61,6 +63,78 @@ pub trait PartitionReader: Send + Sync {
         partition: &[u8],
         schema: &SchemaRef,
     ) -> Result<SendableRecordBatchStream, Unread>;
+
+    /// [`Self::read`], with `forwarded`, the caller's own token the partition's grant names.
+    ///
+    /// # Errors
+    ///
+    /// By default every such read, as [`Unread::Failed`]: a reader that reads no source with a
+    /// caller's token is never handed one to read past.
+    fn read_forwarded(
+        &self,
+        _wire: &[u8],
+        source: &SourceName,
+        _partition: &[u8],
+        _schema: &SchemaRef,
+        forwarded: Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        drop(forwarded);
+        Err(Unread::Failed(DataFusionError::Execution(format!(
+            "this reading worker reads no partition of `{source}` with a caller's token"
+        ))))
+    }
+}
+
+/// The caller's own token a granted partition is read with, and a digest of the pool whose
+/// principal it is. Its `Debug` prints neither.
+pub struct Forwarded {
+    token: Secret,
+    pool: [u8; 32],
+}
+
+impl Forwarded {
+    /// `token`, a token of `pool`'s principal for the caller.
+    #[must_use]
+    pub fn new(token: Secret, pool: &WorkloadPool) -> Self {
+        Self {
+            token,
+            pool: pool_digest(pool),
+        }
+    }
+
+    /// Whether this token was forwarded for `pool`'s principal, the one a reader's own source
+    /// federates at.
+    #[must_use]
+    pub fn for_pool(&self, pool: &WorkloadPool) -> bool {
+        self.pool == pool_digest(pool)
+    }
+
+    /// The token, moved out for the one read it is handed to.
+    #[must_use]
+    pub fn into_token(self) -> Secret {
+        self.token
+    }
+
+    /// A copy for one more task's plan.
+    pub(super) fn copied(&self) -> Self {
+        Self {
+            token: self.token.clone(),
+            pool: self.pool,
+        }
+    }
+}
+
+impl fmt::Debug for Forwarded {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Forwarded").finish_non_exhaustive()
+    }
+}
+
+fn pool_digest(pool: &WorkloadPool) -> [u8; 32] {
+    let hashed = digest::digest(&digest::SHA256, pool.audience().as_bytes());
+    let mut bytes = [0; 32];
+    bytes.copy_from_slice(hashed.as_ref());
+    bytes
 }
 
 /// A closure reads without the leg's wire, and its failure is never a refused certification.
@@ -177,6 +251,14 @@ impl PartitionScanExec {
             grant,
             properties,
         }
+    }
+
+    /// This scan, read with `forwarded`.
+    ///
+    /// **Not built yet:** `forwarded` is dropped, and the scan reads as it did.
+    pub(super) fn forwarding(self, forwarded: Forwarded) -> Self {
+        drop(forwarded);
+        self
     }
 }
 

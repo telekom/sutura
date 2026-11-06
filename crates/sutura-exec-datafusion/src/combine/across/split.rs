@@ -66,7 +66,7 @@ use url::Url;
 
 use super::NoReadingNode;
 use super::grant;
-use super::partition::PartitionScanExec;
+use super::partition::{Forwarded, PartitionScanExec};
 
 /// A leg split into partitions, each read only by a task on a worker that reads its source.
 #[derive(Debug)]
@@ -77,6 +77,7 @@ struct Leg {
     source: SourceName,
     schema: SchemaRef,
     partitions: Vec<Granted>,
+    forwarded: Option<Forwarded>,
 }
 
 impl fmt::Debug for Leg {
@@ -127,12 +128,47 @@ impl SplitScan {
         until: SystemTime,
         bound: StreamBound,
     ) -> Result<Self, DataFusionError> {
+        Self::minted((wire, source, schema), partitions, (caller, until), bound, None)
+    }
+
+    /// [`Self::granted`], each partition read with `forwarded`, the caller's own token.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::granted`].
+    pub fn granted_forwarding(
+        wire: Vec<u8>,
+        source: SourceName,
+        schema: SchemaRef,
+        partitions: impl IntoIterator<Item = Vec<u8>>,
+        caller: &SubjectKey,
+        until: SystemTime,
+        bound: StreamBound,
+        forwarded: Forwarded,
+    ) -> Result<Self, DataFusionError> {
+        Self::minted((wire, source, schema), partitions, (caller, until), bound, Some(forwarded))
+    }
+
+    fn minted(
+        (wire, source, schema): (Vec<u8>, SourceName, SchemaRef),
+        partitions: impl IntoIterator<Item = Vec<u8>>,
+        (caller, until): (&SubjectKey, SystemTime),
+        bound: StreamBound,
+        forwarded: Option<Forwarded>,
+    ) -> Result<Self, DataFusionError> {
         // A deadline before the epoch is already past: every grant under it is refused.
         let until = until.duration_since(UNIX_EPOCH).unwrap_or_default();
         let partitions = partitions
             .into_iter()
             .map(|partition| {
-                let (key, grant) = grant::granted_read(&wire, &source, &partition, caller, until, bound.rows, bound.bytes)?;
+                let (key, grant) = grant::granted_read(
+                    &wire,
+                    &source,
+                    &partition,
+                    (caller, until),
+                    (bound.rows, bound.bytes),
+                    forwarded.as_ref(),
+                )?;
                 Ok(Granted { partition, key, grant })
             })
             .collect::<Result<Vec<_>, DataFusionError>>()?;
@@ -144,6 +180,7 @@ impl SplitScan {
             source,
             schema,
             partitions,
+            forwarded,
         })))
     }
 }
@@ -287,14 +324,18 @@ pub(super) fn scaled(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLe
                         .enumerate()
                         .map(|(index, granted)| {
                             if index.checked_rem(tasks) == Some(task) {
-                                Arc::new(PartitionScanExec::new(
+                                let scan = PartitionScanExec::new(
                                     leg.wire.clone(),
                                     leg.source.clone(),
                                     granted.partition.clone(),
                                     granted.key,
                                     Some(granted.grant.clone()),
                                     Arc::clone(&leg.schema),
-                                )) as Arc<dyn ExecutionPlan>
+                                );
+                                Arc::new(match &leg.forwarded {
+                                    Some(forwarded) => scan.forwarding(forwarded.copied()),
+                                    None => scan,
+                                }) as Arc<dyn ExecutionPlan>
                             } else {
                                 Arc::new(EmptyExec::new(Arc::clone(&leg.schema)))
                             }
