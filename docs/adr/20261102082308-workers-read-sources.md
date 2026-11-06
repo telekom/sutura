@@ -437,7 +437,56 @@ Limits:
   and no reading worker reads an Oracle partition, until the grant and the reading worker gain an
   Oracle arm.
 
-## Fifth amendment, 2026-11-06: a BigQuery pool leg is split, and a reading worker reads it with the caller's token
+## Fifth amendment, 2026-11-06: a ClickHouse lookup leg splits by hash bucket, read as the caller's switched user
+
+The owner decided that a ClickHouse lookup leg is split, and that a partition runs as the same
+identity that a whole read of the leg runs as. This record calls ClickHouse W4, after Oracle as W3;
+that label is the record's own ordering and not an owner decision.
+
+1. **A partition is a hash bucket.** It is `cityHash64(<integer keys>) % N = i`, applied before
+   the leg's `GROUP BY`. A read is consistent per key only.
+2. **The identity follows the source's posture.** A `shared-service-user` source's partition is
+   read as the service user. An `impersonation-at-source` source with no `delegation` is read as
+   the caller's switched user: `EXECUTE AS "<user>" <statement>` on each partition statement. A
+   source with `delegation` is not split until token forwarding reaches it.
+3. **The grant binds the user, and the user travels with its task.** The coordinating node signs
+   a digest of the user into the reading grant, and the grant's caller field stays masked. The user
+   travels in its partition's own task and is taken once. Before it connects, a worker refuses: a
+   user that the grant does not name; a user whose masked form differs from the grant's caller; its
+   own entry for the source not opted in or not switching; and a user that is its own service user.
+4. **The operator bounds the switch.** The service user of each reading worker holds
+   `GRANT IMPERSONATE ON <user>` only on the ClickHouse user of each caller it serves, by name.
+   Never `IMPERSONATE ON *` and never `ALL ON *.*`: each one lets a switch reach any user.
+
+Limits:
+
+- **The worker learns the caller's unmasked name.** It must, because the ClickHouse user is that
+  name. The grant binds the user and does not protect it from a node that reads the task. The
+  digest is guessable from a list of names, so it binds and does not hide.
+- **No list of callers exists.** The server's `IMPERSONATE` grants are the bound on which user a
+  worker can switch to. A worker that rewrites its own task can name any user those grants reach.
+- **The masked check is lossy.** Two names can share a masked form, so it narrows the check and
+  proves nothing on its own.
+- **A refusal at a worker is an internal error.** A caller whose user the server refuses, for a
+  missing grant or a missing `IMPERSONATE`, gets an internal error and not `source_refused`, as
+  decision 4 of the first amendment decides for BigQuery.
+- **The switch is the deployment's credential, not the caller's.** The 2026-10-12 objection in the
+  federation record, kept as a limit by its fourth amendment, stands for a partition too.
+- **A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
+  answer wrongly without an error.** The clamp is read from the ClickHouse server source and not
+  measured. Measured once, for a leg: under `readonly = 1`, a left join answered an unmatched key
+  as the empty value, with no error. No constraint was run, and a partition runs the same
+  statement shape under the same clamp. The federation record's fourth amendment states the
+  requirement.
+- **A statement that a later driver adds would run as the service user.** The vendored driver sends
+  no request when it connects and its only send is a statement's fetch, and a partition goes
+  through the same driver. The tier's `system.query_log` shows, for that database, the wrapper and
+  the inner `SELECT` and no other finished statement. Nothing here would catch the later one.
+- **Not built.** No ClickHouse leg is split, and no worker reads a ClickHouse partition. The tier
+  cells that read a whole leg under the switch come with the change that lifts the adapter's
+  refusal. No cell reads a split one.
+
+## Sixth amendment, 2026-11-06: a BigQuery pool leg is split, and a reading worker reads it with the caller's token
 
 This replaces the third amendment's statement that the `split_lookup` arm and the reading worker's
 BigQuery arm are not built. In a mixed-kind `sutura serve` deployment:
