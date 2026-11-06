@@ -118,6 +118,11 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "node")]
     #[error(transparent)]
     Node(sutura_exec_node::NodeError),
+    /// A split's forwarded token was exchanged from a credential other than the one the request
+    /// presented for the leg's source: the leg is refused, never granted or read.
+    #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
+    #[error(transparent)]
+    NotTheCallersToken(sutura_domain::plan::NotTheCallersToken),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -316,11 +321,12 @@ impl Warehouse for AnyWarehouse {
         above_bytes: core::num::NonZeroU64,
         readers: core::num::NonZeroUsize,
         grantee: Option<sutura_domain::plan::Grantee>,
+        labels: &JobLabels,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
         let Some(kind) = self.splits() else {
             return Ok(sutura_domain::plan::Partitioned::Whole);
         };
-        kind.split(leg, presented, deadline, above_bytes, readers, grantee)
+        kind.split(leg, presented, deadline, above_bytes, readers, grantee, labels)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

@@ -3,21 +3,26 @@
 //!
 //! A kind that splits implements [`SplitKind`](crate::serve::kind::split::SplitKind) and takes one
 //! arm in [`AnyWarehouse::splits`], and a single-kind deployment of it one arm in
-//! [`worker_read`](crate::serve::kind::split::worker_read). Every other kind is read whole by the
-//! planning node and refused by a reading worker, naming the source. `PostgreSQL` is the one kind
-//! that splits.
+//! [`worker_read`](crate::serve::kind::split::worker_read) and
+//! [`worker_read_forwarded`](crate::serve::kind::split::worker_read_forwarded). Every other kind is
+//! read whole by the planning node and refused by a reading worker, naming the source.
+//! `PostgreSQL` splits, read as its service user; `BigQuery` splits at a pool source only, read
+//! with the caller's forwarded token (`bigquery`).
+//!
+//! **Limit:** the `BigQuery` arm is built only with `postgres` too, as this module is.
 
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{Presented, Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Grantee, LegPlan, LookupSplit, Partitioned};
-use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{ResultBatches, Warehouse};
-use sutura_exec_datafusion::Unread;
+use sutura_exec_datafusion::{Forwarded, TokenUnread, Unread};
 use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned, SplitLeg};
 
 use super::super::{OpenedSources, PostgresSource};
@@ -40,6 +45,7 @@ pub(crate) trait SplitKind {
         above_bytes: NonZeroU64,
         readers: NonZeroUsize,
         grantee: Option<Grantee>,
+        labels: &JobLabels,
     ) -> LookupSplit<'_, AnyWarehouseError>;
 
     /// The granted `partition` of `leg`, which this node re-certified, read on this node.
@@ -48,6 +54,29 @@ pub(crate) trait SplitKind {
     ///
     /// The source's failure to read it, as [`Unread::Failed`].
     fn read_granted(&self, leg: &LegPlan, partition: &[u8], deadline: Deadline) -> Result<ResultBatches, Unread>;
+
+    /// The pool this source reads a partition with a caller's forwarded token at: `None` for a
+    /// source that reads none, so a token is never handed to it.
+    fn forwarded_at(&self) -> Option<&WorkloadPool> {
+        None
+    }
+
+    /// [`Self::read_granted`] with `token`, the caller's own token the partition's grant named.
+    ///
+    /// # Errors
+    ///
+    /// By default every such read, as [`Unread::Failed`]; otherwise the source's failure to read.
+    fn read_forwarded(
+        &self,
+        leg: &LegPlan,
+        _partition: &[u8],
+        _token: &Secret,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Unread> {
+        Err(Unread::failed(TokenUnread::NotReadWithAToken {
+            at: leg.source().clone(),
+        }))
+    }
 }
 
 impl AnyWarehouse {
@@ -55,6 +84,8 @@ impl AnyWarehouse {
     pub(crate) fn splits(&self) -> Option<&dyn SplitKind> {
         match self {
             Self::Postgres(postgres) => Some(&**postgres),
+            #[cfg(feature = "bigquery")]
+            Self::BigQuery(bigquery) => Some(&**bigquery),
             _ => None,
         }
     }
@@ -77,6 +108,10 @@ pub(crate) fn worker_read(
 ) -> Result<ResultBatches, Unread> {
     let not_split = || Unread::source_not_read(source);
     match sources {
+        #[cfg(feature = "bigquery")]
+        OpenedSources::BigQuery(sources) => read_in(pinned, sources, source, wire, |bigquery, leg| {
+            bigquery.read_granted(leg, partition, deadline)
+        }),
         OpenedSources::Postgres(sources) => read_in(pinned, sources, source, wire, |postgres, leg| {
             postgres.read_granted(leg, partition, deadline)
         }),
@@ -86,6 +121,88 @@ pub(crate) fn worker_read(
                 .map_or_else(|| Err(not_split()), |kind| kind.read_granted(leg, partition, deadline))
         }),
         _ => Err(not_split()),
+    }
+}
+
+/// `source`'s `partition` of the leg `wire` holds, read with `forwarded`, the caller's token the
+/// admitted grant named: only at a source of that name this node federates at the token's own pool,
+/// only while that grant lasts, and only once `pinned` re-certified the leg. The read ends no later
+/// than this node's `budget` or the grant, whichever is first; the grant ends no later than the
+/// token, as the planning node made it.
+///
+/// **Limit:** the token is opaque here, so its own expiry is read off the grant, which the planning
+/// node clamped to it, and not off the token.
+///
+/// # Errors
+///
+/// [`Unread::LegNotCertified`] where this node declares no source of that name reading a token at
+/// the pool it was forwarded for, whatever the kind; [`TokenUnread::Ended`] once the grant has
+/// ended; then [`Unread::LegNotCertified`] for a leg `pinned` does not certify, and the source's own
+/// failure to read.
+pub(crate) fn worker_read_forwarded(
+    pinned: &PinnedDefinitions,
+    sources: &OpenedSources,
+    source: &SourceName,
+    wire: &[u8],
+    partition: &[u8],
+    forwarded: Forwarded,
+    budget: Budget,
+) -> Result<ResultBatches, Unread> {
+    let asked = Asked {
+        source,
+        wire,
+        partition,
+        forwarded,
+        budget,
+    };
+    match sources {
+        #[cfg(feature = "bigquery")]
+        OpenedSources::BigQuery(sources) => asked.read_in(pinned, sources, |bigquery| Some(bigquery as &dyn SplitKind)),
+        OpenedSources::Mixed(mixed) => asked.read_in(pinned, &mixed.engines, AnyWarehouse::splits),
+        _ => Err(Unread::LegNotCertified),
+    }
+}
+
+/// A deployment's source as the kind that splits it, `None` for one that does not.
+type KindOf<W> = fn(&W) -> Option<&dyn SplitKind>;
+
+/// One read [`worker_read_forwarded`] was asked for.
+struct Asked<'a> {
+    source: &'a SourceName,
+    wire: &'a [u8],
+    partition: &'a [u8],
+    forwarded: Forwarded,
+    budget: Budget,
+}
+
+impl Asked<'_> {
+    fn read_in<W>(
+        self,
+        pinned: &PinnedDefinitions,
+        opened: &sutura_app::Warehouses<W>,
+        kind: KindOf<W>,
+    ) -> Result<ResultBatches, Unread>
+    where
+        W: Warehouse,
+    {
+        let pool = opened.get(self.source).and_then(kind).and_then(SplitKind::forwarded_at);
+        if !pool.is_some_and(|pool| self.forwarded.for_pool(pool)) {
+            return Err(Unread::LegNotCertified);
+        }
+        let ended = || Unread::failed(TokenUnread::Ended { at: self.source.clone() });
+        let left = self
+            .forwarded
+            .ends()
+            .duration_since(SystemTime::now())
+            .map_err(|_ended| ended())?;
+        let budget = Budget::parse(self.budget.duration().min(left)).map_err(|_none| ended())?;
+        let deadline = Deadline::opened_at(Instant::now(), budget);
+        let token = self.forwarded.into_token();
+        read_in(pinned, opened, self.source, self.wire, |engine, leg| {
+            kind(engine).map_or(Err(Unread::LegNotCertified), |kind| {
+                kind.read_forwarded(leg, self.partition, &token, deadline)
+            })
+        })
     }
 }
 
@@ -129,6 +246,7 @@ impl SplitKind for PostgresSource {
         above_bytes: NonZeroU64,
         readers: NonZeroUsize,
         grantee: Option<Grantee>,
+        _labels: &JobLabels,
     ) -> LookupSplit<'_, AnyWarehouseError> {
         let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
         let split = match self.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
@@ -177,3 +295,6 @@ impl HeldSplit for SplitLeg<'_> {
             .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
     }
 }
+
+#[cfg(feature = "bigquery")]
+mod bigquery;
