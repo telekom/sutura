@@ -2566,45 +2566,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#implements_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implements
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#struct-tokensessions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        struct TokenSessions
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="struct TokenSessions">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#methods_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Methods
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -2726,7 +2687,17 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
 - <code>PresentedDisagreesWithPosture</code>
 - <code>DeadlineSpent</code> - The deadline was already spent before this call ever reached the driver - see <code>refuse_if_spent</code> for why this is checked rather than forwarded.
 - <code>CallTimeout</code> - <code>Connection::set_call_timeout</code> itself refused the value.
-- <code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>sutura_oracle_connect::oracle_trace::refuse</code>.</p>
+- <code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>sutura_oracle_connect::oracle_trace::refuse</code>.
+- <code>FlashbackNotDeclared</code> - A partition was asked of a source whose flashback split was not declared and probed.
+- <code>FlashbackAtImpersonatingSource</code> - A flashback split was declared on a source that opens each caller's own session.
+- <code>FlashbackAnyTable</code> - The service user holds the system privilege, where each table it reads is granted alone.
+- <code>FlashbackRoleNotEnabled</code> - A role granted to the service user is not enabled when it signs in.
+- <code>FlashbackRefused</code> - The service user could not read <code>table</code> at a snapshot.
+- <code>Unanswered</code> - The database answered something other than one positive system change number, or than the one-row answer a dictionary probe projects - a defect in this adapter, never anything about the data.
+- <code>MalformedDescriptor</code> - The bytes are not a partition descriptor this build reads.
+- <code>PartitionRender</code> - A partition could not be rendered at its snapshot.
+- <code>SnapshotGone</code> - The database can no longer read the partition's snapshot: <code>ORA-01555</code> (snapshot too old), <code>ORA-08181</code> (not a valid system change number) or <code>ORA-01466</code> (the table's definition changed).
+- <code>SnapshotStale</code> - The partition's snapshot was taken longer ago than the reading request's budget.</p>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-oraclewarehouse"><code>struct OracleWarehouse</code><a class="headerlink" href="#struct-oraclewarehouse" title="Permanent link">&para;</a></h2>
@@ -2748,33 +2719,64 @@ each question's own session.</p>
 the tier's own certificate authority. <code>service_name</code> is fixed at
 <code>FREEPDB1</code>, the community image's own pluggable database, which is not a secret the tier
 publishes - it is the image's name for itself.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">read_partition</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">descriptor</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="kt">u8</span><span class="p">],</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">Deadline</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">ResultBatches</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The rows of the partition <code>descriptor</code> names of <code>leg</code>, read at its snapshot as the service
+user, after the database answered that the snapshot is no older than <code>deadline</code>'s budget.</p>
+<p>It takes no presented identity and does not authenticate the descriptor: both are the task
+grant's, which carries the descriptor and authorises the leg before this runs.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>OracleError::FlashbackNotDeclared</code> at a source <code>Self::with_flashback</code> did not probe,
+<code>OracleError::MalformedDescriptor</code> and <code>OracleError::PartitionRender</code> before any round
+trip; then <code>OracleError::SnapshotStale</code>, <code>OracleError::SnapshotGone</code>, a spent deadline,
+and the database's failure.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">split_by_estimate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Presented</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">Deadline</span><span class="p">,</span><span class="w"> </span><span class="n">above_bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroU64</span><span class="p">,</span><span class="w"> </span><span class="n">per_stream_bound</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">ready_workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">Planned</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p><code>leg</code> read whole, split into buckets at one snapshot, or refused -
+<code>sutura_domain::plan::decide</code> over the dictionary's estimate of its root, against
+<code>above_bytes</code>, <code>per_stream_bound</code> rows a stream and at most <code>ready_workers</code> partitions.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p>What <code>Warehouse::execute</code> refuses before it sends a statement, a spent deadline, and the
+dictionary's or the database's failure.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_flashback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">tables</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">QualifiedTable</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>This adapter, its lookup legs split by flashback query (<code>split: flashback</code>), once its boot
+probe passed over <code>tables</code>: the service user holds no <code>FLASHBACK ANY TABLE</code>, the database
+answers a snapshot, and each of <code>tables</code> reads at it.</p>
+<p>No deadline: the boot path has no caller's budget to spend, as <code>Warehouse::verify_anchor</code>
+has none.</p>
+<p><strong>Not built yet:</strong> the posture is not checked and no snapshot is read, so a probe that passes
+the privilege check fails as <code>OracleError::Unanswered</code>.</p>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<p><code>OracleError::FlashbackAnyTable</code>, then <code>OracleError::Unanswered</code>; a probe the database
+fails otherwise is its own error.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
 <h2 id="struct-tokensessions"><code>struct TokenSessions</code><a class="headerlink" href="#struct-tokensessions" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TokenSessions</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TokenSessions</span>
 </span></code></pre></div>
 <p>The declared dial with no user or password: where each question's own session is opened, with
 the asker's own token, at an <code>impersonation-at-source</code> source.</p>
 <p>The driver refuses a token over anything but TLS, so a <code>Channel::Plaintext</code> dial opens no
 session; the settings parse refuses that declaration before a dial exists.</p>
 <h3 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">dial</span><span class="p">:</span><span class="w"> </span><span class="nc">Dial</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">dial</span><span class="p">:</span><span class="w"> </span><span class="nc">Dial</span><span class="o">&lt;'</span><span class="nb">_</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The driver's configuration for <code>dial</code>: its address, its channel and anchors, the dial bound, and a refused redirect.</p>
-<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p><code>OracleError::PacketTraceOn</code> while the driver's packet trace is switched on,
 <code>OracleError::TrustAnchors</code> for anchors that are not usable certificates, and
 <code>OracleError::Connect</code> for an address the driver cannot parse.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Secret</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">oracledb</span><span class="p">::</span><span class="n">Connection</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Secret</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">oracledb</span><span class="p">::</span><span class="n">Connection</span><span class="p">,</span><span class="w"> </span><span class="n">OracleError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Opens one session that authenticates with <code>token</code>. Dropping it closes the session.</p>
-<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
 <p><code>OracleError::RedirectRefused</code> for a listener that redirects, and <code>OracleError::Connect</code>
 for every other refused dial or login. Neither carries the token.</p>
 <h3 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h3>
 <p><code>Clone</code>, <code>Debug</code></p>
 <h2 id="struct-drivererror"><code>struct DriverError</code><a class="headerlink" href="#struct-drivererror" title="Permanent link">&para;</a></h2>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DriverError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DriverError</span>
 </span></code></pre></div>
 <p>Wraps <code>oracledb::Error</code> so it can be a <code>thiserror</code> <code>#[source]</code>.</p>
 <p><strong>Measured, not assumed:</strong> <code>oracledb::Error</code> implements <code>Debug</code> and <code>Display</code> but not
@@ -2784,6 +2786,16 @@ and there is no orphan-rule obstacle to implementing it for a LOCAL wrapper arou
 type, so this is the newtype rather than a second, string-only error shape.</p>
 <h3 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="use-invaliddescriptor"><code>use InvalidDescriptor</code><a class="headerlink" href="#use-invaliddescriptor" title="Permanent link">&para;</a></h2>
+<p>Why bytes are not a <code>PartitionDescriptor</code>. No variant carries the bytes themselves.</p>
+<h2 id="use-partitiondescriptor"><code>use PartitionDescriptor</code><a class="headerlink" href="#use-partitiondescriptor" title="Permanent link">&para;</a></h2>
+<p>A partition's snapshot and bucket, minted by <code>super::SplitLeg::partitions</code> and parsed from
+bytes by <code>TryFrom&lt;&amp;[u8]&gt;</code>.</p>
+<h2 id="use-planned"><code>use Planned</code><a class="headerlink" href="#use-planned" title="Permanent link">&para;</a></h2>
+<p><code>OracleWarehouse::split_by_estimate</code>'s outcome.</p>
+<h2 id="use-splitleg"><code>use SplitLeg</code><a class="headerlink" href="#use-splitleg" title="Permanent link">&para;</a></h2>
+<p>A leg cut into buckets at one snapshot. Nothing is held open: the snapshot is in each
+partition's statement.</p>
 <h2 id="use-channel"><code>use Channel</code><a class="headerlink" href="#use-channel" title="Permanent link">&para;</a></h2>
 <h2 id="use-dial_deadline"><code>use DIAL_DEADLINE</code><a class="headerlink" href="#use-dial_deadline" title="Permanent link">&para;</a></h2>
 <h2 id="use-dial"><code>use Dial</code><a class="headerlink" href="#use-dial" title="Permanent link">&para;</a></h2>
@@ -2805,7 +2817,7 @@ Postgres, so a shared name there would have implied a coupling that did not exis
 coupling is real - the compose block IS the definition - so sharing the name is the honest
 spelling rather than a third naming scheme nobody chose.</p>
 <h3 id="enum-unconfiguredfixture"><code>enum UnconfiguredFixture</code><a class="headerlink" href="#enum-unconfiguredfixture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnconfiguredFixture</span>
 </span></code></pre></div>
 <p>Why there is no fixture credential to connect with.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -2817,14 +2829,14 @@ spelling rather than a third naming scheme nobody chose.</p>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-fixturecredential"><code>struct FixtureCredential</code><a class="headerlink" href="#struct-fixturecredential" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FixtureCredential</span>
 </span></code></pre></div>
 <p>The fixture tier's credential.</p>
 <p>No <code>Display</code>, no <code>PartialEq</code>, no public field: the password is a
 <code>sutura_domain::identity::Secret</code>, which has neither, and the two names leave this crate only
 as arguments to <code>crate::OracleWarehouse::local_config</code>.</p>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnconfiguredFixture</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>This process's credential, as <code>compose.services.yaml</code>'s anchors export it, and the tier's
 certificate authority read from the file <code>SUTURA_ORACLE_TIER_CA</code> names.</p>
