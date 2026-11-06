@@ -311,3 +311,48 @@ Limits, beside the first amendment's:
 - **Half the bound is a target, not a guarantee.** The Storage Read API may answer fewer streams
   than asked, each then larger, and a stream past 1,000,000 rows or 256 MiB is still refused when
   it is read. The byte bound plays no part in the stream count.
+
+## Third amendment, 2026-11-06: a grant carries the caller's token and refuses another caller's
+
+What is built, in the domain and the combine, and still with no source that makes such a grant:
+
+- `SourceToken` holds a forwarded token, its expiry, its pool, and a fingerprint of the credential
+  it was exchanged from, never that credential. Its `Debug` prints the expiry and the pool only.
+- `Grantee::forwarding` takes only a token whose fingerprint is the subject token the request
+  presented for the leg's source, and refuses any other as `NotTheCallersToken`. That request is
+  the one the grant names its caller from, so a grant for one caller does not carry a token
+  exchanged from another caller's credential. `Grantee::grant` is the only way to build a grant
+  read with a token: `Granted::forwarding` and `SplitScan::granted_forwarding` are crate-private.
+  `Granted::new` is public and takes any caller, but reads as the service user.
+- `Granted::forwarding` ends the grant no later than its token, and refuses it as expired when that
+  end has passed. This replaces the second amendment's statement that no grant takes an earlier end.
+  A worker refuses a grant past its end when it admits the task, on its own clock, so it refuses a
+  task whose token has already expired by then. A read that starts later fails at the source.
+- A grant read with the token signs a SHA-256 digest of the token and of the pool's audience. A
+  worker admits a task only when the grant names exactly the token and pool the task carries, or
+  none where it carries none, and refuses every other as `GrantNotNaming`. This guards against a
+  mix-up, not against a holder of the task: the signing key travels in the same task as the grant,
+  so anyone who can rewrite the task can mint a grant that names any token.
+- The token rides only in the scan of each task that reads a partition, beside its reading key, so
+  only the node that task is routed to is sent it, and no header carries it. The scan hands the
+  token to its reader once, when the read starts. That is once per scan, not per question: a
+  question scans a split table twice, for the link check and for the join, and each scan carries
+  its own copy. A second read of one scan is refused, and
+  `Debug` and `Display` show only whether it holds a token.
+- A reader that reads no source with a caller's token, the PostgreSQL reader among them, refuses a
+  task that carries one.
+
+The `split_lookup` arm that offers a BigQuery leg for splitting, and the reading worker's BigQuery
+arm, are still not built, so nothing in production forwards a token.
+
+Limits, beside the earlier amendments':
+
+- **The tie is as true as the fingerprint the exchanging adapter states.** `SourceToken::exchanged`
+  is public and records the credential it is told the token was exchanged from. Nothing here sees
+  the exchange, and a worker still cannot tell whose token it holds.
+- **A request that presented no subject token for the leg's source forwards nothing.** The grant
+  then refuses every token.
+- **Copies outlive the read.** The planning node keeps its copy of the token while the leg's table
+  is registered. Neither the plan bytes the planning node encodes for a task nor the bytes a worker
+  decodes the token from are wiped.
+- **A node that reads a grant reads the token's digest.** It names the token; it does not reveal it.

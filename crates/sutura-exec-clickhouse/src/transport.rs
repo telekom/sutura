@@ -132,6 +132,18 @@ impl BasicAuth {
             password,
         }
     }
+
+    /// The user the deployment declared.
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    /// The deployment's password.
+    #[must_use]
+    pub const fn password(&self) -> &sutura_domain::identity::Secret {
+        &self.password
+    }
 }
 
 /// A caller's own HTTP Basic sign-in for one request: their verified name as the user, and the token

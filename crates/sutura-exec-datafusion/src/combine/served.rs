@@ -46,6 +46,8 @@ use datafusion::error::DataFusionError;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::SessionContext;
 use sutura_domain::model::SourceName;
+#[cfg(feature = "distributed")]
+use sutura_domain::plan::ReadAs;
 use sutura_domain::plan::{Granted, InternalLabel, Legs, LookupLeg, LookupRead};
 use sutura_domain::warehouse::ResultBatches;
 
@@ -53,7 +55,7 @@ use super::cast::Cast;
 use super::schema::LegSchema;
 use super::{CombineError, DataFusionCombiner, held, missing_lookup, register_link};
 #[cfg(feature = "distributed")]
-use super::{SplitScan, StreamBound, across, working_set_of};
+use super::{Forwarded, SplitScan, StreamBound, across, working_set_of};
 use crate::pool::WorkingSet;
 
 /// The source of each lookup leg of `legs` granted rather than read here, in order.
@@ -106,7 +108,8 @@ pub(super) fn register_lookup(
 }
 
 /// `granted` as one [`SplitScan`](crate::SplitScan) table, each partition's stream bounded at
-/// `ceiling_bytes` clamped to `u32` and at the grant's row bound.
+/// `ceiling_bytes` clamped to `u32` and at the grant's row bound, and read with the caller's token
+/// where the grant reads with one.
 #[cfg(feature = "distributed")]
 fn registered_split(
     context: &SessionContext,
@@ -117,15 +120,32 @@ fn registered_split(
 ) -> Result<(), CombineError> {
     let unregistered = |cause| CombineError::Register { side: table, cause };
     let bound = StreamBound::new(granted.stream_rows().get(), u32::try_from(ceiling_bytes).unwrap_or(u32::MAX));
-    let scan = SplitScan::granted(
+    let (wire, schema, partitions) = (
         granted.wire().to_vec(),
-        source.clone(),
         Arc::clone(granted.schema()),
         granted.partitions().iter().cloned(),
-        granted.caller(),
-        granted.until(),
-        bound,
-    )
+    );
+    let scan = match granted.reads() {
+        ReadAs::ServiceUser => SplitScan::granted(
+            wire,
+            source.clone(),
+            schema,
+            partitions,
+            granted.caller(),
+            granted.until(),
+            bound,
+        ),
+        ReadAs::CallerToken(token) => SplitScan::granted_forwarding(
+            wire,
+            source.clone(),
+            schema,
+            partitions,
+            granted.caller(),
+            granted.until(),
+            bound,
+            Forwarded::new(token.secret().clone(), token.pool()),
+        ),
+    }
     .map_err(unregistered)?;
     context.deregister_table(TableReference::bare(table)).map_err(unregistered)?;
     context
