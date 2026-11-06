@@ -547,10 +547,16 @@ mod top;
 /// One measure, as one expression - the guard/aggregate rendering.
 mod measure;
 
+/// One leg, read at one Oracle snapshot.
+mod flashback;
+/// One leg, as one statement.
+mod leg;
 /// One leg, restricted to a range of its root table's pages.
 mod pages;
 /// Several metrics on one data system, as one statement.
 mod stacked;
+pub use flashback::{AsOfRefused, InvalidKeyBucket, KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
+use leg::leg_within;
 use measure::{Guard, measure_expression, predicate_values, term_expression};
 pub use pages::generate_leg_pages;
 pub use stacked::generate_stacked;
@@ -820,71 +826,6 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
 /// `crates/sutura-exec-postgres/tests/conformance.rs`'s leg cell against a provisioned tier.
 pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     leg_within(leg, dialect, None)
-}
-
-/// [`generate_leg`], with `also` joined by `AND` after the leg's own filters, so their parameter order holds.
-fn leg_within(leg: &LegPlan, dialect: Dialect, also: Option<Expr>) -> Result<GeneratedQuery, GenerateError> {
-    // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
-    // the same order for whatever reads the rows back.
-    let mut projection = Vec::with_capacity(leg.keys().len().saturating_add(1));
-    let mut grouping = Vec::with_capacity(leg.keys().len().saturating_add(1));
-    for key in leg.keys() {
-        projection.push(aliased(key_expr(key, dialect), key.label())?);
-        grouping.push(key_expr(key, dialect));
-    }
-
-    // THE rendering arm. A third leg shape does not compile until it says what it projects.
-    let joins: &[PlanJoin] = match *leg {
-        LegPlan::Fact {
-            ref bucket,
-            ref terms,
-            ref tables,
-            ..
-        } => {
-            let bucket_expr = bucket_expression(bucket, dialect);
-            projection.push(aliased(bucket_expr.clone(), bucket.label())?);
-            grouping.push(bucket_expr);
-            // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
-            // here: the projection is then the key list and the bucket, grouped by itself.
-            for term in terms {
-                // A leg projects bare decomposed terms, never a guarded measure - guards belong to
-                // the whole-answer `generate` path, so `None` keeps this byte-identical.
-                // A leg projects bare decomposed terms, never a guarded measure, so `emitted` is
-                // never read - `generate_leg` keeps `leg.params()` unchanged below.
-                projection.push(aliased(
-                    term_expression(term.term(), None, dialect, &mut Vec::new()),
-                    term.label(),
-                )?);
-            }
-            tables.joins()
-        }
-        // No bucket, no terms. It projects its keys and groups by them, which is the distinct set
-        // of dimension rows surviving its own filters, and joins whatever the chain carried on to
-        // after it crossed onto this system.
-        LegPlan::Lookup { ref table, .. } => table.joins(),
-    };
-
-    let mut statement = joined(
-        builder::select(projection).from(&table_path(leg.table(), dialect)?),
-        joins,
-        dialect,
-    )?;
-
-    // Folded in leg order, which is parameter order, exactly as `generate` folds a plan's.
-    let mut clauses = leg.filters().iter().map(|f| predicate(dialect, f.predicate())).chain(also);
-    if let Some(first) = clauses.next() {
-        statement = statement.where_(clauses.fold(first, Expr::and));
-    }
-
-    let tiebreak: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
-    // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
-    // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
-    let ast = statement.group_by(grouping).order_by(tiebreak).build();
-
-    let params = leg.params().to_vec();
-    let sql = render(&ast, dialect)?;
-    assert_placeholder_count(&ast, dialect, &params)?;
-    Ok(GeneratedQuery::new(leg.source().clone(), sql, params))
 }
 
 /// Renders one declared join key's uniqueness probe as one statement.
