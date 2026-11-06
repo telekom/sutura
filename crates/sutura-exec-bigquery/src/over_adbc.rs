@@ -2,14 +2,14 @@
 //! halves - the job run once as the asking subject at the coordinating node, and one stream of its
 //! result read with the forwarded token at another.
 //!
-//! **Nothing in production calls either half yet** (`github.com/telekom/sutura#828`): no
-//! composition root offers a `BigQuery` leg for splitting, and no reading worker reads a `BigQuery`
-//! partition, so every `BigQuery` leg is still read whole.
+//! `sutura serve`'s mixed-kind planning node splits a pool source's lookup leg through
+//! [`BigQueryWarehouse::split_leg`], and a reading worker reads a granted stream through
+//! [`BigQueryWarehouse::read_partition`] (`github.com/telekom/sutura#828`).
 
 use core::num::NonZeroUsize;
 use std::time::SystemTime;
 
-use sutura_domain::identity::{Presented, Secret};
+use sutura_domain::identity::{Presented, Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::{Executable, LegPlan};
 use sutura_domain::source::SourcePosture;
@@ -64,17 +64,24 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         )
     }
 
+    /// The pool this source federates its callers at, `None` for a shared, Google-login or
+    /// delegating source: the one kind of `BigQuery` source a leg is split at.
+    #[must_use]
+    pub const fn federates_at(&self) -> Option<&WorkloadPool> {
+        self.transport.federates_at()
+    }
+
     /// `leg` run once at this source as the asking subject, its result split into at most `readers`
     /// streams for other nodes to read with the forwarded token. It reports when what it forwards
     /// ends ([`adbc::SplitLeg::until`]): the earlier of `ends` and the forwarded token's expiry.
-    /// **Computed, not applied** - no grant reads it yet.
     ///
     /// Checked as [`Warehouse::execute`] checks a leg before anything is sent, billed to the
     /// project it bills, and labelled with `labels` as a billed leg is - the port's `split_lookup`
     /// carries no labels yet, so its caller has to bring them. Then both exchanges, before the
     /// driver loads: the job runs on a token
     /// asked for the `BigQuery` client's own scope, so it can still be cancelled, and only a second
-    /// token, asked for `bigquery.readonly`, is forwarded ([`adbc::SplitLeg::into_forwarded`]).
+    /// token, asked for `bigquery.readonly`, is forwarded ([`adbc::SplitLeg::into_parts`]), as a
+    /// [`sutura_domain::identity::SourceToken`] fingerprinting the assertion it was exchanged from.
     ///
     /// # Errors
     ///

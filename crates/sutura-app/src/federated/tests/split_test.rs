@@ -154,6 +154,7 @@ impl Warehouse for SplitLegs {
         _above_bytes: NonZeroU64,
         _readers: NonZeroUsize,
         grantee: Option<Grantee>,
+        _labels: &JobLabels,
     ) -> LookupSplit<'_, Self::Error> {
         self.splits_asked.fetch_add(1, Ordering::SeqCst);
         self.offered.store(grantee.is_some(), Ordering::SeqCst);

@@ -356,3 +356,31 @@ Limits, beside the earlier amendments':
   is registered. Neither the plan bytes the planning node encodes for a task nor the bytes a worker
   decodes the token from are wiped.
 - **A node that reads a grant reads the token's digest.** It names the token; it does not reveal it.
+
+## Fourth amendment, 2026-11-06: a BigQuery pool leg is split, and a reading worker reads it with the caller's token
+
+This replaces the third amendment's statement that the `split_lookup` arm and the reading worker's
+BigQuery arm are not built. In a mixed-kind `sutura serve` deployment:
+
+- A lookup leg at a BigQuery source that federates at a pool, offered to a grantee, is run once
+  through `split_leg`, labelled with the request's job labels, which `Warehouse::split_lookup` now
+  takes. A leg at any other BigQuery source, or offered to none, is read whole. The adapter states
+  the token's fingerprint where it exchanges the assertion, and `Grantee::forwarding` ties it to the
+  request's credential; a mismatch fails the leg. Two or more streams are granted with the token,
+  fewer are read on the planning node with it, so a job is never run twice.
+- A reading worker reads a task carrying a token only at its own source of that name, federating
+  at the pool the token was forwarded for, else refuses it as an uncertified leg. It then refuses a
+  task whose admitted grant has ended, re-certifies the leg, and reads the stream with the token as
+  its only credential, until the earlier of `server.request_timeout` and the grant's end.
+- A reading worker declaring a BigQuery source outside a pool does not start
+  (`ReadingWorkerBigQueryOutsideAPool`).
+
+Limits, beside the earlier amendments':
+
+- **The worker reads the token's end off the grant.** The token is opaque, so the end is the
+  admitted grant's, which the planning node clamped to the token's expiry.
+- **No estimate decides the split.** The adapter answers no dry run, so every such leg offered to a
+  grantee runs as a split job, and the stream count the driver chose decides whether it is granted.
+- **The BigQuery arm is built only with the `postgres` feature too**, as the split dispatch is.
+- **Not measured.** No offline cell reaches the driver. Which principal BigQuery lets read a stream
+  is still not measured, and a split BigQuery read is not cited for the caller's own access.

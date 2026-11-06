@@ -13,7 +13,7 @@
 //!
 //! - A combine registers a lookup leg its source granted as a [`SplitScan`](crate::SplitScan), and
 //!   checks its link values across its partitions in the same session it joins in. Only a mixed-kind
-//!   `sutura serve` deployment's PostgreSQL source grants a served leg
+//!   `sutura serve` deployment's PostgreSQL source or `BigQuery` pool source grants a served leg
 //!   (`github.com/telekom/sutura#828`); every other served lookup leg is read whole, or partition by
 //!   partition, on the planning node, which checks its link values there.
 //!   [`refuse_ambiguous_split`](crate::refuse_ambiguous_split) checks a split one across its
@@ -34,9 +34,9 @@
 //!   `SourceUnavailable` naming it. Sources that each have a reader but none in
 //!   common stay `CombineError::Execute`.
 //! - Filters and limits run above the scan, on the reading worker, not in the source.
-//! - No source grants a `BigQuery` leg yet, so no served question forwards a token. The planning
-//!   node keeps its copy of the token as long as the leg's table is registered, and does not wipe
-//!   the plan bytes it encodes the token into for each task.
+//! - A `BigQuery` pool source's grant forwards the caller's token. The planning node keeps its copy
+//!   of the token as long as the leg's table is registered, and does not wipe the plan bytes it
+//!   encodes the token into for each task.
 //! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
 //! - A worker admits a partition's first key: the same leg's same partition asked of it again within
 //!   that key's idle window, under a fresh key, is refused.
