@@ -311,3 +311,62 @@ Limits, beside the first amendment's:
 - **Half the bound is a target, not a guarantee.** The Storage Read API may answer fewer streams
   than asked, each then larger, and a stream past 1,000,000 rows or 256 MiB is still refused when
   it is read. The byte bound plays no part in the stream count.
+
+## Third amendment, 2026-11-06: an Oracle lookup leg splits by flashback query, under the shared service user
+
+The owner decided four questions for Oracle as a third data system (W3). This replaces the first
+row of "Out of scope" for Oracle only: a lookup leg on an Oracle source may be read in partitions,
+on workers. A question that reads Oracle alone is still pushed down whole, and a fact leg on Oracle
+is still read whole.
+
+1. **The shared service user only (D1).** A reading worker reads as the source's declared service
+   user and holds its credential, as W1 does. An `impersonation-at-source` Oracle source is read
+   whole. A per-task source token, as W2 forwards one, stays possible and is not built.
+2. **Each source opts in (D2).** `split: flashback` on a `kind: oracle` source allows its lookup legs
+   to split. Without it, every leg is read whole. The key is refused on any other kind and on an
+   `impersonation-at-source` source. A source that declares it is probed at boot, and a failed
+   probe refuses startup. The service user gets the `FLASHBACK` object privilege on each table it
+   reads, never `FLASHBACK ANY TABLE`: the probe refuses a service user that holds the system
+   privilege.
+3. **One snapshot per question, taken when the leg is split (D3).** The snapshot is
+   `TIMESTAMP_TO_SCN(SYSTIMESTAMP)`, read once. Every table reference of every partition's statement
+   carries `AS OF SCN` with that number. The snapshot is in the statement and not in the session:
+   no partition calls `DBMS_FLASHBACK`.
+4. **A reading worker refuses a stale snapshot (D4).** Before it reads, the worker asks the
+   database when the snapshot was taken (`SCN_TO_TIMESTAMP`) and refuses a snapshot older than its
+   own request budget. A snapshot the database can no longer read is refused as its own typed
+   error, never read fresh instead: `ORA-01555` (snapshot too old), `ORA-08181` (not a valid system
+   change number) and `ORA-01466` (table definition has changed).
+
+|                             | W3 Oracle                                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A partition                 | One hash bucket of one integer key of the leg's root table: `ORA_HASH(key, N - 1) = i`. A row whose key is NULL is in bucket 0 only                     |
+| Where the statement runs    | On each reading worker: the leg's statement, `AS OF SCN` on every table, restricted to its bucket                                                       |
+| One consistent read         | The one SCN read at split time                                                                                                                          |
+| Who the read runs as        | The shared service user                                                                                                                                 |
+| What a reading worker holds | The service user's credential                                                                                                                           |
+| When the leg is split       | By the dictionary's estimate, `ALL_TABLES.NUM_ROWS` times `AVG_ROW_LEN`, against `server.nodes.across_above_bytes`. No row or no statistics: read whole |
+| Which key is hashed         | The leg's first key that is a column of its root table declared `NUMBER` with scale 0. None: read whole                                                 |
+
+The partition descriptor, version 1, in order: the version byte `1`; the SCN as eight big-endian
+bytes, never zero; the hashed key's position in the leg as two big-endian bytes; the bucket's index
+and the bucket count as four big-endian bytes each. A reading worker refuses a version it does not
+read, bytes cut short or past the last field, an SCN of zero, fewer than two buckets, an index at or
+past the count, and a position the leg holds no key at.
+
+Limits:
+
+- **The dictionary's statistics are an estimate.** A table whose statistics are stale or missing is
+  read whole, or split into buckets whose real sizes differ from the estimate. A bucket past the
+  per-stream bound is refused, not split again.
+- **A bucket is not a range.** Every partition reads the whole root table and filters it, so a leg
+  of N partitions reads it N times. `ORA_HASH` buckets are not uniform, and every NULL key lands in
+  bucket 0.
+- **The snapshot's age is approximate.** `SCN_TO_TIMESTAMP` is precise to about three seconds, so
+  D4's refusal is that close to the budget and no closer. How long the database can read a snapshot
+  is its undo retention, which the operator configures and nothing here sets.
+- **Hashing one integer key is exact only for a lookup leg.** Every row of one group has the same
+  key, so every group is in one bucket. A fact leg is not split.
+- **Nothing calls it yet.** The adapter estimates, splits and reads a partition. No composition
+  root offers an Oracle leg for splitting, and no reading worker reads an Oracle partition, until
+  the grant and the reading worker gain an Oracle arm.
