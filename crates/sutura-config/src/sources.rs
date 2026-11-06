@@ -80,6 +80,9 @@ pub mod transport;
 /// The token-exchange setup one `impersonation-at-source` source declares.
 pub mod workload_identity;
 
+pub mod split;
+use split::{SourceSplit, SplitRefused};
+
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
 use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
@@ -238,6 +241,7 @@ pub struct ConfiguredSource {
     caller_identity: Option<CallerIdentity>,
     inbound_token_at_pool: Option<InboundTokenAtPool>,
     hash_buckets: Option<HashBucketsDeclared>,
+    split: Option<SourceSplit>,
 }
 
 impl ConfiguredSource {
@@ -247,6 +251,13 @@ impl ConfiguredSource {
     #[must_use]
     pub const fn hash_buckets(&self) -> Option<&HashBucketsDeclared> {
         self.hash_buckets.as_ref()
+    }
+
+    /// How this source's lookup legs may be split, where it declared `split` - see [`SourceSplit`].
+    #[inline]
+    #[must_use]
+    pub const fn split(&self) -> Option<SourceSplit> {
+        self.split
     }
 
     /// Whether this source acknowledged presenting its caller's inbound token to the pool with no
@@ -599,6 +610,9 @@ pub enum InvalidSourceRegistry {
          runs as its caller - remove the block, or write the posture you meant"
     )]
     IdentityModeNotImpersonating { alias: SourceName, block: &'static str },
+    /// A written `split` is not usable on this entry.
+    #[error("`sources.{alias}.split` is not usable: {cause}")]
+    Split { alias: SourceName, cause: SplitRefused },
     /// A written `inbound_token_at_pool` is not the one acknowledgement it accepts.
     #[error("`sources.{alias}.inbound_token_at_pool` is not usable: {cause}")]
     InboundTokenAtPool {
@@ -944,6 +958,7 @@ fn parse_entry(
         caller_identity,
         inbound_token_at_pool: None,
         hash_buckets: None,
+        split: None,
     })
 }
 

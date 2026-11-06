@@ -403,6 +403,7 @@ addresses when it has any, else its IPv6 ones, so a dual-stack pod is not two no
 as an IP address, or with a `#<ip>` fragment, of the other family than `ipv4` or `ipv6` is refused at startup; `own` is
 not read. The setting is `SUTURA__SERVER__NODES__ADDRESS_FAMILY` in the environment. It chooses among the addresses the
 resolver returns and does not make a node reachable over a family the network between the nodes does not carry.
+The chart sets it from `workerPool.addressFamily`, left unset for `auto`.
 
 A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
