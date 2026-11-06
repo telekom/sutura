@@ -334,6 +334,14 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
+# TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
+# partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it
+# reports nothing on most pull requests, which alone rules out requiring it: a required context
+# that does not report is a permanently pending merge. `merge_group` is absent for `examples.yml`'s
+# reason. Advisory until a run has measured what it takes; `.github/workflows/tpch-across-nodes.yml`
+# carries the design and what a run does not show.
+tpch-across-nodes.yml:measure
+
 # The runner probe is DISPATCH-ONLY and reports no pull-request context, so it is deliberately
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on
 # a gating event. `.github/workflows/runner-probe.yml` carries the design.
