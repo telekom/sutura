@@ -1,0 +1,13 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+contract_term	product_family	period	recurring_revenue
+Text(annual)	Text(convergent)	Text(2026-06-01)	Integer(11374)
+Text(annual)	Text(fixed_internet)	Text(2026-06-01)	Integer(30661)
+Text(annual)	Text(mobile)	Text(2026-06-01)	Integer(20536)
+Text(annual)	Text(tv)	Text(2026-06-01)	Integer(2436)
+Text(monthly)	Text(convergent)	Text(2026-06-01)	Integer(32914)
+Text(monthly)	Text(fixed_internet)	Text(2026-06-01)	Integer(49822)
+Text(monthly)	Text(mobile)	Text(2026-06-01)	Integer(49507)
+Text(monthly)	Text(tv)	Text(2026-06-01)	Integer(4871)
