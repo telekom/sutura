@@ -355,6 +355,13 @@ mod adbc_execute_as_legs {
         Some(String::from_utf8_lossy(&received).into_owned())
     }
 
+    /// The statement of a request body: its `query` field when the driver sends a multipart body, as
+    /// it does for a statement with parameters, and the whole body otherwise.
+    fn query_field(body: &str) -> &str {
+        body.split_once("name=\"query\"\r\n\r\n")
+            .map_or(body, |(_, field)| field.split_once("\r\n--").map_or(field, |(sql, _)| sql))
+    }
+
     /// The head is in, and as much body as it announces.
     fn whole(request: &str) -> bool {
         request.split_once("\r\n\r\n").is_some_and(|(head, body)| {
@@ -390,7 +397,7 @@ mod adbc_execute_as_legs {
         let (head, body) = request.split_once("\r\n\r\n").expect("the request has a head");
         assert_eq!(header(head, "x-clickhouse-user"), Some("sutura_service"), "{head}");
         assert_eq!(header(head, "x-clickhouse-key"), Some("deployment-secret"), "{head}");
-        let statement = body.strip_prefix("EXECUTE AS \"sutura_switched\" SELECT ");
+        let statement = query_field(body).strip_prefix("EXECUTE AS \"sutura_switched\" SELECT ");
         assert!(statement.is_some(), "{body}");
         assert!(body.contains("{p0:Date}") && body.contains("{p1:Date}"), "{body}");
     }
