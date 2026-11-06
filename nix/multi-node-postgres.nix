@@ -198,9 +198,9 @@ pkgs.testers.runNixOSTest {
 
     QUESTION = '{"metrics":["recurring_revenue"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}'
     ADDRESS = {
-        "query": "${nodes.query.networking.primaryIPAddress}",
-        "reader1": "${nodes.reader1.networking.primaryIPAddress}",
-        "reader2": "${nodes.reader2.networking.primaryIPAddress}",
+        "query": "${nodes.query.networking.primaryIPv6Address}",
+        "reader1": "${nodes.reader1.networking.primaryIPv6Address}",
+        "reader2": "${nodes.reader2.networking.primaryIPv6Address}",
     }
 
 
