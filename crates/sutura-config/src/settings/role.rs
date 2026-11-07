@@ -135,6 +135,32 @@ pub(super) fn reading_node_refusals(settings: &Settings) -> Vec<NotFitToServe> {
         .collect()
 }
 
+/// Every source that lets its lookup leg be read in hash buckets where no bucket could be read: it
+/// is this deployment's only source, so no federated answer has a lookup leg of it, or no declared
+/// peer reads it, so no node is there to read a bucket.
+///
+/// **Only for `ServerRole::Serving`**, for [`declared_node_refusals`]' reason: a reading worker's own
+/// configuration declares the source it reads and need not declare a second one, or peers.
+///
+/// **The limit:** it reads the declaration. A peer declared here and down at question time, or one
+/// whose own entry does not opt in, still leaves the leg to be read whole or refused then.
+pub(super) fn hash_bucket_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+    if settings.server.role() != ServerRole::Serving {
+        return Vec::new();
+    }
+    let nodes = settings.server.tls().and_then(crate::server::TlsMaterial::nodes);
+    let mut refusals = Vec::new();
+    for (alias, _) in settings.sources.each().filter(|&(_, source)| source.hash_buckets().is_some()) {
+        if settings.sources.count() < 2 {
+            refusals.push(NotFitToServe::HashBucketsOnTheOnlySource { alias: alias.clone() });
+        }
+        if nodes.is_none_or(|nodes| nodes.reading(alias).next().is_none()) {
+            refusals.push(NotFitToServe::HashBucketsReadByNoNode { alias: alias.clone() });
+        }
+    }
+    refusals
+}
+
 #[cfg(test)]
 mod reading;
 #[cfg(test)]

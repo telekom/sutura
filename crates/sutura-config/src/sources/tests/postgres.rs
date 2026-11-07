@@ -443,3 +443,17 @@ fn a_blank_hash_buckets_reason_on_a_clickhouse_source_is_refused_naming_the_key(
         },
     );
 }
+
+/// `#828`: a hash bucket of a delegated source is not read with the caller's token, so the key
+/// beside a `delegation` is refused at load rather than read whole in silence.
+#[test]
+fn hash_buckets_beside_a_clickhouse_delegation_are_refused_at_load() {
+    hash_bucket_key_refused(
+        "    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+         client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"clickhouse\"\n    \
+         hash_buckets_acknowledged_because: \"buckets\"\n",
+        |refusal| matches!(*refusal, InvalidSourceRegistry::HashBucketsBesideDelegation { ref alias } if alias.as_str() == "local"),
+    );
+}

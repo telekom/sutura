@@ -24,7 +24,9 @@ const HASH_BUCKETS_KEY: &str = "sources.<alias>.hash_buckets_acknowledged_becaus
 /// itself parsed - the body of [`SourceRegistry::acknowledge_hash_buckets`].
 ///
 /// **Recorded, and read by nothing that splits yet** - a lookup leg of this source is still read
-/// whole.
+/// whole. Refused beside a `delegation`, and at boot by
+/// [`crate::NotFitToServe::HashBucketsOnTheOnlySource`] and
+/// [`crate::NotFitToServe::HashBucketsReadByNoNode`].
 pub(super) fn acknowledge_hash_buckets(
     registry: &mut SourceRegistry,
     written: &str,
@@ -44,6 +46,11 @@ pub(super) fn acknowledge_hash_buckets(
             kind,
             key: "hash_buckets_acknowledged_because",
         });
+    }
+    // A hash bucket of a delegated source is not read with the caller's token, so a source whose
+    // callers sign in is refused here rather than read whole in silence.
+    if matches!(*source.placement(), SourcePlacement::ClickHouse { ref delegation, .. } if !delegation.is_empty()) {
+        return Err(InvalidSourceRegistry::HashBucketsBesideDelegation { alias });
     }
     let reason = AcknowledgementReason::written_under(HASH_BUCKETS_KEY, value)
         .map_err(|cause| InvalidSourceRegistry::Text { alias, cause })?;
