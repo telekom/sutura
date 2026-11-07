@@ -32,7 +32,11 @@
 //! was measured about that setting's semantics and its limit, mirroring
 //! `sutura_exec_postgres::deadline`'s own record for `SET LOCAL statement_timeout`.
 //!
-//! # Every connection pins the server settings that decide what the rows say
+//! # Every connection and every answering statement pin the server settings sutura needs
+//!
+//! Each is a driver option on the connection and a setting in the statement's own `SETTINGS`
+//! clause; under `EXECUTE AS` only the clause holds - see [`settings`], which also states what the
+//! pin does not cover: the fixture loader's statements, and every setting sutura does not pin.
 //!
 //! `join_use_nulls=1`: under `ClickHouse`'s default `0`, the unmatched side of an outer join
 //! answers the column type's default - `''` for a `String` - where the SQL standard answers `NULL`.
@@ -44,8 +48,8 @@
 //! infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `throw` answers a spent
 //! `max_execution_time` with Code 159; `break` answers HTTP 200 with the rows read so far. The
 //! executed goldens hold what the first two settings make the server answer, and nothing executed
-//! holds the third. **Nothing offline holds that the settings are sent**: the cells that would
-//! notice a dropped one need the tier.
+//! holds the third. Offline, a loopback cell in `tests/adbc_execute_as.rs` holds that the statement
+//! carries the clause; what the server does with a dropped setting needs the tier.
 //!
 //! # What is NOT here
 //!
@@ -65,6 +69,7 @@ mod deadline;
 pub mod execute_as;
 #[cfg(feature = "fixtures")]
 pub mod fixture;
+mod settings;
 mod sum;
 pub mod tls;
 
