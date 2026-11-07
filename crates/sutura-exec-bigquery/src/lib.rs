@@ -668,8 +668,13 @@ where
     /// correctly for the dialect (`crates/sutura-app/tests/golden/legs.rs` at
     /// [`Dialect::BigQuery`]) and the transport submits it with the subject's own credential and
     /// this source's configured `maximumBytesBilled`. **No federated answer has been produced
-    /// against a real `BigQuery` dataset** - the dialect axis declares this dialect
-    /// `Evidence::RenderOnly` and nothing here changes that. And ADBC prices no dry run, so
+    /// against a real `BigQuery` dataset as the asking subject.** One has been produced under a
+    /// shared identity: the `bigquery-conformance` CI job, the only venue and never
+    /// `just validate`, answers the two-fact ratio over two `BigQuery` sources on one dataset
+    /// (`crates/sutura-app/tests/differential/federated/two_fact.rs`), and the dialect axis
+    /// declares this dialect `Evidence::Executed` for that job. It opens every source under its one
+    /// CI identity with impersonation off, so it says nothing about a leg run as the asker. And
+    /// ADBC prices no dry run, so
     /// `docs/adr/0030`'s all-or-nothing charge sums two `PreFlight::NotAsked` legs and charges
     /// nothing at all: `governance.per_replica_spend_ceiling` bounds a federated `BigQuery` answer
     /// exactly as little as it bounds a mono one. [`Self::PRICES_DRY_RUN`] carries that argument.
