@@ -621,8 +621,9 @@ fn accumulate(
     }
 }
 
-/// A split lookup leg granted to the nodes that read its source, or read here.
-#[cfg(all(feature = "distributed", any(feature = "postgres", feature = "clickhouse")))]
+/// A split lookup leg granted to the nodes that read its source, or read here. Built only beside
+/// the one arm that grants through it, `PostgreSQL`'s.
+#[cfg(all(feature = "postgres", feature = "distributed"))]
 mod grant;
 /// Each kind's group opener, split out for the line cap.
 mod groups;

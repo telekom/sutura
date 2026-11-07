@@ -12,7 +12,8 @@
 //!
 //! **Limits.** This module is built with `distributed` and `postgres` or `clickhouse`, and the
 //! `BigQuery` arm only with it. `ClickHouse` has no arm yet, so a build with `clickhouse` and
-//! without `postgres` holds this dispatch and no kind that splits; no gate compiles that feature set.
+//! without `postgres` holds this dispatch and no kind that splits, and `grant` is built only with
+//! `postgres`. The multi-node VM test builds that feature set.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
