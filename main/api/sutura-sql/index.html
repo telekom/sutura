@@ -2662,10 +2662,16 @@ and finding out at query time is the difference between a refusal an operator ca
 trace an agent shows a user.</p>
 <h2 id="use-asofrefused"><code>use AsOfRefused</code><a class="headerlink" href="#use-asofrefused" title="Permanent link">&para;</a></h2>
 <p>Why a leg was not rendered at a snapshot.</p>
+<h2 id="use-bucket"><code>use Bucket</code><a class="headerlink" href="#use-bucket" title="Permanent link">&para;</a></h2>
+<p>Bucket <code>index</code> of <code>count</code>: at least two buckets, and an index below the count.</p>
+<h2 id="use-bucketsrefused"><code>use BucketsRefused</code><a class="headerlink" href="#use-bucketsrefused" title="Permanent link">&para;</a></h2>
+<p>Why a leg was not split into hash buckets.</p>
 <h2 id="use-generateerror"><code>use GenerateError</code><a class="headerlink" href="#use-generateerror" title="Permanent link">&para;</a></h2>
 <p>Why a statement could not be rendered.</p>
 <p>Not a refusal: a caller cannot cause one of these and there is nothing they could ask
 differently. A plan that will not render is a bug here or upstream.</p>
+<h2 id="use-invalidbucket"><code>use InvalidBucket</code><a class="headerlink" href="#use-invalidbucket" title="Permanent link">&para;</a></h2>
+<p>Why a <code>Bucket</code> could not be built.</p>
 <h2 id="use-invalidkeybucket"><code>use InvalidKeyBucket</code><a class="headerlink" href="#use-invalidkeybucket" title="Permanent link">&para;</a></h2>
 <p>Why a <code>KeyBucket</code> could not be built.</p>
 <h2 id="use-keybucket"><code>use KeyBucket</code><a class="headerlink" href="#use-keybucket" title="Permanent link">&para;</a></h2>
@@ -2763,6 +2769,20 @@ buckets are not combined here. <code>ORA_HASH</code> buckets are not uniform, an
 bucket 0. Each bucket reads the whole root table.</p>
 <h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
 <p><code>AsOfRefused::NoKey</code> for a bucket past the leg's keys, then the leg's own rendering.</p>
+<h2 id="use-generate_leg_buckets"><code>use generate_leg_buckets</code><a class="headerlink" href="#use-generate_leg_buckets" title="Permanent link">&para;</a></h2>
+<p><code>super::generate_leg</code>, keeping only the rows in <code>bucket</code>: those whose integer keys hash to its
+index, a NULL key hashed as <code>0</code>.</p>
+<p><code>described</code> is the leg's columns as its source described them; a key is integer when its
+column there is, by the source's own type where it states one (see the module doc). <code>ClickHouse</code>
+hashes every integer key as <code>cityHash64(k1, k2, …) % count</code> and <code>DuckDB</code> as
+<code>HASH(k1, k2, …) % count</code>. Each key is <code>COALESCE(k, 0)</code> inside the hash, so a row whose key is
+NULL lands in exactly one bucket whatever the dialect's hash makes of a NULL.</p>
+<p><strong>Limits:</strong> a NULL key and a <code>0</code> share a bucket, and a key of <code>Decimal(p, 0)</code> is not an integer
+here. Each bucket is a full scan at the source, and nothing holds the buckets to one snapshot:
+see the module doc for what that costs.</p>
+<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<p><code>BucketsRefused</code>: a key not described, then no integer key, then the dialect, then the leg's
+own rendering.</p>
 <h2 id="use-generate_leg_pages"><code>use generate_leg_pages</code><a class="headerlink" href="#use-generate_leg_pages" title="Permanent link">&para;</a></h2>
 <p><code>super::generate_leg</code> at <code>Dialect::Postgres</code>, keeping only the rows on heap pages
 <code>from_page</code> up to <code>to_page</code>, or to the end of the table where <code>to_page</code> is <code>None</code>.</p>
@@ -2777,14 +2797,14 @@ kept or dropped with the root row it joins to, and a lookup leg's distinct key s
 per range, so a key that sits on pages of two ranges comes back once from each.</p>
 <h2 id="use-generate_stacked"><code>use generate_stacked</code><a class="headerlink" href="#use-generate_stacked" title="Permanent link">&para;</a></h2>
 <p>Renders a stacked plan as one statement, paired with its parameters in arm order.</p>
-<h1 id="errors_1">Errors<a class="headerlink" href="#errors_1" title="Permanent link">&para;</a></h1>
+<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
 <p><code>GenerateError</code> as <code>super::generate()</code> returns it for any arm, or for the whole statement.</p>
 <h2 id="use-generate_table_as_of"><code>use generate_table_as_of</code><a class="headerlink" href="#use-generate_table_as_of" title="Permanent link">&para;</a></h2>
 <p><code>SELECT 1 FROM &lt;table&gt; AS OF SCN &lt;scn&gt; WHERE 1 = 0</code>: reads no row, and is refused where the
 session may not read <code>table</code> at a snapshot.</p>
 <p>That Oracle refuses this zero-row read without a <code>FLASHBACK</code> grant is read from its
 documentation, not measured by any cell here.</p>
-<h1 id="errors_2">Errors<a class="headerlink" href="#errors_2" title="Permanent link">&para;</a></h1>
+<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
 <p><code>AsOfRefused::Generate</code> for a table path Oracle does not resolve.</p>
 <h2 id="module-dialect">Module <code>dialect</code><a class="headerlink" href="#module-dialect" title="Permanent link">&para;</a></h2>
 <p>Which data system a statement is rendered for, and the two things we do not delegate.</p>
@@ -3483,6 +3503,26 @@ statement per shape per dialect, parse-checked in the dialect it was generated f
 changed rather than went away:</strong> one of those five dialects is now what a release executes, and
 a parse check is not an execution - the executed evidence is
 <code>crates/sutura-exec-postgres/tests/conformance.rs</code>'s leg cell against a provisioned tier.</p>
+<h3 id="use-bucket_1"><code>use Bucket</code><a class="headerlink" href="#use-bucket_1" title="Permanent link">&para;</a></h3>
+<p>Bucket <code>index</code> of <code>count</code>: at least two buckets, and an index below the count.</p>
+<h3 id="use-bucketsrefused_1"><code>use BucketsRefused</code><a class="headerlink" href="#use-bucketsrefused_1" title="Permanent link">&para;</a></h3>
+<p>Why a leg was not split into hash buckets.</p>
+<h3 id="use-invalidbucket_1"><code>use InvalidBucket</code><a class="headerlink" href="#use-invalidbucket_1" title="Permanent link">&para;</a></h3>
+<p>Why a <code>Bucket</code> could not be built.</p>
+<h3 id="use-generate_leg_buckets_1"><code>use generate_leg_buckets</code><a class="headerlink" href="#use-generate_leg_buckets_1" title="Permanent link">&para;</a></h3>
+<p><code>super::generate_leg</code>, keeping only the rows in <code>bucket</code>: those whose integer keys hash to its
+index, a NULL key hashed as <code>0</code>.</p>
+<p><code>described</code> is the leg's columns as its source described them; a key is integer when its
+column there is, by the source's own type where it states one (see the module doc). <code>ClickHouse</code>
+hashes every integer key as <code>cityHash64(k1, k2, …) % count</code> and <code>DuckDB</code> as
+<code>HASH(k1, k2, …) % count</code>. Each key is <code>COALESCE(k, 0)</code> inside the hash, so a row whose key is
+NULL lands in exactly one bucket whatever the dialect's hash makes of a NULL.</p>
+<p><strong>Limits:</strong> a NULL key and a <code>0</code> share a bucket, and a key of <code>Decimal(p, 0)</code> is not an integer
+here. Each bucket is a full scan at the source, and nothing holds the buckets to one snapshot:
+see the module doc for what that costs.</p>
+<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
+<p><code>BucketsRefused</code>: a key not described, then no integer key, then the dialect, then the leg's
+own rendering.</p>
 <h3 id="use-asofrefused_1"><code>use AsOfRefused</code><a class="headerlink" href="#use-asofrefused_1" title="Permanent link">&para;</a></h3>
 <p>Why a leg was not rendered at a snapshot.</p>
 <h3 id="use-invalidkeybucket_1"><code>use InvalidKeyBucket</code><a class="headerlink" href="#use-invalidkeybucket_1" title="Permanent link">&para;</a></h3>
@@ -3501,14 +3541,14 @@ parameter order holds.</p>
 <p><strong>Limits:</strong> the buckets are exact for a lookup leg only - a fact leg's partial terms from two
 buckets are not combined here. <code>ORA_HASH</code> buckets are not uniform, and every NULL key lands in
 bucket 0. Each bucket reads the whole root table.</p>
-<h1 id="errors_3">Errors<a class="headerlink" href="#errors_3" title="Permanent link">&para;</a></h1>
+<h1 id="errors_5">Errors<a class="headerlink" href="#errors_5" title="Permanent link">&para;</a></h1>
 <p><code>AsOfRefused::NoKey</code> for a bucket past the leg's keys, then the leg's own rendering.</p>
 <h3 id="use-generate_table_as_of_1"><code>use generate_table_as_of</code><a class="headerlink" href="#use-generate_table_as_of_1" title="Permanent link">&para;</a></h3>
 <p><code>SELECT 1 FROM &lt;table&gt; AS OF SCN &lt;scn&gt; WHERE 1 = 0</code>: reads no row, and is refused where the
 session may not read <code>table</code> at a snapshot.</p>
 <p>That Oracle refuses this zero-row read without a <code>FLASHBACK</code> grant is read from its
 documentation, not measured by any cell here.</p>
-<h1 id="errors_4">Errors<a class="headerlink" href="#errors_4" title="Permanent link">&para;</a></h1>
+<h1 id="errors_6">Errors<a class="headerlink" href="#errors_6" title="Permanent link">&para;</a></h1>
 <p><code>AsOfRefused::Generate</code> for a table path Oracle does not resolve.</p>
 <h3 id="use-generate_key_probe_1"><code>use generate_key_probe</code><a class="headerlink" href="#use-generate_key_probe_1" title="Permanent link">&para;</a></h3>
 <p>Renders one declared join key's uniqueness probe as one statement.</p>
@@ -3559,7 +3599,7 @@ kept or dropped with the root row it joins to, and a lookup leg's distinct key s
 per range, so a key that sits on pages of two ranges comes back once from each.</p>
 <h3 id="use-generate_stacked_1"><code>use generate_stacked</code><a class="headerlink" href="#use-generate_stacked_1" title="Permanent link">&para;</a></h3>
 <p>Renders a stacked plan as one statement, paired with its parameters in arm order.</p>
-<h1 id="errors_5">Errors<a class="headerlink" href="#errors_5" title="Permanent link">&para;</a></h1>
+<h1 id="errors_7">Errors<a class="headerlink" href="#errors_7" title="Permanent link">&para;</a></h1>
 <p><code>GenerateError</code> as <code>super::generate()</code> returns it for any arm, or for the whole statement.</p>
 
 
