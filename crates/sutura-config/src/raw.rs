@@ -141,6 +141,10 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// The operator's reason for letting a `clickhouse` source's lookup leg be read in hash
+    /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
+    #[serde(default)]
+    pub(crate) hash_buckets_acknowledged_because: Option<String>,
     /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
     #[serde(default)]
     pub(crate) split: Option<String>,

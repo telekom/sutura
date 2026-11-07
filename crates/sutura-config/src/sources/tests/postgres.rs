@@ -377,3 +377,83 @@ fn postgres_is_a_kind_the_vocabulary_names() {
         .to_string();
     assert!(rendered.contains("postgres"), "{rendered}");
 }
+
+// ---------------------------------------------- the hash-bucket key, through `Settings::load` ----
+
+/// Whether `entry`, the only source of a single-user deployment, is refused at parse as `refused` says.
+fn hash_bucket_key_refused(entry: &str, refused: impl FnOnce(&InvalidSourceRegistry) -> bool) {
+    let sources = crate::settings::Sources::defaults(crate::Environment::Development).with_overlay(format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  local:\n{entry}"
+    ));
+    let error = crate::settings::Settings::load(&sources).expect_err("this entry is refused");
+    let crate::settings::SettingsError::Sources { ref cause } = *error.reason() else {
+        panic!("expected a sources refusal, got {error:?}");
+    };
+    assert!(refused(cause), "{cause:?}");
+}
+
+/// `#828`: only a `clickhouse` source reads `hash_buckets_acknowledged_because`, so every other kind
+/// refuses it by name rather than reading past it.
+#[test]
+fn hash_buckets_acknowledged_because_is_refused_on_a_postgres_or_files_source() {
+    const KEY: &str = "    hash_buckets_acknowledged_because: \"buckets\"\n";
+    for (kind, entry) in [
+        (
+            SourceKind::Postgres,
+            "    kind: \"postgres\"\n    host: \"127.0.0.1\"\n    port: 5432\n    database: \"warehouse\"\n    \
+             user: \"sutura\"\n    password_file: \"/run/secrets/pg-password\"\n    transport_mode: \"plaintext\"\n    \
+             posture: \"shared-service-user\"\n",
+        ),
+        (
+            SourceKind::Files,
+            "    kind: \"files\"\n    data_dir: \"/srv/sutura/data\"\n    posture: \"shared-service-user\"\n",
+        ),
+    ] {
+        hash_bucket_key_refused(&format!("{entry}{KEY}"), |refusal| {
+            matches!(
+                *refusal,
+                InvalidSourceRegistry::KeyNotForKind {
+                    kind: found,
+                    key: "hash_buckets_acknowledged_because",
+                    ..
+                } if found == kind
+            )
+        });
+    }
+}
+
+/// `#828`: the key is the operator's reason, so a blank one is refused like a blank
+/// `acknowledged_because`, naming the key it was written under.
+#[test]
+fn a_blank_hash_buckets_reason_on_a_clickhouse_source_is_refused_naming_the_key() {
+    hash_bucket_key_refused(
+        "    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"shared-service-user\"\n    hash_buckets_acknowledged_because: \"  \"\n",
+        |refusal| {
+            matches!(
+                *refusal,
+                InvalidSourceRegistry::Text {
+                    cause: sutura_domain::source::InvalidOperatorText::Empty {
+                        name: "sources.<alias>.hash_buckets_acknowledged_because"
+                    },
+                    ..
+                }
+            )
+        },
+    );
+}
+
+/// `#828`: a hash bucket of a delegated source is not read with the caller's token, so the key
+/// beside a `delegation` is refused at load rather than read whole in silence.
+#[test]
+fn hash_buckets_beside_a_clickhouse_delegation_are_refused_at_load() {
+    hash_bucket_key_refused(
+        "    kind: \"clickhouse\"\n    host: \"127.0.0.1\"\n    port: 8123\n    user: \"sutura\"\n    \
+         password_file: \"/run/secrets/ch-password\"\n    transport_mode: \"plaintext\"\n    \
+         posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \"https://idp.example.com/token\"\n        \
+         client_id: \"sutura\"\n        client_secret_file: \"/run/secrets/idp-client\"\n        audience: \"clickhouse\"\n    \
+         hash_buckets_acknowledged_because: \"buckets\"\n",
+        |refusal| matches!(*refusal, InvalidSourceRegistry::HashBucketsBesideDelegation { ref alias } if alias.as_str() == "local"),
+    );
+}

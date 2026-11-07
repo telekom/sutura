@@ -114,7 +114,8 @@
 //!   reads the scan the check counts, so each partition is read once (`served::counted_in_plan`).
 //!   A link value held twice fails that plan under a code this node reads back as
 //!   [`CombineError::AmbiguousLink`]. Only a `sutura serve` deployment's
-//!   PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   PostgreSQL source or `BigQuery` pool source grants a served leg
+//!   (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;

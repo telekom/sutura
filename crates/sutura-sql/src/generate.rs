@@ -545,6 +545,8 @@ mod top;
 /// One measure, as one expression - the guard/aggregate rendering.
 mod measure;
 
+/// One leg, restricted to one hash bucket of its integer keys.
+mod buckets;
 /// One leg, read at one Oracle snapshot.
 mod flashback;
 /// One declared join key's uniqueness probe.
@@ -555,6 +557,7 @@ mod leg;
 mod pages;
 /// Several metrics on one data system, as one statement.
 mod stacked;
+pub use buckets::{Bucket, BucketsRefused, InvalidBucket, generate_leg_buckets};
 pub use flashback::{AsOfRefused, InvalidKeyBucket, KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 pub use key_probe::generate_key_probe;
 use leg::leg_within;

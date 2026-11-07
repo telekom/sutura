@@ -746,5 +746,9 @@ pub fn of_rows(columns: &[String], rows: &[Vec<Value>]) -> Result<ResultBatches,
     Ok(accumulating.finish())
 }
 
+/// A result put in order on its typed values - what a federated `top` ranks with.
+mod ordered;
+pub use ordered::UnorderedResult;
+
 #[cfg(test)]
 mod tests;

@@ -117,7 +117,9 @@ const STARTUP: Subject = Subject {
     // (#828), a `server.nodes` peer reading a declared source on a deployment that verifies no caller.
     // 40: `ReadingWorkerBigQueryOutsideAPool` (#828), a reading worker declaring a `BigQuery` source
     // that federates at no pool, so it has no forwarded token to read a partition with.
-    variants: variants(40),
+    // 42: `HashBucketsOnTheOnlySource` and `HashBucketsReadByNoNode` (#828), a hash-bucket opt-in
+    // with no other source to federate with or no peer to read its buckets.
+    variants: variants(42),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

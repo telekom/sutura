@@ -309,6 +309,7 @@ impl Settings {
         refusals.extend(role::worker_refusals(self));
         refusals.extend(role::declared_node_refusals(self));
         refusals.extend(role::reading_node_refusals(self));
+        refusals.extend(role::hash_bucket_refusals(self));
         // Keyed exactly like `metrics_refusals` below it: an unbounded caller is an unbounded
         // aggregate over the same history whether the deployment is labelled `production` or is
         // simply reachable from other hosts. `EphemeralPortInProduction` stays production-only -

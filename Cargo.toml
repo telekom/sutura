@@ -213,13 +213,14 @@ futures-util = "0.3"
 # other two are parse-only.
 flate2 = "1"
 bzip2 = "0.6"
-# Arrow at the hexagon's interior - `docs/adr/0039`, and `crates/sutura-domain/Cargo.toml` carries
-# the argument and the measured cost. The major is the ENGINE's: `datafusion` resolves 59.2.0 and so
-# does `adbc_core`, so these unify with both and add no lockfile entry. `devco/arrow-majors-allow`
-# names the one major; `cargo xtask check-arrow` is what fails when a row there stops matching the
-# lock.
+# Arrow at the hexagon's interior - `docs/adr/0039`; `crates/sutura-domain/Cargo.toml` carries the
+# argument and the cost. `-ord`/`-select` order a federated `top` on typed values. The major is the
+# ENGINE's: `datafusion` resolves all four at it (`adbc_core` two), so no lock entry is new.
+# `devco/arrow-majors-allow` names the one major; `cargo xtask check-arrow` fails on a stale row.
 arrow-array = "59"
 arrow-schema = "59"
+arrow-ord = "59"
+arrow-select = "59"
 arrow-flight = { version = "59", default-features = false }
 # `sutura-flight`'s server and `sutura-exec-node`'s client, no TLS feature (the client brings its
 # own rustls). `arrow-flight` already builds it with these features: the graph keeps one `tonic`.

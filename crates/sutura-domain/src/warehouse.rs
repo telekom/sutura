@@ -99,7 +99,7 @@ pub mod schema;
 /// carries the argument and where its checks stop.
 pub mod arrow;
 
-pub use arrow::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnreadableCell};
+pub use arrow::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch, UnorderedResult, UnreadableCell};
 pub use cell::{NotFinite, Real, Value};
 pub use rows::{AnchorRows, Budgeted, MalformedRowSet, RowBudgetExceeded, RowSet};
 
