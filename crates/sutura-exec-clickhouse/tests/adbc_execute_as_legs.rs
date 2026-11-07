@@ -475,8 +475,9 @@ mod adbc_execute_as_legs {
     }
 
     /// A leg switched to a user whose profile sets `readonly = 1` is refused, not answered under
-    /// that profile: the leg's own `SETTINGS` clause asks for `join_use_nulls` and the server
-    /// refuses to change it, so no left join can read an unmatched key as the empty string. The
+    /// that profile: the server refuses the leg's own `SETTINGS` clause at the first setting it
+    /// cannot change (`max_execution_time`, code 164), so no setting, `join_use_nulls` among
+    /// them, is dropped silently and no left join reads an unmatched key as the empty string. The
     /// refusal is a refused setting the port answers as refused by the data system.
     #[test]
     fn a_switched_leg_under_a_readonly_profile_is_refused_as_a_refused_setting() {
