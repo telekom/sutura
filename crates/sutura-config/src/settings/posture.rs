@@ -552,6 +552,16 @@ pub enum NotFitToServe {
          token forwarded for the source's pool. Declare the source's `workload_identity`, or remove it"
     )]
     ReadingWorkerBigQueryOutsideAPool { alias: SourceName },
+    /// A reading worker declares an Oracle source without `split: flashback`. An Oracle partition
+    /// is read at its snapshot only at a source whose boot probe passed, and an
+    /// impersonation-at-source source cannot declare the key, so such a source has no partition to
+    /// read.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is an Oracle source without \
+         `split: flashback`. A reading worker reads an Oracle partition only at a shared source that \
+         declares `split: flashback`. Declare it, or remove the source"
+    )]
+    ReadingWorkerOracleWithoutFlashback { alias: SourceName },
     /// A question would wait for other nodes as long as the request it serves may take, or longer,
     /// so the wait would end in the deadline rather than in planning across the nodes that did start.
     #[error(
