@@ -3118,6 +3118,14 @@ address. <code>localhost</code> is a name, not an address, so it counts. <code>/
 <td>Declare a source the catalog reads</td>
 </tr>
 <tr>
+<td><code>server.role: reading-worker</code> and a BigQuery source without <code>workload_identity</code></td>
+<td>Declare the source's <code>workload_identity</code>, or remove it</td>
+</tr>
+<tr>
+<td><code>server.role: reading-worker</code> and an Oracle source without <code>split: flashback</code></td>
+<td>Declare <code>split: flashback</code>, or remove the source</td>
+</tr>
+<tr>
 <td><code>server.port: 0</code> in production</td>
 <td>Set a port</td>
 </tr>
