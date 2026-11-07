@@ -2762,9 +2762,11 @@ one - which is the shape this enum replaces.</p>
 - <code>LegNotGivenOut</code> - A leg was run that is not among the cut's own legs: one that already ran, or one the cut never held.</p>
 <p>The cut's legs are <code>Cut::legs</code>, each yielded once, so a leg
   outside that sequence is a wiring defect and names its source in <code>at</code>.
-- <code>RankedAnswer</code> - Ranking a combined answer produced a row set whose rows contradict its own columns.</p>
-<p><code>FederatedPlan::rank</code> re-orders and truncates rows it was handed, so it cannot change a
-  width.</p>
+- <code>RankedAnswer</code> - A combined answer could not be ranked: it has no column at all, or Arrow refused to concatenate, compare or take its arrays.</p>
+<p>The combine states its column order - every key, then the bucket, then the measure - so
+  either is a wiring defect between a combiner and <code>FederatedPlan::rank</code>. A narrower answer
+  that is not empty is ranked rather than refused; <code>FederatedPlan::rank</code> says why that is
+  unreachable.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="struct-answered"><code>struct Answered</code><a class="headerlink" href="#struct-answered" title="Permanent link">&para;</a></h2>
