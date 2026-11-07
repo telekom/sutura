@@ -313,7 +313,10 @@ impl Warehouse for AnyWarehouse {
     /// Built with `distributed` only: a build without it refuses `server.nodes` at boot
     /// (`nodes::combiner`), so no source is named for splitting and the default reads every leg
     /// whole.
-    #[cfg(all(feature = "distributed", any(feature = "postgres", feature = "clickhouse")))]
+    #[cfg(all(
+        feature = "distributed",
+        any(feature = "postgres", feature = "clickhouse", feature = "oracle")
+    ))]
     fn split_lookup(
         &self,
         leg: &sutura_domain::plan::LegPlan,
@@ -624,7 +627,10 @@ mod grant;
 /// Each kind's group opener, split out for the line cap.
 mod groups;
 /// The one per-kind split dispatch, for the planning node and a reading worker.
-#[cfg(all(feature = "distributed", any(feature = "postgres", feature = "clickhouse")))]
+#[cfg(all(
+    feature = "distributed",
+    any(feature = "postgres", feature = "clickhouse", feature = "oracle")
+))]
 pub(super) mod split;
 use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, oracle_group, postgres_group};
 

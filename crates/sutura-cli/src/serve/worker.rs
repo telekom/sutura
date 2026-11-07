@@ -161,7 +161,7 @@ fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
 
 /// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what
 /// [`open_reading_sources`] opened, each read bounded by this node's `server.request_timeout`.
-#[cfg(any(feature = "postgres", feature = "clickhouse"))]
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -172,10 +172,10 @@ fn reading_mount(
     mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
 }
 
-/// A `reading-worker`'s [`mount`] in a build with neither `PostgreSQL` nor `ClickHouse`, the kinds
+/// A `reading-worker`'s [`mount`] in a build with none of `PostgreSQL`, `ClickHouse` and Oracle, the kinds
 /// its reader is built for: its catalog and sources are opened, then dropped, and it serves as a
 /// `worker`.
-#[cfg(not(any(feature = "postgres", feature = "clickhouse")))]
+#[cfg(not(any(feature = "postgres", feature = "clickhouse", feature = "oracle")))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -185,7 +185,7 @@ fn reading_mount(
     mount(tls, authority, settings.runtime())
 }
 
-#[cfg(any(feature = "postgres", feature = "clickhouse"))]
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
 mod partition;
 #[cfg(test)]
 mod reading;
