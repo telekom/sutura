@@ -30,6 +30,11 @@ tracing = { workspace = true }
 # Dev-only: nothing in `src/` names it, so a build that never runs this doctest links no JSON crate.
 # Already resolved workspace-wide, so this is a new edge for this crate and not a new package.
 serde_json = { workspace = true }
+# The decimal cells of `federated/tests/top_test.rs` hand the federated path a combined answer whose
+# measure is a `Decimal128` - a type no `Value` builds. Already in the graph under `sutura-domain`,
+# so new edges and not new packages.
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 # Already a normal dependency above; this entry is here for three FEATURES, the way `sutura-http`
 # asks `sutura-runtime` for `test-capture`. `agreement` is the typed comparison
 # `tests/differential.rs` makes, shared with the BigQuery acceptance leg so the two cannot diverge

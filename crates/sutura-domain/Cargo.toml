@@ -53,8 +53,9 @@ secrecy = { workspace = true }
 # with `datafusion`'s and with `adbc_core`'s, and a batch crosses from either with no conversion.
 # NO new lockfile entry: both were already resolved at 59.2.0 before this edge existed.
 #
-# The cost is 64 crates the boundary allowlist now carries, of which `cargo tree -p sutura-domain
-# --all-features` compiles 21 - and under the workspace-unified resolve `just test` and `just lint`
+# The cost is 66 crates the boundary allowlist now carries (64 for this edge, two for `arrow-ord` and
+# `arrow-select` below), of which `cargo tree -p sutura-domain --all-features` compiles 23 - read off
+# `Cargo.lock` for the two, not re-measured - and under the workspace-unified resolve `just test` and `just lint`
 # use, more than that, because `adbc_core` turns `arrow-array`'s optional `chrono-tz` on for the one
 # `arrow-array` the graph shares. So the number depends on the venue, and both are in
 # `xtask/src/boundaries/edges.rs`, which is also where this is arguable in a diff. Two of them
@@ -65,6 +66,11 @@ secrecy = { workspace = true }
 # records what naming the type does and does not change.
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+# A federated `top` ranks the combined answer on its typed Arrow values, so a decimal orders by its
+# number and not by its text (`warehouse::arrow::ordered`). Both were already in the lock under the
+# engine, at its major.
+arrow-ord = { workspace = true }
+arrow-select = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
