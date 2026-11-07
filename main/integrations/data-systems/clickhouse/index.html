@@ -2803,6 +2803,13 @@ and these keys:</p>
 </tbody>
 </table>
 <p>Each hop in <code>delegation</code> has the keys of an <a href="../oracle/#settings">Oracle</a> hop.</p>
+<p><code>hash_buckets_acknowledged_because</code> (string, default none) is your reason to let a lookup leg of
+this source be read in hash buckets on the nodes that read the source. The value must not be
+empty. Other kinds of data system refuse the key.</p>
+<p>Each bucket is a separate read, so the buckets do not share one snapshot. All the rows of one key
+are read in the same bucket. Under concurrent writes, a key that changes can be read in one bucket,
+in two buckets, or in none. With fewer than two nodes that read the source, the buckets cannot be
+spread, and the leg is read whole.</p>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. There is no <code>database</code> key: unqualified table
 names resolve in the default database of the user.</p>
 <p><code>runtime.working_set_max_bytes</code> (default <code>1073741824</code>) is also the size limit of one response.
