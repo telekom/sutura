@@ -37,7 +37,7 @@ fn a_partition_of_a_source_that_is_not_postgres_is_refused_naming_it() {
         budget: settings.server().request_timeout().budget(),
     };
     let local = SourceName::parse("local").expect("a source name");
-    let read = opened.read(b"", &local, b"");
+    let read = opened.read(b"", &local, b"", &std::sync::Arc::new(arrow_schema::Schema::empty()));
     assert!(
         matches!(&read, Err(Unread::Failed(cause)) if cause.to_string().contains("does not read source `local`")),
         "a files partition was not refused as a source a reading worker does not read: {read:?}"

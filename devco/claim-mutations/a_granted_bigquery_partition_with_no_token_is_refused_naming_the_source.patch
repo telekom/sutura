@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-cli/src/serve/kind/split/bigquery.rs b/crates/sutura-cli/src/serve/kind/split/bigquery.rs
+--- a/crates/sutura-cli/src/serve/kind/split/bigquery.rs
++++ b/crates/sutura-cli/src/serve/kind/split/bigquery.rs
+@@ -94,7 +94,7 @@
+         _reads: &PartitionReads,
+         _deadline: Deadline,
+     ) -> Result<ResultBatches, Unread> {
+-        Err(Unread::failed(TokenUnread::NoToken {
++        Err(Unread::failed(TokenUnread::NotReadWithAToken {
+             at: leg.source().clone(),
+         }))
+     }
