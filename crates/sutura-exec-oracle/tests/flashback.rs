@@ -560,16 +560,34 @@ mod acceptance {
         drop_table(&session, TABLE);
     }
 
-    /// **A granted split's one schema.** An integer key and a text column are declared fixed, so
-    /// the split describes `Int64` and `Utf8`, and every bucket answers exactly that schema - an
-    /// empty or all-`NULL` column among them included, which its cells would type otherwise.
+    /// **A granted split's one schema, by declaration.** An integer key and a text column that is
+    /// `NULL` in every row are declared fixed, so the split describes `Int64` and `Utf8`, and every
+    /// bucket answers exactly that schema. Typed by its cells, the all-`NULL` text column would read
+    /// as `Int64`, so a partition read that ignored the declaration answers another schema here.
+    /// The same split is refused a describe at a source that was not probed.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
     fn a_split_of_an_integer_key_and_a_text_column_is_described_and_every_bucket_answers_it() {
         const TABLE: &str = "flashback_described";
         let tier = tier();
         let session = tier.session(&tier.user, &tier.password);
-        customers(&session, TABLE);
+        drop_table(&session, TABLE);
+        execute(
+            &session,
+            &format!("CREATE TABLE \"{TABLE}\" (\"customer_key\" NUMBER(10,0), \"region\" VARCHAR2(16))"),
+        );
+        execute(
+            &session,
+            &format!(
+                "INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") SELECT LEVEL, NULL FROM DUAL CONNECT BY LEVEL <= 38"
+            ),
+        );
+        session.commit().expect("the fixture commits");
+        execute(
+            &session,
+            &format!("BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, '\"{TABLE}\"'); END;"),
+        );
+        std::thread::sleep(Duration::from_secs(8));
         let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
         let warehouse = tier
             .adapter(&tier.user, &tier.password)
@@ -593,6 +611,13 @@ mod acceptance {
                 .expect("a fresh partition reads");
             assert_eq!(read.schema(), &described, "bucket {partition:?} answered another schema");
         }
+        let unprobed = tier
+            .adapter(&tier.user, &tier.password)
+            .describe_split(&leg, &split, deadline(60));
+        assert!(
+            matches!(unprobed, Err(OracleError::FlashbackNotDeclared { .. })),
+            "a source that was not probed describes no split: {unprobed:?}"
+        );
         drop_table(&session, TABLE);
     }
 

@@ -3,9 +3,11 @@
 //!
 //! A row-speaking answer is typed by its cells (`sutura_domain::warehouse::arrow::of_rows`): an
 //! empty or all-`NULL` column reads as `Int64`, and a `NUMBER` column whose cells are not all
-//! integers reads as text. Two partitions of one leg can then answer two schemas. A granted split
-//! needs one, so a column is typed by what the database declares it, never by its cells, and a leg
-//! with a column no declaration fixes is read on the planning node.
+//! integers reads as text. Two partitions of one leg can then answer two schemas, and a granted
+//! split needs one. Where the database declares every column of a partition fixed, the partition is
+//! typed by that declaration, not by its cells. A partition with a column no declaration fixes is
+//! still typed by its cells, as a whole read is, and its split describes no schema, so a grant that
+//! reads the describe leaves it on the planning node. Nothing reads the describe yet.
 //!
 //! **The limit:** only `NUMBER` of precision 1 to 18 and scale 0, `BINARY_DOUBLE` and the four
 //! character types are fixed. A `DATE`, a `TIMESTAMP`, a `NUMBER` of any other precision or scale,

@@ -84,3 +84,11 @@ fn a_cell_its_declared_type_cannot_hold_is_refused_naming_its_column() {
         "{refused:?}"
     );
 }
+
+/// A schema of another width than the rows is refused as a shape, never answered.
+#[test]
+fn a_schema_of_another_width_than_its_rows_is_refused() {
+    let one = Arc::new(Schema::new(vec![Field::new("customer_key", DataType::Int64, true)]));
+    let refused = typed(&answer(vec![vec![Value::Integer(7), Value::Null]]), &one, budget());
+    assert!(matches!(refused, Err(OracleError::Shape { .. })), "{refused:?}");
+}
