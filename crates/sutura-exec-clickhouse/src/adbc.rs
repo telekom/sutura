@@ -34,18 +34,13 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 use crate::deadline;
 use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
+use crate::settings;
 use crate::sum::{self, SlotScale, SumType};
 
 const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
 const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
-const JOIN_USE_NULLS: &str = "clickhouse.setting.join_use_nulls";
-const JSON_QUOTE_DENORMALS: &str = "clickhouse.setting.output_format_json_quote_denormals";
-const JSON_QUOTE_64BIT_INTEGERS: &str = "clickhouse.setting.output_format_json_quote_64bit_integers";
-const JSON_QUOTE_DECIMALS: &str = "clickhouse.setting.output_format_json_quote_decimals";
-const DECIMAL_TRAILING_ZEROS: &str = "clickhouse.setting.output_format_decimal_trailing_zeros";
-const TIMEOUT_OVERFLOW_MODE: &str = "clickhouse.setting.timeout_overflow_mode";
 const MAX_EXECUTION_TIME: &str = "clickhouse.setting.max_execution_time";
 const MOST_RESULT_ROWS: usize = 1_000_000;
 
@@ -130,6 +125,13 @@ impl DriverMessage {
     const fn timed_out(&self) -> bool {
         matches!(self.status, Status::Timeout) || matches!(self.server, Some(ServerCode::TIMEOUT_EXCEEDED))
     }
+
+    const fn refused_setting(&self) -> bool {
+        matches!(
+            self.server,
+            Some(ServerCode::READONLY | ServerCode::SETTING_CONSTRAINT_VIOLATION)
+        )
+    }
 }
 
 /// The exception code `ClickHouse` opens its error text with (`Code: 497. DB::Exception: ...`),
@@ -140,6 +142,8 @@ struct ServerCode(u32);
 
 impl ServerCode {
     const TIMEOUT_EXCEEDED: Self = Self(159);
+    const READONLY: Self = Self(164);
+    const SETTING_CONSTRAINT_VIOLATION: Self = Self(452);
     const ACCESS_DENIED: Self = Self(497);
     const AUTHENTICATION_FAILED: Self = Self(516);
 
@@ -163,6 +167,17 @@ pub enum AdbcError {
     Load(DriverMessage),
     #[error("ClickHouse ADBC call failed: {0}")]
     Driver(DriverMessage),
+    /// The profile of the user the statement runs as forbids a setting the answer needs: it is
+    /// `readonly`, or a constraint holds the setting away from sutura's value. Refused rather than
+    /// answered without the setting, and [`source_refused`](Warehouse::source_refused): the same
+    /// profile refuses the same statement again, so it is not an outage to retry.
+    #[error("ClickHouse refused a setting the answer needs: {0}")]
+    SettingRefused(DriverMessage),
+    /// The rendered statement carries a top-level `keyword`, or does not open with `SELECT` or
+    /// `WITH`, so its `SETTINGS` would not be its own and `EXECUTE AS` could lift it past the
+    /// switch. Refused before it is sent.
+    #[error("the rendered statement's settings would not be its own: {keyword}")]
+    SettingsNotOwn { keyword: &'static str },
     #[error("could not read a ClickHouse ADBC result batch: {0}")]
     Batch(#[source] ArrowError),
     #[error("the ClickHouse ADBC result stream was refused: {0}")]
@@ -277,13 +292,8 @@ impl AdbcClickHouseWarehouse {
             (OptionDatabase::Uri, endpoint.to_owned().into()),
             (OptionDatabase::Username, username.to_owned().into()),
             (OptionDatabase::Password, password.expose_secret().to_owned().into()),
-            (OptionDatabase::Other(JOIN_USE_NULLS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_DENORMALS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_64BIT_INTEGERS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_DECIMALS.to_owned()), "1".into()),
-            (OptionDatabase::Other(DECIMAL_TRAILING_ZEROS.to_owned()), "1".into()),
-            (OptionDatabase::Other(TIMEOUT_OVERFLOW_MODE.to_owned()), "throw".into()),
         ];
+        options.extend(settings::driver_options().map(|(key, value)| (OptionDatabase::Other(key), value.into())));
         if let Some(tls) = &self.tls {
             if let Some(value) = &tls.root_certs {
                 options.push((OptionDatabase::Other(TLS_ROOT_CERTS.to_owned()), value.clone().into()));
@@ -430,7 +440,8 @@ impl AdbcClickHouseWarehouse {
                 seconds.to_string().into(),
             )
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let sql = rewrite_placeholders(query.sql(), query.params())?;
+        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
+            .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
             RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,
@@ -521,9 +532,14 @@ fn execute_to_completion<S>(statement: &mut S, most_rows: usize, budget: ResultB
 where
     S: adbc_core::Statement,
 {
-    let reader = statement
-        .execute()
-        .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+    let reader = statement.execute().map_err(|error| {
+        let message = DriverMessage::of(&error);
+        if message.refused_setting() {
+            AdbcError::SettingRefused(message)
+        } else {
+            AdbcError::Driver(message)
+        }
+    })?;
     let schema = reader.schema();
     let mut accumulating = None;
     for batch in reader {
@@ -660,6 +676,7 @@ impl Warehouse for AdbcClickHouseWarehouse {
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdbcError::Driver(message) | AdbcError::Load(message) if message.refused_identity())
+            || matches!(error, AdbcError::SettingRefused(_))
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {

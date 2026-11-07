@@ -18,10 +18,11 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Grantee, LegPlan, LookupSplit, Partitioned};
-use sutura_domain::warehouse::deadline::Deadline;
+use sutura_domain::warehouse::deadline::{Budget, Deadline};
 use sutura_domain::warehouse::estimate::EstimatedBytes;
+use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{ResultBatches, Warehouse};
-use sutura_exec_datafusion::Unread;
+use sutura_exec_datafusion::{Forwarded, TokenUnread, Unread};
 use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned, SplitLeg};
 
 use super::super::{OpenedSources, PostgresSource};
@@ -47,6 +48,7 @@ pub(super) trait SplitKind {
         above_bytes: NonZeroU64,
         readers: NonZeroUsize,
         grantee: Option<Grantee>,
+        labels: &JobLabels,
     ) -> LookupSplit<'_, AnyWarehouseError>;
 
     /// The granted `partition` of `leg`, which this node re-certified, read on this node.
@@ -95,6 +97,26 @@ pub(crate) fn worker_read(
         }),
         _ => Err(not_split()),
     }
+}
+
+/// `source`'s `partition` of the leg `wire` holds, read with `forwarded`, the caller's token the
+/// admitted grant named.
+///
+/// # Errors
+///
+/// [`TokenUnread::NotReadWithAToken`] for every such read: no kind this node reads takes a
+/// caller's token yet.
+pub(crate) fn worker_read_forwarded(
+    _pinned: &PinnedDefinitions,
+    _sources: &OpenedSources,
+    source: &SourceName,
+    _wire: &[u8],
+    _partition: &[u8],
+    forwarded: Forwarded,
+    _budget: Budget,
+) -> Result<ResultBatches, Unread> {
+    drop(forwarded);
+    Err(Unread::failed(TokenUnread::NotReadWithAToken { at: source.clone() }))
 }
 
 /// `kind`'s read of the granted `partition` of `leg`, the one call site of
@@ -147,6 +169,7 @@ impl SplitKind for PostgresSource {
         above_bytes: NonZeroU64,
         readers: NonZeroUsize,
         grantee: Option<Grantee>,
+        _labels: &JobLabels,
     ) -> LookupSplit<'_, AnyWarehouseError> {
         let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
         let split = match self.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
@@ -195,3 +218,6 @@ impl HeldSplit for SplitLeg<'_> {
             .map(|partition| partition.read(deadline).map_err(AnyWarehouseError::Postgres))
     }
 }
+
+#[cfg(feature = "bigquery")]
+mod bigquery;

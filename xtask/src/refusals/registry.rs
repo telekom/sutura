@@ -115,7 +115,9 @@ const STARTUP: Subject = Subject {
     // `DeclaredNodeReadsUndeclaredSource` (#828), a `server.nodes` peer naming a source alias this
     // deployment's own `sources:` section does not declare. 39: `ReadingNodeWithoutInboundIdentity`
     // (#828), a `server.nodes` peer reading a declared source on a deployment that verifies no caller.
-    variants: variants(39),
+    // 40: `ReadingWorkerBigQueryOutsideAPool` (#828), a reading worker declaring a `BigQuery` source
+    // that federates at no pool, so it has no forwarded token to read a partition with.
+    variants: variants(40),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
