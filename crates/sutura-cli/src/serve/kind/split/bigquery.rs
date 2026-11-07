@@ -29,11 +29,11 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::labels::JobLabels;
 use sutura_exec_bigquery::BigQueryError;
 use sutura_exec_bigquery::adbc::{AdbcError, MOST_RESULT_ROWS};
-use sutura_exec_datafusion::{TokenUnread, Unread};
+use sutura_exec_datafusion::{SchemaRef, TokenUnread, Unread};
 
 use super::super::super::BigQuerySource;
 use super::super::AnyWarehouseError;
-use super::SplitKind;
+use super::{PartitionReads, SplitKind};
 
 impl SplitKind for BigQuerySource {
     /// Through `split_leg`, only at a pool source and only for a leg offered to a `grantee`; then
@@ -86,7 +86,14 @@ impl SplitKind for BigQuerySource {
     }
 
     /// Refused: a `BigQuery` partition is read only with its caller's token.
-    fn read_granted(&self, leg: &LegPlan, _partition: &[u8], _deadline: Deadline) -> Result<ResultBatches, Unread> {
+    fn read_granted(
+        &self,
+        leg: &LegPlan,
+        _partition: &[u8],
+        _granted: &SchemaRef,
+        _reads: &PartitionReads,
+        _deadline: Deadline,
+    ) -> Result<ResultBatches, Unread> {
         Err(Unread::failed(TokenUnread::NoToken {
             at: leg.source().clone(),
         }))

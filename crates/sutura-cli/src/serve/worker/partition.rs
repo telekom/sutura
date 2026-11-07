@@ -51,9 +51,9 @@ impl PartitionReader for Reader {
         schema: &SchemaRef,
     ) -> Result<SendableRecordBatchStream, Unread> {
         let opened = Arc::clone(&self.0);
-        let (wire, source, partition) = (wire.to_vec(), source.clone(), partition.to_vec());
+        let (wire, source, partition, granted) = (wire.to_vec(), source.clone(), partition.to_vec(), Arc::clone(schema));
         Ok(read_later(Arc::clone(schema), async move {
-            sutura_runtime::spawn_carrying_span(move || opened.read(&wire, &source, &partition))
+            sutura_runtime::spawn_carrying_span(move || opened.read(&wire, &source, &partition, &granted))
                 .await
                 .map_err(Unread::failed)?
         }))
@@ -78,10 +78,11 @@ impl PartitionReader for Reader {
 }
 
 impl Opened {
-    /// `source`'s `partition` of the leg `wire` holds, read only once this node certified the leg.
-    fn read(&self, wire: &[u8], source: &SourceName, partition: &[u8]) -> Result<ResultBatches, Unread> {
+    /// `source`'s `partition` of the leg `wire` holds, into `granted`, read only once this node
+    /// certified the leg.
+    fn read(&self, wire: &[u8], source: &SourceName, partition: &[u8], granted: &SchemaRef) -> Result<ResultBatches, Unread> {
         let deadline = Deadline::opened_at(Instant::now(), self.budget);
-        split::worker_read(&self.pinned, &self.sources, source, wire, partition, deadline)
+        split::worker_read(&self.pinned, &self.sources, source, wire, partition, granted, deadline)
     }
 
     /// `source`'s `partition` of the leg `wire` holds, read with `forwarded` as

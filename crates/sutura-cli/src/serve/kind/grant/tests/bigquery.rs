@@ -23,7 +23,7 @@ use sutura_exec_bigquery::{BigQueryWarehouse, JobBilling};
 use sutura_exec_datafusion::Unread;
 
 use super::super::super::super::BigQuerySource;
-use super::super::super::split::SplitKind as _;
+use super::super::super::split::{PartitionReads, SplitKind as _};
 
 fn ledger() -> SourceName {
     SourceName::parse("ledger").expect("a test source is a source")
@@ -143,7 +143,8 @@ fn a_bigquery_lookup_leg_is_split_only_at_a_pool_source_and_only_when_offered_to
 fn a_granted_bigquery_partition_with_no_token_is_refused_naming_the_source() {
     let bigquery = opened_as(at_a_pool());
     let deadline = Deadline::opened_at(Instant::now(), Budget::parse(Duration::from_secs(30)).expect("a budget"));
-    let read = bigquery.read_granted(&ledger_lookup(), b"", deadline);
+    let granted = std::sync::Arc::new(arrow_schema::Schema::empty());
+    let read = bigquery.read_granted(&ledger_lookup(), b"", &granted, &PartitionReads::ServiceUser, deadline);
     assert!(
         matches!(&read, Err(Unread::Failed(cause)) if cause.to_string().contains("a partition of `ledger` is read only with its caller's token")),
         "a granted partition with no token was not refused as one: {read:?}"

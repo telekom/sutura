@@ -12,11 +12,15 @@
 //! and its `sources:` does not declare is not opened. A `worker` still opens neither, having
 //! declared neither.
 //!
-//! **A `reading-worker` built with the `postgres` adapter keeps them for its partition reader**
+//! **A `reading-worker` built with the `postgres` or `clickhouse` adapter keeps them for its partition
+//! reader**
 //! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
 //! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
 //! read as its service user, or for a `BigQuery` pool source with the caller's token the grant
-//! named. A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
+//! named, an arm built only with `postgres`. `ClickHouse` has no arm yet, so a build with it and
+//! without `postgres` reads no partition: it admits a granted task and refuses each partition, where
+//! it served as a `worker` before that build took the reader. No venue runs that role in that build.
+//! A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
 //!
 //! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the
 //! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
@@ -157,7 +161,7 @@ fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
 
 /// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what
 /// [`open_reading_sources`] opened, each read bounded by this node's `server.request_timeout`.
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "clickhouse"))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -168,9 +172,10 @@ fn reading_mount(
     mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
 }
 
-/// A `reading-worker`'s [`mount`] in a build without `PostgreSQL`, the one kind it reads: its
-/// catalog and sources are opened, then dropped, and it serves as a `worker`.
-#[cfg(not(feature = "postgres"))]
+/// A `reading-worker`'s [`mount`] in a build with neither `PostgreSQL` nor `ClickHouse`, the kinds
+/// its reader is built for: its catalog and sources are opened, then dropped, and it serves as a
+/// `worker`.
+#[cfg(not(any(feature = "postgres", feature = "clickhouse")))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -180,7 +185,7 @@ fn reading_mount(
     mount(tls, authority, settings.runtime())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "clickhouse"))]
 mod partition;
 #[cfg(test)]
 mod reading;
