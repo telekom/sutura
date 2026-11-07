@@ -11,8 +11,9 @@
 # what it does not.
 #
 # ON CHANGE, AND ON DISPATCH, AND NOT ON A SCHEDULE. A pull request runs it only when it touches
-# what reads a split leg across nodes - the PostgreSQL split, the combine across nodes, the serving
-# and worker side of the CLI - or the venue itself. `merge_group` is absent on purpose: it takes no
+# what reads a split leg across nodes - the PostgreSQL split, the combine across nodes, the
+# federated service and its reading worker, the transport of a leg, the serving and worker side of
+# the CLI - or the venue itself. `merge_group` is absent on purpose: it takes no
 # `paths` filter (see `ci.yml`), so a queue entry would run a long VM test on every change, and
 # nothing in the queue waits for it. There is no `schedule`, and the SF10 data is never built by a
 # job that has not asked for it.
@@ -45,7 +46,16 @@ on:
       - "crates/sutura-exec-datafusion/src/combine.rs"
       - "crates/sutura-exec-datafusion/src/combine/**"
       - "crates/sutura-cli/src/serve/**"
+      - "crates/sutura-app/src/federated.rs"
+      - "crates/sutura-app/src/federated/**"
+      - "crates/sutura-app/src/reading_worker.rs"
+      - "crates/sutura-app/src/reading_worker/**"
       - "crates/sutura-domain/src/plan/split.rs"
+      - "crates/sutura-domain/src/plan/remote.rs"
+      - "crates/sutura-domain/src/plan/remote/**"
+      - "crates/sutura-domain/src/plan/federated/combiner.rs"
+      - "crates/sutura-domain/src/plan/federated/combiner/**"
+      - "crates/sutura-exec-postgres/src/adbc.rs"
       - "crates/sutura-sql/src/generate/pages.rs"
       - "dev/src/agree.rs"
       - "dev/src/agree/**"
