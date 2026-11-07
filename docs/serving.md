@@ -471,6 +471,21 @@ worker. The catalog and the sources are read once, at startup.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
 
+#### What the across-nodes acceptance shows
+
+`.github/workflows/tpch-across-nodes.yml` starts four machines over TPC-H at scale factor 10: a serving node, two
+reading workers and PostgreSQL. It asks each listed question of one node that holds the whole star, of the federated
+catalog on one node, and of the serving node with its two reading workers. A listed question must answer on the reading
+workers with the rows of the one-node answer, in the same order. PostgreSQL's statement log must show the reading
+workers, and not the serving node, reading each split leg's ranges.
+
+Limit: it covers the lookup legs of one PostgreSQL source at one scale factor. The fact leg is read whole on the
+serving node. Every node reads PostgreSQL as one role and nobody signs in, so it says nothing about who reads. The
+one-node answer and the serving node share the semantic compiler, so a defect in their shared plan agrees with
+itself. A `part` table of exactly two streams' rows has no slack, so a question over its unfiltered leg may be refused
+`result_too_large`. A question over the 10,000-row answer cap is not asked. It measures no load and no read speed. It is
+advisory: it runs on dispatch and on a change to the code that it names, never on a schedule.
+
 ## A published container port
 
 A published port (`docker run -p`, or a `ports:` entry in a compose file) lets callers reach the container from outside it.
