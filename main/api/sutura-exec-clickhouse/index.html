@@ -2526,7 +2526,10 @@ rather than a guess.</p>
 <code>sutura_domain::warehouse::deadline::Deadline</code> has left. <code>deadline</code>'s module header states what
 was measured about that setting's semantics and its limit, mirroring
 <code>sutura_exec_postgres::deadline</code>'s own record for <code>SET LOCAL statement_timeout</code>.</p>
-<h1 id="every-connection-pins-the-server-settings-that-decide-what-the-rows-say">Every connection pins the server settings that decide what the rows say<a class="headerlink" href="#every-connection-pins-the-server-settings-that-decide-what-the-rows-say" title="Permanent link">&para;</a></h1>
+<h1 id="every-connection-and-every-answering-statement-pin-the-server-settings-sutura-needs">Every connection and every answering statement pin the server settings sutura needs<a class="headerlink" href="#every-connection-and-every-answering-statement-pin-the-server-settings-sutura-needs" title="Permanent link">&para;</a></h1>
+<p>Each is a driver option on the connection and a setting in the statement's own <code>SETTINGS</code>
+clause; under <code>EXECUTE AS</code> only the clause holds - see <code>settings</code>, which also states what the
+pin does not cover: the fixture loader's statements, and every setting sutura does not pin.</p>
 <p><code>join_use_nulls=1</code>: under <code>ClickHouse</code>'s default <code>0</code>, the unmatched side of an outer join
 answers the column type's default - <code>''</code> for a <code>String</code> - where the SQL standard answers <code>NULL</code>.
 Measured by hand against the pinned compose server over the example corpus: 6 of the 23
@@ -2537,8 +2540,8 @@ importer's type choice decides whether the defect shows - <code>fixture</code> d
 infinite float answers the JSON <code>null</code>. <code>timeout_overflow_mode=throw</code>: <code>throw</code> answers a spent
 <code>max_execution_time</code> with Code 159; <code>break</code> answers HTTP 200 with the rows read so far. The
 executed goldens hold what the first two settings make the server answer, and nothing executed
-holds the third. <strong>Nothing offline holds that the settings are sent</strong>: the cells that would
-notice a dropped one need the tier.</p>
+holds the third. Offline, a loopback cell in <code>tests/adbc_execute_as.rs</code> holds that the statement
+carries the clause; what the server does with a dropped setting needs the tier.</p>
 <h1 id="what-is-not-here">What is NOT here<a class="headerlink" href="#what-is-not-here" title="Permanent link">&para;</a></h1>
 <p><strong>Shipped in every release binary since <code>github.com/telekom/sutura#1237</code>.</strong> <code>sutura-cli</code> opens a
 <code>kind: clickhouse</code> source behind its default-off <code>clickhouse</code> feature, which <code>nix/shipped.nix</code>
@@ -2593,6 +2596,8 @@ instead.</p>
 <ul>
 <li><code>Load</code></li>
 <li><code>Driver</code></li>
+<li><code>SettingRefused</code> - The profile of the user the statement runs as forbids a setting the answer needs: it is <code>readonly</code>, or a constraint holds the setting away from sutura's value. Refused rather than answered without the setting, and <code>source_refused</code>: the same profile refuses the same statement again, so it is not an outage to retry.</li>
+<li><code>SettingsNotOwn</code> - The rendered statement carries a top-level <code>keyword</code>, or does not open with <code>SELECT</code> or <code>WITH</code>, so its <code>SETTINGS</code> would not be its own and <code>EXECUTE AS</code> could lift it past the switch. Refused before it is sent.</li>
 <li><code>Batch</code></li>
 <li><code>Unannounced</code></li>
 <li><code>Parameters</code></li>
