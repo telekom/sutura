@@ -577,16 +577,22 @@ statement log, one line per statement with the client's address, shows which nod
 range.
 
 Measured by three runs of `.github/workflows/tpch-across-nodes.yml` on the pull request, at
-`github.com/telekom/sutura/actions/runs/42342552818`, `.../42343995219` and `.../42347702588`. Each is
-green, takes about 13 minutes, and printed the same counts:
+`github.com/telekom/sutura/actions/runs/42342552818`, `.../42343995219` and `.../42347702588`, at the
+heads `de8797ff8`, `02f75571b` and `638ad1661`. The venue above is the third run's: the first two ran
+earlier drivers, which lacked three checks that the limits below name. Each run is green, takes about
+13 minutes, and printed the same counts:
 
-- All 23 listed questions answered on MANY, equal to REF, in REF's row order, with the readers'
-  ranges the listed rules require.
+- All 23 listed questions answered on MANY, equal to REF, with the readers' ranges the listed rules
+  require. Row order was compared on every question only in the third run, and MANY's rows were in
+  REF's order on all 23 there. The first two runs compared it for a `top` question only.
 - ONE answered 9 of the 23 and refused the other 14 as `result_too_large`. Those 14 are questions
-  that MANY answers and one node refuses, which is the per-stream bound of Decision 2 at work.
+  that MANY answers and one node refuses. That fits the per-stream bound of Decision 2, but the
+  serving node audits every one of a run's 34 refusals as `ResultTooLarge { bound: Volume }`, so the
+  run does not tell that bound from another volume bound.
 - The 10 observed questions were refused `result_too_large` on both ONE and MANY. Nine read an
   unfiltered `part` leg. The tenth, `revenue-by-customer-and-supplier-region`, has a fact leg of
-  about 60,000,000 rows that MANY refuses on the serving node's volume bound.
+  about 60,000,000 rows. No reading worker read a range or logged a refusal for it, so that MANY
+  refused it on the serving node is inferred.
 - The two controls, which split no leg, answered on all three.
 
 The driver also counted the tables and their `pg_class` estimates, so the sizes in "The question"
@@ -597,8 +603,7 @@ Limits:
 - **The fact leg is read whole.** It is the DuckDB leg, read on the serving node. Only lookup legs
   are distributed.
 - **One PostgreSQL role, and nobody signs in.** Every node reads PostgreSQL as the same role, so the
-  log tells nodes apart by address alone, and a statement from an address that is no node's is
-  refused. The caller's token is minted. The run says nothing about whose identity reads a source,
+  log tells nodes apart by address alone. The caller's token is minted. The run says nothing about whose identity reads a source,
   and `docs/where-identity-is-proven.md` still decides what may be cited for that.
 - **REF and MANY share the semantic compiler.** A defect in the plan they share agrees with itself.
   Equal answers show that spreading the read changes nothing, not that the plan is right.
@@ -606,17 +611,24 @@ Limits:
 - **`part` at SF10 has no slack.** It holds 2,000,000 rows, exactly two streams, and a split is cut
   by pages, not rows, so a partition can pass the bound: "A range splits pages, not rows" above met
   at SF10. In each of the nine questions with an unfiltered `part` leg, the first reading worker
-  logged that its granted partition, `part[0,11504)`, did not fit its per-stream bound, and none of
-  the nine answered. The driver does not assert which partition is refused. The nine are observed,
-  not listed, until a run shows that they answer. The part-leg requirement is carried by
+  logged, for its source, that a granted partition did not fit its per-stream bound, and none of the
+  nine answered. That line names no partition. The statement log shows that worker's range of `part`
+  as `part[0,11504)`, and in two of the nine, beside `customer[0,5536)`, so those two do not show
+  which partition was refused. The driver does not assert which partition is refused. The nine are
+  observed, not listed, until a run shows that they answer. The part-leg requirement is carried by
   `three-brands-quantity-monthly`, whose filter reaches the leg: it answered on MANY, split in two,
   equal to REF.
 - **Ranges are proven, not reads.** The check reads only statements that carry `ctid`. A serving
   node reading a split table's columns without one is not seen, the same range read by both readers
   counts once, and a reader's `SET TRANSACTION SNAPSHOT` is not required, only the snapshot's export.
-- **The order check rests on the source.** The driver asks `sutura-dev agree` to compare the row
-  order of every question, and no log line echoes that command, so it is read from
-  `nix/tpch-across-nodes.py` and not from a run.
+- **The order check rests on the source, and only the third run had it for every question.** At the
+  first two heads the driver passed `--ordered` to `sutura-dev agree` for a `top` question only.
+  `788f2e655` made it every question, and `638ad1661` is the only head of the three that has it.
+  No log line echoes the `agree` command, so that order was compared is read from
+  `nix/tpch-across-nodes.py` at that head and not from a run.
+- **Two refusals are the third run's alone.** The driver refusing a federated question that no group
+  of `acceptance.json` names (`a72171915`) and a logged statement from an address that is no node's
+  (`638ad1661`) are not in the first two heads. The first two runs also had no `skipped` group.
 - **Eight questions are skipped.** Each is over the 10,000-row answer cap, counted from its grain and
   its dimensions' sizes, and not run.
 - **Advisory, and not scheduled.** `devco/required-contexts` marks the job `[advisory]`, so a red
