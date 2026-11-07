@@ -31,6 +31,7 @@ recorded under `observed` rather than listed until a run says it answers.
 """
 
 import datetime as dt
+import ipaddress
 import json
 import math
 import re
@@ -70,6 +71,14 @@ OPEN = -1
 
 def refuse(message: str) -> None:
     raise AssertionError(f"tpch-across-nodes: {message}")
+
+
+def is_address(text: str) -> bool:
+    try:
+        ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    return True
 
 
 def real_metrics(catalog: Path) -> set[str]:
@@ -275,12 +284,20 @@ class Venue:
         ).splitlines()
 
     def statements(self, lines: list[str]) -> list[tuple[str, str]]:
-        """Each logged statement and the node it came from, continuation lines joined."""
+        """Each logged statement and the node it came from, continuation lines joined.
+
+        A line from an address that is no node's is refused: gluing it to the statement before
+        would credit that statement's node with a range it did not read.
+        """
         found: list[list[str]] = []
         for line in lines:
             head = line.split(" ", 1)[0]
             if head in self.node or head == "[local]":
                 found.append([self.node.get(head, head), line])
+            elif is_address(head):
+                refuse(
+                    f"a statement from {head}, which is no node's address: {line[:200]}"
+                )
             elif found:
                 found[-1][1] += "\n" + line
         return [(client, text) for client, text in found]
