@@ -71,6 +71,13 @@ success-output = "immediate"
 filter = "binary(conformance) + binary(bound)"
 success-output = "immediate"
 
+[[profile.default.overrides]]
+# The ClickHouse switched-leg cell that reads `system.query_log` prints the rows it asserts on, so
+# a change in what the server logs is visible beside the assertion. A passing cell's `OBSERVED`
+# line is shown rather than captured.
+filter = "binary_id(sutura-exec-clickhouse::adbc_execute_as_legs)"
+success-output = "immediate"
+
 # The fixtures that spawn a REAL nested `cargo nextest run` over a throwaway crate: the gas family,
 # `causality::tests` and `rot`'s kill half (the filter also queues `causality::tests`' one pure
 # cell). Capped as a GROUP, and given a 900s ceiling (`terminate-after = 15`, set on the override

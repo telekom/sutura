@@ -196,8 +196,6 @@ pub enum AdbcError {
     NoPlaceForASubject,
     #[error("the principal is not a ClickHouse user this adapter can name")]
     NotAClickHouseUser(#[source] NotAClickHouseUser),
-    #[error("a federated leg would run through EXECUTE AS rather than the caller's own credential")]
-    LegUnderExecuteAs,
     #[error("the presented credential disagrees with the source posture")]
     PresentedDisagreesWithPosture(#[source] PresentedDisagreesWithPosture),
     #[error("the key probe did not return two counts")]
@@ -663,9 +661,6 @@ impl Warehouse for AdbcClickHouseWarehouse {
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let runs_as = self.deliverable(presented)?;
-        if matches!((&executable, &runs_as), (Executable::Leg(_), RunsAs::Switched(_))) {
-            return Err(AdbcError::LegUnderExecuteAs);
-        }
         let most_rows = executable.row_limit().unwrap_or(MOST_RESULT_ROWS);
         self.run(&Self::render(executable)?, deadline, most_rows, &runs_as)
     }
