@@ -376,6 +376,19 @@ impl AdbcClickHouseWarehouse {
         crate::fixture::load_conformance_csv(self, table, path)
     }
 
+    /// `query` run as the deployment and answered as rows, for a fixture cell whose statement the
+    /// port has no [`Executable`] for.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal, or an answer this adapter cannot read.
+    #[cfg(feature = "fixtures")]
+    pub fn rows_of(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<sutura_domain::warehouse::RowSet, AdbcError> {
+        self.run(query, deadline, MOST_RESULT_ROWS, &RunsAs::Deployment)?
+            .to_rows()
+            .map_err(AdbcError::Decode)
+    }
+
     /// Runs `sql`, which answers no rows, against this source's own endpoint.
     #[cfg(feature = "fixtures")]
     pub(crate) fn command(&self, sql: &str) -> Result<(), AdbcError> {

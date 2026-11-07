@@ -217,17 +217,27 @@ where
         Ok(batches) => batches,
         Err(done) => return *done,
     };
+    // A `top` still needs ranking HERE, after the combine - `github.com/telekom/sutura#777`'s
+    // case 2. `FederatedPlan::combine` sorts its own output ascending by key cell UNCONDITIONALLY
+    // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
+    // is taken once, above the combine - on the Arrow answer, before the decode, so a decimal
+    // measure ranks by its number and not by its text.
+    if let Some(top) = plan.top() {
+        return ranked_answer::<W, B, C>(
+            plan,
+            assembled,
+            ceilings,
+            top,
+            &credentials,
+            pinned,
+            schema_digest,
+            executed_as,
+        );
+    }
     // The presentation edge for a two-source answer, and the only decode on this path: the legs
     // stayed Arrow all the way into the combine, so one call turns the ANSWER into the rows the
     // bounds below count and a caller reads.
     let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
-    // A `top` still needs ranking HERE, after the combine - `github.com/telekom/sutura#777`'s
-    // case 2. `FederatedPlan::combine` sorts its own output ascending by key cell UNCONDITIONALLY
-    // (its own contract for a question with no `top`), which un-ranks a joined answer, so the rank
-    // is taken once, above the combine.
-    if let Some(top) = plan.top() {
-        return ranked_answer::<W, B, C>(plan, &answer, ceilings, top, &credentials, pinned, schema_digest, executed_as);
-    }
     bounded_answer::<W, B, C>(
         answer,
         ceilings,
@@ -445,7 +455,7 @@ const fn too_many_rows(credentials: &BoundToTheRequest, limit: u32) -> Answered 
 /// subset of it, so they are bounded too.
 fn ranked_answer<W, B, C>(
     plan: &FederatedPlan,
-    combined: &RowSet,
+    combined: ResultBatches,
     ceilings: Ceilings,
     top: sutura_domain::query::Top,
     credentials: &BoundToTheRequest,
@@ -459,7 +469,7 @@ where
     C: FederationCombiner,
 {
     let top_ceiling = ceilings.top().get();
-    if plan.top().is_some() && exceeds_row_cap(combined.rows().len(), top_ceiling) {
+    if plan.top().is_some() && exceeds_row_cap(combined.rows(), top_ceiling) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {
@@ -468,12 +478,15 @@ where
         ));
     }
     let federated_ceiling = ceilings.federated().get();
-    if exceeds_row_cap(combined.rows().len(), federated_ceiling) {
+    if exceeds_row_cap(combined.rows(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
     }
-    let ranked = FederatedPlan::rank(combined, top).map_err(|cause| ServiceError::Miswired {
-        cause: crate::FederationMiswired::RankedAnswer { cause },
-    })?;
+    let ranked = FederatedPlan::rank(combined, top)
+        .map_err(|cause| ServiceError::Miswired {
+            cause: crate::FederationMiswired::RankedAnswer { cause },
+        })?
+        .to_rows()
+        .map_err(|cause| ServiceError::Unreadable { cause })?;
     if let Some(limit_bytes) = exceeds_response_bound(&ranked) {
         return Ok(Answered::under(
             credentials,
