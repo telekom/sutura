@@ -522,3 +522,42 @@ Limits, beside the earlier amendments':
   declares such a source renders, and the pod does not start.
 - **Not measured.** No offline cell reaches the driver. Which principal BigQuery lets read a stream
   is still not measured, and a split BigQuery read is not cited for the caller's own access.
+
+## Seventh amendment, 2026-11-07: a profile that forbids sutura's settings is refused, not answered wrongly
+
+**Status of the amendment: accepted; it corrects this record's fifth amendment, in its limits on
+`readonly = 1` and on what is not built.** The federation record's fifth amendment holds the
+reasons and the runs (`github.com/telekom/sutura#1824` and `github.com/telekom/sutura#1830`).
+
+- **"A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
+  answer wrongly without an error."** The ClickHouse adapter now sends sutura's settings in the
+  `SETTINGS` clause of each statement it runs for an answer. The server refuses a statement whose
+  own setting the profile forbids, and the adapter answers `AdbcError::SettingRefused`, for which
+  its `source_refused` is `true`. Such a profile is refused, not answered wrongly. That holds for a
+  leg too, since the adapter no longer refuses a leg under the switch: a leg switched to a
+  `readonly = 1` user is refused with 164, measured at
+  `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`.
+- **"The clamp is read from the ClickHouse server source and not measured. Measured once, for a
+  leg: ... a left join answered an unmatched key as the empty value, with no error."** The leg
+  measurement was made before the clause existed. The wrong answer under `readonly = 1` is measured
+  for a whole switched question, at
+  `github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`. That run prints the row
+  that the switched answer lacks, and not the row that it answered. The clamp itself, and what a
+  constraint does, stay read from the server source.
+- **"... and a partition runs the same statement shape under the same clamp."** No code outside
+  the tests sends a partition statement yet. Since `github.com/telekom/sutura#1797`,
+  `sutura_sql::generate_leg_buckets` renders one for ClickHouse, and a tier cell reads every bucket
+  of a lookup leg as the deployment through the adapter's `run` (its fixture-only `rows_of`), which
+  adds the clause. The run is
+  `github.com/telekom/sutura/actions/runs/42319876325/job/128241568016`, and its log has no
+  `exempt: clickhouse from Unavailable` line. No cell reads a bucket under the switch, so this
+  amendment claims nothing for a partition under `readonly = 1`.
+- **"The tier cells that read a whole leg under the switch come with the change that lifts the
+  adapter's refusal."** That change is `github.com/telekom/sutura#1830`, and its cells run, on a
+  fact leg, at `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`. Two sentences
+  of that limit stand outside the tests: no ClickHouse leg is split, and no worker reads a
+  ClickHouse partition. The third, "No cell reads a split one", is read as under the switch: the
+  bucket cell above reads a split lookup leg as the deployment.
+
+This amendment does not say what a reading worker answers for a refused setting. This record's
+fifth amendment, in its limit on a refusal at a worker, is unchanged.

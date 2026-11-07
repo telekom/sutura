@@ -214,3 +214,22 @@ only. No tier cell runs a switched stacked plan.
 - On the answering path the driver itself sends only output-level request parameters
   (`output_format_arrow_compression_method`, `default_format`, the session and query ids). They
   apply to the outer statement and are not in the clause.
+
+## Third amendment, 2026-11-07: the run measures a missing `NULL` row, not an empty string
+
+**Status of the amendment: accepted; it corrects one sentence of the second amendment.** That
+amendment says a whole switched question with a left join "answered an unmatched `String` key as
+`''` instead of `NULL`", and cites a tier cell's base run for it
+(`github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`). The job does not show
+that. Its log prints `one side answered a row 1 time(s) and the other 0 time(s): [Null,
+Text("2026-01-01"), Integer(50)]`: the unswitched answer holds the row with the `NULL` key, and the
+switched answer holds no such row. It prints neither the row that the switched answer gave nor
+that row's key. The decision of the second amendment stands.
+
+- **What the run measures.** On the tier's ClickHouse, which `nix/clickhouse-tier.nix` pins at
+  26.9.15.5 (the job does not print the version), under a user whose profile sets `readonly = 1`, a
+  whole switched question with a left join did not answer the unmatched key as `NULL`, against the
+  tree without the clause. That is a wrong answer without an error.
+- **What it does not measure.** That the key came back as `''`. That value is read from the
+  documented behaviour of `join_use_nulls = 0` for a `String` key, and the federation record's
+  fourth amendment records it once for a leg. No run cited here prints it for a whole question.
