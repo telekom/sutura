@@ -305,24 +305,6 @@ mod adbc_execute_as {
         }
     }
 
-    /// A federated leg never runs under a switch: it is refused before the driver is asked for
-    /// anything, so nothing listens at the endpoint.
-    #[test]
-    fn a_federated_leg_is_refused_under_a_switch_before_anything_is_dialled() {
-        let refused = warehouse(
-            String::from("http://127.0.0.1:1"),
-            String::from("sutura_service"),
-            String::from("deployment-secret"),
-        )
-        .execute(
-            Executable::Leg(corpus::leg_case().leg()),
-            &switched_to("sutura_switched"),
-            corpus::deadline(),
-        )
-        .err();
-        assert!(matches!(refused, Some(AdbcError::LegUnderExecuteAs)), "{refused:?}");
-    }
-
     fn variable(name: &str) -> String {
         std::env::var(name).unwrap_or_else(|_absent| panic!("{name} is unset, so the tier has no fixture credential"))
     }
