@@ -6,12 +6,15 @@
 use super::layers::LayerOrigin;
 use super::{NotFitToServe, Settings};
 use crate::server::ServerRole;
+use crate::sources::SourceKind;
 
 /// Every reason a worker configuration is not fit to run as its role, or an empty list for
 /// `serving`.
 ///
-/// A `worker` declares no source and no catalog. A `reading-worker` declares both. Either needs a
-/// node authority, and neither mounts `/mcp` or Flight.
+/// A `worker` declares no source and no catalog. A `reading-worker` declares both, and each
+/// `BigQuery` source it declares federates at a workload identity pool: it reads a `BigQuery`
+/// partition only with the caller's token forwarded for that pool. Either needs a node authority,
+/// and neither mounts `/mcp` or Flight.
 ///
 /// **The limit on `catalogs`:** it is read off the layer that supplied the key, so a catalog counts
 /// when a file or a variable wrote it. A text overlay is stamped like the embedded defaults, so a
@@ -42,6 +45,13 @@ pub(super) fn worker_refusals(settings: &Settings) -> Vec<NotFitToServe> {
             if !declares_catalogs {
                 refusals.push(NotFitToServe::ReadingWorkerWithoutCatalog);
             }
+            refusals.extend(
+                settings
+                    .sources
+                    .each()
+                    .filter(|&(_, source)| source.kind() == SourceKind::BigQuery && source.workload_identity().is_none())
+                    .map(|(alias, _)| NotFitToServe::ReadingWorkerBigQueryOutsideAPool { alias: alias.clone() }),
+            );
         }
     }
     if settings

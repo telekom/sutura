@@ -751,7 +751,9 @@ use tonic::transport::Server;
 
 use super::Tls;
 
+mod ends;
 mod tokens;
+use ends::EndPeer;
 use tokens::{Handed, ReadsWithTokens};
 
 /// The token a granted `geo` leg is read with.
@@ -927,5 +929,40 @@ fn a_granted_lookup_read_with_the_callers_token_hands_it_to_each_partition_read_
             !value.contains(FORWARDED) && !value.contains(&hex)
         }),
         "a header carried the forwarded token"
+    );
+}
+
+/// A reading worker hands its reader the end of the grant it admitted each token under, on its own
+/// clock - no later than the token, which the grant was clamped to - and the time that grant had left.
+#[test]
+fn a_reading_worker_hands_its_reader_the_end_of_the_grant_it_admitted_the_token_under() {
+    let asked = SystemTime::now();
+    let servers = servers();
+    let authority = Authority::generate();
+    let payments = EndPeer::logging_ends(&servers, &authority);
+    let geo = [
+        EndPeer::logging_ends(&servers, &authority),
+        EndPeer::logging_ends(&servers, &authority),
+    ];
+    let others = core::iter::once(&payments).chain(&geo).map(|peer| peer.url.clone());
+    let nodes = planning(&servers, &authority, others)
+        .reading(source("geo"), geo.iter().map(|peer| peer.url.clone()))
+        .reading(source("payments"), [payments.url.clone()]);
+    let combiner = DataFusionCombiner::across(nodes).expect("a combiner builds");
+    let runner = GrantingWithToken {
+        schema: Arc::clone(whole(DISTINCT).schema()),
+    };
+
+    let answer = combiner.execute(combiner.plan(&sum_plan(true)), &runner, UNBOUNDED);
+
+    answer.expect("a granted lookup read with the caller's token answered");
+    let an_hour = Duration::from_secs(3600);
+    let latest = SystemTime::now() + an_hour;
+    let ends: Vec<_> = geo.iter().flat_map(|peer| peer.ends.lock().clone()).collect();
+    assert!(!ends.is_empty(), "no reader was handed a token");
+    assert!(
+        ends.iter()
+            .all(|&(end, left)| end > asked && end <= latest && left.is_some_and(|left| left <= an_hour)),
+        "a reader was handed other than its admitted grant's end, an hour at most: {ends:?}"
     );
 }
