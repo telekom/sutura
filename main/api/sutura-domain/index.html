@@ -8690,7 +8690,7 @@ what the source keeps open across the partitions - an exporting transaction - an
 as this value, which <code>Legs</code> borrows past the combine. It is <code>Send + Sync</code>
 because the combine's scoped join moves the borrowed legs across threads.</p>
 <p><strong>The limit:</strong> only <code>Grantee::grant</code> builds one in production, for a <code>sutura serve</code> deployment's
-PostgreSQL source (<code>github.com/telekom/sutura#828</code>).</p>
+PostgreSQL source or <code>BigQuery</code> pool source (<code>github.com/telekom/sutura#828</code>).</p>
 <h3 id="use-grantee"><code>use Grantee</code><a class="headerlink" href="#use-grantee" title="Permanent link">&para;</a></h3>
 <p>Whom a split lookup leg is granted for, and until when, read off the request's own grant.</p>
 <p>Only <code>Self::new</code> builds one, from a <code>BoundToTheRequest</code>: the caller is the one the broker
