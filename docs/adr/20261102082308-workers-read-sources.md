@@ -544,13 +544,20 @@ reasons and the runs (`github.com/telekom/sutura#1824` and `github.com/telekom/s
   `github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`. That run prints the row
   that the switched answer lacks, and not the row that it answered. The clamp itself, and what a
   constraint does, stay read from the server source.
-- **"A partition runs the same statement shape under the same clamp."** No partition statement
-  exists yet. Whether it carries the clause is for the change that builds it, and this amendment
-  claims nothing for it.
+- **"... and a partition runs the same statement shape under the same clamp."** No code outside
+  the tests sends a partition statement yet. Since `github.com/telekom/sutura#1797`,
+  `sutura_sql::generate_leg_buckets` renders one for ClickHouse, and a tier cell reads every bucket
+  of a lookup leg as the deployment through the adapter's `run` (its fixture-only `rows_of`), which
+  adds the clause. The run is
+  `github.com/telekom/sutura/actions/runs/42319876325/job/128241568016`, and its log has no
+  `exempt: clickhouse from Unavailable` line. No cell reads a bucket under the switch, so this
+  amendment claims nothing for a partition under `readonly = 1`.
 - **"The tier cells that read a whole leg under the switch come with the change that lifts the
-  adapter's refusal."** That change is `github.com/telekom/sutura#1830`, and the cells run in the
-  job above, on a fact leg. The other sentences of that limit stand: no ClickHouse leg is split, no
-  worker reads a ClickHouse partition, and no cell reads a split one.
+  adapter's refusal."** That change is `github.com/telekom/sutura#1830`, and its cells run, on a
+  fact leg, at `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`. Two sentences
+  of that limit stand outside the tests: no ClickHouse leg is split, and no worker reads a
+  ClickHouse partition. The third, "No cell reads a split one", is read as under the switch: the
+  bucket cell above reads a split lookup leg as the deployment.
 
 This amendment does not say what a reading worker answers for a refused setting. This record's
 fifth amendment, in its limit on a refusal at a worker, is unchanged.

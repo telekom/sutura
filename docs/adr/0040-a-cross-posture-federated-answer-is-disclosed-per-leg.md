@@ -226,9 +226,10 @@ Text("2026-01-01"), Integer(50)]`: the unswitched answer holds the row with the 
 switched answer holds no such row. It prints neither the row that the switched answer gave nor
 that row's key. The decision of the second amendment stands.
 
-- **What the run measures.** On ClickHouse 26.9.15.5, under a user whose profile sets
-  `readonly = 1`, a whole switched question with a left join did not answer the unmatched key as
-  `NULL`, against the tree without the clause. That is a wrong answer without an error.
+- **What the run measures.** On the tier's ClickHouse, which `nix/clickhouse-tier.nix` pins at
+  26.9.15.5 (the job does not print the version), under a user whose profile sets `readonly = 1`, a
+  whole switched question with a left join did not answer the unmatched key as `NULL`, against the
+  tree without the clause. That is a wrong answer without an error.
 - **What it does not measure.** That the key came back as `''`. That value is read from the
   documented behaviour of `join_use_nulls = 0` for a `String` key, and the federation record's
   fourth amendment records it once for a leg. No run cited here prints it for a whole question.

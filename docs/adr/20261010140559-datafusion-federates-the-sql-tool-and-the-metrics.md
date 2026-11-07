@@ -573,7 +573,8 @@ change that the fourth amendment waits for: the adapter no longer refuses a leg 
   variant is deleted. On the tier, a leg switched to a granted user answers under that user's own
   grants, is refused for a database that only the service user reads, and is refused for a user on
   whom the service user holds no `IMPERSONATE`. For one leg, `system.query_log` shows its `SELECT`
-  under the switched user and the wrapper under the service user, and no other finished statement.
+  under the switched user and the wrapper under the service user, and no other finished statement
+  in its database.
   The run is `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`.
 - **"A leg is one statement: one `SELECT`, with no CTE, no `SET`, no `USE` and no `SETTINGS`
   clause."** A leg's statement ends in that `SETTINGS` clause. The argument holds: the adapter
@@ -592,8 +593,9 @@ change that the fourth amendment waits for: the adapter no longer refuses a leg 
   refused with 452 on every request; before, the server held the query to the cap.
 - **"Measured once, on the 26.9.15.5 tier: ... a silent wrong answer for a leg. ... A whole query
   runs the same statement shape under the same clamp, and that was not measured separately."**
-  The leg measurement was made before the clause existed. Both are measured now, on ClickHouse
-  26.9.15.5, under a user whose profile sets `readonly = 1`.
+  The leg measurement was made before the clause existed. Both are measured now, on the tier's
+  ClickHouse, which `nix/clickhouse-tier.nix` pins at 26.9.15.5, under a user whose profile sets
+  `readonly = 1`. The jobs do not print the version.
   - A whole switched question with a left join did not answer an unmatched key as `NULL`, as the
     unswitched question did, against the tree without the clause, at
     `github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`. The run prints the
