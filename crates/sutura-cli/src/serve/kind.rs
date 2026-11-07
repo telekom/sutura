@@ -120,11 +120,7 @@ pub(crate) enum AnyWarehouseError {
     Node(sutura_exec_node::NodeError),
     /// A split's forwarded token was exchanged from a credential other than the one the request
     /// presented for the leg's source: the leg is refused, never granted or read.
-    #[cfg(all(
-        feature = "bigquery",
-        feature = "distributed",
-        any(feature = "postgres", feature = "clickhouse")
-    ))]
+    #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
     #[error(transparent)]
     NotTheCallersToken(sutura_domain::plan::NotTheCallersToken),
 }

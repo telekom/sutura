@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-cli/src/serve/kind/split.rs b/crates/sutura-cli/src/serve/kind/split.rs
 --- a/crates/sutura-cli/src/serve/kind/split.rs
 +++ b/crates/sutura-cli/src/serve/kind/split.rs
-@@ -149,7 +149,7 @@
+@@ -153,7 +153,7 @@
                  .splits()
                  .map_or_else(|| Err(not_split()), |kind| read_here(kind, leg, partition, granted, deadline))
          }),

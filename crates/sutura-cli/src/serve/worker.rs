@@ -17,7 +17,9 @@
 //! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
 //! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
 //! read as its service user, or for a `BigQuery` pool source with the caller's token the grant
-//! named; `ClickHouse` has no arm yet, so a build with it and without `postgres` reads no partition.
+//! named, an arm built only with `postgres`. `ClickHouse` has no arm yet, so a build with it and
+//! without `postgres` reads no partition: it admits a granted task and refuses each partition, where
+//! it served as a `worker` before that build took the reader. No venue runs that role in that build.
 //! A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
 //!
 //! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the

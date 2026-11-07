@@ -10,10 +10,10 @@
 //! as its service user (`postgres`); `BigQuery` splits at a pool source only, read with the caller's
 //! forwarded token (`bigquery`).
 //!
-//! **Limits.** This module is built with `distributed` and `postgres` or `clickhouse`, and the
-//! `BigQuery` arm only with it. `ClickHouse` has no arm yet, so a build with `clickhouse` and
-//! without `postgres` holds this dispatch and no kind that splits, and `grant` is built only with
-//! `postgres`. The multi-node VM test builds that feature set.
+//! **Limits.** This module is built with `distributed` and `postgres` or `clickhouse`. The `BigQuery`
+//! arm, and `grant`, are built only with `postgres`, as before this module took `clickhouse`.
+//! `ClickHouse` has no arm yet, so a build with `clickhouse` and without `postgres` holds this
+//! dispatch and no kind that splits; the multi-node VM test builds that feature set.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
@@ -38,7 +38,10 @@ pub(super) enum PartitionReads {
     /// This node's own declared service user for the source.
     ServiceUser,
     /// The caller's own principal, which the source switches to for the read.
-    #[expect(dead_code, reason = "no read names a switched principal yet; a later change reads one")]
+    #[expect(
+        dead_code,
+        reason = "no read names or reads a switched principal yet; a later change does both"
+    )]
     SwitchedPrincipal(PrincipalName),
 }
 
@@ -111,7 +114,7 @@ impl AnyWarehouse {
         match self {
             #[cfg(feature = "postgres")]
             Self::Postgres(postgres) => Some(&**postgres),
-            #[cfg(feature = "bigquery")]
+            #[cfg(all(feature = "bigquery", feature = "postgres"))]
             Self::BigQuery(bigquery) => Some(&**bigquery),
             _ => None,
         }
@@ -137,7 +140,7 @@ pub(crate) fn worker_read(
 ) -> Result<ResultBatches, Unread> {
     let not_split = || Unread::source_not_read(source);
     match sources {
-        #[cfg(feature = "bigquery")]
+        #[cfg(all(feature = "bigquery", feature = "postgres"))]
         OpenedSources::BigQuery(sources) => read_in(pinned, sources, source, wire, |bigquery, leg| {
             read_here(bigquery, leg, partition, granted, deadline)
         }),
@@ -186,7 +189,7 @@ pub(crate) fn worker_read_forwarded(
         budget,
     };
     match sources {
-        #[cfg(feature = "bigquery")]
+        #[cfg(all(feature = "bigquery", feature = "postgres"))]
         OpenedSources::BigQuery(sources) => asked.read_in(pinned, sources, |bigquery| Some(bigquery as &dyn SplitKind)),
         OpenedSources::Mixed(mixed) => asked.read_in(pinned, &mixed.engines, AnyWarehouse::splits),
         _ => Err(Unread::LegNotCertified),
@@ -267,7 +270,7 @@ where
         .unwrap_or_else(|_refused| Err(Unread::LegNotCertified))
 }
 
-#[cfg(feature = "bigquery")]
+#[cfg(all(feature = "bigquery", feature = "postgres"))]
 mod bigquery;
 /// Visible to [`kind`](super) for its reader cells, which ask `postgres::unread`.
 #[cfg(feature = "postgres")]
