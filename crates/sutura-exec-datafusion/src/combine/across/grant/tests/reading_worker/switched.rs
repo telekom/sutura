@@ -22,7 +22,7 @@ fn switched(name: &str) -> SwitchedPrincipal {
 }
 
 /// A grant naming `wire`/`source()`/`partition` for the caller `caller`, read as `principal`.
-fn granted_switching(key: &ReadingKey, wire: &[u8], partition: &[u8], caller: &str, principal: &str) -> Vec<u8> {
+pub(super) fn granted_switching(key: &ReadingKey, wire: &[u8], partition: &[u8], caller: &str, principal: &str) -> Vec<u8> {
     let built = ReadingGrant::new(
         LegDigest::of(wire),
         source(),
@@ -123,23 +123,6 @@ fn a_partition_read_carrying_a_principal_its_grant_does_not_name_is_refused() {
         handed.lock().is_empty(),
         "a reader was handed a principal its grant does not name"
     );
-}
-
-#[test]
-fn a_partition_read_carrying_no_principal_where_its_grant_names_one_is_refused() {
-    let (wire, partition, key_bytes) = (b"wire-unswitched".to_vec(), b"partition-unswitched".to_vec(), [20_u8; 32]);
-    let grant = granted_switching(
-        &ReadingKey::of(key_bytes),
-        &wire,
-        &partition,
-        "user@example.com",
-        "user@example.com",
-    );
-    let leaf = PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema());
-
-    let failures = installed_and_run(None, leaf, "12121212-1212-1212-1212-121212121212");
-
-    assert!(refused_as_not_naming(&failures), "{failures:?}");
 }
 
 #[test]
