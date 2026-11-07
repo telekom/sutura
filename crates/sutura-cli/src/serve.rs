@@ -361,9 +361,10 @@ pub(crate) fn run() -> Result<(), String> {
             // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
             // port's default `preflight`, so there is nothing for the table check to read. The
             // declared-subject broker, because an `impersonation-at-source` source opens each
-            // question's session with the asker's own token.
+            // question's session with the asker's own token. A source a declared peer reads is split as
+            // a mix's is.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
-            (compose::started(&catalogs, engines, broker, combiner, None, &settings)?, None)
+            (oracle::served(&catalogs, engines, broker, combiner, &settings)?, None)
         }
         #[cfg(feature = "cube")]
         OpenedSources::Cube(engines) => {

@@ -8,13 +8,14 @@
 //! modules and methods that name the kind (see the PR's limits). Every other kind is read whole by
 //! the planning node and refused by a reading worker, naming the source. `PostgreSQL` splits, read
 //! as its service user (`postgres`); `BigQuery` splits at a pool source only, read with the caller's
-//! forwarded token (`bigquery`).
+//! forwarded token (`bigquery`); Oracle splits at a source declaring `split: flashback`, read as its
+//! service user (`oracle`).
 //!
 //! **Limits.** This module is built with `distributed` and `postgres`, `clickhouse` or `oracle`. The `BigQuery`
 //! arm, and `grant`, are built only with `postgres`, as before this module took `clickhouse`.
 //! `ClickHouse` has no arm yet, so a build with `clickhouse` and without `postgres` holds this
 //! dispatch and no kind that splits; the multi-node VM test builds that feature set. The Oracle arm
-//! (`oracle`) is built with `oracle` and splits no leg yet.
+//! (`oracle`), and `grant` with it, are built with `oracle`.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
@@ -117,6 +118,8 @@ impl AnyWarehouse {
             Self::Postgres(postgres) => Some(&**postgres),
             #[cfg(all(feature = "bigquery", feature = "postgres"))]
             Self::BigQuery(bigquery) => Some(&**bigquery),
+            #[cfg(feature = "oracle")]
+            Self::Oracle(oracle) => Some(&**oracle),
             _ => None,
         }
     }
@@ -148,6 +151,10 @@ pub(crate) fn worker_read(
         #[cfg(feature = "postgres")]
         OpenedSources::Postgres(sources) => read_in(pinned, sources, source, wire, |postgres, leg| {
             read_here(postgres, leg, partition, granted, deadline)
+        }),
+        #[cfg(feature = "oracle")]
+        OpenedSources::Oracle(sources) => read_in(pinned, sources, source, wire, |oracle, leg| {
+            read_here(oracle, leg, partition, granted, deadline)
         }),
         OpenedSources::Mixed(mixed) => read_in(pinned, &mixed.engines, source, wire, |engine, leg| {
             engine
