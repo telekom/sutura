@@ -2767,6 +2767,12 @@ and these keys:</p>
 <td>A PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
 </tr>
 <tr>
+<td><code>split</code></td>
+<td>string</td>
+<td>none</td>
+<td><code>flashback</code>: opts the source's lookup legs into a split at one snapshot; sutura checks the flashback privileges at startup. Refused on <code>impersonation-at-source</code></td>
+</tr>
+<tr>
 <td><code>delegation</code></td>
 <td>list</td>
 <td>none</td>
@@ -2804,6 +2810,9 @@ and these keys:</p>
 </tr>
 </tbody>
 </table>
+<p>A serving deployment does not start when a source with <code>split: flashback</code> is its only source, or
+when no <code>server.nodes</code> peer lists the source in its <code>sources</code>. A reading worker does not start when
+it declares an Oracle source without <code>split: flashback</code>.</p>
 <p>sutura connects at startup, so it does not start if the listener or the login fails. The connect to
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
 it logs in, so declare the address that answers.</p>
