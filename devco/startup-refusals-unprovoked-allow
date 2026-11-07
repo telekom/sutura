@@ -1,5 +1,4 @@
 # NotFitToServe variants without test-name or snapshot-word evidence.
 # Entries: <Variant> <YYYY-MM-DD> <reason and what would end the exception>
-# Dates are shape-checked; stale and unknown entries fail.
+# Dates are shape-checked; stale and unknown entries fail. No exceptions currently.
 # Name coverage is not proof of provocation or execution in a venue.
-ReadingWorkerOracleWithoutFlashback 2026-11-07 nothing raises it yet; the boot refusal that does lands with the cell naming it (#828), which deletes this line

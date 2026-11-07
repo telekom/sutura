@@ -52,6 +52,13 @@ pub(super) fn worker_refusals(settings: &Settings) -> Vec<NotFitToServe> {
                     .filter(|&(_, source)| source.kind() == SourceKind::BigQuery && source.workload_identity().is_none())
                     .map(|(alias, _)| NotFitToServe::ReadingWorkerBigQueryOutsideAPool { alias: alias.clone() }),
             );
+            refusals.extend(
+                settings
+                    .sources
+                    .each()
+                    .filter(|&(_, source)| source.kind() == SourceKind::Oracle && source.split().is_none())
+                    .map(|(alias, _)| NotFitToServe::ReadingWorkerOracleWithoutFlashback { alias: alias.clone() }),
+            );
         }
     }
     if settings

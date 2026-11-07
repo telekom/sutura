@@ -436,6 +436,8 @@ Limits:
   startup for a source that declares it. No composition root offers an Oracle leg for splitting,
   and no reading worker reads an Oracle partition, until the grant and the reading worker gain an
   Oracle arm.
+  A reading worker declaring an Oracle source without `split: flashback` does not start
+  (`ReadingWorkerOracleWithoutFlashback`).
 
 ## Fifth amendment, 2026-11-06: a ClickHouse lookup leg splits by hash bucket, read as the caller's switched user
 
