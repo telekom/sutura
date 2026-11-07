@@ -6748,7 +6748,7 @@ convenience, and nothing needs to clone a startup refusal.</p>
   declaration that does nothing is a configuration nobody can see.
 - <code>Split</code> - A written <code>split</code> is not usable on this entry.
 - <code>InboundTokenAtPool</code> - A written <code>inbound_token_at_pool</code> is not the one acknowledgement it accepts.
-- <code>HashBucketsBesideDelegation</code> - <code>hash_buckets_acknowledged_because</code> is written on a <code>clickhouse</code> entry whose callers sign in with a <code>delegation</code> token. A bucket is read on another node, and no caller's token reaches it.
+- <code>HashBucketsBesideDelegation</code> - <code>hash_buckets_acknowledged_because</code> is written beside a <code>delegation</code>: a hash bucket of a delegated source is not read with the caller's token, so it would not run as that caller.
 - <code>WorkloadIdentity</code> - The declared workload-identity value is not usable.
 - <code>Transport</code> - The declared transport of a source was not usable.</p>
 <p>The transport is the whole channel a source is reached over, so its refusals (an unknown
