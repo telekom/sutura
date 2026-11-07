@@ -272,6 +272,10 @@ pub enum OracleError {
     /// The partition's snapshot was taken longer ago than the reading request's budget.
     #[error("the partition's snapshot is older than the {most_seconds}-second request budget")]
     SnapshotStale { most_seconds: u64 },
+    /// A partition's cell is not of the type its column's declaration fixes, so the partition cannot
+    /// answer the schema its split was described with.
+    #[error("a partition's column `{column}` holds a value its declared type does not")]
+    NotOfItsColumnType { column: String },
 }
 
 /// An Oracle connection, behind the [`Warehouse`] port.
@@ -522,6 +526,21 @@ impl OracleWarehouse {
         ready_workers: core::num::NonZeroUsize,
     ) -> Result<Planned, OracleError> {
         split::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
+    }
+
+    /// The columns every partition of `split` answers, off the database's declaration of its first
+    /// partition, or `None` where cells decide a column's type. Not built yet: always `None`.
+    ///
+    /// # Errors
+    ///
+    /// What [`Self::read_partition`] refuses before it reads a row.
+    pub fn describe_split(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        split: &SplitLeg,
+        deadline: Deadline,
+    ) -> Result<Option<arrow_schema::SchemaRef>, OracleError> {
+        split::describe(self, leg, split, deadline)
     }
 
     /// The rows of the partition `descriptor` names of `leg`, read at its snapshot as the service
