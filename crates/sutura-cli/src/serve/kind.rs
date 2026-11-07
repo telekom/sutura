@@ -884,4 +884,73 @@ mod tests {
             }
         }
     }
+
+    /// A reader's failure answered by its kind: only a partition past the bound is typed, and what is
+    /// logged names the source and never the cause.
+    #[cfg(all(feature = "postgres", feature = "distributed"))]
+    mod reader {
+        use sutura_domain::model::SourceName;
+        use sutura_domain::warehouse::UnannouncedBatch;
+        use sutura_exec_datafusion::Unread;
+        use sutura_exec_postgres::PostgresError;
+        use sutura_exec_postgres::adbc::AdbcError;
+        use sutura_runtime::testing::Capture;
+
+        use super::super::split::unread;
+
+        fn reader_source() -> SourceName {
+            SourceName::parse("reader_source_q9").expect("a source name")
+        }
+
+        fn unannounced(cause: UnannouncedBatch) -> PostgresError {
+            PostgresError::Adbc {
+                cause: AdbcError::Unannounced(cause),
+            }
+        }
+
+        /// What `unread` logs for `cause`, under the shipped default directive.
+        fn reader_log(cause: PostgresError) -> String {
+            let sink = Capture::new();
+            let telemetry = sutura_config::TelemetrySettings::new(
+                sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+                sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+                sutura_config::LogFormat::Bunyan,
+                true,
+            );
+            let subscriber =
+                sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+            drop(tracing::subscriber::with_default(subscriber, || {
+                unread(&reader_source(), cause)
+            }));
+            sink.contents()
+        }
+
+        #[test]
+        fn only_a_partition_past_the_readers_row_bound_is_read_as_one_that_did_not_fit() {
+            let read = unread(&reader_source(), unannounced(UnannouncedBatch::OverBound { most: 1 }));
+            assert!(matches!(read, Unread::DidNotFit), "{read:?}");
+            let other = unread(
+                &reader_source(),
+                unannounced(UnannouncedBatch::Width {
+                    announced: 2,
+                    delivered: 3,
+                }),
+            );
+            assert!(matches!(other, Unread::Failed(_)), "{other:?}");
+        }
+
+        #[test]
+        fn a_readers_failed_partition_is_logged_naming_the_source_and_never_the_cause() {
+            let marker = "planted_cell_marker_7f3a";
+            let failed = reader_log(PostgresError::UnsupportedType {
+                column: String::from(marker),
+                postgres_type: "point",
+            });
+            assert!(failed.contains("reader_source_q9"), "{failed}");
+            assert!(!failed.contains(marker), "{failed}");
+            let unfit = reader_log(unannounced(UnannouncedBatch::OverBound { most: 1 }));
+            assert!(unfit.contains("reader_source_q9"), "{unfit}");
+            assert!(!unfit.contains("could not answer"), "{unfit}");
+        }
+    }
 }

@@ -472,7 +472,9 @@ pub type Executed<R, C> = Result<ResultBatches, ExecuteError<<R as LegRunner>::E
 ///   naming the source the node that answers the caller split the leg of. A `bool`, so a name another
 ///   node sent cannot reach the caller through it.
 /// * [`Self::partition_did_not_fit`] is a reading node the combine was planned onto reading a granted
-///   partition past the bound it reads one stream under.
+///   partition past the bound it reads one stream under -
+///   [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge) with
+///   [`ResultBound::Volume`](crate::query::ResultBound::Volume), as a leg read whole on this node is.
 /// * [`Self::no_reading_node`] is a granted lookup leg whose source no node the combine can reach
 ///   reads - [`RefusalReason::SourceUnavailable`](crate::query::RefusalReason::SourceUnavailable),
 ///   naming that source.
