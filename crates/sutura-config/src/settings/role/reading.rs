@@ -102,7 +102,8 @@ fn a_reading_worker_declaring_a_bigquery_source_outside_a_pool_does_not_start() 
     );
 }
 
-/// A shared Oracle source that does not declare `split: flashback`, and one that does.
+/// A shared Oracle source that does not declare `split: flashback`, one that does, and one that reads as
+/// each caller, which cannot declare it.
 const ORACLE_SOURCES: &str = "  plain:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
                               service_name: \"orcl.example.com\"\n    user: \"sutura\"\n    password_file: \
                               \"/run/secrets/oracle-password\"\n    transport_mode: \"verified\"\n    transport_anchors: \
@@ -110,7 +111,14 @@ const ORACLE_SOURCES: &str = "  plain:\n    kind: \"oracle\"\n    host: \"db.exa
                               kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \
                               \"orcl.example.com\"\n    user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    \
                               transport_mode: \"verified\"\n    transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    \
-                              posture: \"shared-service-user\"\n    split: \"flashback\"\n";
+                              posture: \"shared-service-user\"\n    split: \"flashback\"\n  impersonating:\n    \
+                              kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    service_name: \
+                              \"orcl.example.com\"\n    user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    \
+                              transport_mode: \"verified\"\n    transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    \
+                              posture: \"impersonation-at-source\"\n    delegation:\n      - token_endpoint: \
+                              \"https://idp.example.com/token\"\n        client_id: \"sutura\"\n        client_secret_file: \
+                              \"/run/secrets/idp-client\"\n        grant: \"on-behalf-of\"\n        audience: \
+                              \"database-client-id\"\n";
 
 /// `#828`: an Oracle partition is read at its snapshot only at a source that declares
 /// `split: flashback`, so a reading worker declaring one without it does not start.
@@ -127,6 +135,10 @@ fn a_reading_worker_declaring_an_oracle_source_without_flashback_does_not_start(
     assert!(
         !found.contains(&without("probed")),
         "an Oracle source declaring `split: flashback` is not: {found:?}"
+    );
+    assert!(
+        found.contains(&without("impersonating")),
+        "an Oracle source reading as each caller is refused too: {found:?}"
     );
     assert!(!found.contains(&without("local")), "a files source is not: {found:?}");
     let rendered = without("plain").to_string();

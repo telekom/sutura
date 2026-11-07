@@ -26,7 +26,8 @@
 //! split leg's partition only to a node `server.nodes` declares as reading its source, and only a
 //! serving deployment's PostgreSQL source or `BigQuery` pool source grants one, so no other served
 //! lookup leg reaches the reader. A source of any other kind is refused, a `reading-worker`
-//! declaring a `BigQuery` source outside a pool does not start (`sutura_config`), and a build
+//! declaring a `BigQuery` source outside a pool, or an Oracle source without `split: flashback`,
+//! does not start (`sutura_config`), and a build
 //! without the `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 
 use std::sync::Arc;
