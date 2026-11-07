@@ -844,10 +844,7 @@ dev-up-datahub:
 dev-up-openmetadata:
     cargo run -q -p xtask -- dev-up --with openmetadata
 
-# Off by default because it is a full database server and nothing here reads it in `just validate` -
-# `compose.services.yaml`'s own `oracle` row says why there is no nix-native tier to converge to.
-# The same, plus Oracle Database - `github.com/telekom/sutura#127` - serving TCPS over the wallet
-# `nix/oracle-tier-tls.sh` writes first (#1425).
+# The same, plus Oracle Database (`github.com/telekom/sutura#127`) over the TCPS wallet `nix/oracle-tier-tls.sh` writes first (#1425). Off by default: no `just validate` leg starts one.
 dev-up-oracle:
     bash nix/oracle-tier-tls.sh
     cargo run -q -p xtask -- dev-up --with oracle
@@ -882,11 +879,11 @@ cube-acceptance:
 # says the `cube` cells run instead of `just test`.
 ci-cube-tier: cube-acceptance
 
-# Oracle adapter, catalog and served password cells. Keep the CI app's filters aligned.
+# Oracle adapter, catalog, served password and sutura-app cells; the `oracle-tier` CI job runs it. Keep the CI app's filters aligned.
 oracle-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms and sutura-cli's served source-password cell. NOT a gate: run \`just test\` for the whole suite."
+    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms, sutura-cli's served source-password cell and sutura-app's oracle cells. NOT a gate: run \`just test\` for the whole suite."
     export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
     export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
     just dev-up-oracle
@@ -896,7 +893,10 @@ oracle-acceptance:
     cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
     status=$?
     cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
+    bash nix/oracle-app-cells.sh || status=$?
     exit "$status"
+
+oracle-tier: oracle-acceptance
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own

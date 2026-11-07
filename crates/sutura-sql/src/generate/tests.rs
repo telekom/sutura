@@ -597,9 +597,10 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
 /// no multi-column `DISTINCT`, both key columns in the `GROUP BY`, a null in either column excluded
 /// by the `WHERE` as the other dialects' counts exclude it, and the domain's two labels.
 ///
-/// **The limit:** this reads the rendered text and parses it offline. Whether Oracle answers the
-/// counts a duplicate-free and a duplicated key table must is not measured by any job at this head:
-/// `oracle-tier` runs only the `acceptance::` and `oracle_provisioned::` cells.
+/// **The limit:** this reads the rendered text and parses it offline. The `oracle-tier` CI job is the
+/// one venue that executes the shape, through `data_systems::oracle::whether_it_counts_a_declared_join_key…`,
+/// and only over the example corpus's keys, all duplicate-free. Whether Oracle answers the count a
+/// DUPLICATED key table must is not measured by any job.
 #[test]
 fn an_oracle_compound_key_probe_counts_a_grouped_subquery_not_a_multi_column_distinct() {
     let (relationship, definitions) = compound_usage_subscription();
@@ -724,6 +725,39 @@ fn an_oracle_ratio_converts_its_numerator_with_to_binary_double_and_others_keep_
             "{dialect}: {sql}"
         );
         assert!(!sql.contains("TO_BINARY_DOUBLE"), "{dialect}: {sql}");
+    }
+}
+
+/// An Oracle mean is `TO_BINARY_DOUBLE(AVG(..))`: `AVG` over a `NUMBER` is a `NUMBER`, which the adapter
+/// reads back as exact text where the engine answers a double. Postgres keeps its `CAST(.. AS DOUBLE
+/// PRECISION)`, for the same reason, and the other dialects keep the bare `AVG`.
+#[test]
+fn an_oracle_mean_is_read_as_a_binary_double_and_postgres_keeps_its_cast() {
+    let mean = PlanMeasure::Simple {
+        term: PlanTerm::Aggregate {
+            aggregate: Aggregate::Avg,
+            column: PlanColumn::new(
+                TableName::parse("orders").expect("a test table is a table"),
+                ColumnName::parse("amount").expect("a test column is a column"),
+            ),
+        },
+    };
+    let rendered = |dialect| {
+        render(
+            &super::measure_expression(&mean, None, dialect, &mut Vec::new()).into_inner(),
+            dialect,
+        )
+        .expect("the mean renders for this dialect")
+    };
+    assert_eq!(rendered(Dialect::Oracle), "TO_BINARY_DOUBLE(AVG(\"orders\".\"amount\"))");
+    let postgres = rendered(Dialect::Postgres);
+    assert!(
+        postgres.starts_with("CAST(AVG(\"orders\".\"amount\") AS DOUBLE"),
+        "{postgres}"
+    );
+    for dialect in [Dialect::DuckDb, Dialect::BigQuery, Dialect::ClickHouse] {
+        let sql = rendered(dialect);
+        assert!(!sql.contains("TO_BINARY_DOUBLE") && !sql.contains("CAST"), "{dialect}: {sql}");
     }
 }
 

@@ -1,0 +1,13 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+product_name	period	recurring_revenue
+Text(Internet Cable 300)	Text(2026-06-01)	Integer(37992)
+Text(Internet Fiber 1000)	Text(2026-06-01)	Integer(42491)
+Text(Mobile L Unlimited)	Text(2026-06-01)	Integer(44927)
+Text(Mobile M)	Text(2026-06-01)	Integer(12120)
+Text(Mobile S)	Text(2026-06-01)	Integer(12996)
+Text(One Home L)	Text(2026-06-01)	Integer(15415)
+Text(One Home S)	Text(2026-06-01)	Integer(28873)
+Text(TV Entertainment)	Text(2026-06-01)	Integer(7307)
