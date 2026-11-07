@@ -33,7 +33,9 @@
 //! The single mint below does not collapse them: `DeclaredPrincipalBroker::mint` walks the
 //! `SourceSet` and presents one credential per leg, each the asking subject's own. **The limits,
 //! beside the claim:** the published artefact links that adapter, but no federated answer has been
-//! produced against a real dataset - what is held is that each leg renders for the dialect and is
+//! produced against a real dataset as the asking subject - the one live answer, the two-fact
+//! differential in the `bigquery-conformance` CI job, runs both legs under that job's one shared CI
+//! identity. What is held for the per-subject path is that each leg renders for the dialect and is
 //! submitted with that subject's own credential and that source's configured byte ceiling.
 
 use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext, SourceSet};
