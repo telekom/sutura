@@ -9,7 +9,9 @@ Three `sutura serve` topologies answer the same questions, one at a time, over t
   MANY  a planner and two reading workers over the federated catalog. A split lookup leg is
         granted to the readers, which read its `ctid` ranges.
 
-`nix/tpch/acceptance.json` names the questions that must answer on MANY, equal REF. `sutura-dev
+`nix/tpch/acceptance.json` names the questions that must answer on MANY, equal REF. Every
+federated question of `questions.json` is in exactly one of its groups - listed, observed or skipped
+with a reason - so a question cannot drop out of the run unrecorded. `sutura-dev
 agree` judges equal, by the policy the differential legs use: a decimal sum and an integer
 exactly, and only a column that holds an `avg` or a ratio at 13 significant digits. Row order is
 judged too, on every question.
@@ -105,17 +107,30 @@ class Corpus:
         self.real = real_metrics(corpus / "catalog")
         self.listed = accepted["questions"]
         self.observed = accepted["observed"]
+        self.skipped = accepted["skipped"]["questions"]
         self.controls = accepted["controls"]
         self.questions = everything
 
         if data["scale"] != self.scale:
             refuse(f"the data is SF{data['scale']}, the plan SF{self.scale}")
-        names = self.listed + self.observed + self.controls
+        names = self.listed + self.observed + self.skipped + self.controls
         if len(set(names)) != len(names):
             refuse("acceptance.json names a question twice")
-        for name in self.listed + self.observed:
+        if self.skipped and not accepted["skipped"]["because"].strip():
+            refuse("acceptance.json skips questions and says no reason")
+        for name in self.listed + self.observed + self.skipped:
             if everything.get(name, {}).get("path") != "federated":
                 refuse(f"{name} is not a federated question of questions.json")
+        unplaced = [
+            name
+            for name, question in everything.items()
+            if question["path"] == "federated" and name not in names
+        ]
+        if unplaced:
+            refuse(
+                "federated questions of questions.json that acceptance.json neither lists,"
+                f" observes nor skips: {', '.join(unplaced)}"
+            )
         for name in self.controls:
             if everything.get(name, {}).get("path") != "single":
                 refuse(f"{name} is not a single-source question of questions.json")

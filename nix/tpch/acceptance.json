@@ -37,6 +37,19 @@
     "tpch-q8-revenue-by-part-type-in-america",
     "revenue-by-customer-and-supplier-region"
   ],
+  "skipped": {
+    "because": "Skip the questions over the 10k cap in v1. Each is over the answer cap of 10,000 rows (`MAX_ROWS`) by its grain and the sizes of its dimensions; that is counted from them, not run.",
+    "questions": [
+      "revenue-by-customer-nation-daily",
+      "quantity-by-segment-and-mode-daily",
+      "revenue-by-brand-and-customer-region-weekly",
+      "order-count-by-customer-nation-daily",
+      "revenue-by-part-type-and-supplier-nation-monthly",
+      "lines-between-nations-daily",
+      "revenue-by-container-supplier-region-segment",
+      "revenue-by-brand-and-customer-nation-daily"
+    ]
+  },
   "controls": [
     "revenue-monthly-1995",
     "pricing-summary-by-flag-and-status"
