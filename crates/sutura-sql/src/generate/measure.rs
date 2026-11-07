@@ -85,18 +85,23 @@ pub(super) fn predicate_values(plan_predicate: &PlanPredicate, params: &[ParamVa
     }
 }
 
-/// Cast a Postgres `AVG` to `DOUBLE`, where a mean must arrive as a float.
+/// Make an `AVG` arrive as a double where its own answer is an exact decimal.
 ///
 /// Postgres's `AVG` over an INTEGER column returns `NUMERIC`, where the engine (and `DuckDB`)
 /// produce `DOUBLE` for the same query - and `NUMERIC` with a fraction is the case this repository
 /// keeps exact as text ("so an exact total stays exact"), which would turn a mean into a `Text` leg
 /// that disagrees with the float every other adapter reaches. Casting the Postgres `AVG` to
 /// `DOUBLE` on the WIRE keeps a mean a float there. It is the same `DOUBLE` cast the ratio path
-/// already makes (proven accepted by every target we render for), and it touches only the Postgres
-/// dialect.
-fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
-    if matches!(kind, Aggregate::Avg) && dialect == Dialect::Postgres {
-        over.cast("DOUBLE")
+/// already makes (proven accepted by every target we render for).
+///
+/// **Oracle's `AVG` over a `NUMBER` is a `NUMBER` too**, of up to 38 digits, which the adapter reads
+/// back as exact text where the engine answers a double. The first `oracle-tier` run found the
+/// engine's January mean `3390.285714285714` with no equal row on the Oracle side (the log prints
+/// the engine's row only, so the Oracle text itself was not seen). It takes [`as_double`]'s
+/// `TO_BINARY_DOUBLE(..)`, for the reason given there. Every other dialect keeps its own `AVG`.
+fn avg_as_double(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
+    if matches!(kind, Aggregate::Avg) && matches!(dialect, Dialect::Postgres | Dialect::Oracle) {
+        as_double(over, dialect)
     } else {
         over
     }
@@ -230,7 +235,7 @@ pub(super) fn term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: D
         PlanTerm::Aggregate {
             aggregate: kind,
             column: ref col,
-        } => avg_for_postgres(aggregate(kind, guarded_column(column(col), guard, emitted)), kind, dialect),
+        } => avg_as_double(aggregate(kind, guarded_column(column(col), guard, emitted)), kind, dialect),
         PlanTerm::CountIf { column: ref col } => {
             // A `CountIf` already guards its own (boolean) column; a metric guard is ANDed into
             // the same WHEN branch rather than wrapping the column again - one embedding.
