@@ -810,3 +810,5 @@ fn a_partition_read_carrying_a_pool_its_grant_does_not_name_is_refused() {
         "a reader was handed a token for a pool its grant does not name"
     );
 }
+
+mod switched;

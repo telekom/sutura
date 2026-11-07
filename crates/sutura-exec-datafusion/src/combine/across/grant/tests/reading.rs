@@ -300,3 +300,43 @@ fn a_grant_whose_forwarded_pool_is_swapped_after_signing_is_refused_as_not_namin
     });
     assert_eq!(outcome, Err(WorkerRefusal::GrantNotNaming));
 }
+
+use super::super::super::partition::SwitchedPrincipal;
+
+fn switched(name: &str) -> SwitchedPrincipal {
+    SwitchedPrincipal::new(sutura_domain::identity::PrincipalName::parse(name).expect("a test principal is a principal"))
+}
+
+#[test]
+fn a_grant_whose_principal_is_swapped_after_signing_is_refused_as_not_naming() {
+    let key = ReadingKey::drawn().expect("a key draws");
+    let now = core::time::Duration::from_secs(1);
+    let (_, signature) = mint(
+        &key,
+        grant(b"leg-one", b"partition-one", 100).switching(&switched("reader@example.com")),
+    );
+    let tampered = grant(b"leg-one", b"partition-one", 100).switching(&switched("other@example.com"));
+    let outcome = verify(&Verification {
+        key: &key,
+        grant: &tampered,
+        signature: &signature,
+        wanted_leg: LegDigest::of(b"leg-one"),
+        wanted_source: &source(),
+        wanted_partition: &Partition::of(b"partition-one".to_vec()),
+        now,
+    });
+    assert_eq!(outcome, Err(WorkerRefusal::GrantNotNaming));
+}
+
+#[test]
+fn a_grant_naming_both_a_token_and_a_principal_does_not_decode() {
+    let key = ReadingKey::drawn().expect("a key draws");
+    let (built, signature) = mint(
+        &key,
+        grant(b"leg-one", b"partition-one", 100)
+            .forwarding(&forwarded("token-a"))
+            .switching(&switched("reader@example.com")),
+    );
+    let decoded = super::super::reading::decode(&super::super::reading::encode(&built, &signature));
+    assert!(decoded.is_none(), "a grant naming a token and a principal decoded");
+}
