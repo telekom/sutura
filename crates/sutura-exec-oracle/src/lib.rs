@@ -466,7 +466,7 @@ impl OracleWarehouse {
             Dial::new(
                 host,
                 port,
-                "FREEPDB1",
+                fixture::SERVICE_NAME,
                 Channel::Verified {
                     anchors_pem: credential.anchors_pem(),
                 },
@@ -543,6 +543,14 @@ impl OracleWarehouse {
         deadline: Deadline,
     ) -> Result<ResultBatches, OracleError> {
         split::read_partition(self, leg, descriptor, deadline)
+    }
+
+    /// Loads a fixture CSV as the table `table`, in the schema this warehouse's user owns, replacing
+    /// a table of the same name. Columns are typed as `fixture::importer`'s header declares; an
+    /// empty cell is `NULL`.
+    #[cfg(feature = "fixtures")]
+    pub fn load_csv(&self, table: &sutura_domain::model::TableName, path: &std::path::Path) -> Result<(), fixture::FixtureError> {
+        fixture::importer::load(self, table, path)
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, OracleError> {
