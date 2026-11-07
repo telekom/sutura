@@ -779,6 +779,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="A worker node">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-across-nodes-acceptance-shows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the across-nodes acceptance shows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -2856,6 +2873,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="A worker node">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-across-nodes-acceptance-shows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the across-nodes acceptance shows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -3753,6 +3787,18 @@ runs <code>worker</code>, and each of its <code>readingWorkers.groups</code> run
 worker. The catalog and the sources are read once, at startup.
 <code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
 alone. The worker carries the limits of the node links above.</p>
+<h4 id="what-the-across-nodes-acceptance-shows">What the across-nodes acceptance shows<a class="headerlink" href="#what-the-across-nodes-acceptance-shows" title="Permanent link">&para;</a></h4>
+<p><code>.github/workflows/tpch-across-nodes.yml</code> starts four machines over TPC-H at scale factor 10: a serving node, two
+reading workers and PostgreSQL. It asks each listed question of one node that holds the whole star, of the federated
+catalog on one node, and of the serving node with its two reading workers. A listed question must answer on the reading
+workers with the rows of the one-node answer, in the same order. PostgreSQL's statement log must show the reading
+workers, and not the serving node, reading each split leg's ranges.</p>
+<p>Limit: it covers the lookup legs of one PostgreSQL source at one scale factor. The fact leg is read whole on the
+serving node. Every node reads PostgreSQL as one role and nobody signs in, so it says nothing about who reads. The
+one-node answer and the serving node share the semantic compiler, so a defect in their shared plan agrees with
+itself. A <code>part</code> table of exactly two streams' rows has no slack, so a question over its unfiltered leg may be refused
+<code>result_too_large</code>. A question over the 10,000-row answer cap is not asked. It measures no load and no read speed. It is
+advisory: it runs on dispatch and on a change to the code that it names, never on a schedule.</p>
 <h2 id="a-published-container-port">A published container port<a class="headerlink" href="#a-published-container-port" title="Permanent link">&para;</a></h2>
 <p>A published port (<code>docker run -p</code>, or a <code>ports:</code> entry in a compose file) lets callers reach the container from outside it.
 Inside the container, loopback is the container, so the bind is <code>server.host: "0.0.0.0"</code>. sutura sees a bind that other
