@@ -559,4 +559,79 @@ mod acceptance {
         drop(split(&probed, &leg));
         drop_table(&session, TABLE);
     }
+
+    /// **A granted split's one schema.** An integer key and a text column are declared fixed, so
+    /// the split describes `Int64` and `Utf8`, and every bucket answers exactly that schema - an
+    /// empty or all-`NULL` column among them included, which its cells would type otherwise.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_split_of_an_integer_key_and_a_text_column_is_described_and_every_bucket_answers_it() {
+        const TABLE: &str = "flashback_described";
+        let tier = tier();
+        let session = tier.session(&tier.user, &tier.password);
+        customers(&session, TABLE);
+        let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
+        let warehouse = tier
+            .adapter(&tier.user, &tier.password)
+            .with_flashback(&tables)
+            .expect("the probe passes");
+        let leg = lookup(TABLE);
+        let split = split(&warehouse, &leg);
+        let described = warehouse
+            .describe_split(&leg, &split, deadline(60))
+            .expect("the first partition is described")
+            .expect("an integer key and a text column are fixed");
+        let kinds: Vec<arrow_schema::DataType> = described.fields().iter().map(|field| field.data_type().clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![arrow_schema::DataType::Int64, arrow_schema::DataType::Utf8],
+            "{described:?}"
+        );
+        for partition in split.partitions() {
+            let read = warehouse
+                .read_partition(&leg, &partition.to_bytes(), deadline(60))
+                .expect("a fresh partition reads");
+            assert_eq!(read.schema(), &described, "bucket {partition:?} answered another schema");
+        }
+        drop_table(&session, TABLE);
+    }
+
+    /// A column whose cells decide its type - a `NUMBER` with a scale - leaves the split with no one
+    /// schema, so it is not granted.
+    #[test]
+    #[ignore = "requires just oracle-acceptance"]
+    fn a_split_with_a_column_of_scale_two_describes_no_schema() {
+        const TABLE: &str = "flashback_undescribed";
+        let tier = tier();
+        let session = tier.session(&tier.user, &tier.password);
+        drop_table(&session, TABLE);
+        execute(
+            &session,
+            &format!("CREATE TABLE \"{TABLE}\" (\"customer_key\" NUMBER(10,0), \"region\" NUMBER(10,2))"),
+        );
+        execute(
+            &session,
+            &format!(
+                "INSERT INTO \"{TABLE}\" (\"customer_key\", \"region\") SELECT LEVEL, LEVEL + 0.5 FROM DUAL CONNECT BY LEVEL <= 38"
+            ),
+        );
+        session.commit().expect("the fixture commits");
+        execute(
+            &session,
+            &format!("BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, '\"{TABLE}\"'); END;"),
+        );
+        std::thread::sleep(Duration::from_secs(8));
+        let tables = BTreeSet::from([QualifiedTable::new(None, TableName::parse(TABLE).expect("a table"))]);
+        let warehouse = tier
+            .adapter(&tier.user, &tier.password)
+            .with_flashback(&tables)
+            .expect("the probe passes");
+        let leg = lookup(TABLE);
+        let split = split(&warehouse, &leg);
+        let described = warehouse
+            .describe_split(&leg, &split, deadline(60))
+            .expect("the first partition is described");
+        assert_eq!(described, None, "a NUMBER(10,2) column is not fixed");
+        drop_table(&session, TABLE);
+    }
 }

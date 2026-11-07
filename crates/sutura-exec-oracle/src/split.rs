@@ -50,8 +50,7 @@ use sutura_sql::{KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 
 use crate::{OracleError, OracleWarehouse, Session};
 
-#[expect(dead_code, reason = "the API of the describe; the next change reads it")]
-mod columns;
+pub(crate) mod columns;
 mod descriptor;
 
 pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
@@ -212,22 +211,35 @@ pub(super) fn split_by_estimate(
     }
 }
 
-/// [`OracleWarehouse::describe_split`]. Not built yet: no split describes one schema.
-#[expect(
-    clippy::unnecessary_wraps,
-    clippy::missing_const_for_fn,
-    reason = "the API of the describe; the next change reads the database and can fail"
-)]
+/// [`OracleWarehouse::describe_split`]: the first partition's statement, stopped before its first
+/// fetch, at a probed source only.
+///
+/// **The limit:** the statement runs, as the partition read does; the driver may still have the
+/// database produce a first round of rows before the read stops.
 pub(super) fn describe(
-    _warehouse: &OracleWarehouse,
-    _leg: &LegPlan,
-    _split: &SplitLeg,
-    _deadline: Deadline,
+    warehouse: &OracleWarehouse,
+    leg: &LegPlan,
+    split: &SplitLeg,
+    deadline: Deadline,
 ) -> Result<Option<arrow_schema::SchemaRef>, OracleError> {
-    Ok(None)
+    if !warehouse.flashback {
+        return Err(OracleError::FlashbackNotDeclared {
+            at: String::from(warehouse.routing.source.as_str()),
+        });
+    }
+    let Some(first) = split.partitions.first() else {
+        return Ok(None);
+    };
+    let query =
+        generate_leg_as_of(leg, split.scn, Some(first.bucket())).map_err(|cause| OracleError::PartitionRender { cause })?;
+    let (_, declared) = warehouse
+        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, Some(0))
+        .map_err(gone)?;
+    Ok(declared)
 }
 
-/// [`OracleWarehouse::read_partition`].
+/// [`OracleWarehouse::read_partition`]. A partition whose columns are all declared fixed is
+/// answered under that schema ([`columns::typed`]), whatever its cells hold.
 pub(super) fn read_partition(
     warehouse: &OracleWarehouse,
     leg: &LegPlan,
@@ -248,10 +260,13 @@ pub(super) fn read_partition(
             .map_err(gone)?,
         budget,
     )?;
-    let rows = warehouse
-        .run_with_deadline(Session::Boot, (query.sql(), query.params()), deadline, None)
+    let (rows, declared) = warehouse
+        .run_declared(Session::Boot, (query.sql(), query.params()), deadline, None)
         .map_err(gone)?;
-    of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
+    declared.map_or_else(
+        || of_row_set(&rows).map_err(|cause| OracleError::Shape { cause }),
+        |schema| columns::typed(&rows, &schema, warehouse.result_budget),
+    )
 }
 
 /// The descriptor `bytes` parse into, at a source that declared and probed its flashback split.
