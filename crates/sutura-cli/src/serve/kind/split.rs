@@ -24,6 +24,7 @@ use sutura_domain::warehouse::estimate::EstimatedBytes;
 use sutura_domain::warehouse::labels::JobLabels;
 use sutura_domain::warehouse::{ResultBatches, Warehouse};
 use sutura_exec_datafusion::{Forwarded, TokenUnread, Unread};
+use sutura_exec_postgres::PostgresError;
 use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned, SplitLeg};
 
 use super::super::{OpenedSources, PostgresSource};
@@ -282,8 +283,14 @@ impl SplitKind for PostgresSource {
         reason = "the one production caller: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
     )]
     fn read_granted(&self, leg: &LegPlan, partition: &[u8], deadline: Deadline) -> Result<ResultBatches, Unread> {
-        self.read_partition(leg, partition, deadline).map_err(Unread::failed)
+        self.read_partition(leg, partition, deadline)
+            .map_err(|cause| unread(leg.source(), cause))
     }
+}
+
+/// `cause` as this reader answers it: the engine's failure.
+pub(super) fn unread(_source: &SourceName, cause: PostgresError) -> Unread {
+    Unread::failed(cause)
 }
 
 /// A split with a column whose type its cells decide (`NUMERIC`) describes no one schema, so it is
