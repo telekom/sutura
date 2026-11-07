@@ -431,13 +431,24 @@ fn oracle(alias: &str, extra: &str) -> String {
 const FLASHBACK: &str = "    split: \"flashback\"\n";
 
 /// `#828`: only a lookup leg of a federated answer is read in flashback buckets, so an opt-in on
-/// the only source is refused before the deployment serves, naming the key.
+/// the only source is refused before the deployment serves, naming the key - and a reading worker
+/// whose one source declares it is not.
 #[test]
 fn a_flashback_split_on_the_only_source_is_not_fit_to_serve() {
     let refusals = bucket_refusals(bucket_readers("warehouse", &oracle("warehouse", FLASHBACK)));
     assert_eq!(refusals, vec![NotFitToServe::FlashbackOnTheOnlySource { alias: warehouse() }]);
     let rendered = refusals.first().expect("one refusal").to_string();
     assert!(rendered.contains("sources.warehouse.split"), "{rendered}");
+    // The CONTROL: a reading worker's own entry declares the one source it reads, with the split,
+    // and peers of none, so neither refusal is its to raise - only the one a reading worker always
+    // has under an overlay.
+    let reading = format!(
+        "server:\n  role: \"reading-worker\"\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n  \
+         tls_node_authority: \"/tls/nodes.pem\"\nsecurity:\n  tls_termination: \"in-process\"\n  identity: \"single-user\"\n  \
+         single_user_because: \"one operator\"\nsources:\n{}",
+        oracle("warehouse", FLASHBACK)
+    );
+    assert_eq!(bucket_refusals(reading), vec![NotFitToServe::ReadingWorkerWithoutCatalog]);
 }
 
 /// `#828`: a flashback bucket is read on a reading node, so an opt-in no declared peer reads is
