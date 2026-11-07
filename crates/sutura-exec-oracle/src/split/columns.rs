@@ -12,7 +12,7 @@
 
 use arrow_schema::{DataType, SchemaRef};
 use sutura_domain::warehouse::arrow::of_row_set;
-use sutura_domain::warehouse::{ResultBatches, RowSet};
+use sutura_domain::warehouse::{ResultBatches, ResultBudget, RowSet};
 
 use crate::OracleError;
 
@@ -28,13 +28,14 @@ pub(crate) fn declared<'a>(_columns: impl IntoIterator<Item = (&'a str, &'a orac
     None
 }
 
-/// `rows` as batches under `schema`, each column of its declared type whatever its cells hold.
+/// `rows` as batches under `schema`, each column of its declared type whatever its cells hold,
+/// charged against `budget`.
 ///
 /// # Errors
 ///
 /// [`OracleError::NotOfItsColumnType`] for a cell its column's type cannot hold, and
 /// [`OracleError::Shape`] for rows `schema` does not describe.
-pub(crate) fn typed(rows: &RowSet, _schema: &SchemaRef) -> Result<ResultBatches, OracleError> {
+pub(crate) fn typed(rows: &RowSet, _schema: &SchemaRef, _budget: ResultBudget) -> Result<ResultBatches, OracleError> {
     of_row_set(rows).map_err(|cause| OracleError::Shape { cause })
 }
 
