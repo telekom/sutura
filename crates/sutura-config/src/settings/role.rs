@@ -13,7 +13,9 @@ use crate::sources::SourceKind;
 ///
 /// A `worker` declares no source and no catalog. A `reading-worker` declares both, and each
 /// `BigQuery` source it declares federates at a workload identity pool: it reads a `BigQuery`
-/// partition only with the caller's token forwarded for that pool. Either needs a node authority,
+/// partition only with the caller's token forwarded for that pool. Each Oracle source it declares
+/// declares `split: flashback`: it reads an Oracle partition only at such a source, which an
+/// `impersonation-at-source` one cannot be. Either needs a node authority,
 /// and neither mounts `/mcp` or Flight.
 ///
 /// **The limit on `catalogs`:** it is read off the layer that supplied the key, so a catalog counts
@@ -51,6 +53,13 @@ pub(super) fn worker_refusals(settings: &Settings) -> Vec<NotFitToServe> {
                     .each()
                     .filter(|&(_, source)| source.kind() == SourceKind::BigQuery && source.workload_identity().is_none())
                     .map(|(alias, _)| NotFitToServe::ReadingWorkerBigQueryOutsideAPool { alias: alias.clone() }),
+            );
+            refusals.extend(
+                settings
+                    .sources
+                    .each()
+                    .filter(|&(_, source)| source.kind() == SourceKind::Oracle && source.split().is_none())
+                    .map(|(alias, _)| NotFitToServe::ReadingWorkerOracleWithoutFlashback { alias: alias.clone() }),
             );
         }
     }
