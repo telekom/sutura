@@ -557,3 +557,46 @@ ADR 0040), and never on itself, on `default` or on an administrative user. The s
   the wrapper and the inner `SELECT` and no other finished statement. A statement that a later
   driver adds would run as the service user and not as the switched user, and nothing here would
   catch it.
+
+## Fifth amendment, 2026-11-06: a switched ClickHouse statement carries its own settings
+
+**Status of the amendment: accepted; it corrects three statements of the fourth amendment.** The
+second amendment of ADR 0040 records the change that makes them stale: every statement the
+ClickHouse adapter runs for an answer carries the settings that sutura pins in its own `SETTINGS`
+clause, as well as in the connection options (`github.com/telekom/sutura#1824`). The fourth
+amendment's decision stands.
+
+- **"A leg is one statement: one `SELECT`, with no CTE, no `SET`, no `USE` and no `SETTINGS`
+  clause."** A leg's statement ends in that `SETTINGS` clause. The argument holds: the adapter
+  sends one SQL text on one connection, so the `EXECUTE AS` prefix reaches every statement the leg
+  sends. The clause stays on the switched statement only while it is the statement's own first
+  `SETTINGS`. The adapter refuses, as `AdbcError::SettingsNotOwn`, a statement for which that would
+  not hold.
+- **"... drops or bounds it, with no error. A caller's profile must neither set `readonly = 1` nor
+  constrain a setting that sutura sends."** The server still drops a forbidden connection setting
+  without an error. It refuses a statement's own setting that the profile forbids: `READONLY` (164)
+  under `readonly = 1`, `SETTING_CONSTRAINT_VIOLATION` (452) for a constraint. The adapter reads
+  both as `AdbcError::SettingRefused`, and its `source_refused` answers `true`, so the caller gets
+  `source_refused` and not the retryable failure of an outage. The requirement on the profile
+  stands. A profile that breaks it is refused, and no longer answered wrongly. A profile that caps
+  `max_execution_time` below the time a query has left is refused with 452 on every request; before,
+  the server held the query to the cap.
+- **"A whole query runs the same statement shape under the same clamp, and that was not measured
+  separately."** It is measured. On ClickHouse 26.9.15.5, under a user whose profile sets
+  `readonly = 1`, a whole switched question with a left join did not answer an unmatched key as
+  `NULL`, as the unswitched question did, against the tree without the clause, at
+  `github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`. The run prints the `NULL`
+  row that the switched answer lacks, and not the row that it answered; that the key came back as
+  `''` is the fourth amendment's earlier measurement. That the clamp dropped the connection
+  settings, and what a constraint does, stay read from the server source.
+
+**Limits.**
+
+- 164 is measured, at `github.com/telekom/sutura/actions/runs/42293738301/job/128153500961`. 452 is
+  read from the server source, not measured: no tier profile carries a constraint.
+- That the caller sees `source_refused` is read from the application's mapping of the adapter's
+  `source_refused`. No served surface ran it.
+- A switched leg does not run yet: the adapter still refuses it as `AdbcError::LegUnderExecuteAs`,
+  as the fourth amendment says, and no cell runs one. What the first correction says of a leg's
+  statement is read from the adapter's one send, which adds the clause before the `EXECUTE AS`
+  prefix. The `readonly` cells measure a whole question.
