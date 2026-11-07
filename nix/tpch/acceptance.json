@@ -1,0 +1,57 @@
+{
+  "observed_because": "An observed question runs on all three topologies and is compared when it answers, but need not answer; a failure that is no refusal fails the run on any question. Nine read an unfiltered part leg, which at SF10 is 2,000,000 rows, exactly two streams of 1,000,000. A split leg is cut by pages, not rows, so a partition can be past the bound. Run 42342552818 measured it: ONE refused all nine as result_too_large, and on MANY a reader logged that a granted partition did not fit its per-stream bound for each of the nine, so MANY refused all nine as result_too_large and none answered. revenue-by-customer-and-supplier-region over seven years has a fact leg of about 60,000,000 rows, grouped by both links, which does not fit the working set: in that run ONE and MANY both refused it as result_too_large, MANY on the serving node's volume bound, so its 1995 sibling is the listed one. Promote a question to questions once a run shows it answers.",
+  "questions": [
+    "revenue-by-segment-yearly",
+    "revenue-by-customer-region-quarterly",
+    "revenue-by-customer-nation-yearly",
+    "revenue-by-supplier-nation-quarterly",
+    "revenue-by-segment-and-mode",
+    "building-revenue-by-priority",
+    "european-revenue-by-mode",
+    "quantity-for-two-customer-nations",
+    "shipping-volume-between-two-nations",
+    "revenue-by-customer-and-supplier-region-1995",
+    "revenue-per-order-by-segment",
+    "returned-revenue-by-customer-region",
+    "order-value-by-segment-monthly",
+    "order-count-by-customer-nation-yearly",
+    "customers-ordering-by-region-quarterly",
+    "industrial-order-value-by-priority",
+    "top-nation-months-by-revenue",
+    "orders-shipped-by-customer-region-monthly",
+    "three-brands-quantity-monthly",
+    "ground-revenue-by-customer-region",
+    "tpch-q5-revenue-by-nation-in-asia",
+    "tpch-q10-returned-revenue-by-nation",
+    "tpch-q12-lines-by-mode-and-priority"
+  ],
+  "observed": [
+    "quantity-by-brand-monthly",
+    "lines-by-container-yearly",
+    "revenue-by-part-type-1997",
+    "revenue-by-segment-brand-supplier-region",
+    "asian-supplied-lines-by-manufacturer",
+    "discount-by-brand-yearly",
+    "orders-shipped-by-brand-yearly",
+    "top-brands-by-revenue",
+    "tpch-q8-revenue-by-part-type-in-america",
+    "revenue-by-customer-and-supplier-region"
+  ],
+  "skipped": {
+    "because": "Skip the questions over the 10k cap in v1. Each is over the answer cap of 10,000 rows (`MAX_ROWS`) by its grain and the sizes of its dimensions; that is counted from them, not run.",
+    "questions": [
+      "revenue-by-customer-nation-daily",
+      "quantity-by-segment-and-mode-daily",
+      "revenue-by-brand-and-customer-region-weekly",
+      "order-count-by-customer-nation-daily",
+      "revenue-by-part-type-and-supplier-nation-monthly",
+      "lines-between-nations-daily",
+      "revenue-by-container-supplier-region-segment",
+      "revenue-by-brand-and-customer-nation-daily"
+    ]
+  },
+  "controls": [
+    "revenue-monthly-1995",
+    "pricing-summary-by-flag-and-status"
+  ]
+}
