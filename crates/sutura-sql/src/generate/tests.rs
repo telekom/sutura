@@ -597,9 +597,10 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
 /// no multi-column `DISTINCT`, both key columns in the `GROUP BY`, a null in either column excluded
 /// by the `WHERE` as the other dialects' counts exclude it, and the domain's two labels.
 ///
-/// **The limit:** this reads the rendered text and parses it offline. Whether Oracle answers the
-/// counts a duplicate-free and a duplicated key table must is not measured by any job at this head:
-/// `oracle-tier` runs only the `acceptance::` and `oracle_provisioned::` cells.
+/// **The limit:** this reads the rendered text and parses it offline. The `oracle-tier` CI job is the
+/// one venue that executes the shape, through `data_systems::oracle::whether_it_counts_a_declared_join_key…`,
+/// and only over the example corpus's keys, all duplicate-free. Whether Oracle answers the count a
+/// DUPLICATED key table must is not measured by any job.
 #[test]
 fn an_oracle_compound_key_probe_counts_a_grouped_subquery_not_a_multi_column_distinct() {
     let (relationship, definitions) = compound_usage_subscription();

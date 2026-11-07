@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+product_family	period	voice_minutes
+Text(convergent)	Text(2026-06-01)	Real(2.137100000000e3)
+Text(fixed_internet)	Text(2026-06-01)	Real(0.000000000000e0)
+Text(mobile)	Text(2026-06-01)	Real(8.025300000000e3)
+Text(tv)	Text(2026-06-01)	Real(0.000000000000e0)

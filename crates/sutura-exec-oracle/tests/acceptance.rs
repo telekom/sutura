@@ -29,7 +29,7 @@ mod acceptance {
 
     /// The dictionary's spelling, not the spelling of the unquoted DDL, is the table name the
     /// quoted Oracle renderer must receive. The same live cell also runs a whole plan containing
-    /// `FETCH FIRST`, beyond the render-only goldens.
+    /// `FETCH FIRST`.
     #[test]
     #[ignore = "requires just oracle-acceptance"]
     fn a_quoted_identifier_names_the_object_the_dictionary_stores() {

@@ -1354,9 +1354,10 @@
         };
 
         # The Oracle venue (#127): starts the compose `oracle` profile and runs its `#[ignore]`d
-        # cells - `sutura-exec-oracle`'s acceptance cell, `sutura-catalog-rdbms`'s live dictionary
-        # cells (#972) and `sutura-cli`'s served source-password cell - the only venue that
-        # executes a statement against a live Oracle, since a nix check has no docker socket. The
+        # cells - `sutura-exec-oracle`'s acceptance and importer cells, `sutura-catalog-rdbms`'s live
+        # dictionary cells (#972) and `sutura-cli`'s served source-password cell - then `sutura-app`'s
+        # golden and differential cells for the `oracle` data system (`nix/oracle-app-cells.sh`): the
+        # only venue that executes a statement against a live Oracle, since a nix check has no docker socket. The
         # `oracle-tier` CI job runs it; `just oracle-acceptance` is the by-hand twin. No teardown:
         # the CI runner is ephemeral, and a tier a developer started by hand is neither adopted nor
         # stopped.
@@ -1381,6 +1382,7 @@
             (
               exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
             ) || status=$?
+            bash nix/oracle-app-cells.sh --profile ci || status=$?
             exit "$status"
           '');
         };
