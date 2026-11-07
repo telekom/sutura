@@ -11,7 +11,8 @@ Three `sutura serve` topologies answer the same questions, one at a time, over t
 
 `nix/tpch/acceptance.json` names the questions that must answer on MANY, equal REF. `sutura-dev
 agree` judges equal, by the policy the differential legs use: a decimal sum and an integer
-exactly, and only a column that holds an `avg` or a ratio at 13 significant digits.
+exactly, and only a column that holds an `avg` or a ratio at 13 significant digits. Row order is
+judged too, on every question.
 
 That the legs were read across nodes is the PostgreSQL statement log, one line per statement,
 prefixed with the client's address. A listed question that splits a leg must show exactly that
@@ -224,8 +225,12 @@ class Venue:
         return reply
 
     def agree(self, left: str, right: str, body: dict, real: set[str]) -> str | None:
-        """Why the two answers differ, or `None` where they are the same answer."""
-        flags = [] if "top" not in body else ["--ordered"]
+        """Why the two answers differ, or `None` where they are the same answer.
+
+        Order is compared on every question: each answer path orders its rows, by the keys then
+        the bucket, or by the ranking for a `top` (whose ties `run` refuses), so none is a bag.
+        """
+        flags = ["--ordered"]
         for metric in body["metrics"]:
             if metric in real:
                 flags += ["--real", metric]
