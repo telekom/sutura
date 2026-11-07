@@ -599,6 +599,20 @@ pub enum NotFitToServe {
          remove the key"
     )]
     HashBucketsReadByNoNode { alias: SourceName },
+    /// An Oracle source declares `split: flashback` and is the only source this deployment
+    /// declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and `{alias}` is the only source: only a lookup leg \
+         of a federated answer is read in flashback buckets. Remove the key"
+    )]
+    FlashbackOnTheOnlySource { alias: SourceName },
+    /// An Oracle source declares `split: flashback`, and no `server.nodes` peer reads it, so no node
+    /// is there to read a bucket.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and no server.nodes peer lists `{alias}` in its \
+         sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
+    )]
+    FlashbackReadByNoNode { alias: SourceName },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
