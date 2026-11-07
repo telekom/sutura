@@ -49,7 +49,7 @@ use tonic::body::Body;
 use tonic::codegen::http::{self, HeaderMap, HeaderValue};
 
 use super::WorkerRefusal;
-use super::partition::{Forwarded, GrantReads};
+use super::partition::{Forwarded, GrantReads, SwitchedPrincipal};
 
 const KEY: &str = "x-sutura-task-key";
 const GRANT: &str = "x-sutura-task-grant";
@@ -216,7 +216,8 @@ impl ReadingKeys {
 }
 
 /// What a source-reading task's call presents to be admitted: the leg's wire, its source, the
-/// partition, the reading key, the grant, and the caller's token the task carries, if any.
+/// partition, the reading key, the grant, and the caller's token or principal the task carries, if
+/// any.
 pub(super) struct ReadingCall<'a> {
     pub(super) wire: &'a [u8],
     pub(super) source: &'a SourceName,
@@ -224,13 +225,15 @@ pub(super) struct ReadingCall<'a> {
     pub(super) key: [u8; 32],
     pub(super) grant: Option<&'a [u8]>,
     pub(super) forwarded: Option<&'a Forwarded>,
+    pub(super) switched: Option<&'a SwitchedPrincipal>,
 }
 
 /// Admits a source-reading task's call: identifies the task from its wire and partition
 /// ([`reading::task_id`]), decodes its grant under the key `keys` kept for that task - the first
 /// presented for it - checks the decoded grant names the wire's leg digest, the source and the
 /// partition and is not yet past `now` ([`reading::verify`]), then that it names exactly the token
-/// the task carries, or none where it carries none ([`reading::forwards`]), and answers when the
+/// the task carries, or none where it carries none ([`reading::forwards`]), and the same of its
+/// principal ([`reading::switches`]), and answers when the
 /// admitted grant ends, since the epoch. A missing or malformed grant reads the same as one wrongly
 /// named: [`WorkerRefusal::GrantNotNaming`].
 pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<Duration, WorkerRefusal> {
@@ -246,7 +249,8 @@ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Du
             wanted_partition: &reading::Partition::of(call.partition.to_vec()),
             now,
         })?;
-        reading::forwards(&grant, call.forwarded)
+        reading::forwards(&grant, call.forwarded)?;
+        reading::switches(&grant, call.switched)
     })?;
     Ok(grant.ends())
 }
