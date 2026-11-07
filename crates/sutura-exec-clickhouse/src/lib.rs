@@ -1,66 +1,55 @@
 #![forbid(unsafe_code)]
-//! A [`Warehouse`] adapter over `ClickHouse`.
-//!
-//! Production composition uses the ADBC path in [`adbc`]. The HTTP transport remains behind the
-//! `fixtures` feature for table loading and conformance setup; it is not the production query path.
+//! A [`Warehouse`](sutura_domain::warehouse::Warehouse) adapter over `ClickHouse`, through its
+//! vendored ADBC driver: [`adbc::AdbcClickHouseWarehouse`].
 //!
 //! A `shared-service-user` source runs every statement as the deployment's declared user. An
 //! `impersonation-at-source` source runs each one as the `ClickHouse` user named by the asking
 //! caller's verified subject: through `EXECUTE AS` on the deployment's sign-in (see
-//! [`execute_as`]), or - when the source declares a `delegation` - signed in as that user over HTTP
-//! Basic with the token the caller's verified assertion was exchanged for
-//! ([`transport::SignIn`]). `ClickHouse` hands that token to the operator's checker.
+//! [`execute_as`]), or - when the source declares a `delegation` - signed in as that user with the
+//! token the caller's verified assertion was exchanged for. `ClickHouse` hands that token to the
+//! operator's checker.
 //!
-//! # Why the fixture loader uses `ureq`
+//! # One transport, and what holds it
 //!
-//! The fixture loader is synchronous and runs before the served process starts. `ureq` performs
-//! those setup requests directly without adding a runtime; production queries use the vendored
-//! ADBC driver instead.
-//!
-//! # Why a driver-shaped seam, and not just a hand-rolled client
-//!
-//! [`transport::ClickHouseTransport`] is the port this adapter's own port methods call through -
-//! [`transport::Http`] for a real connection, and a canned implementor for the
-//! crate's own unit tests. The split exists for the reason `sutura-exec-bigquery`'s `JobTransport` does:
-//! the port's decisions - rendering, the refusals, the decode - are held by cells that need no
-//! server, so they run on every build. What a SERVER answers is held elsewhere: the golden matrix in
-//! `sutura-app`'s tests loads the example corpus into the server `nix/clickhouse-tier.nix` starts
-//! (through `fixture`, behind the default-off `fixtures` feature) and pins the rows, refusals,
-//! error and anchor report it answers - in `checks.nextest` and under `just test`.
-//!
-//! `Warehouse::Error` for this adapter is [`ClickHouseError`], generic over `T::Error` - the same
-//! shape `sutura_exec_bigquery::BigQueryError<E>`
-//! takes, for the same reason: [`transport::ClickHouseTransport::source_refused`]/
-//! [`transport::ClickHouseTransport::deadline_exceeded`] let the TRANSPORT answer the port's own
-//! two predicates about a failure only it can read the wire-level shape of.
+//! [`adbc`] is the only transport: the one `sutura serve` composes, the one the golden matrix opens,
+//! and the one the fixture loader ingests through. What a SERVER answers is held by the executed
+//! cells - the golden matrix in `sutura-app`'s tests and this crate's own `tests/` load the example
+//! corpus into the server `nix/clickhouse-tier.nix` starts (through [`fixture`], behind the
+//! default-off `fixtures` feature) and pin the rows, refusals, error and anchor report it answers -
+//! in `checks.nextest` and under `just test`.
 //!
 //! # Parameters travel as `ClickHouse`'s own named parameters, never as text
 //!
-//! [`transport::Http`] rewrites each rendered `?` into `{pN:Type}` and sends the value as a
-//! separate `param_pN` field, which the SERVER binds by the declared type - see
-//! `transport::rewrite_placeholders`'s own doc for why counting `?` occurrences against
-//! `params.len()` is safe rather than a guess.
+//! The adapter rewrites each rendered `?` into `{pN:Type}` and binds the value through the driver,
+//! which sends it as a separate parameter the SERVER binds by the declared type - see
+//! `adbc::rewrite_placeholders` for why counting `?` occurrences against the bound values is safe
+//! rather than a guess.
 //!
 //! # `Deadline`, and what was checked about it - see [`deadline`]'s own header
 //!
-//! Every `execute`/`declared_key`/`verify_anchor` round trip sends `max_execution_time`, computed
-//! from what the port's [`sutura_domain::warehouse::deadline::Deadline`] has left. `deadline`'s
-//! module header states what was measured about that setting's semantics and its limit, mirroring
+//! Every statement sends `max_execution_time`, computed from what the port's
+//! [`sutura_domain::warehouse::deadline::Deadline`] has left. `deadline`'s module header states what
+//! was measured about that setting's semantics and its limit, mirroring
 //! `sutura_exec_postgres::deadline`'s own record for `SET LOCAL statement_timeout`.
 //!
-//! # Every request pins the server settings that decide what the rows say
+//! # Every connection and every answering statement pin the server settings sutura needs
+//!
+//! Each is a driver option on the connection and a setting in the statement's own `SETTINGS`
+//! clause; under `EXECUTE AS` only the clause holds - see [`settings`], which also states what the
+//! pin does not cover: the fixture loader's statements, and every setting sutura does not pin.
 //!
 //! `join_use_nulls=1`: under `ClickHouse`'s default `0`, the unmatched side of an outer join
 //! answers the column type's default - `''` for a `String` - where the SQL standard answers `NULL`.
 //! Measured by hand against the pinned compose server over the example corpus: 6 of the 23
 //! questions with a committed `@duckdb` row golden disagreed without it, 0 with it, under a
 //! non-`Nullable` schema; under `Nullable` columns the setting changes nothing, so a fixture
-//! importer's type choice decides whether the defect shows - `fixture` declares no column
+//! importer's type choice decides whether the defect shows - `fixture` declares no matrix column
 //! `Nullable` for that reason. `output_format_json_quote_denormals=1`: under the default `0` an
 //! infinite float answers the JSON `null`. `timeout_overflow_mode=throw`: `throw` answers a spent
-//! `max_execution_time` with Code 159; `break` answers HTTP 200 with the rows read so far. A unit
-//! cell holds what is sent; the executed goldens hold what the first two settings make the server
-//! answer, and nothing executed holds the third.
+//! `max_execution_time` with Code 159; `break` answers HTTP 200 with the rows read so far. The
+//! executed goldens hold what the first two settings make the server answer, and nothing executed
+//! holds the third. Offline, a loopback cell in `tests/adbc_execute_as.rs` holds that the statement
+//! carries the clause; what the server does with a dropped setting needs the tier.
 //!
 //! # What is NOT here
 //!
@@ -75,536 +64,14 @@
 //! port's own default (`Ok(PreFlight::NotAsked)`) - the same honest absence
 //! `Warehouse::dry_run`'s own doc names for an adapter where checking is not cheaper than running.
 
-#[cfg(feature = "adbc")]
 pub mod adbc;
 mod deadline;
 pub mod execute_as;
 #[cfg(feature = "fixtures")]
 pub mod fixture;
+mod settings;
 mod sum;
 pub mod tls;
-pub mod transport;
 
 /// Environment variable naming a mounted `ClickHouse` ADBC driver.
 pub const MOUNTED_DRIVER: &str = "SUTURA_CLICKHOUSE_ADBC_DRIVER";
-
-use std::borrow::Cow;
-
-use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
-use sutura_domain::model::SourceName;
-use sutura_domain::plan::{AnchorPlan, Executable};
-use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::arrow::of_row_set;
-use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
-use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_domain::warehouse::schema::TypeDialect;
-use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, Real, ResultBatches, RowSet, Value, Warehouse};
-use sutura_sql::generate::{generate, generate_key_probe, generate_leg, generate_stacked};
-use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
-use transport::ClickHouseTransport;
-
-use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
-
-/// Why this data system could not answer.
-///
-/// Generic in the transport's own error type - the shape `sutura_exec_bigquery::BigQueryError<E>`
-/// takes, for the same reason: `E` is `T::Error`, the one place a failure's wire-level shape
-/// lives, and this adapter's own `source_refused`/`deadline_exceeded` delegate to it through
-/// [`ClickHouseError::Endpoint`].
-#[derive(Debug, thiserror::Error)]
-pub enum ClickHouseError<E>
-where
-    E: core::error::Error + 'static,
-{
-    /// The endpoint (or the canned pack) did not answer.
-    #[error("the data system did not answer")]
-    Endpoint {
-        #[source]
-        cause: E,
-    },
-    #[error("the plan could not be rendered for ClickHouse")]
-    Render {
-        #[source]
-        cause: GenerateError,
-    },
-    /// The credential broker handed this adapter a subject's own credential with no user beside it,
-    /// so there is no `ClickHouse` user to sign in as.
-    #[error(
-        "source `{at}` was handed {presented} with no user to sign in as. This is a wiring defect \
-         between the credential broker and the source declaration"
-    )]
-    NoPlaceForASubject { at: String, presented: &'static str },
-    /// The principal a subject is to execute as is not a user name `EXECUTE AS` can carry.
-    #[error("source `{at}` was handed a principal that is not a ClickHouse user this adapter can name")]
-    NotAClickHouseUser {
-        at: String,
-        #[source]
-        cause: NotAClickHouseUser,
-    },
-    /// A federated leg would run as the deployment's user switched by `EXECUTE AS`, which is the
-    /// deployment's credential and not the caller's - the source declares no `delegation`.
-    #[error(
-        "source `{at}` declares no `delegation`, so a federated leg would run as the deployment's user \
-         switched by `EXECUTE AS` rather than with the caller's own credential"
-    )]
-    LegUnderExecuteAs { at: String },
-    #[error("the credential broker presented a leg that disagrees with how this source is declared")]
-    PresentedDisagreesWithPosture {
-        #[source]
-        cause: PresentedDisagreesWithPosture,
-    },
-    /// A column came back as a `ClickHouse` type this adapter does not map.
-    #[error("column {column} came back as {clickhouse_type}, which this adapter does not map")]
-    UnsupportedType { column: String, clickhouse_type: String },
-    /// A floating-point column came back as a value that is not a number.
-    #[error("column {column} came back as a value that is not a finite number")]
-    NotFinite {
-        column: String,
-        #[source]
-        cause: NotFinite,
-    },
-    /// The response body was not the JSON shape this adapter reads.
-    #[error("the response body was not the {expected} this adapter reads")]
-    MalformedResponse { expected: &'static str },
-    #[error("the result set was not rectangular")]
-    Shape {
-        #[source]
-        cause: MalformedRowSet,
-    },
-    /// The collected result would cost more than this adapter's materialisation budget to hold.
-    ///
-    /// The sibling of [`Self::Shape`] for the byte budget the port's
-    /// [`result_did_not_fit`](sutura_domain::warehouse::Warehouse::result_did_not_fit) reads: a
-    /// result refused for crossing it is *the result did not fit*, never a transport failure, so a
-    /// caller is refused rather than told to retry.
-    #[error("a result would cost more than the {most_bytes}-byte materialisation budget to hold")]
-    OverBudget { most_bytes: usize },
-    /// A key probe's result was not the pair of counts its statement projects.
-    #[error("the key probe did not come back as two counts")]
-    KeyCounts {
-        #[source]
-        cause: CountsNotRead,
-    },
-}
-
-/// [`ClickHouseError`] over one transport's own error type - named so a signature reads as one
-/// type rather than as the two-level generic clippy's `type_complexity` lint asks not to repeat.
-type ChResult<T, E> = core::result::Result<T, ClickHouseError<E>>;
-
-/// Which user a statement runs as.
-enum RunsAs<'p> {
-    /// The deployment's declared user.
-    Deployment,
-    /// The caller's user, switched to with `EXECUTE AS` on the deployment's sign-in.
-    Switched(ClickHouseUser),
-    /// The caller's user, signed in with the token their verified assertion was exchanged for.
-    SignedIn { user: ClickHouseUser, token: &'p Secret },
-}
-
-/// A `ClickHouse` connection, behind the [`Warehouse`] port.
-///
-/// Generic in [`ClickHouseTransport`] so this crate's own conformance pack can bind the port to a
-/// canned implementor with no live endpoint; see this crate's own header.
-pub struct ClickHouseWarehouse<T> {
-    source: SourceName,
-    posture: SourcePosture,
-    /// The materialisation budget this adapter bounds every collected result with, derived by the
-    /// composition root from the same working-set ceiling that sizes the in-process engine.
-    result_budget: sutura_domain::warehouse::ResultBudget,
-    transport: T,
-}
-
-impl<T> core::fmt::Debug for ClickHouseWarehouse<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ClickHouseWarehouse")
-            .field("source", &self.source)
-            .finish_non_exhaustive()
-    }
-}
-
-impl<T> ClickHouseWarehouse<T>
-where
-    T: ClickHouseTransport,
-{
-    /// Opens an adapter over an already-constructed transport - `T = transport::Http` for a real
-    /// connection, and a fake for the conformance pack.
-    #[must_use]
-    pub const fn of(
-        source: SourceName,
-        posture: SourcePosture,
-        transport: T,
-        result_budget: sutura_domain::warehouse::ResultBudget,
-    ) -> Self {
-        Self {
-            source,
-            posture,
-            result_budget,
-            transport,
-        }
-    }
-
-    /// Checks the presented leg against how this source was DECLARED (`docs/adr/0008` part 4),
-    /// then answers which user the statement runs as: the service user, the principal a broker
-    /// named, or that principal signed in with its exchanged token. A token with no principal
-    /// beside it has no user to sign in as and is refused.
-    fn deliverable<'p>(&self, presented: &'p Presented) -> ChResult<RunsAs<'p>, T::Error> {
-        let (named, token) = match *presented {
-            Presented::SharedServiceUser { .. } => (None, None),
-            Presented::SubjectPrincipal { ref name } => (Some(name), None),
-            Presented::SubjectSignIn { ref name, ref material } => (Some(name), Some(material)),
-            Presented::SubjectToken { .. } => {
-                return Err(ClickHouseError::NoPlaceForASubject {
-                    at: String::from(self.source.as_str()),
-                    presented: presented.as_str(),
-                });
-            }
-        };
-        presented
-            .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| ClickHouseError::PresentedDisagreesWithPosture { cause })?;
-        let Some(name) = named else {
-            return Ok(RunsAs::Deployment);
-        };
-        let user = ClickHouseUser::parse(name.as_str()).map_err(|cause| ClickHouseError::NotAClickHouseUser {
-            at: String::from(self.source.as_str()),
-            cause,
-        })?;
-        Ok(match token {
-            None => RunsAs::Switched(user),
-            Some(token) => RunsAs::SignedIn { user, token },
-        })
-    }
-
-    fn render(executable: Executable<'_>) -> ChResult<GeneratedQuery, T::Error> {
-        match executable {
-            Executable::Query(plan) => generate(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
-            Executable::Leg(leg) => generate_leg(leg, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause }),
-            Executable::Stacked(plan) => {
-                generate_stacked(plan, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause })
-            }
-        }
-    }
-
-    fn run(&self, query: &GeneratedQuery, deadline: Deadline) -> ChResult<RowSet, T::Error> {
-        self.run_as(&RunsAs::Deployment, query, deadline, None)
-    }
-
-    fn run_as(
-        &self,
-        runs_as: &RunsAs<'_>,
-        query: &GeneratedQuery,
-        deadline: Deadline,
-        most_rows: Option<usize>,
-    ) -> ChResult<RowSet, T::Error> {
-        let (statement, sign_in) = match *runs_as {
-            RunsAs::Deployment => (Cow::Borrowed(query.sql()), None),
-            RunsAs::Switched(ref user) => (Cow::Owned(user.execute_as(query.sql())), None),
-            RunsAs::SignedIn { ref user, token } => (Cow::Borrowed(query.sql()), Some(transport::SignIn::new(user, token))),
-        };
-        let body = self
-            .transport
-            .run(&statement, query.params(), deadline, sign_in)
-            .map_err(|cause| ClickHouseError::Endpoint { cause })?;
-        rows_from_json_with_limit(&body, self.result_budget, most_rows)
-    }
-}
-
-impl<T> Warehouse for ClickHouseWarehouse<T>
-where
-    T: ClickHouseTransport,
-{
-    type Error = ClickHouseError<T::Error>;
-
-    /// A presented principal becomes the user each statement runs as, through `EXECUTE AS` - see
-    /// [`execute_as`], or the user each request signs in as with the caller's exchanged token.
-    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::PerSubjectCredential;
-
-    /// A leg renders through `generate_leg` and runs as the shared service user or signed in with
-    /// the caller's exchanged token. A leg that would run through `EXECUTE AS` is refused as
-    /// [`ClickHouseError::LegUnderExecuteAs`].
-    const EXECUTES_LEGS: bool = true;
-
-    fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    fn posture(&self) -> &SourcePosture {
-        &self.posture
-    }
-
-    fn execute(
-        &self,
-        executable: Executable<'_>,
-        presented: &Presented,
-        deadline: Deadline,
-    ) -> Result<ResultBatches, Self::Error> {
-        let user = self.deliverable(presented)?;
-        if matches!((executable, &user), (Executable::Leg(_), RunsAs::Switched(_))) {
-            return Err(ClickHouseError::LegUnderExecuteAs {
-                at: String::from(self.source.as_str()),
-            });
-        }
-        let query = Self::render(executable)?;
-        let rows = self.run_as(&user, &query, deadline, executable.row_limit())?;
-        // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
-        // `sutura_domain::warehouse::arrow`.
-        of_row_set(&rows).map_err(|cause| ClickHouseError::Shape { cause })
-    }
-
-    fn type_dialect(&self) -> Option<TypeDialect> {
-        Some(TypeDialect::ClickHouse)
-    }
-
-    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
-        let query = generate(plan.plan(), Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause })?;
-        self.run(&query, boot_deadline()).map(AnchorRows::of)
-    }
-
-    /// Overridden for the reason `sutura_exec_postgres::adbc::AdbcPostgres::declared_key` gives: one
-    /// aggregate scan, no group, no parameter, so this adapter can ask cheaply. Takes no
-    /// credential, for [`Warehouse::verify_anchor`]'s reason - there is no caller at boot.
-    fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
-        let query = generate_key_probe(&key, Dialect::ClickHouse).map_err(|cause| ClickHouseError::Render { cause })?;
-        let rows = self.run(&query, boot_deadline())?;
-        KeyUniqueness::read(&rows).map_err(|cause| ClickHouseError::KeyCounts { cause })
-    }
-
-    /// Delegates to the TRANSPORT, for the reason `sutura_exec_bigquery::BigQueryWarehouse::
-    /// source_refused` gives: `Self::Error` is `ClickHouseError::Endpoint` wrapping the
-    /// transport's own type, and only the transport can read the wire-level shape.
-    fn source_refused(&self, error: &Self::Error) -> bool {
-        matches!(*error, ClickHouseError::Endpoint { ref cause } if self.transport.source_refused(cause))
-    }
-
-    /// Delegates to the TRANSPORT, for [`Self::source_refused`]'s reason.
-    fn deadline_exceeded(&self, error: &Self::Error) -> bool {
-        matches!(*error, ClickHouseError::Endpoint { ref cause } if self.transport.deadline_exceeded(cause))
-    }
-
-    /// Answers for the MATERIALISATION BUDGET alone: `rows_from_json` collects against this
-    /// adapter's own budget, so a result refused for crossing it is exactly *the result did not
-    /// fit* - a governance outcome the caller cannot retry past, reached as a refusal rather than
-    /// the `503` a transport failure would mean. The transport's own wire-read cap is classified
-    /// the same way, through the transport's own [`result_too_large`](ClickHouseTransport::result_too_large)
-    /// predicate - so a response too large to read off the wire is also a result that did not fit.
-    /// Every other failure shape stays `false`.
-    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        match *error {
-            ClickHouseError::OverBudget { .. } => true,
-            ClickHouseError::Endpoint { ref cause } => self.transport.result_too_large(cause),
-            _ => false,
-        }
-    }
-}
-
-/// A wide placeholder budget for the two boot-only port methods, which have no caller-facing
-/// deadline to spend against - `verify_anchor` and `declared_key` run before a listener is bound,
-/// with nobody asking, so there is nothing here for a one-hour ceiling to compete against; it
-/// exists only so `max_execution_time` is sent as *generous*, never *unbounded*, per this
-/// crate's own "zero reads as unbounded" rule (`deadline`'s module header).
-#[expect(
-    clippy::expect_used,
-    reason = "3600 seconds is a literal, non-zero constant - Budget::parse can only fail on zero, so this cannot \
-              actually panic; a Result-returning fallback would invent a second, never-taken code path"
-)]
-fn boot_deadline() -> Deadline {
-    let budget = Budget::parse(core::time::Duration::from_secs(3600)).expect("3600 seconds is a non-zero duration");
-    Deadline::opened_at(std::time::Instant::now(), budget)
-}
-
-/// Decodes a `JSONCompactEachRowWithNamesAndTypes` response body into a [`RowSet`]: a names row, a
-/// types row, then one row per result row - each a JSON array on its own line.
-///
-/// Collected against `budget`, so a result that will not fit is refused at the row that crosses
-/// the line rather than after every row has been decoded into memory - the `ClickHouse` half of the
-/// byte budget the other row-speaking adapters share through
-/// [`sutura_domain::warehouse::Budgeted`].
-#[cfg(test)]
-fn rows_from_json<E>(body: &[u8], budget: sutura_domain::warehouse::ResultBudget) -> ChResult<RowSet, E>
-where
-    E: core::error::Error + 'static,
-{
-    rows_from_json_with_limit(body, budget, None)
-}
-
-fn rows_from_json_with_limit<E>(
-    body: &[u8],
-    budget: sutura_domain::warehouse::ResultBudget,
-    most_rows: Option<usize>,
-) -> ChResult<RowSet, E>
-where
-    E: core::error::Error + 'static,
-{
-    let mut values = serde_json::Deserializer::from_slice(body).into_iter::<serde_json::Value>();
-    let names = read_string_array(values.next())?;
-    let types = read_string_array(values.next())?;
-    if names.len() != types.len() {
-        return Err(ClickHouseError::MalformedResponse {
-            expected: "a names row and a types row of equal width",
-        });
-    }
-    let mut collected = sutura_domain::warehouse::Budgeted::collecting(budget);
-    for row in values {
-        let row = row.map_err(|_cause| ClickHouseError::MalformedResponse {
-            expected: "one JSON array per row",
-        })?;
-        let serde_json::Value::Array(cells) = row else {
-            return Err(ClickHouseError::MalformedResponse {
-                expected: "one JSON array per row",
-            });
-        };
-        if cells.len() != types.len() {
-            return Err(ClickHouseError::MalformedResponse {
-                expected: "a row as wide as the names and types rows",
-            });
-        }
-        let mut mapped = Vec::with_capacity(cells.len());
-        for (label, (kind, cell)) in names.iter().zip(types.iter().zip(cells)) {
-            mapped.push(cell_of(label, kind, cell)?);
-        }
-        collected.push(mapped).map_err(|cause| ClickHouseError::OverBudget {
-            most_bytes: cause.most_bytes(),
-        })?;
-        if most_rows.is_some_and(|most| collected.delivered() >= most) {
-            break;
-        }
-    }
-    collected.finish(names).map_err(|cause| ClickHouseError::Shape { cause })
-}
-
-fn read_string_array<E>(item: Option<serde_json::Result<serde_json::Value>>) -> ChResult<Vec<String>, E>
-where
-    E: core::error::Error + 'static,
-{
-    let missing = || ClickHouseError::MalformedResponse {
-        expected: "a names row and a types row before any data row",
-    };
-    let value = item.ok_or_else(missing)?.map_err(|_cause| missing())?;
-    let serde_json::Value::Array(items) = value else {
-        return Err(missing());
-    };
-    items
-        .into_iter()
-        .map(|item| match item {
-            serde_json::Value::String(text) => Ok(text),
-            _ => Err(missing()),
-        })
-        .collect()
-}
-
-/// One cell, as a domain [`Value`], dispatched on the column's declared `ClickHouse` type.
-///
-/// **A small, closed set of column types - the ones this crate's own fixture importer ever
-/// declares - for `sutura_domain::warehouse::ParamValue`'s own reason: an unreachable arm holding a
-/// semantic choice nobody reviewed is worse than not having the arm.** `Nullable(T)` is unwrapped
-/// first, so every arm below sees the same closed set whether the column is nullable or not.
-fn cell_of<E>(label: &str, kind: &str, value: serde_json::Value) -> ChResult<Value, E>
-where
-    E: core::error::Error + 'static,
-{
-    let (kind, value) = match kind.strip_prefix("Nullable(").and_then(|rest| rest.strip_suffix(')')) {
-        Some(inner) => match value {
-            serde_json::Value::Null => return Ok(Value::Null),
-            other => (inner, other),
-        },
-        None => (kind, value),
-    };
-    let unsupported = || ClickHouseError::UnsupportedType {
-        column: String::from(label),
-        clickhouse_type: String::from(kind),
-    };
-    match kind {
-        sum::TUPLE => sum::read(value).map_err(|cause| match cause {
-            sum::SumTextError::NotFinite(cause) => ClickHouseError::NotFinite {
-                column: String::from(label),
-                cause,
-            },
-            sum::SumTextError::Malformed => unsupported(),
-        }),
-        "String" | "Date" | "Date32" => match value {
-            serde_json::Value::String(text) => Ok(Value::Text(text)),
-            serde_json::Value::Null => Ok(Value::Null),
-            _ => Err(unsupported()),
-        },
-        "UInt8" | "UInt16" | "UInt32" | "UInt64" | "Int8" | "Int16" | "Int32" | "Int64" => {
-            integer_value(&value).ok_or_else(unsupported)
-        }
-        "Int128" | "UInt128" => wide_integer_value(&value, kind == "UInt128").ok_or_else(unsupported),
-        "Float32" | "Float64" => {
-            let raw = float_text(&value).ok_or_else(unsupported)?;
-            Real::parse(raw).map(Value::Real).map_err(|cause| ClickHouseError::NotFinite {
-                column: String::from(label),
-                cause,
-            })
-        }
-        _ if kind.starts_with("Decimal") => decimal_value(&value).ok_or_else(unsupported),
-        _ => Err(unsupported()),
-    }
-}
-
-/// An integer cell: [`Value::Integer`] where it fits an `i64`, and its exact digits as
-/// [`Value::Text`] where it is a `UInt64` past `i64::MAX` - the split `sutura_exec_duckdb` makes for
-/// `UBIGINT`, so the same wide sum reads the same on both. Measured by running
-/// `sutura-conformance`'s `wide-total-by-day` case against the tier, which this adapter refused as
-/// an unmapped `UInt64` before. The conformance binding now runs that case against the tier.
-///
-/// A narrower integer arrives as a JSON number; a 64-bit one as a string, because every request
-/// pins `output_format_json_quote_64bit_integers` (`transport`'s `JSON_QUOTE_64BIT_INTEGERS`) - so
-/// a value past `i64::MAX` has exactly one form here, and a bare number past it is refused as
-/// unmapped rather than read by a branch no venue produces.
-fn integer_value(value: &serde_json::Value) -> Option<Value> {
-    let wide = |unsigned: u64| Value::Text(unsigned.to_string());
-    match *value {
-        serde_json::Value::Number(ref number) => number.as_i64().map(Value::Integer),
-        serde_json::Value::String(ref text) => text.parse().map(Value::Integer).ok().or_else(|| text.parse().ok().map(wide)),
-        _ => None,
-    }
-}
-
-fn wide_integer_value(value: &serde_json::Value, unsigned: bool) -> Option<Value> {
-    let serde_json::Value::String(text) = value else {
-        return None;
-    };
-    if unsigned {
-        text.parse::<u128>().ok()?;
-    } else {
-        text.parse::<i128>().ok()?;
-    }
-    Some(text.parse::<i64>().map_or_else(|_| Value::Text(text.clone()), Value::Integer))
-}
-
-fn float_text(value: &serde_json::Value) -> Option<f64> {
-    match *value {
-        serde_json::Value::Number(ref number) => number.as_f64(),
-        serde_json::Value::String(ref text) => Some(match text.as_str() {
-            "nan" => f64::NAN,
-            "inf" => f64::INFINITY,
-            "-inf" => f64::NEG_INFINITY,
-            other => other.parse().ok()?,
-        }),
-        _ => None,
-    }
-}
-
-/// A `Decimal` cell, mapped exactly.
-///
-/// `ClickHouse`'s JSON formats already render it as human-readable decimal text (a JSON number or
-/// a quoted string, either way carrying its own digits, so nothing here decodes a wire format) - an
-/// integral value with no fractional digits maps to [`Value::Integer`], and every other finite
-/// value keeps its exact text as [`Value::Text`], the same split
-/// `sutura_exec_postgres::adbc::numeric::numeric_cell` makes.
-fn decimal_value(value: &serde_json::Value) -> Option<Value> {
-    let text = match *value {
-        serde_json::Value::Number(ref number) => number.to_string(),
-        serde_json::Value::String(ref text) => text.clone(),
-        _ => return None,
-    };
-    if text.contains('.') {
-        Some(Value::Text(text))
-    } else {
-        text.parse::<i64>().map(Value::Integer).ok().or(Some(Value::Text(text)))
-    }
-}
-
-#[cfg(test)]
-mod tests;

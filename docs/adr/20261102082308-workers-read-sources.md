@@ -7,9 +7,9 @@ description: A federated leg on PostgreSQL or BigQuery is split into partitions 
 
 Status: **accepted**, 2026-11-02. This is the owner's decision, and so is each row of "Decided
 with the design" below, accepted by the owner the same day. Partly built, under
-`github.com/telekom/sutura#828`: a PostgreSQL lookup leg can be split, and every split is still
-read on the coordinating node, because no split is offered a grantee yet. So nothing in production
-grants a partition, no worker reads a source outside tests, and a BigQuery leg is read whole. A row
+`github.com/telekom/sutura#828`: in a mixed-kind deployment, a lookup leg of a PostgreSQL source,
+or of a BigQuery source that federates at a pool, is split and granted to the nodes that read its
+source, and those reading workers read its partitions. The amendments below record each step. A row
 marked *inferred* was neither read in this repository nor run here. This record decides and proves
 nothing.
 
@@ -431,8 +431,133 @@ Limits:
   `FLASHBACK` grant, passes the probe and fails the partition read.
 - **Hashing one integer key is exact only for a lookup leg.** Every row of one group has the same
   key, so every group is in one bucket. A fact leg is not split.
-- **Nothing is built yet.** This record decides to build the split in the Oracle adapter, the
-  setting and the boot probe, and the two changes stacked on it deliver them: one adds the types
-  with today's behaviour, the next the behaviour. Even then no composition root offers an Oracle
-  leg for splitting, and no reading worker reads an Oracle partition, until the grant and the
-  reading worker gain an Oracle arm.
+- **Only the adapter's halves, the setting and the boot probe are built.** The Oracle adapter
+  estimates, splits and reads a partition, `split: flashback` parses, and the boot probe runs at
+  startup for a source that declares it. No composition root offers an Oracle leg for splitting,
+  and no reading worker reads an Oracle partition, until the grant and the reading worker gain an
+  Oracle arm.
+
+## Fifth amendment, 2026-11-06: a ClickHouse lookup leg splits by hash bucket, read as the caller's switched user
+
+The owner decided that a ClickHouse lookup leg is split, and that a partition runs as the same
+identity that a whole read of the leg runs as. This record calls ClickHouse W4, after Oracle as W3;
+that label is the record's own ordering and not an owner decision.
+
+1. **A partition is a hash bucket.** It is `cityHash64(<integer keys>) % N = i`, applied before
+   the leg's `GROUP BY`. A read is consistent per key only.
+2. **The identity follows the source's posture.** A `shared-service-user` source's partition is
+   read as the service user. An `impersonation-at-source` source with no `delegation` is read as
+   the caller's switched user: `EXECUTE AS "<user>" <statement>` on each partition statement. A
+   source with `delegation` is not split until token forwarding reaches it.
+3. **The grant binds the user, and the user travels with its task.** The coordinating node signs
+   a digest of the user into the reading grant, and the grant's caller field stays masked. The user
+   travels in its partition's own task and is taken once. Before it connects, a worker refuses: a
+   user that the grant does not name; a user whose masked form differs from the grant's caller; its
+   own entry for the source not opted in or not switching; and a user that is its own service user.
+4. **The operator bounds the switch.** The service user of each reading worker holds
+   `GRANT IMPERSONATE ON <user>` only on the ClickHouse user of each caller it serves, by name.
+   Never `IMPERSONATE ON *` and never `ALL ON *.*`: each one lets a switch reach any user.
+
+Limits:
+
+- **The worker learns the caller's unmasked name.** It must, because the ClickHouse user is that
+  name. The grant binds the user and does not protect it from a node that reads the task. The
+  digest is guessable from a list of names, so it binds and does not hide.
+- **No list of callers exists.** The server's `IMPERSONATE` grants are the bound on which user a
+  worker can switch to. A worker that rewrites its own task can name any user those grants reach.
+- **The masked check is lossy.** Two names can share a masked form, so it narrows the check and
+  proves nothing on its own.
+- **A refusal at a worker is an internal error.** A caller whose user the server refuses, for a
+  missing grant or a missing `IMPERSONATE`, gets an internal error and not `source_refused`, as
+  decision 4 of the first amendment decides for BigQuery.
+- **The switch is the deployment's credential, not the caller's.** The 2026-10-12 objection in the
+  federation record, kept as a limit by its fourth amendment, stands for a partition too.
+- **A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
+  answer wrongly without an error.** The clamp is read from the ClickHouse server source and not
+  measured. Measured once, for a leg: under `readonly = 1`, a left join answered an unmatched key
+  as the empty value, with no error. No constraint was run, and a partition runs the same
+  statement shape under the same clamp. The federation record's fourth amendment states the
+  requirement.
+- **A statement that a later driver adds would run as the service user.** The vendored driver sends
+  no request when it connects and its only send is a statement's fetch, and a partition goes
+  through the same driver. The tier's `system.query_log` shows, for that database, the wrapper and
+  the inner `SELECT` and no other finished statement. Nothing here would catch the later one.
+- **Not built.** No ClickHouse leg is split, and no worker reads a ClickHouse partition. The tier
+  cells that read a whole leg under the switch come with the change that lifts the adapter's
+  refusal. No cell reads a split one.
+
+## Sixth amendment, 2026-11-06: a BigQuery pool leg is split, and a reading worker reads it with the caller's token
+
+This replaces the third amendment's statement that the `split_lookup` arm and the reading worker's
+BigQuery arm are not built. In a mixed-kind `sutura serve` deployment:
+
+- A lookup leg at a BigQuery source that federates at a pool, offered to a grantee, is run once
+  through `split_leg`, labelled with the request's job labels, which `Warehouse::split_lookup` now
+  takes. A leg at any other BigQuery source, or offered to none, is read whole. The adapter states
+  the token's fingerprint where it exchanges the assertion, and `Grantee::forwarding` ties it to the
+  request's credential; a mismatch fails the leg. Two or more streams are granted with the token,
+  fewer are read on the planning node with it, no later than the token lasts, so a job is never run
+  twice.
+- A reading worker records the end of the grant it admitted a token under, and reads a task
+  carrying a token only at its own source of that name, federating at the pool the token was
+  forwarded for, else refuses it as an uncertified leg. It then refuses a task whose admitted grant
+  has ended, re-certifies the leg, and reads the stream with the token as its only credential, until
+  the earlier of `server.request_timeout` and the grant's end. A BigQuery partition granted with no
+  token is refused.
+- A reading worker declaring a BigQuery source outside a pool does not start
+  (`ReadingWorkerBigQueryOutsideAPool`).
+
+Limits, beside the earlier amendments':
+
+- **The worker reads the token's end off the grant.** The token is opaque, so the end is the
+  admitted grant's, which the planning node clamped to the token's expiry.
+- **No estimate decides the split.** The adapter answers no dry run, so every such leg offered to a
+  grantee runs as a split job, and the stream count the driver chose decides whether it is granted.
+- **Only call order forwards the token.** `Grantee::grant` still grants a leg whose request
+  presented a subject token as the service user when nothing was forwarded; the BigQuery arm
+  forwards before it grants, and a reading worker refuses a BigQuery partition granted with no
+  token.
+- **The BigQuery arm is built only with the `postgres` feature too**, as the split dispatch is.
+- **The Helm chart does not mirror the new boot refusal.** A chart whose reading-worker group
+  declares such a source renders, and the pod does not start.
+- **Not measured.** No offline cell reaches the driver. Which principal BigQuery lets read a stream
+  is still not measured, and a split BigQuery read is not cited for the caller's own access.
+
+## Seventh amendment, 2026-11-07: a profile that forbids sutura's settings is refused, not answered wrongly
+
+**Status of the amendment: accepted; it corrects this record's fifth amendment, in its limits on
+`readonly = 1` and on what is not built.** The federation record's fifth amendment holds the
+reasons and the runs (`github.com/telekom/sutura#1824` and `github.com/telekom/sutura#1830`).
+
+- **"A profile that sets `readonly = 1`, or constrains a setting that sutura sends, makes a read
+  answer wrongly without an error."** The ClickHouse adapter now sends sutura's settings in the
+  `SETTINGS` clause of each statement it runs for an answer. The server refuses a statement whose
+  own setting the profile forbids, and the adapter answers `AdbcError::SettingRefused`, for which
+  its `source_refused` is `true`. Such a profile is refused, not answered wrongly. That holds for a
+  leg too, since the adapter no longer refuses a leg under the switch: a leg switched to a
+  `readonly = 1` user is refused with 164, measured at
+  `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`.
+- **"The clamp is read from the ClickHouse server source and not measured. Measured once, for a
+  leg: ... a left join answered an unmatched key as the empty value, with no error."** The leg
+  measurement was made before the clause existed. The wrong answer under `readonly = 1` is measured
+  for a whole switched question, at
+  `github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`. That run prints the row
+  that the switched answer lacks, and not the row that it answered. The clamp itself, and what a
+  constraint does, stay read from the server source.
+- **"... and a partition runs the same statement shape under the same clamp."** No code outside
+  the tests sends a partition statement yet. Since `github.com/telekom/sutura#1797`,
+  `sutura_sql::generate_leg_buckets` renders one for ClickHouse, and a tier cell reads every bucket
+  of a lookup leg as the deployment through the adapter's `run` (its fixture-only `rows_of`), which
+  adds the clause. The run is
+  `github.com/telekom/sutura/actions/runs/42319876325/job/128241568016`, and its log has no
+  `exempt: clickhouse from Unavailable` line. No cell reads a bucket under the switch, so this
+  amendment claims nothing for a partition under `readonly = 1`.
+- **"The tier cells that read a whole leg under the switch come with the change that lifts the
+  adapter's refusal."** That change is `github.com/telekom/sutura#1830`, and its cells run, on a
+  fact leg, at `github.com/telekom/sutura/actions/runs/42318511239/job/128237056230`. Two sentences
+  of that limit stand outside the tests: no ClickHouse leg is split, and no worker reads a
+  ClickHouse partition. The third, "No cell reads a split one", is read as under the switch: the
+  bucket cell above reads a split lookup leg as the deployment.
+
+This amendment does not say what a reading worker answers for a refused setting. This record's
+fifth amendment, in its limit on a refusal at a worker, is unchanged.

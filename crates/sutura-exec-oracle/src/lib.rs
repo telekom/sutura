@@ -77,6 +77,10 @@ use crate::datetime::oracle_date;
 
 mod batches;
 mod datetime;
+/// A lookup leg read in partitions, each at one snapshot - `github.com/telekom/sutura#828`.
+mod split;
+
+pub use split::{InvalidDescriptor, PartitionDescriptor, Planned, SplitLeg};
 
 /// The fixture tier's credential - a value that cannot exist unconfigured.
 ///
@@ -207,6 +211,67 @@ pub enum OracleError {
     /// The driver's packet trace is switched on - see [`sutura_oracle_connect::oracle_trace::refuse`].
     #[error(transparent)]
     PacketTraceOn(#[from] sutura_oracle_connect::oracle_trace::PacketTraceOn),
+    /// A partition was asked of a source whose flashback split was not declared and probed.
+    #[error("source `{at}` reads no partition: it did not declare `split: flashback`")]
+    FlashbackNotDeclared { at: String },
+    /// A flashback split was declared on a source that opens each caller's own session.
+    #[error("source `{at}` reads as each caller, and a partition is read as the shared service user")]
+    FlashbackAtImpersonatingSource { at: String },
+    /// The service user holds the system privilege, where each table it reads is granted alone.
+    #[error(
+        "the service user holds `FLASHBACK ANY TABLE`; revoke it and grant `FLASHBACK` on each table \
+         this source reads instead"
+    )]
+    FlashbackAnyTable,
+    /// The service user holds a system privilege that grants it privileges or roles.
+    #[error(
+        "the service user holds `{privilege}`; revoke it, and grant the service user only the \
+         per-table `FLASHBACK` it needs"
+    )]
+    FlashbackPrivilegeHeld { privilege: &'static str },
+    /// A role granted to the service user is not enabled when it signs in.
+    #[error(
+        "a role granted to the service user is not enabled when it signs in; grant the service user \
+         only the per-table `FLASHBACK` it needs, and no role it does not enable at sign-in"
+    )]
+    FlashbackRoleNotEnabled,
+    /// The service user could not read `table` at a snapshot.
+    #[error("the service user could not read {table} at a snapshot; grant it `FLASHBACK` and `READ` on that table")]
+    FlashbackRefused {
+        table: String,
+        #[source]
+        cause: Box<Self>,
+    },
+    /// The database answered something other than one positive system change number, or than the
+    /// one-row answer a dictionary probe projects - a defect in this adapter, never anything about
+    /// the data.
+    #[error("the database's answer to `{asked}` was not the one row of numbers it projects")]
+    Unanswered { asked: &'static str },
+    /// The bytes are not a partition descriptor this build reads.
+    #[error("the partition descriptor is not usable")]
+    MalformedDescriptor {
+        #[source]
+        cause: InvalidDescriptor,
+    },
+    /// A partition could not be rendered at its snapshot.
+    #[error("the partition could not be rendered for Oracle")]
+    PartitionRender {
+        #[source]
+        cause: sutura_sql::AsOfRefused,
+    },
+    /// The database can no longer read the partition's snapshot: `ORA-01555` (snapshot too old),
+    /// `ORA-08181` (not a valid system change number) or `ORA-01466` (the table's definition changed).
+    ///
+    /// Only the top error of the server's stack is read: one of these codes nested under another
+    /// stays [`Self::Execute`], refused but not as this variant.
+    #[error("the partition's snapshot can no longer be read")]
+    SnapshotGone {
+        #[source]
+        cause: DriverError,
+    },
+    /// The partition's snapshot was taken longer ago than the reading request's budget.
+    #[error("the partition's snapshot is older than the {most_seconds}-second request budget")]
+    SnapshotStale { most_seconds: u64 },
 }
 
 /// An Oracle connection, behind the [`Warehouse`] port.
@@ -221,6 +286,9 @@ pub struct OracleWarehouse {
     connection: oracledb::Connection,
     /// Serializes every call - see the module header for why.
     execution_lock: Mutex<()>,
+    /// Whether this source's lookup legs split by flashback query: set only by
+    /// [`Self::with_flashback`], after its probe passed.
+    flashback: bool,
 }
 
 /// The source, how it was declared, and where each question's own session is opened - for an
@@ -369,6 +437,7 @@ impl OracleWarehouse {
             result_budget,
             connection,
             execution_lock: Mutex::new(()),
+            flashback: false,
         })
     }
 
@@ -397,7 +466,7 @@ impl OracleWarehouse {
             Dial::new(
                 host,
                 port,
-                "FREEPDB1",
+                fixture::SERVICE_NAME,
                 Channel::Verified {
                     anchors_pem: credential.anchors_pem(),
                 },
@@ -406,6 +475,82 @@ impl OracleWarehouse {
             credential.password().expose_secret(),
             result_budget,
         )
+    }
+
+    /// This adapter, its lookup legs split by flashback query (`split: flashback`), once its boot
+    /// probe passed over `tables`. The probe reads the privileges granted to the service user when it
+    /// runs: directly, through `PUBLIC`, and through roles granted to the service user. It passes
+    /// where none of them is `FLASHBACK ANY TABLE`, `GRANT ANY PRIVILEGE` or `GRANT ANY ROLE`, every
+    /// role granted to the service user is enabled when it signs in, the database answers a
+    /// snapshot, and each of `tables` reads at it.
+    ///
+    /// That Oracle refuses that zero-row read without a `FLASHBACK` grant on the table is read from
+    /// its documentation, not measured here; the Oracle tier's probe cell measures it.
+    ///
+    /// No deadline: the boot path has no caller's budget to spend, as [`Warehouse::verify_anchor`]
+    /// has none.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::FlashbackAtImpersonatingSource`], [`OracleError::FlashbackAnyTable`],
+    /// [`OracleError::FlashbackPrivilegeHeld`], [`OracleError::FlashbackRoleNotEnabled`], and
+    /// [`OracleError::FlashbackRefused`] naming the
+    /// first table that does not read at a snapshot; a probe the database fails otherwise is its own
+    /// error.
+    pub fn with_flashback(
+        self,
+        tables: &std::collections::BTreeSet<sutura_domain::model::QualifiedTable>,
+    ) -> Result<Self, OracleError> {
+        split::with_flashback(self, tables)
+    }
+
+    /// `leg` read whole, split into buckets at one snapshot, or refused -
+    /// [`sutura_domain::plan::decide`] over the dictionary's estimate of its root, against
+    /// `above_bytes`, `per_stream_bound` rows a stream and at most `ready_workers` partitions.
+    ///
+    /// # Errors
+    ///
+    /// What [`Warehouse::execute`] refuses before it sends a statement, a spent deadline, and the
+    /// dictionary's or the database's failure.
+    pub fn split_by_estimate(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        presented: &Presented,
+        deadline: Deadline,
+        above_bytes: core::num::NonZeroU64,
+        per_stream_bound: core::num::NonZeroUsize,
+        ready_workers: core::num::NonZeroUsize,
+    ) -> Result<Planned, OracleError> {
+        split::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
+    }
+
+    /// The rows of the partition `descriptor` names of `leg`, read at its snapshot as the service
+    /// user, after the database answered that the snapshot is no older than `deadline`'s budget.
+    ///
+    /// It takes no presented identity and does not authenticate the descriptor: both are the task
+    /// grant's, which carries the descriptor and authorises the leg before this runs.
+    ///
+    /// # Errors
+    ///
+    /// [`OracleError::FlashbackNotDeclared`] at a source [`Self::with_flashback`] did not probe,
+    /// [`OracleError::MalformedDescriptor`] and [`OracleError::PartitionRender`] before any round
+    /// trip; then [`OracleError::SnapshotStale`], [`OracleError::SnapshotGone`], a spent deadline,
+    /// and the database's failure.
+    pub fn read_partition(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        descriptor: &[u8],
+        deadline: Deadline,
+    ) -> Result<ResultBatches, OracleError> {
+        split::read_partition(self, leg, descriptor, deadline)
+    }
+
+    /// Loads a fixture CSV as the table `table`, in the schema this warehouse's user owns, replacing
+    /// a table of the same name. Columns are typed as `fixture::importer`'s header declares; an
+    /// empty cell is `NULL`.
+    #[cfg(feature = "fixtures")]
+    pub fn load_csv(&self, table: &sutura_domain::model::TableName, path: &std::path::Path) -> Result<(), fixture::FixtureError> {
+        fixture::importer::load(self, table, path)
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, OracleError> {
@@ -434,7 +579,7 @@ impl OracleWarehouse {
     fn run_with_deadline(
         &self,
         session: Session<'_>,
-        query: &GeneratedQuery,
+        (sql, params): (&str, &[ParamValue]),
         deadline: Deadline,
         most_rows: Option<usize>,
     ) -> Result<RowSet, OracleError> {
@@ -452,13 +597,13 @@ impl OracleWarehouse {
         connection
             .set_call_timeout(Some(remaining))
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
-        let bound = Self::bind(query.params());
+        let bound = Self::bind(params);
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let stop = batches::Stop {
             budget: self.result_budget,
             most_rows,
         };
-        batches::query(connection, query.sql(), &refs, stop, || {
+        batches::query(connection, sql, &refs, stop, || {
             let remaining = refuse_if_spent(deadline)?;
             connection
                 .set_call_timeout(Some(remaining))
@@ -466,20 +611,21 @@ impl OracleWarehouse {
         })
     }
 
-    /// The boot path's own runner - no deadline, called only from [`Warehouse::verify_anchor`] and
-    /// [`Warehouse::declared_key`], which have no caller's budget to spend (`docs/adr/0008` part 1).
-    fn run(&self, query: &GeneratedQuery) -> Result<RowSet, OracleError> {
+    /// The boot path's own runner - no deadline, called only from [`Warehouse::verify_anchor`],
+    /// [`Warehouse::declared_key`] and [`Self::with_flashback`], which have no caller's budget to
+    /// spend (`docs/adr/0008` part 1).
+    fn run(&self, (sql, params): (&str, &[ParamValue])) -> Result<RowSet, OracleError> {
         let _guard = self.execution_lock.lock();
         self.connection
             .set_call_timeout(None)
             .map_err(|cause| OracleError::CallTimeout { cause: cause.into() })?;
-        let bound = Self::bind(query.params());
+        let bound = Self::bind(params);
         let refs: Vec<&dyn oracledb::ToDbValue> = bound.iter().map(OracleParam::as_dyn).collect();
         let stop = batches::Stop {
             budget: self.result_budget,
             most_rows: None,
         };
-        batches::query(&self.connection, query.sql(), &refs, stop, || Ok(()))
+        batches::query(&self.connection, sql, &refs, stop, || Ok(()))
     }
 }
 
@@ -515,7 +661,16 @@ impl DriverError {
     /// of a stack - an `ORA-01476` the server nests under another code no longer matches, where
     /// the old substring match did. Not measured against a server.
     fn has_ora_code(&self, code: usize) -> bool {
-        matches!(self.0.kind(), oracledb::ErrorKind::DbError(db_error) if db_error.code() == code)
+        self.ora_code() == Some(code)
+    }
+
+    /// The Oracle error number the server refused with, where it refused - the TOP error of a
+    /// stack, as [`Self::has_ora_code`] reads it.
+    fn ora_code(&self) -> Option<usize> {
+        match *self.0.kind() {
+            oracledb::ErrorKind::DbError(ref db_error) => Some(db_error.code()),
+            _ => None,
+        }
     }
 
     /// Whether this is the driver's own `CallTimeoutExceeded` - the per-read idle timeout firing,
@@ -605,17 +760,14 @@ impl Warehouse for OracleWarehouse {
     /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
     /// [`Dialect::Oracle`] and is handed to [`Self::execute`] as any other statement.
     ///
-    /// **Rendered and gate-checked, never executed, and that asymmetry with
-    /// `sutura-exec-postgres` is the whole of what this constant is worth here.** No venue any
-    /// gate reaches can provision an Oracle (this module's header and
+    /// **Executed in the `oracle-tier` CI job alone, and nowhere a `just validate` leg reaches.** No
+    /// gate can provision an Oracle (this module's header and
     /// `xtask/src/conformance/reconcile.rs`'s `UNBOUND` entry say why), so this crate has no
-    /// conformance binding and the golden matrix's `oracle` cells answer
-    /// `DataSystemUnderTest::available() == false` unconditionally. What holds the wiring is
-    /// this module's own `a_leg_renders_through_the_oracle_dialect` cell plus
-    /// `crates/sutura-app/tests/golden/legs.rs`'s Oracle statements - both renderings. **Nothing
-    /// establishes that an Oracle server accepts a leg**, which is exactly the shape
-    /// `crates/sutura-app/tests/golden/dialects.rs` declares as `Evidence::RenderOnly` for this
-    /// dialect and that declaration is unchanged by this constant.
+    /// conformance binding; the golden matrix's `oracle` cells run where `SUTURA_ORACLE_TIER` names
+    /// the compose profile, and `crates/sutura-app/tests/differential/federated/two_fact.rs` runs a
+    /// leg there. Elsewhere the wiring is held by this module's own
+    /// `a_leg_renders_through_the_oracle_dialect` cell and `crates/sutura-app/tests/golden/legs.rs`'s
+    /// Oracle statements, both renderings.
     ///
     /// A leg is answered on the session its presented credential selects, as any other statement.
     const EXECUTES_LEGS: bool = true;
@@ -645,7 +797,7 @@ impl Warehouse for OracleWarehouse {
     ) -> Result<ResultBatches, Self::Error> {
         let session = self.routing.deliverable(presented)?;
         let query = Self::render(executable)?;
-        let rows = self.run_with_deadline(session, &query, deadline, executable.row_limit())?;
+        let rows = self.run_with_deadline(session, (query.sql(), query.params()), deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
         of_row_set(&rows).map_err(|cause| OracleError::Shape { cause })
@@ -657,12 +809,12 @@ impl Warehouse for OracleWarehouse {
 
     fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         let query = generate(plan.plan(), Dialect::Oracle).map_err(|cause| OracleError::Render { cause })?;
-        self.run(&query).map(AnchorRows::of)
+        self.run((query.sql(), query.params())).map(AnchorRows::of)
     }
 
     fn declared_key(&self, key: DeclaredKey<'_>) -> Result<KeyUniqueness, Self::Error> {
         let query = generate_key_probe(&key, Dialect::Oracle).map_err(|cause| OracleError::Render { cause })?;
-        let rows = self.run(&query)?;
+        let rows = self.run((query.sql(), query.params()))?;
         KeyUniqueness::read(&rows).map_err(|cause| OracleError::KeyCounts { cause })
     }
 
@@ -757,9 +909,10 @@ mod tests {
     /// cell rather than passing it. That is the mutation `dead_code` cannot see and the reason the
     /// assertion is not simply `is_ok`.
     ///
-    /// **What it does NOT establish: that any Oracle server accepts the statement.** No venue a
-    /// gate reaches provisions one - see this module's header - so this crate has no conformance
-    /// binding and there is no executed counterpart to
+    /// **What it does NOT establish: that any Oracle server accepts the statement.** The two-fact
+    /// walk in the `oracle-tier` CI job runs a leg there, but no `just validate` leg provisions an
+    /// Oracle - see this module's header - so this crate has no conformance binding and no
+    /// counterpart to
     /// `conformance::postgres::a_leg_is_executed_because_the_adapter_declares_it_executes_legs`.
     #[test]
     fn a_leg_renders_through_the_oracle_dialect() {

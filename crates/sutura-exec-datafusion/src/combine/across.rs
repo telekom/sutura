@@ -15,10 +15,12 @@
 //! it for its working set. A link costs latency a question one node answers does not need to pay.
 //!
 //! **A node may be declared by a host, which is resolved when each question is planned.** Each
-//! address it resolves to is one node, its IPv4 ones when it has any so a dual-stack pod is not two,
-//! dialled at that address and checked against the host: a pool of workers behind one name, as a
-//! headless service's is, is the nodes it holds at that moment
-//! (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! address it resolves to is one node, of the family `server.nodes.address_family` names
+//! ([`AddressFamily`](sutura_domain::plan::AddressFamily)), dialled at that address and checked
+//! against the host: a pool of workers behind one name, as a headless service's is, is the nodes it
+//! holds at that moment (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! `auto`, the default, keeps one family per host - its IPv4 addresses when it has any, so a
+//! dual-stack pod is not two nodes - while `ipv4` and `ipv6` keep that family alone.
 //!
 //! **A question that goes across may wait for other nodes, bounded.** With
 //! `server.nodes.wait_for_workers_seconds` declared, it wants one other node for each share of
@@ -59,7 +61,10 @@
 //!   to that connection and fails or waits out its deadline.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
 //!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
-//!   and no other node resolves, which is refused once the wait ends.
+//!   and no other node resolves, which is refused once the wait ends. So does a host with no address
+//!   of the family `ipv4` or `ipv6` chose; an IP literal of the other family is refused at startup.
+//!   The family is chosen among the addresses the resolver returns and makes no node reachable over
+//!   a family the network between the nodes does not carry.
 //! - Only an empty pool is refused, which keeps the refusal's "retry" truthful: a pool already at its
 //!   largest would otherwise turn a question too large for it into a retry that never succeeds. A
 //!   question planned across fewer nodes than it wanted may still be refused for its working set.
@@ -69,14 +74,19 @@
 //!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
 //!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
-//!   [`CombineError::Execute`], unless the failure carries the code of a stage a node refused for
-//!   rows past the federated row ceiling, which leaves as [`CombineError::RowsOverCeiling`]. A cell
+//!   [`CombineError::Execute`], unless the failure carries a code `relay` reads back: a stage refused
+//!   for rows past the federated row ceiling ([`CombineError::RowsOverCeiling`]), a leg a reading
+//!   worker did not certify ([`CombineError::LegNotCertified`]), a granted partition past a reading
+//!   worker's per-stream bound ([`CombineError::PartitionDidNotFit`]), or a granted leg's link value
+//!   held more than once ([`CombineError::AmbiguousLink`]). A cell
 //!   loses a node nothing listens on and one that drops its connection under a call, over plain
 //!   TCP; the multi-node VM check kills one while it answers.
-//! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
-//!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
-//!   in an Arrow or an external error crosses its next link as text and stays a failure. One stage
-//!   raises it: a final-stage task past the worker's row ceiling.
+//! - Each code is read only exactly, only off a failure, and answered from this node's own
+//!   configuration: a peer can turn a failed question into one of those refusals, never into an
+//!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
+//!   stays a failure. Three stages raise the four codes: a final-stage task past the worker's row
+//!   ceiling; a reading worker's partition scan, whose reader did not certify its leg or whose
+//!   partition did not fit its per-stream bound (two codes); and a granted leg's link count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -100,16 +110,19 @@
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
-//!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Only a `sutura serve`
-//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   nodes, never on this one. Each granted leg is checked in the plan that joins it, whose join
+//!   reads the scan the check counts, so each partition is read once (`served::counted_in_plan`).
+//!   A link value held twice fails that plan under a code this node reads back as
+//!   [`CombineError::AmbiguousLink`]. Only a `sutura serve` deployment's
+//!   PostgreSQL source or `BigQuery` pool source grants a served leg
+//!   (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
 use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
+use std::net::{IpAddr, ToSocketAddrs as _};
 use std::sync::{Arc, Weak};
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
@@ -130,7 +143,7 @@ use datafusion_distributed::{
 };
 use hyper_util::rt::TokioIo;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::{FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
+use sutura_domain::plan::{AddressFamily, FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -160,15 +173,19 @@ mod split;
 /// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
 mod link;
 
+/// A granted lookup leg's ambiguous-link check, inside the plan that joins it.
+mod once;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
-pub use partition::{Forwarded, PartitionReader, Unread, read_later};
+pub use partition::{Forwarded, PartitionReader, TokenUnread, Unread, read_later};
 pub use split::{SplitScan, StreamBound};
 
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;
 
+pub(super) use once::joined;
 pub(super) use relay::relayed;
 
 #[cfg(test)]
@@ -207,6 +224,8 @@ pub struct Nodes {
     row_ceiling: FederatedRowCeiling,
     /// The other nodes declared as reading each source, as declared.
     readers: HashMap<SourceName, Vec<Url>>,
+    /// Which family of address a host among `others` is dialled at.
+    address_family: AddressFamily,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -241,6 +260,7 @@ impl Nodes {
             keys: grant::Keys::default(),
             row_ceiling: FederatedRowCeiling::LOOSEST,
             readers: HashMap::new(),
+            address_family: AddressFamily::Auto,
         }
     }
 
@@ -281,6 +301,15 @@ impl Nodes {
         }
     }
 
+    /// The same nodes, a host among the other nodes dialled at `family` addresses.
+    #[must_use]
+    pub fn address_family(self, family: AddressFamily) -> Self {
+        Self {
+            address_family: family,
+            ..self
+        }
+    }
+
     /// The same nodes, a [`SplitScan`] of `source` read only on `readers`, each as declared. A reader
     /// that is not among the other nodes declared, or does not resolve, reads nothing.
     #[must_use]
@@ -300,12 +329,9 @@ impl Nodes {
     /// **Limit:** each call resolves every other node again, so a host that resolves here and not
     /// in the session planned beside it, or the other way round, is read differently by the two.
     pub(super) fn resolves_a_reader(&self, source: &SourceName) -> bool {
-        self.readers.get(source).is_some_and(|declared| {
-            self.others
-                .iter()
-                .flat_map(resolved)
-                .any(|node| declared.contains(&unresolved(&node)))
-        })
+        self.readers
+            .get(source)
+            .is_some_and(|declared| self.resolved().any(|node| declared.contains(&unresolved(&node))))
     }
 
     /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
@@ -340,7 +366,7 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let bounded = bounded.clone();
             async move {
-                Ok(grant::forwarded(context.builder, &context.headers)?
+                Ok(once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .with_distributed_user_codec(partition::Codec)
@@ -375,7 +401,7 @@ impl Nodes {
             let keys = keys.clone();
             let reader = reader.clone();
             async move {
-                let mut builder = grant::forwarded(context.builder, &context.headers)?
+                let mut builder = once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(
                         move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {
@@ -413,7 +439,7 @@ impl Nodes {
             || self.session(working_set),
             |wait| {
                 let wanted = wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes);
-                let ready = wait::ready(wanted, wait, || self.others.iter().flat_map(resolved).collect())?;
+                let ready = wait::ready(wanted, wait, || self.resolved().collect())?;
                 self.session_over(working_set, ready)
             },
         )
@@ -421,7 +447,14 @@ impl Nodes {
 
     /// A session over the other nodes resolved now. See [`Self::session_over`].
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
-        self.session_over(working_set, self.others.iter().flat_map(resolved))
+        self.session_over(working_set, self.resolved())
+    }
+
+    /// The other nodes declared, resolved now.
+    fn resolved(&self) -> impl Iterator<Item = Url> {
+        self.others
+            .iter()
+            .flat_map(|declared| resolved(declared, self.address_family))
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across this
@@ -520,19 +553,20 @@ fn chain<'a>(error: &'a (dyn core::error::Error + 'static)) -> impl Iterator<Ite
 }
 
 /// The nodes `declared` names now: itself when its host is an address, and otherwise one for each
-/// address its host resolves to, of one family, with that address in its fragment.
-fn resolved(declared: &Url) -> Vec<Url> {
+/// address its host resolves to, of `family`, with that address in its fragment.
+fn resolved(declared: &Url, family: AddressFamily) -> Vec<Url> {
     let (Some(Host::Domain(host)), Some(port)) = (declared.host(), declared.port_or_known_default()) else {
         return vec![declared.clone()];
     };
-    let addresses: Vec<SocketAddr> = (host, port).to_socket_addrs().map_or_default(Iterator::collect);
-    let ipv4 = addresses.iter().any(SocketAddr::is_ipv4);
-    addresses
+    let resolved = (host, port)
+        .to_socket_addrs()
+        .map_or_default(|addresses| addresses.map(|address| address.ip()).collect::<Vec<_>>());
+    family
+        .keep(resolved)
         .into_iter()
-        .filter(|address| address.is_ipv4() == ipv4)
         .map(|address| {
             let mut node = declared.clone();
-            node.set_fragment(Some(&address.ip().to_string()));
+            node.set_fragment(Some(&address.to_string()));
             node
         })
         .collect()

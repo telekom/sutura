@@ -478,17 +478,17 @@ fn census(dialect: Dialect) -> BTreeMap<Family, usize> {
     counted
 }
 
-/// What stands behind one dialect's goldens - and, where nothing executed them, which half of a
-/// venue is absent.
+/// What stands behind one dialect's goldens.
 ///
 /// **A typed value, and that is the whole of `github.com/telekom/sutura#919`.** What this replaces
 /// was a `&'static str` of prose per dialect: honest when written, comparable against nothing, and
-/// so still green after the fact it stated stopped being true. Every field here is checked against
-/// the tree by [`every_dialect_declares_what_backs_its_goldens`], so a declaration that goes stale
-/// is a red rather than a sentence nobody re-read.
+/// so still green after the fact it stated stopped being true. The declaration is checked against
+/// the tree by [`every_dialect_declares_what_backs_its_goldens`], so one that goes stale is a red
+/// rather than a sentence nobody re-read.
 ///
-/// The prose is not restated here: each render-only arm names the file whose own header carries the
-/// argument at length, and that path is asserted to exist.
+/// **One arm, because every dialect now executes somewhere.** A dialect whose goldens only render
+/// needs a second arm that says so, and it is absent rather than reserved: the workspace denies
+/// `dead_code`, so a variant nothing constructs does not compile.
 #[derive(Debug, Clone, Copy)]
 enum Evidence {
     /// A venue in this workspace ran the corpus for this dialect: every one of
@@ -497,50 +497,6 @@ enum Evidence {
     /// **Does not reach** whether those rows are the right ANSWER - that comparison against the
     /// engine is `golden/data_systems.rs`, a different axis. This one only knows a venue answered.
     Executed,
-    /// Render-only: the goldens pin what `sutura-sql` emitted, and nothing a data system said about
-    /// it.
-    ///
-    /// **Does not reach** the semantic half even where green. The parse-back check that backs these
-    /// cells is syntax only, and `crates/sutura-sql/src/generate.rs`'s own
-    /// `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is the standing proof: a construct
-    /// that parses can still compute the wrong number. A wrong `TRUNC` argument order or a wrong
-    /// grain keyword is unguarded here and this arm is the declaration of that, not a mitigation.
-    RenderOnly {
-        /// WHERE the venue is, given that it is not a leg of any gate. Two dialects can be
-        /// render-only for entirely different reasons, and before this field they read the same.
-        venue: Venue,
-        /// The file whose own header states this dialect's limit at length. Asserted to EXIST, so a
-        /// moved or deleted header reddens this axis instead of leaving a dangling citation.
-        ///
-        /// Does not reach the CONTENT: nothing here reads the file, so a header that stops arguing
-        /// what it used to argue is still green. A path is what a test can hold.
-        stated_in: &'static str,
-    },
-}
-
-/// Where a dialect's execution venue is, given that it is not here.
-///
-/// **A venue a developer brings up by hand is the shape
-/// `docs/where-identity-is-proven.md` has no row for, and that is why this is a second enum rather
-/// than a citation of that page's vocabulary.** Its venue column reads *in process, every run* /
-/// *a GitHub environment, on demand* / *nowhere yet*, because it grades venues a GATE reaches;
-/// [`Self::ByHandOnly`] is a `compose.services.yaml` service no task in that page's `Reached by`
-/// column can invoke. Its on-demand arm went when `BigQuery`, the one dialect it described, moved
-/// to [`Evidence::Executed`]. That
-/// page's other axis - `unrun`/`wired`/`yes` - is deliberately not borrowed at all: it grades how
-/// strongly an EXISTING venue's claim has been observed, and borrowing it here would have graded
-/// an absence as a weak presence.
-///
-/// **The arm claims an adapter exists**, because on this tree every dialect has one (`ls
-/// crates/sutura-exec-*`). A dialect with no adapter at all needs a second arm, and it is absent
-/// rather than reserved: the workspace denies `dead_code`, so a variant nothing constructs does not
-/// compile - measured, `error: variant ... is never constructed`. The exhaustive match in
-/// [`evidence`] is what forces the decision when that dialect arrives.
-#[derive(Debug, Clone, Copy)]
-enum Venue {
-    /// A `compose.services.yaml` service a developer brings up by hand, and nothing else. Checked -
-    /// that service is named there, so the claim is not of a venue nobody can reach at all.
-    ByHandOnly,
 }
 
 /// What backs each dialect's goldens.
@@ -551,70 +507,43 @@ enum Venue {
 /// check was non-empty.
 fn evidence(dialect: Dialect) -> Evidence {
     match dialect {
-        // All three execute on every run - DuckDB in-process, Postgres against the postmaster
-        // `nix/postgres-tier.nix` stands up in the same sandbox, ClickHouse against the server
-        // `nix/clickhouse-tier.nix` stands up beside it (`github.com/telekom/sutura#920`).
+        // DuckDB executes in process, Postgres against the postmaster `nix/postgres-tier.nix`
+        // stands up in the same sandbox, ClickHouse against the server `nix/clickhouse-tier.nix`
+        // stands up beside it (`github.com/telekom/sutura#920`): all three on every run.
         //
-        // BigQuery executes in ONE venue and no gate: the `bigquery-conformance` CI job, against
-        // the dataset it provisions (`just bigquery-conformance`). Its execution goldens were seeded
-        // from the answer the other four executing data systems already return byte for byte - the
-        // conformance claim itself - and its one error golden is pinned through the adapter's own
-        // layers, because the driver's message links the run's job. **So a golden here is an
-        // expectation until that job has run green**, and the pull request adding the job is its
-        // first run.
-        Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse | Dialect::BigQuery => Evidence::Executed,
-        // `sutura-exec-oracle` arrived with `github.com/telekom/sutura#127` PR 2 while this change
-        // was in review, and this arm MOVED for it: the declaration it replaced said *no adapter
-        // executes Oracle on this tree*, prose that went false on a merge no gate would have read.
-        // That is `#919` in one line.
-        Dialect::Oracle => Evidence::RenderOnly {
-            venue: Venue::ByHandOnly,
-            stated_in: "crates/sutura-exec-oracle/src/lib.rs",
-        },
+        // BigQuery and Oracle each execute in ONE venue and no gate: the `bigquery-conformance` and
+        // `oracle-tier` CI jobs, against the dataset and the database they provision (`just
+        // bigquery-conformance`, `just oracle-acceptance`). Their execution goldens were seeded from
+        // the answer the other executing data systems already return byte for byte - the
+        // conformance claim itself - and BigQuery's one error golden is pinned through the adapter's
+        // own layers, because the driver's message links the run's job. **So a golden of either is
+        // an expectation until its job has run green**, and no nix check or `just validate` leg
+        // reaches it. Oracle's runs the example corpus only, over a database a developer can also
+        // start by hand.
+        Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse | Dialect::BigQuery | Dialect::Oracle => Evidence::Executed,
     }
 }
 
 /// **What `#919` closes.** For every dialect `sutura-sql` renders for, [`evidence`] declares what
-/// backs its goldens and that declaration is compared against the tree - six checks, none of which
-/// the prose it replaced could make:
+/// backs its goldens and that declaration is compared against the tree - two checks, neither of
+/// which the prose it replaced could make:
 ///
 /// 1. **Render goldens exist at all.** Without it a dialect with nothing whatsoever could declare a
 ///    limit and read as covered-but-honest.
 /// 2. **[`Evidence::Executed`] means every one of [`Family::EXECUTION`] is non-empty**, and a
 ///    missing one is NAMED. The count it replaces was a floor: 34 of the 35 execution goldens
 ///    deleted still passed it.
-/// 3. **[`Evidence::RenderOnly`] means no execution family holds anything.** So the declaration
-///    EXPIRES: a dialect that acquires a venue is red here until its arm moves.
-/// 4. **The adapter the declaration claims is there.**
-/// 5. **No `nix/{dialect}-tier.nix` exists.** This is the sharpest of the six, because a nix tier is
-///    exactly what would put the dialect inside a `just validate` leg - so adding one makes
-///    *render-only* false, and this check is what says so. Not the only reader of that path:
-///    `xtask`'s `compose::file::every_nix_tier_module_is_provisioned_by_a_nix_check` already holds
-///    a tier module to being provisioned, and this one holds it to the dialect's GOLDENS, which is
-///    the edge that was missing.
-/// 6. **The venue named is the venue there is**: [`Venue::ByHandOnly`]'s compose service is
-///    named. Without this the `venue` field would be decoration.
 ///
-/// Plus `stated_in` resolving to a file, so a moved header is a red and not a dangling citation.
-///
-/// **Limits, next to the claim.** The dialect-to-crate-directory mapping is
-/// `sutura-exec-{Dialect::as_str}` and the tier path `nix/{as_str}-tier.nix`: naming conventions
-/// this test relies on and no mechanism holds, so an adapter or a tier named otherwise reads as
-/// absent. A present directory is not a WIRED adapter - nothing here asks whether a composition
-/// root links it, and `sutura-exec-oracle` is the standing case of one nothing links. The
-/// compose read is a substring search over the file, not a parse of it. And none of this reaches whether a golden's CONTENT is right:
+/// **Limits, next to the claim.** This counts files per family and reads none of them: a golden
+/// copied from another dialect is counted exactly as one a venue produced, so nothing here knows
+/// that Oracle's or `BigQuery`'s were not (each is compared with its engine only in its own CI job,
+/// and only for the example corpus). Nor does it reach whether a golden's CONTENT is right:
 /// measured while `ClickHouse` was still render-only, flipping its `date_trunc_shape` to the wrong
 /// shape and re-accepting the render goldens left this test and
-/// `dialects::clickhouse::every_generated_statement_parses_here` both green, which is the ceiling
-/// [`Evidence::RenderOnly`] declares rather than closes - and the ceiling `Oracle` still stands
-/// under.
+/// `dialects::clickhouse::every_generated_statement_parses_here` both green, because the ceiling of
+/// a render golden is that it pins what the generator emitted.
 #[test]
 fn every_dialect_declares_what_backs_its_goldens() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let read = |relative: &str| {
-        std::fs::read_to_string(root.join(relative)).unwrap_or_else(|cause| panic!("{relative} did not read: {cause}"))
-    };
-    let compose = read("compose.services.yaml");
     for &dialect in dialect::ALL {
         let counted = census(dialect);
         let held = |family: Family| counted.get(&family).copied().unwrap_or_default();
@@ -628,52 +557,14 @@ fn every_dialect_declares_what_backs_its_goldens() {
             );
         }
 
-        let standing: Vec<Family> = Family::EXECUTION.into_iter().filter(|family| held(*family) > 0).collect();
-        match evidence(dialect) {
-            Evidence::Executed => {
-                let empty: Vec<Family> = Family::EXECUTION.into_iter().filter(|family| held(*family) == 0).collect();
-                assert!(
-                    empty.is_empty(),
-                    "{name} declares `Evidence::Executed` but {empty:?} hold no goldens - either a \
-                     venue stopped producing them, or the declaration is wrong. A count over all \
-                     four would have passed this on the {} that remain",
-                    standing.len()
-                );
-            }
-            Evidence::RenderOnly { venue, stated_in } => {
-                assert!(
-                    standing.is_empty(),
-                    "{name} declares `Evidence::RenderOnly` and yet {standing:?} hold goldens - \
-                     something executes it now, so move its arm in `evidence` to \
-                     `Evidence::Executed` rather than leaving a limit nothing expires"
-                );
-                assert!(
-                    root.join(format!("crates/sutura-exec-{name}")).is_dir(),
-                    "{name} declares {venue:?}, which claims an adapter, but crates/sutura-exec-{name} \
-                     is not there"
-                );
-                let tier = format!("nix/{name}-tier.nix");
-                assert!(
-                    !root.join(&tier).exists(),
-                    "{tier} exists, so a `just validate` leg can provision {name} and its goldens are \
-                     no longer render-only - move its arm in `evidence` to `Evidence::Executed` and \
-                     produce execution goldens from that tier"
-                );
-                let service = format!("\n  {name}:\n");
-                match venue {
-                    Venue::ByHandOnly => assert!(
-                        compose.contains(&service),
-                        "{name} declares a by-hand compose venue and compose.services.yaml names no \
-                         {name} service, so nothing reaches it at all - that is a stronger absence \
-                         than this arm states"
-                    ),
-                }
-                assert!(
-                    root.join(stated_in).is_file(),
-                    "{name}'s `stated_in` cites {stated_in}, which is not a file - the limit is \
-                     stated somewhere this citation no longer reaches"
-                );
-            }
-        }
+        let Evidence::Executed = evidence(dialect);
+        let empty: Vec<Family> = Family::EXECUTION.into_iter().filter(|family| held(*family) == 0).collect();
+        assert!(
+            empty.is_empty(),
+            "{name} declares `Evidence::Executed` but {empty:?} hold no goldens - either a \
+             venue stopped producing them, or the declaration is wrong. A count over all \
+             four would have passed this on the {} that remain",
+            Family::EXECUTION.len().saturating_sub(empty.len())
+        );
     }
 }

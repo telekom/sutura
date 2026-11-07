@@ -41,11 +41,10 @@
 //! puts the value into a request, and a check belongs where the risk is. See
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
-use core::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::{Delegated, PoolExchange, PoolScope, PrincipalName, Secret};
+use sutura_domain::identity::{PoolExchange, PoolScope, PrincipalName, Secret, SourceToken};
 
 use crate::transport::JobIdentity;
 
@@ -237,8 +236,9 @@ pub(super) struct Split {
     /// The job's database options: the first exchange's token, asked for [`PoolScope::Query`], so
     /// the job can still be cancelled.
     pub(super) options: DatabaseOptions,
-    /// The second exchange's token, asked for [`PoolScope::ReadOnly`]: the only one that leaves.
-    pub(super) forwarded: Delegated,
+    /// The second exchange's token, asked for [`PoolScope::ReadOnly`]: the only one that leaves,
+    /// with the fingerprint of the assertion it was exchanged from.
+    pub(super) forwarded: SourceToken,
     /// `ends`, or the forwarded token's expiry where that is earlier.
     pub(super) until: SystemTime,
 }
@@ -247,7 +247,8 @@ pub(super) struct Split {
 ///
 /// **Two tokens for one subject, both live until Google's own expiry.** The forwarded one is asked
 /// for [`PoolScope::ReadOnly`], which still runs read queries, and nothing here shortens its
-/// lifetime. `until` is computed for a grant to end by; no grant reads it yet.
+/// lifetime. `until` is what a grant ends by, and what bounds the planning node's own read of a
+/// one-stream split.
 ///
 /// # Errors
 ///
@@ -272,10 +273,8 @@ pub(super) fn split(
             .map_err(|cause| AdbcError::PoolExchange { cause })
     };
     let query = exchanged(PoolScope::Query)?;
-    let forwarded = exchanged(PoolScope::ReadOnly)?;
-    let until = UNIX_EPOCH
-        .checked_add(Duration::from_secs(forwarded.not_after_unix_seconds()))
-        .map_or(ends, |expires| expires.min(ends));
+    let forwarded = SourceToken::exchanged(assertion, pool, exchanged(PoolScope::ReadOnly)?);
+    let until = forwarded.not_after().min(ends);
     Ok(Split {
         options: access_token_options(&query.into_token()),
         forwarded,

@@ -3545,7 +3545,9 @@ name = "sutura-domain"
 version = "0.11.0"
 dependencies = [
  "arrow-array",
+ "arrow-ord",
  "arrow-schema",
+ "arrow-select",
  "secrecy",
  "serde",
  "serde_json",
@@ -3657,6 +3659,7 @@ dependencies = [
 name = "sutura-sql"
 version = "0.11.0"
 dependencies = [
+ "arrow-schema",
  "polyglot-sql",
  "serde",
  "serde_json",

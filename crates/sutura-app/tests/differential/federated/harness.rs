@@ -16,8 +16,8 @@ use sutura_domain::warehouse::agreement::{RealTolerance, agree_on_content, agree
 use sutura_semantic::{Compiled, compile};
 
 use crate::adapters::{
-    BrokerCannotFail, ClickHouse, ClickHouseLoader, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture,
-    shared_credential, source, version,
+    BrokerCannotFail, ClickHouse, DataSystemUnderTest, a_caller, clickhouse_on, deadline, posture, shared_credential, source,
+    version,
 };
 
 use super::corpus::{LOOKUP_SOURCE, derived, every_question, lookup_source};
@@ -225,7 +225,7 @@ impl OpensFederated for sutura_exec_cube::CubeWarehouse<sutura_exec_cube::http::
 
 impl OpensFederated for ClickHouse {
     fn open_federated_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
-        clickhouse_on(name, tables, ClickHouseLoader::load_federated_csv)
+        clickhouse_on(name, tables, Self::load_federated_csv)
     }
 }
 

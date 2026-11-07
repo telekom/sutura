@@ -1,13 +1,12 @@
-//! The `ClickHouse` ADBC transport.
+//! The `ClickHouse` ADBC transport, the only one this adapter has.
 //!
 //! The driver is the vendored, linked-or-mounted archive prepared by #1571. This module keeps the
-//! request identity and channel options on one per-call database, then hands the driver's Arrow
-//! stream straight to `Accumulating`. The older HTTP transport remains available only to the
-//! fixture and conformance targets while those loaders are migrated separately.
+//! request identity and channel options on one per-call connection, then hands the driver's Arrow
+//! stream straight to `Accumulating`.
 //!
 //! An `impersonation-at-source` caller presented as a principal is run through `EXECUTE AS` on the
-//! deployment's own sign-in, as the HTTP transport runs it; a caller presented with an exchanged
-//! token signs in with that token instead.
+//! deployment's own sign-in; a caller presented with an exchanged token signs in with that token
+//! instead.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,13 +14,15 @@ use std::time::Instant;
 use adbc_core::error::{Error as CoreError, Status};
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
 use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
-use adbc_driver_manager::ManagedDriver;
-use arrow_array::{Array as _, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
+use adbc_driver_manager::{ManagedConnection, ManagedDriver};
+use arrow_array::{Array, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
 use arrow_schema::{ArrowError, Field, Schema};
 
 use sutura_adbc::DriverLocation;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
 use sutura_domain::model::SourceName;
+#[cfg(feature = "fixtures")]
+use sutura_domain::model::TableName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
@@ -33,17 +34,13 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 use crate::deadline;
 use crate::execute_as::{ClickHouseUser, NotAClickHouseUser};
+use crate::settings;
+use crate::sum::{self, SlotScale, SumType};
 
 const QUERY_TIMEOUT: &str = "clickhouse.client.query_timeout";
 const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
 const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
-const JOIN_USE_NULLS: &str = "clickhouse.setting.join_use_nulls";
-const JSON_QUOTE_DENORMALS: &str = "clickhouse.setting.output_format_json_quote_denormals";
-const JSON_QUOTE_64BIT_INTEGERS: &str = "clickhouse.setting.output_format_json_quote_64bit_integers";
-const JSON_QUOTE_DECIMALS: &str = "clickhouse.setting.output_format_json_quote_decimals";
-const DECIMAL_TRAILING_ZEROS: &str = "clickhouse.setting.output_format_decimal_trailing_zeros";
-const TIMEOUT_OVERFLOW_MODE: &str = "clickhouse.setting.timeout_overflow_mode";
 const MAX_EXECUTION_TIME: &str = "clickhouse.setting.max_execution_time";
 const MOST_RESULT_ROWS: usize = 1_000_000;
 
@@ -93,7 +90,7 @@ pub enum DriverLocationError {
 
 /// Resolves the mounted driver used by source builds, or the archive carried by a release binary.
 pub fn driver_location() -> Result<DriverLocation, DriverLocationError> {
-    match std::env::var("SUTURA_CLICKHOUSE_ADBC_DRIVER") {
+    match std::env::var(crate::MOUNTED_DRIVER) {
         Ok(path) => DriverLocation::parse(&path).map_err(DriverLocationError::InvalidPath),
         Err(std::env::VarError::NotPresent) => DriverLocation::clickhouse_linked_in().ok_or(DriverLocationError::NoDriver),
         Err(std::env::VarError::NotUnicode(_)) => Err(DriverLocationError::NotUnicode),
@@ -128,6 +125,13 @@ impl DriverMessage {
     const fn timed_out(&self) -> bool {
         matches!(self.status, Status::Timeout) || matches!(self.server, Some(ServerCode::TIMEOUT_EXCEEDED))
     }
+
+    const fn refused_setting(&self) -> bool {
+        matches!(
+            self.server,
+            Some(ServerCode::READONLY | ServerCode::SETTING_CONSTRAINT_VIOLATION)
+        )
+    }
 }
 
 /// The exception code `ClickHouse` opens its error text with (`Code: 497. DB::Exception: ...`),
@@ -138,6 +142,8 @@ struct ServerCode(u32);
 
 impl ServerCode {
     const TIMEOUT_EXCEEDED: Self = Self(159);
+    const READONLY: Self = Self(164);
+    const SETTING_CONSTRAINT_VIOLATION: Self = Self(452);
     const ACCESS_DENIED: Self = Self(497);
     const AUTHENTICATION_FAILED: Self = Self(516);
 
@@ -161,6 +167,17 @@ pub enum AdbcError {
     Load(DriverMessage),
     #[error("ClickHouse ADBC call failed: {0}")]
     Driver(DriverMessage),
+    /// The profile of the user the statement runs as forbids a setting the answer needs: it is
+    /// `readonly`, or a constraint holds the setting away from sutura's value. Refused rather than
+    /// answered without the setting, and [`source_refused`](Warehouse::source_refused): the same
+    /// profile refuses the same statement again, so it is not an outage to retry.
+    #[error("ClickHouse refused a setting the answer needs: {0}")]
+    SettingRefused(DriverMessage),
+    /// The rendered statement carries a top-level `keyword`, or does not open with `SELECT` or
+    /// `WITH`, so its `SETTINGS` would not be its own and `EXECUTE AS` could lift it past the
+    /// switch. Refused before it is sent.
+    #[error("the rendered statement's settings would not be its own: {keyword}")]
+    SettingsNotOwn { keyword: &'static str },
     #[error("could not read a ClickHouse ADBC result batch: {0}")]
     Batch(#[source] ArrowError),
     #[error("the ClickHouse ADBC result stream was refused: {0}")]
@@ -169,6 +186,8 @@ pub enum AdbcError {
     Parameters(#[source] ArrowError),
     #[error("the ClickHouse ADBC result could not be read as domain values: {0}")]
     Decode(#[source] UnreadableCell),
+    #[error("column {column}'s decimal total has a digit past its column's scale of {scale}")]
+    DecimalTotalPastScale { column: String, scale: usize },
     #[error("the request deadline was already spent before the statement was sent")]
     DeadlineSpent,
     #[error("the plan could not be rendered for ClickHouse")]
@@ -177,8 +196,6 @@ pub enum AdbcError {
     NoPlaceForASubject,
     #[error("the principal is not a ClickHouse user this adapter can name")]
     NotAClickHouseUser(#[source] NotAClickHouseUser),
-    #[error("a federated leg would run through EXECUTE AS rather than the caller's own credential")]
-    LegUnderExecuteAs,
     #[error("the presented credential disagrees with the source posture")]
     PresentedDisagreesWithPosture(#[source] PresentedDisagreesWithPosture),
     #[error("the key probe did not return two counts")]
@@ -261,36 +278,20 @@ impl AdbcClickHouseWarehouse {
         .map_err(AdbcError::Render)
     }
 
-    fn run(
-        &self,
-        query: &GeneratedQuery,
-        deadline: Deadline,
-        most_rows: usize,
-        runs_as: &RunsAs<'_>,
-    ) -> Result<ResultBatches, AdbcError> {
-        if deadline::refuse_if_spent(deadline).is_err() {
-            return Err(AdbcError::DeadlineSpent);
-        }
+    /// One connection to `endpoint` signed in as `username`, carrying the request settings that
+    /// decide what the rows say and the declared channel's TLS material.
+    fn connect(&self, endpoint: &str, username: &str, password: &Secret) -> Result<ManagedConnection, AdbcError> {
         let mut driver = load_driver(&self.driver)?;
-        let (username, password) = match *runs_as {
-            RunsAs::Deployment | RunsAs::Switched(_) => (self.username.as_str(), &self.password),
-            RunsAs::SignedIn { ref user, token } => (user.as_str(), token),
-        };
         #[expect(
             clippy::disallowed_methods,
             reason = "the deployment password's destination is the ADBC driver's connection handshake, which is the one place the value itself is the payload"
         )]
         let mut options = vec![
-            (OptionDatabase::Uri, self.endpoint.clone().into()),
+            (OptionDatabase::Uri, endpoint.to_owned().into()),
             (OptionDatabase::Username, username.to_owned().into()),
             (OptionDatabase::Password, password.expose_secret().to_owned().into()),
-            (OptionDatabase::Other(JOIN_USE_NULLS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_DENORMALS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_64BIT_INTEGERS.to_owned()), "1".into()),
-            (OptionDatabase::Other(JSON_QUOTE_DECIMALS.to_owned()), "1".into()),
-            (OptionDatabase::Other(DECIMAL_TRAILING_ZEROS.to_owned()), "1".into()),
-            (OptionDatabase::Other(TIMEOUT_OVERFLOW_MODE.to_owned()), "throw".into()),
         ];
+        options.extend(settings::driver_options().map(|(key, value)| (OptionDatabase::Other(key), value.into())));
         if let Some(tls) = &self.tls {
             if let Some(value) = &tls.root_certs {
                 options.push((OptionDatabase::Other(TLS_ROOT_CERTS.to_owned()), value.clone().into()));
@@ -302,12 +303,141 @@ impl AdbcClickHouseWarehouse {
                 options.push((OptionDatabase::Other(MTLS_PRIVATE_KEY.to_owned()), value.clone().into()));
             }
         }
-        let database = driver
+        driver
             .new_database_with_opts(options)
-            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let mut connection = database
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?
             .new_connection()
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))
+    }
+
+    /// Opens the adapter on the tier at `host:port`, as the tier's one declared user and resolving
+    /// every unqualified table name in `database`.
+    ///
+    /// The database is created here if absent, so several opens can share one server without
+    /// clobbering each other's tables. `sutura_exec_postgres::fixture::FixtureCredential::conninfo_in`'s
+    /// shape, over a database because that is `ClickHouse`'s namespace for a table. The driver is
+    /// the one a served source reads, named by [`driver_location`].
+    ///
+    /// # Errors
+    ///
+    /// A `database` that is not a word, no driver to reach the tier, and the server refusing the
+    /// statement that creates the database.
+    #[cfg(feature = "fixtures")]
+    pub fn connect_in_database(
+        source: SourceName,
+        posture: SourcePosture,
+        host: &str,
+        port: u16,
+        credential: &crate::fixture::FixtureCredential,
+        database: &str,
+        result_budget: ResultBudget,
+    ) -> Result<Self, crate::fixture::FixtureError> {
+        crate::fixture::connect_in_database(source, posture, host, port, credential, database, result_budget)
+    }
+
+    /// Exposes a fixture CSV as a table.
+    ///
+    /// Columns are typed by `sutura_domain::warehouse::csv::infer` (see [`crate::fixture`] for the
+    /// one deliberate departure), and the rows go to the server as one bulk-ingested batch of those
+    /// types.
+    ///
+    /// The rows go into a staging table of this load's own, which then replaces `table` in one
+    /// `CREATE OR REPLACE ... AS SELECT`: a reader of `table` sees its previous rows or the new
+    /// ones, never an empty table, and a load refused before the swap leaves `table` as it was.
+    ///
+    /// # Errors
+    ///
+    /// An unreadable or unclassifiable file, an empty cell (which a non-`Nullable` column would read
+    /// as its type's default), a blank line, and the server refusing a statement.
+    #[cfg(feature = "fixtures")]
+    pub fn load_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_csv(self, table, path)
+    }
+
+    /// [`Self::load_csv`], except a column holding an empty cell is `Nullable`, so the cell is NULL.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::load_csv`]'s, bar the empty cell.
+    #[cfg(feature = "fixtures")]
+    pub fn load_federated_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_federated_csv(self, table, path)
+    }
+
+    /// The conformance corpus keeps exact Decimal columns and its empty cells as NULL.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::load_csv`]'s, bar the empty cell.
+    #[cfg(feature = "fixtures")]
+    pub fn load_conformance_csv(&self, table: &TableName, path: &std::path::Path) -> Result<(), crate::fixture::FixtureError> {
+        crate::fixture::load_conformance_csv(self, table, path)
+    }
+
+    /// `query` run as the deployment and answered as rows, for a fixture cell whose statement the
+    /// port has no [`Executable`] for.
+    ///
+    /// # Errors
+    ///
+    /// The server's refusal, or an answer this adapter cannot read.
+    #[cfg(feature = "fixtures")]
+    pub fn rows_of(&self, query: &GeneratedQuery, deadline: Deadline) -> Result<sutura_domain::warehouse::RowSet, AdbcError> {
+        self.run(query, deadline, MOST_RESULT_ROWS, &RunsAs::Deployment)?
+            .to_rows()
+            .map_err(AdbcError::Decode)
+    }
+
+    /// Runs `sql`, which answers no rows, against this source's own endpoint.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn command(&self, sql: &str) -> Result<(), AdbcError> {
+        self.command_at(&self.endpoint, sql)
+    }
+
+    /// Runs `sql`, which answers no rows, against `endpoint` - one that names no database, for the
+    /// statement that creates this source's.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn command_at(&self, endpoint: &str, sql: &str) -> Result<(), AdbcError> {
+        let mut connection = self.connect(endpoint, &self.username, &self.password)?;
+        let mut statement = connection
+            .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .set_sql_query(sql)
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        update(&mut statement)
+    }
+
+    /// Appends `batch` to `table`, which already exists, through the driver's bulk ingest.
+    #[cfg(feature = "fixtures")]
+    pub(crate) fn ingest(&self, table: &str, batch: RecordBatch) -> Result<(), AdbcError> {
+        let mut connection = self.connect(&self.endpoint, &self.username, &self.password)?;
+        let mut statement = connection
+            .new_statement()
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .set_option(OptionStatement::TargetTable, table.into())
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        statement
+            .bind(batch)
+            .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+        update(&mut statement)
+    }
+
+    fn run(
+        &self,
+        query: &GeneratedQuery,
+        deadline: Deadline,
+        most_rows: usize,
+        runs_as: &RunsAs<'_>,
+    ) -> Result<ResultBatches, AdbcError> {
+        if deadline::refuse_if_spent(deadline).is_err() {
+            return Err(AdbcError::DeadlineSpent);
+        }
+        let (username, password) = match *runs_as {
+            RunsAs::Deployment | RunsAs::Switched(_) => (self.username.as_str(), &self.password),
+            RunsAs::SignedIn { ref user, token } => (user.as_str(), token),
+        };
+        let mut connection = self.connect(&self.endpoint, username, password)?;
         let mut statement = connection
             .new_statement()
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
@@ -321,7 +451,8 @@ impl AdbcClickHouseWarehouse {
                 seconds.to_string().into(),
             )
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
-        let sql = rewrite_placeholders(query.sql(), query.params())?;
+        let sql = settings::with_clause(&rewrite_placeholders(query.sql(), query.params())?, seconds)
+            .map_err(|settings::Lifted(keyword)| AdbcError::SettingsNotOwn { keyword })?;
         let sql = match *runs_as {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
             RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,
@@ -337,6 +468,11 @@ impl AdbcClickHouseWarehouse {
         execute_to_completion(&mut statement, most_rows, self.result_budget)
     }
 }
+
+#[cfg(test)]
+mod sum_slot;
+#[cfg(test)]
+mod tests;
 
 /// Who a statement runs as. `Switched` signs in as the deployment and sends the one statement as
 /// [`ClickHouseUser::execute_as`] - the per-statement form, so the switch ends with the statement.
@@ -386,13 +522,35 @@ fn rewrite_placeholders(statement: &str, params: &[sutura_domain::warehouse::Par
     Ok(out)
 }
 
+/// Runs the statement for its effect. The fixture loader's only call of the method the workspace
+/// bans for PostgreSQL's simple protocol, kept on the one statement it names.
+#[cfg(feature = "fixtures")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the text is a fixture load's DDL or a bulk ingest, built from a parsed table name, a validated database word and the loader's own staging name - never caller text - and the ClickHouse driver sends one statement per request"
+)]
+fn update<S>(statement: &mut S) -> Result<(), AdbcError>
+where
+    S: adbc_core::Statement,
+{
+    statement
+        .execute_update()
+        .map(|_rows| ())
+        .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))
+}
+
 fn execute_to_completion<S>(statement: &mut S, most_rows: usize, budget: ResultBudget) -> Result<ResultBatches, AdbcError>
 where
     S: adbc_core::Statement,
 {
-    let reader = statement
-        .execute()
-        .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
+    let reader = statement.execute().map_err(|error| {
+        let message = DriverMessage::of(&error);
+        if message.refused_setting() {
+            AdbcError::SettingRefused(message)
+        } else {
+            AdbcError::Driver(message)
+        }
+    })?;
     let schema = reader.schema();
     let mut accumulating = None;
     for batch in reader {
@@ -413,7 +571,8 @@ where
 
 /// The `ClickHouse` sum expression is a tuple carrying a type name and three nullable slots. The
 /// ADBC driver reports that tuple faithfully as an Arrow `Struct`; the domain reader accepts the
-/// scalar total, so select the slot named by the type before the batch enters `Accumulating`.
+/// scalar total, so select the slot named by the type before the batch enters `Accumulating`, and
+/// read a decimal slot at the column's own scale.
 fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
     let schema = batch.schema();
     let mut fields = Vec::with_capacity(schema.fields().len());
@@ -435,7 +594,7 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
         if type_names.is_null(0) {
             return Err(unsupported_struct(field));
         }
-        let Some(sum_type) = crate::sum::SumType::parse(type_names.value(0)) else {
+        let Some(sum_type) = SumType::parse(type_names.value(0)) else {
             return Err(unsupported_struct(field));
         };
         for row in 1..type_names.len() {
@@ -443,8 +602,31 @@ fn normalize_batch(batch: &RecordBatch) -> Result<RecordBatch, AdbcError> {
                 return Err(unsupported_struct(field));
             }
         }
-        let selected = Arc::clone(struct_array.column(sum_type.slot()));
-        fields.push(Arc::new(field.as_ref().clone().with_data_type(selected.data_type().clone())));
+        let slot = struct_array.column(sum_type.slot());
+        // A `tuple()` is never `Nullable`, so the server declares the column non-nullable and only
+        // its slots nullable: the total takes its slot's nullability, or a NULL total is refused.
+        let nullable = field.is_nullable()
+            || struct_array
+                .fields()
+                .get(sum_type.slot())
+                .is_some_and(|slot| slot.is_nullable());
+        let selected: Arc<dyn Array> = match sum_type {
+            SumType::Decimal { scale } => Arc::new(sum::at_scale(slot, scale).map_err(|refused| match refused {
+                SlotScale::NotADecimalSlot => unsupported_struct(field),
+                SlotScale::PastScale => AdbcError::DecimalTotalPastScale {
+                    column: field.name().to_owned(),
+                    scale,
+                },
+            })?),
+            SumType::Integer | SumType::Float => Arc::clone(slot),
+        };
+        fields.push(Arc::new(
+            field
+                .as_ref()
+                .clone()
+                .with_data_type(selected.data_type().clone())
+                .with_nullable(nullable),
+        ));
         columns.push(selected);
     }
     let schema = Arc::new(Schema::new(fields));
@@ -479,9 +661,6 @@ impl Warehouse for AdbcClickHouseWarehouse {
         deadline: Deadline,
     ) -> Result<ResultBatches, Self::Error> {
         let runs_as = self.deliverable(presented)?;
-        if matches!((&executable, &runs_as), (Executable::Leg(_), RunsAs::Switched(_))) {
-            return Err(AdbcError::LegUnderExecuteAs);
-        }
         let most_rows = executable.row_limit().unwrap_or(MOST_RESULT_ROWS);
         self.run(&Self::render(executable)?, deadline, most_rows, &runs_as)
     }
@@ -505,6 +684,7 @@ impl Warehouse for AdbcClickHouseWarehouse {
 
     fn source_refused(&self, error: &Self::Error) -> bool {
         matches!(error, AdbcError::Driver(message) | AdbcError::Load(message) if message.refused_identity())
+            || matches!(error, AdbcError::SettingRefused(_))
     }
 
     fn deadline_exceeded(&self, error: &Self::Error) -> bool {

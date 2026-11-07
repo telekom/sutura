@@ -58,7 +58,7 @@
 //! | two legs whose link columns can never match | ditto, and it no longer depends on which cell happened to be first |
 //! | a non-numeric leaf | ditto |
 //! | a link pair its relationship declares a cast for | `cast`: the link column cast with `safe: false`, so a value that does not cast refuses the answer |
-//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one |
+//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one; a granted leg's count is inside the join's own plan |
 //! | a non-finite measure | one pass over the answer's measure column, and only when it is a float |
 //! | a leaf column mixing integer and real cells | **not representable**: an Arrow column has one type |
 //! | a leaf total past `i64::MAX` | **answered exactly** instead of refused - see `leaf_sum` below |
@@ -103,8 +103,8 @@ mod served;
 mod statement;
 #[cfg(feature = "distributed")]
 pub use across::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, TaskGrant, Unread, WorkerRefusal,
-    read_later, refuse_ambiguous_split,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, TaskGrant, TokenUnread, Unread,
+    WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 pub use provider::SourceProvider;
 
@@ -325,6 +325,10 @@ pub enum CombineError {
     /// was asked to read. Carries nothing, for [`CombineError::RowsOverCeiling`]'s reason.
     #[error("a node the combine was planned across did not certify a leg it was asked to read")]
     LegNotCertified,
+    /// A reading worker read a granted partition past its per-stream bound. Carries nothing, for
+    /// [`CombineError::RowsOverCeiling`]'s reason.
+    #[error("a node the combine was planned across read a granted partition that did not fit its bound")]
+    PartitionDidNotFit,
     /// A lookup leg of `source` was granted to the nodes that read it, and no node this combine can
     /// reach does: it is read on none, never on this node.
     #[error("no node the combine can reach reads `{source_name}`, so its granted leg is read on none")]
@@ -659,9 +663,14 @@ async fn arm_plan(
 
     // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
     // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
-    // table over all its partitions, so a tuple repeated across two of them is refused too - a
-    // granted one counted on the nodes reading its source, each partition read again by the join.
+    // table over all its partitions, so a tuple repeated across two of them is refused too. A
+    // granted leg is counted inside the plan that joins it instead (`served::joined`), so each of
+    // its partitions is read once.
+    let in_plan = served::counted_in_plan(&lookups.iter().map(|&(_, _, read, _)| read).collect::<Vec<_>>());
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
+        if in_plan.get(position) == Some(&true) {
+            continue;
+        }
         let own = plan.link_labels(position);
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
         refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
@@ -678,7 +687,7 @@ async fn arm_plan(
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &links, &leaves, second_table).await
+    combine_plan(plan, context, &links, &leaves, second_table, &in_plan).await
 }
 
 /// Whether `sources` name more than one data system.
@@ -765,6 +774,10 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::LegNotCertified)
     }
 
+    fn partition_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::PartitionDidNotFit)
+    }
+
     fn no_reading_node<'e>(&self, error: &'e Self::Error) -> Option<&'e SourceName> {
         match error {
             CombineError::NoReadingNode { source_name } => Some(source_name),
@@ -791,10 +804,9 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
             CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
-            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
-            // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost`, `RowsOverCeiling`,
-            // `LegNotCertified` and `NoReadingNode`, which the predicate of each one's own name answers.
+            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is deliberately
+            // here: `working_set_exhausted` answers it, and `sutura_app` asks that first. So is every
+            // variant below that a predicate of its own name answers, from `WorkersNotReady` on.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -813,6 +825,7 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::NodeLost { .. }
             | CombineError::RowsOverCeiling
             | CombineError::LegNotCertified
+            | CombineError::PartitionDidNotFit
             | CombineError::NoReadingNode { .. } => None,
         }
     }
@@ -901,7 +914,8 @@ fn register_parts(
 /// **The cost, stated where it is paid:** each checked leg is scanned twice, once here and once in the
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
-/// separable from the number.
+/// separable from the number. A granted leg, whose scan reads its source, is the exception:
+/// `served::joined` fails the join's own plan instead, under a code read back as the refusal.
 async fn refuse_ambiguous_link(
     context: &SessionContext,
     table: &str,

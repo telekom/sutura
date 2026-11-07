@@ -47,15 +47,15 @@ rustls = { workspace = true }
 rustix = { workspace = true, features = ["net"] }
 
 [features]
-# THE FIXTURE-TIER CREDENTIAL AND THE CONNECTION CONFIG OVER IT - `sutura-exec-postgres`'s own
-# `fixtures` feature, one size smaller: this adapter has no TLS or CSV-import module to gate
-# alongside it, only a credential reader and `OracleWarehouse::local_config`. Default-off for the
-# same reason - nothing a release publishes links this crate at all (see the workspace manifest's
-# member-list comment), so the feature is about keeping a `pub fn` that reads `std::env::var` out
-# of the DEFAULT cargo feature set `nix/shipped.nix` builds, not about an artefact that does not
-# exist. Both callers are integration tests - `crates/sutura-app/tests/adapters/adapters.rs` is the
-# only one today.
-fixtures = []
+# THE FIXTURE-TIER CREDENTIAL, A PRIVATE USER PER OPEN, AND THE CSV IMPORTER OVER THEM -
+# `sutura-exec-clickhouse`'s own `fixtures` feature, with no TLS module beside it. Default-off for
+# the same reason - nothing a release publishes links this crate at all (see the workspace
+# manifest's member-list comment), so the feature is about keeping a `pub fn` that reads
+# `std::env::var` out of the DEFAULT cargo feature set `nix/shipped.nix` builds, not about an
+# artefact that does not exist. `sutura-domain/fixtures` is the shared CSV classification the
+# importer types its columns from. Both callers are integration tests -
+# `crates/sutura-app/tests/adapters/adapters.rs` and this crate's own `tests/importer.rs`.
+fixtures = ["sutura-domain/fixtures"]
 
 [lints]
 workspace = true
