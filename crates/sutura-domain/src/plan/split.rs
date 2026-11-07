@@ -22,13 +22,14 @@
 //! - [`PartitionReader`] reads one partition after another on the thread that asked for them.
 //!   [`Granted`] hands the partitions to the nodes that read the leg's source instead, made by
 //!   [`Grantee::grant`] for the asking caller; only a `sutura serve` deployment's
-//!   PostgreSQL source makes one, and only of two or more partitions (`github.com/telekom/sutura#828`).
+//!   PostgreSQL source or `BigQuery` pool source makes one, and only of two or more partitions
+//!   (`github.com/telekom/sutura#828`).
 //! - A grant read with the caller's own token ([`ReadAs::CallerToken`]) takes only a token whose
 //!   [`SourceToken::exchanged_from`] is the fingerprint of the subject token the request presented
 //!   for the leg's source, and ends no later than the token. Only [`Grantee::grant`] adds a token
 //!   to a grant - [`Granted::new`] is public and takes any caller, but reads as
-//!   [`ReadAs::ServiceUser`]. That fingerprint is what the exchanging adapter states, and no source
-//!   makes such a grant yet.
+//!   [`ReadAs::ServiceUser`]. That fingerprint is what the exchanging adapter states; the `BigQuery`
+//!   adapter states it where it exchanges.
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -203,7 +204,7 @@ pub enum ReadAs {
 /// because the combine's scoped join moves the borrowed legs across threads.
 ///
 /// **The limit:** only [`Grantee::grant`] builds one in production, for a `sutura serve` deployment's
-/// PostgreSQL source (`github.com/telekom/sutura#828`).
+/// PostgreSQL source or `BigQuery` pool source (`github.com/telekom/sutura#828`).
 pub struct Granted<'r> {
     wire: Vec<u8>,
     schema: SchemaRef,

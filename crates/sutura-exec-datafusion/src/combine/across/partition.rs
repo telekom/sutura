@@ -4,7 +4,7 @@
 //!
 //! A [`SplitScan`](crate::SplitScan) plans one `PartitionScanExec` per partition, placed on a node
 //! reading its source; a served question builds one only for a granted lookup leg, which only a
-//! `sutura serve` deployment's PostgreSQL source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
+//! `sutura serve` deployment's PostgreSQL source or `BigQuery` pool source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
 //! construction, parallel to [`Nodes::worker`](crate::Nodes::worker); `crates/sutura-cli` builds one
 //! for its reading role.
 //!
@@ -19,8 +19,10 @@
 //!   admit rule, not the codec, decides what a missing grant means
 //!   ([`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming), widened for exactly this case).
 //! - A leaf carrying a token, or a grant naming one, is admitted only when the grant names exactly
-//!   the token and pool the leaf carries. The token leaves the leaf when its read starts, and a
-//!   second read of that leaf is refused. The wire bytes it was decoded from are not wiped.
+//!   the token and pool the leaf carries, which then carries the admitted grant's end to its
+//!   reader ([`Forwarded::ends`](partition::Forwarded::ends)). The token leaves the leaf when its
+//!   read starts, and a second read of that leaf is refused. The wire bytes it was decoded from are
+//!   not wiped.
 
 use core::fmt;
 use core::future::Future;
@@ -108,9 +110,9 @@ impl Forwarded {
         }
     }
 
-    /// When the grant this worker admitted the token under ends, on this worker's clock. The
-    /// epoch, already ended, for a token no admission named - every token, until admission records
-    /// its grant's end.
+    /// When the grant this worker admitted the token under ends, on this worker's clock - no later
+    /// than the token itself, as the planning node clamps a grant to its token. The epoch, already
+    /// ended, for a token no admission named.
     #[must_use]
     pub const fn ends(&self) -> SystemTime {
         self.ends
@@ -569,7 +571,7 @@ pub(super) fn reads_partition_or_nothing(
     let mut refusal: Option<DataFusionError> = None;
     event.plan.apply(|node| {
         if let Some(leaf) = node.downcast_ref::<PartitionScanExec>() {
-            let carried = leaf.carried.lock();
+            let mut carried = leaf.carried.lock();
             let forwarded = match &*carried {
                 Carried::Token(forwarded) => Some(forwarded),
                 Carried::Nothing | Carried::Taken => None,
@@ -586,10 +588,18 @@ pub(super) fn reads_partition_or_nothing(
                 },
                 now,
             );
-            drop(carried);
-            if let Err(cause) = verified {
-                refusal = Some(DataFusionError::External(Box::new(cause)));
-                return Ok(TreeNodeRecursion::Stop);
+            match verified {
+                Ok(ends) => {
+                    if let Carried::Token(ref mut forwarded) = *carried {
+                        forwarded.ends = SystemTime::UNIX_EPOCH.checked_add(ends).unwrap_or(SystemTime::UNIX_EPOCH);
+                    }
+                    drop(carried);
+                }
+                Err(cause) => {
+                    drop(carried);
+                    refusal = Some(DataFusionError::External(Box::new(cause)));
+                    return Ok(TreeNodeRecursion::Stop);
+                }
             }
         } else if node.children().is_empty() && !carried(node) {
             refusal = Some(DataFusionError::External(Box::new(StageReadsASource {
