@@ -294,7 +294,8 @@
         # the first published scale that splits both tables, and `apps.tpch-across-nodes` is it.
         #
         # AN APP AND NOT A CHECK, for two reasons that are both gates. `just ci` builds every check
-        # and this is the better part of an hour. And `check-workflows` refuses a literal `nix
+        # and this adds a VM test of about 13 minutes at SF10 (runs 42342552818 and 42343995219 of
+        # `.github/workflows/tpch-across-nodes.yml`). And `check-workflows` refuses a literal `nix
         # build` of anything but a check in a pull-request workflow, which this one is. The app
         # holds the test as a dependency, so it is built before the script runs and a failed
         # test leaves nothing to copy. A stub on any other system, for `multi-node`'s reason.

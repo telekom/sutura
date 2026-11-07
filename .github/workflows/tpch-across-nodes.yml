@@ -4,10 +4,11 @@
 # DuckDB (`nix/tpch-data.nix`): a serving node that holds the DuckDB star, two reading workers and
 # PostgreSQL. The same questions are asked of a single node that holds the whole star (REF), of the
 # federated catalog on one node (ONE) and of the serving node with its two readers (MANY).
-# `nix/tpch/acceptance.json` lists the questions that MANY must answer, equal to REF, and ONE must
-# refuse `result_too_large`. PostgreSQL's statement log shows the readers, and not the serving node,
-# read each split leg's `ctid` ranges. That file, `nix/tpch-across-nodes.nix` and
-# `nix/tpch-across-nodes.py` say what this observes and what it does not.
+# `nix/tpch/acceptance.json` lists the questions that MANY must answer, equal to REF. ONE must
+# answer equal to REF or refuse `result_too_large`, and any other refusal fails. PostgreSQL's
+# statement log shows the readers, and not the serving node, read each split leg's `ctid` ranges.
+# That file, `nix/tpch-across-nodes.nix` and `nix/tpch-across-nodes.py` say what this observes and
+# what it does not.
 #
 # ON CHANGE, AND ON DISPATCH, AND NOT ON A SCHEDULE. A pull request runs it only when it touches
 # what reads a split leg across nodes - the PostgreSQL split, the combine across nodes, the serving
@@ -17,15 +18,16 @@
 # job that has not asked for it.
 #
 # IT GATES NOTHING. `devco/required-contexts` classifies the job `[advisory]`. The timeout is 90
-# minutes and the time of a run is unmeasured: every run builds DuckDB with `tpch` linked in and the
-# data, which no store this repository publishes holds. A red run says an answer differs, a refusal
-# is not the one listed, or a split leg was not read across nodes - read the log in the artifact. A
-# pull request from a fork or from Dependabot is skipped: the runner group is the repository's own.
+# minutes. Runs 42342552818 and 42343995219 took about 13 minutes each; every run builds DuckDB with
+# `tpch` linked in and the data, which no store this repository publishes holds. A run with a cold
+# dependency closure is not measured. A red run says an answer differs, a refusal is not the one
+# listed, or a split leg was not read across nodes - read the log in the artifact. A pull request
+# from a fork or from Dependabot is skipped: the runner group is the repository's own.
 #
 # THE RUNNER is `rust-mcp-16core`, which the other NixOS VM tests run on and which this job asks for
 # `/dev/kvm` as they do. The VMs take 16 + 4 + 4 + 4 GiB of its memory and the star about 6 GiB of
-# its disk on top of the nix store; `reclaim-disk` guards the disk. Unmeasured until the first run:
-# the wall time and the peak of either.
+# its disk on top of the nix store; `reclaim-disk` guards the disk. The wall time is measured above;
+# the peak of the memory and of the disk is not.
 #
 # WHAT A FAILED RUN KEEPS. The test fails when any rule fails, so the build leaves no output; the
 # artifact then holds the log, which prints the table and every result. A passing run keeps
