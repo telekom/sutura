@@ -50,6 +50,8 @@ use sutura_sql::{KeyBucket, Scn, generate_leg_as_of, generate_table_as_of};
 
 use crate::{OracleError, OracleWarehouse, Session};
 
+#[expect(dead_code, reason = "the API of the describe; the next change reads it")]
+mod columns;
 mod descriptor;
 
 pub use descriptor::{InvalidDescriptor, PartitionDescriptor};
@@ -208,6 +210,21 @@ pub(super) fn split_by_estimate(
             }))
         }
     }
+}
+
+/// [`OracleWarehouse::describe_split`]. Not built yet: no split describes one schema.
+#[expect(
+    clippy::unnecessary_wraps,
+    clippy::missing_const_for_fn,
+    reason = "the API of the describe; the next change reads the database and can fail"
+)]
+pub(super) fn describe(
+    _warehouse: &OracleWarehouse,
+    _leg: &LegPlan,
+    _split: &SplitLeg,
+    _deadline: Deadline,
+) -> Result<Option<arrow_schema::SchemaRef>, OracleError> {
+    Ok(None)
 }
 
 /// [`OracleWarehouse::read_partition`].
