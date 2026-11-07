@@ -46,7 +46,7 @@ use futures_util::{StreamExt as _, stream};
 use parking_lot::Mutex;
 use prost::Message as _;
 use ring::digest;
-use sutura_domain::identity::{Secret, WorkloadPool};
+use sutura_domain::identity::{PrincipalName, Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::ResultBatches;
 
@@ -90,6 +90,90 @@ pub trait PartitionReader: Send + Sync {
         Err(Unread::Failed(DataFusionError::Execution(format!(
             "this reading worker reads no partition of `{source}` with a caller's token"
         ))))
+    }
+
+    /// [`Self::read`], as `switched`, the caller's own principal the partition's grant names.
+    ///
+    /// # Errors
+    ///
+    /// By default every such read, as [`Unread::Failed`]: a reader whose sources switch to no
+    /// caller's principal is never handed one to read as.
+    fn read_switched(
+        &self,
+        _wire: &[u8],
+        source: &SourceName,
+        _partition: &[u8],
+        _schema: &SchemaRef,
+        switched: SwitchedPrincipal,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        drop(switched);
+        Err(Unread::Failed(DataFusionError::Execution(format!(
+            "this reading worker reads no partition of `{source}` as a caller's principal"
+        ))))
+    }
+}
+
+/// The caller's own principal a granted partition is read as, which the reading node's source
+/// switches to. Its `Debug` prints no name.
+pub struct SwitchedPrincipal {
+    name: PrincipalName,
+}
+
+impl SwitchedPrincipal {
+    /// `name`, the caller's own principal at the source.
+    #[must_use]
+    pub const fn new(name: PrincipalName) -> Self {
+        Self { name }
+    }
+
+    /// The principal the read switches to.
+    #[must_use]
+    pub const fn name(&self) -> &PrincipalName {
+        &self.name
+    }
+
+    /// A copy for one more task's plan.
+    pub(super) fn copied(&self) -> Self {
+        Self { name: self.name.clone() }
+    }
+}
+
+impl fmt::Debug for SwitchedPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SwitchedPrincipal").finish_non_exhaustive()
+    }
+}
+
+/// How every partition of a granted leg is read: as the reading node's own identity for the source,
+/// with the caller's forwarded token, or as the caller's switched principal - never two of them.
+pub(super) enum GrantReads {
+    ServiceUser,
+    Token(Forwarded),
+    Principal(SwitchedPrincipal),
+}
+
+impl GrantReads {
+    /// `scan`, read as this says, each task's scan holding its own copy.
+    pub(super) fn scanned(&self, scan: PartitionScanExec) -> PartitionScanExec {
+        match self {
+            Self::ServiceUser => scan,
+            Self::Token(forwarded) => scan.forwarding(forwarded.copied()),
+            Self::Principal(switched) => scan.switching(switched.copied()),
+        }
+    }
+
+    const fn shown(&self) -> &'static str {
+        match self {
+            Self::ServiceUser => "service-user",
+            Self::Token(_) => "token",
+            Self::Principal(_) => "principal",
+        }
+    }
+}
+
+impl fmt::Debug for GrantReads {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.shown())
     }
 }
 
@@ -334,6 +418,14 @@ impl PartitionScanExec {
     /// This scan, read with `forwarded`.
     pub(super) fn forwarding(self, forwarded: Forwarded) -> Self {
         *self.carried.lock() = Carried::Token(forwarded);
+        self
+    }
+
+    /// This scan, read as `switched`.
+    ///
+    /// **Not built yet:** `switched` is dropped, and the scan reads as it did.
+    pub(super) fn switching(self, switched: SwitchedPrincipal) -> Self {
+        drop(switched);
         self
     }
 
