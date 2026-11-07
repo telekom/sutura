@@ -3,17 +3,53 @@
 //!
 //! **Split out of the parent for the reason the parent's module declaration states** - the 1000-line
 //! cap is unexemptable under `crates/`, and a fourth kind's key reading does not fit beside the
-//! other three. What lives here is exactly this kind's half of
-//! `super::parse_placement`; the shared helpers - the foreign-key refusal,
+//! other three. What lives here is this kind's half of `super::parse_placement`, and the
+//! hash-bucket acknowledgement only this kind accepts; the shared helpers - the foreign-key refusal,
 //! the required-key read, the absolute-path read and the remote-plaintext rule - stay in the parent
 //! and are reached through `super::`, so there is one copy of each and this file cannot narrow one.
 
 use std::path::PathBuf;
 
-use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
+use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind, SourceRegistry};
 use crate::sources::placement::{HostName, InvalidDelegation, SourcePlacement};
 use crate::sources::workload_identity::DelegationDeclared;
 use sutura_domain::model::SourceName;
+use sutura_domain::source::{AcknowledgementReason, HashBucketsDeclared};
+
+/// The key a hash-bucket reason is written under, named once so a refusal and the documentation
+/// cannot disagree about it.
+const HASH_BUCKETS_KEY: &str = "sources.<alias>.hash_buckets_acknowledged_because";
+
+/// Records the `hash_buckets_acknowledged_because` written on the entry `written`, after the entry
+/// itself parsed - the body of [`SourceRegistry::acknowledge_hash_buckets`].
+///
+/// **Recorded, and read by nothing that splits yet** - a lookup leg of this source is still read
+/// whole.
+pub(super) fn acknowledge_hash_buckets(
+    registry: &mut SourceRegistry,
+    written: &str,
+    value: &str,
+) -> Result<(), InvalidSourceRegistry> {
+    let alias = SourceName::parse(written).map_err(|cause| InvalidSourceRegistry::Alias {
+        written: String::from(written),
+        cause,
+    })?;
+    let Some(source) = registry.by_alias.get_mut(&alias) else {
+        return Ok(());
+    };
+    let kind = source.kind();
+    if kind != SourceKind::ClickHouse {
+        return Err(InvalidSourceRegistry::KeyNotForKind {
+            alias,
+            kind,
+            key: "hash_buckets_acknowledged_because",
+        });
+    }
+    let reason = AcknowledgementReason::written_under(HASH_BUCKETS_KEY, value)
+        .map_err(|cause| InvalidSourceRegistry::Text { alias, cause })?;
+    source.hash_buckets = Some(HashBucketsDeclared::of(reason));
+    Ok(())
+}
 
 /// Reads a `kind: clickhouse` entry into its placement.
 ///
