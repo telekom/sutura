@@ -27,6 +27,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  "crates/sutura-catalog-openapi",
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
