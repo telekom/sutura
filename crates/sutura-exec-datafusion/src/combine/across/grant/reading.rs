@@ -37,7 +37,7 @@ use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 
 use super::super::WorkerRefusal;
-use super::super::partition::Forwarded;
+use super::super::partition::{Forwarded, SwitchedPrincipal};
 
 /// Domain tag, the first field fed into every [`ReadingGrant::signed`] message - so a signature
 /// taken here can never collide with one taken over the same bytes by another signed message in
@@ -232,6 +232,13 @@ impl ReadingGrant {
     /// This grant, naming `forwarded`, the caller's token its partition is read with.
     pub(super) fn forwarding(mut self, forwarded: &Forwarded) -> Self {
         self.forwarded = Some(Names::of(forwarded));
+        self
+    }
+
+    /// This grant, naming `switched`, the caller's principal its partition is read as.
+    ///
+    /// **Not built yet:** the grant names no principal.
+    pub(super) const fn switching(self, _switched: &SwitchedPrincipal) -> Self {
         self
     }
 

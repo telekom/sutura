@@ -38,7 +38,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow_schema::SchemaRef;
 
-use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, SourceToken, SubjectKey};
+use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, PrincipalName, SourceToken, SubjectKey};
 use crate::nonempty::NonEmpty;
 use crate::plan::leg::LegPlan;
 use crate::plan::remote::{NotSendable, PartitionLeg};
@@ -192,6 +192,10 @@ pub enum ReadAs {
     ServiceUser,
     /// With a token of the caller's own principal, forwarded to the reading node.
     CallerToken(Box<SourceToken>),
+    /// As the caller's own principal, which the reading node's source switches to for the read.
+    ///
+    /// **Not built yet:** no grant reads as one.
+    CallerPrincipal(PrincipalName),
 }
 
 /// A lookup leg its source split and granted to the nodes that read it, rather than read here.
@@ -367,6 +371,11 @@ pub enum NotGranted {
 #[error("a grant forwards only a token exchanged from its own caller's credential")]
 pub struct NotTheCallersToken;
 
+/// Why [`Grantee::switching`] refused a principal: it is not the grantee's own caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a grant switches only to its own caller's principal")]
+pub struct NotTheCallersPrincipal;
+
 impl Grantee {
     /// `leg`, encoded as its readers re-certify it, granted for the caller `asked` names, until the
     /// earlier of `question_ends` and `asked`'s own expiry.
@@ -414,6 +423,24 @@ impl Grantee {
             return Err(NotTheCallersToken);
         }
         self.token = Some(token);
+        Ok(self)
+    }
+
+    /// This grantee, its partitions read as `principal` ([`ReadAs::CallerPrincipal`]), when
+    /// `principal` is the grantee's own caller's.
+    ///
+    /// **Not built yet:** `principal` is dropped and never refused, and the grant reads as it did.
+    ///
+    /// # Errors
+    ///
+    /// None yet; [`NotTheCallersPrincipal`] is the refusal a principal that is not the caller's will
+    /// get.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the tie to the caller's own principal is what refuses, and it lands with the grant change"
+    )]
+    pub fn switching(self, principal: PrincipalName) -> Result<Self, NotTheCallersPrincipal> {
+        drop(principal);
         Ok(self)
     }
 
