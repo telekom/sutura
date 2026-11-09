@@ -361,20 +361,25 @@ pub(super) struct PartitionScanExec {
     properties: Arc<PlanProperties>,
 }
 
-/// The caller's token a scan carries. A worker keeps an installed plan for minutes after its read,
-/// so the token leaves the scan when the read starts and is dropped with it if the read never does.
+/// The caller's token or principal a scan carries. A worker keeps an installed plan for minutes
+/// after its read, so either leaves the scan when the read starts and is dropped with it if the
+/// read never does.
 enum Carried {
     Nothing,
     Token(Forwarded),
-    Taken,
+    Principal(SwitchedPrincipal),
+    Taken { token: bool },
 }
 
 impl Carried {
-    const fn shown(&self) -> &'static str {
+    /// What is shown for the token, then for the principal.
+    const fn shown(&self) -> (&'static str, &'static str) {
         match self {
-            Self::Nothing => "none",
-            Self::Token(_) => "held",
-            Self::Taken => "taken",
+            Self::Nothing => ("none", "none"),
+            Self::Token(_) => ("held", "none"),
+            Self::Principal(_) => ("none", "held"),
+            Self::Taken { token: true } => ("taken", "none"),
+            Self::Taken { token: false } => ("none", "taken"),
         }
     }
 }
@@ -384,7 +389,8 @@ impl fmt::Debug for PartitionScanExec {
         f.debug_struct("PartitionScanExec")
             .field("source", &self.source)
             .field("grant", &self.grant.is_some())
-            .field("token", &self.shown())
+            .field("token", &self.shown().0)
+            .field("principal", &self.shown().1)
             .finish_non_exhaustive()
     }
 }
@@ -422,44 +428,49 @@ impl PartitionScanExec {
     }
 
     /// This scan, read as `switched`.
-    ///
-    /// **Not built yet:** `switched` is dropped, and the scan reads as it did.
     pub(super) fn switching(self, switched: SwitchedPrincipal) -> Self {
-        drop(switched);
+        *self.carried.lock() = Carried::Principal(switched);
         self
     }
 
-    /// Whether this scan holds a token, never the token. A scan whose token is being moved shows
-    /// `busy` rather than waiting on it.
-    fn shown(&self) -> &'static str {
-        self.carried.try_lock().map_or("busy", |carried| carried.shown())
+    /// Whether this scan holds a token, then a principal, never either. A scan whose token or
+    /// principal is being moved shows `busy` rather than waiting on it.
+    fn shown(&self) -> (&'static str, &'static str) {
+        self.carried.try_lock().map_or(("busy", "busy"), |carried| carried.shown())
     }
 
-    /// The token this scan carries, moved out for the one read it is handed to: `None` for a scan
-    /// that carries none, and refused once it was taken.
-    fn taken(&self) -> Result<Option<Forwarded>, DataFusionError> {
+    /// The token or principal this scan carries, moved out for the one read it is handed to:
+    /// [`Carried::Nothing`] for a scan that carries neither, and refused once either was taken.
+    fn taken(&self) -> Result<Carried, DataFusionError> {
         let was = {
             let mut carried = self.carried.lock();
-            let next = if matches!(*carried, Carried::Nothing) {
-                Carried::Nothing
-            } else {
-                Carried::Taken
+            let next = match *carried {
+                Carried::Nothing => Carried::Nothing,
+                Carried::Token(_) => Carried::Taken { token: true },
+                Carried::Principal(_) | Carried::Taken { .. } => Carried::Taken { token: false },
             };
             core::mem::replace(&mut *carried, next)
         };
         match was {
-            Carried::Nothing => Ok(None),
-            Carried::Token(forwarded) => Ok(Some(forwarded)),
-            Carried::Taken => Err(DataFusionError::Execution(String::from(
+            Carried::Taken { token: true } => Err(DataFusionError::Execution(String::from(
                 "a partition scan hands out its caller's token once, and this one's was taken",
             ))),
+            Carried::Taken { token: false } => Err(DataFusionError::Execution(String::from(
+                "a partition scan hands out its caller's principal once, and this one's was taken",
+            ))),
+            other => Ok(other),
         }
     }
 }
 
 impl DisplayAs for PartitionScanExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PartitionScanExec: source={}, token={}", self.source, self.shown())
+        let (token, principal) = self.shown();
+        write!(
+            f,
+            "PartitionScanExec: source={}, token={token}, principal={principal}",
+            self.source
+        )
     }
 }
 
@@ -507,16 +518,16 @@ impl ExecutionPlan for PartitionScanExec {
             .get_extension::<ReaderExtension>()
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
         let schema = self.properties.eq_properties.schema();
-        self.taken()?
-            .map_or_else(
-                || reader.0.read(&self.wire, &self.source, &self.partition, schema),
-                |forwarded| {
-                    reader
-                        .0
-                        .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded)
-                },
-            )
-            .map_err(Unread::into_error)
+        match self.taken()? {
+            Carried::Token(forwarded) => reader
+                .0
+                .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded),
+            Carried::Principal(switched) => reader
+                .0
+                .read_switched(&self.wire, &self.source, &self.partition, schema, switched),
+            Carried::Nothing | Carried::Taken { .. } => reader.0.read(&self.wire, &self.source, &self.partition, schema),
+        }
+        .map_err(Unread::into_error)
     }
 }
 
@@ -613,13 +624,24 @@ fn decode_partition(buf: &[u8]) -> DecodedPartitionScan {
         }),
         _ => return Err(malformed()),
     };
+    let name = take_field(&mut rest).ok_or_else(malformed)?;
+    let switched = if name.is_empty() {
+        None
+    } else {
+        let name = String::from_utf8(name).map_err(|_utf8| malformed())?;
+        Some(SwitchedPrincipal::new(
+            PrincipalName::parse(name).map_err(|_name| malformed())?,
+        ))
+    };
     let schema_bytes = take_field(&mut rest).ok_or_else(malformed)?;
     let proto_schema = ProtoSchema::decode(schema_bytes.as_slice()).map_err(|_proto| malformed())?;
     let schema: Schema = (&proto_schema).try_into().map_err(|_arrow| malformed())?;
     let scan = PartitionScanExec::new(wire, source, part, presented_key, grant, Arc::new(schema));
-    Ok(Arc::new(match forwarded {
-        Some(forwarded) => scan.forwarding(forwarded),
-        None => scan,
+    Ok(Arc::new(match (forwarded, switched) {
+        (None, None) => scan,
+        (Some(forwarded), None) => scan.forwarding(forwarded),
+        (None, Some(switched)) => scan.switching(switched),
+        (Some(_), Some(_)) => return Err(malformed()),
     }))
 }
 
@@ -648,8 +670,15 @@ fn encode_partition(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<
             let token = forwarded.token.expose_secret().as_bytes();
             put_field(buf, token);
             put_field(buf, &forwarded.pool);
+            put_field(buf, &[]);
         }
-        Carried::Nothing | Carried::Taken => {
+        Carried::Principal(switched) => {
+            put_field(buf, &[]);
+            put_field(buf, &[]);
+            put_field(buf, switched.name().as_str().as_bytes());
+        }
+        Carried::Nothing | Carried::Taken { .. } => {
+            put_field(buf, &[]);
             put_field(buf, &[]);
             put_field(buf, &[]);
         }
@@ -672,9 +701,10 @@ pub(super) fn reads_partition_or_nothing(
     event.plan.apply(|node| {
         if let Some(leaf) = node.downcast_ref::<PartitionScanExec>() {
             let mut carried = leaf.carried.lock();
-            let forwarded = match &*carried {
-                Carried::Token(forwarded) => Some(forwarded),
-                Carried::Nothing | Carried::Taken => None,
+            let (forwarded, switched) = match &*carried {
+                Carried::Token(forwarded) => (Some(forwarded), None),
+                Carried::Principal(switched) => (None, Some(switched)),
+                Carried::Nothing | Carried::Taken { .. } => (None, None),
             };
             let verified = grant::verify_reading(
                 keys,
@@ -685,6 +715,7 @@ pub(super) fn reads_partition_or_nothing(
                     key: leaf.presented_key,
                     grant: leaf.grant.as_deref(),
                     forwarded,
+                    switched,
                 },
                 now,
             );
