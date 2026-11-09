@@ -96,9 +96,8 @@ disallowed-methods = [
   # The `ClickHouse` partition read, for the same reason: it takes no presented identity and runs
   # the bucket's statement as the identity the partition names, whatever the bytes say - its caller
   # decides that the reading worker admitted the task's grant and re-certified the leg, and that the
-  # carve-up to a bucket was the planning node's. Its one call, the reading worker's read through
-  # `SplitKind::read_granted` in `crates/sutura-cli/src/serve/kind/split/clickhouse.rs`, holds an
-  # `#[expect]` beside the one in `tests/`.
+  # carve-up to a bucket was the planning node's. A later CLI arm will call it through
+  # `SplitKind::read_granted` only after those checks, with an `#[expect]` naming the boundary.
   { path = "sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse::read_partition", reason = "a partition read that takes no presented identity and runs as the identity it names; its caller must hold the task grant that authorised the partition and the leg, and holds an #[expect] naming it" },
   # The one call that lets credential material out of `Secret`, and until #145 the only thing
   # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`

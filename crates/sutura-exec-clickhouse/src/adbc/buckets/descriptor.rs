@@ -93,3 +93,44 @@ impl TryFrom<&[u8]> for BucketDescriptor {
 fn four(bytes: &[u8]) -> u32 {
     u32::from_be_bytes(bytes.try_into().unwrap_or([0; 4]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Bucket, BucketDescriptor, InvalidBucketDescriptor};
+
+    #[test]
+    fn a_clickhouse_bucket_descriptor_round_trips_and_refuses_malformed_bytes() {
+        for (index, count) in [(0, 2), (1, 3), (u32::MAX - 1, u32::MAX)] {
+            let bucket = Bucket::new(index, count).expect("a valid bucket");
+            let bytes = BucketDescriptor { bucket }.to_bytes();
+            let parsed = BucketDescriptor::try_from(bytes.as_slice()).expect("a descriptor reads back");
+            assert_eq!(parsed.bucket(), bucket);
+            for kept in 0..bytes.len() {
+                assert!(matches!(
+                    BucketDescriptor::try_from(&bytes[..kept]),
+                    Err(InvalidBucketDescriptor::Truncated)
+                ));
+            }
+        }
+        for (bytes, wanted) in [
+            (
+                [2, 0, 0, 0, 3, 0, 0, 0, 1].as_slice(),
+                InvalidBucketDescriptor::Version { found: 2 },
+            ),
+            (
+                [1, 0, 0, 0, 3, 0, 0, 0, 1, 0].as_slice(),
+                InvalidBucketDescriptor::Trailing { extra: 1 },
+            ),
+            (
+                [1, 0, 0, 0, 1, 0, 0, 0, 0].as_slice(),
+                InvalidBucketDescriptor::Bucket(sutura_sql::generate::InvalidBucket::TooFew { count: 1 }),
+            ),
+            (
+                [1, 0, 0, 0, 3, 0, 0, 0, 3].as_slice(),
+                InvalidBucketDescriptor::Bucket(sutura_sql::generate::InvalidBucket::PastTheLast { index: 3, count: 3 }),
+            ),
+        ] {
+            assert_eq!(BucketDescriptor::try_from(bytes).err(), Some(wanted));
+        }
+    }
+}
