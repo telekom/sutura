@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-//! **EXPERIMENTAL.** API-only seam for an OpenAPI-described declaring catalog.
+//! **EXPERIMENTAL.** API-only seam for an `OpenAPI`-described declaring catalog.
 //!
-//! [`Contract::parse`] refuses every input, including OpenAPI 3.0/3.1. No contract can be
+//! [`Contract::parse`] refuses every input, including `OpenAPI` 3.0/3.1. No contract can be
 //! constructed, so [`OpenApiCatalog::load`] is unreachable. No API is fetched or catalog loaded.
 //! The public signatures and fixture reader let the later implementation's tests run against
 //! this refusing baseline. Fixture data is synthetic or a public-document subset, not live evidence.
