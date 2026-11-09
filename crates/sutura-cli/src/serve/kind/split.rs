@@ -10,10 +10,11 @@
 //! as its service user (`postgres`); `BigQuery` splits at a pool source only, read with the caller's
 //! forwarded token (`bigquery`).
 //!
-//! **Limits.** This module is built with `distributed` and `postgres` or `clickhouse`. The `BigQuery`
+//! **Limits.** This module is built with `distributed` and `postgres`, `clickhouse` or `oracle`. The `BigQuery`
 //! arm, and `grant`, are built only with `postgres`, as before this module took `clickhouse`.
 //! `ClickHouse` has no arm yet, so a build with `clickhouse` and without `postgres` holds this
-//! dispatch and no kind that splits; the multi-node VM test builds that feature set.
+//! dispatch and no kind that splits; the multi-node VM test builds that feature set. The Oracle arm
+//! (`oracle`) is built with `oracle` and splits no leg yet.
 
 use core::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
@@ -272,6 +273,8 @@ where
 
 #[cfg(all(feature = "bigquery", feature = "postgres"))]
 mod bigquery;
+#[cfg(feature = "oracle")]
+mod oracle;
 /// Visible to [`kind`](super) for its reader cells, which ask `postgres::unread`.
 #[cfg(feature = "postgres")]
 pub(super) mod postgres;
