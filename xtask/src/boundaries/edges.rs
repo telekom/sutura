@@ -137,7 +137,9 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     // the four `arrow-*` crates, `chrono` with `iana-time-zone` and `core-foundation-sys` (a
     // time-zone database), `ahash` with `getrandom` and `zerocopy`/`zerocopy-derive` (an entropy
     // source), `half`, the four `num-*`, `bytes`, `libm`, `once_cell`, `autocfg` and
-    // `version_check`. The other forty-three are resolved and not compiled in THAT venue.
+    // `version_check`. The other forty-three are resolved and not compiled in THAT venue. The typed
+    // rank of a federated `top` later added `arrow-ord` and `arrow-select`, both compiled, so it is
+    // 66 entries and 23 compiled now - read off `Cargo.lock`, not re-measured with `cargo tree`.
     //
     // **But the venue `just test` and `just lint` run is the workspace-unified one, and there the
     // answer is bigger.** One `arrow-array` serves the whole graph, `adbc_core` turns its optional
@@ -181,7 +183,13 @@ pub(crate) const ALLOWED_IN_DOMAIN: &[&str] = &[
     "arrow-array",
     "arrow-buffer",
     "arrow-data",
+    // `arrow-ord` and `arrow-select`: the typed comparator, concat and take a federated `top`
+    // ranks with, in `sutura_domain::warehouse::arrow::ordered`. Compute KERNELS over a batch the
+    // interior already holds - no runtime, no client, no engine - and their own dependencies are
+    // all already above.
+    "arrow-ord",
     "arrow-schema",
+    "arrow-select",
     "autocfg",
     "bitflags",
     "bumpalo",

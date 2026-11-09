@@ -58,7 +58,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
         identity,
     )
     .across_above(nodes.across_above())
-    .wait_for_workers(wait);
+    .wait_for_workers(wait)
+    .address_family(nodes.address_family());
     let across = nodes
         .others()
         .iter()
@@ -114,7 +115,8 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
 /// A lookup leg of a source named here, asked with no verified caller, is refused before the source
 /// is asked anything - unless it names a payer, which is read whole, as the deployment; a deployment
 /// declaring such a source with no `security.inbound` does not boot.
-/// A single-kind deployment's adapter splits nothing.
+/// Only a PostgreSQL source, or a `BigQuery` source that federates at a pool, erased into
+/// `kind::AnyWarehouse` splits a leg; any other adapter reads it whole.
 pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
 where
     W: Warehouse,
@@ -135,6 +137,21 @@ where
                 None => engines,
             }
         })
+}
+
+/// Whether a peer `server.nodes` declares reads one of `engines`' sources.
+#[cfg(feature = "postgres")]
+pub(super) fn read_by_a_peer<W>(engines: &Warehouses<W>, tls: Option<&TlsMaterial>) -> bool
+where
+    W: Warehouse,
+{
+    tls.and_then(TlsMaterial::nodes).is_some_and(|nodes| {
+        nodes
+            .others()
+            .iter()
+            .flat_map(DeclaredNode::sources)
+            .any(|alias| engines.get(alias).is_some())
+    })
 }
 
 /// `state` with this node's worker mounted, when there is one.

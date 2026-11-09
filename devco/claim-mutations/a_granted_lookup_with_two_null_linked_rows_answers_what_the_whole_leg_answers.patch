@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/once.rs b/crates/sutura-exec-datafusion/src/combine/across/once.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/once.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/once.rs
+@@ -127,7 +127,7 @@
+     });
+     let counted = Expr::Column(Column::new_unqualified(probe.as_str()));
+     LogicalPlanBuilder::from(scanned)
+-        .filter(joinable)?
++        .filter(joinable.or(lit(true)))?
+         .aggregate(links, carried)?
+         .filter(ScalarUDF::new_from_impl(OneRowPerLink::new()).call(vec![counted]))?
+         .project(kept)?

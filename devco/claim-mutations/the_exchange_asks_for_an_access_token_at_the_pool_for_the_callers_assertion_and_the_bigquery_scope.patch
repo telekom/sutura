@@ -1,13 +1,12 @@
 diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
-index 04332cc1a..9c3f4c32d 100644
 --- a/crates/sutura-http-client/src/delegation/pool.rs
 +++ b/crates/sutura-http-client/src/delegation/pool.rs
-@@ -28,7 +28,7 @@ const JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
- /// driver asked for before this process performed the exchange. **Both [`PoolScope`]s ask for it
- /// today:** the read-only scope lands with the forwarded token, the next change of the `BigQuery`
- /// reading worker.
+@@ -26,7 +26,7 @@ const JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
+ /// [`PoolScope::Query`]: the `BigQuery` client's own scope. The driver's client prepends it to its
+ /// options, and a federated token with no impersonation hop is asked for the client's scopes - so
+ /// this is what the driver asked for before this process performed the exchange.
 -const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
 +const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
  
- /// [`PoolExchange`] over HTTP, at [`GOOGLE_STS`] or a stand-in for it.
- #[derive(Debug)]
+ /// [`PoolScope::ReadOnly`]. Which calls Google refuses a pool principal's token under it is not
+ /// measured here: the `domain_delegation` transport measured this scope with a service account's

@@ -395,10 +395,9 @@ impl WorkloadPool {
 pub enum PoolScope {
     /// What the data system's own client asks for: run a question's job, read its result, cancel it.
     Query,
-    /// Reads only, for a token a node forwards to another that reads part of a result. **Not
-    /// narrowed yet:** nothing asks for it, and the implementor asks for [`Self::Query`]'s scope
-    /// until the forwarded token lands, the next change of the `BigQuery` reading worker. Once
-    /// narrowed it still starts queries: `BigQuery`'s read-only scope accepts `jobs.query`.
+    /// Reads only, for a token a node forwards to another that reads part of a result. **It still
+    /// starts queries:** `BigQuery`'s read-only scope accepts `jobs.query`, so its holder can run any
+    /// read query the principal may run until the token expires.
     ReadOnly,
 }
 

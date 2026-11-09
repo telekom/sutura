@@ -8,14 +8,14 @@ use sutura_domain::plan::{
 };
 use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::cardinality::{DISTINCT_LABEL, DeclaredKey, ROWS_LABEL};
 
 use polyglot_sql::builder;
 use polyglot_sql::builder::Expr;
 use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder};
 
 use super::{
-    DISTINCT_LABEL, DeclaredKey, GenerateError, ROWS_LABEL, assert_placeholder_count, bucket_expression, generate,
-    generate_key_probe, ordered_nulls_last, render,
+    GenerateError, assert_placeholder_count, bucket_expression, generate, generate_key_probe, ordered_nulls_last, render,
 };
 use crate::dialect::{ALL, Dialect};
 
@@ -485,12 +485,8 @@ fn oracle_caps_a_top_plan_with_fetch_first_not_limit() {
     assert_row_limit_clause(&month_plan().with_top(top), 3);
 }
 
-/// A compound (two-column) declared key probe parses on `DuckDb`, `Postgres` and `ClickHouse`, and
-/// Oracle and `BigQuery` both refuse it by name - the negative half of
-/// `a_key_probe_renders_and_parses_for_every_dialect_it_declares`, which only ever built a one-key
-/// probe and so never reached the tuple `DISTINCT`.
-#[test]
-fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
+/// The relationship and definitions of a two-column `many_to_one` key, whose target is `subscription_snapshot`.
+fn compound_usage_subscription() -> (Relationship, Definitions) {
     let relationship = Relationship::new(
         RelationshipName::parse("usage_subscription").expect("a test relationship is a relationship"),
         ModelName::parse("daily_usage").expect("a test model is a model"),
@@ -534,11 +530,29 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
         Vec::new(),
     )
     .expect("two models and one compound join are consistent");
+    (relationship, definitions)
+}
+
+/// A compound (two-column) declared key probe parses on `DuckDb`, `Postgres` and `ClickHouse`, and
+/// `BigQuery` refuses it by name - the negative half of
+/// `a_key_probe_renders_and_parses_for_every_dialect_it_declares`, which only ever built a one-key
+/// probe and so never reached the tuple `DISTINCT`. Oracle renders its own shape, held by
+/// `an_oracle_compound_key_probe_counts_a_grouped_subquery_not_a_multi_column_distinct`.
+#[test]
+fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
+    let (relationship, definitions) = compound_usage_subscription();
     let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
 
     for &dialect in ALL {
         let outcome = generate_key_probe(&key, dialect);
-        if matches!(dialect, Dialect::Oracle | Dialect::BigQuery) {
+        if dialect == Dialect::Oracle {
+            assert!(
+                outcome.is_ok(),
+                "Oracle renders its grouped-subquery shape, not a refusal: {outcome:?}"
+            );
+            continue;
+        }
+        if dialect == Dialect::BigQuery {
             assert!(
                 matches!(outcome, Err(GenerateError::CompoundKeyProbeUnsupported { dialect: refused }) if refused == dialect),
                 "{dialect} must refuse a compound probe by name, not render one: {outcome:?}"
@@ -576,6 +590,174 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
             "{dialect} did not parse its own compound probe: {:?}\n{sql}",
             parsed.err()
         );
+    }
+}
+
+/// Oracle's `DISTINCT` takes one expression, so a compound key is counted over a grouped subquery:
+/// no multi-column `DISTINCT`, both key columns in the `GROUP BY`, a null in either column excluded
+/// by the `WHERE` as the other dialects' counts exclude it, and the domain's two labels.
+///
+/// **The limit:** this reads the rendered text and parses it offline. The `oracle-tier` CI job is the
+/// one venue that executes the shape, through `data_systems::oracle::whether_it_counts_a_declared_join_key…`,
+/// and only over the example corpus's keys, all duplicate-free. Whether Oracle answers the count a
+/// DUPLICATED key table must is not measured by any job.
+#[test]
+fn an_oracle_compound_key_probe_counts_a_grouped_subquery_not_a_multi_column_distinct() {
+    let (relationship, definitions) = compound_usage_subscription();
+    let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
+    let query = generate_key_probe(&key, Dialect::Oracle).expect("a compound probe renders for Oracle");
+    let sql = query.sql();
+    assert!(
+        query.params().is_empty(),
+        "a parameter was bound into a compound probe: {sql}"
+    );
+    assert!(!sql.contains("DISTINCT"), "Oracle's DISTINCT takes one expression: {sql}");
+    let (first, second) = (
+        "\"subscription_snapshot\".\"subscription_key\"",
+        "\"subscription_snapshot\".\"month\"",
+    );
+    assert!(
+        sql.contains(&format!(
+            "WHERE NOT {first} IS NULL AND NOT {second} IS NULL GROUP BY {first}, {second}"
+        )),
+        "a tuple with a null column is counted by neither side, and every column is grouped: {sql}"
+    );
+    assert!(
+        sql.contains("SUM(\"key_groups\".\"group_rows\")"),
+        "the rows are the groups' sizes: {sql}"
+    );
+    assert!(
+        sql.contains("COUNT(*) AS \"0_key_distinct\""),
+        "the distinct count is the groups: {sql}"
+    );
+    assert!(
+        sql.contains(ROWS_LABEL) && sql.contains(DISTINCT_LABEL),
+        "the domain's labels: {sql}"
+    );
+    assert!(sql.contains("FROM (SELECT COUNT(*)"), "the groups are a subquery: {sql}");
+    assert!(
+        !sql.contains(" AS \"key_groups\""),
+        "Oracle takes no AS before a table alias: {sql}"
+    );
+    let parsed = polyglot_sql::parse(sql, super::dialect_type(Dialect::Oracle));
+    assert!(
+        parsed.is_ok(),
+        "Oracle did not parse its own compound probe: {:?}\n{sql}",
+        parsed.err()
+    );
+}
+
+/// One key column keeps its `COUNT(DISTINCT col)` shape on Oracle: only a compound key needs the
+/// grouped subquery, and a probe that regrouped a single key would change a statement the boot check
+/// already spends.
+#[test]
+fn an_oracle_single_key_probe_keeps_its_count_distinct() {
+    let relationship = Relationship::new(
+        RelationshipName::parse("orders_customer").expect("a test relationship is a relationship"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        ModelName::parse("customers").expect("a test model is a model"),
+        JoinType::ManyToOne,
+        JoinKeys::of(vec![JoinKey::Equal {
+            origin: ColumnName::parse("customer_key").expect("a test column is a column"),
+            target: ColumnName::parse("customer_key").expect("a test column is a column"),
+        }])
+        .expect("a test relationship declares one key"),
+    );
+    let model = |name: &str, table: &str| {
+        Model::new(
+            ModelName::parse(name).expect("a test model is a model"),
+            SourceName::parse("local").expect("a test source is a source"),
+            TableName::parse(table).expect("a test table is a table"),
+            std::iter::once("customer_key").map(|c| ColumnName::parse(c).expect("a test column is a column")),
+            Description::default(),
+        )
+    };
+    let definitions = Definitions::assemble(
+        vec![model("orders", "orders"), model("customers", "dim_customer")],
+        vec![relationship.clone()],
+        Vec::new(),
+    )
+    .expect("two models and one join are consistent");
+    let key = DeclaredKey::promised_by(&relationship, &definitions).expect("a many-to-one promises a unique target");
+    let query = generate_key_probe(&key, Dialect::Oracle).expect("a one-key probe renders for Oracle");
+    assert!(
+        query.sql().contains("COUNT(DISTINCT \"dim_customer\".\"customer_key\")"),
+        "{}",
+        query.sql()
+    );
+    assert!(!query.sql().contains("GROUP BY"), "{}", query.sql());
+}
+
+/// An Oracle ratio's numerator is `TO_BINARY_DOUBLE(..)`, never a cast whose target polyglot writes as
+/// `DOUBLE PRECISION` - a `NUMBER` in Oracle, so the division stays exact and reads back as text. Every
+/// other dialect keeps its `CAST(.. AS <double>)`.
+#[test]
+fn an_oracle_ratio_converts_its_numerator_with_to_binary_double_and_others_keep_the_cast() {
+    let sum_of = |column: &str| sutura_domain::plan::PlanTerm::Aggregate {
+        aggregate: Aggregate::Sum,
+        column: PlanColumn::new(
+            TableName::parse("orders").expect("a test table is a table"),
+            ColumnName::parse(column).expect("a test column is a column"),
+        ),
+    };
+    let ratio = sutura_domain::plan::PlanMeasure::Ratio {
+        numerator: sum_of("amount"),
+        denominator: sum_of("quantity"),
+        zero_denominator: sutura_domain::measure::ZeroDenominator::Null,
+    };
+    let rendered = |dialect| {
+        render(
+            &super::measure_expression(&ratio, None, dialect, &mut Vec::new()).into_inner(),
+            dialect,
+        )
+        .expect("the ratio renders for this dialect")
+    };
+    let oracle = rendered(Dialect::Oracle);
+    assert!(
+        oracle.starts_with("TO_BINARY_DOUBLE(SUM(\"orders\".\"amount\")) / NULLIF("),
+        "{oracle}"
+    );
+    assert!(!oracle.contains("DOUBLE PRECISION"), "{oracle}");
+    for dialect in [Dialect::DuckDb, Dialect::Postgres] {
+        let sql = rendered(dialect);
+        assert!(
+            sql.starts_with("CAST(SUM(\"orders\".\"amount\") AS DOUBLE"),
+            "{dialect}: {sql}"
+        );
+        assert!(!sql.contains("TO_BINARY_DOUBLE"), "{dialect}: {sql}");
+    }
+}
+
+/// An Oracle mean is `TO_BINARY_DOUBLE(AVG(..))`: `AVG` over a `NUMBER` is a `NUMBER`, which the adapter
+/// reads back as exact text where the engine answers a double. Postgres keeps its `CAST(.. AS DOUBLE
+/// PRECISION)`, for the same reason, and the other dialects keep the bare `AVG`.
+#[test]
+fn an_oracle_mean_is_read_as_a_binary_double_and_postgres_keeps_its_cast() {
+    let mean = PlanMeasure::Simple {
+        term: PlanTerm::Aggregate {
+            aggregate: Aggregate::Avg,
+            column: PlanColumn::new(
+                TableName::parse("orders").expect("a test table is a table"),
+                ColumnName::parse("amount").expect("a test column is a column"),
+            ),
+        },
+    };
+    let rendered = |dialect| {
+        render(
+            &super::measure_expression(&mean, None, dialect, &mut Vec::new()).into_inner(),
+            dialect,
+        )
+        .expect("the mean renders for this dialect")
+    };
+    assert_eq!(rendered(Dialect::Oracle), "TO_BINARY_DOUBLE(AVG(\"orders\".\"amount\"))");
+    let postgres = rendered(Dialect::Postgres);
+    assert!(
+        postgres.starts_with("CAST(AVG(\"orders\".\"amount\") AS DOUBLE"),
+        "{postgres}"
+    );
+    for dialect in [Dialect::DuckDb, Dialect::BigQuery, Dialect::ClickHouse] {
+        let sql = rendered(dialect);
+        assert!(!sql.contains("TO_BINARY_DOUBLE") && !sql.contains("CAST"), "{dialect}: {sql}");
     }
 }
 

@@ -58,8 +58,9 @@ Cube runs its warehouse query with the database identity in its own driver setti
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
 
 A federated question reads several data systems. Each one runs its part, and DataFusion joins the
-parts. Cube cannot run a part of a federated question. ClickHouse runs a part only as its shared
-user or with a caller's `delegation` token, never through `EXECUTE AS`.
+parts. Cube cannot run a part of a federated question. ClickHouse runs a part as it runs a whole
+question: as its shared user, as the caller's user through `EXECUTE AS`, or with a caller's
+`delegation` token.
 
 ### Data system settings
 

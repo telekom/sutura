@@ -35,6 +35,12 @@ use sutura_dev::scope::{SERVICES, Scope};
 #[cfg(feature = "mock-issuer")]
 mod mint;
 
+/// Two `sutura serve` answers judged by `sutura_domain::warehouse::agreement`. Behind the default-off
+/// `agreement` feature for `mint`'s reason: the interior is linked only where it is asked for, so
+/// `xtask` never compiles it.
+#[cfg(feature = "agreement")]
+mod agree;
+
 /// A command: the name, the `--help` line, and the code it runs.
 ///
 /// Same shape as xtask's table, for the same reason: dispatch derives from the table, so
@@ -73,6 +79,12 @@ const COMMANDS: &[Cmd] = &[
         name: "mint-pat",
         description: "<out-file> - the docker DataHub tier signs its own PAT with its signing key",
         run: cmd_mint_pat,
+    },
+    #[cfg(feature = "agreement")]
+    Cmd {
+        name: "agree",
+        description: "<a.json> <b.json> [--ordered] [--real <column>]... - are two answers the same answer",
+        run: cmd_agree,
     },
 ];
 
@@ -538,6 +550,27 @@ fn cmd_mint_pat(args: &[String]) -> ExitCode {
         },
         Err(problem) => {
             eprintln!("sutura-dev mint-pat: {problem}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `agree` - exit 0 when the two answers are the same answer, 1 with the policy's own words when they
+/// are not or cannot be read, 2 for a malformed command line.
+#[cfg(feature = "agreement")]
+fn cmd_agree(args: &[String]) -> ExitCode {
+    match agree::run(args) {
+        Ok(agreed) => {
+            let order = if agreed.ordered { ", in the same order" } else { "" };
+            println!("sutura-dev agree: the two answers agree ({} row(s){order})", agreed.rows);
+            ExitCode::SUCCESS
+        }
+        Err(problem) if problem.is_usage() => {
+            eprintln!("sutura-dev agree: {problem}");
+            ExitCode::from(2)
+        }
+        Err(problem) => {
+            eprintln!("sutura-dev agree: {problem}");
             ExitCode::FAILURE
         }
     }

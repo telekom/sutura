@@ -241,6 +241,10 @@ ci.yml:oracle-tier
 # `data_source_node`, `data_source_clickhouse` or `identity`. `ci-aggregate` holds run-or-fail for it.
 ci.yml:multi-node
 
+# Four NixOS VMs granting a split PostgreSQL lookup leg to reading workers, advisory for `oracle-tier`'s
+# reason: gated on `run_all`, `nix`, `data_source_postgres` or `identity`. `ci-aggregate` holds run-or-fail for it.
+ci.yml:multi-node-postgres
+
 # The chart scaled by its autoscaler in a k3s VM, advisory for `oracle-tier`'s reason: gated on the
 # `chart` area. `ci-aggregate` holds run-or-fail for it.
 ci.yml:k3s-autoscaling
@@ -329,6 +333,15 @@ security-audit.yml:audit
 # dropping the paths filter - a formatter run on every Rust-only pull request - or adding a job that
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
+
+# TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
+# partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it
+# reports nothing on most pull requests, which alone rules out requiring it: a required context
+# that does not report is a permanently pending merge. `merge_group` is absent for `examples.yml`'s
+# reason. Advisory by design and not for want of a measurement: a run took about 13 minutes (runs
+# 42342552818 and 42343995219). `.github/workflows/tpch-across-nodes.yml` carries the design and what
+# a run does not show.
+tpch-across-nodes.yml:measure
 
 # The runner probe is DISPATCH-ONLY and reports no pull-request context, so it is deliberately
 # absent here - a measurement tool, run by hand when a runner needs checking, never a reportable on

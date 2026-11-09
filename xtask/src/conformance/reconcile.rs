@@ -65,18 +65,17 @@ pub(super) const UNBOUND: &[Unbound] = &[
     Unbound {
         name: "oracle",
         crate_name: "sutura-exec-oracle",
-        what: "a data system, registered in the golden matrix with `available() == false` unconditionally",
+        what: "a data system, registered in the golden matrix and executed against the compose `oracle` profile",
         why: "no `just validate` venue provisions a real Oracle - Oracle Database is proprietary and not \
-              packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` the way Postgres has one - and \
-              no CSV-fixture importer exists yet to attach the conformance corpus to a live instance even \
-              where a developer's own docker could reach `compose.services.yaml`'s `oracle` profile. \
-              Binding the packs today would either need `sutura_conformance::Fixture::Absent` reached by \
-              a discovery read this crate cannot make safely (`sutura_dev::provisioned::here` applies \
-              `SUTURA_DEV_REQUIRE_TIER` per PROCESS, not per named service, so it would go fatal the \
-              moment the unrelated Postgres tier comes up) or a fixture that never loads a row - which is \
-              the postgres-before-`#348` shape this gate exists to refuse. Converges when both exist: an \
-              importer and a per-service-safe discovery read, at which point this entry is removed rather \
-              than reworded, `crates/sutura-exec-postgres/tests/conformance.rs`'s own precedent.",
+              packaged in `nixpkgs`, so there is no `nix/oracle-tier.nix` the way Postgres has one. The \
+              matrix cells execute only in the `oracle-tier` CI job, where `SUTURA_ORACLE_TIER` opts them \
+              in. Binding the packs would need `sutura_conformance::Fixture::Absent` where no tier is up - \
+              refused wherever `SUTURA_DEV_REQUIRE_TIER` is set, which every gate that provisions Postgres \
+              sets and none of them starts Oracle - or a fixture that never loads a row, which is the \
+              postgres-before-`#348` shape this gate exists to refuse. Converges when the packs load the \
+              conformance corpus through `OracleWarehouse::load_csv` in a job that starts the tier, at \
+              which point this entry is removed rather than reworded, `crates/sutura-exec-postgres/tests/conformance.rs`'s \
+              own precedent.",
     },
     Unbound {
         name: "cube",

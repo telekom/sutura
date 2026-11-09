@@ -2037,7 +2037,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3860,9 +3860,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.8.0"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
+checksum = "d24a7e92f4bcaa36b97fa93c4fa7ca8f3e669eced949345b3462dba333c7f909"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -3880,6 +3880,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -3918,7 +3919,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4416,6 +4417,8 @@ dependencies = [
 name = "sutura-app"
 version = "0.11.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "divan",
  "insta",
  "polyglot-sql",
@@ -4672,6 +4675,8 @@ dependencies = [
  "rcgen",
  "serde_json",
  "sha2",
+ "sutura-domain",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4680,7 +4685,9 @@ version = "0.11.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
+ "arrow-ord",
  "arrow-schema",
+ "arrow-select",
  "secrecy",
  "serde",
  "serde_json",
@@ -4712,23 +4719,17 @@ dependencies = [
  "adbc_core",
  "adbc_driver_manager",
  "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
- "base64 0.23.1",
- "parking_lot 0.13.0",
  "rcgen",
  "rustls-native-certs",
- "rustls-pki-types",
- "serde_json",
  "sutura-adbc",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
- "sutura-http-client",
  "sutura-sql",
  "sutura-tls",
  "thiserror 2.0.21",
- "ureq",
- "url",
 ]
 
 [[package]]
@@ -5008,6 +5009,7 @@ dependencies = [
 name = "sutura-sql"
 version = "0.11.0"
 dependencies = [
+ "arrow-schema",
  "polyglot-sql",
  "serde",
  "serde_json",
@@ -5080,10 +5082,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5873,7 +5875,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

@@ -61,6 +61,12 @@ mod federated;
 #[path = "differential/compound_join.rs"]
 mod compound_join;
 
+// A lookup leg split into hash buckets, read back over the same kind of embedded database.
+// `#[path]` for the reason `federated` above needs it.
+#[cfg(test)]
+#[path = "differential/buckets.rs"]
+mod buckets;
+
 #[cfg(test)]
 mod tests {
     use sutura_app::{answer, verify_anchors};

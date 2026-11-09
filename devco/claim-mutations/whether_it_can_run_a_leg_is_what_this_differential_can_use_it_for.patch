@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-oracle/src/lib.rs b/crates/sutura-exec-oracle/src/lib.rs
+index 0f0261ccf..30ad8f9b2 100644
+--- a/crates/sutura-exec-oracle/src/lib.rs
++++ b/crates/sutura-exec-oracle/src/lib.rs
+@@ -770,7 +770,7 @@ impl Warehouse for OracleWarehouse {
+     /// Oracle statements, both renderings.
+     ///
+     /// A leg is answered on the session its presented credential selects, as any other statement.
+-    const EXECUTES_LEGS: bool = true;
++    const EXECUTES_LEGS: bool = false;
+ 
+     fn source(&self) -> &sutura_domain::model::SourceName {
+         &self.routing.source

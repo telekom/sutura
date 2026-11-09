@@ -18,6 +18,10 @@
 //! **The driver never refreshes an access token**, so a question that runs past the token's
 //! lifetime fails mid-query rather than renewing.
 //!
+//! A split leg exchanges twice ([`split`]): its job runs on a token asked for [`PoolScope::Query`],
+//! and only a second one, asked for [`PoolScope::ReadOnly`], is forwarded. A partition read hands
+//! the driver that forwarded token alone ([`forwarded`]), at a pool source only.
+//!
 //! # No second hop
 //!
 //! Two were built and both are deleted. `bigquery.impersonate.target_principal` impersonated a
@@ -37,8 +41,10 @@
 //! puts the value into a request, and a check belongs where the risk is. See
 //! [`WorkloadPool::parse`] for the accepted sets and what they exclude.
 
+use std::time::SystemTime;
+
 use adbc_core::options::{OptionDatabase, OptionValue};
-use sutura_domain::identity::{PoolExchange, PoolScope, PrincipalName, Secret};
+use sutura_domain::identity::{PoolExchange, PoolScope, PrincipalName, Secret, SourceToken};
 
 use crate::transport::JobIdentity;
 
@@ -205,12 +211,85 @@ pub(super) fn authenticate(
     Ok(JobAuthentication { options })
 }
 
+/// The database options one partition read becomes: the forwarded `token` and nothing else.
+///
+/// Only a source that federates at a pool reads one, because only such a source splits: at a
+/// shared, Google-login or delegating source a caller's forwarded token would read as a principal
+/// that source's posture does not declare.
+///
+/// # Errors
+///
+/// [`AdbcError::Uncovered`] at a source that federates at no pool.
+pub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
+    match *impersonation {
+        Impersonation::ThroughPool(_) => Ok(JobAuthentication {
+            options: access_token_options(token),
+        }),
+        Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
+            "read a forwarded token at a source that federates at no pool",
+        )),
+    }
+}
+
+/// What a split leg's job runs on, and the token forwarded to the nodes that read its streams.
+pub(super) struct Split {
+    /// The job's database options: the first exchange's token, asked for [`PoolScope::Query`], so
+    /// the job can still be cancelled.
+    pub(super) options: DatabaseOptions,
+    /// The second exchange's token, asked for [`PoolScope::ReadOnly`]: the only one that leaves,
+    /// with the fingerprint of the assertion it was exchanged from.
+    pub(super) forwarded: SourceToken,
+    /// `ends`, or the forwarded token's expiry where that is earlier.
+    pub(super) until: SystemTime,
+}
+
+/// Both exchanges a split leg makes, before any connection exists, and when what it forwards ends.
+///
+/// **Two tokens for one subject, both live until Google's own expiry.** The forwarded one is asked
+/// for [`PoolScope::ReadOnly`], which still runs read queries, and nothing here shortens its
+/// lifetime. `until` is what a grant ends by, and what bounds the planning node's own read of a
+/// one-stream split.
+///
+/// # Errors
+///
+/// [`AdbcError::Uncovered`] for anything but a subject at a pool source with an exchange composed,
+/// decided before either exchange. [`AdbcError::PoolExchange`] where either exchange failed, so a
+/// split never forwards the job's own token instead.
+pub(super) fn split(
+    identity: JobIdentity<'_>,
+    impersonation: &Impersonation,
+    exchange: Option<&dyn PoolExchange>,
+    ends: SystemTime,
+) -> Result<Split, AdbcError> {
+    let (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) = (identity, impersonation) else {
+        return Err(AdbcError::Uncovered("split a leg that federates no subject at a pool"));
+    };
+    let exchange = exchange.ok_or(AdbcError::Uncovered(
+        "federate a subject at a pool no token exchange was composed for",
+    ))?;
+    let exchanged = |scope| {
+        exchange
+            .exchange(assertion, pool, scope)
+            .map_err(|cause| AdbcError::PoolExchange { cause })
+    };
+    let query = exchanged(PoolScope::Query)?;
+    let forwarded = SourceToken::exchanged(assertion, pool, exchanged(PoolScope::ReadOnly)?);
+    let until = forwarded.not_after().min(ends);
+    Ok(Split {
+        options: access_token_options(&query.into_token()),
+        forwarded,
+        until,
+    })
+}
+
 /// The two options that hand the driver one subject's access token: the token and the auth type
 /// that selects it, only ever together - the driver reads the token under no other auth type.
 #[expect(
     clippy::disallowed_methods,
-    reason = "a driver option is a plain string across the C ABI, so the token is exposed here \
-              once, into a value built and consumed inside `connect` and never logged"
+    reason = "a driver option is a plain string across the C ABI, so a token is exposed here once \
+              per database, never logged: a job's in `authenticate` for `connect`, a split job's \
+              full-scope one in `split` through `Split` to `connect_as`, and a forwarded one in \
+              `forwarded` for `read_partition`"
 )]
 fn access_token_options(token: &Secret) -> DatabaseOptions {
     vec![
@@ -245,22 +324,25 @@ fn delegation_options(account: &DelegatingAccount, address: &PrincipalName) -> D
     .collect()
 }
 
-/// A compile-time guard that `JobAuthentication` does not implement `Debug`.
+/// A compile-time guard that neither `JobAuthentication` nor `Split` implements `Debug`.
 ///
 /// `JobAuthentication.options` is `DatabaseOptions` - `Vec<(OptionDatabase, OptionValue)>` from
 /// `adbc_core` - and `access_token_options` is the one place an access token is exposed as text,
 /// into an `OptionValue::String`. `adbc_core`'s `OptionValue` derives `Debug`, so a
-/// `#[derive(Debug)]` on `JobAuthentication` would print the subject's token.
+/// `#[derive(Debug)]` on `JobAuthentication` would print the subject's token. `Split.options` is
+/// the same type, holding a split job's full-scope token.
 ///
-/// `JobAuthentication` is `pub(super)`, so a `compile_fail` doctest cannot name it - this guard is the mechanism that replaces review for a type no external crate can reach. It
-/// uses the same negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`,
-/// so adding any `Debug` impl makes `<JobAuthentication as AmbiguousIfImpl<_>>::some_item` ambiguous
-/// (E0283) and the crate does not build.
+/// Both are `pub(super)`, so a `compile_fail` doctest cannot name them - this guard is the
+/// mechanism that replaces review for a type no external crate can reach. It uses the same
+/// negative-impl ambiguity trick: one blanket impl for all `T`, one for `T: Debug`, so adding any
+/// `Debug` impl to either makes its `<_ as AmbiguousIfImpl<_>>::some_item` ambiguous (E0283) and
+/// the crate does not build - measured for `Split` by deriving `Debug` on it, which failed the
+/// check with E0283 at its line.
 ///
 /// **Limit:** this forbids `Debug` and nothing else. The `options` field is a foreign `Vec` whose
-/// `Debug` already prints the token; nothing here stops a `tracing`/`format!` call that
-/// reaches `options` directly, or a hand-written `Display` on `JobAuthentication`. Those are held by
-/// review, not by this guard.
+/// `Debug` already prints the token; nothing here stops a `tracing`/`format!` call that reaches
+/// `options` directly, or a hand-written `Display` on either type. Those are held by review, not by
+/// this guard.
 mod no_debug {
     trait AmbiguousIfImpl<A> {
         fn some_item() {}
@@ -268,9 +350,11 @@ mod no_debug {
     impl<T: ?Sized> AmbiguousIfImpl<()> for T {}
     impl<T: ?Sized + core::fmt::Debug> AmbiguousIfImpl<u8> for T {}
 
-    // Compiles only while JobAuthentication does NOT implement Debug.
+    // Compiles only while neither implements Debug. `Split.options` holds the split job's
+    // full-scope token as text, as `JobAuthentication.options` holds a job's.
     const _: fn() = || {
         let _ = <super::JobAuthentication as AmbiguousIfImpl<_>>::some_item;
+        let _ = <super::Split as AmbiguousIfImpl<_>>::some_item;
     };
 }
 

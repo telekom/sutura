@@ -141,6 +141,13 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// The operator's reason for letting a `clickhouse` source's lookup leg be read in hash
+    /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
+    #[serde(default)]
+    pub(crate) hash_buckets_acknowledged_because: Option<String>,
+    /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
+    #[serde(default)]
+    pub(crate) split: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]
@@ -418,6 +425,9 @@ pub(crate) struct RawNodes {
     /// Seconds a question that goes across waits for the other nodes it wants to resolve.
     #[serde(default)]
     pub(crate) wait_for_workers_seconds: Option<core::num::NonZeroU32>,
+    /// `auto`, `ipv4` or `ipv6`: which family of addresses a host in `others` is dialled at.
+    #[serde(default)]
+    pub(crate) address_family: sutura_domain::plan::AddressFamily,
 }
 
 /// One peer named by `server.nodes.others`: its address, its role (`worker` or

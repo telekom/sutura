@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
-index d8616ce..12ff21c 100644
 --- a/crates/sutura-exec-datafusion/src/combine.rs
 +++ b/crates/sutura-exec-datafusion/src/combine.rs
-@@ -594,8 +594,8 @@ impl FederationCombiner for DataFusionCombiner {
+@@ -801,8 +801,8 @@
              CombineError::LinkTypeMismatch { .. } => Some(FederatedAnswerRefusal::LinkTypeMismatch),
              CombineError::BucketKindMismatch { .. } => Some(FederatedAnswerRefusal::BucketKindMismatch),
              CombineError::KeyKindMismatch { .. } => Some(FederatedAnswerRefusal::KeyKindMismatch),
@@ -11,5 +10,5 @@ index d8616ce..12ff21c 100644
 +            CombineError::LinkKindsNotJoined { .. } => None,
 +            CombineError::LinkValueNotCast { .. } => None,
              CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
-             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
-             // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
+             // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is deliberately
+             // here: `working_set_exhausted` answers it, and `sutura_app` asks that first. So is every

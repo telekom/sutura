@@ -9,13 +9,14 @@ mod reload {
     use sutura_dev::provisioned::{self, Provisioned};
     use sutura_domain::plan::Executable;
     use sutura_domain::warehouse::Warehouse as _;
-    use sutura_exec_clickhouse::ClickHouseWarehouse;
-    use sutura_exec_clickhouse::fixture::{FixtureError, credential_from_env};
-    use sutura_exec_clickhouse::transport::Endpoint;
+    use sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
+    use sutura_exec_clickhouse::fixture::{BatchError, FixtureError, credential_from_env};
 
-    /// A reload the server refuses leaves the previous rows answering. The blank line passes the
-    /// importer's own checks and the server refuses it, so the refusal comes after the rows were
-    /// sent - the point where a loader that replaced the table first has already emptied it.
+    /// A reload the importer refuses leaves the previous rows answering. The blank line passes the
+    /// type inference and is refused building the batch, before any statement is sent. **The limit:**
+    /// that is a refusal ahead of the table swap, so this cell does not hold the swap itself - that a
+    /// refusal AFTER rows were sent leaves the table as it was is held by the swap being one statement
+    /// (see `fixture`), and by review.
     #[test]
     fn a_refused_reload_leaves_the_previous_rows_in_place() {
         let endpoint = match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "clickhouse") {
@@ -25,11 +26,12 @@ mod reload {
                 return;
             }
         };
-        let warehouse = ClickHouseWarehouse::connect_in_database(
+        let warehouse = AdbcClickHouseWarehouse::connect_in_database(
             corpus::source(),
             corpus::posture(),
-            Endpoint::plaintext(endpoint.host(), endpoint.port()),
-            credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
+            endpoint.host(),
+            endpoint.port(),
+            &credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}")),
             &format!("reload_{}", std::process::id()),
             sutura_domain::warehouse::ResultBudget::of_bytes(
                 core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test budget is positive"),
@@ -46,7 +48,16 @@ mod reload {
         let refused = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("reload-{}.csv", std::process::id()));
         std::fs::write(&refused, lines.join("\n")).expect("the target's scratch directory is writable");
         let reloaded = warehouse.load_conformance_csv(&corpus::table(), &refused);
-        assert!(matches!(reloaded, Err(FixtureError::Server { .. })), "{reloaded:?}");
+        assert!(
+            matches!(
+                reloaded,
+                Err(FixtureError::Rows {
+                    cause: BatchError::BlankRow { line: 3 },
+                    ..
+                })
+            ),
+            "{reloaded:?}"
+        );
 
         let case = corpus::cases()
             .into_iter()

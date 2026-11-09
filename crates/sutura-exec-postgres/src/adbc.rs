@@ -423,7 +423,17 @@ impl Warehouse for AdbcPostgres {
     /// The limit: both ceilings are read as the stream arrives, so a result refused here was never
     /// measured whole - the caller learns it did not fit, not by how much.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(*error, PostgresError::Adbc { ref cause } if session::result_did_not_fit(cause))
+        error.did_not_fit()
+    }
+}
+
+impl PostgresError {
+    /// Whether this is a stream refused at this transport's row ceiling or byte budget - what
+    /// [`Warehouse::result_did_not_fit`] answers, readable without an adapter by a reading worker,
+    /// whose granted partition is read under the same bound.
+    #[must_use]
+    pub const fn did_not_fit(&self) -> bool {
+        matches!(*self, Self::Adbc { ref cause } if session::result_did_not_fit(cause))
     }
 }
 
