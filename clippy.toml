@@ -81,6 +81,11 @@ disallowed-methods = [
   # holds an `#[expect]` beside the one in `tests/partition_read.rs`, and a resolved path is what lets
   # each be fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
   { path = "sutura_exec_postgres::adbc::AdbcPostgres::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, and holds an #[expect] naming it" },
+  # Oracle's, for the same reason: its two production callers, the reading worker's read and a
+  # bucket read on the planning node that split the leg, in `crates/sutura-cli/src/serve/kind/split/oracle.rs`,
+  # each hold an `#[expect]`; the Oracle-tier cells in `crates/sutura-exec-oracle/tests/flashback.rs` sit
+  # under that file's own crate-level `#![expect]`.
+  { path = "sutura_exec_oracle::OracleWarehouse::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, or be the node that split it, and holds an #[expect] naming it" },
   # The seam over that call, so a call from anywhere else in `sutura-cli` is also a visible diff: the
   # trait is private to `serve::kind`, and the one call site holds an `#[expect]`.
   { path = "sutura::serve::kind::split::SplitKind::read_granted", reason = "a partition read that takes no presented identity; only the reading worker's read, after re-certifying the leg, may call it, and that one call site holds an #[expect]" },

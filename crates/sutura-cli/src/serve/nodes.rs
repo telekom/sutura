@@ -115,8 +115,9 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
 /// A lookup leg of a source named here, asked with no verified caller, is refused before the source
 /// is asked anything - unless it names a payer, which is read whole, as the deployment; a deployment
 /// declaring such a source with no `security.inbound` does not boot.
-/// Only a PostgreSQL source, or a `BigQuery` source that federates at a pool, erased into
-/// `kind::AnyWarehouse` splits a leg; any other adapter reads it whole.
+/// Only a PostgreSQL source, a `BigQuery` source that federates at a pool, or an Oracle source that
+/// declares `split: flashback`, erased into `kind::AnyWarehouse` splits a leg; any other adapter
+/// reads it whole.
 pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
 where
     W: Warehouse,
@@ -140,7 +141,7 @@ where
 }
 
 /// Whether a peer `server.nodes` declares reads one of `engines`' sources.
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "oracle"))]
 pub(super) fn read_by_a_peer<W>(engines: &Warehouses<W>, tls: Option<&TlsMaterial>) -> bool
 where
     W: Warehouse,
