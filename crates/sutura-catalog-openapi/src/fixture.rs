@@ -62,7 +62,8 @@ impl AnswerReader for FixtureReader {
     }
 }
 
-/// The fixture opener's API. Always refuses here because [`Contract::parse`] accepts no input.
+/// An [`OpenApiCatalog`] over the example registry, every model on `name`. The golden registry
+/// opens it.
 pub fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> Result<OpenApiCatalog<FixtureReader>, FixtureError> {
     let contract = Contract::parse(DOCUMENT, MAPPING).map_err(FixtureError::Contract)?;
     Ok(OpenApiCatalog::new(

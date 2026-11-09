@@ -1,121 +1,59 @@
 #![forbid(unsafe_code)]
-//! **EXPERIMENTAL.** API-only seam for an `OpenAPI`-described declaring catalog.
+//! **EXPERIMENTAL.** A [`SemanticCatalog`] over any HTTP metadata API an `OpenAPI` 3.0 or 3.1
+//! document describes, read as a **declaring** source - `github.com/telekom/sutura#1727`.
 //!
-//! [`Contract::parse`] refuses every input, including `OpenAPI` 3.0/3.1. No contract can be
-//! constructed, so [`OpenApiCatalog::load`] is unreachable. No API is fetched or catalog loaded.
-//! The public signatures and fixture reader let the later implementation's tests run against
-//! this refusing baseline. Fixture data is synthetic or a public-document subset, not live evidence.
+//! The API is configured, not coded: a pinned copy of its `OpenAPI` document and a data-only
+//! mapping file together name the `GET` operations that list the models (and, optionally, each
+//! model's outgoing links), and where in each answer a name, a description, a column, a key or a
+//! link sits, as JSON Pointers. [`Contract::parse`] checks the mapping against the document once,
+//! before any request; [`ContractError`] names each way the two can disagree.
+//!
+//! # What it reads, and how far that is proven
+//!
+//! Proven against recorded fixtures only (`src/fixture/`): no live API is part of any check. The
+//! models, their columns, the source's own column type word, descriptions, primary keys and
+//! many-to-one joins onto a target's single-column primary key. Nothing else: no metric, grain,
+//! required filter, allowlist, anchor or knowledge, because the vocabulary has no word for them.
+//! `docs/what-an-openapi-catalog-can-carry.md` is the field-by-field finding.
+//!
+//! # What keeps the requests on the declared endpoint
+//!
+//! The adapter builds every request target itself ([`Target`]): a document path made only of
+//! unreserved segments and whole-segment parameters, the mapping's fixed parameters (parsed path
+//! segments), each model's own name (parsed by `ModelName::parse`, whose grammar cannot hold `/`,
+//! `.`, `?`, `#` or `%`) and a percent-encoded query. The document's `servers` and every non-local
+//! `$ref` are never followed, and the only paging style is a cursor sent back as a query value, so
+//! no answer can name a URL to dial.
+//!
+//! # Limits
+//!
+//! - The catalog is read as the deployment: every caller sees what the deployment's token sees.
+//! - `OpenAPI` 3.0 and 3.1 only, as JSON; a Swagger 2.0 document is refused by name.
+//! - A link with no foreign-key column on this side (a to-many side) is not carried.
 
+mod contract;
+mod document;
 pub mod fixture;
+mod harvest;
 mod mapping;
 
-use std::convert::Infallible;
 use std::time::Instant;
 
+pub use contract::{Contract, ContractError, MAX_MAPPING_BYTES};
+pub use document::MAX_DOCUMENT_BYTES;
+pub use harvest::{MAX_CURSOR_BYTES, MAX_ENTRIES};
 pub use mapping::{OperationId, ParameterName};
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
-use sutura_domain::catalog::{InconsistentDefinitions, InvalidDescription};
+use sutura_domain::catalog::{Definitions, InconsistentDefinitions, InvalidDescription};
 use sutura_domain::definitions::NotDigestible;
-use sutura_domain::knowledge::{InconsistentKnowledge, KnowledgeCapabilities};
+use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput};
 use sutura_domain::model::{ColumnName, InvalidIdentifier, ModelName, RelationshipName, SourceName};
-use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{
+    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+};
 
-/// The document byte cap, checked before JSON parsing.
-pub const MAX_DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
-/// The mapping byte cap reserved for the implementation.
-pub const MAX_MAPPING_BYTES: usize = 64 * 1024;
-/// The listing entry cap reserved for the implementation.
-pub const MAX_ENTRIES: usize = 100_000;
-/// The cursor byte cap reserved for the implementation.
-pub const MAX_CURSOR_BYTES: usize = 2048;
-
-/// Why a document and a mapping do not make a catalog. Checked at construction, before any request.
-///
-/// No variant carries a token or an answer; a document value is repeated at most 64 bytes long.
-#[derive(Debug, thiserror::Error)]
-pub enum ContractError {
-    #[error("the {what} is larger than the {limit}-byte cap")]
-    TooLarge { what: &'static str, limit: usize },
-    #[error("the document is not JSON")]
-    Document {
-        #[source]
-        cause: serde_json::Error,
-    },
-    #[error("the mapping is not in the mapping vocabulary")]
-    Mapping {
-        #[source]
-        cause: serde_norway::Error,
-    },
-    #[error("the document is not OpenAPI 3.0 or 3.1 (found {found:?})")]
-    UnsupportedVersion { found: Option<String> },
-    #[error("the document references {reference:?}, which is not a local `#/` reference; nothing outside the document is read")]
-    ExternalReference { reference: String },
-    #[error("the document references {reference:?}, which it does not hold")]
-    UnresolvedReference { reference: String },
-    #[error("the document nests references deeper than {limit}")]
-    ReferenceTooDeep { limit: usize },
-    #[error("the document has no operation {operation}")]
-    UnknownOperation { operation: OperationId },
-    #[error("the document has more than one operation {operation}")]
-    DuplicateOperation { operation: OperationId },
-    #[error("the operation {operation} is not a GET; the catalog only reads")]
-    NotAGet { operation: OperationId },
-    #[error("the operation {operation} needs a credential other than a bearer token")]
-    UnsupportedSecurity { operation: OperationId },
-    #[error("the operation {operation} declares no 200 JSON answer schema")]
-    NoJsonAnswer { operation: OperationId },
-    /// The path is not literal unreserved segments and whole-segment parameters, so the adapter
-    /// cannot prove the request stays on the declared endpoint.
-    #[error("the path of {operation} is not one this adapter builds; it could leave the declared endpoint")]
-    OffOriginPath { operation: OperationId },
-    #[error("the operation {operation} needs the parameter {parameter}, which the mapping does not bind")]
-    UnboundParameter { operation: OperationId, parameter: String },
-    #[error("the parameter {parameter} is not a {location} parameter of {operation}")]
-    UndeclaredParameter {
-        operation: OperationId,
-        parameter: ParameterName,
-        location: &'static str,
-    },
-    #[error("the mapping binds the parameter {parameter}, which no mapped operation's path has")]
-    UnusedParameter { parameter: ParameterName },
-    #[error("the answer schema of {operation} declares nothing at {pointer:?}")]
-    NotInSchema { operation: OperationId, pointer: String },
-    #[error("the answer schema of {operation} does not declare {expected} at {pointer:?}")]
-    NotShaped {
-        operation: OperationId,
-        pointer: String,
-        expected: &'static str,
-    },
-}
-
-/// A checked mapping. This API-only baseline cannot construct one.
-#[derive(Debug)]
-pub struct Contract {
-    unavailable: Infallible,
-}
-
-impl Contract {
-    /// Refuses every document version; the mapping is not parsed in this API-only baseline.
-    pub fn parse(document: &str, _mapping: &str) -> Result<Self, ContractError> {
-        if document.len() > MAX_DOCUMENT_BYTES {
-            return Err(ContractError::TooLarge {
-                what: "document",
-                limit: MAX_DOCUMENT_BYTES,
-            });
-        }
-        let root: serde_json::Value = serde_json::from_str(document).map_err(|cause| ContractError::Document { cause })?;
-        let found = root
-            .get("openapi")
-            .and_then(serde_json::Value::as_str)
-            .map(|version| format!("openapi {}", shown(version)))
-            .or_else(|| {
-                root.get("swagger")
-                    .map(|version| format!("swagger {}", shown(version.as_str().unwrap_or("?"))))
-            });
-        // ponytail: no supported versions until the contract implementation arrives.
-        Err(ContractError::UnsupportedVersion { found })
-    }
-}
+/// The two halves of a bundle, read and checked but not yet pinned.
+type Content = (Definitions, Knowledge);
 
 /// Where the answers come from: one `GET` of a [`Target`] on the declared endpoint.
 ///
@@ -133,6 +71,27 @@ pub trait AnswerReader {
 pub struct Target(String);
 
 impl Target {
+    /// `path` is a path [`Contract::parse`] built; each query value is percent-encoded.
+    fn new(path: &str, query: &[(&ParameterName, &str)]) -> Self {
+        let mut target = String::from(path);
+        for (index, (name, value)) in query.iter().enumerate() {
+            target.push(if index == 0 { '?' } else { '&' });
+            target.push_str(name.as_str());
+            target.push('=');
+            for byte in value.bytes() {
+                if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                    target.push(char::from(byte));
+                } else {
+                    target.push('%');
+                    for nibble in [byte >> 4, byte & 0x0f] {
+                        target.push(char::from_digit(u32::from(nibble), 16).map_or('0', |digit| digit.to_ascii_uppercase()));
+                    }
+                }
+            }
+        }
+        Self(target)
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
@@ -216,25 +175,43 @@ pub enum OpenApiError {
     },
 }
 
-/// A declaring catalog whose checked contract is unavailable in this API-only baseline.
+/// A catalog read through one checked [`Contract`].
+///
+/// `source` is the `sources.<alias>` every model is on: the API describes one data system's tables.
 #[derive(Debug)]
 pub struct OpenApiCatalog<R> {
-    _name: SourceName,
-    _version: DefinitionVersion,
-    _source: SourceName,
+    name: SourceName,
+    version: DefinitionVersion,
+    source: SourceName,
     contract: Contract,
-    _reader: R,
+    reader: R,
 }
 
 impl<R: AnswerReader> OpenApiCatalog<R> {
     pub const fn new(name: SourceName, version: DefinitionVersion, source: SourceName, contract: Contract, reader: R) -> Self {
         Self {
-            _name: name,
-            _version: version,
-            _source: source,
+            name,
+            version,
+            source,
             contract,
-            _reader: reader,
+            reader,
         }
+    }
+
+    fn assemble(&self) -> Result<Content, OpenApiError> {
+        let harvest = harvest::Harvest {
+            contract: &self.contract,
+            reader: &self.reader,
+            source: &self.source,
+            started: Instant::now(),
+        };
+        let models = harvest.models()?;
+        let relationships = harvest.relationships(&models)?;
+        let definitions =
+            Definitions::assemble(models, relationships, Vec::new()).map_err(|cause| OpenApiError::Inconsistent { cause })?;
+        let knowledge =
+            Knowledge::assemble(&definitions, KnowledgeInput::none()).map_err(|cause| OpenApiError::Knowledge { cause })?;
+        Ok((definitions, knowledge))
     }
 }
 
@@ -243,6 +220,8 @@ impl<R: AnswerReader> SemanticCatalog for OpenApiCatalog<R> {
 
     const KIND: CatalogKind = CatalogKind::Declaring;
 
+    /// `Structure` and `Descriptions` always; column types, column descriptions and joins when the
+    /// mapping names them and the answers carry them. No metric and no knowledge.
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
             DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions]).and_may_provide([
@@ -255,7 +234,14 @@ impl<R: AnswerReader> SemanticCatalog for OpenApiCatalog<R> {
     }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        match self.contract.unavailable {}
+        let (definitions, knowledge) = self.assemble()?;
+        PinnedDefinitions::pin(
+            self.version.clone(),
+            definitions,
+            knowledge,
+            ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .map_err(|cause| OpenApiError::Digest { cause })
     }
 }
 
