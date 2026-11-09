@@ -461,3 +461,4 @@ a_repeated_cursor_is_refused_rather_than_followed # in crates/sutura-catalog-ope
 an_empty_page_that_names_a_next_page_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
 a_cursor_goes_back_as_one_percent_encoded_query_value # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
 a_link_onto_a_model_without_a_single_column_key_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_required_cursor_is_refused_without_an_initial_value # in crates/sutura-catalog-openapi/src/tests.rs, new cursor contract cell; base catalog crate has no test module

@@ -224,6 +224,17 @@ fn check_paging(document: &Document, operation: &Operation<'_>, paging: Option<&
         .flat_map(|paging| [Some(&paging.cursor), paging.size.as_ref().map(|size| &size.parameter)])
         .flatten()
         .collect();
+    if let Some(paging) = paging
+        && operation
+            .parameters
+            .iter()
+            .any(|known| known.required && known.location == "query" && known.name == paging.cursor.as_str())
+    {
+        return Err(ContractError::UnboundParameter {
+            operation: operation.id.clone(),
+            parameter: paging.cursor.clone(),
+        });
+    }
     for parameter in &sent {
         let declared = operation
             .parameters

@@ -284,6 +284,21 @@ fn a_paging_parameter_the_operation_does_not_declare_is_refused() {
 }
 
 #[test]
+fn a_required_cursor_is_refused_without_an_initial_value() {
+    let document = replaced(
+        DOCUMENT,
+        r#""name": "pageToken", "in": "query", "schema"#,
+        r#""name": "pageToken", "in": "query", "required": true, "schema"#,
+    );
+    let refused = refused_contract(&document, MAPPING);
+    assert!(
+        matches!(&refused, ContractError::UnboundParameter { operation, parameter }
+            if operation.as_str() == "listDatasets" && parameter.as_str() == "pageToken"),
+        "{refused:?}"
+    );
+}
+
+#[test]
 fn a_required_header_with_the_paging_query_name_is_refused() {
     let document = replaced(
         DOCUMENT,
