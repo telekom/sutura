@@ -241,7 +241,7 @@ fn check_paging(document: &Document, operation: &Operation<'_>, paging: Option<&
         .parameters
         .iter()
         .filter(|known| known.required && known.location != "path")
-        .find(|known| !sent.iter().any(|name| name.as_str() == known.name));
+        .find(|known| known.location != "query" || !sent.iter().any(|name| name.as_str() == known.name));
     if let Some(unbound) = unbound {
         return Err(ContractError::UnboundParameter {
             operation: operation.id.clone(),
