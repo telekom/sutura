@@ -444,3 +444,4 @@ a_refusal_is_typed_and_carries_neither_the_token_nor_the_apis_text # in crates/s
 a_redirect_is_refused_and_never_followed # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
 an_answer_over_the_cap_is_refused_rather_than_read # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
 one_deadline_covers_every_request_of_a_load # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary
+a_final_response_body_past_the_deadline_is_refused # in crates/sutura-catalog-openapi/tests/http_reader.rs, new in the HTTP child; the base catalog branch has no http_reader integration test binary

@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-openapi/src/mapping.rs b/crates/sutura-catalog-openapi/src/mapping.rs
+--- a/crates/sutura-catalog-openapi/src/mapping.rs
++++ b/crates/sutura-catalog-openapi/src/mapping.rs
+@@ -307,7 +307,7 @@ impl TryFrom<String> for BasePath {
+     type Error = InvalidMappingValue;
+ 
+     fn try_from(raw: String) -> Result<Self, Self::Error> {
+-        let segments = raw.strip_prefix('/').ok_or(InvalidMappingValue::BasePath)?;
++        let segments = raw.strip_prefix('/').unwrap_or(raw.as_str());
+         for segment in segments.split('/') {
+             PathSegment::try_from(segment.to_owned()).map_err(|_segment| InvalidMappingValue::BasePath)?;
+         }

@@ -88,6 +88,8 @@ Every model binds to the source whose alias is the catalog `name`.
 ## Limits
 
 - Tested only against recorded answers.
+- The nominal deadline is checked after each complete response body. Socket I/O gets a five-second
+  margin so a late body can be refused; JSON decoding and catalog assembly happen after that check.
 - OpenAPI 3.0 and 3.1, as JSON. Swagger 2.0 is refused.
 - A path segment that mixes text and a parameter, such as `{name}.json`, is refused.
 - The token is read once at startup. A token that expires is not renewed.
