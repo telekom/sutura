@@ -1,0 +1,19 @@
+[package]
+name = "sutura-catalog-openapi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "EXPERIMENTAL. Unused API-only seam for an OpenAPI-described declaring catalog; contract parsing refuses every input."
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

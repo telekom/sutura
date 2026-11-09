@@ -1,0 +1,32 @@
+# A SAMPLE of the configured mode, not a supported integration: an ontology's object types as
+# models and their outgoing link type sides as joins, over the hand-written document beside it. It
+# is checked against that document and nothing else; no answer of a real service is recorded here.
+# The ontology value is a placeholder of all zeros.
+parameters:
+  ontology: ri.ontology.main.ontology.00000000-0000-0000-0000-000000000000
+models:
+  operation: listObjectTypesV2
+  items: /data
+  paging:
+    cursor: pageToken
+    next: /nextPageToken
+    size:
+      parameter: pageSize
+      value: 500
+  name: /apiName
+  description: [/description, /displayName]
+  primary_key: /primaryKey
+  columns:
+    at: /properties
+    type: /dataType/type
+    description: [/description, /displayName]
+relationships:
+  operation: listOutgoingLinkTypesV2
+  model_parameter: objectType
+  items: /data
+  paging:
+    cursor: pageToken
+    next: /nextPageToken
+  name: /apiName
+  target: /objectTypeApiName
+  foreign_key: /foreignKeyPropertyApiName
