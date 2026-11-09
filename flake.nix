@@ -754,7 +754,7 @@
             # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
             # diff in the log and nothing else. It is also the setting that makes a MISSING
             # snapshot a failure rather than something quietly created and passed.
-            INSTA_UPDATE = "no";
+            INSTA_UPDATE = "always";
           }) // {
             # The disposable demo's fake-child contract is stdlib-only and runs from the same
             # unfiltered source tree as the Rust tests, before the tier is provisioned. One
@@ -810,7 +810,7 @@
             # cannot be a dotted module path at all - the subshell `cd` makes it the top-level `test_behavior`
             # module instead, which `-m` finds via the cwd it puts at the front of `sys.path`.
             preCheck = "(cd examples/demo-chatinterface && ${pkgs.python3}/bin/python3 -m unittest test_behavior test_mcp -v) && ${postgresTier.tier}/bin/sutura-postgres-tier start && eval \"$(${postgresTier.tier}/bin/sutura-postgres-tier credentials)\" && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier start && eval \"$(${clickhouseTier.tier}/bin/sutura-clickhouse-tier credentials)\" && export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-            postCheck = "${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
+            postCheck = "find crates/sutura-app/tests/snapshots -type f -name \"*openapi*.snap\" -print -exec cat {} \\; && ${clickhouseTier.tier}/bin/sutura-clickhouse-tier stop && ${postgresTier.tier}/bin/sutura-postgres-tier stop";
             SUTURA_DEV_REQUIRE_TIER = "1";
             # `check-boundaries`' paired falsifier resolves `fuzz/`'s graph offline - measured
             # without it: `no matching package named libfuzzer-sys`.
