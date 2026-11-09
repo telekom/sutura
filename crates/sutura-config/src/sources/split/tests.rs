@@ -19,6 +19,31 @@ fn oracle(extra: &str) -> Sources {
     ))
 }
 
+/// A serving node that verifies its callers, with the shared `oracle` source `warehouse` carrying
+/// `extra`, a second shared `oracle` source, and one reading node that reads `warehouse`: a
+/// deployment a `split: flashback` opt-in can start in.
+fn served_oracle(extra: &str) -> Sources {
+    let entry = |alias: &str, extra: &str| {
+        format!(
+            "  {alias}:\n    kind: \"oracle\"\n    host: \"db.example.com\"\n    port: 2484\n    \
+             service_name: \"orcl.example.com\"\n    user: \"sutura\"\n    password_file: \"/run/secrets/oracle-password\"\n    \
+             transport_mode: \"verified\"\n    transport_anchors: \"/run/secrets/oracle-ca.pem\"\n    \
+             posture: \"shared-service-user\"\n{extra}"
+        )
+    };
+    Sources::defaults(Environment::Development).with_overlay(format!(
+        "server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n  \
+         tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    others:\n      \
+         - url: \"https://b.example:8443\"\n        role: \"reading-worker\"\n        sources:\n          - \"warehouse\"\n\
+         sources:\n{}{}security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n  \
+         tls_termination: \"in-process\"\n  inbound:\n    mode: \"direct\"\n    resource: \"https://sutura.example.com\"\n    \
+         authorization_server: \"https://issuer.example.com\"\n    key_set_file: \"/etc/sutura/jwks.json\"\n    \
+         algorithms: [\"RS256\"]\n",
+        entry("warehouse", extra),
+        entry("orders", ""),
+    ))
+}
+
 /// What the loaded `warehouse` entry declares.
 fn declared(sources: &Sources) -> Option<SourceSplit> {
     let settings = Settings::load(sources).expect("the deployment loads");
@@ -43,11 +68,15 @@ fn refusal(sources: &Sources) -> SplitRefused {
     }
 }
 
-/// A shared Oracle source declares `flashback`, and one that writes nothing reads every leg whole.
+/// A shared Oracle source declares `flashback`, and one that writes nothing reads every leg whole -
+/// in a deployment with a second source and a node that reads it, which the opt-in needs to start.
 #[test]
 fn a_shared_oracle_source_declares_a_flashback_split_and_no_key_declares_none() {
-    assert_eq!(declared(&oracle("    split: \"flashback\"\n")), Some(SourceSplit::Flashback));
-    assert_eq!(declared(&oracle("")), None);
+    assert_eq!(
+        declared(&served_oracle("    split: \"flashback\"\n")),
+        Some(SourceSplit::Flashback)
+    );
+    assert_eq!(declared(&served_oracle("")), None);
 }
 
 /// **Each refusal, by name**: a word that is not `flashback`, any kind but `oracle`, and an Oracle

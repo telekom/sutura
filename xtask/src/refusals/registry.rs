@@ -120,8 +120,10 @@ const STARTUP: Subject = Subject {
     // 42: `HashBucketsOnTheOnlySource` and `HashBucketsReadByNoNode` (#828), a hash-bucket opt-in
     // with no other source to federate with or no peer to read its buckets. 43:
     // `ReadingWorkerOracleWithoutFlashback` (#828), a reading worker declaring an Oracle source that
-    // does not declare `split: flashback`, so no partition of it is read at a snapshot.
-    variants: variants(43),
+    // does not declare `split: flashback`, so no partition of it is read at a snapshot. 45:
+    // `FlashbackOnTheOnlySource` and `FlashbackReadByNoNode` (#828), a `split: flashback` opt-in
+    // with no other source to federate with or no peer to read its buckets.
+    variants: variants(45),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

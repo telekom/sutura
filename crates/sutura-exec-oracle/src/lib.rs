@@ -61,9 +61,10 @@
 //! - **The token is copied once, into the driver's configuration**, as an ordinary `String` the
 //!   driver keeps masked; nothing here zeroes that copy.
 
+use arrow_schema::SchemaRef;
 use parking_lot::Mutex;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{Executable, LegPlan};
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::Deadline;
@@ -529,38 +530,26 @@ impl OracleWarehouse {
     }
 
     /// The columns every partition of `split` answers, off the database's declaration of its first
-    /// partition, or `None` where cells decide a column's type. Not built yet: always `None`.
+    /// partition, or `None` where a column's cells decide its type (`split::columns`).
     ///
     /// # Errors
     ///
     /// What [`Self::read_partition`] refuses before it reads a row.
-    pub fn describe_split(
-        &self,
-        leg: &sutura_domain::plan::LegPlan,
-        split: &SplitLeg,
-        deadline: Deadline,
-    ) -> Result<Option<arrow_schema::SchemaRef>, OracleError> {
+    pub fn describe_split(&self, leg: &LegPlan, split: &SplitLeg, deadline: Deadline) -> Result<Option<SchemaRef>, OracleError> {
         split::describe(self, leg, split, deadline)
     }
 
-    /// The rows of the partition `descriptor` names of `leg`, read at its snapshot as the service
-    /// user, after the database answered that the snapshot is no older than `deadline`'s budget.
-    ///
-    /// It takes no presented identity and does not authenticate the descriptor: both are the task
-    /// grant's, which carries the descriptor and authorises the leg before this runs.
+    /// The rows of the partition `descriptor` names of `leg`, at its snapshot as the service user,
+    /// once the database answered that the snapshot is no older than `deadline`'s budget. Takes no
+    /// presented identity and does not authenticate the descriptor: the task grant does both.
     ///
     /// # Errors
     ///
-    /// [`OracleError::FlashbackNotDeclared`] at a source [`Self::with_flashback`] did not probe,
-    /// [`OracleError::MalformedDescriptor`] and [`OracleError::PartitionRender`] before any round
-    /// trip; then [`OracleError::SnapshotStale`], [`OracleError::SnapshotGone`], a spent deadline,
-    /// and the database's failure.
-    pub fn read_partition(
-        &self,
-        leg: &sutura_domain::plan::LegPlan,
-        descriptor: &[u8],
-        deadline: Deadline,
-    ) -> Result<ResultBatches, OracleError> {
+    /// [`OracleError::FlashbackNotDeclared`], [`OracleError::MalformedDescriptor`] and
+    /// [`OracleError::PartitionRender`] before any round trip; then [`OracleError::SnapshotStale`],
+    /// [`OracleError::SnapshotGone`], [`OracleError::NotOfItsColumnType`], a spent deadline, and
+    /// the database's failure.
+    pub fn read_partition(&self, leg: &LegPlan, descriptor: &[u8], deadline: Deadline) -> Result<ResultBatches, OracleError> {
         split::read_partition(self, leg, descriptor, deadline)
     }
 
@@ -598,10 +587,23 @@ impl OracleWarehouse {
     fn run_with_deadline(
         &self,
         session: Session<'_>,
-        (sql, params): (&str, &[ParamValue]),
+        statement: (&str, &[ParamValue]),
         deadline: Deadline,
         most_rows: Option<usize>,
     ) -> Result<RowSet, OracleError> {
+        self.run_declared(session, statement, deadline, most_rows)
+            .map(|(rows, _)| rows)
+    }
+
+    /// [`Self::run_with_deadline`], with the schema the database declares the answer's columns
+    /// fixed as, where it declares one (`split::columns`).
+    fn run_declared(
+        &self,
+        session: Session<'_>,
+        (sql, params): (&str, &[ParamValue]),
+        deadline: Deadline,
+        most_rows: Option<usize>,
+    ) -> Result<batches::Declared, OracleError> {
         let _guard = self.execution_lock.lock();
         refuse_if_spent(deadline)?;
         let opened;
@@ -622,7 +624,7 @@ impl OracleWarehouse {
             budget: self.result_budget,
             most_rows,
         };
-        batches::query(connection, sql, &refs, stop, || {
+        batches::query_declared(connection, sql, &refs, stop, || {
             let remaining = refuse_if_spent(deadline)?;
             connection
                 .set_call_timeout(Some(remaining))
