@@ -1,4 +1,4 @@
-//! Parsed names shared with the later contract implementation.
+//! Name-constructor signatures for the later implementation. Both refuse every input here.
 
 const MAX_NAME_BYTES: usize = 128;
 const MAX_FALLBACKS: usize = 4;
@@ -21,10 +21,6 @@ pub enum InvalidMappingValue {
     TooLong { limit: usize },
 }
 
-const fn is_name_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')
-}
-
 /// An `operationId` as the document spells it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
 #[serde(try_from = "String")]
@@ -40,9 +36,8 @@ impl OperationId {
 impl TryFrom<String> for OperationId {
     type Error = InvalidMappingValue;
 
-    fn try_from(raw: String) -> Result<Self, Self::Error> {
-        parse_name(&raw)?;
-        Ok(Self(raw))
+    fn try_from(_raw: String) -> Result<Self, Self::Error> {
+        Err(InvalidMappingValue::Name)
     }
 }
 
@@ -68,9 +63,8 @@ impl ParameterName {
 impl TryFrom<String> for ParameterName {
     type Error = InvalidMappingValue;
 
-    fn try_from(raw: String) -> Result<Self, Self::Error> {
-        parse_name(&raw)?;
-        Ok(Self(raw))
+    fn try_from(_raw: String) -> Result<Self, Self::Error> {
+        Err(InvalidMappingValue::Name)
     }
 }
 
@@ -78,11 +72,4 @@ impl core::fmt::Display for ParameterName {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(&self.0)
     }
-}
-
-fn parse_name(raw: &str) -> Result<(), InvalidMappingValue> {
-    if raw.is_empty() || raw.len() > MAX_NAME_BYTES || !raw.bytes().all(is_name_byte) {
-        return Err(InvalidMappingValue::Name);
-    }
-    Ok(())
 }

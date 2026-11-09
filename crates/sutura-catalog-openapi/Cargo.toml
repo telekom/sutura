@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "EXPERIMENTAL. A SemanticCatalog adapter over an HTTP metadata API, configured by a pinned OpenAPI 3.0/3.1 document and a data-only mapping file of JSON Pointers - a declaring source."
+description = "EXPERIMENTAL. Unused API-only seam for an OpenAPI-described declaring catalog; contract parsing refuses every input."
 
 [dependencies]
 sutura-domain = { workspace = true }
