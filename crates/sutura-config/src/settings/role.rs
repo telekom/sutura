@@ -170,6 +170,31 @@ pub(super) fn hash_bucket_refusals(settings: &Settings) -> Vec<NotFitToServe> {
     refusals
 }
 
+/// Every Oracle source declaring `split: flashback` where no bucket could be read, for
+/// [`hash_bucket_refusals`]' two reasons and on a serving node only, for its reason.
+///
+/// **The limit:** it reads the declaration, as [`hash_bucket_refusals`] does.
+pub(super) fn flashback_split_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+    if settings.server.role() != ServerRole::Serving {
+        return Vec::new();
+    }
+    let nodes = settings.server.tls().and_then(crate::server::TlsMaterial::nodes);
+    let only = settings.sources.count() < 2;
+    settings
+        .sources
+        .each()
+        .filter(|&(_, source)| source.split().is_some())
+        .flat_map(|(alias, _)| {
+            let unread = nodes.is_none_or(|nodes| nodes.reading(alias).next().is_none());
+            [
+                only.then(|| NotFitToServe::FlashbackOnTheOnlySource { alias: alias.clone() }),
+                unread.then(|| NotFitToServe::FlashbackReadByNoNode { alias: alias.clone() }),
+            ]
+        })
+        .flatten()
+        .collect()
+}
+
 #[cfg(test)]
 mod reading;
 #[cfg(test)]
