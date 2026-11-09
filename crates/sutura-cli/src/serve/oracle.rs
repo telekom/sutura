@@ -33,6 +33,36 @@ pub(crate) fn open_oracle(
         .ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))
 }
 
+/// The service a deployment whose sources are all `oracle` answers through, under `broker`.
+///
+/// Where a peer `server.nodes` declares reads one of its sources, the adapters are erased into
+/// `kind::AnyWarehouse` and named for splitting as a mix's are (`nodes::splitting`), so a split
+/// lookup leg of a source that declares `split: flashback` is granted to its readers - `postgres::served`'s
+/// shape. Otherwise each adapter is served itself and reads every leg whole.
+///
+/// **Limit:** erased, a source answers the enum's associated constants rather than its own, as a
+/// mix's Oracle source already does (`kind`'s header).
+#[cfg(feature = "oracle")]
+pub(super) fn served<B>(
+    catalogs: &crate::catalog::OpenedCatalogs,
+    engines: sutura_app::Warehouses<super::OracleSource>,
+    broker: B,
+    combiner: sutura_exec_datafusion::DataFusionCombiner,
+    settings: &sutura_config::Settings,
+) -> Result<super::Serving, String>
+where
+    B: sutura_domain::identity::CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
+{
+    let tls = settings.server().tls();
+    if !super::nodes::read_by_a_peer(&engines, tls) {
+        return super::compose::started(catalogs, engines, broker, combiner, None, settings);
+    }
+    let erased = engines.into_mapped(|oracle| super::kind::AnyWarehouse::Oracle(Box::new(oracle)));
+    let engines = super::nodes::splitting(erased, tls, settings.runtime());
+    super::compose::started(catalogs, engines, broker, combiner, None, settings)
+}
+
 /// The refusal for a build that did not link the Oracle adapter - `open_clickhouse`'s twin shape.
 #[cfg(not(feature = "oracle"))]
 pub(crate) fn open_oracle(

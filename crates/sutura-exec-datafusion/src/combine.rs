@@ -103,8 +103,8 @@ mod served;
 mod statement;
 #[cfg(feature = "distributed")]
 pub use across::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, TaskGrant, TokenUnread, Unread,
-    WorkerRefusal, read_later, refuse_ambiguous_split,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, SwitchedPrincipal, TaskGrant,
+    TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 pub use provider::SourceProvider;
 

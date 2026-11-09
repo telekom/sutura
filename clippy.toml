@@ -81,6 +81,11 @@ disallowed-methods = [
   # holds an `#[expect]` beside the one in `tests/partition_read.rs`, and a resolved path is what lets
   # each be fulfilled under `just lint` - an unresolved one would leave it unfulfilled, an error.
   { path = "sutura_exec_postgres::adbc::AdbcPostgres::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, and holds an #[expect] naming it" },
+  # Oracle's, for the same reason: its two production callers, the reading worker's read and a
+  # bucket read on the planning node that split the leg, in `crates/sutura-cli/src/serve/kind/split/oracle.rs`,
+  # each hold an `#[expect]`; the Oracle-tier cells in `crates/sutura-exec-oracle/tests/flashback.rs` sit
+  # under that file's own crate-level `#![expect]`.
+  { path = "sutura_exec_oracle::OracleWarehouse::read_partition", reason = "reads as the declared service user with no presented identity; its caller must hold the task grant that authorised the leg, or be the node that split it, and holds an #[expect] naming it" },
   # The seam over that call, so a call from anywhere else in `sutura-cli` is also a visible diff: the
   # trait is private to `serve::kind`, and the one call site holds an `#[expect]`.
   { path = "sutura::serve::kind::split::SplitKind::read_granted", reason = "a partition read that takes no presented identity; only the reading worker's read, after re-certifying the leg, may call it, and that one call site holds an #[expect]" },
@@ -93,6 +98,12 @@ disallowed-methods = [
   # trait is private to `serve::kind`, and the one call site holds an `#[expect]`.
   { path = "sutura::serve::kind::split::SplitKind::read_forwarded", reason = "a partition read with whatever token it is handed; only a reading worker's read, after the token's pool, its grant's end and the leg's certification are checked, may call it, and that one call site holds an #[expect]" },
   { path = "sutura_exec_bigquery::BigQueryWarehouse::read_partition", reason = "reads with whatever token it is handed and no presented identity; its caller must hold the task grant that authorised the partition and the token forwarded with it, and holds an #[expect] naming it" },
+  # The `ClickHouse` partition read, for the same reason: it takes no presented identity and runs
+  # the bucket's statement as the identity the partition names, whatever the bytes say - its caller
+  # decides that the reading worker admitted the task's grant and re-certified the leg, and that the
+  # carve-up to a bucket was the planning node's. A later CLI arm will call it through
+  # `SplitKind::read_granted` only after those checks, with an `#[expect]` naming the boundary.
+  { path = "sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse::read_partition", reason = "a partition read that takes no presented identity and runs as the identity it names; its caller must hold the task grant that authorised the partition and the leg, and holds an #[expect] naming it" },
   # The one call that lets credential material out of `Secret`, and until #145 the only thing
   # holding it was its NAME. `docs/adr/0020` made logging a credential a compile error - `Secret`
   # has no `Display`, so a `%` tracing field does not build - and that record's own documentation

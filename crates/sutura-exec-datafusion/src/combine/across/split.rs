@@ -69,7 +69,7 @@ use url::Url;
 
 use super::NoReadingNode;
 use super::grant;
-use super::partition::{Forwarded, PartitionScanExec};
+use super::partition::{Forwarded, GrantReads, PartitionScanExec, SwitchedPrincipal};
 
 /// A leg split into partitions, each read only by a task on a worker that reads its source.
 #[derive(Debug)]
@@ -80,7 +80,7 @@ struct Leg {
     source: SourceName,
     schema: SchemaRef,
     partitions: Vec<Granted>,
-    forwarded: Option<Forwarded>,
+    reads: GrantReads,
 }
 
 impl fmt::Debug for Leg {
@@ -88,7 +88,7 @@ impl fmt::Debug for Leg {
         f.debug_struct("Leg")
             .field("source", &self.source)
             .field("partitions", &self.partitions.len())
-            .field("forwarded", &self.forwarded.is_some())
+            .field("reads", &self.reads)
             .finish_non_exhaustive()
     }
 }
@@ -132,7 +132,13 @@ impl SplitScan {
         until: SystemTime,
         bound: StreamBound,
     ) -> Result<Self, DataFusionError> {
-        Self::minted((wire, source, schema), partitions, (caller, until), bound, None)
+        Self::minted(
+            (wire, source, schema),
+            partitions,
+            (caller, until),
+            bound,
+            GrantReads::ServiceUser,
+        )
     }
 
     /// [`Self::granted`], each partition read with `forwarded`, the caller's own token.
@@ -150,7 +156,37 @@ impl SplitScan {
         bound: StreamBound,
         forwarded: Forwarded,
     ) -> Result<Self, DataFusionError> {
-        Self::minted((wire, source, schema), partitions, (caller, until), bound, Some(forwarded))
+        Self::minted(
+            (wire, source, schema),
+            partitions,
+            (caller, until),
+            bound,
+            GrantReads::Token(forwarded),
+        )
+    }
+
+    /// [`Self::granted`], each partition read as `switched`, the caller's own principal.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::granted`].
+    pub(crate) fn granted_switching(
+        wire: Vec<u8>,
+        source: SourceName,
+        schema: SchemaRef,
+        partitions: impl IntoIterator<Item = Vec<u8>>,
+        caller: &SubjectKey,
+        until: SystemTime,
+        bound: StreamBound,
+        switched: SwitchedPrincipal,
+    ) -> Result<Self, DataFusionError> {
+        Self::minted(
+            (wire, source, schema),
+            partitions,
+            (caller, until),
+            bound,
+            GrantReads::Principal(switched),
+        )
     }
 
     fn minted(
@@ -158,21 +194,15 @@ impl SplitScan {
         partitions: impl IntoIterator<Item = Vec<u8>>,
         (caller, until): (&SubjectKey, SystemTime),
         bound: StreamBound,
-        forwarded: Option<Forwarded>,
+        reads: GrantReads,
     ) -> Result<Self, DataFusionError> {
         // A deadline before the epoch is already past: every grant under it is refused.
         let until = until.duration_since(UNIX_EPOCH).unwrap_or_default();
         let partitions = partitions
             .into_iter()
             .map(|partition| {
-                let (key, grant) = grant::granted_read(
-                    &wire,
-                    &source,
-                    &partition,
-                    (caller, until),
-                    (bound.rows, bound.bytes),
-                    forwarded.as_ref(),
-                )?;
+                let (key, grant) =
+                    grant::granted_read(&wire, &source, &partition, (caller, until), (bound.rows, bound.bytes), &reads)?;
                 Ok(Granted { partition, key, grant })
             })
             .collect::<Result<Vec<_>, DataFusionError>>()?;
@@ -184,7 +214,7 @@ impl SplitScan {
             source,
             schema,
             partitions,
-            forwarded,
+            reads,
         })))
     }
 }
@@ -336,10 +366,7 @@ pub(super) fn scaled(event: ScaleUpLeafNodeEvent<'_>) -> Option<Result<ScaleUpLe
                                     Some(granted.grant.clone()),
                                     Arc::clone(&leg.schema),
                                 );
-                                Arc::new(match &leg.forwarded {
-                                    Some(forwarded) => scan.forwarding(forwarded.copied()),
-                                    None => scan,
-                                }) as Arc<dyn ExecutionPlan>
+                                Arc::new(leg.reads.scanned(scan)) as Arc<dyn ExecutionPlan>
                             } else {
                                 Arc::new(EmptyExec::new(Arc::clone(&leg.schema)))
                             }

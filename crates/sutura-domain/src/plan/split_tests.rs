@@ -422,3 +422,36 @@ fn a_grant_whose_forwarded_token_has_ended_is_refused_as_expired() {
         );
     assert!(matches!(refused, Err(crate::plan::NotGranted::Expired(_))), "{refused:?}");
 }
+
+fn principal(name: &str) -> crate::identity::PrincipalName {
+    crate::identity::PrincipalName::parse(name).expect("a test principal is a principal")
+}
+
+#[test]
+fn a_grant_switches_to_no_principal_but_its_own_callers() {
+    let refused = grantee(SystemTime::now() + Duration::from_secs(30)).switching(principal("another@example.com"));
+    assert!(matches!(refused, Err(crate::plan::NotTheCallersPrincipal)), "{refused:?}");
+}
+
+#[test]
+fn a_grant_switched_to_its_callers_principal_reads_as_that_principal() {
+    let now = SystemTime::now();
+    let granted = grantee(now + Duration::from_secs(30))
+        .switching(principal("user@example.com"))
+        .expect("the caller's own principal is switched to")
+        .grant(
+            Arc::new(Schema::empty()),
+            [Some(vec![1])],
+            NonZeroU32::MIN,
+            EstimatedBytes::parse(0),
+            (),
+            now,
+        )
+        .expect("a live grant is granted");
+
+    assert!(
+        matches!(granted.reads(), crate::plan::ReadAs::CallerPrincipal(name) if name.as_str() == "user@example.com"),
+        "{:?}",
+        granted.reads()
+    );
+}

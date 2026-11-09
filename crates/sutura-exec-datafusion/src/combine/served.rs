@@ -57,7 +57,7 @@ use super::cast::Cast;
 use super::schema::LegSchema;
 use super::{CombineError, DataFusionCombiner, held, missing_lookup, register_link};
 #[cfg(feature = "distributed")]
-use super::{Forwarded, SplitScan, StreamBound, across, working_set_of};
+use super::{Forwarded, SplitScan, StreamBound, SwitchedPrincipal, across, working_set_of};
 use crate::pool::WorkingSet;
 
 /// The source of each lookup leg of `legs` granted rather than read here, in order.
@@ -111,7 +111,7 @@ pub(super) fn register_lookup(
 
 /// `granted` as one [`SplitScan`](crate::SplitScan) table, each partition's stream bounded at
 /// `ceiling_bytes` clamped to `u32` and at the grant's row bound, and read with the caller's token
-/// where the grant reads with one.
+/// or as the caller's principal where the grant reads with one.
 #[cfg(feature = "distributed")]
 fn registered_split(
     context: &SessionContext,
@@ -146,6 +146,16 @@ fn registered_split(
             granted.until(),
             bound,
             Forwarded::new(token.secret().clone(), token.pool()),
+        ),
+        ReadAs::CallerPrincipal(principal) => SplitScan::granted_switching(
+            wire,
+            source.clone(),
+            schema,
+            partitions,
+            granted.caller(),
+            granted.until(),
+            bound,
+            SwitchedPrincipal::new(principal.clone()),
         ),
     }
     .map_err(unregistered)?;

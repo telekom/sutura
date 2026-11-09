@@ -30,6 +30,10 @@
 //!   to a grant - [`Granted::new`] is public and takes any caller, but reads as
 //!   [`ReadAs::ServiceUser`]. That fingerprint is what the exchanging adapter states; the `BigQuery`
 //!   adapter states it where it exchanges.
+//! - A grant read as the caller's own principal ([`ReadAs::CallerPrincipal`]) takes only the
+//!   principal the grantee's own verified caller names ([`SubjectKey::principal`]), so a grant for
+//!   one caller never switches to another's. A grantee reads with a token or as a principal, the
+//!   last of [`Grantee::forwarding`] and [`Grantee::switching`] it was handed.
 
 use core::fmt;
 use core::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
@@ -38,7 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use arrow_schema::SchemaRef;
 
-use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, SourceToken, SubjectKey};
+use crate::identity::{AssertionDigest, BoundToTheRequest, Presented, PrincipalName, SourceToken, SubjectKey};
 use crate::nonempty::NonEmpty;
 use crate::plan::leg::LegPlan;
 use crate::plan::remote::{NotSendable, PartitionLeg};
@@ -192,6 +196,8 @@ pub enum ReadAs {
     ServiceUser,
     /// With a token of the caller's own principal, forwarded to the reading node.
     CallerToken(Box<SourceToken>),
+    /// As the caller's own principal, which the reading node's source switches to for the read.
+    CallerPrincipal(PrincipalName),
 }
 
 /// A lookup leg its source split and granted to the nodes that read it, rather than read here.
@@ -275,6 +281,12 @@ impl<'r> Granted<'r> {
         Ok(self)
     }
 
+    /// This grant, read as `principal`, the caller's own principal its grantee was switched to.
+    fn switching(mut self, principal: PrincipalName) -> Self {
+        self.reads = ReadAs::CallerPrincipal(principal);
+        self
+    }
+
     /// The leg, as the granting adapter encoded it for its readers.
     #[must_use]
     pub const fn wire(&self) -> &[u8] {
@@ -336,7 +348,7 @@ pub struct Grantee {
     caller: SubjectKey,
     until: SystemTime,
     presented: Option<AssertionDigest>,
-    token: Option<SourceToken>,
+    reads: ReadAs,
 }
 
 /// Why [`Grantee::new`] offered no grant.
@@ -367,6 +379,11 @@ pub enum NotGranted {
 #[error("a grant forwards only a token exchanged from its own caller's credential")]
 pub struct NotTheCallersToken;
 
+/// Why [`Grantee::switching`] refused a principal: it is not the grantee's own caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a grant switches only to its own caller's principal")]
+pub struct NotTheCallersPrincipal;
+
 impl Grantee {
     /// `leg`, encoded as its readers re-certify it, granted for the caller `asked` names, until the
     /// earlier of `question_ends` and `asked`'s own expiry.
@@ -392,7 +409,7 @@ impl Grantee {
             caller,
             until,
             presented,
-            token: None,
+            reads: ReadAs::ServiceUser,
         })
     }
 
@@ -413,14 +430,28 @@ impl Grantee {
         if self.presented.as_ref() != Some(token.exchanged_from()) {
             return Err(NotTheCallersToken);
         }
-        self.token = Some(token);
+        self.reads = ReadAs::CallerToken(Box::new(token));
+        Ok(self)
+    }
+
+    /// This grantee, its partitions read as `principal` ([`ReadAs::CallerPrincipal`]), when
+    /// `principal` is the one the grantee's own verified caller names ([`SubjectKey::principal`]).
+    ///
+    /// # Errors
+    ///
+    /// [`NotTheCallersPrincipal`] for any other principal.
+    pub fn switching(mut self, principal: PrincipalName) -> Result<Self, NotTheCallersPrincipal> {
+        if self.caller.principal().ok().as_ref() != Some(&principal) {
+            return Err(NotTheCallersPrincipal);
+        }
+        self.reads = ReadAs::CallerPrincipal(principal);
         Ok(self)
     }
 
     /// `partitions`, each a descriptor another node can read or `None` for one only this node can,
     /// granted as [`Granted::new`] grants them, checked against `now` - the instant the source
     /// handed them back, after its own round trips - and read with the token [`Self::forwarding`]
-    /// took, if it took one.
+    /// took or as the principal [`Self::switching`] took, if it took one.
     ///
     /// # Errors
     ///
@@ -451,9 +482,10 @@ impl Grantee {
             estimate,
             held,
         )?;
-        Ok(match self.token {
-            Some(token) => granted.forwarding(token, now)?,
-            None => granted,
+        Ok(match self.reads {
+            ReadAs::ServiceUser => granted,
+            ReadAs::CallerToken(token) => granted.forwarding(*token, now)?,
+            ReadAs::CallerPrincipal(principal) => granted.switching(principal),
         })
     }
 }
@@ -463,7 +495,8 @@ impl fmt::Debug for Grantee {
         f.debug_struct("Grantee")
             .field("caller", &self.caller)
             .field("until", &self.until)
-            .field("forwarding", &self.token.is_some())
+            .field("forwarding", &matches!(self.reads, ReadAs::CallerToken(_)))
+            .field("switching", &matches!(self.reads, ReadAs::CallerPrincipal(_)))
             .finish_non_exhaustive()
     }
 }
