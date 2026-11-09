@@ -16,14 +16,14 @@ use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement};
 use adbc_core::{Connection as _, Database as _, Driver as _, Optionable as _, Statement as _};
 use adbc_driver_manager::{ManagedConnection, ManagedDriver};
 use arrow_array::{Array, RecordBatch, RecordBatchReader as _, StringArray, StructArray};
-use arrow_schema::{ArrowError, Field, Schema};
+use arrow_schema::{ArrowError, Field, Schema, SchemaRef};
 
 use sutura_adbc::DriverLocation;
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture, Secret};
 use sutura_domain::model::SourceName;
 #[cfg(feature = "fixtures")]
 use sutura_domain::model::TableName;
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{AnchorPlan, Executable, LegPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::cardinality::{CountsNotRead, DeclaredKey, KeyUniqueness};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
@@ -42,7 +42,7 @@ const TLS_ROOT_CERTS: &str = "clickhouse.client.tls_root_certs";
 const MTLS_CERT_CHAIN: &str = "clickhouse.client.mtls_cert_chain";
 const MTLS_PRIVATE_KEY: &str = "clickhouse.client.mtls_private_key";
 const MAX_EXECUTION_TIME: &str = "clickhouse.setting.max_execution_time";
-const MOST_RESULT_ROWS: usize = 1_000_000;
+pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
 /// TLS material already validated by the composition root, in the PEM shape the driver accepts.
 #[derive(Clone)]
@@ -200,6 +200,10 @@ pub enum AdbcError {
     PresentedDisagreesWithPosture(#[source] PresentedDisagreesWithPosture),
     #[error("the key probe did not return two counts")]
     KeyCounts(#[source] CountsNotRead),
+    /// The `ClickHouse` bucket-split path is not built yet: a partition read is refused until the
+    /// behaviour PR fills in [`buckets::split_by_estimate`] and [`buckets::read_partition`].
+    #[error("ClickHouse bucket reads are not built yet")]
+    BucketsUnbuilt,
 }
 
 /// A `ClickHouse` warehouse over its ADBC driver.
@@ -467,8 +471,47 @@ impl AdbcClickHouseWarehouse {
         }
         execute_to_completion(&mut statement, most_rows, self.result_budget)
     }
+    /// [`AdbcClickHouseWarehouse::split_by_estimate`]: the `ClickHouse` bucket split's API parent,
+    /// stubbed to the whole read. The behaviour PR estimates and cuts the leg, and answers
+    /// [`Planned::Split`] for one a reader can hold.
+    ///
+    /// # Errors
+    ///
+    /// Nothing in the parent: this answers [`Planned::Whole`] for every leg.
+    pub const fn split_by_estimate(
+        &self,
+        leg: &LegPlan,
+        presented: &Presented,
+        deadline: Deadline,
+        above_bytes: core::num::NonZeroU64,
+        per_stream_bound: core::num::NonZeroUsize,
+        ready_workers: core::num::NonZeroUsize,
+    ) -> Result<Planned<'_>, AdbcError> {
+        buckets::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
+    }
+
+    /// [`AdbcClickHouseWarehouse::read_partition`]: the `ClickHouse` bucket split's API parent,
+    /// stubbed to a refusal. The behaviour PR reads `descriptor`'s bucket of `leg` as `identity`,
+    /// after the worker admitted the task's grant and re-certified the leg.
+    ///
+    /// # Errors
+    ///
+    /// [`AdbcError::BucketsUnbuilt`] always, in the parent.
+    pub fn read_partition(
+        &self,
+        leg: &LegPlan,
+        descriptor: &[u8],
+        granted: &SchemaRef,
+        identity: PartitionIdentity,
+        deadline: Deadline,
+    ) -> Result<ResultBatches, AdbcError> {
+        buckets::read_partition(self, leg, descriptor, granted, identity, deadline)
+    }
 }
 
+mod buckets;
+
+pub use buckets::{BucketDescriptor, InvalidBucketDescriptor, PartitionIdentity, Planned};
 #[cfg(test)]
 mod sum_slot;
 #[cfg(test)]
