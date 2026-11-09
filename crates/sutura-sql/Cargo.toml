@@ -19,6 +19,9 @@ sutura-domain = { workspace = true }
 # executes plans on the engine and renders nothing used to link a SQL generator through the core;
 # `cargo xtask check-boundaries` now fails if that edge comes back.
 polyglot-sql = { workspace = true }
+# The leg's columns as its source described them, read for one question: which keys are integers,
+# the only keys a hash bucket agrees with the source's own grouping on (`generate::buckets`).
+arrow-schema = { workspace = true }
 serde = { workspace = true }
 # Read for exactly one question, and it is a question the typed API cannot answer. An aggregate's
 # `FILTER (WHERE ..)` is a `filter` FIELD on eleven different node structs rather than a node of its

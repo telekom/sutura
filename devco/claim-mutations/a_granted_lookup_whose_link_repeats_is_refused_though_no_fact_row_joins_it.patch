@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
+--- a/crates/sutura-exec-datafusion/src/combine/served.rs
++++ b/crates/sutura-exec-datafusion/src/combine/served.rs
+@@ -179,7 +179,7 @@
+         .config_mut()
+         .options_mut()
+         .optimizer
+-        .join_reordering = false;
++        .join_reordering = true;
+     across::joined(relation, scanned, table, links, on, include_unmatched).map_err(|cause| CombineError::Build { cause })
+ }
+ 

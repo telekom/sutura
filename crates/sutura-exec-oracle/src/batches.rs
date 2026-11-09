@@ -33,6 +33,21 @@ pub(crate) fn query(
     stop: Stop,
     before_fetch: impl FnMut() -> Result<(), OracleError>,
 ) -> Result<RowSet, OracleError> {
+    query_declared(connection, sql, params, stop, before_fetch).map(|(rows, _)| rows)
+}
+
+/// An answer, and the schema its columns are declared fixed as, where they are.
+pub(crate) type Declared = (RowSet, Option<SchemaRef>);
+
+/// [`query`], with the schema the database declares the answer's columns fixed as, where it
+/// declares one ([`crate::split::columns::declared`]).
+pub(crate) fn query_declared(
+    connection: &oracledb::Connection,
+    sql: &str,
+    params: &[&dyn oracledb::ToDbValue],
+    stop: Stop,
+    before_fetch: impl FnMut() -> Result<(), OracleError>,
+) -> Result<Declared, OracleError> {
     let sets = [params];
     let batches = connection
         .statement(sql)
@@ -44,14 +59,21 @@ pub(crate) fn query(
         .query_arrow_batches(sets.as_slice().into())
         .map_err(execute_err_mapped)?;
     let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;
+    let declared = crate::split::columns::declared(
+        batches
+            .columns()
+            .iter()
+            .map(|column| (column.name(), column.db_type(), column.precision(), column.scale())),
+    );
     let schema = batches.schema();
-    read(
+    let rows = read(
         batches.map(|batch| batch.map_err(driver_error)),
         &schema,
         &numbers,
         stop,
         before_fetch,
-    )
+    )?;
+    Ok((rows, declared))
 }
 
 /// The driver's own error, out of the [`ArrowError`] its batch reader wraps it in.
@@ -173,7 +195,7 @@ where
         .collect()
 }
 
-fn unannounced(cause: UnannouncedBatch) -> OracleError {
+pub(crate) fn unannounced(cause: UnannouncedBatch) -> OracleError {
     match cause {
         UnannouncedBatch::OverBudget { most_bytes } => OracleError::OverBudget { most_bytes },
         cause @ (UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } | UnannouncedBatch::OverBound { .. }) => {

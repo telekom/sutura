@@ -1,0 +1,12 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	data_per_subscription
+Text(2026-06-01)	Real(7.119482758621e0)
+Text(2026-06-02)	Real(8.066551724138e0)
+Text(2026-06-03)	Real(7.910517241379e0)
+Text(2026-06-04)	Real(8.146206896552e0)
+Text(2026-06-05)	Real(7.719827586207e0)
+Text(2026-06-06)	Real(7.550517241379e0)
+Text(2026-06-07)	Real(6.531379310345e0)

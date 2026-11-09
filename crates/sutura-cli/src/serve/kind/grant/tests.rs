@@ -269,3 +269,6 @@ fn a_split_offered_no_grantee_is_read_here() {
         "a split with no grantee is not described"
     );
 }
+
+#[cfg(feature = "bigquery")]
+mod bigquery;

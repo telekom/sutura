@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/identity.rs b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+--- a/crates/sutura-exec-bigquery/src/adbc/identity.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+@@ -221,10 +221,10 @@ pub(super) fn authenticate(
+ /// [`AdbcError::Uncovered`] at a source that federates at no pool.
+ pub(super) fn forwarded(token: &Secret, impersonation: &Impersonation) -> Result<JobAuthentication, AdbcError> {
+     match *impersonation {
+-        Impersonation::ThroughPool(_) => Ok(JobAuthentication {
++        Impersonation::ThroughPool(_) | Impersonation::GoogleLogin => Ok(JobAuthentication {
+             options: access_token_options(token),
+         }),
+-        Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
++        Impersonation::Disabled | Impersonation::DomainDelegation(_) => Err(AdbcError::Uncovered(
+             "read a forwarded token at a source that federates at no pool",
+         )),
+     }

@@ -39,15 +39,21 @@ use crate::commands::render;
 /// The TCP connect is bounded by `sutura_exec_oracle::DIAL_DEADLINE`; the handshake after it is
 /// not, so a listener that accepts and then never answers holds the boot.
 ///
+/// **A source that declares `split: flashback` is probed here too**, over every table `pinned`'s
+/// models on it name: `OracleWarehouse::with_flashback` refuses a service user holding
+/// `FLASHBACK ANY TABLE` and one that cannot read each of those tables at a snapshot. The probe
+/// reads the models' own tables, not the tables their joins reach.
+///
 /// # Errors
 ///
 /// A placement the dispatcher should have sent elsewhere; a source with no declared identity; a
 /// posture this adapter cannot deliver; a password file that cannot be read or is empty; an anchor
-/// bundle that cannot be read or holds no usable certificate; or a connection the listener or the
-/// database refused.
+/// bundle that cannot be read or holds no usable certificate; a connection the listener or the
+/// database refused; or a declared flashback split whose probe failed.
 pub(crate) fn build(
     source: &SourceName,
     configured: &sutura_config::ConfiguredSource,
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<OracleWarehouse, String> {
     // Matched rather than read off accessors every kind would have to have: the dispatcher has
@@ -90,7 +96,7 @@ pub(crate) fn build(
             anchors_pem: &anchors_pem,
         },
     );
-    OracleWarehouse::connect(
+    let opened = OracleWarehouse::connect(
         source.clone(),
         identity.posture().clone(),
         dial,
@@ -98,7 +104,32 @@ pub(crate) fn build(
         exposed,
         working_set.result_budget(),
     )
-    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))
+    .map_err(|cause| format!("`sources.{source}` did not open: {}", render(&cause)))?;
+    match configured.split() {
+        None => Ok(opened),
+        Some(sutura_config::sources::split::SourceSplit::Flashback) => {
+            opened.with_flashback(&tables_on(pinned, source)).map_err(|cause| {
+                format!(
+                    "`sources.{source}` declares `split: flashback`, and its boot probe refused: {}",
+                    render(&cause)
+                )
+            })
+        }
+    }
+}
+
+/// The tables `pinned`'s models on `source` sit behind.
+fn tables_on(
+    pinned: &sutura_domain::pinned::PinnedDefinitions,
+    source: &SourceName,
+) -> std::collections::BTreeSet<sutura_domain::model::QualifiedTable> {
+    pinned
+        .definitions()
+        .models()
+        .values()
+        .filter(|model| model.source() == source)
+        .map(|model| model.table().clone())
+        .collect()
 }
 
 /// The PEM bundle at `anchors`, which `key` declared; the refusal names both.

@@ -85,18 +85,23 @@ pub(super) fn predicate_values(plan_predicate: &PlanPredicate, params: &[ParamVa
     }
 }
 
-/// Cast a Postgres `AVG` to `DOUBLE`, where a mean must arrive as a float.
+/// Make an `AVG` arrive as a double where its own answer is an exact decimal.
 ///
 /// Postgres's `AVG` over an INTEGER column returns `NUMERIC`, where the engine (and `DuckDB`)
 /// produce `DOUBLE` for the same query - and `NUMERIC` with a fraction is the case this repository
 /// keeps exact as text ("so an exact total stays exact"), which would turn a mean into a `Text` leg
 /// that disagrees with the float every other adapter reaches. Casting the Postgres `AVG` to
 /// `DOUBLE` on the WIRE keeps a mean a float there. It is the same `DOUBLE` cast the ratio path
-/// already makes (proven accepted by every target we render for), and it touches only the Postgres
-/// dialect.
-fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
-    if matches!(kind, Aggregate::Avg) && dialect == Dialect::Postgres {
-        over.cast("DOUBLE")
+/// already makes (proven accepted by every target we render for).
+///
+/// **Oracle's `AVG` over a `NUMBER` is a `NUMBER` too**, of up to 38 digits, which the adapter reads
+/// back as exact text where the engine answers a double. The first `oracle-tier` run found the
+/// engine's January mean `3390.285714285714` with no equal row on the Oracle side (the log prints
+/// the engine's row only, so the Oracle text itself was not seen). It takes [`as_double`]'s
+/// `TO_BINARY_DOUBLE(..)`, for the reason given there. Every other dialect keeps its own `AVG`.
+fn avg_as_double(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
+    if matches!(kind, Aggregate::Avg) && matches!(dialect, Dialect::Postgres | Dialect::Oracle) {
+        as_double(over, dialect)
     } else {
         over
     }
@@ -230,7 +235,7 @@ pub(super) fn term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: D
         PlanTerm::Aggregate {
             aggregate: kind,
             column: ref col,
-        } => avg_for_postgres(aggregate(kind, guarded_column(column(col), guard, emitted)), kind, dialect),
+        } => avg_as_double(aggregate(kind, guarded_column(column(col), guard, emitted)), kind, dialect),
         PlanTerm::CountIf { column: ref col } => {
             // A `CountIf` already guards its own (boolean) column; a metric guard is ANDed into
             // the same WHEN branch rather than wrapping the column again - one embedding.
@@ -253,6 +258,23 @@ fn ratio_term_expression(term: &PlanTerm, guard: Option<&Guard>, dialect: Dialec
             column: ref col,
         } if dialect == Dialect::ClickHouse => sum_as_double_for_clickhouse(&column(col), guard, emitted),
         _ => term_expression(term, guard, dialect, emitted),
+    }
+}
+
+/// `over` as a floating-point number, the numerator of a ratio.
+///
+/// **Oracle gets `TO_BINARY_DOUBLE(..)`, not a cast.** polyglot's Oracle generator writes a
+/// `BINARY_DOUBLE` cast target as `DOUBLE PRECISION`, which is `FLOAT(126)`: a `NUMBER` in Oracle, so
+/// the division stayed exact and the adapter read it back as text where every other adapter answers a
+/// double - observed in the `oracle-tier` job as `0.0483870967741935483870967741935483870968` against
+/// `0.04838709677419355`. `TO_BINARY_DOUBLE` is the one spelling that is a `BINARY_DOUBLE` regardless
+/// of how a cast target is canonicalised, and dividing it by the `NUMBER` count converts the count to
+/// binary as well.
+fn as_double(over: Expr, dialect: Dialect) -> Expr {
+    if dialect == Dialect::Oracle {
+        builder::func("TO_BINARY_DOUBLE", [over])
+    } else {
+        over.cast("DOUBLE")
     }
 }
 
@@ -294,7 +316,7 @@ pub(super) fn measure_expression(
             ref denominator,
             zero_denominator,
         } => {
-            let top = ratio_term_expression(numerator, guard, dialect, emitted).cast("DOUBLE");
+            let top = as_double(ratio_term_expression(numerator, guard, dialect, emitted), dialect);
             let bottom = ratio_term_expression(denominator, guard, dialect, emitted);
             let bottom = match zero_denominator {
                 ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),

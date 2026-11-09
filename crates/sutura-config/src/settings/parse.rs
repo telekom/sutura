@@ -41,6 +41,9 @@ fn parse_tls(raw: &RawSettings) -> Result<Option<crate::server::TlsMaterial>, Se
                 crate::server::DeclaredNodeRefusal::Tls(cause) => SettingsError::TlsMaterial { cause },
                 crate::server::DeclaredNodeRefusal::Node(cause) => SettingsError::InvalidDeclaredNode { cause },
             })?;
+            let tls = tls
+                .address_family(nodes.address_family)
+                .map_err(|cause| SettingsError::InvalidDeclaredNode { cause })?;
             Ok(Some(tls.across_above(nodes.across_above_bytes)))
         }
         (None, Some(_)) => Err(SettingsError::TlsMaterial {
@@ -181,6 +184,14 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
             registry
                 .acknowledge_inbound_token_at_pool(written, value)
                 .map_err(|cause| SettingsError::Sources { cause })?;
+        }
+        if let Some(value) = source.hash_buckets_acknowledged_because.as_deref() {
+            registry
+                .acknowledge_hash_buckets(written, value)
+                .map_err(|cause| SettingsError::Sources { cause })?;
+        }
+        if let Some(value) = source.split.as_deref() {
+            crate::sources::split::declare(&mut registry, written, value).map_err(|cause| SettingsError::Sources { cause })?;
         }
     }
     Ok(registry)

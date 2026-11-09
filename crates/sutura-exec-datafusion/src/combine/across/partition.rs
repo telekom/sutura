@@ -4,20 +4,26 @@
 //!
 //! A [`SplitScan`](crate::SplitScan) plans one `PartitionScanExec` per partition, placed on a node
 //! reading its source; a served question builds one only for a granted lookup leg, which only a
-//! mixed-kind `sutura serve` deployment's PostgreSQL source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
+//! `sutura serve` deployment's PostgreSQL source or `BigQuery` pool source grants. [`Nodes::worker_reading`](crate::Nodes::worker_reading) is a reading worker's own
 //! construction, parallel to [`Nodes::worker`](crate::Nodes::worker); `crates/sutura-cli` builds one
 //! for its reading role.
 //!
 //! # Limits
 //!
 //! - [`PartitionReader`](partition::PartitionReader) is a port: this crate holds no implementation,
-//!   the composition root does. A reader that answers [`Unread::LegNotCertified`] fails the task
-//!   under the relay code [`relay`] reads back; what it re-certified against is the reader's.
+//!   the composition root does. A reader that answers [`Unread::LegNotCertified`] or
+//!   [`Unread::DidNotFit`] fails the task under a relay code [`relay`] reads back; what it
+//!   re-certified against, and the bound it read under, are the reader's.
 //! - The leaf's schema crosses the wire through `datafusion_proto`'s own `Schema` protobuf, the same
 //!   round trip `combine::tests::across::decode` already exercises for one.
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
 //!   admit rule, not the codec, decides what a missing grant means
 //!   ([`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming), widened for exactly this case).
+//! - A leaf carrying a token, or a grant naming one, is admitted only when the grant names exactly
+//!   the token and pool the leaf carries, which then carries the admitted grant's end to its
+//!   reader ([`Forwarded::ends`](partition::Forwarded::ends)). The token leaves the leaf when its
+//!   read starts, and a second read of that leaf is refused. The wire bytes it was decoded from are
+//!   not wiped.
 
 use core::fmt;
 use core::future::Future;
@@ -37,7 +43,10 @@ use datafusion_distributed::{WorkerPlanRewriteEvent, WorkerPlanRewriteEventRespo
 use datafusion_proto::physical_plan::{PhysicalExtensionCodec, PhysicalProtoConverterExtension};
 use datafusion_proto::protobuf::Schema as ProtoSchema;
 use futures_util::{StreamExt as _, stream};
+use parking_lot::Mutex;
 use prost::Message as _;
+use ring::digest;
+use sutura_domain::identity::{Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::ResultBatches;
 
@@ -53,7 +62,8 @@ pub trait PartitionReader: Send + Sync {
     /// # Errors
     ///
     /// [`Unread::LegNotCertified`] when this node does not certify the leg `wire` carries;
-    /// [`Unread::Failed`] for anything else.
+    /// [`Unread::DidNotFit`] for a partition past this node's per-stream bound; [`Unread::Failed`]
+    /// for anything else.
     fn read(
         &self,
         wire: &[u8],
@@ -61,6 +71,106 @@ pub trait PartitionReader: Send + Sync {
         partition: &[u8],
         schema: &SchemaRef,
     ) -> Result<SendableRecordBatchStream, Unread>;
+
+    /// [`Self::read`], with `forwarded`, the caller's own token the partition's grant names.
+    ///
+    /// # Errors
+    ///
+    /// By default every such read, as [`Unread::Failed`]: a reader that reads no source with a
+    /// caller's token is never handed one to read past.
+    fn read_forwarded(
+        &self,
+        _wire: &[u8],
+        source: &SourceName,
+        _partition: &[u8],
+        _schema: &SchemaRef,
+        forwarded: Forwarded,
+    ) -> Result<SendableRecordBatchStream, Unread> {
+        drop(forwarded);
+        Err(Unread::Failed(DataFusionError::Execution(format!(
+            "this reading worker reads no partition of `{source}` with a caller's token"
+        ))))
+    }
+}
+
+/// The caller's own token a granted partition is read with, a digest of the pool whose principal
+/// it is, and when the grant a worker admitted it under ends. Its `Debug` prints none of them.
+pub struct Forwarded {
+    token: Secret,
+    pool: [u8; 32],
+    ends: SystemTime,
+}
+
+impl Forwarded {
+    /// `token`, a token of `pool`'s principal for the caller, admitted under no grant yet.
+    #[must_use]
+    pub fn new(token: Secret, pool: &WorkloadPool) -> Self {
+        Self {
+            token,
+            pool: pool_digest(pool),
+            ends: SystemTime::UNIX_EPOCH,
+        }
+    }
+
+    /// When the grant this worker admitted the token under ends, on this worker's clock - no later
+    /// than the token itself, as the planning node clamps a grant to its token. The epoch, already
+    /// ended, for a token no admission named.
+    #[must_use]
+    pub const fn ends(&self) -> SystemTime {
+        self.ends
+    }
+
+    /// How long the token's grant lasts from now, on this worker's clock: `None` once it has ended.
+    #[must_use]
+    pub fn left(&self) -> Option<Duration> {
+        self.ends
+            .duration_since(SystemTime::now())
+            .ok()
+            .filter(|left| !left.is_zero())
+    }
+
+    /// Whether this token was forwarded for `pool`'s principal, the one a reader's own source
+    /// federates at.
+    #[must_use]
+    pub fn for_pool(&self, pool: &WorkloadPool) -> bool {
+        self.pool == pool_digest(pool)
+    }
+
+    /// The token, moved out for the one read it is handed to.
+    #[must_use]
+    pub fn into_token(self) -> Secret {
+        self.token
+    }
+
+    /// A copy for one more task's plan.
+    pub(super) fn copied(&self) -> Self {
+        Self {
+            token: self.token.clone(),
+            pool: self.pool,
+            ends: self.ends,
+        }
+    }
+
+    pub(super) const fn token(&self) -> &Secret {
+        &self.token
+    }
+
+    pub(super) const fn pool(&self) -> [u8; 32] {
+        self.pool
+    }
+}
+
+impl fmt::Debug for Forwarded {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Forwarded").finish_non_exhaustive()
+    }
+}
+
+fn pool_digest(pool: &WorkloadPool) -> [u8; 32] {
+    let hashed = digest::digest(&digest::SHA256, pool.audience().as_bytes());
+    let mut bytes = [0; 32];
+    bytes.copy_from_slice(hashed.as_ref());
+    bytes
 }
 
 /// A closure reads without the leg's wire, and its failure is never a refused certification.
@@ -79,12 +189,29 @@ where
     }
 }
 
+/// Why a reading worker read nothing with a caller's token.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenUnread {
+    /// The grant the token was admitted under has ended on this node's clock, so the token may have.
+    #[error("the grant a partition of `{at}` was admitted under has ended")]
+    Ended { at: SourceName },
+    /// A source of this kind reads no partition with a caller's token.
+    #[error("this reading worker reads no partition of `{at}` with a caller's token")]
+    NotReadWithAToken { at: SourceName },
+    /// A source of this kind reads a partition only with the caller's token, and none was granted.
+    #[error("a partition of `{at}` is read only with its caller's token, and its grant names none")]
+    NoToken { at: SourceName },
+}
+
 /// Why a [`PartitionReader`] read nothing.
 #[derive(Debug)]
 pub enum Unread {
     /// This node's own catalog does not certify the leg the task carries. Crosses the link as a code
     /// the planning node maps to its own refusal, never as text.
     LegNotCertified,
+    /// The partition's rows did not fit the bound this node reads one stream under. Crosses the link
+    /// as a code, for [`Self::LegNotCertified`]'s reason.
+    DidNotFit,
     /// The read failed, as the engine's failure.
     Failed(DataFusionError),
 }
@@ -107,6 +234,9 @@ impl Unread {
         match self {
             Self::LegNotCertified => super::relay::not_certified(DataFusionError::Execution(String::from(
                 "this worker's catalog does not certify the leg it was asked to read",
+            ))),
+            Self::DidNotFit => super::relay::did_not_fit(DataFusionError::Execution(String::from(
+                "a granted partition did not fit this worker's per-stream bound",
             ))),
             Self::Failed(cause) => cause,
         }
@@ -134,15 +264,35 @@ pub fn read_later(
 pub(super) struct ReaderExtension(pub(super) Arc<dyn PartitionReader>);
 
 /// A granted read of one source's one partition: the leg it reads, the partition descriptor, the
-/// reading key this call presented, and the grant and signature naming the read - or no grant, a
-/// case the admit rule reads as [`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming).
+/// reading key this call presented, the grant and signature naming the read - or no grant, a case
+/// the admit rule reads as [`WorkerRefusal::GrantNotNaming`](super::WorkerRefusal::GrantNotNaming) -
+/// and the caller's token the grant names, if any, handed out once.
 pub(super) struct PartitionScanExec {
     wire: Vec<u8>,
     source: SourceName,
     partition: Vec<u8>,
     presented_key: [u8; 32],
     grant: Option<Vec<u8>>,
+    carried: Mutex<Carried>,
     properties: Arc<PlanProperties>,
+}
+
+/// The caller's token a scan carries. A worker keeps an installed plan for minutes after its read,
+/// so the token leaves the scan when the read starts and is dropped with it if the read never does.
+enum Carried {
+    Nothing,
+    Token(Forwarded),
+    Taken,
+}
+
+impl Carried {
+    const fn shown(&self) -> &'static str {
+        match self {
+            Self::Nothing => "none",
+            Self::Token(_) => "held",
+            Self::Taken => "taken",
+        }
+    }
 }
 
 impl fmt::Debug for PartitionScanExec {
@@ -150,6 +300,7 @@ impl fmt::Debug for PartitionScanExec {
         f.debug_struct("PartitionScanExec")
             .field("source", &self.source)
             .field("grant", &self.grant.is_some())
+            .field("token", &self.shown())
             .finish_non_exhaustive()
     }
 }
@@ -175,14 +326,48 @@ impl PartitionScanExec {
             partition,
             presented_key,
             grant,
+            carried: Mutex::new(Carried::Nothing),
             properties,
+        }
+    }
+
+    /// This scan, read with `forwarded`.
+    pub(super) fn forwarding(self, forwarded: Forwarded) -> Self {
+        *self.carried.lock() = Carried::Token(forwarded);
+        self
+    }
+
+    /// Whether this scan holds a token, never the token. A scan whose token is being moved shows
+    /// `busy` rather than waiting on it.
+    fn shown(&self) -> &'static str {
+        self.carried.try_lock().map_or("busy", |carried| carried.shown())
+    }
+
+    /// The token this scan carries, moved out for the one read it is handed to: `None` for a scan
+    /// that carries none, and refused once it was taken.
+    fn taken(&self) -> Result<Option<Forwarded>, DataFusionError> {
+        let was = {
+            let mut carried = self.carried.lock();
+            let next = if matches!(*carried, Carried::Nothing) {
+                Carried::Nothing
+            } else {
+                Carried::Taken
+            };
+            core::mem::replace(&mut *carried, next)
+        };
+        match was {
+            Carried::Nothing => Ok(None),
+            Carried::Token(forwarded) => Ok(Some(forwarded)),
+            Carried::Taken => Err(DataFusionError::Execution(String::from(
+                "a partition scan hands out its caller's token once, and this one's was taken",
+            ))),
         }
     }
 }
 
 impl DisplayAs for PartitionScanExec {
     fn fmt_as(&self, _: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PartitionScanExec: source={}", self.source)
+        write!(f, "PartitionScanExec: source={}, token={}", self.source, self.shown())
     }
 }
 
@@ -229,13 +414,15 @@ impl ExecutionPlan for PartitionScanExec {
             .session_config()
             .get_extension::<ReaderExtension>()
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
-        reader
-            .0
-            .read(
-                &self.wire,
-                &self.source,
-                &self.partition,
-                self.properties.eq_properties.schema(),
+        let schema = self.properties.eq_properties.schema();
+        self.taken()?
+            .map_or_else(
+                || reader.0.read(&self.wire, &self.source, &self.partition, schema),
+                |forwarded| {
+                    reader
+                        .0
+                        .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded)
+                },
             )
             .map_err(Unread::into_error)
     }
@@ -323,17 +510,25 @@ fn decode_partition(buf: &[u8]) -> DecodedPartitionScan {
     let presented_key = <[u8; 32]>::try_from(key.as_slice()).map_err(|_length| malformed())?;
     let grant_bytes = take_field(&mut rest).ok_or_else(malformed)?;
     let grant = (!grant_bytes.is_empty()).then_some(grant_bytes);
+    let token = take_field(&mut rest).ok_or_else(malformed)?;
+    let pool = take_field(&mut rest).ok_or_else(malformed)?;
+    let forwarded = match (token.is_empty(), <[u8; 32]>::try_from(pool.as_slice())) {
+        (true, _) if pool.is_empty() => None,
+        (false, Ok(pool)) => Some(Forwarded {
+            token: Secret::new(String::from_utf8(token).map_err(|_utf8| malformed())?),
+            pool,
+            ends: SystemTime::UNIX_EPOCH,
+        }),
+        _ => return Err(malformed()),
+    };
     let schema_bytes = take_field(&mut rest).ok_or_else(malformed)?;
     let proto_schema = ProtoSchema::decode(schema_bytes.as_slice()).map_err(|_proto| malformed())?;
     let schema: Schema = (&proto_schema).try_into().map_err(|_arrow| malformed())?;
-    Ok(Arc::new(PartitionScanExec::new(
-        wire,
-        source,
-        part,
-        presented_key,
-        grant,
-        Arc::new(schema),
-    )))
+    let scan = PartitionScanExec::new(wire, source, part, presented_key, grant, Arc::new(schema));
+    Ok(Arc::new(match forwarded {
+        Some(forwarded) => scan.forwarding(forwarded),
+        None => scan,
+    }))
 }
 
 fn encode_partition(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<(), DataFusionError> {
@@ -352,6 +547,21 @@ fn encode_partition(node: &Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<
     put_field(buf, &leaf.partition);
     put_field(buf, &leaf.presented_key);
     put_field(buf, leaf.grant.as_deref().unwrap_or_default());
+    match &*leaf.carried.lock() {
+        Carried::Token(forwarded) => {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the caller's token, written only into the plan of the one task that reads its partition"
+            )]
+            let token = forwarded.token.expose_secret().as_bytes();
+            put_field(buf, token);
+            put_field(buf, &forwarded.pool);
+        }
+        Carried::Nothing | Carried::Taken => {
+            put_field(buf, &[]);
+            put_field(buf, &[]);
+        }
+    }
     put_field(buf, &proto_schema.encode_to_vec());
     Ok(())
 }
@@ -369,17 +579,35 @@ pub(super) fn reads_partition_or_nothing(
     let mut refusal: Option<DataFusionError> = None;
     event.plan.apply(|node| {
         if let Some(leaf) = node.downcast_ref::<PartitionScanExec>() {
-            if let Err(cause) = grant::verify_reading(
+            let mut carried = leaf.carried.lock();
+            let forwarded = match &*carried {
+                Carried::Token(forwarded) => Some(forwarded),
+                Carried::Nothing | Carried::Taken => None,
+            };
+            let verified = grant::verify_reading(
                 keys,
-                &leaf.wire,
-                &leaf.source,
-                &leaf.partition,
-                leaf.presented_key,
-                leaf.grant.as_deref(),
+                &grant::ReadingCall {
+                    wire: &leaf.wire,
+                    source: &leaf.source,
+                    partition: &leaf.partition,
+                    key: leaf.presented_key,
+                    grant: leaf.grant.as_deref(),
+                    forwarded,
+                },
                 now,
-            ) {
-                refusal = Some(DataFusionError::External(Box::new(cause)));
-                return Ok(TreeNodeRecursion::Stop);
+            );
+            match verified {
+                Ok(ends) => {
+                    if let Carried::Token(ref mut forwarded) = *carried {
+                        forwarded.ends = SystemTime::UNIX_EPOCH.checked_add(ends).unwrap_or(SystemTime::UNIX_EPOCH);
+                    }
+                    drop(carried);
+                }
+                Err(cause) => {
+                    drop(carried);
+                    refusal = Some(DataFusionError::External(Box::new(cause)));
+                    return Ok(TreeNodeRecursion::Stop);
+                }
             }
         } else if node.children().is_empty() && !carried(node) {
             refusal = Some(DataFusionError::External(Box::new(StageReadsASource {

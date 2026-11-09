@@ -10,7 +10,7 @@
 /// each one's leg evidence is.**
 ///
 /// An entry that cannot run a leg cannot be either half of a federated answer, so every entry here
-/// owes a venue that ran one - or says plainly that it has none. A cell rather than a sentence, so
+/// owes a venue that ran one. A cell rather than a sentence, so
 /// registering a further leg-executing adapter REDDENS here and the diff that enrols it arrives
 /// beside the registration. `sutura-conformance`'s binding holds the per-adapter agreement between
 /// the tag and the constant; what this holds is the SET, and now the evidence each member claims.
@@ -19,9 +19,13 @@
 /// `crates/sutura-app/tests/golden/dialects.rs` is why.** What it replaces was the sentence *every
 /// entry in `LEG_EXECUTING` owes this file one [pass]* beside a list of bare names: true for the
 /// first two entries, and a claim no mechanism could keep true once a third arrived whose venue is
-/// in another crate and a fourth that has no venue at all. An entry declaring execution that never
-/// runs is exactly `github.com/telekom/sutura#920`'s defect, so [`Self::RenderedOnly`] is a value
-/// here and not a footnote.
+/// in another crate. An entry declaring execution that never runs is exactly
+/// `github.com/telekom/sutura#920`'s defect, so the venue is a file this cell holds the tree to.
+///
+/// **A render-only arm was here until `oracle` acquired a venue**, and it was held by asserting
+/// `available()` was `false`. It had no member left, so it went rather than stayed as a variant
+/// nothing constructs; the next adapter that declares execution before any venue runs it needs it
+/// back, with that assertion.
 #[derive(Debug, Clone, Copy)]
 enum LegEvidence {
     /// A venue in this workspace ran a leg on this adapter, in the file named - asserted to EXIST
@@ -30,22 +34,13 @@ enum LegEvidence {
     /// **Does not reach whether that venue ran HERE**, nor whether it is a real data system:
     /// `datafusion` and `duckdb` are this file's own two passes, `postgres` and `clickhouse`
     /// conformance bindings against the tiers `nix/postgres-tier.nix` and `nix/clickhouse-tier.nix`
-    /// provision, and `bigquery` the canned transport its pack binds - a fake standing in for a
-    /// dataset, whose own header says so. Asserting anything about `available()` here would redden
-    /// a host whose venue comes up, which is not a defect.
+    /// provision, `bigquery` the canned transport its pack binds - a fake standing in for a
+    /// dataset, whose own header says so - and `oracle` the two-fact walk in the `oracle-tier` job
+    /// alone. Asserting anything about `available()` here would redden a host whose venue comes up,
+    /// which is not a defect.
     Executed {
         /// The file whose cells execute a leg on this adapter.
         at: &'static str,
-    },
-    /// The declaration is a RENDERING and nothing more: no venue any gate reaches can open this
-    /// adapter at all, so `DataSystemUnderTest::available()` is `false` unconditionally.
-    ///
-    /// **That is what this arm is checked against**, which is what makes it expire: an adapter
-    /// that acquires a venue starts answering `available()` truthfully and reddens here until its
-    /// entry moves to [`Self::Executed`].
-    RenderedOnly {
-        /// The file whose own header states what this adapter cannot prove. Asserted to exist.
-        stated_in: &'static str,
     },
 }
 
@@ -77,10 +72,12 @@ const LEG_EXECUTING: &[(&str, LegEvidence)] = &[
             at: "crates/sutura-exec-clickhouse/tests/conformance.rs",
         },
     ),
+    // The two-fact walk, in the `oracle-tier` job alone: `SUTURA_ORACLE_TIER` brings the compose
+    // `oracle` profile in, and the walk prints `oracle` among the entries it compared.
     (
         "oracle",
-        LegEvidence::RenderedOnly {
-            stated_in: "crates/sutura-exec-oracle/src/lib.rs",
+        LegEvidence::Executed {
+            at: "crates/sutura-app/tests/differential/federated/two_fact.rs",
         },
     ),
     // The canned pack, because it is what every gate runs. A `bigquery` leg also executes live:
@@ -102,52 +99,64 @@ fn leg_evidence(name: &str) -> Option<LegEvidence> {
         .map(|&(_, evidence)| evidence)
 }
 
-/// Holds one declaration against the tree.
-fn hold(name: &str, evidence: LegEvidence, available: bool) {
+/// Holds one declaration against the tree: the file it cites exists and is not empty.
+fn hold(name: &str, evidence: LegEvidence) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let (cited, expect_absent_venue) = match evidence {
-        LegEvidence::Executed { at } => (at, false),
-        LegEvidence::RenderedOnly { stated_in } => (stated_in, true),
-    };
-    let path = root.join(cited);
-    let size = std::fs::metadata(&path)
+    let LegEvidence::Executed { at: cited } = evidence;
+    let size = std::fs::metadata(root.join(cited))
         .unwrap_or_else(|cause| panic!("{name} cites {cited} as its leg evidence and it did not read: {cause}"))
         .len();
     assert!(size > 0, "{name} cites {cited} as its leg evidence and that file is empty");
-    if expect_absent_venue {
-        assert!(
-            !available,
-            "{name} is declared to have no possible venue for a leg, and `DataSystemUnderTest::available()` \
-             says one answered: move its `LEG_EXECUTING` entry to `LegEvidence::Executed` once a venue here \
-             executes a leg on it"
-        );
-    }
 }
 
-macro_rules! leg_capability {
-    ($name:ident, $adapter:ty) => {
-        mod $name {
-            use crate::adapters::DataSystemUnderTest;
-            use sutura_domain::warehouse::Warehouse;
+/// One cell over the registry rather than one per entry, so the assertions sit in the cell's own fn:
+/// a failure panics at the first `registered!` line below, inside it, which is where a claim's
+/// killing mutation is read.
+///
+/// **Two passes, and the first reads no `available()`.** Under `SUTURA_DEV_REQUIRE_TIER`,
+/// `available()` of a tier-backed system panics where its tier is not provisioned, and the registry
+/// walks `clickhouse` before `oracle`: the claim's kill worktree provisions Postgres only, so one
+/// pass that asked both stopped at `clickhouse` before `oracle`'s `EXECUTES_LEGS` was asserted.
+/// **The limit:** that is read from `dev/src/provisioned.rs` and the kill worktree's tier, not
+/// reproduced. The second pass only reports, and a report is never asserted: a host whose venue
+/// comes up is not a defect, and the line shows a run's reader which entries' evidence this run
+/// could have exercised.
+#[test]
+fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
+    use crate::adapters::DataSystemUnderTest;
+    use sutura_domain::warehouse::Warehouse;
 
-            #[test]
-            fn whether_it_can_run_a_leg_is_what_this_differential_can_use_it_for() {
-                let name = <$adapter as DataSystemUnderTest>::NAME;
-                let declared = super::leg_evidence(name);
-                assert_eq!(
-                    <$adapter as Warehouse>::EXECUTES_LEGS,
-                    declared.is_some(),
-                    "{name} changed its leg capability; \
-                     crates/sutura-app/tests/differential/federated/leg_evidence.rs is where a \
-                     leg-executing adapter declares where its executed leg evidence is, and an \
-                     adapter that declares the constant owes an entry"
-                );
-                if let Some(evidence) = declared {
-                    super::hold(name, evidence, <$adapter as DataSystemUnderTest>::available());
-                }
+    macro_rules! leg_capability {
+        ($name:ident, $adapter:ty) => {{
+            let name = <$adapter as DataSystemUnderTest>::NAME;
+            let declared = leg_evidence(name);
+            assert_eq!(
+                <$adapter as Warehouse>::EXECUTES_LEGS,
+                declared.is_some(),
+                "{name} changed its leg capability; \
+                 crates/sutura-app/tests/differential/federated/leg_evidence.rs is where a \
+                 leg-executing adapter declares where its executed leg evidence is, and an \
+                 adapter that declares the constant owes an entry"
+            );
+            if let Some(evidence) = declared {
+                hold(name, evidence);
             }
-        }
-    };
-}
+        }};
+    }
+    crate::adapters::registered!(data_systems: leg_capability);
 
-crate::adapters::registered!(data_systems: leg_capability);
+    macro_rules! venue_report {
+        ($name:ident, $adapter:ty) => {{
+            let name = <$adapter as DataSystemUnderTest>::NAME;
+            if let Some(LegEvidence::Executed { at: cited }) = leg_evidence(name) {
+                let venue = if <$adapter as DataSystemUnderTest>::available() {
+                    "answers"
+                } else {
+                    "does not answer"
+                };
+                eprintln!("leg evidence: {name} cites {cited}; its venue {venue} here");
+            }
+        }};
+    }
+    crate::adapters::registered!(data_systems: venue_report);
+}

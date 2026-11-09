@@ -557,9 +557,9 @@ pub enum SourcePlacement {
     /// under the identity the deployment declared, the password read from a FILE at boot and never
     /// written in the settings tree. There is no `unix_socket` and no `database` key, and both
     /// absences are deliberate rather than pending: `ClickHouse`'s HTTP interface is dialled over
-    /// TCP only, and `sutura_exec_clickhouse::transport::Http` sends no `database` parameter - so a
-    /// `database:` here would be a key an operator wrote and the deployment reads past, which is
-    /// exactly what `parse_placement`'s foreign-key rule refuses on every other kind.
+    /// TCP only, and the adapter's endpoint names no `database` - so a `database:` here would be a
+    /// key an operator wrote and the deployment reads past, which is exactly what
+    /// `parse_placement`'s foreign-key rule refuses on every other kind.
     ClickHouse {
         /// The host its HTTP interface is served on. A non-loopback host with no TLS declared is
         /// refused at parse, the same fail-closed rule [`Self::Postgres`] is held to.

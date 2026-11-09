@@ -1,30 +1,26 @@
-//! Building the `ureq::tls::TlsConfig` a TLS `clickhouse` source channel verifies with.
+//! The TLS material a TLS `clickhouse` source channel hands the ADBC driver.
 //!
-//! This is the TLS half of `sutura_config::sources::transport`, turned into a verifier:
-//! configuration owns the three-state DECLARATION (`plaintext` /
-//! `verified` / `mutual`), and this module owns turning a declared `verified` or `mutual` channel
-//! into the thing the client connects with. **The declared-trust-store rule extends rather than
-//! forks** (`docs/adr/0010`): a PEM bundle or the host's system store, read once by [`config`] and
-//! never a fallback, exactly as the Postgres source channel reads it.
+//! This is the TLS half of `sutura_config::sources::transport`, turned into the driver's PEM
+//! options: configuration owns the three-state DECLARATION (`plaintext` / `verified` / `mutual`),
+//! and this module owns reading a declared `verified` or `mutual` channel's material. **The
+//! declared-trust-store rule extends rather than forks** (`docs/adr/0010`): a PEM bundle or the
+//! host's system store, validated once by [`adbc_options`] and never a fallback, exactly as the
+//! Postgres source channel reads it.
 //!
 //! The read itself lives in `sutura-tls`, shared with the Postgres source channel and the
 //! `BigQuery` wire so the refusals for an unreadable, empty or malformed bundle/identity are not a
-//! third hand-written copy. What is this crate's own is folding the read bytes into the shape
-//! `ureq::tls::TlsConfig` wants - `ureq::tls::Certificate`/`ureq::tls::PrivateKey` rather than
-//! `rustls`'s own DER newtypes, because `ureq` never hands this adapter a `rustls::ClientConfig` to
-//! build.
+//! third hand-written copy. What is this crate's own is handing the validated bytes on as the PEM
+//! text the driver builds its TLS configuration from.
 //!
-//! # Why this is a fallible step SEPARATE from opening the transport
+//! # Why this is a fallible step SEPARATE from opening the adapter
 //!
-//! `transport::Http::connect`/`connect_secured` take an already-built `ureq::tls::TlsConfig` and
-//! cannot fail, because building a `ureq::Agent` does no I/O - `ureq` dials lazily, on the
-//! first request. So [`TlsError`] is its own type here rather than a variant folded into
-//! `crate::ClickHouseError`: nothing about it can arrive from `Warehouse::execute`, only from
-//! whoever resolves a declared channel into a config before opening the adapter.
+//! [`TlsError`] is its own type rather than a variant folded into [`crate::adbc::AdbcError`]:
+//! nothing about it can arrive from `Warehouse::execute`, only from whoever resolves a declared
+//! channel before opening the adapter.
 
 use std::path::PathBuf;
 
-/// Why this crate could not build a `ureq::tls::TlsConfig` from a declared channel.
+/// Why this crate could not read the TLS material of a declared channel.
 ///
 /// The same six refusals `sutura_exec_postgres::PostgresError` carries for the identical read,
 /// field for field - [`from_load_error`] is the mapping.
@@ -88,37 +84,7 @@ impl TlsIdentity {
     }
 }
 
-/// Builds the `ureq::tls::TlsConfig` a TLS source channel verifies (and, for `mutual`, presents)
-/// with, from the resolved anchor material and an optional client identity.
-///
-/// # Errors
-///
-/// The six refusals [`TlsError`] carries: an unreadable or empty bundle, an unreadable or empty
-/// system store, and an unreadable or malformed identity.
-pub fn config(anchors: &TlsAnchors, identity: Option<&TlsIdentity>) -> Result<ureq::tls::TlsConfig, TlsError> {
-    let loaded = sutura_tls::load_anchors(&resolved_anchors(anchors)).map_err(from_load_error)?;
-    let identity_loaded = identity
-        .map(|id| sutura_tls::load_identity(&resolved_identity(id)).map_err(from_load_error))
-        .transpose()?;
-    let roots = ureq::tls::RootCerts::new_with_certs(&owned_certificates(loaded));
-    let builder = ureq::tls::TlsConfig::builder().root_certs(roots);
-    // `identity.zip(identity_loaded)` is `Some` exactly when both halves are - `identity_loaded`
-    // is derived FROM `identity` above, so there is no third case where one is present and the
-    // other is not for a match arm to have to refuse.
-    match identity.zip(identity_loaded) {
-        None => Ok(builder.build()),
-        Some((declared, loaded)) => {
-            let (chain, _key) = loaded.into_parts();
-            let certificates = owned_certificates_from(chain);
-            let key = owned_key(declared)?;
-            Ok(builder
-                .client_cert(Some(ureq::tls::ClientCert::new_with_certs(&certificates, key)))
-                .build())
-        }
-    }
-}
-
-/// Loads the same declared channel for the ADBC driver's PEM options.
+/// Loads a declared channel for the ADBC driver's PEM options.
 ///
 /// A system trust store is represented by `None`: the vendored driver is built with its native
 /// roots feature. A declared bundle or mutual identity is validated through `sutura-tls` first,
@@ -161,44 +127,6 @@ fn read_anchor_pem(path: &std::path::Path) -> Result<String, TlsError> {
     })?;
     String::from_utf8(bytes).map_err(|_cause| TlsError::PemNotUtf8 {
         path: path.display().to_string(),
-    })
-}
-
-/// `sutura_tls::LoadedAnchors`'s `CertificateDer` bytes, each turned into an owned
-/// `ureq::tls::Certificate` - the same conversion `sutura_catalog_datahub::tls_roots` makes for
-/// its own `ureq`-backed reader.
-fn owned_certificates(loaded: sutura_tls::LoadedAnchors) -> Vec<ureq::tls::Certificate<'static>> {
-    owned_certificates_from(loaded)
-}
-
-/// The shared conversion, over anything that yields owned `CertificateDer`s - both the root anchor
-/// set and a `mutual` channel's own presented chain are exactly this shape.
-fn owned_certificates_from(
-    loaded: impl IntoIterator<Item = rustls_pki_types::CertificateDer<'static>>,
-) -> Vec<ureq::tls::Certificate<'static>> {
-    loaded
-        .into_iter()
-        .map(|der| ureq::tls::Certificate::from_der(der.as_ref()).to_owned())
-        .collect()
-}
-
-/// The declared client key, as `ureq::tls::PrivateKey` wants it.
-///
-/// **Read a second time, deliberately.** `sutura_tls::load_identity` already validated the file at
-/// `declared`'s key path parses to a complete certificate-and-key pair - that is what
-/// [`TlsError::IdentityIncomplete`]/[`TlsError::IdentityKey`] hold - but its own return type is
-/// `rustls_pki_types::PrivateKeyDer`, whose three variants (`Pkcs1`/`Sec1`/`Pkcs8`) name which shape
-/// the PEM held using `ureq::tls::KeyKind`, a type `ureq` does not make public. `PrivateKey::
-/// from_pem` is the only externally reachable constructor left, and it re-derives the same shape
-/// from the same bytes rustls's reader already validated - so this re-read cannot newly refuse
-/// anything `sutura_tls::load_identity` did not already accept.
-fn owned_key(declared: &TlsIdentity) -> Result<ureq::tls::PrivateKey<'static>, TlsError> {
-    let pem = std::fs::read(&declared.key).map_err(|cause| TlsError::IdentityRead {
-        path: declared.key.display().to_string(),
-        cause,
-    })?;
-    ureq::tls::PrivateKey::from_pem(&pem).map_err(|_cause| TlsError::IdentityKey {
-        path: declared.key.display().to_string(),
     })
 }
 
@@ -271,17 +199,19 @@ mod tests {
     }
 
     #[test]
-    fn a_bundle_builds_a_verifying_tls_config() {
+    fn a_bundle_is_handed_on_as_the_drivers_root_certificates() {
         let scratch = Scratch::new("bundle");
         let anchors = scratch.cert("root");
-        config(&TlsAnchors::Bundle(anchors), None).expect("a bundle with one cert builds");
+        let (root, chain, key) = adbc_options(&TlsAnchors::Bundle(anchors), None).expect("a bundle with one cert reads");
+        assert!(root.is_some_and(|pem| pem.contains("BEGIN CERTIFICATE")));
+        assert_eq!((chain, key), (None, None));
     }
 
     #[test]
     fn a_missing_anchor_file_is_refused_naming_the_path() {
         let missing = PathBuf::from("/definitely/not/here.pem");
         assert!(matches!(
-            config(&TlsAnchors::Bundle(missing), None),
+            adbc_options(&TlsAnchors::Bundle(missing), None),
             Err(TlsError::AnchorsRead { path, .. }) if path == "/definitely/not/here.pem"
         ));
     }
@@ -292,18 +222,21 @@ mod tests {
         let empty = scratch.directory.join("empty.pem");
         std::fs::write(&empty, "not a certificate at all\n").expect("an empty file writes");
         assert!(matches!(
-            config(&TlsAnchors::Bundle(empty.clone()), None),
+            adbc_options(&TlsAnchors::Bundle(empty.clone()), None),
             Err(TlsError::AnchorsEmpty { path }) if path == empty.display().to_string()
         ));
     }
 
     #[test]
-    fn a_client_identity_builds_a_mutual_tls_config() {
+    fn a_client_identity_is_handed_on_as_the_drivers_chain_and_key() {
         let scratch = Scratch::new("mutual");
         let anchors = scratch.cert("root");
         let (certificate, key) = scratch.pair("client");
         let identity = TlsIdentity { certificate, key };
-        config(&TlsAnchors::Bundle(anchors), Some(&identity)).expect("a pair builds a mutual config");
+        let (_, chain, key) =
+            adbc_options(&TlsAnchors::Bundle(anchors), Some(&identity)).expect("a pair reads as a mutual identity");
+        assert!(chain.is_some_and(|pem| pem.contains("BEGIN CERTIFICATE")));
+        assert!(key.is_some_and(|pem| pem.contains("PRIVATE KEY")));
     }
 
     #[test]
@@ -315,7 +248,7 @@ mod tests {
             key: scratch.directory.join("client.key"),
         };
         assert!(matches!(
-            config(&TlsAnchors::Bundle(anchors), Some(&identity)),
+            adbc_options(&TlsAnchors::Bundle(anchors), Some(&identity)),
             Err(TlsError::IdentityRead { path, .. }) if path == "/definitely/not/here.crt"
         ));
     }

@@ -1,12 +1,12 @@
-diff --git a/crates/sutura-cli/src/serve/worker/partition.rs b/crates/sutura-cli/src/serve/worker/partition.rs
---- a/crates/sutura-cli/src/serve/worker/partition.rs
-+++ b/crates/sutura-cli/src/serve/worker/partition.rs
-@@ -76,7 +76,7 @@ impl Opened {
-                     _ => Err(not_postgres()),
-                 })
-             }
--            _ => Ok(Err(not_postgres())),
-+            _ => Ok(Err(Unread::LegNotCertified)),
-         };
-         read.unwrap_or_else(|_refused| Err(Unread::LegNotCertified))
+diff --git a/crates/sutura-cli/src/serve/kind/split.rs b/crates/sutura-cli/src/serve/kind/split.rs
+--- a/crates/sutura-cli/src/serve/kind/split.rs
++++ b/crates/sutura-cli/src/serve/kind/split.rs
+@@ -153,7 +153,7 @@
+                 .splits()
+                 .map_or_else(|| Err(not_split()), |kind| read_here(kind, leg, partition, granted, deadline))
+         }),
+-        _ => Err(not_split()),
++        _ => Err(Unread::LegNotCertified),
      }
+ }
+ 

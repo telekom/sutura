@@ -184,7 +184,8 @@ true and the refusal does not. And *the three type-level consts this enum still 
 unchanged - `executes_legs` was already the instance method, which is exactly what lets
 `AnyWarehouse` answer it per variant.
 
-**What this amendment may NOT be cited for.** No federated answer has been produced against a real
+**What this amendment may NOT be cited for.** **The first two sentences are superseded by the
+*Fourth amendment* below.** No federated answer has been produced against a real
 `BigQuery` dataset. `crates/sutura-app/tests/golden/dialects.rs` still declares `Dialect::BigQuery`
 as `Evidence::RenderOnly`, and that declaration is checked against the tree, so it expires if an
 execution golden ever arrives. The claim available here is: **the leg renders correctly for the
@@ -217,3 +218,30 @@ looks for it.** The enum's own `IMPERSONATION` is still fixed at the restrictive
 `deliverable_by` runs against each adapter's own concrete constant before an adapter is wrapped. And
 a published artefact now links the impersonating adapter (`nix/shipped.nix`), so a mixed answer is
 reachable. This record does not establish a served cross-posture run.
+
+## Fourth amendment, 2026-11-07: the dialect axis declares BigQuery executed
+
+**The *Second amendment*'s *What this amendment may NOT be cited for* is corrected in its first two
+sentences.** They said `crates/sutura-app/tests/golden/dialects.rs` declares `Dialect::BigQuery` as
+`Evidence::RenderOnly` and that no federated answer had been produced against a real `BigQuery`
+dataset. Both stopped being true after that amendment, and the first expired by the mechanism it
+named: the declaration is checked against the tree, and an execution golden arrived.
+
+- **The declaration expired with `#1264`.** `dialects.rs` declares `Dialect::BigQuery` as
+  `Evidence::Executed`, which holds only while every execution family has goldens for it. The venue is
+  the `bigquery-conformance` CI job alone, against the dataset it provisions. `just validate` never
+  reaches it, and a fork or a Dependabot pull request gets no credential, so there the cells skip
+  under their named exemption.
+- **A federated answer has run live since `#1282`**, in the same job. The two-fact differential
+  (`crates/sutura-app/tests/differential/federated/two_fact.rs`) answers the two-source ratio with
+  both sources on `BigQuery` and holds it against two in-process engines for content and for order.
+
+**What may still NOT be cited.** Both runs execute under the job's one CI identity, with
+impersonation off and the `shared-service-user` posture, and both sources sit on one dataset. So no
+federated answer has been produced against a real dataset **as the asking subject**, and the claim
+available for two impersonating legs is unchanged: *each leg renders correctly for the dialect, and
+the transport submits it with the subject's own credential and the configured `maximumBytesBilled`
+ceiling.* Neither row of `docs/where-identity-is-proven.md`'s leg-2 pair moves. One run's corpus cell
+timed out undiagnosed, so how the job behaves under load is unproven. The rest of the *Second
+amendment*'s paragraph stands, including its last sentence: ADBC prices no dry run, so the ceiling
+bounds a federated `BigQuery` answer exactly as little as it bounds a mono one.

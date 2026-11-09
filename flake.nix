@@ -255,6 +255,85 @@
         # devenv.nix imports so the dev shell and CI cannot open two different libduckdbs.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
         postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+        # TPC-H generated from the pinned DuckDB with its `tpch` extension linked in, one derivation
+        # per scale factor (`nix/tpch-data.nix`), failing the build unless the row counts are the
+        # specification's.
+        tpchData = import ./nix/tpch-data.nix { inherit pkgs; };
+
+        # The refusal-rate measurement at one scale. The served binary is the shipped one, so the
+        # latencies are a release build's. Not `exec`'d, so the trap that stops a tier this run
+        # started still fires.
+        tpchRefusalRate = scale: {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-tpch-refusal-rate-sf${toString scale}" ''
+            set -euo pipefail
+            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${pkgs.python3}/bin:$PATH"
+            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
+            export SUTURA_DUCKDB_ADBC_DRIVER="${duckdbHostDriver}"
+            # `nix/with-tier.sh`'s Postgres arm without its ClickHouse one, which this corpus never reads.
+            rc=0
+            sutura-postgres-tier status >/dev/null 2>&1 || rc=$?
+            if [ "$rc" = 1 ]; then trap 'sutura-postgres-tier stop || true' EXIT; fi
+            sutura-postgres-tier start
+            python3 ${./nix/tpch-refusal-rate.py} --corpus ${./nix/tpch} --data ${tpchData.tpchSf scale} "$@"
+          '');
+        };
+        # `sutura-dev agree`: the one comparison policy of two answers (`dev/src/agree.rs`), behind
+        # the default-off `agreement` feature, so the across-nodes acceptance judges with it and
+        # with no second copy. Built on `ciArtifacts` as `packages.xtask` is. Nothing ships it.
+        suturaDevAgree = craneLib.buildPackage (ciArgs // inheritedArtifacts ciArtifacts // {
+          pname = "sutura-dev";
+          cargoExtraArgs = "--package sutura-dev --features agreement";
+          doCheck = false;
+          meta.mainProgram = "sutura-dev";
+        });
+
+        # TPC-H across nodes against one node, in four NixOS VMs (`telekom/sutura#828`) -
+        # `nix/tpch-across-nodes.nix` says what it observes and what it does not. The served binary
+        # is the shipped one, so the times are a release build's. A function of the scale; SF10 is
+        # the first published scale that splits both tables, and `apps.tpch-across-nodes` is it.
+        #
+        # AN APP AND NOT A CHECK, for two reasons that are both gates. `just ci` builds every check
+        # and this adds a VM test of about 13 minutes at SF10 (runs 42342552818 and 42343995219 of
+        # `.github/workflows/tpch-across-nodes.yml`). And `check-workflows` refuses a literal `nix
+        # build` of anything but a check in a pull-request workflow, which this one is. The app
+        # holds the test as a dependency, so it is built before the script runs and a failed
+        # test leaves nothing to copy. A stub on any other system, for `multi-node`'s reason.
+        tpchAcrossNodes = scale:
+          let
+            test = import ./nix/tpch-across-nodes.nix {
+              inherit pkgs scale;
+              sutura = shipped.nativeBinaries.sutura;
+              postgresDriver = postgresAdbcHostDriver;
+              duckdbDriver = duckdbHostDriver;
+              agree = suturaDevAgree;
+              inherit (tpchData) cli;
+              data = tpchData.tpchSf scale;
+              inherit (tpchData) dimensions;
+              corpus = ./nix/tpch;
+            };
+          in
+          {
+            type = "app";
+            program = builtins.toString (
+              if system == "x86_64-linux" then
+                pkgs.writeShellScript "sutura-tpch-across-nodes-sf${toString scale}" ''
+                  set -euo pipefail
+                  if [ "$#" -ne 2 ] || [ "$1" != --out ]; then
+                    echo 'usage: nix run .#tpch-across-nodes -- --out DIR' >&2
+                    exit 2
+                  fi
+                  mkdir -p "$2"
+                  cp -L ${test}/results.json ${test}/ranges.md "$2"/
+                ''
+              else
+                pkgs.writeShellScript "sutura-tpch-across-nodes-not-on-${system}" ''
+                  echo 'only x86_64-linux runs the VM test' >&2
+                  exit 1
+                ''
+            );
+          };
+
         # The ClickHouse execution venue, on Postgres's pattern: `checks.nextest` and `just test`
         # start the same script, so the golden matrix's `clickhouse` cells execute in both.
         clickhouseTier = import ./nix/clickhouse-tier.nix { inherit pkgs; };
@@ -877,6 +956,25 @@
             else
               pkgs.runCommand "multi-node-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
 
+          # A serving node, two reading workers and PostgreSQL in four NixOS VMs: a lookup leg split
+          # and granted to the readers (`telekom/sutura#828`) - `nix/multi-node-postgres.nix` says what
+          # it observes and what it does not. A stub on any other system, for `multi-node`'s reason.
+          multi-node-postgres =
+            if system == "x86_64-linux" then
+              import ./nix/multi-node-postgres.nix {
+                inherit pkgs;
+                sutura = shipped.nativeFor {
+                  binary = builtins.head shipped.binaries;
+                  profile = "ci";
+                  features = [ "postgres" "tls" "distributed" ];
+                };
+                postgresDriver = postgresAdbcHostDriver;
+                example = ./examples/single-player;
+                golden = builtins.path { path = ./crates/sutura-app/tests/snapshots + "/recurring-revenue-by-region__rows@postgres.snap"; name = "recurring-revenue-by-region.snap"; };
+              }
+            else
+              pkgs.runCommand "multi-node-postgres-not-on-${system}" { } "echo 'only x86_64-linux runs the multi-node VM test' > $out";
+
           # This chart in a k3s cluster inside a NixOS VM, scaled up by its CPU autoscaler under load
           # and back down (`telekom/sutura#828`) - `nix/k3s-autoscaling.nix` says what it observes and
           # what it does not. A stub on any other system, for `multi-node`'s reason.
@@ -1312,9 +1410,10 @@
         };
 
         # The Oracle venue (#127): starts the compose `oracle` profile and runs its `#[ignore]`d
-        # cells - `sutura-exec-oracle`'s acceptance cell, `sutura-catalog-rdbms`'s live dictionary
-        # cells (#972) and `sutura-cli`'s served source-password cell - the only venue that
-        # executes a statement against a live Oracle, since a nix check has no docker socket. The
+        # cells - `sutura-exec-oracle`'s acceptance and importer cells, `sutura-catalog-rdbms`'s live
+        # dictionary cells (#972) and `sutura-cli`'s served source-password cell - then `sutura-app`'s
+        # golden and differential cells for the `oracle` data system (`nix/oracle-app-cells.sh`): the
+        # only venue that executes a statement against a live Oracle, since a nix check has no docker socket. The
         # `oracle-tier` CI job runs it; `just oracle-acceptance` is the by-hand twin. No teardown:
         # the CI runner is ephemeral, and a tier a developer started by hand is neither adopted nor
         # stopped.
@@ -1339,6 +1438,7 @@
             (
               exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
             ) || status=$?
+            bash nix/oracle-app-cells.sh --profile ci || status=$?
             exit "$status"
           '');
         };
@@ -1492,27 +1592,18 @@
           '');
         };
 
-        # `nix run .#tpch-refusal-rate -- --scale N --out DIR` - how often a TPC-H-shaped corpus is
+        # `nix run .#tpch-refusal-rate-sf<N> -- --out DIR` - how often a TPC-H-shaped corpus is
         # refused when its star is split over DuckDB and PostgreSQL, at the shipped defaults and at
         # one large point. `nix/tpch-refusal-rate.py` carries the design; dispatched by hand from
-        # `.github/workflows/tpch-refusal-rate.yml`, and gates nothing. The served binary is the
-        # shipped one, so the latencies are a release build's. Not `exec`'d, so the trap that stops a
-        # tier this run started still fires.
-        apps.tpch-refusal-rate = {
-          type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-tpch-refusal-rate" ''
-            set -euo pipefail
-            export PATH="${shipped.nativeBinaries.sutura}/bin:${postgresTier.tier}/bin:${postgresTier.package}/bin:${pkgs.python3.withPackages (p: [ p.duckdb ])}/bin:$PATH"
-            export SUTURA_POSTGRES_ADBC_DRIVER="${postgresAdbcHostDriver}"
-            export SUTURA_DUCKDB_ADBC_DRIVER="${duckdbHostDriver}"
-            # `nix/with-tier.sh`'s Postgres arm without its ClickHouse one, which this corpus never reads.
-            rc=0
-            sutura-postgres-tier status >/dev/null 2>&1 || rc=$?
-            if [ "$rc" = 1 ]; then trap 'sutura-postgres-tier stop || true' EXIT; fi
-            sutura-postgres-tier start
-            python3 ${./nix/tpch-refusal-rate.py} --corpus ${./nix/tpch} "$@"
-          '');
-        };
+        # `.github/workflows/tpch-refusal-rate.yml`, and gates nothing. One app per scale, so a scale
+        # that is not run is not generated (`tpchRefusalRate`).
+        apps.tpch-refusal-rate-sf1 = tpchRefusalRate 1;
+        apps.tpch-refusal-rate-sf10 = tpchRefusalRate 10;
+
+        # `nix run .#tpch-across-nodes -- --out DIR` - SF10 of `tpchAcrossNodes`, which says what it is
+        # and why it is an app. Dispatched, and run on the paths it reads, by
+        # `.github/workflows/tpch-across-nodes.yml`; it gates nothing.
+        apps.tpch-across-nodes = tpchAcrossNodes 10;
 
         apps.default-features = {
           type = "app";

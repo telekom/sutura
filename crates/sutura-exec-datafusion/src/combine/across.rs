@@ -15,10 +15,12 @@
 //! it for its working set. A link costs latency a question one node answers does not need to pay.
 //!
 //! **A node may be declared by a host, which is resolved when each question is planned.** Each
-//! address it resolves to is one node, its IPv4 ones when it has any so a dual-stack pod is not two,
-//! dialled at that address and checked against the host: a pool of workers behind one name, as a
-//! headless service's is, is the nodes it holds at that moment
-//! (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! address it resolves to is one node, of the family `server.nodes.address_family` names
+//! ([`AddressFamily`](sutura_domain::plan::AddressFamily)), dialled at that address and checked
+//! against the host: a pool of workers behind one name, as a headless service's is, is the nodes it
+//! holds at that moment (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 6).
+//! `auto`, the default, keeps one family per host - its IPv4 addresses when it has any, so a
+//! dual-stack pod is not two nodes - while `ipv4` and `ipv6` keep that family alone.
 //!
 //! **A question that goes across may wait for other nodes, bounded.** With
 //! `server.nodes.wait_for_workers_seconds` declared, it wants one other node for each share of
@@ -49,11 +51,20 @@
 //!   worker that asks for it runs a stage of a question only for a node that holds that question's
 //!   key, or was itself installed with one of its stages. Who may install a stage is the link's
 //!   mutual TLS alone. A worker served without [`TaskGrant`] admits any call.
-//! - A channel, once dialled, is kept for the process's life, one for every address it has dialled,
-//!   so a host whose addresses change keeps one for each it was ever dialled at.
+//! - A channel, once dialled, is kept until a call on it fails or is given up on before its reply,
+//!   one for every address it has dialled, so a host whose addresses change keeps one for each it
+//!   was ever dialled at. The next call dials again, so a node that restarted serves the next
+//!   question; the question that lost it still fails, and nothing is retried. A question that
+//!   answers but gave up on a call before its reply costs its next call there a new handshake. A
+//!   call that already holds a forgotten channel still uses it. A peer that vanished after a reply
+//!   without closing its connection is not detected, as no keepalive is set: the next question goes
+//!   to that connection and fails or waits out its deadline.
 //! - A host that resolves to nothing declares no node, as an empty pool does, so a misspelled one
 //!   plans every question onto the other nodes rather than refusing it - unless a wait is declared
-//!   and no other node resolves, which is refused once the wait ends.
+//!   and no other node resolves, which is refused once the wait ends. So does a host with no address
+//!   of the family `ipv4` or `ipv6` chose; an IP literal of the other family is refused at startup.
+//!   The family is chosen among the addresses the resolver returns and makes no node reachable over
+//!   a family the network between the nodes does not carry.
 //! - Only an empty pool is refused, which keeps the refusal's "retry" truthful: a pool already at its
 //!   largest would otherwise turn a question too large for it into a retry that never succeeds. A
 //!   question planned across fewer nodes than it wanted may still be refused for its working set.
@@ -63,14 +74,19 @@
 //!   read, fails that question, which is refused as [`CombineError::NodeLost`] and may be asked again.
 //!   Nothing re-plans it onto the nodes that remain. A link that fails with any other status, an
 //!   HTTP/2 stream reset for any reason but refusing the stream among them, leaves as
-//!   [`CombineError::Execute`], unless the failure carries the code of a stage a node refused for
-//!   rows past the federated row ceiling, which leaves as [`CombineError::RowsOverCeiling`]. A cell
+//!   [`CombineError::Execute`], unless the failure carries a code `relay` reads back: a stage refused
+//!   for rows past the federated row ceiling ([`CombineError::RowsOverCeiling`]), a leg a reading
+//!   worker did not certify ([`CombineError::LegNotCertified`]), a granted partition past a reading
+//!   worker's per-stream bound ([`CombineError::PartitionDidNotFit`]), or a granted leg's link value
+//!   held more than once ([`CombineError::AmbiguousLink`]). A cell
 //!   loses a node nothing listens on and one that drops its connection under a call, over plain
 //!   TCP; the multi-node VM check kills one while it answers.
-//! - That code is read only exactly, only off a failure, and answered from this node's own ceiling:
-//!   a peer can turn a failed question into that refusal, never into an answer. A code a node wraps
-//!   in an Arrow or an external error crosses its next link as text and stays a failure. One stage
-//!   raises it: a final-stage task past the worker's row ceiling.
+//! - Each code is read only exactly, only off a failure, and answered from this node's own
+//!   configuration: a peer can turn a failed question into one of those refusals, never into an
+//!   answer. A code a node wraps in an Arrow or an external error crosses its next link as text and
+//!   stays a failure. Three stages raise the four codes: a final-stage task past the worker's row
+//!   ceiling; a reading worker's partition scan, whose reader did not certify its leg or whose
+//!   partition did not fit its per-stream bound (two codes); and a granted leg's link count.
 //! - A resolved address is counted as a worker. This node cannot tell a worker from another serving
 //!   node behind the same name, so a host naming both counts both.
 //! - A stage on a worker, this node's own included, reserves against that worker's pool, which is
@@ -94,17 +110,20 @@
 //!   node resolved for is refused. [`refuse_ambiguous_split`] checks a split lookup leg's link
 //!   values across its partitions, counting each value after a repartition on the link columns. A
 //!   combine registers a lookup leg its source granted as one, and checks and joins it across these
-//!   nodes, never on this one: each partition is read twice, once by the check and once by the join,
-//!   under the one snapshot its source holds open across both. Only a mixed-kind `sutura serve`
-//!   deployment's PostgreSQL source grants a served leg (`github.com/telekom/sutura#828`).
+//!   nodes, never on this one. Each granted leg is checked in the plan that joins it, whose join
+//!   reads the scan the check counts, so each partition is read once (`served::counted_in_plan`).
+//!   A link value held twice fails that plan under a code this node reads back as
+//!   [`CombineError::AmbiguousLink`]. Only a `sutura serve` deployment's
+//!   PostgreSQL source or `BigQuery` pool source grants a served leg
+//!   (`github.com/telekom/sutura#828`).
 //! - `sutura serve` builds a [`Nodes`] from `server.nodes`, under its `distributed` feature only.
 
 use core::num::NonZeroU64;
 use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs as _};
-use std::sync::Arc;
+use std::net::{IpAddr, ToSocketAddrs as _};
+use std::sync::{Arc, Weak};
 
 use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::datasource::memory::{DataSourceExec, MemorySourceConfig};
@@ -124,7 +143,7 @@ use datafusion_distributed::{
 };
 use hyper_util::rt::TokioIo;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::{FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
+use sutura_domain::plan::{AddressFamily, FederatedRowCeiling, SlotsHeld, WorkerSlotsWanted};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
@@ -154,19 +173,27 @@ mod split;
 /// A split lookup leg's ambiguous-link check, counted after a repartition on its link columns.
 mod link;
 
+/// A granted lookup leg's ambiguous-link check, inside the plan that joins it.
+mod once;
+
 pub use ceiling::WorkerRefusal;
 pub use grant::TaskGrant;
 pub use link::refuse_ambiguous_split;
-pub use partition::{PartitionReader, Unread, read_later};
+pub use partition::{Forwarded, PartitionReader, TokenUnread, Unread, read_later};
 pub use split::{SplitScan, StreamBound};
 
 /// A refusal another node raised in a stage, read back off the failure its link relays.
 mod relay;
 
+pub(super) use once::joined;
 pub(super) use relay::relayed;
 
 #[cfg(test)]
 mod lost;
+
+/// A link whose dial a call gave up on is dialled again by the next call.
+#[cfg(test)]
+mod redial;
 
 /// A final-stage task over the ceiling, run on a worker. `#![cfg(test)]` sits in the file rather
 /// than on this declaration, which the causality gate's base run then restores away with the rest of
@@ -197,6 +224,8 @@ pub struct Nodes {
     row_ceiling: FederatedRowCeiling,
     /// The other nodes declared as reading each source, as declared.
     readers: HashMap<SourceName, Vec<Url>>,
+    /// Which family of address a host among `others` is dialled at.
+    address_family: AddressFamily,
 }
 
 impl core::fmt::Debug for Nodes {
@@ -231,6 +260,7 @@ impl Nodes {
             keys: grant::Keys::default(),
             row_ceiling: FederatedRowCeiling::LOOSEST,
             readers: HashMap::new(),
+            address_family: AddressFamily::Auto,
         }
     }
 
@@ -271,6 +301,15 @@ impl Nodes {
         }
     }
 
+    /// The same nodes, a host among the other nodes dialled at `family` addresses.
+    #[must_use]
+    pub fn address_family(self, family: AddressFamily) -> Self {
+        Self {
+            address_family: family,
+            ..self
+        }
+    }
+
     /// The same nodes, a [`SplitScan`] of `source` read only on `readers`, each as declared. A reader
     /// that is not among the other nodes declared, or does not resolve, reads nothing.
     #[must_use]
@@ -282,6 +321,17 @@ impl Nodes {
     /// Whether any other node is declared as reading `source`, resolved or not.
     pub(super) fn reads(&self, source: &SourceName) -> bool {
         self.readers.get(source).is_some_and(|readers| !readers.is_empty())
+    }
+
+    /// Whether a node declared as reading `source` is among the other nodes resolved now, as
+    /// [`Self::session_over`] reads them.
+    ///
+    /// **Limit:** each call resolves every other node again, so a host that resolves here and not
+    /// in the session planned beside it, or the other way round, is read differently by the two.
+    pub(super) fn resolves_a_reader(&self, source: &SourceName) -> bool {
+        self.readers
+            .get(source)
+            .is_some_and(|declared| self.resolved().any(|node| declared.contains(&unresolved(&node))))
     }
 
     /// Whether a question whose legs hold `legs_bytes`, under a ceiling of `ceiling_bytes`, is
@@ -316,7 +366,7 @@ impl Nodes {
         let worker = Worker::from_session_builder(move |context: WorkerQueryContext| {
             let bounded = bounded.clone();
             async move {
-                Ok(grant::forwarded(context.builder, &context.headers)?
+                Ok(once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(reads_no_source)
                     .with_distributed_user_codec(partition::Codec)
@@ -351,7 +401,7 @@ impl Nodes {
             let keys = keys.clone();
             let reader = reader.clone();
             async move {
-                let mut builder = grant::forwarded(context.builder, &context.headers)?
+                let mut builder = once::knowing(grant::forwarded(context.builder, &context.headers)?)
                     .with_distributed_channel_resolver(bounded)
                     .with_distributed_worker_plan_rewrite_handler(
                         move |event: datafusion_distributed::WorkerPlanRewriteEvent<'_>| {
@@ -389,7 +439,7 @@ impl Nodes {
             || self.session(working_set),
             |wait| {
                 let wanted = wait::others_wanted(self.across_above, legs_bytes, ceiling_bytes);
-                let ready = wait::ready(wanted, wait, || self.others.iter().flat_map(resolved).collect())?;
+                let ready = wait::ready(wanted, wait, || self.resolved().collect())?;
                 self.session_over(working_set, ready)
             },
         )
@@ -397,7 +447,14 @@ impl Nodes {
 
     /// A session over the other nodes resolved now. See [`Self::session_over`].
     pub(super) fn session(&self, working_set: WorkingSet) -> Result<SessionContext, CombineError> {
-        self.session_over(working_set, self.others.iter().flat_map(resolved))
+        self.session_over(working_set, self.resolved())
+    }
+
+    /// The other nodes declared, resolved now.
+    fn resolved(&self) -> impl Iterator<Item = Url> {
+        self.others
+            .iter()
+            .flat_map(|declared| resolved(declared, self.address_family))
     }
 
     /// A session bounded to `working_set` whose stages above a repartition are planned across this
@@ -496,19 +553,20 @@ fn chain<'a>(error: &'a (dyn core::error::Error + 'static)) -> impl Iterator<Ite
 }
 
 /// The nodes `declared` names now: itself when its host is an address, and otherwise one for each
-/// address its host resolves to, of one family, with that address in its fragment.
-fn resolved(declared: &Url) -> Vec<Url> {
+/// address its host resolves to, of `family`, with that address in its fragment.
+fn resolved(declared: &Url, family: AddressFamily) -> Vec<Url> {
     let (Some(Host::Domain(host)), Some(port)) = (declared.host(), declared.port_or_known_default()) else {
         return vec![declared.clone()];
     };
-    let addresses: Vec<SocketAddr> = (host, port).to_socket_addrs().map_or_default(Iterator::collect);
-    let ipv4 = addresses.iter().any(SocketAddr::is_ipv4);
-    addresses
+    let resolved = (host, port)
+        .to_socket_addrs()
+        .map_or_default(|addresses| addresses.map(|address| address.ip()).collect::<Vec<_>>());
+    family
+        .keep(resolved)
         .into_iter()
-        .filter(|address| address.is_ipv4() == ipv4)
         .map(|address| {
             let mut node = declared.clone();
-            node.set_fragment(Some(&address.ip().to_string()));
+            node.set_fragment(Some(&address.to_string()));
             node
         })
         .collect()
@@ -646,7 +704,7 @@ impl NodeIdentity {
         Ok(Self(TlsConnector::from(Arc::new(config))))
     }
 
-    /// A node signed for 127.0.0.1 by an authority of its own: no caller of this dials a link.
+    /// A node signed for 127.0.0.1 by an authority of its own: no caller of this finishes a handshake.
     #[cfg(test)]
     pub(super) fn signed_for_localhost() -> Self {
         let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("no names are valid parameters");
@@ -667,18 +725,89 @@ impl NodeIdentity {
     }
 }
 
-/// The channels a node reaches other nodes on, each dialled once as `identity` and kept.
+/// The channels a node reaches other nodes on, each dialled as `identity` when first asked for and
+/// kept until a call on it fails, or is given up on, before its reply.
 ///
 /// A channel's connection runs on the runtime that first used it and works only while that runtime
 /// does, so every runtime a worker or a combine runs on has to run on threads of its own for the
 /// process's life - [`DataFusionCombiner::across`](super::DataFusionCombiner::across)'s does.
+///
+/// A channel left without a reply is forgotten because it may still hold a dial its call gave up
+/// on: `tonic` keeps that dial and hands how it ended to the channel's next call, however much
+/// later, so a node that refused it and has since restarted would fail the next question too.
 #[derive(Clone)]
 struct Links {
     identity: NodeIdentity,
-    channels: Arc<tokio::sync::Mutex<Kept>>,
+    channels: Arc<parking_lot::Mutex<Kept>>,
 }
 
-type Kept = HashMap<Url, BoxCloneSyncChannel>;
+/// Each kept channel, and how many dials these links have made.
+#[derive(Default)]
+struct Kept {
+    dials: u64,
+    channels: HashMap<Url, Dialled>,
+}
+
+/// A kept channel under the number of the dial that made it, unique among its links.
+struct Dialled {
+    dial: u64,
+    channel: BoxCloneSyncChannel,
+}
+
+impl Kept {
+    /// The channel kept for `url`, or the one `dial` makes under the next dial's number.
+    fn or_dial(
+        &mut self,
+        url: &Url,
+        dial: impl FnOnce(u64) -> Result<BoxCloneSyncChannel, DataFusionError>,
+    ) -> Result<BoxCloneSyncChannel, DataFusionError> {
+        match self.channels.entry(url.clone()) {
+            Entry::Occupied(held) => Ok(held.get().channel.clone()),
+            Entry::Vacant(unseen) => {
+                self.dials = self.dials.wrapping_add(1);
+                let channel = dial(self.dials)?;
+                let kept = unseen.insert(Dialled {
+                    dial: self.dials,
+                    channel,
+                });
+                Ok(kept.channel.clone())
+            }
+        }
+    }
+}
+
+/// The kept channel a call forgets when it ends without a reply: the one its dial made, and not
+/// one dialled since.
+#[derive(Clone)]
+struct Forget {
+    channels: Weak<parking_lot::Mutex<Kept>>,
+    dial: u64,
+}
+
+impl Forget {
+    fn now(&self) {
+        if let Some(channels) = self.channels.upgrade() {
+            channels.lock().channels.retain(|_, kept| kept.dial != self.dial);
+        }
+    }
+}
+
+/// A call on a kept channel, forgetting it unless the call is answered.
+struct Unanswered(Option<Forget>);
+
+impl Unanswered {
+    fn answered(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for Unanswered {
+    fn drop(&mut self) {
+        if let Some(forget) = self.0.take() {
+            forget.now();
+        }
+    }
+}
 
 impl Links {
     fn of(identity: NodeIdentity) -> Self {
@@ -697,9 +826,19 @@ impl Links {
         }
     }
 
+    /// The channel kept for `url`, dialled now when none is.
+    fn channel(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
+        let forget = |dial| Forget {
+            channels: Arc::downgrade(&self.channels),
+            dial,
+        };
+        self.channels.lock().or_dial(url, |dial| self.dial(url, forget(dial)))
+    }
+
     /// A channel to `url` that dials it over TLS, whatever its scheme, the first time it is used, at
-    /// the address its fragment names when it names one, and checks the peer against its host.
-    fn dial(&self, url: &Url) -> Result<BoxCloneSyncChannel, DataFusionError> {
+    /// the address its fragment names when it names one, and checks the peer against its host. Each
+    /// call on it that fails or is dropped before its reply runs `forget`.
+    fn dial(&self, url: &Url, forget: Forget) -> Result<BoxCloneSyncChannel, DataFusionError> {
         let host = match url.host() {
             Some(Host::Domain(name)) => String::from(name),
             Some(Host::Ipv4(address)) => address.to_string(),
@@ -731,7 +870,19 @@ impl Links {
         let endpoint = tonic::transport::Endpoint::from_shared(origin.to_string())
             .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
         Ok(BoxCloneSyncChannel::new(
-            endpoint.connect_with_connector_lazy(dial).map_request(grant::keyless),
+            endpoint
+                .connect_with_connector_lazy(dial)
+                .map_request(grant::keyless)
+                .map_future(move |reply| {
+                    let mut unanswered = Unanswered(Some(forget.clone()));
+                    async move {
+                        let reply = reply.await;
+                        if reply.is_ok() {
+                            unanswered.answered();
+                        }
+                        reply
+                    }
+                }),
         ))
     }
 }
@@ -752,12 +903,8 @@ struct Bounded {
 #[async_trait::async_trait]
 impl ChannelResolver for Bounded {
     async fn get_worker_client_for_url(&self, url: &Url) -> Result<Box<dyn WorkerChannel>, DataFusionError> {
-        let channel = match self.links.channels.lock().await.entry(url.clone()) {
-            Entry::Occupied(kept) => kept.get().clone(),
-            Entry::Vacant(unseen) => unseen.insert(self.links.dial(url)?).clone(),
-        };
         Ok(create_worker_client_with_decode_limit(
-            channel,
+            self.links.channel(url)?,
             self.working_set.bytes().max(LEAST_REPLY),
         ))
     }

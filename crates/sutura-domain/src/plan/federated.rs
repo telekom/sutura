@@ -70,8 +70,8 @@ use crate::model::{MetricName, SourceName};
 use crate::plan::PlanBucket;
 use crate::plan::ResultLabel;
 use crate::plan::leg::LegPlan;
-use crate::query::{Top, TopBy, TopDirection};
-use crate::warehouse::{MalformedRowSet, RowSet, Value};
+use crate::query::{Top, TopBy};
+use crate::warehouse::{ResultBatches, UnorderedResult};
 
 pub use combiner::{
     Cut, ExecuteError, Executed, FederationCombiner, LegResult, LegRunner, Legs, LegsMiswired, LinkCast, Looked, LookupRead,
@@ -668,6 +668,11 @@ impl FederatedPlan {
     /// stably, so two rows tied on that criterion keep the key order they already have, and then
     /// keeps `top.n()` of them.
     ///
+    /// **On the typed Arrow answer, before any decode.** [`ResultBatches::to_rows`] answers a
+    /// decimal with a fractional part as text, so a rank over decoded rows ordered a decimal
+    /// measure by its bytes: `"999.00"` outranked `"1000.00"`. [`ResultBatches::first_by`] compares
+    /// the values themselves.
+    ///
     /// **The column position, not a label lookup.** [`FederationCombiner::combine`]'s own doc states the answer's
     /// column order - every key, then the bucket, then the measure - so [`TopBy::Metric`] is the
     /// last column and [`TopBy::Period`] the one before it, by construction rather than by name.
@@ -675,99 +680,30 @@ impl FederatedPlan {
     /// instance's fields, which is why this takes no `&self`: it is associated with the type
     /// whose contract it reads, not with a value of it.
     ///
-    /// **Nulls sort last regardless of [`TopDirection`]**, the same contract
+    /// **Nulls sort last regardless of [`crate::query::TopDirection`]**, the same contract
     /// `sutura_sql::generate`'s own `ordered_nulls_last` states for the rendered path: a null means
     /// there was nothing to rank, and that sorts after every value either way.
-    pub fn rank(combined: &RowSet, top: Top) -> Result<RowSet, MalformedRowSet> {
-        let columns = combined.columns().to_vec();
-        let mut rows = combined.rows().to_vec();
+    ///
+    /// **What it does not reach:** text is compared by bytes, while the mono path's text order is
+    /// whatever collation the serving data system applies (`docs/adr/0012`), so a `top` by a text
+    /// bucket can still order differently from one data system and from two.
+    ///
+    /// # Errors
+    ///
+    /// [`UnorderedResult::NoSuchColumn`] for an answer with no column at all, and
+    /// [`UnorderedResult::Arrow`] where Arrow refuses to concatenate, compare or take its arrays.
+    /// **An answer narrower than the contract but not empty is NOT refused**: the position
+    /// saturates at the first column, so a `Period` rank of a one-column answer ranks that column.
+    /// The plan makes that unreachable - its bucket is not optional, so a combined answer has at
+    /// least the bucket and the measure.
+    pub fn rank(combined: ResultBatches, top: Top) -> Result<ResultBatches, UnorderedResult> {
+        let width = combined.schema().fields().len();
         // Measure is the last column, bucket the one before it - see this method's own doc.
         let primary = match top.by() {
-            TopBy::Metric => columns.len().saturating_sub(1),
-            TopBy::Period => columns.len().saturating_sub(2),
+            TopBy::Metric => width.saturating_sub(1),
+            TopBy::Period => width.saturating_sub(2),
         };
-        let desc = matches!(top.direction(), TopDirection::Desc);
-        rows.sort_by(|a, b| {
-            let (Some(a_cell), Some(b_cell)) = (a.get(primary), b.get(primary)) else {
-                return std::cmp::Ordering::Equal;
-            };
-            rank_order(a_cell, b_cell, desc)
-        });
-        rows.truncate(usize::try_from(top.n().get()).unwrap_or(usize::MAX));
-        RowSet::new(columns, rows)
-    }
-}
-
-/// A total order over key cells: the mono path's null placement and its numeric order, never its
-/// rendered text.
-///
-/// **What "matching the mono path" reaches, stated before the argument for it.** The null placement
-/// and the by-value numeric order are the contract, and both are asserted. **Text is not:** this
-/// compares `&str` by bytes, while the mono path's text order is whatever **collation** the serving
-/// data system applies - `docs/adr/0012` records that collation as *unstated by the plan* and
-/// *differing per system*, which is why its own conformance packs re-sort text by bytes rather than
-/// trusting a source's locale. So for a text key on a target whose collation is not byte order -
-/// `Postgres` under a non-`C` locale orders `Business` after `business`, byte order puts it before -
-/// one certified metric still comes back in one order from one data system and another from two.
-/// That is the class of defect the null half of this comparator closes, surviving for text keys.
-/// `telekom/sutura#92` scoped itself out of it explicitly - its *not in scope* is *"ordering
-/// stability where the question itself does not determine an order. This is only about null placement
-/// within an order the plan already asks for."* - so it is a limit rather than a regression, and
-/// closing it means declaring a text collation per dialect the way `Dialect::identifier_case` is
-/// declared.
-///
-/// **`ASC NULLS LAST`, which is the whole of the ordered-result contract and not this file's
-/// choice.** A whole-answer plan emits `ORDER BY <key> ASC NULLS LAST` -
-/// `sutura_sql::generate::ordered_nulls_last`, which `telekom/sutura#92` decided after a live run
-/// found the dialects disagreeing about null placement, and which makes every target converge
-/// on the engine's own order. This comparator ranked a null FIRST, so one certified metric came back
-/// in one order from one data system and in another order from two, with no golden able to see it -
-/// a golden pins statement text, and this path emits none. The placement is stated in both places
-/// for the same reason it is stated in the SQL: a default is not a contract.
-///
-/// Integers order by value, then reals by value, then text by bytes, and a null after all of them -
-/// so a numeric column is ordered numerically (`9` before `10`) and not by its string form
-/// (`"10"` before `"9"`). Cells of different scalar types never compare equal. A result column in a
-/// data system has one logical type, so the cross-type ranks decide nothing an `ORDER BY` decides;
-/// what they buy is a TOTAL order, which is what makes the sort deterministic for a column
-/// [`RowSet`] permits to be mixed.
-fn compare_cells(a: &Value, b: &Value) -> std::cmp::Ordering {
-    use std::cmp::Ordering::Equal;
-    const fn rank(value: &Value) -> u8 {
-        match value {
-            Value::Integer(_) => 0,
-            Value::Real(_) => 1,
-            Value::Text(_) => 2,
-            // Last, and the one rank that is a contract rather than a tie-break. See above.
-            Value::Null => 3,
-        }
-    }
-    let order = rank(a).cmp(&rank(b));
-    if order != Equal {
-        return order;
-    }
-    match (a, b) {
-        (Value::Integer(x), Value::Integer(y)) => x.cmp(y),
-        (Value::Real(x), Value::Real(y)) => x.get().total_cmp(&y.get()),
-        (Value::Text(x), Value::Text(y)) => x.cmp(y),
-        // The sole same-rank pair not caught above is Null/Null, and different ranks returned early.
-        _ => Equal,
-    }
-}
-
-/// [`FederatedPlan::rank`]'s own comparator: a `top` orders by VALUE in the requested direction,
-/// but a null still sorts last regardless of it - the same split
-/// `sutura_sql::generate::top::ordering` keeps between the primary key (which `desc` reverses) and
-/// `NULLS LAST` (which it does not).
-fn rank_order(a: &Value, b: &Value, desc: bool) -> std::cmp::Ordering {
-    match (matches!(a, Value::Null), matches!(b, Value::Null)) {
-        (true, true) => std::cmp::Ordering::Equal,
-        (true, false) => std::cmp::Ordering::Greater,
-        (false, true) => std::cmp::Ordering::Less,
-        (false, false) => {
-            let order = compare_cells(a, b);
-            if desc { order.reverse() } else { order }
-        }
+        combined.first_by(primary, top.direction(), top.n())
     }
 }
 
