@@ -440,3 +440,24 @@ a_granted_bigquery_partition_with_no_token_is_refused_naming_the_source # a cell
 a_token_forwarded_for_another_pool_than_the_workers_own_source_is_refused_as_uncertified # a cell of serve/worker/partition/tests/tokens.rs, which this change adds; partition/tests.rs declares it and the base run restores that file without it, so the cell is not compiled there; killed when the `for_pool` check in `Asked::read_in` is `|_| true`
 a_token_whose_grant_has_ended_is_refused_before_the_leg_is_certified # a cell of serve/worker/partition/tests/tokens.rs, which this change adds; partition/tests.rs declares it and the base run restores that file without it, so the cell is not compiled there; killed when the `left()` check in `Asked::read_in` is dropped
 a_required_header_with_the_paging_query_name_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+every_listed_dataset_is_a_model_with_its_columns_key_and_joins # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+the_vendor_sample_reads_keyed_properties_and_a_to_one_link # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_document_that_is_not_openapi_3_0_or_3_1_is_refused_by_its_version # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_reference_outside_the_document_is_refused_before_anything_is_read # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+an_operation_the_document_does_not_have_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_mapped_operation_that_is_not_a_get_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+an_operation_that_needs_a_credential_other_than_a_bearer_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_path_that_could_leave_the_declared_endpoint_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_path_parameter_the_mapping_does_not_bind_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_fixed_parameter_that_is_not_one_plain_path_segment_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_fixed_parameter_no_path_uses_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_paging_parameter_the_operation_does_not_declare_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_pointer_the_answer_schema_does_not_declare_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_mapping_word_outside_the_vocabulary_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_listed_name_that_is_not_an_identifier_is_refused_by_name # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+an_answer_that_holds_nothing_where_the_mapping_points_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_dataset_without_any_description_is_refused_by_name # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_repeated_cursor_is_refused_rather_than_followed # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+an_empty_page_that_names_a_next_page_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_cursor_goes_back_as_one_percent_encoded_query_value # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
+a_link_onto_a_model_without_a_single_column_key_is_refused # in crates/sutura-catalog-openapi/src/tests.rs, new in this catalog crate; the base tree has no sutura-catalog-openapi crate
