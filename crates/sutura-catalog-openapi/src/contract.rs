@@ -232,7 +232,7 @@ fn check_paging(document: &Document, operation: &Operation<'_>, paging: Option<&
     {
         return Err(ContractError::UnboundParameter {
             operation: operation.id.clone(),
-            parameter: paging.cursor.clone(),
+            parameter: paging.cursor.as_str().to_owned(),
         });
     }
     for parameter in &sent {
