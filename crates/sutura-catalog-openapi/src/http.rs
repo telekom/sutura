@@ -15,8 +15,9 @@
 //! literal, so a token is never sent in plain text to a host that is not this one. The trust anchors
 //! are `ureq`'s compiled-in roots, or exactly the deployment's `security.outbound.transport_anchors`.
 //! Redirects are never followed: a `3xx` is a refusal. [`ReadBounds`] caps each answer, and its
-//! timeout is ONE deadline for the whole load, opened when the load began, so every page and every
-//! per-model listing shares it.
+//! timeout is ONE nominal deadline for the whole load, opened when the load began, so every page
+//! and every per-model listing shares it. Socket I/O gets a five-second margin so a late body can
+//! be refused after it arrives; JSON decoding and catalog assembly happen after that body check.
 
 use std::time::Instant;
 
