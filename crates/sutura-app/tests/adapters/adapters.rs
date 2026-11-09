@@ -309,8 +309,8 @@ impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::
     }
 }
 
-/// EXPERIMENTAL: any HTTP metadata API, configured by an `OpenAPI` document and a mapping file, opened
-/// over the crate's synthetic registry fixture. It supplies the physical model, the descriptions
+/// EXPERIMENTAL: an HTTP metadata API within the closed mapping vocabulary, configured by an
+/// `OpenAPI` document and a mapping file, opened over the crate's synthetic registry fixture. It supplies the physical model, the descriptions
 /// and many-to-one joins; the universal cells hold because the bundle is measured against the
 /// declaration.
 impl CatalogUnderTest for sutura_catalog_openapi::OpenApiCatalog<sutura_catalog_openapi::fixture::FixtureReader> {
@@ -895,8 +895,8 @@ macro_rules! registered {
             declaring,
             sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::fixture::FixtureReader>
         );
-        // `sutura-catalog-openapi`, EXPERIMENTAL: a DECLARING adapter over any HTTP metadata API an
-        // OpenAPI document and a mapping file describe, over its synthetic fixture registry -
+        // `sutura-catalog-openapi`, EXPERIMENTAL: a DECLARING adapter within its closed mapping
+        // vocabulary, configured by an OpenAPI document, over its synthetic fixture registry -
         // `github.com/telekom/sutura#1727`. Universal cells only.
         $cell!(
             openapi,

@@ -63,11 +63,12 @@ model without a single-column key.
 
 ## Security
 
-- **Only the declared endpoint is dialled.** The adapter builds every request target itself: the
+- **Only checked relative targets reach the answer-reader port.** The adapter builds each from the
   document's path (checked, see above), the mapping's fixed parameters (one unreserved path segment
   each, never `.` or `..`), each model's own parsed name, and a percent-encoded query. The document's
   `servers`, `externalDocs`, `links` and callbacks are never read. The only paging style is a cursor
-  sent back as one query value, so no answer can name a URL to follow.
+  sent back as one query value, so no answer can name a URL to follow. The reader owns the endpoint
+  and transport. Only the fixture reader is measured here; no live endpoint confinement is proven.
 - **Every caller sees what the deployment's token sees.** `SemanticCatalog::load` has no caller, so
   the catalog is read once as the deployment and pinned for everyone. An API that filters metadata
   per user shows every caller the token's view; scope the token to what all callers may see.
