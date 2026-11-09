@@ -29,9 +29,9 @@
 //!   configures and nothing here sets. A snapshot past it is [`OracleError::SnapshotGone`].
 //! - Every partition reads the whole root table and keeps its bucket; `ORA_HASH` buckets are not
 //!   uniform, and every NULL key lands in bucket 0.
-//! - Only the boot probe runs: `sutura-cli`'s Oracle build calls [`OracleWarehouse::with_flashback`]
-//!   for a source that declares `split: flashback`. No composition root offers an Oracle leg for
-//!   splitting yet, and no reading worker reads an Oracle partition.
+//! - `sutura-cli` offers a probed Oracle lookup leg for splitting and grants fixed-schema buckets
+//!   where reading peers are declared. Each worker reads as its own service user; this adapter
+//!   does not compare its schema or service user with the planning node's.
 //! - The probe reads the tables it is handed, the models' own; a table only a join reaches is not
 //!   read until a partition reads it.
 

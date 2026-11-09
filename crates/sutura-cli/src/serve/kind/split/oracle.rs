@@ -29,9 +29,9 @@ use super::super::AnyWarehouseError;
 use super::super::grant::{self, Described, HeldSplit, Read};
 use super::{PartitionReads, SplitKind};
 
-/// The most rows a granted Oracle stream is read under. The reader bounds bytes by its own result
-/// budget; this is the row bound the planning node's combine holds each stream to, and what the
-/// estimate divides the leg by.
+/// The row target the estimate divides the leg by, signed into each grant. Neither the reader nor
+/// the combine enforces it per stream; a bucket past it can still be read if byte budgets permit.
+/// The reader bounds bytes by its own result budget.
 const STREAM_ROWS: usize = 1_000_000;
 
 impl SplitKind for OracleSource {
@@ -67,7 +67,7 @@ impl SplitKind for OracleSource {
 
     /// Runs as this node's own declared service user for the source, whatever `_reads` names, and
     /// answers the partition's declared columns rather than `_granted`, as the planning node's
-    /// describe read them.
+    /// describe read them. Nothing here compares the reader's schema with the planning node's.
     #[expect(
         clippy::disallowed_methods,
         reason = "the one reading-worker caller: the admit rule verified the task's reading grant, and the leg was re-certified against this node's catalog first"
