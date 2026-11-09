@@ -141,6 +141,11 @@ impl AnswerReader for HttpAnswerReader {
                 ureq::Error::BodyExceedsLimit(_) => HttpReaderError::TooLarge { cap },
                 cause => HttpReaderError::Unreadable(Box::new(cause)),
             })?;
+        if started.elapsed() >= self.bounds.timeout() {
+            return Err(HttpReaderError::DeadlineSpent {
+                budget_seconds: self.bounds.timeout().as_secs(),
+            });
+        }
         if text.len() as u64 > cap {
             return Err(HttpReaderError::TooLarge { cap });
         }
