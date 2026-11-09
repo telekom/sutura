@@ -2704,6 +2704,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-switchedprincipal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use SwitchedPrincipal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#use-taskgrant" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3100,6 +3111,9 @@ private than that function.</p>
 <h2 id="use-streambound"><code>use StreamBound</code><a class="headerlink" href="#use-streambound" title="Permanent link">&para;</a></h2>
 <p>The bound a split leg's every partition stream is read under, signed into its grant: at most
 <code>rows</code> rows and <code>bytes</code> bytes.</p>
+<h2 id="use-switchedprincipal"><code>use SwitchedPrincipal</code><a class="headerlink" href="#use-switchedprincipal" title="Permanent link">&para;</a></h2>
+<p>The caller's own principal a granted partition is read as, which the reading node's source
+switches to. Its <code>Debug</code> prints no name.</p>
 <h2 id="use-taskgrant"><code>use TaskGrant</code><a class="headerlink" href="#use-taskgrant" title="Permanent link">&para;</a></h2>
 <p>The task grant a node's worker asks of every call it is sent over gRPC.</p>
 <p>A call to install a stage is admitted with a key and a grant under it, the first key a question is
