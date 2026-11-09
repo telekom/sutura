@@ -82,5 +82,4 @@ model without a single-column key.
 - OpenAPI 3.0 and 3.1, as JSON. A YAML document must be converted first; Swagger 2.0 is not read.
 - A path segment that mixes text and a parameter (`{name}.json`) or holds `:` is refused rather than
   built.
-- Auth is the bearer token. Minting a token for each load (OAuth2 client credentials) is not built
-  here; a shared token source is the seam it will use.
+- Token minting (OAuth2 client credentials) and renewal are not built here.

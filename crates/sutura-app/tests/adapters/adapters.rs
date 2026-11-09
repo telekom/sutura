@@ -310,8 +310,8 @@ impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::
 }
 
 /// EXPERIMENTAL: an HTTP metadata API within the closed mapping vocabulary, configured by an
-/// `OpenAPI` document and a mapping file, opened over the crate's synthetic registry fixture. It supplies the physical model, the descriptions
-/// and many-to-one joins; the universal cells hold because the bundle is measured against the
+/// `OpenAPI` document and a mapping file, opened over the crate's synthetic registry fixture.
+/// It supplies the physical model, the descriptions and many-to-one joins; the universal cells hold because the bundle is measured against the
 /// declaration.
 impl CatalogUnderTest for sutura_catalog_openapi::OpenApiCatalog<sutura_catalog_openapi::fixture::FixtureReader> {
     const NAME: &'static str = "openapi";
