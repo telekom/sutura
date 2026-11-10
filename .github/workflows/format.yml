@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 15d9905af3dc8f2870b0f0939599621788b31476
+          ref: 168c01f8fbdd507b420a6e56b1052db2f9fab493
           fetch-depth: 0
           persist-credentials: false
 
@@ -81,16 +81,21 @@ jobs:
       - name: Regenerate the workspace lock with the pinned toolchain
         run: |
           set -euo pipefail
+          git -c user.name=CI -c user.email=user@example.com merge --no-commit --no-ff 303283b6a5908d67337b8d26249813846017b047
+          git show 303283b6a5908d67337b8d26249813846017b047:Cargo.lock > Cargo.lock
+          git add Cargo.lock
+          source_tree="$(git write-tree)"
+          test "$source_tree" = 0da11d40ba8ca51982d7d1b6bf4af3923669f72b
           nix run .#cargo -- update --workspace
           git diff --numstat -- Cargo.lock
-          git rev-parse HEAD > foundry-lock-head.txt
+          printf '%s\n' "$source_tree" > foundry-lock-source-tree.txt
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: foundry-workspace-lock
           path: |
             Cargo.lock
-            foundry-lock-head.txt
+            foundry-lock-source-tree.txt
           if-no-files-found: error
 
       - uses: ./.github/actions/nix-store-cache-report
