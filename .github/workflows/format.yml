@@ -82,7 +82,8 @@ jobs:
         run: |
           set -euo pipefail
           betterleaks="$(nix eval --raw .#apps.x86_64-linux.betterleaks.program)"
-          PATH="$(dirname "$betterleaks"):$PATH" nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command just validate
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command bash -c \
+            "PATH=\"$(dirname \"$betterleaks\"):\\$PATH\" just validate"
 
       - name: Run the committed-diff ship check
         run: |
