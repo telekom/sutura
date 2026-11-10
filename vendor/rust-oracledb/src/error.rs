@@ -78,6 +78,8 @@ pub enum ErrorKind {
     ListenerRefusedConnection(String, String, u16, usize),
     LockPoisoned,
     MissingBindValue(String),
+    NativeEncryptionRefused(&'static str),
+    NativeAlgorithmRefused(&'static str, u8),
     NameHasEmbeddedQuotes,
     NoConfigDir,
     NoConnectString,
@@ -207,6 +209,12 @@ impl From<arrow_schema::ArrowError> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0.kind {
+            ErrorKind::NativeEncryptionRefused(reason) => {
+                write!(fmt, "native encryption refused: {reason}")?
+            }
+            ErrorKind::NativeAlgorithmRefused(service, id) => {
+                write!(fmt, "native encryption refused {service} algorithm id {id}")?
+            }
             ErrorKind::ArrowOperation => {
                 fmt.write_str("Arrow operation failed")?
             }
@@ -560,6 +568,14 @@ impl error::Error for Error {
 }
 
 impl Error {
+    pub(crate) fn native_encryption_refused(reason: &'static str) -> Self {
+        Self::new(ErrorKind::NativeEncryptionRefused(reason), None)
+    }
+
+    pub(crate) fn native_algorithm_refused(service: &'static str, id: u8) -> Self {
+        Self::new(ErrorKind::NativeAlgorithmRefused(service, id), None)
+    }
+
     fn new(
         kind: ErrorKind,
         cause: Option<Box<dyn error::Error + Sync + Send>>,

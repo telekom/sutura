@@ -252,6 +252,10 @@ impl Client {
     /// caller. Note that some databases return multiple reset markers so
     /// these are also accommodated.
     fn reset(&mut self) -> Result<Packet, Error> {
+        if self.transport.uses_native() {
+            let _ = self.transport.close();
+            return Err(Error::native_encryption_refused("native connection closed on reset"));
+        }
         self.send_marker(constants::MARKER_TYPE_RESET)?;
         let mut reset_received = false;
         loop {
@@ -665,6 +669,9 @@ impl Client {
         if self.config.uses_external_auth() && address.protocol() != "tcps" {
             return Err(Error::external_auth_requires_tcps());
         }
+        if self.config.native_encryption() && address.protocol() != "tcp" {
+            return Err(Error::native_encryption_refused("native mode requires TCP"));
+        }
         let stream =
             if let Some(timeout) = self.config.transport_connect_timeout() {
                 TcpStream::connect_timeout(&sock_addr, timeout)?
@@ -722,6 +729,13 @@ impl Client {
             connect_message.protocol_flags,
         );
         self.transport.set_full_packet_size();
+        if self.config.native_encryption() {
+            if !connect_message.native_available {
+                let _ = self.transport.close();
+                return Err(Error::native_encryption_refused("peer disabled native negotiation"));
+            }
+            self.transport.negotiate_native(self.config.transport_connect_timeout())?;
+        }
 
         // OCI IAM token based authentication requires a header identifying
         // the service and the address of the database, signed with the
@@ -1003,6 +1017,11 @@ impl Client {
     ) -> Result<DbInfo, Error> {
         let db_info = DbInfo::new(self, auth_message)?;
         self.combo_key = auth_message.take_combo_key();
+        if self.transport.uses_native() {
+            let key = self.combo_key.as_ref().ok_or_else(||
+                Error::native_encryption_refused("missing authentication key folding"))?;
+            self.transport.fold_native_key(key.as_bytes())?;
+        }
         let max_open_cursors = db_info.get_max_open_cursors();
         if max_open_cursors < self.statement_cache.max_size() {
             self.statement_cache.resize(max_open_cursors);

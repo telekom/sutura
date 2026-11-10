@@ -196,6 +196,14 @@ pub(crate) enum LoginKey {
 }
 
 impl LoginKey {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Aes128(key) => key,
+            Self::Aes192(key) => key,
+            Self::Aes256(key) => key,
+        }
+    }
+
     /// Returns a key of zeros of the length the verifier uses.
     fn zeroed(verifier: Verifier) -> LoginKey {
         match verifier {
