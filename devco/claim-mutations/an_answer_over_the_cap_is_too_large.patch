@@ -1,3 +1,4 @@
+Claim-Cell-File: crates/sutura-http-client/src/delegation/pool/tests.rs
 diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
 --- a/crates/sutura-http-client/src/delegation/pool.rs
 +++ b/crates/sutura-http-client/src/delegation/pool.rs
