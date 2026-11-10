@@ -433,7 +433,6 @@ built-in web roots when not, so an issuer behind a private CA is the reuse case 
 Two limits: the fetch presents no client identity, even when `security.outbound` declares one, and it
 loads the anchors once at start, so a rotated bundle reaches it on the next start, not on the poll.
 
-
 ## Eighth amendment, 2026-11-10: Oracle native encryption is a separate, weaker transport
 
 An Oracle source or Oracle dictionary connection may explicitly choose `native-encryption` over
