@@ -41,7 +41,9 @@ mod tests {
         assert!(message.contains("one shared user"), "{message}");
         let legacy = events
             .iter()
-            .find(|event| event["source"] == "warehouse" && event["level"] == 40 && event["reason"] == "this account cannot be reset")
+            .find(|event| {
+                event["source"] == "warehouse" && event["level"] == 40 && event["reason"] == "this account cannot be reset"
+            })
             .expect("independent legacy-password WARN");
         assert_eq!(
             legacy["msg"],
