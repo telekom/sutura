@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-config/src/settings/role.rs b/crates/sutura-config/src/settings/role.rs
+--- a/crates/sutura-config/src/settings/role.rs
++++ b/crates/sutura-config/src/settings/role.rs
+@@ -104,7 +104,7 @@
+ /// **The limit:** it reads the declaration. A deployment with `security.inbound` whose callers
+ /// reach `/v1` with no verified subject still meets the question-time refusal.
+ pub(super) fn reading_node_refusals(settings: &Settings) -> Vec<NotFitToServe> {
+-    if settings.server.role() != ServerRole::Serving || settings.security.inbound().is_some() {
++    if settings.server.role() != ServerRole::Serving || (settings.security.inbound().is_some() && false) {
+         return Vec::new();
+     }
+     let Some(nodes) = settings.server.tls().and_then(crate::server::TlsMaterial::nodes) else {

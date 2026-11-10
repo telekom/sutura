@@ -111,8 +111,19 @@ const STARTUP: Subject = Subject {
     // `RunSqlFederationNotCompiledIn`, `tools.run_sql.federation_allowed` on a build with no SQL parser.
     // 35: `RunSqlListsNoSource`, the raw tool on with no source listed for it to run over. 37:
     // `ReadingWorkerWithoutSources` and `ReadingWorkerWithoutCatalog`, a `server.role:
-    // reading-worker` configuration that declares no source or no catalog.
-    variants: variants(37),
+    // reading-worker` configuration that declares no source or no catalog. 38:
+    // `DeclaredNodeReadsUndeclaredSource` (#828), a `server.nodes` peer naming a source alias this
+    // deployment's own `sources:` section does not declare. 39: `ReadingNodeWithoutInboundIdentity`
+    // (#828), a `server.nodes` peer reading a declared source on a deployment that verifies no caller.
+    // 40: `ReadingWorkerBigQueryOutsideAPool` (#828), a reading worker declaring a `BigQuery` source
+    // that federates at no pool, so it has no forwarded token to read a partition with.
+    // 42: `HashBucketsOnTheOnlySource` and `HashBucketsReadByNoNode` (#828), a hash-bucket opt-in
+    // with no other source to federate with or no peer to read its buckets. 43:
+    // `ReadingWorkerOracleWithoutFlashback` (#828), a reading worker declaring an Oracle source that
+    // does not declare `split: flashback`, so no partition of it is read at a snapshot. 45:
+    // `FlashbackOnTheOnlySource` and `FlashbackReadByNoNode` (#828), a `split: flashback` opt-in
+    // with no other source to federate with or no peer to read its buckets.
+    variants: variants(45),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
@@ -189,9 +200,28 @@ const POOL: Subject = Subject {
     variants: variants(3),
 };
 
+/// One refused worker task: its rows passed the federated row ceiling, or its source-reading grant
+/// did not name its leg/source/partition or had passed its expiry (Decisions 4-5).
+const WORKER: Subject = Subject {
+    name: "WorkerRefusal",
+    declared_in: "crates/sutura-exec-datafusion/src/combine/across/ceiling.rs",
+    allow_file: "devco/worker-refusals-unprovoked-allow",
+    variants: variants(3),
+};
+
 /// Every enum this gate reads. Widening it is a diff here and nowhere else; see `crate::refusals`'s
 /// module doc for the direction this list does NOT hold.
-pub(super) const ENROLLED: [&Subject; 8] = [&QUERY, &STARTUP, &VALIDATION, &RAW, &TLS, &DELEGATION, &API_GROUP, &POOL];
+pub(super) const ENROLLED: [&Subject; 9] = [
+    &QUERY,
+    &STARTUP,
+    &VALIDATION,
+    &RAW,
+    &TLS,
+    &DELEGATION,
+    &API_GROUP,
+    &POOL,
+    &WORKER,
+];
 
 /// Two subjects sharing one allow file would share their exceptions, and
 /// `startup_exceptions_are_validated_and_do_not_cross_enum_boundaries` is the rule that forbids

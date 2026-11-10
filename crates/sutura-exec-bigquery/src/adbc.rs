@@ -46,10 +46,14 @@ mod ceiling;
 mod driver_message;
 pub mod google_trace;
 mod identity;
+mod partitions;
 mod subject;
 pub use ceiling::{BytesBilledCeiling, UnusableCeiling};
 pub use driver_message::DriverMessage;
 pub use identity::{DelegatingAccount, Impersonation, UnusableDelegatingAccount};
+#[cfg(test)]
+pub(crate) use partitions::{PartitionDescriptor, execute_leg_partitions, read_partition_to_deadline};
+pub use partitions::{SplitLeg, Streams};
 pub use subject::{UnusablePool, WorkloadPool};
 pub use sutura_adbc::{DriverLocation, UnusableDriverPath};
 
@@ -60,15 +64,16 @@ use adbc_core::error::Error as CoreError;
 use adbc_core::options::{AdbcVersion, OptionDatabase, OptionStatement, OptionValue};
 use adbc_core::{Connection as _, Database as _, Driver as _, Statement};
 use adbc_driver_manager::{ManagedDriver, ManagedStatement};
-use arrow_array::RecordBatchReader as _;
+use arrow_array::RecordBatchReader;
 
-use sutura_domain::identity::{PoolExchange, PoolExchangeFailed};
+use sutura_domain::identity::{PoolExchange, PoolExchangeFailed, Secret};
 use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, UnannouncedBatch};
 
 use crate::transport::{DatasetAddress, DryRunEstimate, HeldTables, JobDeadline, JobRequest, JobTransport, ProjectId};
+use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::sync::mpsc::RecvTimeoutError;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 #[cfg(doc)]
 use sutura_domain::warehouse::deadline::Deadline;
 
@@ -420,6 +425,15 @@ impl AdbcBigQuery {
         self
     }
 
+    /// The pool a [`Impersonation::ThroughPool`] source federates at, `None` for every other mode.
+    #[must_use]
+    pub const fn federates_at(&self) -> Option<&WorkloadPool> {
+        match self.impersonation {
+            Impersonation::ThroughPool(ref pool) => Some(pool),
+            Impersonation::Disabled | Impersonation::GoogleLogin | Impersonation::DomainDelegation(_) => None,
+        }
+    }
+
     /// Does this artefact's driver load and initialise at all?
     ///
     /// **The one thing a boot path or a diagnostic can find out about the driver without a
@@ -471,6 +485,11 @@ impl AdbcBigQuery {
         // identity must not reach `load`, because a loaded driver with no
         // impersonation option is a connection as the deployment itself.
         let authentication = identity::authenticate(request.identity(), &self.impersonation, self.exchange.as_deref())?;
+        self.connect_as(request, authentication.options)
+    }
+
+    /// [`Self::connect`] after the identity decision, with the database options it made.
+    fn connect_as(&self, request: &JobRequest<'_>, runs_as: identity::DatabaseOptions) -> Result<Connected, AdbcError> {
         // The values, as the one batch this driver binds from - assembled before the `.so` is
         // loaded for the identity's reason: a request this transport cannot assemble must not open a
         // connection. `None` where a call carries no values, which is every boot-path call and a
@@ -478,12 +497,52 @@ impl AdbcBigQuery {
         let bound = sutura_adbc::parameter_batch(request.params()).map_err(|cause| AdbcError::Parameters { cause })?;
         let mut driver = load(&self.driver)?;
         let db = driver
-            .new_database_with_opts(database_options(request.billing_project(), authentication.options))
+            .new_database_with_opts(database_options(request.billing_project(), runs_as))
             .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         let mut stmt = conn.new_statement().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
         prepared(&mut stmt, request, bound, self.max_bytes_billed, Instant::now())?;
         Ok((driver, stmt))
+    }
+
+    /// Runs `request`'s leg once as the asking subject and splits its result into at most
+    /// `readers` streams, for other nodes to read with the forwarded token until no later than
+    /// `ends`.
+    ///
+    /// Both exchanges come first ([`identity::split`]), so a subject this transport cannot split
+    /// for opens no connection. The job runs on the first exchange's token, prepared as
+    /// [`Self::connect`] prepares every statement.
+    pub(crate) fn split(&self, request: &JobRequest<'_>, readers: NonZeroUsize, ends: SystemTime) -> Result<SplitLeg, AdbcError> {
+        let split = identity::split(request.identity(), &self.impersonation, self.exchange.as_deref(), ends)?;
+        let (driver, mut stmt) = self.connect_as(request, split.options)?;
+        partitions::bounded(&mut stmt, readers)?;
+        let partitioned = partitions::execute_leg_partitions(stmt, driver, request.deadline(), Instant::now())?;
+        Ok(SplitLeg::new(partitioned, split.forwarded, split.until))
+    }
+
+    /// Reads the one stream `descriptor` names with `token` - the forwarded token and nothing else,
+    /// so never this process's own credentials - on a connection of its own, refusing to outlive
+    /// `deadline`.
+    pub(crate) fn read_partition(
+        &self,
+        billing_project: &ProjectId,
+        token: &Secret,
+        descriptor: &[u8],
+        deadline: JobDeadline,
+    ) -> Result<ResultBatches, AdbcError> {
+        let authentication = identity::forwarded(token, &self.impersonation)?;
+        let mut driver = load(&self.driver)?;
+        let db = driver
+            .new_database_with_opts(database_options(billing_project, authentication.options))
+            .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        let conn = db.new_connection().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+        partitions::read_partition_to_deadline(
+            conn,
+            partitions::PartitionDescriptor::granted(descriptor),
+            driver,
+            deadline,
+            Instant::now(),
+        )
     }
 }
 
@@ -538,6 +597,13 @@ where
     S: Statement,
 {
     let reader = stmt.execute().map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
+    accumulate_bounded(reader)
+}
+
+/// Drains `reader` to completion under the same two ceilings as [`execute_to_completion`] - the
+/// shared tail of every ADBC result this transport reads, whichever call produced the reader,
+/// including a partition's own stream in [`partitions`].
+fn accumulate_bounded(reader: Box<dyn RecordBatchReader + Send + 'static>) -> Result<ResultBatches, AdbcError> {
     let announced = reader.schema();
     let mut accumulating = Accumulating::announcing(
         announced,
@@ -613,16 +679,39 @@ fn run_to_deadline<S>(
 where
     S: Statement + Clone + Send + 'static,
 {
+    let mut canceller = stmt.clone();
+    race_to_deadline(
+        move || execute_to_completion(&mut stmt),
+        move || canceller.cancel(),
+        keep_alive,
+        deadline,
+        now,
+    )
+}
+
+/// The race [`run_to_deadline`] documents, with `work` and `cancel` as closures instead of a
+/// `Statement` - so [`partitions::read_partition_to_deadline`] can race a `Connection`'s
+/// `read_partition` the same way without a second copy of the channel, the timeout and the
+/// worker-vanished arm. What a cancel can pre-empt differs per caller: `run_to_deadline`'s doc covers
+/// a `ManagedStatement`, [`partitions::read_partition_to_deadline`]'s a `Connection`.
+fn race_to_deadline<T>(
+    work: impl FnOnce() -> Result<T, AdbcError> + Send + 'static,
+    cancel: impl FnOnce() -> adbc_core::error::Result<()> + Send + 'static,
+    keep_alive: impl Send + 'static,
+    deadline: JobDeadline,
+    now: Instant,
+) -> Result<T, AdbcError>
+where
+    T: Send + 'static,
+{
     let remaining = match deadline {
         JobDeadline::Port(deadline) => Some(deadline.remaining_at(now).ok_or(AdbcError::DeadlineSpent)?),
         JobDeadline::Boot => None,
     };
-    let mut canceller = stmt.clone();
     let (answered, awaited) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _kept_alive = keep_alive;
-        let outcome = execute_to_completion(&mut stmt);
-        drop(answered.send(outcome));
+        drop(answered.send(work()));
     });
     let Some(budget) = remaining else {
         return awaited.recv().unwrap_or_else(|_| Err(worker_vanished()));
@@ -630,11 +719,11 @@ where
     match awaited.recv_timeout(budget) {
         Ok(outcome) => outcome,
         Err(RecvTimeoutError::Timeout) => {
-            // Best-effort and ASYNCHRONOUS: this must not itself wait on the same lock `execute`
+            // Best-effort and ASYNCHRONOUS: this must not itself wait on the same lock `work`
             // may still be holding, or the deadline this function exists to enforce would be
             // spent waiting on the cancel meant to protect it.
             std::thread::spawn(move || {
-                drop(canceller.cancel());
+                drop(cancel());
             });
             Err(AdbcError::DeadlineElapsed)
         }
@@ -802,6 +891,8 @@ impl JobTransport for AdbcBigQuery {
 
 #[cfg(test)]
 mod batch_cells;
+#[cfg(test)]
+mod partition_cells;
 #[cfg(test)]
 mod pool_cells;
 #[cfg(test)]

@@ -225,10 +225,12 @@ fn pub_field_violations(rel: &str, text: &str) -> Vec<String> {
                         name: String::from(name),
                         depth: opens.saturating_sub(closes),
                     }
-                } else if opens == 0 {
+                } else if opens == 0 && !trimmed.ends_with(';') {
                     Scan::AwaitingBody(String::from(name))
                 } else {
-                    // `pub struct X {}` - declared and closed, no fields to check.
+                    // `pub struct X {}` or `pub struct X;` - declared and closed, no fields to
+                    // check. A unit struct's `;` must end the scan here, or the next brace-opening
+                    // line - an `impl` below it - is read as its body (#1732).
                     Scan::Outside
                 }
             }
@@ -238,6 +240,9 @@ fn pub_field_violations(rel: &str, text: &str) -> Vec<String> {
                         name,
                         depth: opens.saturating_sub(closes),
                     }
+                } else if trimmed.ends_with(';') {
+                    // A unit struct whose `where` clause ran onto later lines ends here.
+                    Scan::Outside
                 } else {
                     Scan::AwaitingBody(name)
                 }

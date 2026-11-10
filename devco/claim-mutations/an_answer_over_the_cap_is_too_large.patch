@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
+index 04332cc1a..c22bc85e6 100644
+--- a/crates/sutura-http-client/src/delegation/pool.rs
++++ b/crates/sutura-http-client/src/delegation/pool.rs
+@@ -65,7 +65,7 @@ impl PoolExchange for GoogleSts {
+         ];
+         let (status, text) = super::post(&self.agent, &self.endpoint, self.bounds, &form).map_err(|unsent| match unsent {
+             Unsent::Unreachable(cause) => PoolExchangeFailed::Unreachable { cause: Box::new(cause) },
+-            Unsent::TooLarge(cap) => PoolExchangeFailed::TooLarge { cap },
++            Unsent::TooLarge(cap) => PoolExchangeFailed::TooLarge { cap: cap.saturating_mul(2) },
+         })?;
+         #[expect(
+             clippy::disallowed_methods,

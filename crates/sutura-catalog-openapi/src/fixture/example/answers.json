@@ -1,0 +1,55 @@
+{
+  "/v1/workspaces/demo/datasets?pageSize=2": {
+    "items": [
+      {
+        "name": "region",
+        "summary": "One row per sales region.",
+        "key": ["region_id"],
+        "fields": [
+          { "name": "region_id", "type": "string", "description": "The region's code." },
+          { "name": "region_name", "type": "string" }
+        ]
+      },
+      {
+        "name": "customer",
+        "summary": "",
+        "title": "One row per customer.",
+        "key": ["customer_id"],
+        "fields": [
+          { "name": "customer_id", "type": "string", "description": "The customer's key." },
+          { "name": "region_id", "type": "string", "description": "The region the customer is billed in." },
+          { "name": "segment", "type": "string" }
+        ]
+      }
+    ],
+    "next": "page-2"
+  },
+  "/v1/workspaces/demo/datasets?pageSize=2&pageToken=page-2": {
+    "items": [
+      {
+        "name": "subscription",
+        "summary": "One row per subscription and month.",
+        "key": ["subscription_id", "month"],
+        "fields": [
+          { "name": "subscription_id", "type": "string" },
+          { "name": "month", "type": "date", "description": "The first day of the billed month." },
+          { "name": "customer_id", "type": "string" },
+          { "name": "recurring_revenue", "type": "decimal", "description": "Revenue billed for the month." }
+        ]
+      }
+    ]
+  },
+  "/v1/workspaces/demo/datasets/customer/links": {
+    "items": [
+      { "name": "customer_region", "target": "region", "column": "region_id" },
+      { "name": "customer_subscriptions", "target": "subscription" }
+    ]
+  },
+  "/v1/workspaces/demo/datasets/region/links": {
+    "items": []
+  },
+  "/v1/workspaces/demo/datasets/subscription/links": {
+    "items": [{ "name": "subscription_customer", "target": "customer", "column": "customer_id" }],
+    "next": ""
+  }
+}

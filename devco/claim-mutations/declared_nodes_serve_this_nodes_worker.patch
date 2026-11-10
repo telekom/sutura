@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/serve/nodes.rs b/crates/sutura-cli/src/serve/nodes.rs
+--- a/crates/sutura-cli/src/serve/nodes.rs
++++ b/crates/sutura-cli/src/serve/nodes.rs
+@@ -63,7 +63,8 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
+     );
+     let combiner = DataFusionCombiner::across(across)
+         .map_err(|cause| format!("{}\ncould not build the federation combiner", super::flatten(cause)))?;
+-    Ok((combiner, Some(mount)))
++    let _ = mount;
++    Ok((combiner, None))
+ }
+ 
+ /// The same, on a build that cannot plan across nodes: declared ones are refused.

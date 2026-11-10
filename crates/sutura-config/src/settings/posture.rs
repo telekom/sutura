@@ -215,7 +215,8 @@ pub enum NotFitToServe {
     )]
     DelegationWithoutDirectInbound {
         alias: SourceName,
-        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`.
+        /// `workload_identity.delegation` or `google_login` on `bigquery`, `delegation` on `oracle`,
+        /// `cube`, `clickhouse` or `node`.
         key: &'static str,
     },
     /// A `direct` deployment's `workload_identity` source declares no delegation hop, and does not
@@ -241,23 +242,28 @@ pub enum NotFitToServe {
          source, or security.inbound.mode is not `direct`. Remove the key"
     )]
     InboundTokenAtPoolWithoutEffect { alias: SourceName },
-    /// A `direct` deployment's last `workload_identity.delegation` hop asks for this deployment's
-    /// own audience, so the pool would receive a token minted for this deployment - what
-    /// `inbound_token_at_pool: accepted` acknowledges, here unacknowledged. The comparison is of the
-    /// configured strings only; an identity provider that maps audiences is not seen.
+    /// A `direct` deployment's last delegation hop - `workload_identity.delegation`, or an Oracle,
+    /// Cube or `ClickHouse` `delegation` - asks for this deployment's own audience, so the data system would receive
+    /// a token minted for this deployment: what `inbound_token_at_pool: accepted` acknowledges for a
+    /// pool, here unacknowledged. The comparison is of the configured strings only; an identity
+    /// provider that maps audiences is not seen.
     #[error(
-        "`sources.{alias}.workload_identity.delegation`'s last hop asks for this deployment's own \
-         audience (`security.inbound.resource` or `security.inbound.audience`), so the pool would \
-         receive a token minted for this deployment. Ask the last hop for the pool's own audience"
+        "`sources.{alias}`'s last delegation hop asks for this deployment's own audience \
+         (`security.inbound.resource` or `security.inbound.audience`), so the data system would \
+         receive a token minted for this deployment. Ask the last hop for the data system's own audience"
     )]
     DelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// A `direct` deployment's `node` source whose last `delegation` hop asks for this deployment's
-    /// own audience. Such a token is valid here too, so it is the caller's own token reaching the
-    /// other node by another route. The comparison is of the configured strings only, as above.
+    /// own audience. This is a different exposure from
+    /// [`Self::DelegationToTheDeploymentsOwnAudience`]: the token the other node receives is the
+    /// caller's own token reaching it by another route, not a stranger's - but it is still refused,
+    /// because the hop should ask the other node for its own audience, not sutura's. The comparison
+    /// is of the configured strings only, as above.
     #[error(
         "`sources.{alias}.delegation`'s last hop asks for this deployment's own audience \
          (`security.inbound.resource` or `security.inbound.audience`), so the other node would \
-         receive a token that is valid here too. Ask the last hop for the node's own audience"
+         receive a token minted for this deployment instead of for itself. Ask the last hop for the \
+         node's own audience"
     )]
     NodeDelegationToTheDeploymentsOwnAudience { alias: SourceName },
     /// A `direct` deployment whose audience (`security.inbound.resource`, or `audience` when written)
@@ -411,8 +417,12 @@ pub enum NotFitToServe {
     /// are both dead ends of their own: `ExecuteUpdate` takes the DML-affected-rows branch of the
     /// SAME Go function whenever `executeUpdate = true`, ahead of the dry-run branch
     /// (`go/job_query.go:200-205`), so it can never reach the estimate either; and
-    /// `ExecutePartitions` is unconditionally `NotImplemented` for this driver
-    /// (`go/statement.go:945-950`). No statement option surfaces it as a value to read back either -
+    /// `ExecutePartitions` is a dead end of its own kind now that `nix/bigquery-adbc-partitions.patch`
+    /// implements it: it runs the query and partitions a real destination table, but refuses a
+    /// `bigquery.query.dry_run` statement outright rather than returning a partition list or an
+    /// estimate (`go/partitions.go`'s dry-run check in `ExecutePartitions`), so the one case that
+    /// carries a byte estimate is exactly the case this path does not reach. No statement option
+    /// surfaces it as a value to read back either -
     /// `GetOptionInt` echoes only configuration this crate itself set (`go/statement.go:185-205`),
     /// and the driver's OTHER statistics surface, `ConnectionGetStatistics`
     /// (`go/connection_statistics.go`), reports a TABLE's stored bytes, never a query's estimated
@@ -533,6 +543,25 @@ pub enum NotFitToServe {
          reading worker certifies a leg against its own catalog before it reads. Declare the catalog"
     )]
     ReadingWorkerWithoutCatalog,
+    /// A reading worker declares a `BigQuery` source that does not federate at a workload identity
+    /// pool. A `BigQuery` partition is read only with the caller's token forwarded for the source's
+    /// pool, so a shared, `google_login` or `domain_delegation` source has nothing to read one with.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is a BigQuery source without \
+         `workload_identity`. A reading worker reads a BigQuery partition only with the caller's \
+         token forwarded for the source's pool. Declare the source's `workload_identity`, or remove it"
+    )]
+    ReadingWorkerBigQueryOutsideAPool { alias: SourceName },
+    /// A reading worker declares an Oracle source without `split: flashback`. An Oracle partition
+    /// is read at its snapshot only at a source whose boot probe passed, and an
+    /// impersonation-at-source source cannot declare the key, so such a source has no partition to
+    /// read.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is an Oracle source without \
+         `split: flashback`. A reading worker reads an Oracle partition only at a shared source that \
+         declares `split: flashback`. Declare it, or remove the source"
+    )]
+    ReadingWorkerOracleWithoutFlashback { alias: SourceName },
     /// A question would wait for other nodes as long as the request it serves may take, or longer,
     /// so the wait would end in the deadline rather than in planning across the nodes that did start.
     #[error(
@@ -540,6 +569,50 @@ pub enum NotFitToServe {
          server.request_timeout_seconds ({timeout_seconds}). Lower the wait"
     )]
     WorkersWaitNotBelowDeadline { wait_seconds: u32, timeout_seconds: u64 },
+    /// A declared peer's source alias is not one this deployment's own `sources:` section
+    /// declares. `crate::server::InvalidTlsMaterial::InvalidSourceAlias` already refuses an alias
+    /// that is not a valid identifier at all; this is the cross-field check over the same alias,
+    /// read against `self.sources` - a fact `InvalidTlsMaterial`'s own per-field parse cannot see.
+    #[error("`{alias}` in server.nodes for `{url}` is not a source this deployment declares under `sources`")]
+    DeclaredNodeReadsUndeclaredSource { url: String, alias: String },
+    /// A declared peer reads a source this deployment serves, and `security.inbound` is absent. A
+    /// lookup leg of that source split across its readers is granted for the verified caller who
+    /// asked, so with no verified caller every such leg would be refused at question time.
+    #[error(
+        "server.nodes declares `{url}` as reading `{alias}`, and security.inbound is not declared: a leg \
+         read on a reading node is granted for a verified caller. Declare security.inbound, or remove \
+         `{alias}` from that node's sources"
+    )]
+    ReadingNodeWithoutInboundIdentity { url: String, alias: String },
+    /// A source declares `hash_buckets_acknowledged_because` and is the only source this
+    /// deployment declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and `{alias}` is the only \
+         source: only a lookup leg of a federated answer is read in hash buckets. Remove the key"
+    )]
+    HashBucketsOnTheOnlySource { alias: SourceName },
+    /// A source declares `hash_buckets_acknowledged_because`, and no `server.nodes` peer reads it,
+    /// so no node is there to read a bucket.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and no server.nodes peer \
+         lists `{alias}` in its sources: a hash bucket is read on a reading node. Declare one, or \
+         remove the key"
+    )]
+    HashBucketsReadByNoNode { alias: SourceName },
+    /// An Oracle source declares `split: flashback` and is the only source this deployment
+    /// declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and `{alias}` is the only source: only a lookup leg \
+         of a federated answer is read in flashback buckets. Remove the key"
+    )]
+    FlashbackOnTheOnlySource { alias: SourceName },
+    /// An Oracle source declares `split: flashback`, and no `server.nodes` peer reads it, so no node
+    /// is there to read a bucket.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and no server.nodes peer lists `{alias}` in its \
+         sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
+    )]
+    FlashbackReadByNoNode { alias: SourceName },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

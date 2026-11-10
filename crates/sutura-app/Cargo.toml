@@ -30,6 +30,11 @@ tracing = { workspace = true }
 # Dev-only: nothing in `src/` names it, so a build that never runs this doctest links no JSON crate.
 # Already resolved workspace-wide, so this is a new edge for this crate and not a new package.
 serde_json = { workspace = true }
+# The decimal cells of `federated/tests/top_test.rs` hand the federated path a combined answer whose
+# measure is a `Decimal128` - a type no `Value` builds. Already in the graph under `sutura-domain`,
+# so new edges and not new packages.
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 # Already a normal dependency above; this entry is here for three FEATURES, the way `sutura-http`
 # asks `sutura-runtime` for `test-capture`. `agreement` is the typed comparison
 # `tests/differential.rs` makes, shared with the BigQuery acceptance leg so the two cannot diverge
@@ -64,6 +69,9 @@ sutura-catalog-okf = { workspace = true }
 sutura-catalog-datacontract = { workspace = true }
 sutura-catalog-openmetadata = { workspace = true }
 sutura-catalog-cube = { workspace = true }
+# EXPERIMENTAL: a DECLARING catalog over an HTTP API an OpenAPI document and a mapping file describe,
+# opened over its synthetic fixture registry - `#1727`.
+sutura-catalog-openapi = { workspace = true }
 # `sutura-catalog-wren`: its `import` writes the markdown the `wren` registry row reads back.
 sutura-catalog-wren = { workspace = true }
 # A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
@@ -77,24 +85,23 @@ sutura-exec-duckdb = { workspace = true, features = ["fixtures"] }
 # `fixtures` for `sutura_exec_postgres::fixture::FixtureCredential::conninfo`, which the harness opens the tier
 # with. A DEV-dependency's feature reaches no consumer, which is the point of the gate on it.
 sutura-exec-postgres = { workspace = true, features = ["fixtures"] }
-# A fifth DATA SOURCE, over HTTP, and a development dependency for Postgres's reason: it proves the
-# ClickHouse statement we render is accepted by a real ClickHouse and answers the same rows. Its
-# cells run against the worktree's `nix/clickhouse-tier.nix` server and skip where none is up.
-# `fixtures` for the tier's credential, its per-open database and the CSV importer.
+# A fifth DATA SOURCE, over ADBC like the one `sutura serve` ships, and a development dependency for
+# Postgres's reason: it proves the ClickHouse statement we render is accepted by a real ClickHouse
+# and answers the same rows. Its cells run against the worktree's `nix/clickhouse-tier.nix` server
+# and skip where none is up. `fixtures` for the tier's credential, its per-open database and the
+# CSV importer.
 sutura-exec-clickhouse = { workspace = true, features = ["fixtures"] }
 # A metrics serving layer over HTTP: the plan becomes a Cube JSON query and Cube computes each metric.
 # Its cells run against the compose `cube` profile (`just dev-up-cube`) and skip where none is up.
 # `fixtures` for the tier's token.
 sutura-exec-cube = { workspace = true, features = ["fixtures"] }
 # A fourth DATA SOURCE, over the wire like Postgres, and registered for the same reason DuckDB and
-# Postgres are: it compiles this adapter against the matrix's own `DataSystemUnderTest` port and
-# reserves its registration point. `available()` answers `false` unconditionally, under a named
-# exemption in the matrix: `just validate` brings up no venue for it (Oracle Database is not
-# packaged in `nixpkgs`, so there is no nix-native tier the way Postgres has one), and no
-# CSV-fixture importer exists yet to attach the example corpus to a live instance even where a
-# developer's own docker socket could reach `compose.services.yaml`'s `oracle` profile. Default
-# features only - the `fixtures` feature exists for a future importer, not for this registration.
-sutura-exec-oracle = { workspace = true }
+# Postgres are: it runs the matrix's cells against a live instance. Its cells execute only where
+# `SUTURA_ORACLE_TIER` names the compose `oracle` profile - the `oracle-tier` CI job starts it - and
+# skip under a named exemption in the matrix everywhere else, since Oracle Database is not packaged
+# in `nixpkgs` and no `just validate` leg can provision one. `fixtures` for the tier's credential, a
+# private user per open and the CSV importer - a DEV-dependency's features reach no consumer.
+sutura-exec-oracle = { workspace = true, features = ["fixtures"] }
 # A third DATA SOURCE, and the one with no local venue at all: its cells execute only where
 # `SUTURA_BQ_DATASET` names the dataset the `bigquery-conformance` job provisioned, and skip under a
 # named exemption everywhere else. `adbc` for the transport those cells open, `fixtures` for the

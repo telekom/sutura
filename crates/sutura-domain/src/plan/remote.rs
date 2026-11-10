@@ -211,6 +211,12 @@ pub enum NotSendable {
     /// A key truncated to a grain: the wire carries a key's column and not its grain.
     #[error("the key `{label}` is truncated to a grain, which a leg on the wire does not carry")]
     KeyTruncated { label: String },
+    /// The document did not serialize.
+    #[error("a split leg's document did not serialize")]
+    Unencodable {
+        #[source]
+        cause: serde_json::Error,
+    },
 }
 
 /// The leg as the sender writes it, with the digest its metric was planned under.
@@ -299,6 +305,48 @@ impl LegWire {
     /// source of what a name means.
     pub fn parse(self, pinned: &PinnedDefinitions, params: Vec<ParamValue>) -> Result<LegPlan, LegNotCertified> {
         certify(self, pinned, params)
+    }
+}
+
+/// A split leg as a reading task carries it: the leg and the values it binds, in one document.
+///
+/// A reading grant digests that document, so the grant covers the bound values too, where a remote
+/// leg's travel beside its document. The planning node writes it with [`Self::encode`], the reading
+/// worker reads it back with [`Self::parse`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PartitionLeg {
+    leg: LegWire,
+    params: Vec<ParamValue>,
+}
+
+impl PartitionLeg {
+    /// `leg` with the values its predicates bind, in placeholder order.
+    #[must_use]
+    pub const fn new(leg: LegWire, params: Vec<ParamValue>) -> Self {
+        Self { leg, params }
+    }
+
+    /// `leg` as the bytes [`Self::parse`] reads back: [`to_wire`]'s document beside the values its
+    /// predicates bind, in placeholder order.
+    ///
+    /// # Errors
+    ///
+    /// What [`to_wire`] refuses, and [`NotSendable::Unencodable`].
+    pub fn encode(leg: &LegPlan) -> Result<Vec<u8>, NotSendable> {
+        serde_json::to_vec(&Self::new(to_wire(leg)?, leg.params().to_vec())).map_err(|cause| NotSendable::Unencodable { cause })
+    }
+
+    /// The document `bytes` hold, or `None` for anything that is not exactly one.
+    #[must_use]
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    /// The leg and the values it binds, in placeholder order, for [`LegWire::parse`].
+    #[must_use]
+    pub fn into_parts(self) -> (LegWire, Vec<ParamValue>) {
+        (self.leg, self.params)
     }
 }
 

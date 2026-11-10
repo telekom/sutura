@@ -1,0 +1,21 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -17,7 +17,7 @@
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::time::{Instant, SystemTime};
+ 
+-use sutura_domain::identity::{BillTo, BoundToTheRequest, CredentialBroker, Presented, RequestContext};
++use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, Presented, RequestContext};
+ use sutura_domain::plan::{
+     Executable, FederationCombiner, Granted, Grantee, LegPlan, LegRunner, LinkCast, Looked, NotGranted, NotOffered,
+     PartitionReader, Partitioned,
+@@ -419,7 +419,7 @@
+         let at = self
+             .warehouses
+             .split_at(leg.source())
+-            .filter(|_| matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
++            .filter(|_| true);
+         let Some(at) = at else {
+             return self.run(leg).map(|rows| Looked::Rows(vec![rows]));
+         };

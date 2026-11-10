@@ -54,6 +54,40 @@ impl<'sql> StatementBuilder<'sql> {
         }
     }
 
+    /// Specifies the output row count for query_arrow_batches(). Responses
+    /// are split or combined across bind executions to fill each batch; the
+    /// final batch may be smaller. Without this option, each nonempty response
+    /// produces one batch. The value must be non-zero or the function will
+    /// panic.
+    #[cfg(feature = "arrow")]
+    pub fn arrow_batch_size(mut self, value: usize) -> Self {
+        assert!(value > 0, "Arrow batch size must be a positive integer");
+        self.options.set_arrow_batch_size(value);
+        self
+    }
+
+    /// Makes query_arrow_batches() yield one batch per round trip to the
+    /// database: first the rows fetched by the execute, then the rows of each
+    /// fetch. A round trip is made only when the next batch is requested and
+    /// never more than one per batch, so the application can stop between any
+    /// two. Overrides arrow_batch_size().
+    #[cfg(feature = "arrow")]
+    pub fn arrow_batch_per_round_trip(mut self) -> Self {
+        self.options.set_arrow_batch_per_round_trip();
+        self
+    }
+
+    /// Makes the default Arrow schema fetch a NUMBER with no fixed precision,
+    /// or whose scale's absolute value exceeds its precision, as its exact
+    /// decimal text (Utf8) instead of Float64: no fixed Arrow decimal holds
+    /// every value such a column may store, and Float64 rounds most of them.
+    /// A requested schema takes precedence.
+    #[cfg(feature = "arrow")]
+    pub fn exact_number_text(mut self) -> Self {
+        self.options.set_exact_number_text();
+        self
+    }
+
     /// Builds the statement from the SQL and the options.
     pub fn build(self) -> Result<Statement, Error> {
         let statement = {
@@ -94,7 +128,8 @@ impl<'sql> StatementBuilder<'sql> {
 
     /// Specifies the Arrow schema to use for query results. Fields map to
     /// query columns by position. The schema must have one field per column
-    /// and use supported fetch types. This option only affects query_arrow().
+    /// and use supported fetch types. Applies to query_arrow() and
+    /// query_arrow_batches().
     #[cfg(feature = "arrow")]
     pub fn with_requested_schema(mut self, schema: SchemaRef) -> Self {
         self.options.set_requested_schema(schema);

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/partitions.rs b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-bigquery/src/adbc/partitions.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/partitions.rs
+@@ -144,7 +144,7 @@
+ {
+     let reader = conn
+         .read_partition(descriptor.as_bytes())
+-        .map_err(|e| AdbcError::Adbc(DriverMessage::of(&e)))?;
++        .map_err(|e| AdbcError::Load(DriverMessage::of(&e)))?;
+     accumulate_bounded(reader)
+ }
+ 

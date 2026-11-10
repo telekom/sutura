@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/served.rs b/crates/sutura-exec-datafusion/src/combine/served.rs
+--- a/crates/sutura-exec-datafusion/src/combine/served.rs
++++ b/crates/sutura-exec-datafusion/src/combine/served.rs
+@@ -168,7 +168,7 @@ pub(super) fn combined(
+         let legs_bytes = super::legs_held(legs);
+         let working_set = working_set_of(ceiling_bytes);
+         let _wanted = nodes.hold(legs_bytes, ceiling_bytes);
+-        let session = nodes.session_for(working_set, legs_bytes, ceiling_bytes)?;
++        let session = super::bounded_session(working_set)?;
+         // With no other node resolved the stage is not refused by `split::routed`: the leg's leaf
+         // fails as one task (`SplitLeafExec::execute`), an engine error and no source's refusal.
+         if let Some(unread) = granted(legs).find(|&leg_source| !nodes.resolves_a_reader(leg_source)) {

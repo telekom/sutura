@@ -72,6 +72,8 @@ where
         &credentials,
         combiner.execute_across(plan, &runner, working_set_bytes),
         ceilings.federated(),
+        // A drill-across splits no leg, so no reading node is asked to certify one.
+        None,
     ) {
         Ok(batches) => batches,
         Err(done) => return *done,

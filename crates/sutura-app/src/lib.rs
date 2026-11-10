@@ -270,8 +270,8 @@ pub enum ServiceError<E, M, C> {
 /// The federated path's own wiring, in the four shapes it cannot answer for.
 ///
 /// **Every arm is unreachable through `sutura_semantic::plan::federated_plan`, the one production
-/// splitter, and the provided `FederationCombiner::execute`. Each is typed anyway rather than
-/// assumed away.** A previous revision reached for a `DuplicateLabels` combine failure for the
+/// splitter, and the provided `FederationCombiner::execute` over sources that split a lookup leg
+/// into at least one partition. Each is typed anyway rather than assumed away.** A previous revision reached for a `DuplicateLabels` combine failure for the
 /// first of them - a failure about a leg RESULT, minted from a value that has nothing to do with
 /// one - which is the shape this enum replaces.
 #[derive(Debug, thiserror::Error)]
@@ -287,7 +287,8 @@ pub enum FederationMiswired {
     },
     /// The leg results did not stand for the plan's legs.
     ///
-    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order.
+    /// `FederationCombiner::execute` builds one result per `FederatedPlan::legs` entry, in order -
+    /// reachable only through a source that split a lookup leg into no partitions.
     #[error("the leg results do not stand for the federated plan's legs")]
     LegsMiswired {
         #[source]
@@ -303,14 +304,17 @@ pub enum FederationMiswired {
         /// `at` for the reason [`Self::LegsCollide`] gives.
         at: sutura_domain::model::SourceName,
     },
-    /// Ranking a combined answer produced a row set whose rows contradict its own columns.
+    /// A combined answer could not be ranked: it has no column at all, or Arrow refused to
+    /// concatenate, compare or take its arrays.
     ///
-    /// `FederatedPlan::rank` re-orders and truncates rows it was handed, so it cannot change a
-    /// width.
-    #[error("the ranked answer is not rectangular")]
+    /// The combine states its column order - every key, then the bucket, then the measure - so
+    /// either is a wiring defect between a combiner and `FederatedPlan::rank`. A narrower answer
+    /// that is not empty is ranked rather than refused; `FederatedPlan::rank` says why that is
+    /// unreachable.
+    #[error("the combined answer could not be ranked")]
     RankedAnswer {
         #[source]
-        cause: sutura_domain::warehouse::MalformedRowSet,
+        cause: sutura_domain::warehouse::UnorderedResult,
     },
 }
 
@@ -824,6 +828,14 @@ pub use raw::{AnsweredRaw, RunSqlError, RunSqlScope, RunningRaw, run_sql};
 // one spelling, and a `pub mod remote_leg` would give it a second, ungated one.
 mod remote_leg;
 pub use remote_leg::{RanRemoteLeg, RunningRemoteLeg, run_remote_leg};
+
+// `docs/adr/20261102082308-workers-read-sources.md` Decision 5's reading-worker re-certification -
+// carved out for the same reason `remote_leg` is, and sharing its one refusal rather than copying
+// it (see `remote_leg::leg_not_certified`'s own doc comment).
+//
+// **Private, not `pub`**, for `run_sql`'s own reason above.
+mod reading_worker;
+pub use reading_worker::{read_recertified, recertify_leg};
 
 /// Charges `bytes` against `context`'s own subject, and turns a refusal into the domain's own
 /// `RefusalReason`.

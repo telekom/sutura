@@ -10,7 +10,8 @@ fn waiting(seconds: u32) -> Sources {
     Sources::defaults(Environment::Development).with_overlay(format!(
         "server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n  \
          tls_node_authority: \"/tls/nodes.pem\"\n  nodes:\n    own: \"https://a.example:8443\"\n    \
-         others: [\"https://b.example:8443\"]\n    wait_for_workers_seconds: {seconds}\n\
+         others:\n      - url: \"https://b.example:8443\"\n        role: \"worker\"\n    \
+         wait_for_workers_seconds: {seconds}\n\
          security:\n  tls_termination: \"in-process\"\n"
     ))
 }

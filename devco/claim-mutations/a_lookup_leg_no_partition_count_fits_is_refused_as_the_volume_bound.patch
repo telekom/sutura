@@ -1,0 +1,22 @@
+diff --git a/crates/sutura-app/src/federated/leg.rs b/crates/sutura-app/src/federated/leg.rs
+--- a/crates/sutura-app/src/federated/leg.rs
++++ b/crates/sutura-app/src/federated/leg.rs
+@@ -350,7 +350,7 @@
+             Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
+         };
+         match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee, self.labels) {
+-            Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
++            Ok(Partitioned::Whole | Partitioned::Refused(_)) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
+                 warehouse,
+                 (self.credentials, self.labels),
+                 leg,
+@@ -369,9 +369,6 @@
+                 }))))
+             }
+             Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
+-            Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
+-                bound: ResultBound::Volume,
+-            })),
+             Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
+             Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
+         }

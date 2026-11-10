@@ -258,6 +258,40 @@ fn typed_surface_refuses_one_public_field() {
     );
 }
 
+#[test]
+fn typed_surface_does_not_read_an_impls_pub_fn_as_a_unit_structs_field() {
+    assert_eq!(
+        over_repo(
+            "wrap-unit-struct",
+            APPLICATION_TREE,
+            (
+                ANSWER_DOOR.0,
+                "pub fn answer() {}\npub struct Marker;\n\nimpl Marker {\n    pub fn label() -> &'static str {\n        \"m\"\n    }\n}\n"
+            ),
+            typed_surface
+        ),
+        (Verdict::Pass, Verdict::Pass),
+        "a unit struct's `;` ends its declaration - the `impl` block's `pub fn` below it is not its field"
+    );
+}
+
+#[test]
+fn typed_surface_ends_a_generic_unit_struct_whose_where_clause_spans_lines() {
+    assert_eq!(
+        over_repo(
+            "wrap-unit-struct-where",
+            APPLICATION_TREE,
+            (
+                ANSWER_DOOR.0,
+                "pub fn answer() {}\npub struct Marker<T>\nwhere\n    T: Copy;\n\nimpl<T: Copy> Marker<T> {\n    pub fn label() -> &'static str {\n        \"m\"\n    }\n}\n"
+            ),
+            typed_surface
+        ),
+        (Verdict::Pass, Verdict::Pass),
+        "the `;` ending a `where` clause on its own line still ends a unit struct's declaration"
+    );
+}
+
 const CLI_LIB: &str = "crates/sutura-cli/src/lib.rs";
 const MOUNT_TREE: Files<'static> = &[
     ("crates/sutura-http/src/lib.rs", "pub fn f() {}\n"),

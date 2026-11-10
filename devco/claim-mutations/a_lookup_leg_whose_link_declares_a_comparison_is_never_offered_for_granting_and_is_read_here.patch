@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/federated/combiner.rs b/crates/sutura-domain/src/plan/federated/combiner.rs
+--- a/crates/sutura-domain/src/plan/federated/combiner.rs
++++ b/crates/sutura-domain/src/plan/federated/combiner.rs
+@@ -156,7 +156,7 @@
+     /// leg's own kind already meets is [`Self::Declared`] too, and that leg is read here.
+     #[must_use]
+     pub const fn of(plan: &FederatedPlan, position: usize) -> Self {
+-        if position == 0 && plan.link_comparison().is_some() {
++        if position == 0 && plan.link_comparison().is_some() && false {
+             Self::Declared
+         } else {
+             Self::Undeclared

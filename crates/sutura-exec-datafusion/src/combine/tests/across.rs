@@ -763,3 +763,23 @@ mod decode;
 /// A stage another node refused over the federated row ceiling, relayed across its link.
 #[cfg(test)]
 mod relayed;
+
+/// A final-stage task over the federated row ceiling, refused typed across a link. A bare `mod`, as
+/// this file is test code already: the causality gate's base run reverts this line, and the cell,
+/// which names `Nodes::row_ceiling`, is not compiled there.
+mod over_ceiling;
+
+/// A split leg's partitions read only on the nodes declared as reading its source. A bare `mod`, as
+/// this file is test code already: the causality gate's base run reverts this line, and the cells,
+/// which name `SplitScan` and `Nodes::reading`, are not compiled there.
+mod split_read;
+
+/// A split lookup leg's ambiguous-link check, counted across its partitions. A bare `mod`, as this
+/// file is test code already: the causality gate's base run reverts this line, and the cells, which
+/// name `refuse_ambiguous_split`, are not compiled there.
+mod split_link;
+
+/// A lookup leg granted to the nodes that read its source, checked and joined only there. A bare
+/// `mod`, as this file is test code already: the causality gate's base run reverts this line, and
+/// the cells, which name `Granted` and `Looked`, are not compiled there.
+mod served_split;

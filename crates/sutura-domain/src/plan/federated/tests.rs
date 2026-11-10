@@ -23,11 +23,6 @@ use crate::plan::{
 mod fixtures;
 use fixtures::*;
 
-/// Case 2's own ranking cells, split out for this file's own `max-lines` reason - see the
-/// module's own header.
-#[cfg(test)]
-mod ranking;
-
 /// More than one lookup leg, and a lookup leg that joins onto another.
 #[cfg(test)]
 mod fan_in;

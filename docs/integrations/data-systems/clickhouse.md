@@ -15,9 +15,9 @@ parameters. The crate is `sutura-exec-clickhouse`, and the source kind is `click
 
 - Your data is in ClickHouse, and one ClickHouse user may read it for all callers, or each caller
   has a ClickHouse user whose grants and row policies the server applies.
-- A ClickHouse source can be one leg of a federated answer when it runs as the shared `user` or
-  signs each caller in with a `delegation` token. A leg that would run through `EXECUTE AS` is
-  refused.
+- A ClickHouse source can be one leg of a federated answer. The leg runs as the identity that a
+  whole query on the source runs as: the shared `user`, the caller's user through `EXECUTE AS`, or
+  the caller signed in with a `delegation` token.
 
 ## Settings
 
@@ -37,6 +37,18 @@ and these keys:
 | `delegation`         | list                      | none     | `impersonation-at-source` only: the hops that exchange the caller's token, in order. Must not be present without a value |
 
 Each hop in `delegation` has the keys of an [Oracle](oracle.md#settings) hop.
+
+`hash_buckets_acknowledged_because` (string, default none) is your reason to let a lookup leg of
+this source be read in hash buckets on the nodes that read the source. The value must not be
+empty. Other kinds of data system refuse the key, and so does an entry with `delegation`, because a
+bucket of a delegated source is not read with the token of the caller. A serving deployment does not start
+when the source with the key is its only source, or when no `server.nodes` peer lists the source in
+its `sources`.
+
+Each bucket is a separate read, so the buckets do not share one snapshot. All the rows of one key
+are read in the same bucket. Under concurrent writes, a key that changes can be read in one bucket,
+in two buckets, or in none. With fewer than two nodes that read the source, the buckets cannot be
+spread, and the leg is read whole.
 
 `plaintext` needs a loopback IP address as `host`. There is no `database` key: unqualified table
 names resolve in the default database of the user.
@@ -90,11 +102,27 @@ Requirements:
   `IMPERSONATE` on every user, so do not grant `ALL` to the user in `user`. Grant `IMPERSONATE` on
   each caller's user by name and never `IMPERSONATE ON *`, because a wildcard lets a verified caller
   run as any user their `sub` names.
+- A settings profile for each caller's user that lets sutura set `join_use_nulls`,
+  `max_execution_time`, `timeout_overflow_mode` and the `output_format_*` settings it sends: not
+  `readonly = 1`, and no constraint that holds one of them away from sutura's value. A profile that
+  caps `max_execution_time` below the time a query has left is refused on every query, not held to
+  the cap.
+- A profile that leaves the settings sutura does not pin at their defaults. sutura does not set
+  them and does not check them, so the caller's profile decides them, and some change the rows with
+  no error: `limit`, `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone`,
+  `count_distinct_implementation`, `join_default_strictness`, `group_by_use_nulls`,
+  `transform_null_in` and `aggregate_functions_null_for_empty`, for example.
 - ClickHouse Cloud does not support `EXECUTE AS`.
 - Only `sutura serve` serves an impersonating ClickHouse source. The `sutura` command refuses it.
 
 A caller with no ClickHouse user, or one that the user in `user` may not become, is refused; the
 query never runs as `user`. A caller whose `sub` is the user in `user` is refused.
+
+Each statement that sutura runs for an answer carries the settings that sutura pins in its own
+`SETTINGS` clause. Under `EXECUTE AS`, ClickHouse drops a connection setting that the caller's
+profile forbids without an error, but refuses a statement whose own setting that profile forbids.
+So a caller whose profile forbids one of them is refused with `source_refused`, and never answered
+without it.
 
 ### Token sign-in
 
@@ -113,7 +141,9 @@ delegation:
 ```
 
 A `host` that is not loopback needs `transport_mode: verified` or `mutual`, because each request
-sends the caller's token. sutura does not start without it.
+sends the caller's token. sutura does not start without it. `delegation` needs
+`security.inbound.mode: direct`, and sutura does not start when the last hop asks for the audience
+of sutura itself.
 
 ClickHouse does not verify the token itself. It sends the user and the token to a token checker
 that you run. sutura does not supply a checker. For each query, ClickHouse sends one request to the

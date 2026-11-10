@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-domain/src/plan/remote.rs b/crates/sutura-domain/src/plan/remote.rs
+--- a/crates/sutura-domain/src/plan/remote.rs
++++ b/crates/sutura-domain/src/plan/remote.rs
+@@ -334,7 +334,7 @@
+     ///
+     /// What [`to_wire`] refuses, and [`NotSendable::Unencodable`].
+     pub fn encode(leg: &LegPlan) -> Result<Vec<u8>, NotSendable> {
+-        serde_json::to_vec(&Self::new(to_wire(leg)?, leg.params().to_vec())).map_err(|cause| NotSendable::Unencodable { cause })
++        serde_json::to_vec(&Self::new(to_wire(leg)?, Vec::new())).map_err(|cause| NotSendable::Unencodable { cause })
+     }
+ 
+     /// The document `bytes` hold, or `None` for anything that is not exactly one.

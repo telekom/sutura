@@ -52,47 +52,58 @@ Off-host means that callers can arrive from other hosts: a non-loopback `server.
 hop, a `security.tls_termination` of `sidecar` or `ingress`, or a `server.allowed_hosts` entry that is not a loopback
 address. `localhost` is a name, not an address, so it counts. `/v1`, `/metrics` and `/mcp` use this one rule.
 
-| Configuration                                                                                                       | What to do                                                                                  |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| A bind address that other hosts can reach, and no `security.tls_termination`                                        | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
-| No `security.access_token` and no `security.inbound` on a serving node, in production or off-host                   | Set one of them                                                                             |
-| `security.access_token` together with `security.inbound.mode: direct`                                               | Remove one: both use `Authorization: Bearer`                                                |
-| `security.access_token` together with `behind-gateway` and `transit_header: authorization`                          | Remove one: both use `Authorization: Bearer`                                                |
-| `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                                | Set `security.metrics_token`                                                                |
-| `security.metrics_token` equal to `security.access_token`                                                           | Use two values                                                                              |
-| `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one     | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
-| `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`               | Declare `security.inbound`                                                                  |
-| No `security.inbound` and `security.identity` is not `single-user`                                                  | Declare `security.inbound`, or `single-user` with its reason                                |
-| No `security.inbound` and a source with `impersonation-at-source`                                                   | Declare `security.inbound`                                                                  |
-| A `security.inbound` block with no `mode`                                                                           | Write `direct` or `behind-gateway`                                                          |
-| `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families               | Name algorithms of one asymmetric key family                                                |
-| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                        | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
-| A key set with no key of the kind that `security.inbound.algorithms` needs                                          | Add a key of that kind, or change the algorithms                                            |
-| `behind-gateway` with no `security.inbound.transit_token_type`                                                      | Write the `typ` of the gateway, or `any`                                                    |
-| `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`         | Use a value in range, or accept the long lifetime by name                                   |
-| `security.inbound.key_set_max_stale_seconds` outside 300 to 86400                                                   | Use a value in range                                                                        |
-| `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                                | Keep the default `at+jwt`, or accept `any` by name                                          |
-| A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`              | Name the real proxy hops                                                                    |
-| `rate_limit.enabled: false`, in production or off-host                                                              | Set `rate_limit.enabled: true`                                                              |
-| `server.role: worker` and a `sources` entry                                                                         | Remove the sources. A worker reads none                                                     |
-| `server.role: worker` and `catalogs` in a file or a variable                                                        | Remove the catalogs                                                                         |
-| `server.role: worker` or `reading-worker` and no `server.tls_node_authority`                                        | Set it ([a worker node](#a-worker-node))                                                    |
-| `server.role: worker` or `reading-worker` and `server.agent_surface.enabled`                                        | Remove the switch                                                                           |
-| `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                       | Remove the switch                                                                           |
-| `server.role: reading-worker` and no `sources` entry                                                                | Declare the sources it reads, or use `worker`                                               |
-| `server.role: reading-worker` and no `catalogs` in a file or a variable                                             | Declare the catalog                                                                         |
-| `server.port: 0` in production                                                                                      | Set a port                                                                                  |
-| An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                    | Fix the name                                                                                |
-| A configured source and no `security.identity`                                                                      | Write `single-user` or `multi-user`                                                         |
-| A `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                  | Write the reason on the source                                                              |
-| A source that the catalog reads and no `sources.<alias>` entry declares                                             | Declare the source                                                                          |
-| `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                     | Use a posture the adapter supports                                                          |
-| An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                      | Declare `verification_identity`, or remove the anchor                                       |
-| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one  | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
-| `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements | List the sources the tool runs over, each one whose adapter runs a raw statement            |
-| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                    | Remove them from `security.outbound`, or serve that source from a deployment without them   |
-| A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                         | The message names the feature. Use a build that has it                                      |
-| `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                  | Lower the wait                                                                              |
+| Configuration                                                                                                                     | What to do                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| A bind address that other hosts can reach, and no `security.tls_termination`                                                      | Declare `sidecar`, `ingress` or `in-process` ([TLS](#tls))                                  |
+| No `security.access_token` and no `security.inbound` on a serving node, in production or off-host                                 | Set one of them                                                                             |
+| `security.access_token` together with `security.inbound.mode: direct`                                                             | Remove one: both use `Authorization: Bearer`                                                |
+| `security.access_token` together with `behind-gateway` and `transit_header: authorization`                                        | Remove one: both use `Authorization: Bearer`                                                |
+| `GET /metrics` reachable with no `security.metrics_token`, in production or off-host                                              | Set `security.metrics_token`                                                                |
+| `security.metrics_token` equal to `security.access_token`                                                                         | Use two values                                                                              |
+| `server.agent_surface.enabled` with no `security.inbound`, unless the deployment is a guarded `single-user` one                   | Declare `security.inbound` (see [the agent surface](#the-agent-surface-over-http))          |
+| `server.agent_surface.enabled` with no `security.inbound` and a source with `impersonation-at-source`                             | Declare `security.inbound`                                                                  |
+| No `security.inbound` and `security.identity` is not `single-user`                                                                | Declare `security.inbound`, or `single-user` with its reason                                |
+| No `security.inbound` and a source with `impersonation-at-source`                                                                 | Declare `security.inbound`                                                                  |
+| A `security.inbound` block with no `mode`                                                                                         | Write `direct` or `behind-gateway`                                                          |
+| `security.inbound.algorithms` that names `none`, an `HS*` algorithm, nothing, or keys of two families                             | Name algorithms of one asymmetric key family                                                |
+| A `security.inbound.key_set_file` that is unreadable or not a usable key set                                                      | Fix the file. A key with no `kid`, a symmetric key and two keys under one `kid` are refused |
+| A key set with no key of the kind that `security.inbound.algorithms` needs                                                        | Add a key of that kind, or change the algorithms                                            |
+| `behind-gateway` with no `security.inbound.transit_token_type`                                                                    | Write the `typ` of the gateway, or `any`                                                    |
+| `transit_max_lifetime_seconds` outside 1 to 3600, or above 300 without `accept_long_transit_lifetime: true`                       | Use a value in range, or accept the long lifetime by name                                   |
+| `security.inbound.key_set_max_stale_seconds` outside 300 to 86400                                                                 | Use a value in range                                                                        |
+| `security.inbound.token_type: any` in `direct` without `accept_any_token_type: true`                                              | Keep the default `at+jwt`, or accept `any` by name                                          |
+| A `rate_limit.trusted_proxies` block with a `/0` prefix, without `accept_every_address_as_proxy: true`                            | Name the real proxy hops                                                                    |
+| `rate_limit.enabled: false`, in production or off-host                                                                            | Set `rate_limit.enabled: true`                                                              |
+| `server.role: worker` and a `sources` entry                                                                                       | Remove the sources. A worker reads none                                                     |
+| `server.role: worker` and `catalogs` in a file or a variable                                                                      | Remove the catalogs                                                                         |
+| `server.role: worker` or `reading-worker` and no `server.tls_node_authority`                                                      | Set it ([a worker node](#a-worker-node))                                                    |
+| `server.role: worker` or `reading-worker` and `server.agent_surface.enabled`                                                      | Remove the switch                                                                           |
+| `server.role: worker` or `reading-worker` and `server.flight_surface.enabled`                                                     | Remove the switch                                                                           |
+| `server.role: reading-worker` and no `sources` entry                                                                              | Declare the sources it reads, or use `worker`                                               |
+| `server.role: reading-worker` and no `catalogs` in a file or a variable                                                           | Declare the catalog                                                                         |
+| `server.role: reading-worker` and a catalog that reads none of its `sources`                                                      | Declare a source the catalog reads                                                          |
+| `server.role: reading-worker` and a BigQuery source without `workload_identity`                                                   | Declare the source's `workload_identity`, or remove it                                      |
+| `server.role: reading-worker` and an Oracle source without `split: flashback`                                                     | Declare `split: flashback`, or remove the source                                            |
+| `server.port: 0` in production                                                                                                    | Set a port                                                                                  |
+| An unknown `SUTURA_ENVIRONMENT`, or an unknown or misspelled key                                                                  | Fix the name                                                                                |
+| A configured source and no `security.identity`                                                                                    | Write `single-user` or `multi-user`                                                         |
+| A `shared-service-user` source in `multi-user` mode with no `acknowledged_because`                                                | Write the reason on the source                                                              |
+| A source that the catalog reads and no `sources.<alias>` entry declares, on a serving node                                        | Declare the source                                                                          |
+| `posture: impersonation-at-source` on a source whose adapter cannot impersonate                                                   | Use a posture the adapter supports                                                          |
+| An anchor on a metric over an `impersonation-at-source` source with no `verification_identity`                                    | Declare `verification_identity`, or remove the anchor                                       |
+| `tools.run_sql.enabled: true`, `security.identity: multi-user`, and a listed source not an acknowledged shared one                | List only acknowledged shared sources, use `single-user`, or leave the tool off             |
+| `tools.run_sql.enabled: true` and no `tools.run_sql.sources`, or a listed alias with no source or no raw statements               | List the sources the tool runs over, each one whose adapter runs a raw statement            |
+| A `security.outbound` trust-anchor bundle or client identity, and a source with `kind: bigquery`                                  | Remove them from `security.outbound`, or serve that source from a deployment without them   |
+| A feature that the build lacks (`tls`, `agent`, `sql`, or a data system or catalog adapter)                                       | The message names the feature. Use a build that has it                                      |
+| `server.nodes.wait_for_workers_seconds` not below `server.request_timeout_seconds`                                                | Lower the wait                                                                              |
+| A peer in `server.nodes.others` with an unknown `role`, or `role: "serving"`                                                      | Use `worker` or `reading-worker`                                                            |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` with no `sources`, or `role: "worker"` with any                   | Name the sources a reading-worker reads; remove them from a worker                          |
+| A `server.nodes.others` IP address of the other family than `server.nodes.address_family`                                         | Write a host name or an address of that family, or set `auto`                               |
+| A `server.nodes.address_family` that is not `auto`, `ipv4` or `ipv6`                                                              | Use one of the three                                                                        |
+| Two `server.nodes.others` peers naming the same origin, or one naming this node's own `own` address                               | Remove the duplicate, or the self-reference                                                 |
+| A `server.nodes` address with a path, query, userinfo or a fragment that is not an IP address                                     | Use the bare `https://host:port` origin, or `#<ip>` to dial it at that address              |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` reading a source this deployment's own `sources` does not declare | Declare the source here too, or remove it from the peer's list                              |
+| A `server.nodes.others` peer declaring `role: "reading-worker"` reading a declared source, and no `security.inbound`              | Declare `security.inbound`, or remove the source from the peer's list                       |
 
 Before it opens the listener, sutura checks that the tables of the catalog exist. It asks BigQuery. A missing table, a
 refused listing and an inconsistent listing refuse to start. If BigQuery cannot be reached, the log has a `WARN`, and
@@ -347,9 +358,15 @@ server:
   tls_node_authority: "/tls/nodes-ca.pem"
   nodes:
     own: "https://node-a.example.com:8443"
-    others: ["https://node-b.example.com:8443"]
+    others:
+      - url: "https://node-b.example.com:8443"
+        role: "worker"
+      - url: "https://node-c.example.com:8443"
+        role: "reading-worker"
+        sources: ["warehouse"]
     across_above_bytes: 268435456
     wait_for_workers_seconds: 10
+    address_family: "auto"
 ```
 
 `own` is this node's address as the others reach it. Every address is an https URL, and the key is refused without
@@ -357,10 +374,38 @@ server:
 this node dials, so the certificate must be signed by the node authority and carry the names in the addresses. Each
 node serves its worker on the same listener, to clients whose certificate the authority signed.
 
-A host in `others` is resolved when each question is planned, and each address it resolves to is one node, its IPv4
-ones when it has any. A pool of workers behind one name, such as a headless Service, is then the workers it holds at
-that moment, each dialled at its address and checked against the host, so every worker's certificate carries that
-host. A host that resolves to nothing is no node, as an empty pool is, so a misspelled one is not refused.
+Each peer under `others` names its `role` (`worker` or `reading-worker`, never `serving`) and, for a `reading-worker`,
+the source aliases it reads - a `worker` naming any is refused, and a `reading-worker` naming none is. Every address is
+a bare origin, or one with a `#<ip>` fragment naming the address to dial it at: a path, query, userinfo or any other
+fragment is refused. Two peers naming the same origin, or a peer naming this
+node's own `own` address, is refused. A `reading-worker`'s source alias that this deployment's own `sources:` does not
+declare is refused too, once the posture check runs. So is a `reading-worker` peer reading a declared source on a
+deployment with no `security.inbound`: a lookup leg read on a reading node is granted for a verified caller, and a
+question with no verified caller is refused before such a source is asked anything. A lookup leg that names a payer is
+not split, so it is read whole, as the deployment.
+
+A lookup leg of a PostgreSQL source that `reading-worker` peers read is granted to them when the source estimates it
+above `across_above_bytes` (or the working-set ceiling) and splits it into two or more partitions, at most one for each
+declared reader. The same holds in a deployment whose sources are all PostgreSQL: two or more databases that sutura
+joins. Each reader reads its partitions under the snapshot this node exported, and this node reads none of the leg's
+rows. When no declared reader resolves, the question is refused with `503 source_unavailable` and the leg is not read
+here. A question that reads one source has no lookup leg: it is sent to that source whole, as one statement, and is
+never split.
+
+The chart renders a `worker` peer for its worker pool and a `reading-worker` peer for each group in its `readingWorkers.groups`, with the source aliases the group reads.
+
+A host in `others` is resolved when each question is planned, and each address it resolves to is one node. A pool of
+workers behind one name, such as a headless Service, is then the workers it holds at that moment, each dialled at its
+address and checked against the host, so every worker's certificate carries that host. A host that resolves to nothing
+is no node, as an empty pool is, so a misspelled one is not refused.
+
+`address_family` chooses which of a host's addresses are nodes. `auto`, the default, keeps one family per host: its IPv4
+addresses when it has any, else its IPv6 ones, so a dual-stack pod is not two nodes. `ipv4` keeps only IPv4 addresses and
+`ipv6` only IPv6 ones, and a host with none of that family is no node, like one that resolves to nothing. A peer written
+as an IP address, or with a `#<ip>` fragment, of the other family than `ipv4` or `ipv6` is refused at startup; `own` is
+not read. The setting is `SUTURA__SERVER__NODES__ADDRESS_FAMILY` in the environment. It chooses among the addresses the
+resolver returns and does not make a node reachable over a family the network between the nodes does not carry.
+The chart sets it from `workerPool.addressFamily`, left unset for `auto`.
 
 A question that reads one data system never goes across. One that reads several goes across at once when its legs hold
 more than `across_above_bytes`, or more than its working-set ceiling when the key is unset. Otherwise this node combines
@@ -374,10 +419,12 @@ and so is a wait that is not below `server.request_timeout_seconds`.
 
 A stage another node cannot hold in its own working set is refused there, and the question is refused with
 `resources_exhausted`. A node the question was planned onto that cannot be reached while it runs fails the question, which
-is refused with `503 node_lost`. Asked again, it is planned across the nodes there then.
+is refused with `503 node_lost`. Asked again, it is planned across the nodes there then, and a node that has restarted
+since is dialled again.
 
-Limits: the pair and the authority are read once at startup for links, so a renewed certificate reaches them after a
-restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
+Limits: no link is probed, so a node that vanished after a reply without closing its connection is not noticed until a
+question fails on it, and a call already holding a forgotten link still uses it. The pair and the authority are read once
+at startup for links, so a renewed certificate reaches them after a restart. A link carries a task grant per question: a node runs a task only for a question installed there under a key the call's grant verifies, but any node of the same authority may install a question of its own. The leg size
 is Arrow's in-memory measure, which counts a buffer two arrays share twice, so it errs towards going across. A combine
 that ran out on this node is started again across, and the work it did here is lost. A waiting question holds its
 `runtime.max_concurrent_queries` slot. Only an empty pool is refused, so a retry is truthful: a pool already at its
@@ -411,15 +458,33 @@ security:
 A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
 production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
 
-`server.role: reading-worker` is the worker that is to read a split leg's partitions. It is configured as above, and
-it declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node
-with a source. **It reads nothing yet:** it opens neither the sources nor the catalog, and it serves the same worker
-transport, which refuses every stage whose leaf reads a source, because the task grant names no partition. The
-chart's worker pool runs `worker`.
+`server.role: reading-worker` is the worker that reads a granted leg's partitions. It is configured as above, and it
+declares the sources it reads and a catalog in a file or a variable, so it needs `security.identity` like any node with
+a source. At startup it opens its catalog and each source the catalog reads that its own `sources:` declares. A source
+the catalog reads and `sources:` does not declare is not opened and needs no credential there. Before it reads a
+partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
+leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+runs `worker`, and each of its `readingWorkers.groups` runs `reading-worker`.
 
-Limit: a catalog counts only when a file or a variable declares it.
+Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
+worker. The catalog and the sources are read once, at startup.
 `server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
+
+#### What the across-nodes acceptance shows
+
+`.github/workflows/tpch-across-nodes.yml` starts four machines over TPC-H at scale factor 10: a serving node, two
+reading workers and PostgreSQL. It asks each listed question of one node that holds the whole star, of the federated
+catalog on one node, and of the serving node with its two reading workers. A listed question must answer on the reading
+workers with the rows of the one-node answer, in the same order. PostgreSQL's statement log must show the reading
+workers, and not the serving node, reading each split leg's ranges.
+
+Limit: it covers the lookup legs of one PostgreSQL source at one scale factor. The fact leg is read whole on the
+serving node. Every node reads PostgreSQL as one role and nobody signs in, so it says nothing about who reads. The
+one-node answer and the serving node share the semantic compiler, so a defect in their shared plan agrees with
+itself. A `part` table of exactly two streams' rows has no slack, so a question over its unfiltered leg may be refused
+`result_too_large`. A question over the 10,000-row answer cap is not asked. It measures no load and no read speed. It is
+advisory: it runs on dispatch and on a change to the code that it names, never on a schedule.
 
 ## A published container port
 

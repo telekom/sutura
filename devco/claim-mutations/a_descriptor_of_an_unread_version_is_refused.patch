@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split/descriptor.rs
+@@ -108,7 +108,7 @@
+ 
+     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+         let (&version, rest) = bytes.split_first().ok_or(InvalidDescriptor::Truncated)?;
+-        if version != VERSION {
++        if version < VERSION {
+             return Err(InvalidDescriptor::Version { found: version });
+         }
+         let (&length, rest) = rest.split_first().ok_or(InvalidDescriptor::Truncated)?;

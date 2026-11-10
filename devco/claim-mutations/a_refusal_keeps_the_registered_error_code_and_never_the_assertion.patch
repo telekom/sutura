@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-http-client/src/delegation/pool.rs b/crates/sutura-http-client/src/delegation/pool.rs
+index 04332cc1a..9df657fd2 100644
+--- a/crates/sutura-http-client/src/delegation/pool.rs
++++ b/crates/sutura-http-client/src/delegation/pool.rs
+@@ -83,7 +83,7 @@ fn answered(status: u16, text: &str, now: u64) -> Result<Delegated, PoolExchange
+     if !(200..300).contains(&status) {
+         return Err(PoolExchangeFailed::Refused {
+             status,
+-            error: super::registered(text_of("error")),
++            error: text_of("error").map(String::from),
+         });
+     }
+     if body.is_none() {

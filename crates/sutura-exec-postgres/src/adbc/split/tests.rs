@@ -1,5 +1,5 @@
-//! The page cut, the snapshot id's admission, and what the export and a partition send, over
-//! `super::super::tests`' fake connection. The tier half is `tests/split.rs`.
+//! The page cut, the snapshot id's admission, what the export, a partition and a split's described
+//! columns send, over `super::super::tests`' fake connection. The tier half is `tests/split.rs`.
 
 use core::num::NonZeroUsize;
 use std::sync::Arc;
@@ -99,6 +99,19 @@ fn the_export_reads_its_snapshot_and_pages_and_leaves_its_transaction_open() {
 }
 
 #[test]
+fn the_pages_query_also_reads_row_count_and_page_size_for_split_by_estimate() {
+    let mut connection = FakeConnection::replying(one_column("id", Arc::new(StringArray::from(vec!["00000003-0000001B-1"]))));
+    let relation = Some(a_number());
+    session::export(&mut connection, relation, CEILING_MS, open_for(Duration::from_secs(60))).expect("export reads");
+    let sent = connection.sent();
+    let Some(Sent::Query { sql: pages, .. }) = sent.into_iter().nth(4) else {
+        panic!("the fifth message sent is the bound pages query");
+    };
+    assert!(pages.contains("c.reltuples::bigint"), "{pages}");
+    assert!(pages.contains("current_setting('block_size')::bigint"), "{pages}");
+}
+
+#[test]
 fn a_partition_imports_the_snapshot_before_its_statement_and_rolls_back() {
     let snapshot = SnapshotId::parse("00000003-0000001B-1").expect("a server-shaped id");
     let mut connection = FakeConnection::replying(a_number());
@@ -125,5 +138,36 @@ fn a_partition_imports_the_snapshot_before_its_statement_and_rolls_back() {
             },
             Sent::Rollback,
         ]
+    );
+}
+
+#[test]
+fn a_split_legs_columns_are_described_and_never_run_with_no_rollback_to_end_its_transaction() {
+    let mut connection = FakeConnection::replying(a_number());
+    let described = session::columns(&mut connection, "SELECT k FROM t").expect("the server describes the statement");
+    assert_eq!(described, *a_number().schema());
+    assert_eq!(
+        connection.sent(),
+        vec![Sent::Described {
+            statement: 0,
+            sql: String::from("SELECT k FROM t"),
+        }],
+        "described and never run, with no rollback to end the exporting transaction"
+    );
+}
+
+#[test]
+fn a_numeric_column_leaves_a_split_with_no_one_schema_for_every_partition() {
+    let plain = a_number().schema().as_ref().clone();
+    assert_eq!(super::super::numeric::fixed(plain.clone()).as_deref(), Some(&plain));
+
+    let typname = std::collections::HashMap::from([(String::from("ADBC:postgresql:typname"), String::from("numeric"))]);
+    let numeric = arrow_schema::Schema::new(vec![
+        arrow_schema::Field::new("n", arrow_schema::DataType::Utf8, true).with_metadata(typname),
+    ]);
+    assert_eq!(
+        super::super::numeric::fixed(numeric),
+        None,
+        "a NUMERIC column is typed by each partition's own cells"
     );
 }

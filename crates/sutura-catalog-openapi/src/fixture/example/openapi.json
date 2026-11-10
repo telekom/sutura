@@ -1,0 +1,104 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Example metadata registry",
+    "version": "1.0.0",
+    "description": "A synthetic API that lists datasets and their links, written for this adapter's fixtures."
+  },
+  "servers": [{ "url": "https://registry.example.com/api" }],
+  "security": [{ "bearer": [] }],
+  "paths": {
+    "/v1/workspaces/{workspace}/datasets": {
+      "parameters": [{ "$ref": "#/components/parameters/Workspace" }],
+      "get": {
+        "operationId": "listDatasets",
+        "parameters": [
+          { "$ref": "#/components/parameters/PageSize" },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of datasets.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DatasetPage" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createDataset",
+        "responses": { "201": { "description": "Created." } }
+      }
+    },
+    "/v1/workspaces/{workspace}/datasets/{dataset}/links": {
+      "get": {
+        "operationId": "listDatasetLinks",
+        "parameters": [
+          { "$ref": "#/components/parameters/Workspace" },
+          { "name": "dataset", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/PageToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the dataset's outgoing links.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkPage" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": { "type": "http", "scheme": "bearer" }
+    },
+    "parameters": {
+      "Workspace": { "name": "workspace", "in": "path", "required": true, "schema": { "type": "string" } },
+      "PageSize": { "name": "pageSize", "in": "query", "schema": { "type": "integer" } },
+      "PageToken": { "name": "pageToken", "in": "query", "schema": { "type": "string" } }
+    },
+    "schemas": {
+      "DatasetPage": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Dataset" } },
+          "next": { "type": "string" }
+        }
+      },
+      "Dataset": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "title": { "type": "string" },
+          "key": { "type": "array", "items": { "type": "string" } },
+          "fields": { "type": "array", "items": { "$ref": "#/components/schemas/Field" } }
+        }
+      },
+      "Field": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "LinkPage": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Link" } },
+          "next": { "type": "string" }
+        }
+      },
+      "Link": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": { "name": { "type": "string" }, "target": { "type": "string" } }
+          },
+          {
+            "type": "object",
+            "properties": { "column": { "type": "string" } }
+          }
+        ]
+      }
+    }
+  }
+}

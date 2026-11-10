@@ -1,0 +1,31 @@
+# The mapping for the example registry in `openapi.json`: a list of datasets, each a model, and per
+# dataset a list of outgoing links. Every pointer is an RFC 6901 JSON Pointer into one answer.
+parameters:
+  workspace: demo
+models:
+  operation: listDatasets
+  items: /items
+  paging:
+    cursor: pageToken
+    next: /next
+    size:
+      parameter: pageSize
+      value: 2
+  name: /name
+  description: [/summary, /title]
+  primary_key: /key
+  columns:
+    at: /fields
+    name: /name
+    type: /type
+    description: [/description]
+relationships:
+  operation: listDatasetLinks
+  model_parameter: dataset
+  items: /items
+  paging:
+    cursor: pageToken
+    next: /next
+  name: /name
+  target: /target
+  foreign_key: /column

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/serve/worker.rs b/crates/sutura-cli/src/serve/worker.rs
+--- a/crates/sutura-cli/src/serve/worker.rs
++++ b/crates/sutura-cli/src/serve/worker.rs
+@@ -132,7 +132,8 @@ fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
+         settings.server().request_timeout(),
+         outbound.as_ref(),
+     )?;
+-    Ok((pinned, opened))
++    let _kept = (pinned, opened);
++    Err(String::from("mutated: a reading worker opens its declared sources and still refuses to serve"))
+ }
+ 
+ /// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what

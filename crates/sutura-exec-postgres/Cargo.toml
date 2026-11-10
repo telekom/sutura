@@ -88,6 +88,10 @@ name = "split"
 required-features = ["fixtures"]
 
 [[test]]
+name = "partition_read"
+required-features = ["fixtures"]
+
+[[test]]
 name = "tls"
 required-features = ["fixtures"]
 

@@ -1,0 +1,12 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
+@@ -236,8 +236,8 @@
+ /// why not.
+ pub(super) fn verify(asked: &Verification<'_>) -> Result<(), WorkerRefusal> {
+     let names = asked.grant.leg == asked.wanted_leg
+-        && &asked.grant.source == asked.wanted_source
+         && asked.grant.partition == *asked.wanted_partition;
++    let _ = asked.wanted_source;
+     if !names || hmac::verify(&asked.key.signing(), &asked.grant.signed(), asked.signature.as_bytes()).is_err() {
+         return Err(WorkerRefusal::GrantNotNaming);
+     }

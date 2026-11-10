@@ -637,15 +637,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bit-vec"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -855,6 +846,15 @@ name = "cmov"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
+
+[[package]]
+name = "cobs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fa961b519f0b462e3a3b4a34b64d119eeaca1d59af726fe450bbba07a9fc0a1"
+dependencies = [
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "comfy-table"
@@ -1380,7 +1380,6 @@ dependencies = [
  "arrow-ipc",
  "arrow-select",
  "async-trait",
- "bincode",
  "bytes",
  "chrono",
  "crossbeam-queue",
@@ -1395,6 +1394,7 @@ dependencies = [
  "num-traits",
  "object_store",
  "pin-project",
+ "postcard",
  "prost",
  "rand 0.9.5",
  "sketches-ddsketch",
@@ -1479,7 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "datafusion-federation"
-version = "0.5.7"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a88ddbfab13bdbd6d6387001cea43e27eb3c312a351011019f01b94e049a07be"
 dependencies = [
  "arrow-json",
  "async-stream",
@@ -1994,6 +1996,18 @@ name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
+
+[[package]]
+name = "embedded-io"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1a6892d9eef45c8fa6b9e0086428a2cca8491aca8f787c534a3d6d0bcb3ced"
+
+[[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "encode_unicode"
@@ -3487,9 +3501,9 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "polyglot-sql"
-version = "0.13.5"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38594f1c262e0f2ff4086b6004d90d44afca3aa7a5c18e181ffab921f39a328b"
+checksum = "6f4a3cb9f0d916be9b0488f062f6646b6819a8f09f46c07cff8a8802231bf522"
 dependencies = [
  "polyglot-sql-ast-derive",
  "serde",
@@ -3501,9 +3515,9 @@ dependencies = [
 
 [[package]]
 name = "polyglot-sql-ast-derive"
-version = "0.13.5"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a35ecb67b0e4f15a04f6c582e4fea288becd63a1bde7e5e20db3aba31817200a"
+checksum = "0a2770c12c9f12a7fd74e2864bbf547c3fa67c8d28f60abbe4c5f907a5339ee9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3534,6 +3548,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10ab3eb7f3becc3a1cbc4f2c6f20267996cfc1a6467a873763411b136a122715"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "postcard"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6764c3b5dd454e283a30e6dfe78e9b31096d9e32036b5d1eaac7a6119ccb9a24"
+dependencies = [
+ "cobs",
+ "embedded-io 0.4.0",
+ "embedded-io 0.6.1",
+ "serde",
 ]
 
 [[package]]
@@ -3834,9 +3860,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.8.0"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
+checksum = "d24a7e92f4bcaa36b97fa93c4fa7ca8f3e669eced949345b3462dba333c7f909"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -3854,6 +3880,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -4153,9 +4180,9 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "1.1.1"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+checksum = "9c187e0a369471c550af028cba56d4f4fa2a489ad28151ae95a4d340a2a8b782"
 dependencies = [
  "serde_core",
 ]
@@ -4390,6 +4417,8 @@ dependencies = [
 name = "sutura-app"
 version = "0.11.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "divan",
  "insta",
  "polyglot-sql",
@@ -4400,6 +4429,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
+ "sutura-catalog-openapi",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
  "sutura-catalog-wren",
@@ -4495,6 +4525,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-catalog-openapi"
+version = "0.11.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "sutura-bounded-read",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
 name = "sutura-catalog-openmetadata"
 version = "0.11.0"
 dependencies = [
@@ -4562,6 +4607,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
+ "sutura-catalog-openapi",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
  "sutura-catalog-wren",
@@ -4629,6 +4675,8 @@ dependencies = [
  "rcgen",
  "serde_json",
  "sha2",
+ "sutura-domain",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4637,7 +4685,9 @@ version = "0.11.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
+ "arrow-ord",
  "arrow-schema",
+ "arrow-select",
  "secrecy",
  "serde",
  "serde_json",
@@ -4669,23 +4719,17 @@ dependencies = [
  "adbc_core",
  "adbc_driver_manager",
  "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
- "base64 0.23.1",
- "parking_lot 0.13.0",
  "rcgen",
  "rustls-native-certs",
- "rustls-pki-types",
- "serde_json",
  "sutura-adbc",
  "sutura-conformance",
  "sutura-dev",
  "sutura-domain",
- "sutura-http-client",
  "sutura-sql",
  "sutura-tls",
  "thiserror 2.0.21",
- "ureq",
- "url",
 ]
 
 [[package]]
@@ -4719,6 +4763,7 @@ dependencies = [
  "getrandom 0.4.3",
  "h2",
  "hyper-util",
+ "parking_lot 0.13.0",
  "prost",
  "rcgen",
  "ring",
@@ -4964,6 +5009,7 @@ dependencies = [
 name = "sutura-sql"
 version = "0.11.0"
 dependencies = [
+ "arrow-schema",
  "polyglot-sql",
  "serde",
  "serde_json",
@@ -5216,9 +5262,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.6+spec-1.1.0"
+version = "1.2.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+checksum = "d5755c51863cdac711f1956baf8eb9588e060755f7d3c4c979e70ea1e1f32cd7"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -5231,27 +5277,27 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
-version = "1.1.1+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
+checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
 dependencies = [
  "serde_core",
 ]
 
 [[package]]
 name = "toml_parser"
-version = "1.1.3+spec-1.1.0"
+version = "1.1.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.1.2+spec-1.1.0"
+version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tonic"
@@ -6245,18 +6291,18 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+checksum = "cdb02c3132d251ab1606e9fc913a7da6c6ed08cc263df15edf082e1dc497d157"
 dependencies = [
  "zstd-safe",
 ]
 
 [[package]]
 name = "zstd-safe"
-version = "7.3.0"
+version = "7.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+checksum = "1c8ea04668f5de8d8d51051714ba560c9536519cadcdb8829bba4fe2ad159b03"
 dependencies = [
  "zstd-sys",
 ]

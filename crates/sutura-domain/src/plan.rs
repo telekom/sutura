@@ -28,6 +28,7 @@ use crate::query::Top;
 use crate::warehouse::ParamValue;
 
 use crate::nonempty::NonEmpty;
+mod address_family;
 mod anchor;
 pub mod bindings;
 mod ceiling;
@@ -37,12 +38,20 @@ pub mod key;
 pub mod label;
 pub mod leg;
 pub mod remote;
+mod split;
 pub mod stacked;
 pub mod tables;
 
 #[cfg(test)]
+mod address_family_tests;
+
+#[cfg(test)]
 mod anchor_tests;
 
+#[cfg(test)]
+mod split_tests;
+
+pub use crate::plan::address_family::{AddressFamily, UnknownAddressFamily};
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{
@@ -54,9 +63,9 @@ pub use crate::plan::drill_across::{
 };
 pub use crate::plan::federated::{
     AnswerKey, Cut, ExecuteError, Executed, FederatedAnswerRefusal, FederatedPlan, FederatedPlanError, FederationCombiner,
-    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkKind, LookupLeg, LookupLegs, LookupLegsError,
-    QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion, StatementStopped, StatementTable,
-    WorkerSlotsWanted, WorkersShort, labels,
+    InternalLabel, LegAt, LegResult, LegRunner, LegSide, Legs, LegsMiswired, LinkCast, LinkKind, Looked, LookupLeg, LookupLegs,
+    LookupLegsError, LookupRead, QuotedColumnType, SlotsHeld, StatementAnswer, StatementLegs, StatementQuestion,
+    StatementStopped, StatementTable, WorkerSlotsWanted, WorkersShort, labels,
 };
 #[cfg(any(test, feature = "fixtures"))]
 pub use crate::plan::federated::{NothingCombined, RefusingCombiner};
@@ -65,6 +74,10 @@ pub use crate::plan::label::ResultLabel;
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
+};
+pub use crate::plan::split::{
+    EstimatedRows, GrantExpired, Granted, Grantee, LookupSplit, NotGranted, NotOffered, NotTheCallersPrincipal,
+    NotTheCallersToken, PartitionReader, Partitioned, ReadAs, SplitDecision, SplitRefusal, decide,
 };
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};

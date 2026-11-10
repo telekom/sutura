@@ -38,10 +38,12 @@ use sutura_domain::warehouse::{Accumulating, ResultBatches, ResultBudget, Unanno
 use super::AdbcError;
 use crate::deadline::deadline_statement_timeout_ms;
 
-/// The rows one result stream may deliver before it is refused while being read - the `BigQuery`
-/// transport's ceiling, for its reason: a federation leg carries no `LIMIT`, so this is what makes
-/// a stream finite. `tests::a_stream_past_the_row_ceiling_is_refused_while_it_is_read` holds it.
-const MOST_RESULT_ROWS: usize = 1_000_000;
+/// The rows one result stream may deliver before it is refused while being read.
+///
+/// The `BigQuery` transport's ceiling, for its reason: a federation leg carries no `LIMIT`, so this
+/// is what makes a stream finite. `tests::a_stream_past_the_row_ceiling_is_refused_while_it_is_read`
+/// holds it.
+pub const MOST_RESULT_ROWS: usize = 1_000_000;
 
 /// The bytes one result stream may materialise, the `BigQuery` transport's budget.
 pub(super) const MOST_RESULT_BYTES: NonZeroUsize = match NonZeroUsize::new(256 * 1024 * 1024) {
@@ -69,15 +71,17 @@ pub(super) const RAW_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 /// What `export` asks the server for first, inside the transaction it leaves open.
 const EXPORT: &str = "SELECT pg_catalog.pg_export_snapshot()";
 
-/// The leg's root table's pages as the catalog last estimated them, `$1` its quoted name. No row for
-/// a name that resolves to nothing, or to anything but a plain table - which is what reads a view,
-/// a partitioned table's parent or a foreign table whole.
-const PAGES: &str =
-    "SELECT c.relpages FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass($1) AND c.relkind = 'r'";
+/// The leg's root table's pages, rows and the server's page size, as the catalog and the session
+/// last reported them, `$1` the table's quoted name - one round trip for `split::open` (column 0
+/// alone) and `split::split_by_estimate` (all three). No row for a name that resolves to nothing, or to
+/// anything but a plain table - which is what reads a view, a partitioned table's parent or a
+/// foreign table whole; `split::split_by_estimate` reads the same absence as an estimate of zero.
+const PAGES: &str = "SELECT c.relpages, c.reltuples::bigint, pg_catalog.current_setting('block_size')::bigint \
+     FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass($1) AND c.relkind = 'r'";
 
 /// The longest snapshot id [`SnapshotId::parse`] admits, well past the server's own
 /// `%08X-%08X-%d`.
-const MOST_SNAPSHOT_ID: usize = 64;
+pub(super) const MOST_SNAPSHOT_ID: usize = 64;
 
 /// What `pg_export_snapshot()` returned, held to hex digits and hyphens - the characters the server
 /// writes one with, and none of them can close the quote it is sent between in [`Setting::sql`].
@@ -90,6 +94,10 @@ impl SnapshotId {
         let admitted =
             !raw.is_empty() && raw.len() <= MOST_SNAPSHOT_ID && raw.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-');
         admitted.then(|| Self(String::from(raw)))
+    }
+
+    pub(super) const fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -167,10 +175,19 @@ where
 {
     let timeout = left(ceiling_ms, deadline)?;
     transaction(connection, &Setting::Certified(Some(timeout)), |connection| {
-        let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
-        statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
-        statement.execute_schema().map(drop).map_err(AdbcError::Adbc)
+        columns(connection, sql).map(drop)
     })
+}
+
+/// The columns `sql` answers, described by the server and never run, inside whatever transaction
+/// `connection` holds - a split leg's exporting one, which nothing here rolls back.
+pub(super) fn columns<C>(connection: &mut C, sql: &str) -> Result<arrow_schema::Schema, AdbcError>
+where
+    C: Connection,
+{
+    let mut statement = connection.new_statement().map_err(AdbcError::Adbc)?;
+    statement.set_sql_query(sql).map_err(AdbcError::Adbc)?;
+    statement.execute_schema().map_err(AdbcError::Adbc)
 }
 
 /// The raw tool's one statement, `READ ONLY`, read to [`RAW_ROWS`] at most.

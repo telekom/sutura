@@ -141,6 +141,13 @@ pub(crate) struct RawSource {
     /// `crate::sources::workload_identity::InboundTokenAtPool`.
     #[serde(default)]
     pub(crate) inbound_token_at_pool: Option<String>,
+    /// The operator's reason for letting a `clickhouse` source's lookup leg be read in hash
+    /// buckets - see `sutura_domain::source::HashBucketsDeclared`.
+    #[serde(default)]
+    pub(crate) hash_buckets_acknowledged_because: Option<String>,
+    /// How this source's lookup legs may be split - see `crate::sources::split::SourceSplit`.
+    #[serde(default)]
+    pub(crate) split: Option<String>,
     /// The caller's own Google login, brokered by the identity provider - see
     /// `crate::sources::caller_identity`.
     #[serde(default)]
@@ -411,13 +418,29 @@ pub(crate) struct RawSpendCeiling {
 pub(crate) struct RawNodes {
     /// This node's address, as the others reach it.
     pub(crate) own: String,
-    pub(crate) others: Vec<String>,
+    pub(crate) others: Vec<RawDeclaredNode>,
     /// The leg bytes above which a question reading several data systems is planned across at once.
     #[serde(default)]
     pub(crate) across_above_bytes: Option<core::num::NonZeroU64>,
     /// Seconds a question that goes across waits for the other nodes it wants to resolve.
     #[serde(default)]
     pub(crate) wait_for_workers_seconds: Option<core::num::NonZeroU32>,
+    /// `auto`, `ipv4` or `ipv6`: which family of addresses a host in `others` is dialled at.
+    #[serde(default)]
+    pub(crate) address_family: sutura_domain::plan::AddressFamily,
+}
+
+/// One peer named by `server.nodes.others`: its address, its role (`worker` or
+/// `reading-worker`, the same spelling `server.role` takes), and the source aliases it reads.
+/// `sources` is meaningful only for a `reading-worker` entry; a `worker` entry naming any source
+/// is `#828`'s decision 7, refused at [`crate::server::InvalidTlsMaterial`].
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDeclaredNode {
+    pub(crate) url: String,
+    pub(crate) role: String,
+    #[serde(default)]
+    pub(crate) sources: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]

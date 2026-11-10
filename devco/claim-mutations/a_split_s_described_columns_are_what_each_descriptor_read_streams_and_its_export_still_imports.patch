@@ -1,0 +1,14 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split.rs b/crates/sutura-exec-postgres/src/adbc/split.rs
+--- a/crates/sutura-exec-postgres/src/adbc/split.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split.rs
+@@ -261,7 +261,9 @@
+         let Some((_, query)) = self.partitions.first() else {
+             return Ok(None);
+         };
+-        Ok(numeric::fixed(session::columns(&mut self.exporting, query.sql())?))
++        let described = session::columns(&mut self.exporting, query.sql())?;
++        drop(adbc_core::Connection::rollback(&mut self.exporting));
++        Ok(numeric::fixed(described))
+     }
+ 
+     /// The catalog's estimate of the leg's root, in bytes: its pages at the server's page size.

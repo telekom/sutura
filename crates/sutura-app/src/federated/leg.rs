@@ -11,12 +11,17 @@
 //! is a property of the credential and the adapter rather than of which call is about to run - the
 //! mono path's own `sutura_app::answer` checks it once too, before its own `dry_run`.
 
+use core::iter;
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
-use sutura_domain::identity::{BoundToTheRequest, CredentialBroker, RequestContext};
-use sutura_domain::plan::{Executable, FederationCombiner, LegPlan, LegRunner};
+use sutura_domain::identity::{BillTo, BoundToTheRequest, CredentialBroker, Presented, RequestContext};
+use sutura_domain::plan::{
+    Executable, FederationCombiner, Granted, Grantee, LegPlan, LegRunner, LinkCast, Looked, NotGranted, NotOffered,
+    PartitionReader, Partitioned,
+};
 use sutura_domain::query::{RefusalReason, ResultBound};
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_domain::warehouse::labels::JobLabels;
@@ -72,12 +77,47 @@ where
     }
 }
 
-/// Runs one leg's `execute`, after its own dry run (and the spend ledger, above both legs) have
-/// already cleared it.
+/// A leg's failure, over the three error types [`LegAnswer`] names.
+type Failed<W, B, C> = LegError<<W as Warehouse>::Error, <B as CredentialBroker>::Error, <C as FederationCombiner>::Error>;
+
+/// `T`, or [`Failed`] - named for the `type_complexity` reason [`LegAnswer`] is.
+type Leg<T, W, B, C> = Result<T, Failed<W, B, C>>;
+
+/// What a split asked of a lookup leg's source answered: partitions read here, or granted to the
+/// nodes that read it.
+enum Asked<'r, E> {
+    Here(PartitionReader<'r, E>),
+    Granted(Granted<'r>),
+}
+
+/// A lookup leg's partitions, or why it was not split - named for the same reason.
+type Partitions<'r, W, B, C> = Leg<Asked<'r, Failed<W, B, C>>, W, B, C>;
+
+/// The credential `leg` is read under, once it is still usable and `deadline` has time left.
 ///
 /// The same guards `execute_leg` applied run here for the same reasons: the credential is still
 /// usable this instant, checked again here because a deadline that ages out during the OTHER leg's
 /// own dry run is caught by this leg's own `still_usable_at`.
+fn usable<'c, W, B, C>(credentials: &'c BoundToTheRequest, leg: &LegPlan, deadline: Deadline) -> Leg<&'c Presented, W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    let presented = credentials
+        .presented_for(leg.source())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    credentials
+        .still_usable_at(now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    if deadline.remaining_at(Instant::now()).is_none() {
+        return Err(LegError::Refusal(deadline_exceeded(deadline)));
+    }
+    Ok(presented)
+}
+
+/// Runs one leg's `execute`, after its own dry run (and the spend ledger, above both legs) have
+/// already cleared it, behind [`usable`]'s guards.
 pub(crate) fn run_leg<W, B, C>(
     warehouse: &W,
     (credentials, labels): (&BoundToTheRequest, &JobLabels),
@@ -92,15 +132,7 @@ where
     C: FederationCombiner,
     C::Error: Send,
 {
-    let presented = credentials
-        .presented_for(leg.source())
-        .map_err(|cause| ServiceError::Credentials { cause })?;
-    credentials
-        .still_usable_at(now_in_unix_seconds())
-        .map_err(|cause| ServiceError::Credentials { cause })?;
-    if deadline.remaining_at(Instant::now()).is_none() {
-        return Err(LegError::Refusal(deadline_exceeded(deadline)));
-    }
+    let presented = usable::<W, B, C>(credentials, leg, deadline)?;
     match warehouse.execute_billed(
         Executable::Leg(leg),
         presented,
@@ -111,44 +143,54 @@ where
         Ok(rows) => Ok(rows),
         Err(billed) => {
             let cause = billed.into_source().map_err(LegError::Refusal)?;
-            // The two governance predicates the mono path asks of its own `execute`, asked here for
-            // the same reasons (see `sutura_app::answer`), and in the same order: exhaustion is
-            // refused first, then a result the data system would not return at once, otherwise the
-            // failure leaves as the `503` an outage produces. Without this, a leg-executing adapter
-            // that hit either bound reached a caller as `503` - a status inviting the very retry that
-            // would return the same reply. `dry_run` above is deliberately not given the treatment,
-            // mirroring the mono path: a check reads no data, so neither bound can have fired there.
-            if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
-                return Err(LegError::Refusal(RefusalReason::ResourcesExhausted { ceiling_bytes }));
-            }
-            if warehouse.result_did_not_fit(&cause) {
-                return Err(LegError::Refusal(RefusalReason::ResultTooLarge {
-                    bound: ResultBound::Volume,
-                }));
-            }
-            // The deadline, in the mono path's own order: after the two size bounds, before identity.
-            if warehouse.deadline_exceeded(&cause) {
-                return Err(LegError::Refusal(deadline_exceeded(deadline)));
-            }
-            // Another node declined a leg it does not certify: refused, naming this node's source.
-            // Asked here, not of the pre-flight: a node client has none, so `execute` first reaches B.
-            if warehouse.leg_not_certified(&cause) {
-                return Err(LegError::Refusal(RefusalReason::RemoteLegNotCertified {
-                    source: warehouse.source().clone(),
-                }));
-            }
-            // The same guard, for the same reason: the data system refused THIS leg's statement at
-            // the identity/authorization level. It used to leave as `LegError::Failure` and reach a
-            // caller as the `503` an outage produces, so a caller was told to retry a refusal that
-            // returns the same reply.
-            if warehouse.source_refused(&cause) {
-                return Err(LegError::Refusal(RefusalReason::SourceRefused {
-                    source: warehouse.source().clone(),
-                }));
-            }
-            Err(LegError::Failure(ServiceError::Warehouse { cause }))
+            Err(classified::<W, B, C>(warehouse, cause, deadline))
         }
     }
+}
+
+/// `warehouse`'s failure to read a leg, or one partition of it, as the caller learns it.
+fn classified<W, B, C>(warehouse: &W, cause: W::Error, deadline: Deadline) -> Failed<W, B, C>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+    C: FederationCombiner,
+{
+    // The two governance predicates the mono path asks of its own `execute`, asked here for
+    // the same reasons (see `sutura_app::answer`), and in the same order: exhaustion is
+    // refused first, then a result the data system would not return at once, otherwise the
+    // failure leaves as the `503` an outage produces. Without this, a leg-executing adapter
+    // that hit either bound reached a caller as `503` - a status inviting the very retry that
+    // would return the same reply. `dry_run` above is deliberately not given the treatment,
+    // mirroring the mono path: a check reads no data, so neither bound can have fired there.
+    if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
+        return LegError::Refusal(RefusalReason::ResourcesExhausted { ceiling_bytes });
+    }
+    if warehouse.result_did_not_fit(&cause) {
+        return LegError::Refusal(RefusalReason::ResultTooLarge {
+            bound: ResultBound::Volume,
+        });
+    }
+    // The deadline, in the mono path's own order: after the two size bounds, before identity.
+    if warehouse.deadline_exceeded(&cause) {
+        return LegError::Refusal(deadline_exceeded(deadline));
+    }
+    // Another node declined a leg it does not certify: refused, naming this node's source.
+    // Asked here, not of the pre-flight: a node client has none, so `execute` first reaches B.
+    if warehouse.leg_not_certified(&cause) {
+        return LegError::Refusal(RefusalReason::RemoteLegNotCertified {
+            source: warehouse.source().clone(),
+        });
+    }
+    // The same guard, for the same reason: the data system refused THIS leg's statement at
+    // the identity/authorization level. It used to leave as `LegError::Failure` and reach a
+    // caller as the `503` an outage produces, so a caller was told to retry a refusal that
+    // returns the same reply.
+    if warehouse.source_refused(&cause) {
+        return LegError::Refusal(RefusalReason::SourceRefused {
+            source: warehouse.source().clone(),
+        });
+    }
+    LegError::Failure(ServiceError::Warehouse { cause })
 }
 
 /// Pre-flights every leg in order, then charges what they priced as one sum against `context`'s
@@ -243,6 +285,123 @@ impl<'a, W, B, C> LegsAtTheirSources<'a, W, B, C> {
     }
 }
 
+impl<W, B, C> LegsAtTheirSources<'_, W, B, C>
+where
+    W: Warehouse + Sync,
+    W::Error: Send,
+    B: CredentialBroker,
+    B::Error: Send,
+    C: FederationCombiner,
+    C::Error: Send,
+{
+    /// `leg`'s warehouse, once its token is spent.
+    fn cleared(&self, leg: &LegPlan) -> Leg<&W, W, B, C> {
+        if !self.charged.spend(leg) {
+            return Err(LegError::Failure(ServiceError::Miswired {
+                cause: crate::FederationMiswired::LegNotGivenOut {
+                    at: leg.source().clone(),
+                },
+            }));
+        }
+        self.warehouses.get(leg.source()).ok_or_else(|| {
+            LegError::Refusal(RefusalReason::SourceUnavailable {
+                source: leg.source().clone(),
+            })
+        })
+    }
+
+    /// `leg` asked of a source [`Warehouses::splitting`] named: its partitions, its one read when
+    /// the source answers [`Partitioned::Whole`], its grant, or why none of them.
+    ///
+    /// [`usable`]'s guards are asked before the split, and the grant's `still_usable_at` again before
+    /// each partition is asked for - the call after the last one too, so a grant that expires during
+    /// the last read refuses the leg. Each partition's failure is [`classified`] as a whole leg's is.
+    /// [`Partitioned::Refused`] is `ResultTooLarge`: no partition count the declared readers allow
+    /// keeps each under the source's per-stream bound, so nothing is read.
+    ///
+    /// **A request with no verified caller is refused here, before the source is asked anything**,
+    /// whatever the leg's size, columns or link: a split leg may be granted, a grant names its
+    /// caller, and this deployment does not read such a leg as itself instead. `sutura_config` refuses
+    /// at boot a serving node whose peers read a source it declares while `security.inbound` is
+    /// absent (`NotFitToServe::ReadingNodeWithoutInboundIdentity`), so this is the defence behind
+    /// that, for a caller a declared inbound mode still leaves unverified. A leg whose `link` is
+    /// [`LinkCast::Undeclared`] is then offered for granting ([`Self::grantee`]), and a grant the
+    /// source would not make is refused ([`Self::not_granted`]), never read here instead.
+    ///
+    /// **The limit:** a leg that names a payer never reaches this - a split reads no payer - so it is
+    /// read whole, and for a request with no verified caller it is read as the deployment.
+    fn partitioned(
+        &self,
+        leg: &LegPlan,
+        (above_bytes, readers): (NonZeroU64, NonZeroUsize),
+        link: LinkCast,
+    ) -> Partitions<'_, W, B, C> {
+        let _entered = self.span.enter();
+        let warehouse = self.cleared(leg)?;
+        let deadline = self.deadline;
+        let presented = usable::<W, B, C>(self.credentials, leg, deadline)?;
+        let grantee = match self.grantee(leg) {
+            Err(NotOffered::NoCaller) => {
+                return Err(LegError::Refusal(RefusalReason::CredentialUnavailable {
+                    source: leg.source().clone(),
+                }));
+            }
+            Err(NotOffered::NotSendable(_)) => None,
+            Ok(grantee) => (link == LinkCast::Undeclared).then_some(grantee),
+        };
+        match warehouse.split_lookup(leg, presented, deadline, above_bytes, readers, grantee, self.labels) {
+            Ok(Partitioned::Whole) => Ok(Asked::Here(Box::new(iter::once(run_leg::<_, B, C>(
+                warehouse,
+                (self.credentials, self.labels),
+                leg,
+                deadline,
+            ))))),
+            Ok(Partitioned::Split(mut parts)) => {
+                let (span, credentials) = (&self.span, self.credentials);
+                Ok(Asked::Here(Box::new(iter::from_fn(move || {
+                    let _entered = span.enter();
+                    if let Err(cause) = credentials.still_usable_at(now_in_unix_seconds()) {
+                        return Some(Err(ServiceError::Credentials { cause }.into()));
+                    }
+                    parts
+                        .next()
+                        .map(|part| part.map_err(|cause| classified::<W, B, C>(warehouse, cause, deadline)))
+                }))))
+            }
+            Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),
+            Ok(Partitioned::Refused(_)) => Err(LegError::Refusal(RefusalReason::ResultTooLarge {
+                bound: ResultBound::Volume,
+            })),
+            Ok(Partitioned::NotGranted(refused)) => Err(self.not_granted(leg, refused)),
+            Err(cause) => Err(classified::<W, B, C>(warehouse, cause, deadline)),
+        }
+    }
+
+    /// `leg` granted for the caller the request's grant names, until the earlier of the question's
+    /// deadline and that grant's own expiry - [`NotOffered::NotSendable`] for a leg that does not
+    /// encode, which is then read here as it was before a leg could be granted.
+    fn grantee(&self, leg: &LegPlan) -> Result<Grantee, NotOffered> {
+        let now = SystemTime::now();
+        let left = self.deadline.remaining_at(Instant::now()).unwrap_or_default();
+        Grantee::new(leg, self.credentials, now.checked_add(left).unwrap_or(now))
+    }
+
+    /// The failure a grant `leg`'s source would not make is: a partition no other node can read is
+    /// `SourceUnavailable`, and a grant that ended before the source handed back its partitions is
+    /// the request's own grant expiring when that has passed, else the question's deadline.
+    fn not_granted(&self, leg: &LegPlan, refused: NotGranted) -> Failed<W, B, C> {
+        match refused {
+            NotGranted::NotPortable => LegError::Refusal(RefusalReason::SourceUnavailable {
+                source: leg.source().clone(),
+            }),
+            NotGranted::Expired(_) => match self.credentials.still_usable_at(now_in_unix_seconds()) {
+                Err(cause) => ServiceError::Credentials { cause }.into(),
+                Ok(()) => LegError::Refusal(deadline_exceeded(self.deadline)),
+            },
+        }
+    }
+}
+
 impl<W, B, C> LegRunner for LegsAtTheirSources<'_, W, B, C>
 where
     W: Warehouse + Sync,
@@ -256,18 +415,23 @@ where
 
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Self::Error> {
         let _entered = self.span.enter();
-        if !self.charged.spend(leg) {
-            return Err(LegError::Failure(ServiceError::Miswired {
-                cause: crate::FederationMiswired::LegNotGivenOut {
-                    at: leg.source().clone(),
-                },
-            }));
-        }
-        let Some(warehouse) = self.warehouses.get(leg.source()) else {
-            return Err(LegError::Refusal(RefusalReason::SourceUnavailable {
-                source: leg.source().clone(),
-            }));
-        };
+        let warehouse = self.cleared(leg)?;
         run_leg::<_, B, C>(warehouse, (self.credentials, self.labels), leg, self.deadline)
+    }
+
+    /// Split at the source when [`Warehouses::splitting`] named `leg`'s source and `leg` names no
+    /// payer - a split reads no payer - read here or granted, otherwise [`Self::run`]'s one read.
+    fn lookup(&self, leg: &LegPlan, link: LinkCast) -> Result<Looked<'_>, Self::Error> {
+        let at = self
+            .warehouses
+            .split_at(leg.source())
+            .filter(|_| matches!(self.credentials.bill_to_for(leg.source()), BillTo::Unstated));
+        let Some(at) = at else {
+            return self.run(leg).map(|rows| Looked::Rows(vec![rows]));
+        };
+        match self.partitioned(leg, at, link)? {
+            Asked::Here(parts) => parts.collect::<Result<Vec<_>, _>>().map(Looked::Rows),
+            Asked::Granted(granted) => Ok(Looked::Granted(granted)),
+        }
     }
 }

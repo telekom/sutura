@@ -69,6 +69,10 @@ With `min: 0` no worker runs until a question wants one.
 The pool needs cert-manager and its CSI driver, and a CA issuer named in `workerPool.issuer`.
 Every pod gets its own certificate from that issuer and ends TLS itself, so the chart refuses `tls.enabled` or a `security.tlsTermination` other than `in-process`.
 A pod reads its certificate once, at start: keep `workerPool.certificateDuration` longer than a pod runs.
+`workerPool.addressFamily` is `auto` (the default), `ipv4` or `ipv6`: which family of address the serving pod dials a worker's host name at, written as `server.nodes.address_family`.
+`auto` takes one family per host, its IPv4 addresses when it has any, so a dual-stack pod is not two workers; `ipv6` suits an IPv6-only cluster.
+The chart refuses any other spelling at render time.
+It chooses among the addresses the name resolves to and does not make a worker reachable over a family the cluster network does not carry.
 The release installs the cluster-wide `SuturaWorkerPool` definition, in the API group `workerPool.apiGroup`.
 The operator's Role may `get` the serving and worker Deployments' `scale` by name and `patch` only the
 worker's, both narrowed to those two names by `resourceNames`, which the API server itself enforces
@@ -95,6 +99,37 @@ sign for every namespace in the cluster. **Stated limit:** the chart cannot chec
 elsewhere - it refuses only the `ClusterIssuer` case it can see from the values file. It also does
 not check the certificate's Subject Alternative Name at the TLS layer; that check, if added, belongs
 in the server (`crates/sutura-http/src/tls/authority.rs`), not in this chart.
+
+## Reading workers
+
+`readingWorkers.groups` adds workers that read data sources themselves, so a lookup leg of a question can be read in partitions on the nodes that read its source.
+A group is a name and `sources`, `catalogs`, `replicas`, `resources`, `extraVolumes` and `extraVolumeMounts`.
+Each group is a `Deployment` with `server.role: reading-worker`, a headless `Service` and a settings file, all named `<release>-reading-<group>`.
+The serving pod names every group under `server.nodes`, with the source aliases the group reads.
+A group needs `workerPool.enabled: true`: its certificate comes from `workerPool.issuer` and it ends TLS the way the workers do, so the same restrictions apply.
+
+A group opens only the sources it names.
+Its settings file holds the `sources` entries of those aliases, taken from `config.base` and `config.environment`, and `security.identity`, `security.single_user_because`, `security.inbound` and the group's own `catalogs`.
+Nothing else of `config.base` or `config.environment` reaches it, so a setting a source depends on, such as `security.outbound`, is not carried.
+The release's own `extraVolumes`, `extraVolumeMounts` and `extraEnv` never reach a group.
+Mount a source's credential into the group that reads it with that group's `extraVolumes` and `extraVolumeMounts`, and point the source's `password_file` at the mount.
+The group's pod mounts the key set of `security.inbound.keySetSecretName`, a public key set, as the serving pod does.
+
+The chart refuses a render that the binary would refuse to start:
+
+- no `security.inbound.mode`: a lookup leg a reading worker reads is granted for a verified caller;
+- a group that names no source, or a source `sources` does not declare;
+- a group with no `catalogs`, a group name that is not a DNS label, and `readingWorkers.groups` without `workerPool.enabled`.
+
+Limits.
+The chart deploys the nodes and names them; what a served question reads on them is the binary's, and [Serving over HTTP](https://telekom.github.io/sutura/latest/serving/) states it for each release.
+`sutura-operator` sizes the combining workers only: `replicas` is the count of a group, and a `SuturaWorkerPool` does not name one.
+The chart cannot check that a source's connection settings are right or that a group's mounted credential holds what the source reads: the group's pod refuses to start, or a question refuses, when they are not.
+A group's `catalogs` is written out for the group and is not checked against the serving pod's own catalog.
+The group keeps the release's `serviceAccount`, `nodeSelector`, `affinity` and `tolerations`.
+The group's mounted Secret is readable by every process in the group's pod, which is why the credentials of a source belong in the group that reads it and in no other.
+With `networkPolicy.enabled: true`, the reading workers accept their port from the serving pods, the combining workers and each other, as the workers do.
+The chart does not restrict their egress to a data source.
 
 ## Network policy
 

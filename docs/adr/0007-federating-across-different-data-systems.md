@@ -2005,3 +2005,25 @@ refusal. It does not change the decision.
   holds: a second fact's compound link is matched for every leg that joins onto the fact.
 - The kind of each second-fact link is checked against the first fact's when the legs have run. The
   catalog's declared types for the second fact's relationships are not checked at plan time.
+
+## Twenty-sixth amendment, 2026-11-07: the Oracle goldens are executed in one CI job
+
+The *Seventh amendment*'s sentence "The repository records no live Oracle execution: the Oracle
+goldens declare `Venue::ByHandOnly` and prove rendering only" is historical, and so are its echoes
+in the *first amendment* of `docs/adr/0003` and the *third amendment* of `docs/adr/0008`, which
+cite it. Left above as written, per the amendment convention; the correction is here. The
+`oracle-tier` CI job starts the compose `oracle` profile and runs the golden matrix and the
+federated differential for Oracle against it. The dialect axis declares Oracle `Evidence::Executed`,
+which requires all four execution golden families, and the job compares each against what that
+database answers. `Venue` and `Evidence::RenderOnly` are deleted: no dialect is left whose goldens
+only render, and the workspace denies `dead_code` on a variant nothing constructs.
+
+**Limits.**
+
+- One CI job, and no `just validate` leg: no gate there provisions an Oracle, so the conformance
+  packs stay unbound for this adapter.
+- The example corpus only, answered under one declared user per cell. The *Seventh amendment*'s
+  last paragraph stands: the direct driver supplies no per-subject token authentication, and
+  `docs/adr/0008` keeps that decision deferred.
+- The Seventh amendment's remarks on the `FETCH FIRST` golden and on the quoted identifier case are
+  not corrected here.

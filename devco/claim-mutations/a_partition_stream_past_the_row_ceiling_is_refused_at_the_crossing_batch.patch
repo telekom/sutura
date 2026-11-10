@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-domain/src/warehouse/arrow.rs b/crates/sutura-domain/src/warehouse/arrow.rs
+index c7102f21b..f9bbec3fe 100644
+--- a/crates/sutura-domain/src/warehouse/arrow.rs
++++ b/crates/sutura-domain/src/warehouse/arrow.rs
+@@ -258,7 +258,7 @@ impl Accumulating {
+             }
+         }
+         let arriving = batch.num_rows();
+-        if self.rows.saturating_add(arriving) > self.most {
++        if self.rows.saturating_add(arriving) > self.most.saturating_add(1) {
+             return Err(UnannouncedBatch::OverBound { most: self.most });
+         }
+         // **Charged before the batch is retained, and charged for the conversion too.** The whole

@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): readingWorkers.groups.orders names no source: sutura refuses a `reading-worker` peer that names none (InvalidDeclaredNode::ReadingWorkerNamesNoSource), because it would read nothing - list the aliases it reads in readingWorkers.groups.orders.sources
+
+Use --debug flag to render out invalid YAML

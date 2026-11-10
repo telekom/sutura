@@ -49,6 +49,13 @@ ring = { version = "0.17", optional = true }
 # Where a `run_sql` statement's planner text goes instead of the caller's answer, which it would leak
 # column names into.
 tracing = { workspace = true, optional = true }
+# The codec a question's final stage carries its federated row ceiling across a link in, and the
+# one a source-reading task's leaf carries its schema in as `datafusion-proto`'s own `Schema`
+# message. Already in the graph through `datafusion-distributed`'s own decode route.
+datafusion-proto = { version = "55.1.0", default-features = false, optional = true }
+# `Message::decode`/`encode_to_vec` for that `Schema` message. Already in the graph through
+# `datafusion-proto`.
+prost = { version = "0.14", default-features = false, optional = true }
 # One runtime, built once and kept beside the session context. See the struct.
 #
 # `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
@@ -63,6 +70,12 @@ tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
 # and it was already a DEV-dependency here for the deadline test's hand-rolled `PartitionStream`.
 futures-util = { workspace = true }
 thiserror = { workspace = true }
+# The locks `ReadingKeys` and the links' kept channels hold: `std::sync::Mutex` is disallowed
+# crate-wide, and a reading task's admit rule and a channel's lookup are synchronous, never held
+# across an `.await` - a call given up on forgets its channel in a `Drop`, which cannot await -
+# matching the carve-out the root manifest's own `parking_lot` entry already documents. Optional
+# and only under `distributed`, the one feature that reaches `combine::across` at all.
+parking_lot = { workspace = true, optional = true }
 
 # The conformance packs, which `tests/conformance.rs` binds this engine to. A DEV-dependency, for
 # the reason the sibling adapter's manifest gives.
@@ -100,7 +113,7 @@ fixtures = ["sutura-domain/fixtures"]
 measurement = []
 # A combine whose stages above a repartition run on several nodes, `combine::across`. Default-off: no
 # binary plans a combine across nodes yet. `tokio/net` for the runtime's I/O driver, which the links
-# to the other nodes need, and `tokio/sync` for the lock their channels are kept under.
+# to the other nodes need, and `tokio/sync` for the lock their question keys are kept under.
 distributed = [
   "dep:datafusion-distributed",
   "dep:url",
@@ -112,6 +125,9 @@ distributed = [
   "dep:h2",
   "dep:getrandom",
   "dep:ring",
+  "dep:datafusion-proto",
+  "dep:prost",
+  "dep:parking_lot",
   "tokio/net",
   "tokio/sync",
 ]

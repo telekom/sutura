@@ -1,19 +1,44 @@
-//! A `server.role: worker` or `reading-worker` node: no catalog or source opened, and the worker
-//! transport as its one surface.
+//! A `server.role: worker` or `reading-worker` node: the worker transport as its one surface, and
+//! for a `reading-worker` its own declared catalog and sources opened beside it.
 //!
 //! `Settings::load` has refused a `worker` that declares a source or a catalog, a `reading-worker`
 //! that declares no source or no catalog, and either role naming no `server.tls_node_authority` or
 //! enabling `/mcp` or Flight, so what is left is this node's worker, built from the listener's pair
 //! and the node authority, served behind the node-certificate gate. `server.nodes` is not read.
 //!
-//! **Limits.** As on a serving node, the pair and the authority are read once, at boot. The worker
-//! admits only a call that carries its question's task grant, under the key the first call of
-//! that question installed: a node of the same authority installs that key. **A `reading-worker`
-//! reads nothing yet.** It serves the same worker as a `worker`, which refuses every stage whose
-//! leaf reads a source, and it opens neither the sources nor the catalog it declares: reading a
-//! partition needs a task grant that names it, which the grant does not carry.
+//! **A `reading-worker` opens its catalog and the sources it both reads and declares at boot,
+//! through the same `crate::catalog::open_catalog`/`load` and `crate::serve::open_named` a serving
+//! node's own boot uses** - never a second copy of either constructor. A source its catalog reads
+//! and its `sources:` does not declare is not opened. A `worker` still opens neither, having
+//! declared neither.
+//!
+//! **A `reading-worker` built with the `postgres` or `clickhouse` adapter keeps them for its partition
+//! reader**
+//! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
+//! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
+//! read as its service user, or for a `BigQuery` pool source with the caller's token the grant
+//! named, an arm built only with `postgres`. `ClickHouse` has no arm yet, so a build with it and
+//! without `postgres` reads no partition: it admits a granted task and refuses each partition, where
+//! it served as a `worker` before that build took the reader. No venue runs that role in that build.
+//! A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
+//!
+//! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the
+//! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
+//! re-opened here (`crate::serve::refresh` is wired only into the serving root). The worker admits
+//! only a call that carries its question's task grant, under the key the first call of that
+//! question installed: a node of the same authority installs that key. The planning node routes a
+//! split leg's partition only to a node `server.nodes` declares as reading its source, and only a
+//! serving deployment's PostgreSQL source or `BigQuery` pool source grants one, so no other served
+//! lookup leg reaches the reader. A source of any other kind is refused, a `reading-worker`
+//! declaring a `BigQuery` source outside a pool, or an Oracle source without `split: flashback`,
+//! does not start (`sutura_config`), and a build
+//! without the `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 
-use sutura_config::{RuntimeSettings, Settings, TlsMaterial};
+use std::sync::Arc;
+
+use sutura_config::{RuntimeSettings, ServerRole, Settings, TlsMaterial};
+use sutura_domain::pinned::PinnedDefinitions;
+use sutura_exec_datafusion::{Nodes, PartitionReader};
 use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
 
 /// Builds this node's worker, then serves it until a signal stops the process.
@@ -30,12 +55,21 @@ pub(super) fn run(settings: &Settings) -> Result<(), String> {
     else {
         return Err(String::from("a worker needs server.tls_node_authority, and it is not set"));
     };
-    let mount = mount(tls, authority, settings.runtime())?;
     telemetry::install(settings.telemetry()).map_err(super::flatten)?;
     sutura_runtime::install_panic_hook();
     banner::announce(settings);
+    let reading = settings.server().role() == ServerRole::ReadingWorker;
+    let mount = if reading {
+        reading_mount(tls, authority, settings)?
+    } else {
+        mount(tls, authority, settings.runtime())?
+    };
     let router = sutura_http::worker_router(settings, &mount).map_err(super::flatten)?;
-    tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
+    if reading {
+        tracing::info!("serving as a reading worker: catalog and declared sources opened, no /v1, /mcp or Flight");
+    } else {
+        tracing::info!("serving as a worker: no catalog or source opened, no /v1, /mcp or Flight");
+    }
     let address = settings.server().bind().socket();
     let material = settings.server().tls().cloned();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -60,10 +94,24 @@ pub(super) fn mount(
     authority: &std::path::Path,
     runtime: RuntimeSettings,
 ) -> Result<sutura_http::WorkerMount, String> {
+    mounted(tls, authority, runtime, None)
+}
+
+/// [`mount`], reading an admitted partition through `reader` when given one; with none, the worker
+/// refuses every stage whose leaf reads a source.
+fn mounted(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    runtime: RuntimeSettings,
+    reader: Option<Arc<dyn PartitionReader>>,
+) -> Result<sutura_http::WorkerMount, String> {
     let identity = super::nodes::identity(tls, authority)?;
     let working_set = crate::sources::working_set(runtime);
-    let own = sutura_exec_datafusion::Nodes::worker(working_set, identity)
-        .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
+    let own = match reader {
+        Some(reader) => Nodes::worker_reading(working_set, identity, Some(reader)),
+        None => Nodes::worker(working_set, identity),
+    }
+    .map_err(|cause| format!("{}\ncould not build this node's worker", super::flatten(cause)))?;
     Ok(sutura_http::WorkerMount::new(
         own.with_call_authorizer(sutura_exec_datafusion::TaskGrant::default())
             .into_worker_server()
@@ -71,5 +119,75 @@ pub(super) fn mount(
     ))
 }
 
+/// What a `reading-worker` pinned and opened at boot.
+type Opened = (PinnedDefinitions, super::OpenedSources);
+
+/// Opens a `reading-worker`'s own declared catalog and, of the sources it reads, only those
+/// `sources:` declares, through the exact constructors `crate::serve::run`'s own boot calls for a
+/// serving node - `crate::catalog::open_catalog`, `crate::catalog::load`, then
+/// `super::open_named`.
+///
+/// **What this proves, and what it does not.** A failure here means the catalog or a declared source
+/// could not be opened - the same refusal a serving node gives for the same misconfiguration - or
+/// that the catalog reads none of the declared sources, and stops this process before it serves. A
+/// source the catalog reads and `sources:` does not declare is not opened, so no credential for it
+/// is asked for, and a leg on it is refused as uncertified (`sutura_app::recertify_leg`). The
+/// catalog is pinned whole: a lookup leg is certified against the metric it serves, which sits on
+/// another source's model. The pinned catalog and the opened sources are kept for this node's
+/// partition reader, so a source that becomes unreachable after boot is noticed only by a read.
+fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
+    let outbound = super::outbound::resolve(settings)?;
+    let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
+    let pinned = crate::catalog::load(&catalogs)?;
+    let declared: Vec<_> = sutura_app::sources(&pinned)
+        .into_iter()
+        .filter(|source| settings.sources().get(source).is_some())
+        .collect();
+    if declared.is_empty() {
+        return Err(String::from(
+            "this reading worker's catalog reads none of the sources it declares, so there is nothing to read",
+        ));
+    }
+    let opened = super::open_named(
+        &declared,
+        &pinned,
+        settings.sources(),
+        settings.runtime(),
+        settings.server().request_timeout(),
+        outbound.as_ref(),
+    )?;
+    Ok((pinned, opened))
+}
+
+/// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what
+/// [`open_reading_sources`] opened, each read bounded by this node's `server.request_timeout`.
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
+fn reading_mount(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    settings: &Settings,
+) -> Result<sutura_http::WorkerMount, String> {
+    let (pinned, opened) = open_reading_sources(settings)?;
+    let reader = partition::Reader::new(pinned, opened, settings.server().request_timeout().budget());
+    mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
+}
+
+/// A `reading-worker`'s [`mount`] in a build with none of `PostgreSQL`, `ClickHouse` and Oracle, the kinds
+/// its reader is built for: its catalog and sources are opened, then dropped, and it serves as a
+/// `worker`.
+#[cfg(not(any(feature = "postgres", feature = "clickhouse", feature = "oracle")))]
+fn reading_mount(
+    tls: &TlsMaterial,
+    authority: &std::path::Path,
+    settings: &Settings,
+) -> Result<sutura_http::WorkerMount, String> {
+    let _opened = open_reading_sources(settings)?;
+    mount(tls, authority, settings.runtime())
+}
+
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
+mod partition;
+#[cfg(test)]
+mod reading;
 #[cfg(test)]
 mod tests;

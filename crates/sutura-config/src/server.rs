@@ -8,14 +8,15 @@
 //! test somebody has to remember to write.
 
 use std::net::{IpAddr, SocketAddr};
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::path::{Path, PathBuf};
+use std::num::NonZeroUsize;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use sutura_domain::warehouse::deadline::{Budget, NoBudget};
-use url::Url;
 
+mod nodes;
 mod role;
+pub use nodes::{DeclaredNode, DeclaredNodeInput, DeclaredNodeRefusal, DeclaredNodes, InvalidDeclaredNode, InvalidTlsMaterial};
 pub use role::{ServerRole, UnknownServerRole};
 
 /// The socket the service listens on.
@@ -315,209 +316,8 @@ pub struct TlsMaterial {
     nodes: Option<DeclaredNodes>,
 }
 
-/// The nodes a combine is planned across: this node's address as the others reach it, and theirs.
-///
-/// Every address is `https`. A link is mutual TLS whatever its URL says, so an `http` address would
-/// read as a plaintext link that does not exist.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeclaredNodes {
-    own: Url,
-    others: Vec<Url>,
-    authority: PathBuf,
-    across_above: Option<NonZeroU64>,
-    wait_for_workers: Option<NonZeroU32>,
-}
-
-impl DeclaredNodes {
-    /// This node's address, as the others reach it.
-    #[inline]
-    pub const fn own(&self) -> &Url {
-        &self.own
-    }
-
-    #[inline]
-    pub fn others(&self) -> &[Url] {
-        &self.others
-    }
-
-    /// The authority every node's certificate is checked against, the same `tls_node_authority`.
-    #[inline]
-    pub fn authority(&self) -> &Path {
-        &self.authority
-    }
-
-    /// The leg bytes above which a question reading several data systems is planned across before
-    /// it is tried on this node, the question's own ceiling when undeclared.
-    #[inline]
-    pub const fn across_above(&self) -> Option<NonZeroU64> {
-        self.across_above
-    }
-
-    /// Seconds a question that goes across waits for the other nodes it wants, none when undeclared.
-    #[inline]
-    pub const fn wait_for_workers(&self) -> Option<NonZeroU32> {
-        self.wait_for_workers
-    }
-}
-
-/// Why the paths are not usable TLS material.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum InvalidTlsMaterial {
-    /// One half was given and the other was not.
-    ///
-    /// Refused rather than half-configured: a certificate with no key cannot start a listener, and
-    /// the silent alternative is a service that either falls back to plaintext or fails at the
-    /// first handshake.
-    #[error("{given} is set and {missing} is not - TLS needs both a certificate chain and its private key")]
-    OnlyOneHalf { given: &'static str, missing: &'static str },
-    /// A path was given as an empty string, which is not a path.
-    #[error("{name} is empty - remove the key to disable TLS rather than setting it to nothing")]
-    EmptyPath { name: &'static str },
-    /// A node authority was given with no certificate and key: a listener that does not terminate
-    /// TLS cannot ask a peer for a certificate.
-    #[error("server.tls_node_authority is set and server.tls_certificate and server.tls_key are not")]
-    AuthorityWithoutPair,
-    /// Nodes were declared with no node authority: the listener would admit any client as a node,
-    /// and a peer would be dialled with nothing to check its certificate against.
-    #[error("server.nodes is set and server.tls_node_authority is not")]
-    NodesWithoutAuthority,
-    #[error("`{found}` in server.nodes is not an https URL with a host")]
-    NotANodeAddress { found: String },
-}
-
-impl TlsMaterial {
-    /// Reads the pair, and the authority a peer node's certificate is checked against, or nothing.
-    ///
-    /// `None` for all three is "no in-process TLS", which is the default and is not an error.
-    pub fn parse(
-        certificate: Option<&str>,
-        key: Option<&str>,
-        node_authority: Option<&str>,
-    ) -> Result<Option<Self>, InvalidTlsMaterial> {
-        let node_authority = match trimmed(node_authority) {
-            None => None,
-            Some("") => {
-                return Err(InvalidTlsMaterial::EmptyPath {
-                    name: "server.tls_node_authority",
-                });
-            }
-            Some(authority) => Some(PathBuf::from(authority)),
-        };
-        match (trimmed(certificate), trimmed(key)) {
-            (None, None) if node_authority.is_some() => Err(InvalidTlsMaterial::AuthorityWithoutPair),
-            (None, None) => Ok(None),
-            (Some(certificate), None) => {
-                if certificate.is_empty() {
-                    return Err(InvalidTlsMaterial::EmptyPath {
-                        name: "server.tls_certificate",
-                    });
-                }
-                Err(InvalidTlsMaterial::OnlyOneHalf {
-                    given: "server.tls_certificate",
-                    missing: "server.tls_key",
-                })
-            }
-            (None, Some(key)) => {
-                if key.is_empty() {
-                    return Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" });
-                }
-                Err(InvalidTlsMaterial::OnlyOneHalf {
-                    given: "server.tls_key",
-                    missing: "server.tls_certificate",
-                })
-            }
-            (Some(certificate), Some(key)) => {
-                if certificate.is_empty() {
-                    return Err(InvalidTlsMaterial::EmptyPath {
-                        name: "server.tls_certificate",
-                    });
-                }
-                if key.is_empty() {
-                    return Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" });
-                }
-                Ok(Some(Self {
-                    certificate: PathBuf::from(certificate),
-                    key: PathBuf::from(key),
-                    node_authority,
-                    nodes: None,
-                }))
-            }
-        }
-    }
-
-    /// The certificate chain, in PEM.
-    #[inline]
-    pub fn certificate(&self) -> &Path {
-        &self.certificate
-    }
-
-    /// The private key, in PEM.
-    #[inline]
-    pub fn key(&self) -> &Path {
-        &self.key
-    }
-
-    /// The authority a peer node's client certificate is checked against, in PEM, if this listener
-    /// asks for one.
-    #[inline]
-    pub fn node_authority(&self) -> Option<&Path> {
-        self.node_authority.as_deref()
-    }
-
-    /// The same material, planning a combine across `own` and `others`. Refused without a node
-    /// authority.
-    pub fn with_nodes(self, own: &str, others: &[String]) -> Result<Self, InvalidTlsMaterial> {
-        let Some(authority) = self.node_authority.clone() else {
-            return Err(InvalidTlsMaterial::NodesWithoutAuthority);
-        };
-        let nodes = DeclaredNodes {
-            own: node_address(own)?,
-            others: others.iter().map(|other| node_address(other)).collect::<Result<_, _>>()?,
-            authority,
-            across_above: None,
-            wait_for_workers: None,
-        };
-        Ok(Self {
-            nodes: Some(nodes),
-            ..self
-        })
-    }
-
-    /// The same material, planning a question whose legs hold more than `bytes` across the declared
-    /// nodes before it is tried on this one.
-    #[must_use]
-    pub const fn across_above(mut self, bytes: Option<NonZeroU64>) -> Self {
-        if let Some(nodes) = self.nodes.as_mut() {
-            nodes.across_above = bytes;
-        }
-        self
-    }
-
-    /// The same material, a question that goes across waiting up to `seconds` for the other nodes
-    /// it wants.
-    #[must_use]
-    pub const fn wait_for_workers(mut self, seconds: Option<NonZeroU32>) -> Self {
-        if let Some(nodes) = self.nodes.as_mut() {
-            nodes.wait_for_workers = seconds;
-        }
-        self
-    }
-
-    /// The nodes a combine is planned across, if any were declared.
-    #[inline]
-    pub const fn nodes(&self) -> Option<&DeclaredNodes> {
-        self.nodes.as_ref()
-    }
-}
-
-fn node_address(written: &str) -> Result<Url, InvalidTlsMaterial> {
-    match Url::parse(written.trim()) {
-        Ok(url) if url.scheme() == "https" && url.has_host() => Ok(url),
-        Ok(_) | Err(_) => Err(InvalidTlsMaterial::NotANodeAddress {
-            found: String::from(written),
-        }),
-    }
-}
+// `impl TlsMaterial` lives in `server::nodes` (`clippy::multiple_inherent_impl` refuses a second
+// block for the same type anywhere in the crate), alongside `with_nodes` and its accessors.
 
 /// The trimmed value, treating an absent key and an unset variable the same way.
 ///
@@ -898,33 +698,6 @@ mod tests {
             .expect("a pair and an authority parse")
             .expect("a pair is material");
         assert_eq!(material.node_authority(), Some(std::path::Path::new("/tls/nodes.pem")));
-    }
-
-    #[test]
-    fn declared_nodes_need_the_node_authority_and_https_addresses() {
-        let pair = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), None)
-            .expect("a pair parses")
-            .expect("a pair is material");
-        let others = [String::from("https://b.example:8443")];
-        assert_eq!(
-            pair.with_nodes("https://a.example:8443", &others),
-            Err(InvalidTlsMaterial::NodesWithoutAuthority)
-        );
-        let material = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"), Some("/tls/nodes.pem"))
-            .expect("a pair and an authority parse")
-            .expect("a pair is material");
-        assert_eq!(
-            material.clone().with_nodes("http://a.example:8443", &others),
-            Err(InvalidTlsMaterial::NotANodeAddress {
-                found: String::from("http://a.example:8443")
-            })
-        );
-        let declared = material
-            .with_nodes(" https://a.example:8443 ", &others)
-            .expect("https addresses under an authority are nodes");
-        let nodes = declared.nodes().expect("the nodes ride with the material");
-        assert_eq!(nodes.own().as_str(), "https://a.example:8443/");
-        assert_eq!(nodes.others().len(), 1);
     }
 
     #[test]

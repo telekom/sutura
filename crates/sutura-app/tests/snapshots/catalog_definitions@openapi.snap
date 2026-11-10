@@ -1,0 +1,95 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  customer:
+    name: customer
+    source: local
+    table: customer
+    columns:
+      customer_id:
+        name: customer_id
+        data_type: string
+        description: "The customer's key."
+        nullable: ~
+      region_id:
+        name: region_id
+        data_type: string
+        description: The region the customer is billed in.
+        nullable: ~
+      segment:
+        name: segment
+        data_type: string
+        description: ""
+        nullable: ~
+    primary_key:
+      - customer_id
+    description: One row per customer.
+  region:
+    name: region
+    source: local
+    table: region
+    columns:
+      region_id:
+        name: region_id
+        data_type: string
+        description: "The region's code."
+        nullable: ~
+      region_name:
+        name: region_name
+        data_type: string
+        description: ""
+        nullable: ~
+    primary_key:
+      - region_id
+    description: One row per sales region.
+  subscription:
+    name: subscription
+    source: local
+    table: subscription
+    columns:
+      customer_id:
+        name: customer_id
+        data_type: string
+        description: ""
+        nullable: ~
+      month:
+        name: month
+        data_type: date
+        description: The first day of the billed month.
+        nullable: ~
+      recurring_revenue:
+        name: recurring_revenue
+        data_type: decimal
+        description: Revenue billed for the month.
+        nullable: ~
+      subscription_id:
+        name: subscription_id
+        data_type: string
+        description: ""
+        nullable: ~
+    primary_key:
+      - month
+      - subscription_id
+    description: One row per subscription and month.
+relationships:
+  customer_region:
+    name: customer_region
+    origin_model: customer
+    target_model: region
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: region_id
+          target: region_id
+  subscription_customer:
+    name: subscription_customer
+    origin_model: subscription
+    target_model: customer
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: customer_id
+          target: customer_id
+metrics: {}

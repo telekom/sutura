@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
+index 6158c1551..bc1288f67 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across.rs
+@@ -410,7 +410,7 @@ impl Nodes {
+             .readers
+             .iter()
+             .map(|(source, declared)| {
+-                let resolved = all.0.iter().skip(1).filter(|node| declared.contains(&unresolved(node)));
++                let resolved = all.0.iter().skip(1).filter(|node| !declared.contains(&unresolved(node)));
+                 (source.clone(), resolved.cloned().collect())
+             })
+             .collect();

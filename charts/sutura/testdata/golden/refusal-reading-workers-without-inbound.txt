@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/deployment.yaml:1:4): readingWorkers.groups is set and config.base and config.environment set no security.inbound.mode: sutura refuses to start a serving node that names a reading worker for a source it declares with no security.inbound, because a lookup leg a reading worker reads is granted for a verified caller (NotFitToServe::ReadingNodeWithoutInboundIdentity) - declare security.inbound with mode `direct` or `behind-gateway`, or remove readingWorkers.groups
+
+Use --debug flag to render out invalid YAML

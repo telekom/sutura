@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
+@@ -234,7 +234,7 @@
+ /// admitted grant ends, since the epoch. A missing or malformed grant reads the same as one wrongly
+ /// named: [`WorkerRefusal::GrantNotNaming`].
+ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<Duration, WorkerRefusal> {
+-    let task = reading::task_id(call.wire, call.partition);
++    let task = reading::task_id(call.wire, &call.key);
+     let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+     keys.admit(task, call.key, |key| {
+         reading::verify(&reading::Verification {

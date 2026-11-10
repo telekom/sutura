@@ -135,16 +135,6 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2016-2026 The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
 
-# The vendored federation optimizer rule, the published 0.5.7 crate plus one local patch
-# `VENDOR.md` records. Apache-2.0 per its own `Cargo.toml`; the published crate and its upstream
-# repository carry an unfilled Apache-2.0 template with no copyright holder named, so the
-# copyright line names the upstream project rather than a guessed holder.
-[[annotations]]
-path = "vendor/datafusion-federation/**"
-precedence = "aggregate"
-SPDX-FileCopyrightText = "the datafusion-federation contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
 # The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
 # its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
 #

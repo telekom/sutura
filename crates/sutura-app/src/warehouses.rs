@@ -35,11 +35,15 @@
 //! of more than one kind if the caller's own enum covers it, each declaring its own posture, and an
 //! answer that says which posture produced it.
 
+use core::num::{NonZeroU64, NonZeroUsize};
 use std::collections::BTreeMap;
 
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{ExecutedAs, SourcePosture};
 use sutura_domain::warehouse::Warehouse;
+
+/// Where a source's lookup legs split: above which estimated bytes, into at most how many partitions.
+type SplitAt = (NonZeroU64, NonZeroUsize);
 
 /// The data systems this process opened.
 ///
@@ -49,6 +53,7 @@ use sutura_domain::warehouse::Warehouse;
 #[derive(Debug, Clone)]
 pub struct Warehouses<W> {
     by_source: BTreeMap<SourceName, W>,
+    splits: BTreeMap<SourceName, SplitAt>,
 }
 
 /// Two adapters were registered for one source.
@@ -94,7 +99,10 @@ where
     pub fn of(one: W) -> Self {
         let mut by_source = BTreeMap::new();
         drop(by_source.insert(one.source().clone(), one));
-        Self { by_source }
+        Self {
+            by_source,
+            splits: BTreeMap::new(),
+        }
     }
 
     /// A second data system, or a refusal naming the source that was already open.
@@ -119,6 +127,19 @@ where
     #[must_use]
     pub fn get(&self, source: &SourceName) -> Option<&W> {
         self.by_source.get(source)
+    }
+
+    /// `source`'s lookup legs split at the source once their estimate is over `above_bytes`, into at
+    /// most `readers` partitions - each still read in this process.
+    #[must_use]
+    pub fn splitting(mut self, source: SourceName, above_bytes: NonZeroU64, readers: NonZeroUsize) -> Self {
+        let _replaced = self.splits.insert(source, (above_bytes, readers));
+        self
+    }
+
+    /// Where [`Self::splitting`] split `source`'s lookup legs, if it named that source.
+    pub(crate) fn split_at(&self, source: &SourceName) -> Option<SplitAt> {
+        self.splits.get(source).copied()
     }
 
     /// Every open data system, in source order.
@@ -166,6 +187,7 @@ where
                 .into_iter()
                 .map(|(name, adapter)| (name, wrap(adapter)))
                 .collect(),
+            splits: self.splits,
         }
     }
 
@@ -182,6 +204,7 @@ where
             }
             drop(self.by_source.insert(source, adapter));
         }
+        self.splits.extend(other.splits);
         Ok(self)
     }
 

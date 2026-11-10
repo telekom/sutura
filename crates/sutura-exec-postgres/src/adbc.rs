@@ -57,7 +57,8 @@ mod session;
 mod split;
 
 use adbc_driver_manager::ManagedConnection;
-pub use split::{Partition, SplitLeg};
+pub use session::MOST_RESULT_ROWS;
+pub use split::{InvalidDescriptor, Partition, PartitionDescriptor, Planned, SplitLeg};
 use sutura_adbc::parameter_batch;
 pub use sutura_adbc_postgres::{
     AdbcError, Channel, Conninfo, GssEncryption, InvalidKerberosService, Kerberos, KerberosService, MOUNTED_DRIVER, NoDriver,
@@ -128,6 +129,61 @@ impl AdbcPostgres {
         deadline: Deadline,
     ) -> Result<SplitLeg<'_>, PostgresError> {
         split::open(self, leg, partitions, presented, deadline)
+    }
+
+    /// Whether `leg`'s root should be read whole or split, and into how many partitions - the
+    /// catalog's own `relpages`/`reltuples` and the session's page size, decided by
+    /// `sutura_domain::plan::decide` against `above_bytes`, over the one export a
+    /// [`split::Planned::Split`] then cuts under directly - never a second one from
+    /// [`Self::split_leg`].
+    ///
+    /// # Errors
+    ///
+    /// What `Warehouse::execute` refuses before it sends a statement - a presented identity this
+    /// source does not serve, a spent deadline, a leg whose root does not quote - and the exporting
+    /// connection's driver or server failure.
+    pub fn split_by_estimate(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        presented: &Presented,
+        deadline: Deadline,
+        above_bytes: core::num::NonZeroU64,
+        per_stream_bound: core::num::NonZeroUsize,
+        ready_workers: core::num::NonZeroUsize,
+    ) -> Result<split::Planned<'_>, PostgresError> {
+        split::split_by_estimate(self, leg, presented, deadline, above_bytes, per_stream_bound, ready_workers)
+    }
+
+    /// The one range of `leg` that `descriptor` - bytes [`Partition::descriptor`] minted - names,
+    /// on a fresh connection that imports the descriptor's snapshot first, under the same per-stream
+    /// bound as [`Partition::read`]. The statement is generated from `leg` here; the descriptor
+    /// carries none.
+    ///
+    /// **The limits**: its one production caller is a reading worker's partition reader in
+    /// `sutura-cli`, after the worker admitted the task's grant and re-certified the leg against its
+    /// own catalog; a planning node routes it a split leaf only for a leg granted through
+    /// [`SplitLeg::schema`] and [`Partition::descriptor`], `github.com/telekom/sutura#828`. It takes no presented identity and does not authenticate
+    /// `descriptor`, so it reads as the adapter's service user for whoever holds the bytes - a source
+    /// declared `shared-service-user` because startup refuses any other posture for Postgres, not
+    /// because this reads one. Deciding who may ask, and keeping the bytes intact on the wire, is the
+    /// task grant's. A forged but well-formed descriptor names at most a page range of `leg` - up to
+    /// all of it, never another statement - under any snapshot still exported in this database,
+    /// whichever session or role exported it, possibly an older one than the split's. `clippy.toml`
+    /// bans the call, so each caller is an `#[expect]` a reviewer sees.
+    ///
+    /// # Errors
+    ///
+    /// [`PostgresError::MalformedDescriptor`] for bytes that do not parse, before any connection
+    /// opens; a leg that does not render; a spent deadline; a stream past the per-stream bound; and
+    /// the driver's or the server's failure - among them a snapshot whose exporting transaction has
+    /// ended, which no longer imports, and whose message from the server quotes the snapshot id.
+    pub fn read_partition(
+        &self,
+        leg: &sutura_domain::plan::LegPlan,
+        descriptor: &[u8],
+        deadline: Deadline,
+    ) -> Result<ResultBatches, PostgresError> {
+        split::read_partition(self, leg, descriptor, deadline)
     }
 
     fn connection(&self) -> Result<ManagedConnection, AdbcError> {
@@ -367,7 +423,17 @@ impl Warehouse for AdbcPostgres {
     /// The limit: both ceilings are read as the stream arrives, so a result refused here was never
     /// measured whole - the caller learns it did not fit, not by how much.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
-        matches!(*error, PostgresError::Adbc { ref cause } if session::result_did_not_fit(cause))
+        error.did_not_fit()
+    }
+}
+
+impl PostgresError {
+    /// Whether this is a stream refused at this transport's row ceiling or byte budget - what
+    /// [`Warehouse::result_did_not_fit`] answers, readable without an adapter by a reading worker,
+    /// whose granted partition is read under the same bound.
+    #[must_use]
+    pub const fn did_not_fit(&self) -> bool {
+        matches!(*self, Self::Adbc { ref cause } if session::result_did_not_fit(cause))
     }
 }
 

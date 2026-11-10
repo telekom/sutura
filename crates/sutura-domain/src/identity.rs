@@ -44,6 +44,7 @@ mod credential;
 mod delegated_as;
 mod delegation;
 mod principal;
+mod source_token;
 
 pub use crate::identity::address::{InvalidAddress, VerifiedAddress};
 pub use crate::identity::billing::{BillTo, BillingAccount, CallerGroups, UnusableBillingAccount};
@@ -55,13 +56,14 @@ pub use crate::identity::credential::{
 };
 pub use crate::identity::delegated_as::DelegatedAs;
 pub use crate::identity::delegation::{
-    Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, PoolExchange, PoolExchangeFailed,
+    Delegated, Delegation, DelegationExchange, DelegationFailed, LinkedLogin, PoolExchange, PoolExchangeFailed, PoolScope,
     RequestedAudience, UnusableAudience, UnusablePool, WorkloadPool,
 };
 pub use crate::identity::principal::{
     Actor, ActorChain, ActorsInOrder, Attribution, ClientClaim, ClientClaims, DelegatedPrincipal, InvalidPrincipalId,
     OAuthClient, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey, TaskId,
 };
+pub use crate::identity::source_token::SourceToken;
 
 /// An opaque secret that nothing can render.
 ///

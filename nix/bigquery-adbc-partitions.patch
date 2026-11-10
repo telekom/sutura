@@ -1,0 +1,900 @@
+--- a/connection.go
++++ b/connection.go
+@@ -42,6 +42,7 @@
+ 	"github.com/adbc-drivers/driverbase-go/driverbase"
+ 	"github.com/apache/arrow-adbc/go/adbc"
+ 	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/array"
+ 	"golang.org/x/oauth2"
+ 	bq "google.golang.org/api/bigquery/v2"
+ 	"google.golang.org/api/googleapi"
+@@ -569,6 +570,19 @@
+ 	return c.getTableSchemaWithFilter(ctx, catalog, dbSchema, tableName, nil)
+ }
+
++// ReadPartition turns a partition descriptor produced by (*statement).ExecutePartitions
++// into a RecordReader, by decoding the Storage Read API stream name it carries and
++// opening it with this connection's own credentials -- never the credentials of
++// whichever connection created the partition. A malformed descriptor is reported
++// as adbc.StatusInvalidArgument rather than panicking.
++func (c *connectionImpl) ReadPartition(ctx context.Context, descriptor []byte) (array.RecordReader, error) {
++	streamName, err := decodePartitionDescriptor(descriptor)
++	if err != nil {
++		return nil, err
++	}
++	return readPartitionRecordReader(ctx, c.client, streamName, c.Alloc, c.resultRecordBufferSize)
++}
++
+ // NewStatement initializes a new statement object tied to this connection
+ func (c *connectionImpl) NewStatement(ctx context.Context) (adbc.StatementWithContext, error) {
+ 	return &statement{
+@@ -577,6 +591,7 @@
+ 		parameterMode:          OptionValueQueryParameterModePositional,
+ 		resultRecordBufferSize: c.resultRecordBufferSize,
+ 		prefetchConcurrency:    c.prefetchConcurrency,
++		partitionMaxStreams:    partitionStreamCount,
+ 		ingest:                 driverbase.NewBulkIngestOptions(),
+ 		queryConfig: bigquery.QueryConfig{
+ 			JobCreationMode:              c.queryDefaults.config.JobCreationMode,
+--- a/driver.go
++++ b/driver.go
+@@ -98,6 +98,18 @@
+ 	// OptionQueryLabels sets the labels of the query job from a JSON object of string keys to string values.
+ 	OptionQueryLabels = "bigquery.query.labels"
+
++	// OptionQueryPartitionsMaxStreams bounds how many Storage Read API streams
++	// ExecutePartitions requests for a query's destination table. A positive integer;
++	// unset keeps partitionStreamCount (4), today's fixed value, so an unset option
++	// changes nothing. Invalid (zero, negative, non-integer) is refused at SetOption.
++	OptionQueryPartitionsMaxStreams = "bigquery.query.partitions.max_streams"
++	// OptionQueryPartitionsTargetRowsPerStream asks ExecutePartitions to size each
++	// stream to roughly this many rows of the query's exact result, rather than always
++	// requesting OptionQueryPartitionsMaxStreams streams. A positive integer; unset
++	// keeps today's behaviour (always OptionQueryPartitionsMaxStreams streams). See
++	// partitionStreamCountFor for the exact split; invalid is refused at SetOption.
++	OptionQueryPartitionsTargetRowsPerStream = "bigquery.query.partitions.target_rows_per_stream"
++
+ 	OptionQueryJobCreationMode = "bigquery.query.job_creation_mode"
+ 	JobCreationModeRequired    = "required"
+ 	JobCreationModeOptional    = "optional"
+--- a/job_query.go
++++ b/job_query.go
+@@ -323,6 +323,50 @@
+ 	return bigqueryRdr, totalRows, nil
+ }
+
++// readPartitionRecordReader turns a Storage Read API stream into an
++// array.RecordReader for ReadPartition, reusing runPlainQuery's channel-pump
++// construction (ipcReaderFromArrowIterator + reader + streamRecordBatches)
++// rather than new machinery. There is no known BigQuery schema for a bare
++// stream name, so ipcReaderFromArrowIterator falls back to the schema
++// carried in the Arrow IPC stream itself, exactly as it already does when a
++// job's reported schema field count does not match. A failure before the
++// reader exists cancels the stream's context, so its gRPC stream does not
++// stay open; once it exists, releasing it cancels the stream.
++func readPartitionRecordReader(ctx context.Context, client *bigquery.Client, readStream string, alloc memory.Allocator, resultRecordBufferSize int) (_ array.RecordReader, err error) {
++	ctx, cancelFn := context.WithCancel(ctx)
++	defer func() {
++		if err != nil {
++			cancelFn()
++		}
++	}()
++
++	// A session stream takes no per-request serialization options: BigQuery refuses
++	// them with InvalidArgument ("only supported for job streams"). Its compression
++	// is the session's own, set by createPartitionReadSession.
++	arrowIterator, err := readRowsArrowIteratorForStream(ctx, client, &storagepb.ReadRowsRequest{ReadStream: readStream}, nil)
++	if err != nil {
++		return nil, errToAdbcErr(adbc.StatusIO, err, "open read partition stream")
++	}
++
++	rdr, schema, err := ipcReaderFromArrowIterator(arrowIterator, nil, "", alloc)
++	if err != nil {
++		return nil, errToAdbcErr(adbc.StatusIO, err, "decode read partition stream")
++	}
++
++	ch := make(chan arrow.RecordBatch, resultRecordBufferSize)
++	result := &reader{
++		refCount:   1,
++		chs:        []chan arrow.RecordBatch{ch},
++		curChIndex: 0,
++		err:        nil,
++		cancelFn:   cancelFn,
++		schema:     schema,
++	}
++
++	go streamRecordBatches(ctx, rdr, result, ch)
++	return result, nil
++}
++
+ // streamRecordBatches reads a RecordReader into a channel; it terminates if the supplied context is cancelled.
+ func streamRecordBatches(ctx context.Context, source array.RecordReader, result *reader, ch chan arrow.RecordBatch) {
+ 	defer close(ch)
+@@ -476,6 +520,27 @@
+ }
+
+ func newReadRowsArrowIterator(ctx context.Context, client *bigquery.Client, job *bigquery.Job, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
++	readStream := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/streams/_default", job.ProjectID(), job.Location(), job.ID())
++	return readRowsArrowIteratorForStream(ctx, client, &storagepb.ReadRowsRequest{
++		ReadStream: readStream,
++		// TODO(lidavidm): if we get an inline response, we can use it, then set the offset to skip it
++		Offset: 0,
++		OutputFormatSerializationOptions: &storagepb.ReadRowsRequest_ArrowSerializationOptions{
++			ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
++				BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
++				// TODO: hmm, there's a way to get nanos and picos (string) out of BigQuery...
++			},
++		},
++	}, schema)
++}
++
++// readRowsArrowIteratorForStream opens ReadRows for request using the
++// connection's own StorageReadClient, i.e. its own credentials.
++// newReadRowsArrowIterator calls it for a job's implicit default stream;
++// ReadPartition calls it for a stream named by an explicit CreateReadSession
++// (see partitions.go), reusing the same machinery rather than opening a second
++// kind of stream reader.
++func readRowsArrowIteratorForStream(ctx context.Context, client *bigquery.Client, request *storagepb.ReadRowsRequest, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
+ 	rc := client.StorageReadClient()
+ 	if rc == nil {
+ 		// TODO(lidavidm): eventually we will need to support disabling this
+@@ -487,18 +552,8 @@
+ 		// https://cloud.google.com/bigquery/quotas#storage-limits
+ 		grpc.MaxCallRecvMsgSize(1024 * 1024 * 129),
+ 	)
+-	readStream := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/streams/_default", job.ProjectID(), job.Location(), job.ID())
+-	rows, err := rc.ReadRows(ctx, &storagepb.ReadRowsRequest{
+-		ReadStream: readStream,
+-		// TODO(lidavidm): if we get an inline response, we can use it, then set the offset to skip it
+-		Offset: 0,
+-		OutputFormatSerializationOptions: &storagepb.ReadRowsRequest_ArrowSerializationOptions{
+-			ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
+-				BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
+-				// TODO: hmm, there's a way to get nanos and picos (string) out of BigQuery...
+-			},
+-		},
+-	}, msgSizeOpt)
++	readStream := request.GetReadStream()
++	rows, err := rc.ReadRows(ctx, request, msgSizeOpt)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- /dev/null
++++ b/partitions.go
+@@ -0,0 +1,169 @@
++// Copyright (c) 2026 ADBC Drivers Contributors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//         http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package bigquery
++
++import (
++	"context"
++	"fmt"
++
++	"cloud.google.com/go/bigquery"
++	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
++	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/flight"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++	"github.com/googleapis/gax-go/v2"
++	"google.golang.org/grpc"
++)
++
++// partitionDescriptorV1 tags a partition descriptor whose remaining bytes are
++// a Storage Read API stream name. It is the only descriptor shape
++// ExecutePartitions produces today; the version byte lets a future shape be
++// introduced without breaking a descriptor already handed to a caller.
++const partitionDescriptorV1 byte = 1
++
++// encodePartitionDescriptor builds the opaque descriptor ExecutePartitions
++// returns per partition. It carries only what ReadPartition needs to reopen
++// the stream -- the stream name -- never a credential or token.
++func encodePartitionDescriptor(streamName string) []byte {
++	descriptor := make([]byte, 0, 1+len(streamName))
++	descriptor = append(descriptor, partitionDescriptorV1)
++	descriptor = append(descriptor, streamName...)
++	return descriptor
++}
++
++// decodePartitionDescriptor recovers the stream name from a descriptor
++// produced by encodePartitionDescriptor. A malformed or unrecognised
++// descriptor is reported as adbc.StatusInvalidArgument, never a panic.
++func decodePartitionDescriptor(descriptor []byte) (string, error) {
++	if len(descriptor) < 1 {
++		return "", adbc.Error{
++			Code: adbc.StatusInvalidArgument,
++			Msg:  "[bq] empty partition descriptor",
++		}
++	}
++	if descriptor[0] != partitionDescriptorV1 {
++		return "", adbc.Error{
++			Code: adbc.StatusInvalidArgument,
++			Msg:  fmt.Sprintf("[bq] unsupported partition descriptor version %d", descriptor[0]),
++		}
++	}
++	streamName := string(descriptor[1:])
++	if streamName == "" {
++		return "", adbc.Error{
++			Code: adbc.StatusInvalidArgument,
++			Msg:  "[bq] partition descriptor has no stream name",
++		}
++	}
++	return streamName, nil
++}
++
++// partitionStreamCountFor is the pure split decision ExecutePartitions makes between
++// its two statement options (OptionQueryPartitionsMaxStreams, maxStreams here, and
++// OptionQueryPartitionsTargetRowsPerStream, targetRowsPerStream here) and the job's own
++// exact result row count.
++//
++// targetRowsPerStream <= 0 means unset: every stream request asks for maxStreams,
++// exactly today's behaviour before either option existed. Set, the row count is
++// divided into stream-sized chunks (rounding up, with at least one stream for zero
++// rows), capped at maxStreams so a caller never gets more streams than it bounded.
++//
++// This decides what is ASKED for, not what is returned: the Storage Read API session
++// may hand back fewer streams than requested (never more), so a per-stream row bound
++// enforced at read time remains the real guard regardless of this split.
++func partitionStreamCountFor(rows uint64, maxStreams int32, targetRowsPerStream int64) int32 {
++	if maxStreams < 1 {
++		maxStreams = 1
++	}
++	if targetRowsPerStream <= 0 {
++		return maxStreams
++	}
++	perStream := uint64(targetRowsPerStream)
++	wanted := (rows + perStream - 1) / perStream
++	if wanted < 1 {
++		wanted = 1
++	}
++	if wanted > uint64(maxStreams) {
++		return maxStreams
++	}
++	return int32(wanted)
++}
++
++// createPartitionReadSession opens a multi-stream Storage Read API session
++// against a query's destination table and returns the Arrow schema and the
++// resulting streams' resource names, one per partition. It asks for exactly
++// maxStreamCount streams, as both bounds; BigQuery's preferred minimum is best
++// effort, so the session may still hold fewer.
++func createPartitionReadSession(ctx context.Context, client *bigquery.Client, dst *bigquery.Table, maxStreamCount int32) (*arrow.Schema, []string, error) {
++	rc := client.StorageReadClient()
++	if rc == nil {
++		return nil, nil, adbc.Error{
++			Code: adbc.StatusInternal,
++			Msg:  "[bq] storage read client is not initialized",
++		}
++	}
++
++	tablePath := fmt.Sprintf("projects/%s/datasets/%s/tables/%s", dst.ProjectID, dst.DatasetID, dst.TableID)
++	msgSizeOpt := gax.WithGRPCOptions(grpc.MaxCallRecvMsgSize(1024 * 1024 * 129))
++
++	readSession, err := rc.CreateReadSession(ctx, &storagepb.CreateReadSessionRequest{
++		Parent: fmt.Sprintf("projects/%s", dst.ProjectID),
++		ReadSession: &storagepb.ReadSession{
++			Table:      tablePath,
++			DataFormat: storagepb.DataFormat_ARROW,
++			ReadOptions: &storagepb.ReadSession_TableReadOptions{
++				OutputFormatSerializationOptions: &storagepb.ReadSession_TableReadOptions_ArrowSerializationOptions{
++					ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
++						BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
++					},
++				},
++			},
++		},
++		// MaxStreamCount alone is a ceiling the server may answer with one stream;
++		// the preferred minimum asks it to split the table at least this far.
++		MaxStreamCount:          maxStreamCount,
++		PreferredMinStreamCount: maxStreamCount,
++	}, msgSizeOpt)
++	if err != nil {
++		return nil, nil, errToAdbcErr(adbc.StatusIO, err, "create read session")
++	}
++
++	schema, err := arrowSchemaFromReadSession(readSession)
++	if err != nil {
++		return nil, nil, errToAdbcErr(adbc.StatusInternal, err, "decode read session schema")
++	}
++
++	streamNames := make([]string, len(readSession.GetStreams()))
++	for i, stream := range readSession.GetStreams() {
++		streamNames[i] = stream.GetName()
++	}
++	return schema, streamNames, nil
++}
++
++// arrowSchemaFromReadSession decodes a read session's IPC-serialized Arrow
++// schema and undoes the same BigQuery extension-type mangling that
++// newInlineArrowIterator corrects for the REST API's inline Arrow path.
++func arrowSchemaFromReadSession(readSession *storagepb.ReadSession) (*arrow.Schema, error) {
++	serialized := readSession.GetArrowSchema().GetSerializedSchema()
++	schema, err := flight.DeserializeSchema(serialized, memory.DefaultAllocator)
++	if err != nil {
++		return nil, fmt.Errorf("failed to deserialize Arrow schema: %w", err)
++	}
++	fields := schema.Fields()
++	for i := range fields {
++		unmangleBigQueryArrowType(&fields[i])
++	}
++	return arrow.NewSchema(fields, nil), nil
++}
+--- /dev/null
++++ b/partitions_test.go
+@@ -0,0 +1,376 @@
++// Copyright (c) 2026 ADBC Drivers Contributors
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//         http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package bigquery
++
++import (
++	"context"
++	"net"
++	"testing"
++	"time"
++
++	"cloud.google.com/go/bigquery"
++	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
++	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/array"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++	"google.golang.org/api/option"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
++)
++
++func TestPartitionDescriptorRoundTrip(t *testing.T) {
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++	descriptor := encodePartitionDescriptor(streamName)
++
++	got, err := decodePartitionDescriptor(descriptor)
++	if err != nil {
++		t.Fatalf("decodePartitionDescriptor: unexpected error: %v", err)
++	}
++	if got != streamName {
++		t.Fatalf("decodePartitionDescriptor: got %q, want %q", got, streamName)
++	}
++
++	// The descriptor carries only the stream name: nothing else should have
++	// been smuggled in alongside it.
++	if len(descriptor) != 1+len(streamName) {
++		t.Fatalf("descriptor length = %d, want %d", len(descriptor), 1+len(streamName))
++	}
++}
++
++func TestPartitionDescriptorMalformedRefused(t *testing.T) {
++	cases := map[string][]byte{
++		"empty":           {},
++		"version only":    {partitionDescriptorV1},
++		"unknown version": append([]byte{partitionDescriptorV1 + 1}, "stream"...),
++		"nil":             nil,
++	}
++
++	for name, descriptor := range cases {
++		t.Run(name, func(t *testing.T) {
++			_, err := decodePartitionDescriptor(descriptor)
++			if err == nil {
++				t.Fatalf("decodePartitionDescriptor(%q): expected an error, got nil", descriptor)
++			}
++			adbcErr, ok := err.(adbc.Error)
++			if !ok {
++				t.Fatalf("decodePartitionDescriptor(%q): error %v is not an adbc.Error (would otherwise risk a panic further up the call stack)", descriptor, err)
++			}
++			if adbcErr.Code != adbc.StatusInvalidArgument {
++				t.Fatalf("decodePartitionDescriptor(%q): code = %v, want StatusInvalidArgument", descriptor, adbcErr.Code)
++			}
++		})
++	}
++}
++
++func TestExecutePartitionsRefusesDryRun(t *testing.T) {
++	st := &statement{
++		queryConfig: bigquery.QueryConfig{
++			Q:      "SELECT 1",
++			DryRun: true,
++		},
++	}
++
++	_, partitions, rows, err := st.ExecutePartitions(context.Background())
++	if err == nil {
++		t.Fatal("ExecutePartitions: expected an error for a dry run, got nil")
++	}
++	adbcErr, ok := err.(adbc.Error)
++	if !ok {
++		t.Fatalf("ExecutePartitions: error %v is not an adbc.Error", err)
++	}
++	if adbcErr.Code != adbc.StatusInvalidState {
++		t.Fatalf("ExecutePartitions: code = %v, want StatusInvalidState", adbcErr.Code)
++	}
++	if partitions.NumPartitions != 0 || len(partitions.PartitionIDs) != 0 {
++		t.Fatalf("ExecutePartitions: expected no partitions on refusal, got %+v", partitions)
++	}
++	if rows != -1 {
++		t.Fatalf("ExecutePartitions: rows = %d, want -1", rows)
++	}
++}
++
++func TestExecutePartitionsRefusesEmptyQuery(t *testing.T) {
++	st := &statement{}
++
++	_, _, _, err := st.ExecutePartitions(context.Background())
++	if err == nil {
++		t.Fatal("ExecutePartitions: expected an error for an empty query, got nil")
++	}
++	adbcErr, ok := err.(adbc.Error)
++	if !ok {
++		t.Fatalf("ExecutePartitions: error %v is not an adbc.Error", err)
++	}
++	if adbcErr.Code != adbc.StatusInvalidState {
++		t.Fatalf("ExecutePartitions: code = %v, want StatusInvalidState", adbcErr.Code)
++	}
++}
++
++func TestExecutePartitionsRefusesBoundParameters(t *testing.T) {
++	params, err := array.NewRecordReader(arrow.NewSchema(nil, nil), nil)
++	if err != nil {
++		t.Fatalf("array.NewRecordReader: %v", err)
++	}
++	st := &statement{
++		queryConfig: bigquery.QueryConfig{Q: "SELECT 1"},
++		params:      params,
++	}
++
++	_, partitions, rows, err := st.ExecutePartitions(context.Background())
++	if err == nil {
++		t.Fatal("ExecutePartitions: expected an error for bound parameters, got nil")
++	}
++	adbcErr, ok := err.(adbc.Error)
++	if !ok {
++		t.Fatalf("ExecutePartitions: error %v is not an adbc.Error", err)
++	}
++	if adbcErr.Code != adbc.StatusNotImplemented {
++		t.Fatalf("ExecutePartitions: code = %v, want StatusNotImplemented", adbcErr.Code)
++	}
++	if partitions.NumPartitions != 0 || len(partitions.PartitionIDs) != 0 {
++		t.Fatalf("ExecutePartitions: expected no partitions on refusal, got %+v", partitions)
++	}
++	if rows != -1 {
++		t.Fatalf("ExecutePartitions: rows = %d, want -1", rows)
++	}
++}
++
++func TestPartitionStreamCountFor(t *testing.T) {
++	cases := []struct {
++		name                string
++		rows                uint64
++		maxStreams          int32
++		targetRowsPerStream int64
++		want                int32
++	}{
++		{"zero rows still asks for one stream", 0, 4, 1_000_000, 1},
++		{"rows exactly fill one stream", 1_000_000, 4, 1_000_000, 1},
++		{"one row over spills into a second stream", 1_000_001, 4, 1_000_000, 2},
++		{"a wanted count above max is capped at max", 10_000_000, 4, 1_000_000, 4},
++		{"rows-per-stream unset always asks for max", 10_000_000, 4, 0, 4},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			got := partitionStreamCountFor(tc.rows, tc.maxStreams, tc.targetRowsPerStream)
++			if got != tc.want {
++				t.Fatalf("partitionStreamCountFor(%d, %d, %d) = %d, want %d",
++					tc.rows, tc.maxStreams, tc.targetRowsPerStream, got, tc.want)
++			}
++		})
++	}
++}
++
++func TestPartitionsOptionsValidTaken(t *testing.T) {
++	st := &statement{}
++	if err := st.SetOption(context.Background(), OptionQueryPartitionsMaxStreams, "7"); err != nil {
++		t.Fatalf("set %s: unexpected error: %v", OptionQueryPartitionsMaxStreams, err)
++	}
++	if st.partitionMaxStreams != 7 {
++		t.Fatalf("partitionMaxStreams = %d, want 7", st.partitionMaxStreams)
++	}
++	if err := st.SetOption(context.Background(), OptionQueryPartitionsTargetRowsPerStream, "50000"); err != nil {
++		t.Fatalf("set %s: unexpected error: %v", OptionQueryPartitionsTargetRowsPerStream, err)
++	}
++	if st.partitionTargetRowsPerStream != 50000 {
++		t.Fatalf("partitionTargetRowsPerStream = %d, want 50000", st.partitionTargetRowsPerStream)
++	}
++}
++
++func TestPartitionsOptionsInvalidRefused(t *testing.T) {
++	for _, key := range []string{OptionQueryPartitionsMaxStreams, OptionQueryPartitionsTargetRowsPerStream} {
++		for _, v := range []string{"0", "-1", "not-a-number", "1.5", ""} {
++			t.Run(key+"="+v, func(t *testing.T) {
++				st := &statement{}
++				err := st.SetOption(context.Background(), key, v)
++				if err == nil {
++					t.Fatalf("SetOption(%s, %q): expected an error, got nil", key, v)
++				}
++				adbcErr, ok := err.(adbc.Error)
++				if !ok {
++					t.Fatalf("SetOption(%s, %q): error %v is not an adbc.Error", key, v, err)
++				}
++				if adbcErr.Code != adbc.StatusInvalidArgument {
++					t.Fatalf("SetOption(%s, %q): code = %v, want StatusInvalidArgument", key, v, adbcErr.Code)
++				}
++			})
++		}
++	}
++
++	// OptionQueryPartitionsMaxStreams narrows into an int32 (the Storage Read API's own
++	// MaxStreamCount field width): a value one past int32's range must be refused here, not
++	// silently wrapped into a negative stream count. OptionQueryPartitionsTargetRowsPerStream
++	// stays int64-wide and takes this value, so it is exercised only for max_streams.
++	t.Run(OptionQueryPartitionsMaxStreams+"=2147483648", func(t *testing.T) {
++		st := &statement{}
++		err := st.SetOption(context.Background(), OptionQueryPartitionsMaxStreams, "2147483648")
++		if err == nil {
++			t.Fatalf("SetOption(%s, %q): expected an error, got nil", OptionQueryPartitionsMaxStreams, "2147483648")
++		}
++		adbcErr, ok := err.(adbc.Error)
++		if !ok {
++			t.Fatalf("SetOption(%s, %q): error %v is not an adbc.Error", OptionQueryPartitionsMaxStreams, "2147483648", err)
++		}
++		if adbcErr.Code != adbc.StatusInvalidArgument {
++			t.Fatalf("SetOption(%s, %q): code = %v, want StatusInvalidArgument", OptionQueryPartitionsMaxStreams, "2147483648", adbcErr.Code)
++		}
++	})
++}
++
++// fakeStorageRead stands in for the Storage Read API on loopback: it records the
++// one request each call receives and refuses it, so a test reads what the driver
++// sent without a session to serve.
++type fakeStorageRead struct {
++	storagepb.UnimplementedBigQueryReadServer
++	sessions chan *storagepb.CreateReadSessionRequest
++	reads    chan *storagepb.ReadRowsRequest
++	// read, when set, serves a ReadRows call after its request is recorded;
++	// unset, the call is refused.
++	read func(storagepb.BigQueryRead_ReadRowsServer) error
++}
++
++func (f *fakeStorageRead) CreateReadSession(_ context.Context, req *storagepb.CreateReadSessionRequest) (*storagepb.ReadSession, error) {
++	f.sessions <- req
++	return nil, status.Error(codes.InvalidArgument, "fake: recorded")
++}
++
++func (f *fakeStorageRead) ReadRows(req *storagepb.ReadRowsRequest, stream storagepb.BigQueryRead_ReadRowsServer) error {
++	f.reads <- req
++	if f.read != nil {
++		return f.read(stream)
++	}
++	return status.Error(codes.InvalidArgument, "fake: recorded")
++}
++
++func clientOfFakeStorageRead(t *testing.T) (*bigquery.Client, *fakeStorageRead) {
++	t.Helper()
++	lis, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	fake := &fakeStorageRead{
++		sessions: make(chan *storagepb.CreateReadSessionRequest, 1),
++		reads:    make(chan *storagepb.ReadRowsRequest, 1),
++	}
++	srv := grpc.NewServer()
++	storagepb.RegisterBigQueryReadServer(srv, fake)
++	go func() { _ = srv.Serve(lis) }()
++	t.Cleanup(srv.Stop)
++
++	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
++	if err != nil {
++		t.Fatalf("dial the fake: %v", err)
++	}
++	ctx := context.Background()
++	client, err := bigquery.NewClient(ctx, "p", option.WithoutAuthentication())
++	if err != nil {
++		t.Fatalf("bigquery.NewClient: %v", err)
++	}
++	t.Cleanup(func() { _ = client.Close() })
++	if err := client.EnableStorageReadClient(ctx, option.WithGRPCConn(conn), option.WithoutAuthentication()); err != nil {
++		t.Fatalf("EnableStorageReadClient: %v", err)
++	}
++	return client, fake
++}
++
++func recorded[T any](t *testing.T, ch chan T) T {
++	t.Helper()
++	select {
++	case req := <-ch:
++		return req
++	case <-time.After(10 * time.Second):
++		var zero T
++		t.Fatal("the fake Storage Read API received no request")
++		return zero
++	}
++}
++
++// BigQuery refuses per-request serialization options on a session stream with
++// InvalidArgument ("Arrow serialization options are only supported for job
++// streams"), so ReadPartition must send none.
++func TestPartitionReadSendsNoRequestSerializationOptions(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++
++	if _, err := readPartitionRecordReader(context.Background(), client, streamName, memory.DefaultAllocator, 1); err == nil {
++		t.Fatal("readPartitionRecordReader: the fake refuses every read, got no error")
++	}
++	req := recorded(t, fake.reads)
++	if req.GetReadStream() != streamName {
++		t.Fatalf("ReadRows stream = %q, want %q", req.GetReadStream(), streamName)
++	}
++	if opts := req.GetOutputFormatSerializationOptions(); opts != nil {
++		t.Fatalf("ReadRows on a session stream carries serialization options %v; BigQuery accepts them only on a job stream", opts)
++	}
++}
++
++// The session, not the read, carries the compression, and its preferred minimum
++// equals its maximum, so a small table is still asked to split that far.
++func TestPartitionReadSessionCompressesAndAsksForAMinimum(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++
++	if _, _, err := createPartitionReadSession(context.Background(), client, client.Dataset("d").Table("t"), 2); err == nil {
++		t.Fatal("createPartitionReadSession: the fake refuses every session, got no error")
++	}
++	req := recorded(t, fake.sessions)
++	if got := req.GetReadSession().GetTable(); got != "projects/p/datasets/d/tables/t" {
++		t.Fatalf("session table = %q", got)
++	}
++	if got := req.GetReadSession().GetReadOptions().GetArrowSerializationOptions().GetBufferCompression(); got != storagepb.ArrowSerializationOptions_ZSTD {
++		t.Fatalf("session buffer compression = %v, want ZSTD", got)
++	}
++	if req.GetMaxStreamCount() != 2 || req.GetPreferredMinStreamCount() != 2 {
++		t.Fatalf("session stream counts max=%d preferred_min=%d, want 2 and 2", req.GetMaxStreamCount(), req.GetPreferredMinStreamCount())
++	}
++}
++
++// A stream whose Arrow schema does not decode leaves ReadPartition with an
++// error and no reader to release, so nothing but ReadPartition itself can
++// close the gRPC stream it opened.
++func TestPartitionReadClosesStreamWhenDecodingFails(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++	closed := make(chan struct{})
++	fake.read = func(stream storagepb.BigQueryRead_ReadRowsServer) error {
++		// A message length of 2 where the schema message belongs: it cannot be decoded.
++		undecodable := []byte{2, 0, 0, 0}
++		if err := stream.Send(&storagepb.ReadRowsResponse{
++			Schema: &storagepb.ReadRowsResponse_ArrowSchema{
++				ArrowSchema: &storagepb.ArrowSchema{SerializedSchema: undecodable},
++			},
++			// The response still carries the Arrow rows union the iterator consumes.
++			Rows: &storagepb.ReadRowsResponse_ArrowRecordBatch{
++				ArrowRecordBatch: &storagepb.ArrowRecordBatch{},
++			},
++		}); err != nil {
++			return err
++		}
++		<-stream.Context().Done()
++		close(closed)
++		return stream.Context().Err()
++	}
++
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++	if _, err := readPartitionRecordReader(context.Background(), client, streamName, memory.DefaultAllocator, 1); err == nil {
++		t.Fatal("readPartitionRecordReader: the stream's schema cannot be decoded, got no error")
++	}
++	recorded(t, fake.reads)
++
++	select {
++	case <-closed:
++	case <-time.After(10 * time.Second):
++		t.Fatal("the read stream stayed open after its schema failed to decode")
++	}
++}
+--- a/statement.go
++++ b/statement.go
+@@ -28,6 +28,7 @@
+ 	"errors"
+ 	"fmt"
+ 	"log/slog"
++	"math"
+ 	"strconv"
+ 	"sync"
+ 	"time"
+@@ -69,6 +70,12 @@
+ 	execution *statementExecution
+ 	// Query and bulk-ingest paths wait for each job before submitting the next.
+ 	activeJob *jobCancellation
++
++	// partitionMaxStreams and partitionTargetRowsPerStream are ExecutePartitions' own
++	// knobs: see OptionQueryPartitionsMaxStreams and OptionQueryPartitionsTargetRowsPerStream.
++	// partitionTargetRowsPerStream of 0 means unset.
++	partitionMaxStreams          int32
++	partitionTargetRowsPerStream int64
+ }
+
+ func (st *statement) GetOptionBytes(ctx context.Context, key string) ([]byte, error) {
+@@ -357,6 +364,24 @@
+ 			}
+ 			st.queryConfig.Labels = labels
+ 		}
++	case OptionQueryPartitionsMaxStreams:
++		n, err := strconv.ParseInt(v, 10, 32)
++		if err != nil || n <= 0 {
++			return adbc.Error{
++				Code: adbc.StatusInvalidArgument,
++				Msg:  fmt.Sprintf("[bq] `%s` must be a positive integer, got %q", OptionQueryPartitionsMaxStreams, v),
++			}
++		}
++		st.partitionMaxStreams = int32(n)
++	case OptionQueryPartitionsTargetRowsPerStream:
++		n, err := strconv.ParseInt(v, 10, 64)
++		if err != nil || n <= 0 {
++			return adbc.Error{
++				Code: adbc.StatusInvalidArgument,
++				Msg:  fmt.Sprintf("[bq] `%s` must be a positive integer, got %q", OptionQueryPartitionsTargetRowsPerStream, v),
++			}
++		}
++		st.partitionTargetRowsPerStream = n
+ 	case OptionQueryJobCreationMode, OptionQueryResultsFormat, OptionQueryArrowSerializationOptionsBufferCompression:
+ 		return setQueryOption(&st.queryConfig, key, v)
+
+@@ -947,6 +972,12 @@
+ 	}
+ }
+
++// partitionStreamCount is the default for OptionQueryPartitionsMaxStreams: how many
++// Storage Read API streams ExecutePartitions requests for a query's destination
++// table when the caller sets neither partitions option. An unset option changes
++// nothing from before either option existed.
++const partitionStreamCount = 4
++
+ // ExecutePartitions executes the current statement and gets the results
+ // as a partitioned result set.
+ //
+@@ -954,13 +985,121 @@
+ // descriptors and the number of rows affected, if known. If unknown,
+ // the number of rows affected will be -1.
+ //
+-// If the driver does not support partitioned results, this will return
+-// an error with a StatusNotImplemented code.
++// The query runs to completion as it would for ExecuteQuery, then the
++// destination table's own metadata is read once for its exact row count
++// (not the Storage Read API session's estimate), and a multi-stream Storage
++// Read API session is created against that table sized by
++// partitionStreamCountFor; one partition descriptor is returned per stream. A
++// descriptor carries only the stream name the Storage Read API assigned (plus
++// a version byte) -- never a credential or anything identity-bearing -- so
++// ReadPartition opens it with whichever connection's own credentials calls
++// it, on this process or another.
++//
++// The returned row count is exact, but the per-stream split is not: the
++// Storage Read API session may return fewer streams than requested, so the
++// per-stream row bound a caller enforces at read time remains the real guard,
++// never the count asked for here. The metadata read is one extra round trip
++// beyond what ExecuteQuery needs.
++//
++// A dry run (bigquery.query.dry_run) never runs the query to a destination
++// table, so it cannot be partitioned either; this returns an error rather
++// than a partition list or a row-count estimate.
++//
++// Bound parameters are not supported either: a statement with parameters
++// bound is refused as StatusNotImplemented rather than run with them ignored.
+ func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc.Partitions, int64, error) {
+-	return nil, adbc.Partitions{}, -1, adbc.Error{
+-		Code: adbc.StatusNotImplemented,
+-		Msg:  "ExecutePartitions not yet implemented for BigQuery driver",
++	ctx, execution := st.beginExecution(ctx)
++	defer st.endExecution(execution)
++
++	if st.queryConfig.Q == "" {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusInvalidState,
++			Msg:  "[bq] cannot execute without a query",
++		}
++	}
++	if st.queryConfig.DryRun {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusInvalidState,
++			Msg:  "[bq] ExecutePartitions does not support bigquery.query.dry_run: a dry run has no destination table to partition",
++		}
++	}
++	if st.params != nil {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusNotImplemented,
++			Msg:  "[bq] ExecutePartitions does not support bound parameters",
++		}
++	}
++
++	query := st.query()
++
++	activeJob := st.beginJob(st.cnxn.client, &query.JobIDConfig)
++	defer st.finishJob(ctx, st.cnxn.Logger, activeJob)
++
++	job, err := query.Run(ctx)
++	if err != nil {
++		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "run query")
++	}
++	activeJob.setJob(job)
++
++	js, err := safeWaitForJob(ctx, st.cnxn.Logger, job)
++	if err != nil {
++		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "wait for job")
++	}
++	activeJob.markFinished()
++
++	if err := js.Err(); err != nil {
++		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "complete job")
++	} else if !js.Done() {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusInternal,
++			Msg:  "[bq] query job did not complete",
++		}
++	}
++
++	cfg, err := job.Config()
++	if err != nil {
++		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "read job config")
+ 	}
++	queryCfg, ok := cfg.(*bigquery.QueryConfig)
++	if !ok || queryCfg.Dst == nil {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusInternal,
++			Msg:  "[bq] query job has no destination table to partition",
++		}
++	}
++
++	// The exact row count, read from the destination table's own metadata rather than
++	// readSession.GetEstimatedRowCount() (an estimate): one extra call, same client, so
++	// the caller's own credentials read it. maxStreams defaults to partitionStreamCount
++	// when the caller never set OptionQueryPartitionsMaxStreams.
++	maxStreams := st.partitionMaxStreams
++	if maxStreams == 0 {
++		maxStreams = partitionStreamCount
++	}
++	meta, err := queryCfg.Dst.Metadata(ctx)
++	if err != nil {
++		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "read destination table metadata")
++	}
++	rowsAffected := int64(-1)
++	if meta.NumRows <= math.MaxInt64 {
++		rowsAffected = int64(meta.NumRows)
++	}
++
++	streamCount := partitionStreamCountFor(meta.NumRows, maxStreams, st.partitionTargetRowsPerStream)
++	schema, streams, err := createPartitionReadSession(ctx, st.cnxn.client, queryCfg.Dst, streamCount)
++	if err != nil {
++		return nil, adbc.Partitions{}, -1, err
++	}
++
++	partitions := adbc.Partitions{
++		NumPartitions: uint64(len(streams)),
++		PartitionIDs:  make([][]byte, len(streams)),
++	}
++	for i, streamName := range streams {
++		partitions.PartitionIDs[i] = encodePartitionDescriptor(streamName)
++	}
++
++	return schema, partitions, rowsAffected, nil
+ }
+
+ func (st *statement) executeIngest(ctx context.Context) (int64, error) {

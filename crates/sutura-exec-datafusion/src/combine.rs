@@ -58,15 +58,15 @@
 //! | two legs whose link columns can never match | ditto, and it no longer depends on which cell happened to be first |
 //! | a non-numeric leaf | ditto |
 //! | a link pair its relationship declares a cast for | `cast`: the link column cast with `safe: false`, so a value that does not cast refuses the answer |
-//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one |
+//! | a link value with more than one lookup row | a `DataFusion` plan over the lookup leg: group, count, keep past one; a granted leg's count is inside the join's own plan |
 //! | a non-finite measure | one pass over the answer's measure column, and only when it is a float |
 //! | a leaf column mixing integer and real cells | **not representable**: an Arrow column has one type |
 //! | a leaf total past `i64::MAX` | **answered exactly** instead of refused - see `leaf_sum` below |
 
 use std::sync::Arc;
 
-use datafusion::arrow::array::{Array as _, Float64Array, RecordBatch};
-use datafusion::arrow::datatypes::{DataType, SchemaRef};
+use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Column, TableReference};
 use datafusion::datasource::MemTable;
 use datafusion::functions_aggregate::expr_fn::count;
@@ -88,21 +88,29 @@ mod across;
 mod arm;
 /// The cast a relationship's declared key comparison asks of a link column.
 mod cast;
+/// The refusal of an answer whose measure is not a finite number.
+mod finite;
 /// The drill-across merge: several arms joined above their legs, in this one session.
 mod merge;
 /// The provider a source and a subject give the plan cutter.
 mod provider;
 /// The combine's own schema reading, which decides every type-level refusal before a plan is built.
 mod schema;
+/// A lookup leg granted to the nodes that read its source, registered as one split scan.
+mod served;
 /// A `run_sql` statement cut into one part per listed source, each run through the raw port.
 #[cfg(feature = "sql")]
 mod statement;
 #[cfg(feature = "distributed")]
-pub use across::{NodeIdentity, Nodes, NotAnIdentity, TaskGrant};
+pub use across::{
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, SwitchedPrincipal, TaskGrant,
+    TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
+};
 pub use provider::SourceProvider;
 
 use arm::{answer_labels, combine_plan, leaf_labels, qualified, scan};
 use cast::{Cast, LinkCasts};
+use finite::refuse_non_finite;
 use schema::{FACT, LegSchema, agreeing_bucket, agreeing_link};
 
 /// The name the fact leg is registered under, so a column reference is QUALIFIED.
@@ -313,6 +321,18 @@ pub enum CombineError {
     /// is this node's own configuration and never the peer's text or numbers.
     #[error("a node the combine was planned across refused a stage over the federated row ceiling")]
     RowsOverCeiling,
+    /// The question went across, and a reading worker it was planned onto did not certify the leg it
+    /// was asked to read. Carries nothing, for [`CombineError::RowsOverCeiling`]'s reason.
+    #[error("a node the combine was planned across did not certify a leg it was asked to read")]
+    LegNotCertified,
+    /// A reading worker read a granted partition past its per-stream bound. Carries nothing, for
+    /// [`CombineError::RowsOverCeiling`]'s reason.
+    #[error("a node the combine was planned across read a granted partition that did not fit its bound")]
+    PartitionDidNotFit,
+    /// A lookup leg of `source` was granted to the nodes that read it, and no node this combine can
+    /// reach does: it is read on none, never on this node.
+    #[error("no node the combine can reach reads `{source_name}`, so its granted leg is read on none")]
+    NoReadingNode { source_name: SourceName },
 }
 
 /// The combiner: a tokio runtime, and a bounded session built per combine.
@@ -403,6 +423,15 @@ impl DataFusionCombiner {
             context: None,
             nodes: Some(nodes),
         })
+    }
+
+    /// The same combiner, its nodes failing a task of a question's final stage once its rows pass
+    /// `ceiling` ([`Nodes::row_ceiling`]). A combiner on this node alone is unchanged.
+    #[cfg(feature = "distributed")]
+    #[must_use]
+    pub fn row_ceiling(mut self, ceiling: sutura_domain::plan::FederatedRowCeiling) -> Self {
+        self.nodes = self.nodes.take().map(|nodes| nodes.row_ceiling(ceiling));
+        self
     }
 
     /// The same combiner, keyed to one subject asking of one source.
@@ -552,7 +581,8 @@ async fn arm_plan(
         .lookups()
         .iter()
         .zip(LOOKUP_TABLES)
-        .map(|(&(leg, batches), table)| Ok((leg, table, batches, LegSchema::of(table, batches.schema())?)))
+        .enumerate()
+        .map(|(position, (&(leg, read), table))| Ok((leg, table, read, served::lookup_schema(read, table, position)?)))
         .collect::<Result<Vec<_>, CombineError>>()?;
     // Each lookup leg's link kinds agree with the leg it joins onto, part by part. A part past the
     // first is pinned by a cell only for a lookup onto the fact leg, not for one chained onto an
@@ -608,16 +638,16 @@ async fn arm_plan(
         }
     }
 
-    register_link(context, FACT_TABLE, FACT, legs.fact(), &link, casts.fact.as_ref())?;
-    for (position, &(_, table, batches, _)) in lookups.iter().enumerate() {
+    let fact_rows = core::slice::from_ref(legs.fact());
+    register_link(context, FACT_TABLE, FACT, fact_rows, &link, casts.fact.as_ref())?;
+    for (position, &(leg, table, read, _)) in lookups.iter().enumerate() {
         let own = InternalLabel::link(position).label();
-        register_link(
+        served::register_lookup(
             context,
-            table,
-            table,
-            batches,
+            (leg, table, read),
             &own,
             casts.lookup.as_ref().filter(|_| position == 0),
+            ceiling_bytes,
         )?;
     }
     if let (Some(_), Some(batches)) = (&second_fact, legs.second_fact()) {
@@ -625,15 +655,22 @@ async fn arm_plan(
             context,
             SECOND_FACT_TABLE,
             SECOND_FACT,
-            batches,
+            core::slice::from_ref(batches),
             &link,
             casts.second_fact.as_ref(),
         )?;
     }
 
     // Each lookup leg on all its link parts together, a leg that joins onto an earlier lookup leg
-    // among them: a value repeated on one part alone is not a repeated tuple.
+    // among them: a value repeated on one part alone is not a repeated tuple. A split leg is one
+    // table over all its partitions, so a tuple repeated across two of them is refused too. A
+    // granted leg is counted inside the plan that joins it instead (`served::joined`), so each of
+    // its partitions is read once.
+    let in_plan = served::counted_in_plan(&lookups.iter().map(|&(_, _, read, _)| read).collect::<Vec<_>>());
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
+        if in_plan.get(position) == Some(&true) {
+            continue;
+        }
         let own = plan.link_labels(position);
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
         refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
@@ -650,7 +687,7 @@ async fn arm_plan(
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &links, &leaves, second_table).await
+    combine_plan(plan, context, &links, &leaves, second_table, &in_plan).await
 }
 
 /// Whether `sources` name more than one data system.
@@ -672,8 +709,8 @@ fn held(batches: &ResultBatches) -> u64 {
 fn legs_held(legs: &Legs<'_>) -> u64 {
     core::iter::once(legs.fact())
         .chain(legs.second_fact())
-        .chain(legs.lookups().iter().map(|&(_, batches)| batches))
         .map(held)
+        .chain(legs.lookups().iter().map(|&(_, read)| served::lookup_held(read)))
         .fold(0, u64::saturating_add)
 }
 
@@ -701,11 +738,14 @@ impl FederationCombiner for DataFusionCombiner {
     type Error = CombineError;
 
     fn combine(&self, plan: &FederatedPlan, legs: Legs<'_>, working_set_bytes: u64) -> Result<ResultBatches, Self::Error> {
-        let legs_bytes = several(plan.sources()).then(|| legs_held(&legs));
-        self.placed(working_set_bytes, legs_bytes, |context, working_set| {
+        let run = |context: &SessionContext, working_set| {
             self.runtime()?
                 .block_on(Self::assembled(plan, &legs, context, working_set, working_set_bytes))
-        })
+        };
+        if let Some(source) = served::granted(&legs).next() {
+            return served::combined(self, source, &legs, working_set_bytes, run);
+        }
+        self.placed(working_set_bytes, several(plan.sources()).then(|| legs_held(&legs)), run)
     }
 
     fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {
@@ -730,6 +770,21 @@ impl FederationCombiner for DataFusionCombiner {
         matches!(*error, CombineError::RowsOverCeiling)
     }
 
+    fn leg_not_certified(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::LegNotCertified)
+    }
+
+    fn partition_did_not_fit(&self, error: &Self::Error) -> bool {
+        matches!(*error, CombineError::PartitionDidNotFit)
+    }
+
+    fn no_reading_node<'e>(&self, error: &'e Self::Error) -> Option<&'e SourceName> {
+        match error {
+            CombineError::NoReadingNode { source_name } => Some(source_name),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "distributed")]
     fn worker_slots_wanted(&self) -> Option<&sutura_domain::plan::WorkerSlotsWanted> {
         self.nodes.as_ref().map(Nodes::slots_wanted)
@@ -749,10 +804,9 @@ impl FederationCombiner for DataFusionCombiner {
             CombineError::LinkKindsNotJoined { .. } => Some(FederatedAnswerRefusal::LinkKindsNotJoined),
             CombineError::LinkValueNotCast { .. } => Some(FederatedAnswerRefusal::LinkValueNotCast),
             CombineError::NonNumericLeaf { .. } => Some(FederatedAnswerRefusal::NonNumericLeaf),
-            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is
-            // deliberately here: it has its own refusal, which `working_set_exhausted` answers and
-            // `sutura_app` asks first. So are `WorkersNotReady`, `NodeLost` and `RowsOverCeiling`, which
-            // `workers_not_ready`, `node_lost` and `rows_over_ceiling` answer.
+            // Ours, the engine's, or the deployment's - never the question's. `Exhausted` is deliberately
+            // here: `working_set_exhausted` answers it, and `sutura_app` asks that first. So is every
+            // variant below that a predicate of its own name answers, from `WorkersNotReady` on.
             CombineError::Runtime { .. }
             | CombineError::Environment { .. }
             | CombineError::Register { .. }
@@ -769,7 +823,10 @@ impl FederationCombiner for DataFusionCombiner {
             | CombineError::LinkTypeNotMapped { .. }
             | CombineError::WorkersNotReady { .. }
             | CombineError::NodeLost { .. }
-            | CombineError::RowsOverCeiling => None,
+            | CombineError::RowsOverCeiling
+            | CombineError::LegNotCertified
+            | CombineError::PartitionDidNotFit
+            | CombineError::NoReadingNode { .. } => None,
         }
     }
 
@@ -792,36 +849,46 @@ impl FederationCombiner for DataFusionCombiner {
 /// buffers, so this copies no cell and reserves nothing against the pool. `crate::pool`'s header is
 /// where that limit on the ceiling's reach is stated.
 fn register(context: &SessionContext, table: &str, side: &'static str, batches: &ResultBatches) -> Result<(), CombineError> {
-    register_parts(context, table, side, batches.schema(), batches.batches().to_vec())
+    register_parts(context, table, side, batches.schema(), vec![batches.batches().to_vec()])
 }
 
-/// [`register`], with the leg's link column `label` cast first when its relationship declares one.
+/// A leg's `parts` as one table of one partition each, its link column `label` cast first when its
+/// relationship declares one. A split leg's parts share the first one's schema, or `MemTable` refuses.
 fn register_link(
     context: &SessionContext,
     table: &str,
     side: &'static str,
-    batches: &ResultBatches,
+    parts: &[ResultBatches],
     label: &str,
     cast: Option<&Cast>,
 ) -> Result<(), CombineError> {
-    match cast {
-        None => register(context, table, side, batches),
-        Some(cast) => {
-            let (schema, cast) = cast.apply(side, batches, label)?;
-            register_parts(context, table, side, &schema, cast)
-        }
-    }
+    let (schemas, partitions): (Vec<_>, Vec<_>) = parts
+        .iter()
+        .map(|part| {
+            cast.map_or_else(
+                || Ok((Arc::clone(part.schema()), part.batches().to_vec())),
+                |cast| cast.apply(side, part, label),
+            )
+        })
+        .collect::<Result<Vec<_>, CombineError>>()?
+        .into_iter()
+        .unzip();
+    let schema = schemas.first().ok_or_else(|| CombineError::MissingColumn {
+        side,
+        label: String::from(label),
+    })?;
+    register_parts(context, table, side, schema, partitions)
 }
 
-/// `batches` under `schema`, registered as `table`.
+/// `partitions` under `schema`, registered as `table`.
 fn register_parts(
     context: &SessionContext,
     table: &str,
     side: &'static str,
     schema: &SchemaRef,
-    batches: Vec<RecordBatch>,
+    partitions: Vec<Vec<RecordBatch>>,
 ) -> Result<(), CombineError> {
-    let memory = MemTable::try_new(Arc::clone(schema), vec![batches]).map_err(|cause| CombineError::Register { side, cause })?;
+    let memory = MemTable::try_new(Arc::clone(schema), partitions).map_err(|cause| CombineError::Register { side, cause })?;
     // A merge registers each arm's legs under the same names in turn; the plan an earlier arm built
     // holds its own table, so the name is free again. Nothing is registered under it on the two-leg
     // path, where this finds nothing to remove.
@@ -847,7 +914,8 @@ fn register_parts(
 /// **The cost, stated where it is paid:** each checked leg is scanned twice, once here and once in the
 /// join. The alternative is a pre-aggregation joined into the same plan, which would have to read
 /// the count back out of the answer to refuse - so this is the shape that keeps the refusal
-/// separable from the number.
+/// separable from the number. A granted leg, whose scan reads its source, is the exception:
+/// `served::joined` fails the join's own plan instead, under a code read back as the refusal.
 async fn refuse_ambiguous_link(
     context: &SessionContext,
     table: &str,
@@ -926,44 +994,6 @@ async fn collected(
         })?;
     }
     Ok(accumulating.finish())
-}
-
-/// Refuses an answer whose measure is not a finite number.
-///
-/// **One pass over the measure columns, and only the ones that are floats.** The measures are the
-/// answer's last `measures` columns by construction - [`answer_labels`] states the order, and a
-/// drill-across answer carries one per arm - and only a `Float64` measure can be non-finite: an
-/// exact decimal cannot represent one.
-///
-/// **Why the combiner refuses this rather than letting the presentation edge do it.**
-/// `ResultBatches::to_rows` already refuses a non-finite double, so the answer would be refused
-/// either way - but as `sutura_app::ServiceError::Unreadable`, which reaches a caller as a
-/// data-system failure. It is neither: a definition that declared `fails` for a zero denominator
-/// asked for exactly this, and a caller told to retry it retries forever. So the refusal is taken
-/// here, where it can be classified as
-/// [`FederatedAnswerRefusal::NonFinite`](sutura_domain::plan::FederatedAnswerRefusal::NonFinite).
-fn refuse_non_finite(answered: &ResultBatches, measures: usize) -> Result<(), CombineError> {
-    let width = answered.schema().fields().len();
-    for measure in width.saturating_sub(measures)..width {
-        let Some(field) = answered.schema().fields().get(measure) else {
-            continue;
-        };
-        if *field.data_type() != DataType::Float64 {
-            continue;
-        }
-        for batch in answered.batches() {
-            let Some(column) = batch.columns().get(measure) else {
-                continue;
-            };
-            let Some(floats) = column.as_any().downcast_ref::<Float64Array>() else {
-                continue;
-            };
-            if floats.iter().flatten().any(|value| !value.is_finite()) {
-                return Err(CombineError::NonFinite);
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

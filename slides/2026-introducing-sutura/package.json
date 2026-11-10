@@ -8,8 +8,8 @@
     "dev": "slidev --open --port 5555"
   },
   "dependencies": {
-    "@slidev/cli": "^53.0.0",
-    "vue": "^3.5.44"
+    "@slidev/cli": "^53.1.0",
+    "vue": "^3.5.45"
   },
   "overrides": {
     "dompurify": "^3.4.16",

@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, RecordBatch};
-use arrow_schema::{FieldRef, Schema};
+use arrow_schema::{FieldRef, Schema, SchemaRef};
 use sutura_domain::warehouse::arrow::arrow_column;
 use sutura_domain::warehouse::{Accumulating, NotFinite, ResultBatches, ResultBudget, RowSet, UnreadableCell, Value};
 
@@ -119,15 +119,24 @@ fn refusal(cause: UnreadableCell) -> PostgresError {
     }
 }
 
+/// `schema` as every read of its statement answers it, or `None` where a `NUMERIC` column's type is
+/// decided by the cells each read holds ([`batches`]), so no one schema stands for every read.
+pub(super) fn fixed(schema: Schema) -> Option<SchemaRef> {
+    let fixed = numeric_indices(&schema).next().is_none();
+    fixed.then(|| Arc::new(schema))
+}
+
 fn numeric_columns(batches: &ResultBatches) -> Vec<usize> {
-    batches
-        .schema()
+    numeric_indices(batches.schema()).collect()
+}
+
+fn numeric_indices(schema: &Schema) -> impl Iterator<Item = usize> {
+    schema
         .fields()
         .iter()
         .enumerate()
         .filter(|(_, field)| field.metadata().get(TYPNAME).is_some_and(|name| name == "numeric"))
         .map(|(index, _)| index)
-        .collect()
 }
 
 fn numeric_cell(cell: Value, label: &str) -> Result<Value, PostgresError> {

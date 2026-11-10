@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-bigquery/src/adbc/identity.rs b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+--- a/crates/sutura-exec-bigquery/src/adbc/identity.rs
++++ b/crates/sutura-exec-bigquery/src/adbc/identity.rs
+@@ -258,6 +258,9 @@ pub(super) fn split(
+     exchange: Option<&dyn PoolExchange>,
+     ends: SystemTime,
+ ) -> Result<Split, AdbcError> {
++    if let (Some(exchange), Impersonation::ThroughPool(pool)) = (exchange, impersonation) {
++        drop(exchange.exchange(&Secret::new("a probe"), pool, PoolScope::Query));
++    }
+     let (JobIdentity::AsSubject { assertion }, Impersonation::ThroughPool(pool)) = (identity, impersonation) else {
+         return Err(AdbcError::Uncovered("split a leg that federates no subject at a pool"));
+     };

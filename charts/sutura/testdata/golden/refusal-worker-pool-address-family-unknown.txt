@@ -1,0 +1,3 @@
+Error: execution error at (sutura/templates/configmap.yaml:21:15): workerPool.addressFamily is "ipv5": it must be exactly auto, ipv4 or ipv6
+
+Use --debug flag to render out invalid YAML

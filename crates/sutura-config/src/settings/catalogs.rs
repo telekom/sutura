@@ -118,7 +118,7 @@ pub(super) fn parse_catalogs(raw: &RawSettings, sources: &SourceRegistry) -> Res
                     .map_err(|cause| SettingsError::Catalog { cause })?
                     .with_read_bounds(raw_catalog.deadline_seconds, raw_catalog.max_response_bytes)
             }
-            CatalogKind::Openmetadata | CatalogKind::Cube => {
+            CatalogKind::Openmetadata | CatalogKind::Cube | CatalogKind::OpenApi => {
                 let endpoint = raw_catalog.endpoint.clone().unwrap_or_default();
                 let token_file = raw_catalog.token_file.clone().unwrap_or_default();
                 settings

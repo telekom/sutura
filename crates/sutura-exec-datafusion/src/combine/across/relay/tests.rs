@@ -1,11 +1,14 @@
 //! The refusal code read back off a failure, under the errors the engine wraps a stage's failure in,
-//! and nothing that is not exactly that code.
+//! and nothing that is not exactly that code - including the one a reader's typed failure raises.
 
 use std::sync::Arc;
 
+use datafusion::arrow::datatypes::Schema;
 use datafusion::error::DataFusionError;
+use futures_util::StreamExt as _;
 use sutura_domain::plan::FederationCombiner as _;
 
+use super::super::partition::{Unread, read_later};
 use super::{over_ceiling, relayed};
 use crate::combine::{CombineError, DataFusionCombiner};
 
@@ -67,4 +70,36 @@ fn only_a_failed_execution_is_read_for_the_code() {
         cause: over_ceiling(stage_failure()),
     });
     assert!(matches!(lost, CombineError::NodeLost { .. }), "{lost:?}");
+}
+
+/// The failure a reading worker's stream answers for `unread`, as a reading task's stage fails.
+fn unread_stage(unread: Unread) -> DataFusionError {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("a runtime builds");
+    runtime
+        .block_on(read_later(Arc::new(Schema::empty()), async { Err(unread) }).next())
+        .expect("a failed read yields its failure")
+        .expect_err("a failed read yields no batch")
+}
+
+#[test]
+fn only_a_readers_did_not_fit_code_is_read_back_as_this_nodes_refusal() {
+    let combiner = DataFusionCombiner::new().expect("a combiner builds");
+    let refused = failed(unread_stage(Unread::DidNotFit));
+    assert!(matches!(refused, CombineError::PartitionDidNotFit), "{refused:?}");
+    assert!(combiner.partition_did_not_fit(&refused));
+    assert!(!combiner.leg_not_certified(&refused));
+    assert!(combiner.answer_not_well_formed(&refused).is_none());
+    let code = "sutura.refusal.partition-did-not-fit";
+    let texts = [
+        DataFusionError::Execution(String::from("a partition did not fit, said as text")),
+        DataFusionError::Execution(String::from(code)),
+        DataFusionError::External(String::from(code).into()),
+    ];
+    for text in texts {
+        let failure = failed(unread_stage(Unread::Failed(text)));
+        assert!(matches!(failure, CombineError::Execute { .. }), "{failure:?}");
+        assert!(!combiner.partition_did_not_fit(&failure));
+    }
 }

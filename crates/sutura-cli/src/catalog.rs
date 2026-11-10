@@ -63,6 +63,9 @@ pub(crate) enum OpenedCatalogs {
     /// arm's reason: it links an outbound TLS stack.
     #[cfg(feature = "cube")]
     Cube(Vec<sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::http::HttpMetaReader>>),
+    /// EXPERIMENTAL: an `OpenAPI`-described metadata API, behind the default-off `openapi` feature.
+    #[cfg(feature = "openapi")]
+    OpenApi(Vec<crate::openapi::OpenApiSource>),
     /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
     /// unconditional dependency of this build (pure directory read, no TLS - the same shape
     /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
@@ -135,6 +138,17 @@ pub(crate) fn open_catalog(
         sutura_config::CatalogKind::Entropy => Err(String::from(
             "catalog.kind: entropy is declarable, and no build links its reader yet",
         )),
+        #[cfg(feature = "openapi")]
+        sutura_config::CatalogKind::OpenApi => catalogs
+            .each()
+            .map(|settings| crate::openapi::open(settings, outbound))
+            .collect::<Result<Vec<_>, String>>()
+            .map(OpenedCatalogs::OpenApi),
+        #[cfg(not(feature = "openapi"))]
+        sutura_config::CatalogKind::OpenApi => Err(String::from(
+            "catalog.kind: openapi names an EXPERIMENTAL metadata adapter this binary was not built to link - \
+             build sutura-cli with --features openapi, or declare markdown catalogs",
+        )),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {
@@ -159,6 +173,8 @@ pub(crate) fn load(catalogs: &OpenedCatalogs) -> Result<PinnedDefinitions, Strin
         OpenedCatalogs::Openmetadata(catalogs) => load_each(catalogs),
         #[cfg(feature = "cube")]
         OpenedCatalogs::Cube(catalogs) => load_each(catalogs),
+        #[cfg(feature = "openapi")]
+        OpenedCatalogs::OpenApi(catalogs) => load_each(catalogs),
         OpenedCatalogs::DataContract(catalogs) => load_each(catalogs),
         #[cfg(feature = "rdbms")]
         OpenedCatalogs::Rdbms(catalogs) => load_each(catalogs),
@@ -225,67 +241,33 @@ where
             .spend_budget()
             .map(|budget| sutura_app::SpendBudget::new(budget.ceiling_bytes(), budget.window())),
     );
+    // Every arm is the same call over a different monomorphic catalog vector.
+    macro_rules! start {
+        ($catalogs:expr) => {
+            LocalService::start_composed(
+                $catalogs,
+                engines,
+                sutura_runtime::TracingAuditSink::new(),
+                broker,
+                combiner,
+                working_set_bytes,
+            )
+        };
+    }
     let service = match catalogs {
-        OpenedCatalogs::Markdown(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
+        OpenedCatalogs::Markdown(catalogs) => start!(catalogs),
         #[cfg(feature = "datahub")]
-        OpenedCatalogs::Datahub(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
-        OpenedCatalogs::Okf(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
+        OpenedCatalogs::Datahub(catalogs) => start!(catalogs),
+        OpenedCatalogs::Okf(catalogs) => start!(catalogs),
         #[cfg(feature = "openmetadata")]
-        OpenedCatalogs::Openmetadata(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
+        OpenedCatalogs::Openmetadata(catalogs) => start!(catalogs),
         #[cfg(feature = "cube")]
-        OpenedCatalogs::Cube(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
-        OpenedCatalogs::DataContract(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
+        OpenedCatalogs::Cube(catalogs) => start!(catalogs),
+        #[cfg(feature = "openapi")]
+        OpenedCatalogs::OpenApi(catalogs) => start!(catalogs),
+        OpenedCatalogs::DataContract(catalogs) => start!(catalogs),
         #[cfg(feature = "rdbms")]
-        OpenedCatalogs::Rdbms(catalogs) => LocalService::start_composed(
-            catalogs,
-            engines,
-            sutura_runtime::TracingAuditSink::new(),
-            broker,
-            combiner,
-            working_set_bytes,
-        ),
+        OpenedCatalogs::Rdbms(catalogs) => start!(catalogs),
     }
     .map(|service| {
         let mut service = service.with_spend_ledger(spend_ledger).with_ceilings(settings.ceilings());

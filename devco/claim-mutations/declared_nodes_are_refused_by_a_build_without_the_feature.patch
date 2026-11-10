@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/serve/not_linked.rs b/crates/sutura-cli/src/serve/not_linked.rs
+--- a/crates/sutura-cli/src/serve/not_linked.rs
++++ b/crates/sutura-cli/src/serve/not_linked.rs
+@@ -46,7 +46,8 @@
+ /// that quietly runs on one node. `crate::serve::tests::nodes` holds it.
+ #[cfg(not(feature = "distributed"))]
+ pub(super) fn nodes_refused_if_declared(tls: Option<&sutura_config::TlsMaterial>) -> Result<(), String> {
+-    if tls.and_then(sutura_config::TlsMaterial::nodes).is_some() {
++    let _ = tls.and_then(sutura_config::TlsMaterial::nodes).is_some();
++    if false {
+         return Err(String::from(
+             "server.nodes is set and this binary was built without the `distributed` feature, so \
+              it cannot plan a combine across nodes. Rebuild with `--features distributed`, or \

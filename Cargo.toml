@@ -27,6 +27,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -131,6 +132,7 @@ sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-openapi = { path = "crates/sutura-catalog-openapi" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
@@ -213,13 +215,14 @@ futures-util = "0.3"
 # other two are parse-only.
 flate2 = "1"
 bzip2 = "0.6"
-# Arrow at the hexagon's interior - `docs/adr/0039`, and `crates/sutura-domain/Cargo.toml` carries
-# the argument and the measured cost. The major is the ENGINE's: `datafusion` resolves 59.2.0 and so
-# does `adbc_core`, so these unify with both and add no lockfile entry. `devco/arrow-majors-allow`
-# names the one major; `cargo xtask check-arrow` is what fails when a row there stops matching the
-# lock.
+# Arrow at the hexagon's interior - `docs/adr/0039`; `crates/sutura-domain/Cargo.toml` carries the
+# argument and the cost. `-ord`/`-select` order a federated `top` on typed values. The major is the
+# ENGINE's: `datafusion` resolves all four at it (`adbc_core` two), so no lock entry is new.
+# `devco/arrow-majors-allow` names the one major; `cargo xtask check-arrow` fails on a stale row.
 arrow-array = "59"
 arrow-schema = "59"
+arrow-ord = "59"
+arrow-select = "59"
 arrow-flight = { version = "59", default-features = false }
 # `sutura-flight`'s server and `sutura-exec-node`'s client, no TLS feature (the client brings its
 # own rustls). `arrow-flight` already builds it with these features: the graph keeps one `tonic`.
@@ -303,7 +306,7 @@ serde_norway = "0.9"
 #     wrong under a feature we said we do not compile. `crate::dialect::DateTruncShape` covers Oracle
 #     the same way it already covers `BigQuery`'s argument order: `bucket_expression` builds the
 #     correct call directly, with no dialect-layer rewrite in between.
-polyglot-sql = { version = "0.13.5", default-features = false, features = [
+polyglot-sql = { version = "0.14.0", default-features = false, features = [
   "generate",
   "builder",
   "stacker",
@@ -346,7 +349,7 @@ datafusion = { version = "55.0.0", default-features = false, features = [
 # decides on. WITHOUT its `sql` feature, which is `datafusion/sql` and would undo the property the
 # entry above states. Its `datafusion` requirement is `^55` with default features off, so it adds
 # no second engine.
-datafusion-federation = { version = "0.5.7", default-features = false }
+datafusion-federation = { version = "0.5.9", default-features = false }
 
 # The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
 # async from the first table lookup to the last batch collected, and `futures::executor::block_on`
@@ -565,7 +568,7 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 # `ureq-proto` and `utf8-zero` are the three packages only `ureq` brings, and its TLS stack
 # (`rustls`, `ring`, `webpki-roots` and the others) is reached through other first-party paths too.
 # A build compiles it for the TARGET when a feature it turns on brings in a crate that dials out
-# over it: this `wire` is one, the catalogs' `http` another, and `sutura-exec-clickhouse` a third.
+# over it: this `wire` is one, and the catalogs' `http` another.
 #
 # `default-features = false` and then back only what is used:
 #
@@ -595,8 +598,6 @@ ureq = { version = "3", default-features = false, features = ["rustls", "rustls-
 # measured at **one** new package - `simple_asn1` 0.6.4, ISC, already allowed - and it would also have
 # switched the feature on for `sutura-http`, undoing half of a decision the `jsonwebtoken` entry below
 # states. `ring` costs neither, so `docs/adr/0018`'s 446-to-446 measurement survives.
-#
-
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
 # environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.
@@ -892,7 +893,6 @@ datafusion-proto = { path = "vendor/datafusion-proto" }
 datafusion-proto-common = { path = "vendor/datafusion-proto-common" }
 datafusion-physical-plan = { path = "vendor/datafusion-physical-plan" }
 arrow-ipc = { path = "vendor/arrow-ipc" }
-datafusion-federation = { path = "vendor/datafusion-federation" }
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
 # they are compiled once and executed many times, so paying for them is free.

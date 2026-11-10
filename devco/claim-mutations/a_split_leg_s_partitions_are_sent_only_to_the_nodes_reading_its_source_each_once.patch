@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across.rs b/crates/sutura-exec-datafusion/src/combine/across.rs
+--- a/crates/sutura-exec-datafusion/src/combine/across.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across.rs
+@@ -405,7 +405,7 @@
+             .readers
+             .iter()
+             .map(|(source, declared)| {
+-                let resolved = all.0.iter().skip(1).filter(|node| declared.contains(&unresolved(node)));
++                let resolved = all.0.iter().skip(1).filter(|node| !declared.contains(&unresolved(node)));
+                 (source.clone(), resolved.cloned().collect())
+             })
+             .collect();

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine.rs b/crates/sutura-exec-datafusion/src/combine.rs
+index 3af1eaee0..70597b770 100644
+--- a/crates/sutura-exec-datafusion/src/combine.rs
++++ b/crates/sutura-exec-datafusion/src/combine.rs
+@@ -908,7 +908,7 @@ async fn refuse_ambiguous_link(
+         .and_then(|filtered| filtered.aggregate(columns, vec![count(lit(1_i64)).alias(probe.as_str())]))
+         .and_then(|grouped| {
+             let counted = Expr::Column(Column::new_unqualified(probe.as_str()));
+-            grouped.filter(counted.gt(lit(1_i64)))
++            grouped.filter(counted.gt(lit(2_i64)))
+         })
+         .and_then(|past_one| past_one.limit(0, Some(1)))
+         .and_then(LogicalPlanBuilder::build)

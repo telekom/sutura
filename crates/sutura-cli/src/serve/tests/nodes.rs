@@ -2,10 +2,15 @@
 
 /// Material naming nodes at `authority`. Nothing here is read until a combiner is built from it.
 fn declaring(certificate: &str, key: &str, authority: &str) -> sutura_config::TlsMaterial {
+    let others = [sutura_config::DeclaredNodeInput::new(
+        "https://node-b.example.com",
+        "worker",
+        [].as_slice(),
+    )];
     sutura_config::TlsMaterial::parse(Some(certificate), Some(key), Some(authority))
         .expect("a pair and an authority are TLS material")
         .expect("material was declared")
-        .with_nodes("https://node-a.example.com", &[String::from("https://node-b.example.com")])
+        .with_nodes("https://node-a.example.com", &others)
         .expect("https addresses are nodes")
 }
 
@@ -48,8 +53,11 @@ fn declared_nodes_serve_this_nodes_worker() {
     let tls = declaring(&path(&certificate), &path(&key), &path(&certificate));
     let built = super::super::nodes::combiner(Some(&tls), runtime());
     let _ignored = (std::fs::remove_file(&certificate), std::fs::remove_file(&key));
-    let (_, worker) = built.expect("a signed node with its authority plans across the declared nodes");
-    assert!(worker.is_some(), "declared nodes mounted no worker for the others to reach");
+    let (_combiner, worker) = built.expect("a signed node with its authority plans across the declared nodes");
+    assert!(
+        worker.is_some(),
+        "declared nodes mounted no worker for the other declared peers to reach"
+    );
 }
 
 /// The demand the worker pool is sized from, exported by a served node that declares others before
@@ -93,9 +101,10 @@ fn a_node_declaring_others_exports_the_worker_slots_it_wants() {
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
     let state = sutura_http::ServiceState::new(service, std::sync::Arc::new(settings), admission);
     let rendered = state.registry().render();
+    let metric = "\nsutura_worker_slots_wanted 0\n";
     assert!(
-        rendered.contains("\nsutura_worker_slots_wanted 0\n"),
-        "a node declaring others exports no demand for the worker pool: {rendered}"
+        rendered.contains(metric),
+        "a node declaring others must export the worker-slot demand gauge: {rendered}"
     );
 }
 
@@ -113,7 +122,7 @@ fn an_unreadable_node_authority_is_refused_naming_it() {
     };
     assert!(
         refused.contains(missing),
-        "the refusal must name the authority it could not read: {refused}"
+        "the refusal must name the unreadable authority path itself: {refused}"
     );
 }
 

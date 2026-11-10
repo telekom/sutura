@@ -31,6 +31,10 @@
 //! * **The worker pool's operator.** It reads no `Settings`, so only the pool's serving pod and its
 //!   worker are loaded here. The pool's refusals fire outside the posture guard, so each is declared
 //!   `Binary::NeverReads`.
+//! * **A reading worker group's refusals the serving pod does not raise.** The serving pod's settings
+//!   are what a refusal case loads, so a group whose own pod the binary would refuse (no catalog) is
+//!   declared `Binary::NeverReads`; the group pods of a golden are loaded, and nothing else reads the
+//!   credentials a group's `extraVolumes` name.
 //! * **A binary without `tls`.** Gated on the feature: the chart's `tls.enabled` render assumes a
 //!   binary that can terminate TLS, and every venue that runs this crate's tests enables it.
 
@@ -44,8 +48,8 @@ mod tests {
     use serde::Deserialize as _;
     use serde_norway::Value;
     use sutura_config::{
-        Environment, InvalidAccessToken, InvalidInboundValue, NotFitToServe, ServerRole, Settings, SettingsError, Sources,
-        TlsMaterial, UnknownEnvironment,
+        Environment, InvalidAccessToken, InvalidDeclaredNode, InvalidInboundValue, NotFitToServe, ServerRole, Settings,
+        SettingsError, Sources, TlsMaterial, UnknownEnvironment,
     };
 
     /// What the pod's process is handed: `SUTURA_ENVIRONMENT`, the settings directory, and every
@@ -372,10 +376,8 @@ mod tests {
             .tls()
             .and_then(TlsMaterial::nodes)
             .expect("the serving pod declares nodes");
-        assert_eq!(
-            nodes.others().iter().map(url::Url::as_str).collect::<Vec<_>>(),
-            ["https://test-release-workers.default.svc:8080/"]
-        );
+        let peer_urls: Vec<&str> = nodes.others().iter().map(|node| node.url().as_str()).collect();
+        assert_eq!(peer_urls, ["https://test-release-workers.default.svc:8080/"]);
     }
 
     #[test]
@@ -383,6 +385,9 @@ mod tests {
         let settings = pool_settings("test-release-workers");
         assert_eq!(settings.server().role(), ServerRole::Worker);
     }
+
+    #[cfg(test)]
+    mod reading;
 
     /// The worker pool render's parsed documents, loaded once per call rather than cached.
     fn pool_docs() -> Vec<Value> {
@@ -490,7 +495,7 @@ mod tests {
     }
 
     /// Every `testdata/refusals/` case, by name.
-    const REFUSALS: [(&str, Binary); 40] = [
+    const REFUSALS: [(&str, Binary); 47] = [
         (
             "access-token-missing",
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::AccessTokenRequired { .. })),
@@ -643,6 +648,38 @@ mod tests {
             Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::QuerySurfaceWithoutInboundIdentity)),
         ),
         (
+            "reading-workers-group-name-invalid",
+            Binary::NeverReads("a group's name, which becomes the group's Service name"),
+        ),
+        (
+            "reading-workers-group-without-catalog",
+            Binary::NeverReads("a reading worker's own catalog, a refusal of the group's pod and not of the serving pod"),
+        ),
+        (
+            "reading-workers-group-without-sources",
+            Binary::Fails(|error| {
+                matches!(
+                    error,
+                    SettingsError::InvalidDeclaredNode {
+                        cause: InvalidDeclaredNode::ReadingWorkerNamesNoSource { .. }
+                    }
+                )
+            }),
+        ),
+        (
+            "reading-workers-undeclared-source",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::DeclaredNodeReadsUndeclaredSource { .. })),
+        ),
+        (
+            "reading-workers-without-inbound",
+            Binary::Refuses(|refusal| matches!(refusal, NotFitToServe::ReadingNodeWithoutInboundIdentity { .. })),
+        ),
+        (
+            "reading-workers-without-worker-pool",
+            Binary::NeverReads("the worker pool's issuer, which every reading worker's certificate comes from"),
+        ),
+        ("worker-pool-address-family-unknown", Binary::Derivation),
+        (
             "worker-pool-issuer-missing",
             Binary::NeverReads("the cert-manager issuer every node's certificate comes from"),
         ),
@@ -692,7 +729,7 @@ mod tests {
             environment,
             directory,
             variables,
-        } = inputs(name, &docs);
+        } = reading::release_inputs(name, &docs);
         let sources = Environment::parse(&environment).map(|environment| {
             let sources = Sources::defaults(environment).with_variables(variables);
             match &directory {
@@ -771,5 +808,41 @@ mod tests {
             "a chart refusal the binary does not make:\n{}",
             wrong.join("\n")
         );
+    }
+
+    /// The family the serving pod of the pool golden `render` loads for the nodes it declares.
+    fn pool_address_family(render: &str) -> String {
+        let golden = testdata().join(format!("golden/pool/{render}.yaml"));
+        let text = std::fs::read_to_string(&golden).unwrap_or_else(|error| panic!("{} is readable: {error}", golden.display()));
+        let Inputs {
+            environment,
+            directory,
+            variables,
+        } = pool_inputs(&documents(&text), "test-release");
+        let environment = Environment::parse(&environment).unwrap_or_else(|error| panic!("{render}: {error}"));
+        let directory = directory.expect("the serving pod reads a settings directory");
+        let loaded = Settings::load(
+            &Sources::defaults(environment)
+                .with_variables(variables)
+                .with_directory(directory.clone()),
+        );
+        std::fs::remove_dir_all(directory).expect("the scratch directory is removed");
+        let settings = loaded.unwrap_or_else(|error| panic!("the binary refuses {render}: {:?}", error.reason()));
+        let nodes = settings
+            .server()
+            .tls()
+            .and_then(TlsMaterial::nodes)
+            .expect("the serving pod declares nodes");
+        nodes.address_family().to_string()
+    }
+
+    #[test]
+    fn the_worker_pools_address_family_reaches_the_serving_pods_nodes() {
+        assert_eq!(
+            pool_address_family("worker-pool"),
+            "auto",
+            "an unset value leaves the binary's default"
+        );
+        assert_eq!(pool_address_family("worker-pool-ipv6"), "ipv6");
     }
 }

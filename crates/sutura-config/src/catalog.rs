@@ -95,6 +95,12 @@ pub enum CatalogKind {
     ///
     /// **Declarable, and refused by name by every build**: no build links its reader yet.
     Entropy,
+    /// EXPERIMENTAL: an HTTP metadata API that a pinned `OpenAPI` document and a mapping file in
+    /// `dir` describe, decided by `sutura-catalog-openapi` over its `AnswerReader` port.
+    ///
+    /// **Openable behind `sutura-cli`'s default-off `openapi` feature; a build without it refuses
+    /// this kind by name**, the stand [`Self::Openmetadata`] makes. It takes the same reader fields.
+    OpenApi,
 }
 /// The configured word did not name a kind of catalog this build has.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -114,6 +120,7 @@ impl CatalogKind {
         "rdbms",
         "cube",
         "entropy",
+        "openapi",
     ];
 
     /// Reads the configured word.
@@ -127,6 +134,7 @@ impl CatalogKind {
             "rdbms" => Ok(Self::Rdbms),
             "cube" => Ok(Self::Cube),
             "entropy" => Ok(Self::Entropy),
+            "openapi" => Ok(Self::OpenApi),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
             }),
@@ -146,6 +154,7 @@ impl CatalogKind {
             Self::Rdbms => "rdbms",
             Self::Cube => "cube",
             Self::Entropy => "entropy",
+            Self::OpenApi => "openapi",
         }
     }
 }
@@ -213,7 +222,8 @@ pub enum InvalidCatalogSettings {
     /// prints the resolved settings, and never quoted back.
     #[error("catalogs.{name}.endpoint carries an `@` - credentials in the URL are refused, declare token_file")]
     CredentialsInEndpoint { name: SourceName },
-    /// A `catalog.kind: openmetadata` or `cube` entry did not declare a field its reader needs.
+    /// A `catalog.kind: openmetadata`, `cube` or `openapi` entry did not declare a field its reader
+    /// needs.
     #[error("catalog.{field} is required when catalog.kind is {kind}, and is empty or absent")]
     MissingForReader { kind: &'static str, field: &'static str },
     /// `catalogs[].refresh_seconds: 0` - `github.com/telekom/sutura#975`. Zero re-reads on every
@@ -464,11 +474,11 @@ impl CatalogSettings {
         self
     }
 
-    /// Adds the two reader fields of a `catalog.kind: openmetadata` or `cube` entry.
+    /// Adds the two reader fields of a `catalog.kind: openmetadata`, `cube` or `openapi` entry.
     ///
     /// A separate step rather than two more parameters on [`Self::parse`], for the same reason
     /// [`Self::with_datahub_reader`] is one: `parse_catalogs` calls it only when `kind` parsed as
-    /// [`CatalogKind::Openmetadata`] or [`CatalogKind::Cube`], so every other kind is unaffected by fields only a reader over
+    /// [`CatalogKind::Openmetadata`], [`CatalogKind::Cube`] or [`CatalogKind::OpenApi`], so every other kind is unaffected by fields only a reader over
     /// a real deployment needs.
     pub fn with_http_reader(mut self, endpoint: String, token_file: PathBuf) -> Result<Self, InvalidCatalogSettings> {
         if endpoint.trim().is_empty() {

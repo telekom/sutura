@@ -150,6 +150,13 @@ pub enum PostgresError {
         #[source]
         cause: PresentedDisagreesWithPosture,
     },
+    /// Bytes handed to [`adbc::AdbcPostgres::read_partition`] that are not a partition descriptor -
+    /// refused before any connection opens.
+    #[error("the partition to read is not described by a descriptor this adapter mints")]
+    MalformedDescriptor {
+        #[source]
+        cause: adbc::InvalidDescriptor,
+    },
 }
 
 /// The statement-timeout ceiling a build without the `fixtures` feature always uses.

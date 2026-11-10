@@ -1,5 +1,5 @@
 //! A combine that wanted other nodes and found none ready is a refusal worth a retry, not a service
-//! error, and the ceiling is read before it.
+//! error, and the ceiling is read before it. A granted leg no node reads is its source unavailable.
 
 use sutura_domain::plan::WorkersShort;
 use sutura_domain::plan::federated::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, Legs};
@@ -61,4 +61,14 @@ fn a_combine_over_its_ceiling_is_refused_for_the_ceiling_whether_or_not_other_no
         refusal(&combiner, &core::fmt::Error),
         Some(RefusalReason::ResourcesExhausted { ceiling_bytes: 64 })
     );
+}
+
+#[test]
+fn a_granted_leg_no_reachable_node_reads_is_refused_as_its_source_unavailable() {
+    let combiner = sutura_exec_datafusion::DataFusionCombiner::new().expect("a combiner builds");
+    let source = sutura_domain::model::SourceName::parse("geo").expect("a test source");
+    let unread = sutura_exec_datafusion::CombineError::NoReadingNode {
+        source_name: source.clone(),
+    };
+    assert_eq!(refusal(&combiner, &unread), Some(RefusalReason::SourceUnavailable { source }));
 }

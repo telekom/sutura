@@ -13,8 +13,12 @@
 //! it is buffered or the grant is asked: the bound is per message, so concurrent streams each reach
 //! it, and the replies a link reads are not bounded here.
 
+use core::num::{NonZeroU64, NonZeroUsize};
+
+use sutura_app::Warehouses;
 use sutura_config::RuntimeSettings;
-use sutura_config::TlsMaterial;
+use sutura_config::{DeclaredNode, TlsMaterial};
+use sutura_domain::warehouse::Warehouse;
 use sutura_exec_datafusion::DataFusionCombiner;
 use sutura_http::ServiceState;
 
@@ -47,9 +51,22 @@ pub(super) fn combiner(tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> R
     let wait = nodes
         .wait_for_workers()
         .map(|seconds| core::time::Duration::from_secs(core::num::NonZeroU64::from(seconds).get()));
-    let across = Nodes::declared(own, nodes.own().clone(), nodes.others().iter().cloned(), identity)
-        .across_above(nodes.across_above())
-        .wait_for_workers(wait);
+    let across = Nodes::declared(
+        own,
+        nodes.own().clone(),
+        nodes.others().iter().map(|node| node.url().clone()),
+        identity,
+    )
+    .across_above(nodes.across_above())
+    .wait_for_workers(wait)
+    .address_family(nodes.address_family());
+    let across = nodes
+        .others()
+        .iter()
+        .flat_map(DeclaredNode::sources)
+        .fold(across, |across, alias| {
+            across.reading(alias.clone(), nodes.reading(alias).map(|node| node.url().clone()))
+        });
     let mount = sutura_http::WorkerMount::new(
         across
             .served()
@@ -84,6 +101,58 @@ pub(super) fn identity(tls: &TlsMaterial, authority: &std::path::Path) -> Result
         .map_err(|cause| format!("{}\nserver.tls_node_authority is not a node authority", super::flatten(cause)))?;
     sutura_exec_datafusion::NodeIdentity::new(chain, key, authority)
         .map_err(|cause| format!("{}\nthis node's identity could not be built", super::flatten(cause)))
+}
+
+/// `engines`, each source alias a declared peer reads named for splitting a lookup leg into at most
+/// as many partitions as there are such peers, above `server.nodes.across_above_bytes` or, unset,
+/// the working set.
+///
+/// **Limit:** the peers are counted as declared, not as ready. A split leg the source does not grant
+/// is still read on this node - one of one partition (every split of a source one peer reads), one
+/// whose link the plan declares a comparison for, one with a `NUMERIC` column, one
+/// `PartitionLeg::encode` refuses, and one that names a payer - so it holds up to its readers times
+/// the source's per-stream bound here, where the same leg read whole is refused past one stream's.
+/// A lookup leg of a source named here, asked with no verified caller, is refused before the source
+/// is asked anything - unless it names a payer, which is read whole, as the deployment; a deployment
+/// declaring such a source with no `security.inbound` does not boot.
+/// Only a PostgreSQL source, a `BigQuery` source that federates at a pool, or an Oracle source that
+/// declares `split: flashback`, erased into `kind::AnyWarehouse` splits a leg; any other adapter
+/// reads it whole.
+pub(super) fn splitting<W>(engines: Warehouses<W>, tls: Option<&TlsMaterial>, runtime: RuntimeSettings) -> Warehouses<W>
+where
+    W: Warehouse,
+{
+    let Some(nodes) = tls.and_then(TlsMaterial::nodes) else {
+        return engines;
+    };
+    let above = nodes
+        .across_above()
+        .unwrap_or_else(|| NonZeroU64::try_from(runtime.working_set().bytes()).unwrap_or(NonZeroU64::MAX));
+    nodes
+        .others()
+        .iter()
+        .flat_map(DeclaredNode::sources)
+        .fold(engines, |engines, alias| {
+            match NonZeroUsize::new(nodes.reading(alias).count()) {
+                Some(readers) => engines.splitting(alias.clone(), above, readers),
+                None => engines,
+            }
+        })
+}
+
+/// Whether a peer `server.nodes` declares reads one of `engines`' sources.
+#[cfg(any(feature = "postgres", feature = "oracle"))]
+pub(super) fn read_by_a_peer<W>(engines: &Warehouses<W>, tls: Option<&TlsMaterial>) -> bool
+where
+    W: Warehouse,
+{
+    tls.and_then(TlsMaterial::nodes).is_some_and(|nodes| {
+        nodes
+            .others()
+            .iter()
+            .flat_map(DeclaredNode::sources)
+            .any(|alias| engines.get(alias).is_some())
+    })
 }
 
 /// `state` with this node's worker mounted, when there is one.

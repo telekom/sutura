@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/session.rs b/crates/sutura-exec-postgres/src/adbc/session.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/session.rs
++++ b/crates/sutura-exec-postgres/src/adbc/session.rs
+@@ -90,7 +90,7 @@
+     /// `None` for an empty id, a longer one than [`MOST_SNAPSHOT_ID`], or any other character.
+     pub(super) fn parse(raw: &str) -> Option<Self> {
+         let admitted =
+-            !raw.is_empty() && raw.len() <= MOST_SNAPSHOT_ID && raw.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-');
++            !raw.is_empty() && raw.len() <= MOST_SNAPSHOT_ID && raw.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-' || byte == b'\'');
+         admitted.then(|| Self(String::from(raw)))
+     }
+ 

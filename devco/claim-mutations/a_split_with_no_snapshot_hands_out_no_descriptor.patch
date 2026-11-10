@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-postgres/src/adbc/split.rs b/crates/sutura-exec-postgres/src/adbc/split.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-postgres/src/adbc/split.rs
++++ b/crates/sutura-exec-postgres/src/adbc/split.rs
+@@ -257,8 +257,9 @@
+     pub fn descriptor(&self) -> Option<PartitionDescriptor> {
+         self.split
+             .snapshot
+-            .as_ref()
+-            .map(|snapshot| PartitionDescriptor::new(snapshot.clone(), self.pages))
++            .clone()
++            .or_else(|| SnapshotId::parse("0"))
++            .map(|snapshot| PartitionDescriptor::new(snapshot, self.pages))
+     }
+ }
+ 

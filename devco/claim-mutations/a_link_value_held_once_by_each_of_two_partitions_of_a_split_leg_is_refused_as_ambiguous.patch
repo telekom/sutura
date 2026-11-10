@@ -1,0 +1,16 @@
+diff --git a/crates/sutura-exec-datafusion/src/combine/across/split.rs b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+index 3bdf8e703..605d35de4 100644
+--- a/crates/sutura-exec-datafusion/src/combine/across/split.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/split.rs
+@@ -192,7 +192,10 @@ impl SplitLeafExec {
+     fn of(leg: Arc<Leg>) -> Self {
+         let properties = Arc::new(PlanProperties::new(
+             EquivalenceProperties::new(Arc::clone(&leg.schema)),
+-            Partitioning::UnknownPartitioning(leg.partitions.len()),
++            Partitioning::Hash(
++                vec![Arc::new(Column::new(leg.schema.field(0).name(), 0)) as Arc<dyn PhysicalExpr>],
++                leg.partitions.len(),
++            ),
+             EmissionType::Incremental,
+             Boundedness::Bounded,
+         ));

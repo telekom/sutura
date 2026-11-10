@@ -42,6 +42,10 @@ mod link_parts;
 #[cfg(test)]
 mod across;
 
+/// A lookup leg its source split into partitions.
+#[cfg(test)]
+mod split_leg;
+
 /// `2^53`: every integer below it is exactly representable as an `f64`.
 const TWO_POW_53: i64 = 1 << 53;
 
