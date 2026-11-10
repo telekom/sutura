@@ -69,11 +69,14 @@ def main():
                 raise RuntimeError('bad ANO continuation')
             data += extra[2:]
         print('ANO version', hex(version), 'services', count, 'flags', flags, flush=True)
+        refused = flags != 0
+        found_group = False
         offset = 13
         for _ in range(count):
             kind, num_fields, error = struct.unpack('!HHI', data[offset:offset + 8])
             offset += 8
             print('service', kind, 'field-count', num_fields, 'status', error, flush=True)
+            refused |= error != 0
             if not 0 <= num_fields <= 8:
                 raise RuntimeError('unbounded ANO field count')
             fields = []
@@ -89,12 +92,15 @@ def main():
             if kind == 3 and len(fields) >= 2:
                 print('integrity-id', int.from_bytes(fields[1][1], 'big'), flush=True)
                 if len(fields) >= 8:
+                    found_group = True
                     print('DH bits', int.from_bytes(fields[2][1], 'big'), int.from_bytes(fields[3][1], 'big'), flush=True)
                     print('DH generator', fields[4][1].hex(), flush=True)
                     print('DH modulus', fields[5][1].hex(), flush=True)
                     print('DH public-length', len(fields[6][1]), 'IV-length', len(fields[7][1]), flush=True)
         if offset != length:
             raise RuntimeError('ANO trailing bytes')
+        if refused or not found_group:
+            raise RuntimeError('server refused negotiation or supplied no public DH group')
 
 
 if __name__ == '__main__':

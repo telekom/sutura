@@ -35,6 +35,7 @@ SQLNET.ENCRYPTION_TYPES_SERVER=(AES256)
 SQLNET.CRYPTO_CHECKSUM_SERVER=REQUIRED
 SQLNET.CRYPTO_CHECKSUM_TYPES_SERVER=(SHA256)
 SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS=FALSE
+SQLNET.ALLOWED_LOGON_VERSION_SERVER=11
 ORA
 docker exec "$name" bash -c 'cat "$ORACLE_BASE_HOME/network/admin/sqlnet.ora"' | tee "$out/sqlnet.log"
 docker exec -i "$name" bash -c 'sqlplus -L -s "SYSTEM/$ORACLE_PASSWORD@localhost:1521/FREEPDB1"' <<'SQL' | tee "$out/server.log"
@@ -47,3 +48,8 @@ SQL
 port="$(docker port "$name" 1521/tcp | sed 's/.*://')"
 ORACLE_HOST=127.0.0.1 ORACLE_PORT="$port" ORACLE_SERVICE=FREEPDB1 \
   python3 nix/oracle-public-dh-probe.py | tee "$out/public-dh.log"
+if [ "${SUTURA_ORACLE_RUN_ACCEPTANCE:-0}" = 1 ]; then
+  export SUTURA_ORACLE_ACCEPTANCE_MODE=native
+  export SUTURA_ORACLE_ACCEPTANCE_PORT="$port"
+  bash nix/oracle-login-fixtures.sh "$name" FREEPDB1 11G
+fi

@@ -115,6 +115,12 @@ mod datacontract;
 #[path = "served/rdbms.rs"]
 mod rdbms;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(all(feature = "oracle", feature = "rdbms"))]
+#[path = "served/oracle_native.rs"]
+mod oracle_native;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split out
 // for the same `max-lines` reason; the default build has no `/mcp` at all, so the feature is its own attribute.
 #[cfg(feature = "agent")]
