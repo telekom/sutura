@@ -30,8 +30,9 @@
 // establishing a connection and can be combined with the protocol and data
 // types messages when fast authentication is available.
 //
-// The 10G password verifier (des_verifier) is a port, not a copy, of
-// getKeyFromUserNameAndPassword in v2/auth_object.go of
+// The 10G password verifier (des_verifier) and the 16 byte combo key of a
+// 10G login are a port, not a copy, of getKeyFromUserNameAndPassword and
+// generatePasswordEncKey in v2/auth_object.go of
 // github.com/sijms/go-ora at commit
 // 62f8a42fe821414cec8fcacb1b877dfef836f798, which carries this notice:
 //
