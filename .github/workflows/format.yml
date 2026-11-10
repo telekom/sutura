@@ -210,11 +210,12 @@ jobs:
           git -C /tmp/oracle-config-mutant apply "$oracle_source_root/devco/claim-mutations/native_mode_cannot_carry_oracle_external_token_authentication.patch"
           cd /tmp/oracle-config-mutant
           set +e
-          nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings native_mode_cannot_carry_oracle_external_token_authentication -- --exact > /tmp/oracle-export/config-mutation.log 2>&1
+          nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings tests::native_mode_cannot_carry_oracle_external_token_authentication -- --exact > /tmp/oracle-export/config-mutation.log 2>&1
           status=$?
           set -e
           cat /tmp/oracle-export/config-mutation.log
           test "$status" -ne 0
+          grep -Fq 'tests::native_mode_cannot_carry_oracle_external_token_authentication ... FAILED' /tmp/oracle-export/config-mutation.log
           grep -q 'test result: FAILED' /tmp/oracle-export/config-mutation.log
           cd "$oracle_source_root"
           base=$(git merge-base HEAD origin/main)
@@ -232,6 +233,14 @@ jobs:
           cat /tmp/oracle-export/config-base-all.log
           test "$status" -ne 0
           grep -q 'test result: FAILED' /tmp/oracle-export/config-base-all.log
+          for cell in \
+            native_source_and_dictionary_require_their_own_reason_and_refuse_tls_material \
+            legacy_source_and_dictionary_require_an_independent_reason_and_an_encrypted_mode \
+            oracle_only_options_are_refused_on_other_sources_and_dictionary_dialects \
+            native_mode_cannot_carry_oracle_external_token_authentication \
+            orphan_oracle_acknowledgements_are_refused_even_without_the_oracle_feature; do
+            grep -Fq "tests::$cell ... FAILED" /tmp/oracle-export/config-base-all.log
+          done
           set +e
           nix run .#cargo -- test --locked -p sutura-runtime --all-features --test oracle_transport > /tmp/oracle-export/runtime-base.log 2>&1
           status=$?
@@ -240,6 +249,49 @@ jobs:
           test "$status" -ne 0
           grep -q 'native_oracle_startup_names_the_weaker_channel_and_independent_password_opt_in ... FAILED' /tmp/oracle-export/runtime-base.log
           grep -q 'test result: FAILED' /tmp/oracle-export/runtime-base.log
+
+      - name: Measure reanchored Oracle claim mutations
+        if: inputs.operation == 'config'
+        run: |
+          set -euo pipefail
+          oracle_source_root=$PWD
+          git worktree add --detach /tmp/oracle-claim-mutants HEAD
+          cd /tmp/oracle-claim-mutants
+          export CARGO_TARGET_DIR="$oracle_source_root/target"
+          cells=(
+            a_listener_redirect_to_an_address_nobody_declared_is_refused
+            a_verified_oracle_source_opens_tls_before_any_tns_packet
+            an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it
+            the_oracle_reader_holds_the_declared_caps_or_the_documented_defaults
+            the_oracle_reader_refuses_a_schema_or_predicate_column_that_is_not_an_identifier
+          )
+          for cell in "${cells[@]}"; do
+            package=sutura-cli
+            target=(--bin sutura)
+            if [[ "$cell" == the_oracle_reader_* ]]; then
+              package=sutura-catalog-rdbms
+              target=(--lib)
+            fi
+            command=(nix run "$oracle_source_root#cargo" -- test --locked -p "$package" --all-features "${target[@]}" "$cell" -- --nocapture)
+            "${command[@]}" > "/tmp/oracle-export/claim-$cell-head.log" 2>&1
+            grep -Fq "$cell ... ok" "/tmp/oracle-export/claim-$cell-head.log"
+            patch="$oracle_source_root/devco/claim-mutations/$cell.patch"
+            cp "$patch" "/tmp/oracle-export/claim-$cell.patch"
+            git apply "$patch"
+            set +e
+            "${command[@]}" > "/tmp/oracle-export/claim-$cell-mutant.log" 2>&1
+            status=$?
+            set -e
+            git apply --reverse "$patch"
+            cat "/tmp/oracle-export/claim-$cell-mutant.log"
+            test "$status" -ne 0
+            grep -Fq "$cell ... FAILED" "/tmp/oracle-export/claim-$cell-mutant.log"
+            grep -Fq 'test result: FAILED' "/tmp/oracle-export/claim-$cell-mutant.log"
+            "${command[@]}" > "/tmp/oracle-export/claim-$cell-restored.log" 2>&1
+            grep -Fq "$cell ... ok" "/tmp/oracle-export/claim-$cell-restored.log"
+          done
+          test -z "$(git status --porcelain)"
+          printf '%s\n' 'Five named claim kills; head and restored cells green.' > /tmp/oracle-export/claim-summary.txt
 
       - name: Measure driver head and killing mutations
         if: inputs.operation == 'driver'
