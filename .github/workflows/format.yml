@@ -1,76 +1,55 @@
-# Markdown, YAML and TOML formatting, and Python formatting plus lint.
-#
-# ITS OWN WORKFLOW, and the reason is what it does NOT run. The paths filter below means a
-# text-only change gets this verdict without `ci.yml`'s matrix, and a Rust-only change pays
-# nothing for a formatter that would have inspected no changed file. Folding it into `ci.yml`
-# inverts both halves of that.
-#
-# THE SAME SCRIPT A DEVELOPER RUNS. `nix/format-text.sh` is what the `format-text` pre-commit
-# hook, `just lint-text`, `just fmt` and `just validate` call, so a local run and CI cannot check
-# different things - the property `nix/lint-workflows.sh` exists for, applied one file over.
-#
-# THIRD-PARTY ACTIONS: none, as everywhere else here.
 name: format
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
-  pull_request:
-    paths:
-      - "**.md"
-      - "**.yml"
-      - "**.yaml"
-      - "**.toml"
-      - "**.py"
-      - "dprint.json"
-      - "nix/dprint.nix"
-      - "nix/format-text.sh"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  format:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  release-artifacts:
+    runs-on: rust-mcp-32core
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 125fded0e535539d2d0deccd920e12abe3e81d68
+          ref: 7187cc9c2976f26ff73091ac908788ab8f758280
+          fetch-depth: 0
           persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
-          # The flag that makes nix honour settings from flake.nix itself is deliberately
-          # absent, for the reason security-audit.yml gives: with it, a pull request could add
-          # a substituter and a trusted key and have CI fetch attacker-built store paths whose
-          # signature verifies.
           extra_nix_config: |
             fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The candidate set is `git ls-files`, so the checkout above IS the input. `fetch-depth` is
-      # left at its default: the script reads the working tree, not a diff against a base.
-      - name: Export pinned formatting for the release repair
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Check the native release artifacts
+        run: nix run .#just -- shipped
+
+      - name: Export the embedded inventories
         run: |
-          nix run .#dprint -- fmt VENDOR.md
-          git diff -- VENDOR.md
+          set -euo pipefail
+          mkdir -p proof
+          git rev-parse HEAD > proof/source-sha
+          for binary in sutura sutura-operator; do
+            artifact="$(nix build ".#$binary" --no-link --print-out-paths)"
+            nix run .#rust-audit-info -- "$artifact/bin/$binary" > "proof/$binary.json"
+          done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-format-125fded0e
-          path: VENDOR.md
+          name: release-native-inventories-7187cc9c2
+          path: proof/
           if-no-files-found: error
+
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
