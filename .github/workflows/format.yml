@@ -175,7 +175,9 @@ jobs:
           base=$(git merge-base HEAD origin/main)
           git worktree add --detach /tmp/oracle-config-base "$base"
           cp crates/sutura-config/tests/oracle_native_settings.rs /tmp/oracle-config-base/crates/sutura-config/tests/
+          cp crates/sutura-runtime/tests/oracle_transport.rs /tmp/oracle-config-base/crates/sutura-runtime/tests/
           git -C /tmp/oracle-config-base add -N crates/sutura-config/tests/oracle_native_settings.rs
+          git -C /tmp/oracle-config-base add -N crates/sutura-runtime/tests/oracle_transport.rs
           printf '%s\n' "$base" > /tmp/oracle-export/config-base-sha
           cd /tmp/oracle-config-base
           set +e
@@ -185,6 +187,14 @@ jobs:
           cat /tmp/oracle-export/config-base-all.log
           test "$status" -ne 0
           grep -q 'test result: FAILED' /tmp/oracle-export/config-base-all.log
+          set +e
+          nix run .#cargo -- test --locked -p sutura-runtime --all-features --test oracle_transport > /tmp/oracle-export/runtime-base.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/oracle-export/runtime-base.log
+          test "$status" -ne 0
+          grep -q 'native_oracle_startup_names_the_weaker_channel_and_independent_password_opt_in ... FAILED' /tmp/oracle-export/runtime-base.log
+          grep -q 'test result: FAILED' /tmp/oracle-export/runtime-base.log
 
       - name: Measure driver head and killing mutations
         if: inputs.operation == 'driver'
