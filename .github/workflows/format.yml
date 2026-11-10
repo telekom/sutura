@@ -207,7 +207,9 @@ jobs:
           nix run .#cargo -- test --locked -p sutura-runtime --all-features --test oracle_transport 2>&1 | tee /tmp/oracle-export/runtime-head.log
           oracle_source_root=$PWD
           git worktree add --detach /tmp/oracle-config-mutant HEAD
-          git -C /tmp/oracle-config-mutant apply "$oracle_source_root/devco/claim-mutations/native_mode_cannot_carry_oracle_external_token_authentication.patch"
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/native-token-guard.patch" > /tmp/oracle-export/native-token-guard.patch
+          sha256sum /tmp/oracle-export/native-token-guard.patch > /tmp/oracle-export/native-token-guard.sha256
+          git -C /tmp/oracle-config-mutant apply /tmp/oracle-export/native-token-guard.patch
           cd /tmp/oracle-config-mutant
           set +e
           nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings tests::native_mode_cannot_carry_oracle_external_token_authentication -- --exact > /tmp/oracle-export/config-mutation.log 2>&1
