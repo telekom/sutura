@@ -246,6 +246,7 @@ nav:
               - ClickHouse: integrations/data-systems/clickhouse.md
               - Cube: integrations/data-systems/cube.md
               - DuckDB: integrations/data-systems/duckdb.md
+              - Foundry (experimental): integrations/data-systems/foundry.md
               - Oracle: integrations/data-systems/oracle.md
               - PostgreSQL: integrations/data-systems/postgres.md
           - Storage:
