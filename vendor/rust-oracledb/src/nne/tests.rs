@@ -91,3 +91,32 @@ fn duplicate_missing_and_unknown_services_are_refused() {
     bad[17..21].copy_from_slice(&1u32.to_be_bytes());
     assert!(parse(&bad).is_err());
 }
+
+#[test]
+fn modern_services_do_not_require_the_outer_ano_version_to_be_set() {
+    let mut frame = response(17, 5, VERSION);
+    frame[6..10].copy_from_slice(&0u32.to_be_bytes());
+    assert!(parse(&frame).is_ok());
+    // The two selected services still individually refuse their legacy version.
+    for kind in [2u16, 3] {
+        let mut frame = response(17, 5, VERSION);
+        let mut reader = Reader(&frame[13..]);
+        let mut offset = 13;
+        for _ in 0..4 {
+            let id = reader.u16().unwrap();
+            let count = reader.u16().unwrap();
+            reader.u32().unwrap();
+            if id == kind {
+                frame[offset + 12..offset + 16].copy_from_slice(&0x0b200200u32.to_be_bytes());
+                break;
+            }
+            for _ in 0..count {
+                let size = reader.u16().unwrap() as usize;
+                reader.u16().unwrap();
+                reader.take(size).unwrap();
+            }
+            offset = frame.len() - reader.0.len();
+        }
+        assert!(parse(&frame).is_err());
+    }
+}

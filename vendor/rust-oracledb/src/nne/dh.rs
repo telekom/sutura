@@ -51,8 +51,9 @@ pub(super) fn exchange(negotiated: &Negotiated<'_>) -> Result<(Vec<u8>, Protecti
     rand::fill(private_bytes.as_mut_slice());
     private_bytes[0] |= 0x80;
     let private = Zeroizing::new(U256::from_be_slice(private_bytes.as_slice()));
-    let public = FixedMontyForm::new(&U2048::from_u8(2), &parameters).pow(&private).retrieve();
-    let shared = Zeroizing::new(peer_form.pow(&private).retrieve());
+    let public = FixedMontyForm::new(&U2048::from_u8(2), &parameters).pow(&*private).retrieve();
+    let shared_form = Zeroizing::new(peer_form.pow(&*private));
+    let shared = Zeroizing::new(shared_form.retrieve());
     if *shared <= U2048::ONE || *shared >= GROUP14.wrapping_sub(&U2048::ONE) {
         return Err(refused("invalid Diffie-Hellman shared value"));
     }

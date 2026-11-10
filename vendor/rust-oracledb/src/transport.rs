@@ -283,6 +283,9 @@ impl Transport {
             print_packet(&header, packet_buf);
         }
         let mut packet = Packet::new(packet_buf)?;
+        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
+            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        }
         if packet.packet_type == constants::PACKET_TYPE_DATA {
             if let Some(protection) = self.protection.as_mut() {
                 packet.buf = protection.open(&packet.buf)?;

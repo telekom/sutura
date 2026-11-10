@@ -633,6 +633,10 @@ impl Client {
         Ok(())
     }
 
+    pub(crate) fn encrypted_transport(&self) -> bool {
+        self.transport.uses_tls() || self.transport.uses_native()
+    }
+
     /// Returns the configuration associated with the client.
     pub(crate) fn config(&self) -> &Config {
         &self.config

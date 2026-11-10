@@ -568,6 +568,10 @@ impl AuthMessage {
             client.config().allow_legacy_verifiers(),
         )?;
 
+        if verifier != Verifier::Pbkdf2 && !client.encrypted_transport() {
+            return Err(Error::legacy_verifier_requires_encryption(verifier_type));
+        }
+
         // create password hash
         let password = client.config().get_password_bytes();
         let mut password_key = None;
@@ -1370,3 +1374,7 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "../nne/legacy_transport_tests.rs"]
+mod legacy_transport_tests;

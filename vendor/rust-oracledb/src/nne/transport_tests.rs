@@ -80,3 +80,18 @@ fn partial_packet_trickle_cannot_renew_the_absolute_native_deadline() {
     assert!(transport.low_level_transport.is_none());
     sender.join().unwrap();
 }
+
+#[test]
+fn unprotected_control_and_marker_packets_close_a_native_transport() {
+    for kind in [constants::PACKET_TYPE_CONTROL, constants::PACKET_TYPE_MARKER, constants::PACKET_TYPE_ACCEPT] {
+        let (mut server, mut transport) = pair(256);
+        transport.protection = Some(nne::protection_for_test());
+        let mut injected = packet(&[0; 8]);
+        injected[4] = kind;
+        server.write_all(&injected).unwrap();
+        let error = transport.receive_packet().err().unwrap();
+        assert_eq!(error.to_string(), "native encryption refused: unprotected native control packet");
+        assert!(transport.low_level_transport.is_none());
+        assert!(transport.protection.is_none());
+    }
+}

@@ -76,6 +76,7 @@ pub enum ErrorKind {
     InvalidTrustAnchors(String),
     IterationCountTooLarge(String, u32, u32),
     ListenerRefusedConnection(String, String, u16, usize),
+    LegacyVerifierRequiresEncryption(u32),
     LockPoisoned,
     MissingBindValue(String),
     NativeEncryptionRefused(&'static str),
@@ -410,6 +411,10 @@ impl fmt::Display for Error {
             ErrorKind::OperationOnlySupportedOnBfile => {
                 fmt.write_str("operation is only supported on BFILE LOBs")?
             }
+            ErrorKind::LegacyVerifierRequiresEncryption(verifier_type) => {
+                write!(fmt, "password verifier type 0x{verifier_type:x} ({}) requires an encrypted transport",
+                    legacy_verifier_name(*verifier_type).unwrap_or("unsupported"))?
+            }
             ErrorKind::PasswordVerifierRefused(verifier_type) => {
                 match legacy_verifier_name(*verifier_type) {
                     Some(name) => write!(
@@ -568,6 +573,10 @@ impl error::Error for Error {
 }
 
 impl Error {
+    pub(crate) fn legacy_verifier_requires_encryption(verifier_type: u32) -> Self {
+        Self::new(ErrorKind::LegacyVerifierRequiresEncryption(verifier_type), None)
+    }
+
     pub(crate) fn native_encryption_refused(reason: &'static str) -> Self {
         Self::new(ErrorKind::NativeEncryptionRefused(reason), None)
     }

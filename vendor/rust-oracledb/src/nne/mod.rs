@@ -109,14 +109,11 @@ pub(crate) fn offer() -> Vec<u8> {
 pub(crate) struct Negotiated<'a> {
     pub(crate) encryption: u8,
     pub(crate) integrity: u8,
-    pub(crate) encryption_version: u32,
-    pub(crate) integrity_version: u32,
+
     pub(crate) group_bits: u16,
-    pub(crate) private_bits: u16,
     pub(crate) generator: &'a [u8],
     pub(crate) modulus: &'a [u8],
     pub(crate) peer: &'a [u8],
-    pub(crate) iv: &'a [u8],
 }
 
 /// Reads only the advertised length; callers bound the accumulated frame before extending it.
@@ -143,7 +140,6 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
     }
     let mut seen = [false; 4];
     let mut encryption = 0;
-    let mut encryption_version = 0;
     let mut integrity = 0;
     let mut dh = None;
     for _ in 0..4 {
@@ -187,7 +183,6 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
             }
             (2, 2) => {
                 require_modern(service_version)?;
-                encryption_version = service_version;
                 encryption = reader.field(2, Some(1))?[0];
                 if !matches!(encryption, 15..=17) {
                     return Err(Error::native_algorithm_refused("encryption", encryption));
@@ -211,7 +206,7 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
                 if generator.is_empty() || generator.len() > modulus.len() || !(16..=64).contains(&iv.len()) {
                     return Err(refused("invalid Diffie-Hellman parameters"));
                 }
-                dh = Some((service_version, group_bits, private_bits, generator, modulus, peer, iv));
+                dh = Some((group_bits, generator, modulus, peer));
             }
             _ => return Err(refused("invalid negotiation service fields")),
         }
@@ -219,19 +214,15 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
     if !reader.0.is_empty() || encryption == 0 || integrity == 0 {
         return Err(refused("required negotiation services missing"));
     }
-    let (integrity_version, group_bits, private_bits, generator, modulus, peer, iv) =
+    let (group_bits, generator, modulus, peer) =
         dh.ok_or_else(|| refused("missing Diffie-Hellman exchange"))?;
     Ok(Negotiated {
         encryption,
         integrity,
-        encryption_version,
-        integrity_version,
         group_bits,
-        private_bits,
         generator,
         modulus,
         peer,
-        iv,
     })
 }
 
