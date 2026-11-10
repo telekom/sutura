@@ -39,3 +39,27 @@ pub(crate) fn open_foundry(
         "[{named}] declares `kind: foundry`, and this binary was built without the `foundry` feature - so it links no Foundry SQL adapter. Build `sutura-cli` with `--features foundry`, or declare a `files` source"
     ))
 }
+
+#[cfg(all(test, not(feature = "foundry")))]
+mod tests {
+    use crate::serve::open_engine;
+    use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
+
+    #[test]
+    fn a_foundry_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
+        let entry = "  warehouse:\n    kind: foundry\n    endpoint: https://foundry.example.com\n    ontology: sales\n    token_file: /nonexistent/sutura-foundry-token\n    posture: shared-service-user\n";
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "warehouse", "customers")]),
+                &registry(entry),
+                one_worker(),
+                default_timeout(),
+                None,
+            ),
+            "a build without Foundry must refuse the source",
+        );
+        assert!(error.contains("warehouse"), "{error}");
+        assert!(error.contains("foundry"), "{error}");
+        assert!(error.contains("without the `foundry` feature"), "{error}");
+    }
+}

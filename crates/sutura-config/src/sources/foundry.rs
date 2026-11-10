@@ -68,3 +68,32 @@ pub(super) fn refuse_elsewhere(
         ],
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::settings::{Environment, Settings, Sources};
+    use crate::sources::SourcePlacement;
+    use sutura_domain::model::SourceName;
+
+    fn overlay(kind: &str) -> String {
+        format!(
+            "security:\n  identity: single-user\n  single_user_because: one operator\nsources:\n  warehouse:\n    kind: {kind}\n    endpoint: https://foundry.example.com\n    ontology: sales\n    token_file: /run/sutura/foundry-token\n    posture: shared-service-user\n"
+        )
+    }
+
+    #[test]
+    fn foundry_ontology_is_read_only_by_the_foundry_source_kind() {
+        let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay("foundry")))
+            .expect("the Foundry source is declared");
+        let source = settings
+            .sources()
+            .get(&SourceName::parse("warehouse").expect("the alias parses"))
+            .expect("the source exists");
+        assert!(matches!(source.placement(), SourcePlacement::Foundry { ontology, .. } if ontology == "sales"));
+        for kind in ["cube", "node"] {
+            let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay(kind)))
+                .expect_err("other endpoint sources must refuse ontology");
+            assert!(error.to_string().contains("ontology"), "{kind}: {error}");
+        }
+    }
+}

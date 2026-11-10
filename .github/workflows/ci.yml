@@ -292,6 +292,7 @@ jobs:
       data_source_oracle: ${{ steps.classify.outputs.data_source_oracle }}
       data_source_cube: ${{ steps.classify.outputs.data_source_cube }}
       data_source_node: ${{ steps.classify.outputs.data_source_node }}
+      data_source_foundry: ${{ steps.classify.outputs.data_source_foundry }}
       catalog_local: ${{ steps.classify.outputs.catalog_local }}
       catalog_datahub: ${{ steps.classify.outputs.catalog_datahub }}
       catalog_okf: ${{ steps.classify.outputs.catalog_okf }}

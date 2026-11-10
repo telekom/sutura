@@ -54,7 +54,7 @@ All entries must have the same `version`. A key that sutura does not know is an 
 | [ClickHouse](integrations/data-systems/clickhouse.md)         | `clickhouse` | One declared user, or a declared user per caller                    |
 | [Oracle](integrations/data-systems/oracle.md)                 | `oracle`     | One declared user. The caller's own token is built and not verified |
 | [Cube](integrations/data-systems/cube.md)                     | `cube`       | Cube receives one token, or each caller's own token                 |
-| [Foundry](integrations/data-systems/foundry.md)               | `foundry`    | Experimental: one deployment token                                 |
+| [Foundry](integrations/data-systems/foundry.md)               | `foundry`    | Experimental: one deployment token                                  |
 
 Cube runs its warehouse query with the database identity in its own driver settings
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
