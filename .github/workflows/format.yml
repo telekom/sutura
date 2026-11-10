@@ -46,7 +46,7 @@ on:
         type: choice
         options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate]
       main_sha:
-        description: Exact main commit for main-forward-lock
+        description: Exact ancestor for main-forward-lock or native-base
         required: false
         type: string
 
@@ -308,9 +308,13 @@ jobs:
 
       - name: Measure native product cells against base
         if: inputs.operation == 'native-base'
+        env:
+          NATIVE_BASE_SHA: ${{ inputs.main_sha }}
         run: |
           set -euo pipefail
-          SUTURA_ORACLE_BASE_SHA=$(git merge-base HEAD origin/main)
+          SUTURA_ORACLE_BASE_SHA=${NATIVE_BASE_SHA:-$(git merge-base HEAD origin/main)}
+          [[ "$SUTURA_ORACLE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SUTURA_ORACLE_BASE_SHA" HEAD
           export SUTURA_ORACLE_BASE_SHA
           printf '%s\n' "$SUTURA_ORACLE_BASE_SHA" > /tmp/oracle-export/native-base-sha
           nix run .#oracle-native-acceptance
