@@ -37,8 +37,8 @@
 //!   on the wire. Neither cap limits elapsed read time, and neither bounds a fetch: the pinned
 //!   driver prefetches 2 rows on execute and fetches 100 per round trip by default - read off its
 //!   source, not observed against a server - so up to one batch is in memory before a cap refuses.
-//! - **A declared catalog is read over verified TLS only, inside this process.** `sutura-config`'s
-//!   `OracleCatalogConnection` holds no plaintext channel, and [`OracleLogin::verified`]'s PEM
+//! - **A declared catalog uses verified TLS or acknowledged native encryption.** Native encryption
+//!   does not authenticate the server. [`OracleLogin::verified`]'s PEM
 //!   anchors replace the driver's public authorities, and [`OracleReader::new`] refuses a bundle
 //!   with no usable certificate; no client certificate is presented, and the
 //!   handshake after the TCP connect is not bounded (`sutura_oracle_connect`'s own limits). The
@@ -57,7 +57,7 @@ use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
 /// Where and as whom the reader logs in: an EZCONNECT `host:port/service_name` dial. No reader takes
-/// it until [`OracleLogin::verified`] names the anchors the listener is verified against.
+/// it until an encrypted channel is chosen.
 #[derive(Debug, Clone)]
 pub struct OracleLogin {
     host: String,
@@ -67,12 +67,12 @@ pub struct OracleLogin {
     password: Secret,
 }
 
-/// An [`OracleLogin`] over TLS, verified against `anchors_pem` and no other certificate, with the
-/// login's host as the name the handshake verifies - the only login an [`OracleReader`] takes.
+/// An Oracle login over verified TLS or native encryption. Native encryption does not authenticate the server.
 #[derive(Debug, Clone)]
-pub struct VerifiedOracleLogin {
+pub struct EncryptedOracleLogin {
     login: OracleLogin,
-    anchors_pem: String,
+    anchors_pem: Option<String>,
+    allow_legacy_verifiers: bool,
 }
 
 impl OracleLogin {
@@ -95,10 +95,31 @@ impl OracleLogin {
 
     /// The same login over TLS, verified against `anchors_pem` and no other certificate.
     #[must_use]
-    pub const fn verified(self, anchors_pem: String) -> VerifiedOracleLogin {
-        VerifiedOracleLogin {
+    pub const fn verified(self, anchors_pem: String) -> EncryptedOracleLogin {
+        EncryptedOracleLogin {
             login: self,
-            anchors_pem,
+            anchors_pem: Some(anchors_pem),
+            allow_legacy_verifiers: false,
+        }
+    }
+    /// Oracle native encryption and integrity over TCP; does not authenticate the server.
+    #[must_use]
+    pub const fn native_encryption(self) -> EncryptedOracleLogin {
+        EncryptedOracleLogin {
+            login: self,
+            anchors_pem: None,
+            allow_legacy_verifiers: false,
+        }
+    }
+}
+
+impl EncryptedOracleLogin {
+    /// The independent legacy-password opt-in, after choosing an encrypted channel.
+    #[must_use]
+    pub fn allow_legacy_verifiers(self) -> Self {
+        Self {
+            allow_legacy_verifiers: true,
+            ..self
         }
     }
 }
@@ -123,7 +144,7 @@ impl OracleReader {
     /// The documentation schema or the predicate column is not an identifier, the login's anchors are
     /// not certificates the driver can verify a server against, or the driver cannot parse its address.
     pub fn new(
-        login: VerifiedOracleLogin,
+        login: EncryptedOracleLogin,
         documentation_schema: &str,
         environment: String,
         predicate: RowPredicate,
@@ -131,17 +152,21 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
-        let VerifiedOracleLogin { login, anchors_pem } = login;
-        let dial = Dial::new(
-            &login.host,
-            login.port,
-            &login.service_name,
-            Channel::Verified {
-                anchors_pem: &anchors_pem,
-            },
-        )
-        .prepare()
-        .map_err(|refused| match refused {
+        let EncryptedOracleLogin {
+            login,
+            anchors_pem,
+            allow_legacy_verifiers,
+        } = login;
+        let channel = anchors_pem
+            .as_deref()
+            .map_or(Channel::NativeEncryption, |anchors_pem| Channel::Verified { anchors_pem });
+        let dial = Dial::new(&login.host, login.port, &login.service_name, channel);
+        let dial = if allow_legacy_verifiers {
+            dial.allow_legacy_verifiers()
+        } else {
+            dial
+        };
+        let dial = dial.prepare().map_err(|refused| match refused {
             PrepareError::TrustAnchors(cause) => InvalidReaderConfig::TrustAnchors(cause.to_string()),
             PrepareError::Address(cause) => InvalidReaderConfig::Address(cause.to_string()),
         })?;

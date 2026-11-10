@@ -60,6 +60,7 @@ pub struct ConnectMessage<'a> {
     pub protocol_version: u16,
     pub protocol_flags: u32,
     pub accepted: bool,
+    pub native_available: bool,
     pub tls_renegotiation_needed: bool,
     pub redirect_data: Option<String>,
     pub redirect_data_len: u16,
@@ -80,6 +81,7 @@ impl ConnectMessage<'_> {
             protocol_version: 0,
             protocol_flags: 0,
             accepted: false,
+            native_available: false,
             tls_renegotiation_needed: false,
             redirect_data: None,
             redirect_data_len: 0,
@@ -89,6 +91,7 @@ impl ConnectMessage<'_> {
     fn process_accept_packet(
         &mut self,
         resp: &mut Response,
+        native_requested: bool,
     ) -> Result<(), Error> {
         self.protocol_version = resp.read_u16be()?;
         if self.protocol_version < constants::PROTOCOL_VERSION_12 {
@@ -96,12 +99,16 @@ impl ConnectMessage<'_> {
         }
         resp.advance(12)?;
         let flags1: u8 = resp.read_u8()?;
-        if flags1 & NSI_NA_REQUIRED != 0 {
+        if flags1 & NSI_NA_REQUIRED != 0 && !native_requested {
             return Err(Error::not_implemented(
                 "native network encryption and data integrity".to_string(),
             ));
         }
-        resp.advance(9)?;
+        let flags2 = resp.read_u8()?;
+        self.native_available = flags1 & 1 != 0
+            && flags1 & NSI_DISABLE_NA == 0
+            && flags2 & 8 == 0;
+        resp.advance(8)?;
         self.sdu = resp.read_u32be()?;
         if self.protocol_version >= constants::PROTOCOL_VERSION_18 {
             resp.advance(5)?;
@@ -160,14 +167,14 @@ impl ConnectMessage<'_> {
 impl Message for ConnectMessage<'_> {
     fn deserialize(
         &mut self,
-        _client: &Client,
+        client: &Client,
         resp: &mut Response,
     ) -> Result<(), Error> {
         self.accepted = false;
         self.tls_renegotiation_needed = false;
         match resp.get_packet_type() {
             constants::PACKET_TYPE_ACCEPT => {
-                self.process_accept_packet(resp)?;
+                self.process_accept_packet(resp, client.config().native_encryption())?;
             }
             constants::PACKET_TYPE_REFUSE => {
                 self.process_refuse_packet(resp)?;
@@ -217,7 +224,8 @@ impl Message for ConnectMessage<'_> {
                 self.sdu.try_into().unwrap()
             }
         };
-        let nsi_flags = NSI_SUPPORT_SECURITY_RENEG | NSI_DISABLE_NA;
+        let nsi_flags = NSI_SUPPORT_SECURITY_RENEG
+            | if client.config().native_encryption() { 1 } else { NSI_DISABLE_NA };
         buf.write_u16be(constants::PROTOCOL_VERSION_23);
         buf.write_u16be(constants::PROTOCOL_VERSION_MIN);
         buf.write_u16be(GSO_DONT_CARE);
