@@ -205,7 +205,10 @@ fn foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmappe
         ("boolean", Some(DataType::Boolean)),
         ("string", Some(DataType::Utf8)),
         ("date", Some(DataType::Date32)),
-        ("timestamp", Some(DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())))),
+        (
+            "timestamp",
+            Some(DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))),
+        ),
         ("decimal(12, 2)", Some(DataType::Decimal128(12, 2))),
         ("binary", Some(DataType::Binary)),
         ("array", None),

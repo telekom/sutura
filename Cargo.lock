@@ -4634,6 +4634,7 @@ dependencies = [
  "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
+ "sutura-exec-foundry",
  "sutura-exec-node",
  "sutura-exec-oracle",
  "sutura-exec-postgres",
@@ -4808,6 +4809,24 @@ dependencies = [
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sutura-exec-foundry"
+version = "0.11.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-ipc",
+ "arrow-schema",
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-sql",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]

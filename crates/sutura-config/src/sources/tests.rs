@@ -43,6 +43,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         data_dir: Some(DATA),
         billing_project: None,
         dataset: None,
+        ontology: None,
         max_bytes_billed: None,
         posture: "impersonation-at-source",
         acknowledged_because: None,
@@ -120,6 +121,7 @@ fn a_missing_file_location_is_refused_at_parse() {
             data_dir: absent,
             billing_project: None,
             dataset: None,
+            ontology: None,
             ..impersonating("local")
         }];
         let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a source has to say where it is");
@@ -137,6 +139,7 @@ fn a_relative_path_is_refused_at_parse() {
             data_dir: Some(relative),
             billing_project: None,
             dataset: None,
+            ontology: None,
             ..impersonating("local")
         }];
         let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative path is not a location");
@@ -435,6 +438,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         data_dir: None,
         billing_project: None,
         dataset: None,
+        ontology: None,
         max_bytes_billed: Some(1024 * 1024 * 1024),
         posture: "shared-service-user",
         acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),

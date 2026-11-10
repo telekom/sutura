@@ -142,6 +142,7 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
                 data_dir: source.data_dir.as_deref(),
                 billing_project: source.billing_project.as_deref(),
                 dataset: source.dataset.as_deref(),
+                ontology: source.ontology.as_deref(),
                 max_bytes_billed: source.max_bytes_billed,
                 posture: &source.posture,
                 acknowledged_because: source.acknowledged_because.as_deref(),

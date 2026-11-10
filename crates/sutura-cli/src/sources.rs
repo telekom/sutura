@@ -94,6 +94,8 @@ mod clickhouse;
 mod cube;
 /// The DUCKDB half of this module: `clickhouse`'s shape, the BUILD shared through `crate::duckdb`.
 mod duckdb;
+/// The FOUNDRY half: one declared Ontology SQL endpoint, with a feature-off refusal.
+mod foundry;
 /// The ORACLE half of this module: `clickhouse`'s shape - the dispatch wrapper and the feature-off
 /// refusal, with the BUILD shared through `crate::oracle`.
 mod oracle;
@@ -157,6 +159,9 @@ pub(crate) enum Opened {
     /// A Cube deployment, reached over its REST API.
     #[cfg(feature = "cube")]
     Cube(OpenedWith<crate::cube::CubeSource>),
+    /// A Foundry ontology SQL endpoint, reached over its synchronous Arrow API.
+    #[cfg(feature = "foundry")]
+    Foundry(OpenedWith<crate::foundry::FoundrySource>),
 }
 
 /// What a command opened over one adapter: the registry a plan is looked up in, what was attached,
@@ -498,6 +503,15 @@ fn from_the_registry(
                 ));
             }
             duckdb::open(source, configured, registry, working_set(runtime))
+        }
+        sutura_config::SourceKind::Foundry => {
+            if let Some(given) = data {
+                return Err(format!(
+                    "`sources.{source}` is a Foundry ontology, and {} was given on the command line as a data directory - an ontology has none, so the argument selects nothing. Drop it; the ontology and endpoint that entry declares are what will be read",
+                    given.display()
+                ));
+            }
+            foundry::open(source, configured, registry, outbound, working_set(runtime))
         }
     }
 }

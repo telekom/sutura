@@ -37,6 +37,8 @@ fn files_of(opened: Opened) -> OpenedWith<DataFusionWarehouse> {
         Opened::Duckdb(_) => None,
         #[cfg(feature = "cube")]
         Opened::Cube(_) => None,
+        #[cfg(feature = "foundry")]
+        Opened::Foundry(_) => None,
     }
     .expect("this fixture declares a files source")
 }

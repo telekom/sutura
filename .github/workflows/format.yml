@@ -44,7 +44,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  foundry-sql-snapshots:
+  foundry-preparation:
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 60
@@ -68,81 +68,72 @@ jobs:
         with:
           scope: ci
 
-      - name: Generate and measure Foundry render goldens
+      - name: Generate the lock and formatting changes with pinned tools
         run: |
           set -euo pipefail
-          mkdir -p target
+          mkdir -p target/foundry-preparation
+          git rev-parse HEAD > target/foundry-preparation/source-head.txt
+          nix run .#cargo -- update --workspace
+          nix run .#xtask -- fmt
+          bash nix/format-text.sh fmt
+          git diff --binary > target/foundry-preparation/generated.patch
+          cp Cargo.lock target/foundry-preparation/Cargo.lock
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: foundry-preparation
+          path: target/foundry-preparation/
+          if-no-files-found: error
+
+      - name: Test Foundry execution and source configuration
+        run: |
+          set -euo pipefail
           nix build --impure --expr '
             let flake = builtins.getFlake (toString ./.); in
             flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
-              INSTA_UPDATE = "always";
               checkPhase = builtins.replaceStrings
                 [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"test(dialects::foundry::) | test(legs::foundry::) | test(qualified::foundry::) | package(sutura-sql) | test(foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped)\"" ]
+                [ "--workspace --all-features -E \"package(sutura-exec-foundry) | package(sutura-config)\"" ]
                 old.checkPhase;
-              postInstall = (old.postInstall or "") + "\ncp crates/sutura-app/tests/snapshots/*@foundry.snap $out/\n";
             })
-          ' -L --out-link target/foundry-sql-snapshots 2>&1 | tee target/foundry-sql-proof.log
-          mkdir -p target/foundry-sql-export
-          cp target/foundry-sql-snapshots/*@foundry.snap target/foundry-sql-export/
-          git rev-parse HEAD > target/foundry-sql-export/source-head.txt
+          ' -L --no-link 2>&1 | tee target/foundry-preparation/tests.log
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: foundry-sql-snapshots
-          path: |
-            target/foundry-sql-export/
-            target/foundry-sql-proof.log
-          if-no-files-found: error
-
-      - name: Measure the focused SQL and type cells against mapping mutations
+      - name: Measure the pre-decode buffer budget regression
         run: |
           set -euo pipefail
-          mkdir -p target/foundry-sql-mutation
-          git rev-parse HEAD > target/foundry-sql-mutation/source-head.txt
           status=0
           nix build --impure --expr '
-            let
-              flake = builtins.getFlake (toString ./.);
-              mutation = builtins.path {
-                path = ./nix/draft-readiness/foundry-sql-mapping.patch;
-                name = "foundry-sql-mapping.patch";
-              };
-            in flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
-              NEXTEST_PROFILE = "nofailfast";
+            let flake = builtins.getFlake (toString ./.); in
+            flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
               checkPhase = builtins.replaceStrings
                 [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"test(foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets) | test(foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped)\"" ]
+                [ "--workspace --all-features -E \"test(ipc_buffers_over_budget_are_refused_before_batch_materialisation)\"" ]
                 old.checkPhase;
-              postPatch = (old.postPatch or "") + "\npatch -p1 < ${mutation}\n";
+              postPatch = (old.postPatch or "") + "\nsubstituteInPlace crates/sutura-exec-foundry/src/lib.rs --replace-fail \"*charged = charged.saturating_add(length);\" \"*charged = charged.saturating_add(length.saturating_sub(length));\"\n";
             })
-          ' -L --no-link 2>&1 | tee target/foundry-sql-mutation/mutation.log || status=$?
+          ' -L --no-link 2>&1 | tee target/foundry-preparation/mutation.log || status=$?
           if [ "$status" -eq 0 ]; then
-            echo "the mapping mutations unexpectedly pass" >&2
+            echo "the IPC buffer budget mutation unexpectedly passes" >&2
             exit 1
           fi
-          python3 - <<'PY'
+          python3 - <<'CHECK'
           import pathlib
           import re
-
-          expected = {
-              "foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets",
-              "foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped",
-          }
-          log = pathlib.Path("target/foundry-sql-mutation/mutation.log").read_text()
+          log = pathlib.Path("target/foundry-preparation/mutation.log").read_text()
           log = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
           failed = set(re.findall(r"\bFAIL\b[^\n]*::([a-zA-Z0-9_]+)", log))
+          expected = {"ipc_buffers_over_budget_are_refused_before_batch_materialisation"}
           if failed != expected:
               raise SystemExit(f"expected failures {sorted(expected)}, observed {sorted(failed)}")
-          print(f"measured mapping mutation failures: {sorted(failed)}")
-          PY
+          print(f"measured IPC budget mutation failures: {sorted(failed)}")
+          CHECK
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: foundry-sql-mutation
-          path: target/foundry-sql-mutation/
+          name: foundry-execution-proof
+          path: target/foundry-preparation/
           if-no-files-found: error
 
       - uses: ./.github/actions/nix-store-cache-report

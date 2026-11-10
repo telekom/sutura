@@ -86,6 +86,8 @@ fn files(opened: Result<OpenedSources, String>) -> Opened {
         Ok(OpenedSources::Duckdb(_)) => panic!("expected the file engine, got the DuckDB arm"),
         #[cfg(feature = "cube")]
         Ok(OpenedSources::Cube(_)) => panic!("expected the file engine, got the Cube arm"),
+        #[cfg(feature = "foundry")]
+        Ok(OpenedSources::Foundry(_)) => panic!("expected the file engine, got the Foundry arm"),
         Ok(OpenedSources::Mixed(_)) => panic!("expected the file engine, got the Mixed arm"),
         Err(message) => panic!("{message}"),
     }

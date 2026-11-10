@@ -168,6 +168,36 @@ pub(super) fn cube_group(
     Ok(engines.into_mapped(|engine| AnyWarehouse::Cube(Box::new(engine))))
 }
 
+/// The Foundry group, opened through [`crate::serve::foundry::open_foundry`] and erased.
+#[cfg(feature = "foundry")]
+pub(super) fn foundry_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    outbound: Option<&sutura_tls::Declared>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    let crate::serve::OpenedSources::Foundry(engines) =
+        crate::serve::foundry::open_foundry(sources, registry, outbound, runtime)?
+    else {
+        return Err(String::from("`open_foundry` returned an arm this dispatcher does not expect"));
+    };
+    Ok(engines.into_mapped(|engine| AnyWarehouse::Foundry(Box::new(engine))))
+}
+
+/// [`bigquery_group`]'s feature-off twin, for the same reason.
+#[cfg(not(feature = "foundry"))]
+pub(super) fn foundry_group(
+    sources: &[&SourceName],
+    registry: &sutura_config::SourceRegistry,
+    outbound: Option<&sutura_tls::Declared>,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<sutura_app::Warehouses<AnyWarehouse>, String> {
+    crate::serve::foundry::open_foundry(sources, registry, outbound, runtime)?;
+    Err(String::from(
+        "`open_foundry` returned an open registry on a build with no Foundry adapter linked",
+    ))
+}
+
 /// [`bigquery_group`]'s feature-off twin, for the same reason.
 #[cfg(not(feature = "cube"))]
 pub(super) fn cube_group(

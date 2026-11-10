@@ -116,7 +116,9 @@ openmetadata = ["dep:sutura-catalog-openmetadata", "sutura-catalog-openmetadata/
 cube = ["dep:sutura-catalog-cube", "sutura-catalog-cube/http", "dep:sutura-exec-cube", "dep:sutura-http-client"]
 # EXPERIMENTAL: the Foundry ontology adapter's HTTP reader (issue #1727), for `catalog.kind:
 # foundry`. Default-off for `openmetadata`'s reason, and in no release's `features`.
-foundry = ["dep:sutura-catalog-foundry", "sutura-catalog-foundry/http", "dep:sutura-http-client"]
+foundry = ["foundry-catalog", "foundry-exec", "dep:sutura-http-client"]
+foundry-catalog = ["dep:sutura-catalog-foundry", "sutura-catalog-foundry/http"]
+foundry-exec = ["dep:sutura-exec-foundry", "sutura-exec-foundry/http"]
 # EXPERIMENTAL: the OpenAPI metadata adapter's HTTP reader (issue #1727), for `catalog.kind:
 # openapi`. Default-off for `openmetadata`'s reason, and in no published binary's `features`.
 openapi = ["dep:sutura-catalog-openapi", "sutura-catalog-openapi/http"]
@@ -213,6 +215,9 @@ sutura-exec-datafusion = { workspace = true }
 # The BigQuery adapter, behind the `bigquery` feature above. `optional` is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds need.
 sutura-exec-bigquery = { workspace = true, optional = true }
+# The Foundry Ontology SQL adapter, behind the `foundry` feature above. Optional so a source build
+# that only declares metadata does not carry the Arrow SQL transport or HTTP client.
+sutura-exec-foundry = { workspace = true, optional = true }
 # The Postgres adapter, behind the `postgres` feature above. `optional` is what makes the dependency
 # ABSENT from the default build rather than merely unused, which is the property the cross builds
 # need. The adapter owns its driver's connection config, so this root names no driver crate itself.

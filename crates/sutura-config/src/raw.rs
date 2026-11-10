@@ -105,6 +105,9 @@ pub(crate) struct RawSource {
     /// The removed default dataset, refused at load: a table path names its project and dataset.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
+    /// The Foundry ontology API name or resource identifier for `kind: foundry`.
+    #[serde(default)]
+    pub(crate) ontology: Option<String>,
     /// Who a `bigquery` source's jobs are billed to.
     #[serde(default)]
     pub(crate) billing: Option<RawBilling>,
