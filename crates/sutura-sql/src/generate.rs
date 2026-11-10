@@ -171,6 +171,7 @@ pub(crate) const fn dialect_type(dialect: Dialect) -> DialectType {
         Dialect::ClickHouse => DialectType::ClickHouse,
         Dialect::BigQuery => DialectType::BigQuery,
         Dialect::Oracle => DialectType::Oracle,
+        Dialect::Foundry => DialectType::Spark,
     }
 }
 

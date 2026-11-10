@@ -143,7 +143,9 @@ pub fn generate_leg_buckets(
     let within = match dialect {
         Dialect::ClickHouse => builder::func("cityHash64", hashed).modulo(builder::lit(count)).eq(index),
         Dialect::DuckDb => builder::func("HASH", hashed).modulo(builder::lit(count)).eq(index),
-        Dialect::Postgres | Dialect::BigQuery | Dialect::Oracle => return Err(BucketsRefused::Unsupported { dialect }),
+        Dialect::Postgres | Dialect::BigQuery | Dialect::Oracle | Dialect::Foundry => {
+            return Err(BucketsRefused::Unsupported { dialect });
+        }
     };
     leg_within(leg, dialect, Some(within)).map_err(BucketsRefused::Generate)
 }

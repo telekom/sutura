@@ -979,6 +979,7 @@ macro_rules! registered {
         // says nothing about a real Oracle agreeing with the number. What else backs this dialect's
         // goldens is `golden/dialects.rs::evidence`'s declaration.
         $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
+        $cell!(foundry, sutura_sql::Dialect::Foundry, polyglot_sql::DialectType::Spark);
     };
 }
 pub(crate) use registered;
