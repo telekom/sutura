@@ -37,8 +37,7 @@ pub struct SqlRequest {
     /// The ontology API name or RID selected by the source connection.
     #[serde(rename = "ontologyIdentifier")]
     ontology_identifier: String,
-    /// Foundry's maximum-row response bound. It is one above the semantic answer cap so a truncated
-    /// result is observable and refused rather than silently certified.
+    /// Reaching this response boundary is refused because the service may have truncated its answer.
     #[serde(rename = "rowLimit")]
     row_limit: usize,
     /// Positional values for the generated `?` placeholders.
