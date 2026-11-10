@@ -6,7 +6,7 @@ diff --git a/crates/sutura-oracle-connect/src/lib.rs b/crates/sutura-oracle-conn
              .map_err(PrepareError::Address)?
              .set_follow_redirects(false)
 -            .set_allow_legacy_verifiers(self.allow_legacy_verifiers)
-+            .set_allow_legacy_verifiers(false)
++            .set_allow_legacy_verifiers(self.allow_legacy_verifiers && false)
              .set_transport_connect_timeout(Some(self.deadline));
          match self.channel {
              Channel::Plaintext => Ok(PreparedDial(config)),

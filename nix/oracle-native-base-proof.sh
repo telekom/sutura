@@ -41,15 +41,41 @@ cat >> "$base_root/crates/sutura-cli/tests/served.rs" <<'RUST'
 #[path = "served/oracle_native.rs"]
 mod oracle_native;
 RUST
+python3 - "$base_root/flake.nix" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+marker = '        apps.oracle-acceptance = {'
+assert source.count(marker) == 1
+app = '''        apps.oracle-native-base-cell = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-oracle-native-base-cell" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:${pkgs.openssl}/bin:${pkgs.python3}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            export SUTURA_ORACLE_CARGO_PROFILE=ci
+            export SUTURA_ORACLE_RUN_ACCEPTANCE=1
+            exec bash nix/oracle-native-probe.sh
+          '');
+        };
+
+'''
+path.write_text(source.replace(marker, app + marker))
+PY
+sha256sum "$base_root/Cargo.lock" "$base_root/flake.lock" > "$out/base-locks.sha256"
 git -C "$base_root" diff --binary > "$out/injected.patch"
 export SUTURA_ORACLE_BASE_PROOF=1
 export SUTURA_ORACLE_NATIVE_EXPECT=success
 cd "$base_root"
 set +e
-bash nix/oracle-native-probe.sh 2>&1 | tee "$out/base.log"
+nix run --no-write-lock-file .#oracle-native-base-cell 2>&1 | tee "$out/base.log"
 status=${PIPESTATUS[0]}
 set -e
 printf '%s\n' "$status" > "$out/base-status"
+sha256sum --check "$out/base-locks.sha256"
 cp -R target/oracle-native-probe "$out/server"
 test "$status" -ne 0
 grep -q '^test result: FAILED\.' "$out/base.log"

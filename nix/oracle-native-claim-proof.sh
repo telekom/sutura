@@ -46,6 +46,12 @@ for cell in "${cells[@]}"; do
   test "$status" -ne 0
   grep -q '^test result: FAILED\.' "$out/$cell.log"
   grep -Fxq "test oracle_native::$cell ... FAILED" "$out/$cell.log"
+  grep -Eq 'panicked at crates/sutura-cli/tests/served/oracle_native.rs:[0-9]+:[0-9]+' "$out/$cell.log"
+  if [ "$cell" = oracle_native_logins_require_both_strong_services_on_both_production_paths ]; then
+    grep -Fq 'native mode must let the correct credentials serve' "$out/$cell.log"
+  else
+    grep -Fq 'the legacy opt-in must let the correct credentials serve' "$out/$cell.log"
+  fi
 done
 test -z "$(git status --porcelain)"
 green restored
