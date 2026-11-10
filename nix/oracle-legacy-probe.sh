@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Feasibility probe only: the hosted run records the image digest before using this old XE tag.
+# Oracle XE remains only a test fixture; the image reaches no release artifact.
 set -euo pipefail
 
-image=docker.io/gvenzl/oracle-xe:18.4.0-slim-faststart
+image=docker.io/gvenzl/oracle-xe:18.4.0-slim-faststart@sha256:ee0d7b8ac3665fb80219cbcb5a080cc202cc970120e1fbef592d7592274cef22
 name="sutura-oracle-legacy-${GITHUB_RUN_ID:-$$}"
 out="$PWD/target/oracle-legacy-probe"
 mkdir -p "$out"
