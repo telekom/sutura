@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tomllib
 
 
 source = Path.cwd()
@@ -43,6 +44,32 @@ command = ["nix", "run", f"{source}#cargo", "--", "test", "--locked", "--lib", "
 # A developer host's optional backend and driver paths are not test inputs.
 for key in ["CARGO_UNSTABLE_CODEGEN_BACKEND", "CARGO_PROFILE_DEV_CODEGEN_BACKEND", "DUCKDB_LIB_DIR", "DUCKDB_INCLUDE_DIR"]:
     os.environ.pop(key, None)
+
+# Cargo must prune workspace-only packages/features for this standalone manifest.
+# Resolve only in the hosted scratch copy, then refuse any identity not in the root lock.
+status, _ = run(
+    ["nix", "run", f"{source}#cargo", "--", "metadata", "--format-version", "1", "--no-deps", "--features", "arrow"],
+    output / "driver-scratch-metadata.log", cwd=scratch,
+)
+if status:
+    raise SystemExit("standalone lock setup failed; no mutation verdict")
+
+
+def identities(path):
+    return {
+        (package["name"], package["version"], package.get("source"), package.get("checksum"))
+        for package in tomllib.loads(path.read_text())["package"]
+    }
+
+
+authoritative = identities(source / "Cargo.lock")
+derived = identities(scratch / "Cargo.lock")
+unexpected = derived - authoritative
+proof = {"root_packages": len(authoritative), "scratch_packages": len(derived), "unexpected": sorted(unexpected)}
+(output / "driver-scratch-lock-proof.json").write_text(json.dumps(proof, indent=2) + "\n")
+shutil.copyfile(scratch / "Cargo.lock", output / "driver-scratch-Cargo.lock")
+if unexpected:
+    raise SystemExit("standalone lock changed authoritative package identities; no mutation verdict")
 
 parser = "nne::tests::required_services_accept_only_compiled_algorithms_and_modern_versions"
 dh = "nne::dh::tests::approved_group_checks_peer_range_and_subgroup_before_key_exchange"
