@@ -53,6 +53,9 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use zeroize::Zeroize;
+use crate::nne;
 
 use crate::config::Address;
 use crate::config::Config;
@@ -160,11 +163,11 @@ impl LowLevelTransport {
         Ok(())
     }
 
-    /// Writes bytes to the low level transport.
-    fn write_all(&mut self, data: &[u8]) -> Result<(), Error> {
+    /// Writes bytes once so the caller can recheck its deadline between syscalls.
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         match self {
-            Self::Tcp(s) => Ok(s.write_all(data)?),
-            Self::Tls(s) => Ok(s.write_all(data)?),
+            Self::Tcp(s) => s.write(data),
+            Self::Tls(s) => s.write(data),
         }
     }
 }
@@ -180,6 +183,9 @@ pub(crate) struct Transport {
     full_packet_size: bool,
     print_packets: bool,
     op_num: usize,
+    native_requested: bool,
+    native_deadline: Option<Instant>,
+    protection: Option<nne::Protection>,
 }
 
 // a custom client certificate resolver is required because the client
@@ -263,6 +269,12 @@ impl Transport {
             return Ok(None);
         }
         self.last_packet_bytes = self.get_packet_size();
+        if self.last_packet_bytes < 8 && !self.native_requested {
+            return Err(Error::packet_too_short(self.last_packet_bytes));
+        }
+        if self.last_packet_bytes < 8 || self.last_packet_bytes > self.max_packet_size {
+            return Err(Error::native_encryption_refused("invalid packet length"));
+        }
         if self.residual_bytes < self.last_packet_bytes {
             return Ok(None);
         }
@@ -273,7 +285,16 @@ impl Transport {
             let header = self.get_op_header("Receiving packet");
             print_packet(&header, packet_buf);
         }
-        Packet::new(packet_buf).map(Some)
+        let mut packet = Packet::new(packet_buf)?;
+        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
+            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        }
+        if packet.packet_type == constants::PACKET_TYPE_DATA {
+            if let Some(protection) = self.protection.as_mut() {
+                packet.buf = protection.open(&packet.buf)?;
+            }
+        }
+        Ok(Some(packet))
     }
 
     /// Returns the op header used when displaying packet data.
@@ -303,6 +324,9 @@ impl Transport {
     /// Attempts to read a packet from the stream, if it is connected. The
     /// number of bytes read is returned.
     fn read_packet(&mut self) -> Result<usize, Error> {
+        if let Some(deadline) = self.native_deadline {
+            self.negotiation_deadline(deadline)?;
+        }
         let buf = &mut self.read_buf[self.residual_bytes..];
         self.low_level_transport
             .as_mut()
@@ -315,20 +339,40 @@ impl Transport {
         if self.low_level_transport.is_none() {
             return Err(Error::not_connected());
         }
-        let data = &self.write_buf[..];
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Sending packet");
-            print_packet(&header, data);
+            print_packet(&header, &self.write_buf);
         }
-        if let Some(t) = self.low_level_transport.as_mut() {
-            t.write_all(data)?;
+        let mut offset = 0;
+        while offset < self.write_buf.len() {
+            if let Some(deadline) = self.native_deadline {
+                self.negotiation_deadline(deadline)?;
+            }
+            let written = match self.low_level_transport.as_mut().ok_or_else(Error::not_connected)?
+                .write(&self.write_buf[offset..]) {
+                    Ok(written) => written,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                };
+            if written == 0 {
+                return Err(Error::dead_connection());
+            }
+            offset += written;
         }
         Ok(())
     }
 
     /// Closes the TCP connection to the database.
     pub(crate) fn close(&mut self) -> Result<(), Error> {
+        self.protection = None;
+        self.native_deadline = None;
+        if self.native_requested {
+            self.read_buf.zeroize();
+            self.write_buf.zeroize();
+            self.residual_bytes = 0;
+            self.last_packet_bytes = 0;
+        }
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Disconnecting transport");
@@ -347,6 +391,14 @@ impl Transport {
         address: &Address,
         config: &Config,
     ) -> Result<(), Error> {
+        if config.native_encryption() && address.protocol() != "tcp" {
+            return Err(Error::native_encryption_refused("native mode requires TCP"));
+        }
+        self.protection = None;
+        self.native_requested = config.native_encryption();
+        if self.native_requested {
+            self.print_packets = false;
+        }
         stream.set_nodelay(true)?;
         stream.set_read_timeout(None)?;
         self.socket_num = get_socket_num(&stream);
@@ -367,12 +419,89 @@ impl Transport {
             .and_then(|t| t.get_read_timeout())
     }
 
+    /// Establishes protection before the first TTC or authentication message.
+    pub(crate) fn negotiate_native(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
+        let deadline = Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
+        self.native_deadline = Some(deadline);
+        let result = self.negotiate_native_inner(deadline).and_then(|()| {
+            self.set_read_timeout(None)?;
+            self.set_write_timeout(None)
+        });
+        self.native_deadline = None;
+        if result.is_err() {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        match self.low_level_transport.as_ref().ok_or_else(Error::not_connected)? {
+            LowLevelTransport::Tcp(stream) => stream.set_write_timeout(timeout)?,
+            LowLevelTransport::Tls(stream) => stream.sock.set_write_timeout(timeout)?,
+        }
+        Ok(())
+    }
+
+    fn negotiation_deadline(&self, deadline: Instant) -> Result<(), Error> {
+        let remaining = deadline.checked_duration_since(Instant::now())
+            .ok_or_else(|| Error::native_encryption_refused("negotiation deadline exceeded"))?;
+        self.set_read_timeout(Some(remaining))?;
+        self.set_write_timeout(Some(remaining))
+    }
+
+    fn negotiate_native_inner(&mut self, deadline: Instant) -> Result<(), Error> {
+        self.negotiation_deadline(deadline)?;
+        self.send_packets(constants::PACKET_TYPE_DATA, 0, 0, &nne::offer())?;
+        let mut data = Vec::new();
+        loop {
+            self.negotiation_deadline(deadline)?;
+            let packet = self.receive_packet()?;
+            if packet.packet_type != constants::PACKET_TYPE_DATA || packet.data_flags != 0
+                || packet.buf.is_empty() || packet.buf.len() > nne::MAX_NEGOTIATION - data.len()
+            {
+                return Err(Error::native_encryption_refused("invalid negotiation packet"));
+            }
+            data.extend_from_slice(&packet.buf);
+            if data.len() >= 6 {
+                let length = nne::frame_length(&data)?;
+                if data.len() > length {
+                    return Err(Error::native_encryption_refused("negotiation length mismatch"));
+                }
+                if data.len() == length {
+                    break;
+                }
+            }
+        }
+        let (response, protection) = nne::establish(&data)?;
+        self.negotiation_deadline(deadline)?;
+        self.send_packets(constants::PACKET_TYPE_DATA, 0, 0, &response)?;
+        self.protection = Some(protection);
+        Ok(())
+    }
+
+    pub(crate) fn fold_native_key(&mut self, key: &[u8]) -> Result<(), Error> {
+        if let Some(protection) = self.protection.as_mut() {
+            if let Err(error) = protection.fold(key) {
+                let _ = self.close();
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn uses_native(&self) -> bool {
+        self.protection.is_some()
+    }
+
     /// Negotiates TLS on the connection.
     pub(crate) fn negotiate_tls(
         &mut self,
         server_name: &str,
         config: &Config,
     ) -> Result<(), Error> {
+        if self.native_requested {
+            return Err(Error::native_encryption_refused("native mode cannot renegotiate TLS"));
+        }
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Negotiate TLS");
@@ -397,6 +526,9 @@ impl Transport {
             full_packet_size: false,
             print_packets: env::var_os("RSO_DEBUG_PACKETS").is_some(),
             op_num: 0,
+            native_requested: false,
+            native_deadline: None,
+            protection: None,
         }
     }
 
@@ -412,6 +544,14 @@ impl Transport {
     /// Reads data from the database and returns a single packet, or an error
     /// indicating that the connection is no longer valid.
     pub(crate) fn receive_packet(&mut self) -> Result<Packet, Error> {
+        let result = self.receive_packet_inner();
+        if result.is_err() && self.native_requested {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn receive_packet_inner(&mut self) -> Result<Packet, Error> {
         if self.residual_bytes > 0 && self.last_packet_bytes > 0 {
             let start_pos = self.last_packet_bytes;
             let end_pos = self.last_packet_bytes + self.residual_bytes;
@@ -437,17 +577,39 @@ impl Transport {
         packet_type: u8,
         packet_flags: u8,
         data_flags: u16,
-        mut data: &[u8],
+        data: &[u8],
+    ) -> Result<(), Error> {
+        let result = self.send_packets_inner(packet_type, packet_flags, data_flags, data);
+        if result.is_err() && self.native_requested {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn send_packets_inner(
+        &mut self, packet_type: u8, packet_flags: u8, data_flags: u16, mut data: &[u8],
     ) -> Result<(), Error> {
         let mut header_size = 8;
         if packet_type == constants::PACKET_TYPE_DATA {
             header_size += 2;
         }
-        let max_data_size = self.max_packet_size - header_size;
+        let overhead = if packet_type == constants::PACKET_TYPE_DATA {
+            self.protection.as_ref().map_or(0, nne::Protection::overhead)
+        } else { 0 };
+        let max_data_size = self.max_packet_size.checked_sub(header_size + overhead)
+            .filter(|&n| n > 0)
+            .ok_or_else(|| Error::native_encryption_refused("packet size cannot hold protection"))?;
         loop {
             let packet_data_size = min(max_data_size, data.len());
             let packet_data = &data[..packet_data_size];
             data = &data[packet_data_size..];
+            let protected;
+            let packet_data = if packet_type == constants::PACKET_TYPE_DATA {
+                if let Some(protection) = self.protection.as_mut() {
+                    protected = protection.seal(packet_data)?;
+                    protected.as_slice()
+                } else { packet_data }
+            } else { packet_data };
             let packet_size = packet_data.len() + header_size;
             self.write_buf.clear();
             if self.full_packet_size {
@@ -678,3 +840,7 @@ mod tests {
         assert_eq!(root_store.roots.len(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "nne/transport_tests.rs"]
+mod native_tests;
