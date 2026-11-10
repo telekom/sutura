@@ -150,16 +150,17 @@ impl Protection {
     fn encrypt(&self, data: &mut [u8]) -> Result<(), Error> {
         let key = &self.session_key[..self.key_length];
         let iv = &self.iv[..16];
+        let length = data.len();
         let result = match self.key_length {
             16 => cbc::Encryptor::<aes::Aes128>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, data.len()).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
             24 => cbc::Encryptor::<aes::Aes192>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, data.len()).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
             32 => cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv)
                 .map_err(|_| refused("invalid native key state"))?
-                .encrypt_padded::<NoPadding>(data, data.len()).map(|_| ()),
+                .encrypt_padded::<NoPadding>(data, length).map(|_| ()),
             _ => return Err(refused("invalid native key state")),
         };
         result.map_err(|_| refused("invalid protected record"))
@@ -223,3 +224,7 @@ impl Protection {
         Ok(std::mem::take(&mut *plaintext))
     }
 }
+
+#[cfg(test)]
+#[path = "record_tests.rs"]
+mod tests;

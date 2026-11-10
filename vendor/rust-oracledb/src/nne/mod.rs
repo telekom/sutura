@@ -137,8 +137,7 @@ pub(crate) fn parse(input: &[u8]) -> Result<Negotiated<'_>, Error> {
         return Err(refused("negotiation length mismatch"));
     }
     let mut reader = Reader(&input[6..]);
-    let version = reader.u32()?;
-    require_modern(version)?;
+    let _version = reader.u32()?;
     if reader.u16()? != 4 || reader.take(1)? != [0] {
         return Err(refused("required negotiation services missing"));
     }
@@ -250,3 +249,8 @@ pub(crate) fn establish(input: &[u8]) -> Result<(Vec<u8>, Protection), Error> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) fn protection_for_test() -> Protection {
+    Protection::new((0..=255).collect(), 17, 5).unwrap()
+}

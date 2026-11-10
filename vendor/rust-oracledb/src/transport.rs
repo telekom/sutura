@@ -163,11 +163,11 @@ impl LowLevelTransport {
         Ok(())
     }
 
-    /// Writes bytes to the low level transport.
-    fn write_all(&mut self, data: &[u8]) -> Result<(), Error> {
+    /// Writes bytes once so the caller can recheck its deadline between syscalls.
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         match self {
-            Self::Tcp(s) => Ok(s.write_all(data)?),
-            Self::Tls(s) => Ok(s.write_all(data)?),
+            Self::Tcp(s) => s.write(data),
+            Self::Tls(s) => s.write(data),
         }
     }
 }
@@ -184,6 +184,7 @@ pub(crate) struct Transport {
     print_packets: bool,
     op_num: usize,
     native_requested: bool,
+    native_deadline: Option<Instant>,
     protection: Option<nne::Protection>,
 }
 
@@ -317,6 +318,9 @@ impl Transport {
     /// Attempts to read a packet from the stream, if it is connected. The
     /// number of bytes read is returned.
     fn read_packet(&mut self) -> Result<usize, Error> {
+        if let Some(deadline) = self.native_deadline {
+            self.negotiation_deadline(deadline)?;
+        }
         let buf = &mut self.read_buf[self.residual_bytes..];
         self.low_level_transport
             .as_mut()
@@ -329,14 +333,26 @@ impl Transport {
         if self.low_level_transport.is_none() {
             return Err(Error::not_connected());
         }
-        let data = &self.write_buf[..];
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Sending packet");
-            print_packet(&header, data);
+            print_packet(&header, &self.write_buf);
         }
-        if let Some(t) = self.low_level_transport.as_mut() {
-            t.write_all(data)?;
+        let mut offset = 0;
+        while offset < self.write_buf.len() {
+            if let Some(deadline) = self.native_deadline {
+                self.negotiation_deadline(deadline)?;
+            }
+            let written = match self.low_level_transport.as_mut().ok_or_else(Error::not_connected)?
+                .write(&self.write_buf[offset..]) {
+                    Ok(written) => written,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                };
+            if written == 0 {
+                return Err(Error::dead_connection());
+            }
+            offset += written;
         }
         Ok(())
     }
@@ -344,6 +360,7 @@ impl Transport {
     /// Closes the TCP connection to the database.
     pub(crate) fn close(&mut self) -> Result<(), Error> {
         self.protection = None;
+        self.native_deadline = None;
         if self.native_requested {
             self.read_buf.zeroize();
             self.write_buf.zeroize();
@@ -399,12 +416,14 @@ impl Transport {
     /// Establishes protection before the first TTC or authentication message.
     pub(crate) fn negotiate_native(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
         let deadline = Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
-        let result = self.negotiate_native_inner(deadline);
+        self.native_deadline = Some(deadline);
+        let result = self.negotiate_native_inner(deadline).and_then(|()| {
+            self.set_read_timeout(None)?;
+            self.set_write_timeout(None)
+        });
+        self.native_deadline = None;
         if result.is_err() {
             let _ = self.close();
-        } else {
-            self.set_read_timeout(None)?;
-            self.set_write_timeout(None)?;
         }
         result
     }
@@ -502,6 +521,7 @@ impl Transport {
             print_packets: env::var_os("RSO_DEBUG_PACKETS").is_some(),
             op_num: 0,
             native_requested: false,
+            native_deadline: None,
             protection: None,
         }
     }
@@ -814,3 +834,7 @@ mod tests {
         assert_eq!(root_store.roots.len(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "nne/transport_tests.rs"]
+mod native_tests;

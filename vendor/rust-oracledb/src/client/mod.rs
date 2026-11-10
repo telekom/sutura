@@ -1018,8 +1018,10 @@ impl Client {
         let db_info = DbInfo::new(self, auth_message)?;
         self.combo_key = auth_message.take_combo_key();
         if self.transport.uses_native() {
-            let key = self.combo_key.as_ref().ok_or_else(||
-                Error::native_encryption_refused("missing authentication key folding"))?;
+            let Some(key) = self.combo_key.as_ref() else {
+                let _ = self.transport.close();
+                return Err(Error::native_encryption_refused("missing authentication key folding"));
+            };
             self.transport.fold_native_key(key.as_bytes())?;
         }
         let max_open_cursors = db_info.get_max_open_cursors();
