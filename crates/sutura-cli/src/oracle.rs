@@ -6,7 +6,8 @@
 //! query`/`mcp`. What stays per root is the feature-off refusal, because the two are different
 //! sentences - one names every declared source, the other the one it was asked about.
 //!
-//! **The channel is the placement's `OracleChannel`**: `verified` against a PEM bundle this module
+//! **The channel is the placement's `OracleChannel`**: verified TLS or explicitly acknowledged
+//! native encryption, whose unauthenticated DH does not verify the server. For TLS this module
 //! reads at boot and hands to the adapter as the ONLY anchors. A
 //! listener's redirect is refused before authentication, so the connection stays on the declared
 //! address - `crate::serve::oracle`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`
@@ -60,6 +61,7 @@ pub(crate) fn build(
     // already decided this is the Oracle arm, and a second openable kind should arrive as a
     // compile error at this line too.
     let sutura_config::SourcePlacement::Oracle {
+        ref host,
         port,
         ref service_name,
         ref user,
@@ -87,15 +89,13 @@ pub(crate) fn build(
                   value itself is the payload"
     )]
     let exposed = password.expose_secret();
-    let anchors_pem = read_anchors(&format!("sources.{source}.transport_anchors"), channel.anchors())?;
-    let dial = Dial::new(
-        channel.server_name().as_str(),
-        port,
-        service_name.as_str(),
-        Channel::Verified {
-            anchors_pem: &anchors_pem,
-        },
-    );
+    let anchors_pem = match channel.transport() {
+        sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => Some(read_anchors(&format!("sources.{source}.transport_anchors"), anchors)?),
+        sutura_config::sources::placement::OracleTransport::NativeEncryption { .. } => None,
+    };
+    let transport = anchors_pem.as_deref().map_or(Channel::NativeEncryption, |anchors_pem| Channel::Verified { anchors_pem });
+    let dial = Dial::new(host.as_str(), port, service_name.as_str(), transport);
+    let dial = if channel.legacy_password_verifier().is_some() { dial.allow_legacy_verifiers() } else { dial };
     let opened = OracleWarehouse::connect(
         source.clone(),
         identity.posture().clone(),

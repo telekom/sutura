@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use super::SourceKind;
-use super::transport::{SourceTransport, TrustAnchors};
+use super::transport::SourceTransport;
 
 /// The project a `BigQuery` query job is billed to.
 ///
@@ -322,63 +322,7 @@ impl SocketDirectory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OracleServiceName(String);
 
-/// How an Oracle listener is reached: TLS, verified against the bundle at `anchors` only.
-///
-/// Those certificates replace the driver's bundled public certificate authorities. The host is
-/// dialled as `server_name`, the name the handshake verifies. No plaintext channel is representable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OracleChannel {
-    anchors: PathBuf,
-    server_name: TlsServerName,
-}
-
-/// Why a declared transport has no [`OracleChannel`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NoOracleChannel {
-    /// A TLS mode the driver cannot honour, as the refusal names it.
-    Undeliverable(&'static str),
-    /// A `verified` host that is not a name TLS can verify.
-    ServerName(InvalidTlsServerName),
-    /// `plaintext`, which no Oracle channel carries.
-    Plaintext,
-}
-
-impl OracleChannel {
-    /// The channel `transport` declares for `host` - the one match both Oracle kinds, a source and
-    /// an rdbms catalog, read their transport through.
-    pub(crate) fn declared(host: &HostName, transport: SourceTransport) -> Result<Self, NoOracleChannel> {
-        match transport {
-            SourceTransport::Plaintext => Err(NoOracleChannel::Plaintext),
-            SourceTransport::Verified {
-                anchors: TrustAnchors::File(anchors),
-            } => Ok(Self {
-                anchors,
-                server_name: TlsServerName::parse(host).map_err(NoOracleChannel::ServerName)?,
-            }),
-            SourceTransport::Verified {
-                anchors: TrustAnchors::System,
-            } => Err(NoOracleChannel::Undeliverable("verified with `transport_anchors: system`")),
-            SourceTransport::Mutual { .. } => Err(NoOracleChannel::Undeliverable("mutual")),
-        }
-    }
-
-    /// The PEM bundle whose certificates are the only ones the listener is verified against.
-    #[must_use]
-    pub fn anchors(&self) -> &Path {
-        &self.anchors
-    }
-
-    /// The name the host is dialled as and the handshake verifies.
-    #[must_use]
-    pub const fn server_name(&self) -> &TlsServerName {
-        &self.server_name
-    }
-
-    /// The anchors path and the server name, for a connection that keeps them as its own fields.
-    pub(crate) fn into_parts(self) -> (PathBuf, TlsServerName) {
-        (self.anchors, self.server_name)
-    }
-}
+pub use super::oracle_transport::{OracleChannel, OracleTransport};
 
 /// The host of a `verified` Oracle source, parsed as the name TLS verifies.
 ///

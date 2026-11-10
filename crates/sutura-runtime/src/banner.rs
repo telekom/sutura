@@ -274,7 +274,20 @@ fn announce_surface(settings: &Settings) {
             // Declared, as the one mode its driver is given - see `OracleChannel`.
             SourcePlacement::Oracle {
                 channel: Some(channel), ..
-            } => ("verified", Some(channel.anchors().display().to_string())),
+            } => {
+                let mode = match channel.transport() {
+                    sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => ("verified", Some(anchors.display().to_string())),
+                    sutura_config::sources::placement::OracleTransport::NativeEncryption { acknowledged_because } => {
+                        tracing::warn!(source = %source, channel = "native-encryption", reason = %acknowledged_because,
+                            "Oracle native encryption uses unauthenticated DH; server identity is not verified; queries run as one shared user");
+                        ("native-encryption", None)
+                    },
+                };
+                if let Some(reason) = channel.legacy_password_verifier() {
+                    tracing::warn!(source = %source, reason = %reason, "Oracle legacy password verifiers enabled on the declared encrypted channel");
+                }
+                mode
+            },
             // Declared plaintext, in a build that links no Oracle adapter and refuses the source at open.
             SourcePlacement::Oracle { channel: None, .. } => ("plaintext", None),
         };

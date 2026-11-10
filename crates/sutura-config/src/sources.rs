@@ -73,6 +73,7 @@ mod cube;
 mod node;
 /// The `oracle` entry's own keys, read and refused - split out for the reason `clickhouse` is.
 mod oracle;
+pub mod oracle_transport;
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
 pub mod placement;
 /// How the channel to a source is secured, per source and never globally.
@@ -347,6 +348,9 @@ pub struct UnknownPosture {
 /// convenience, and nothing needs to clone a startup refusal.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidSourceRegistry {
+    /// An Oracle-only transport or password declaration was refused.
+    #[error("`sources.{alias}`: {cause}")]
+    OracleTransport { alias: SourceName, cause: oracle_transport::NoOracleChannel },
     /// The key is not a name a model could write in its `source:` field.
     #[error("`sources.{written}` is not a source name")]
     Alias {
@@ -745,6 +749,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) user: Option<&'raw str>,
     pub(crate) password_file: Option<&'raw str>,
     pub(crate) transport_mode: Option<&'raw str>,
+    pub(crate) oracle_options: oracle_transport::RawOracleOptions<'raw>,
     pub(crate) transport_anchors: Option<&'raw str>,
     pub(crate) client_certificate: Option<&'raw str>,
     pub(crate) client_key: Option<&'raw str>,

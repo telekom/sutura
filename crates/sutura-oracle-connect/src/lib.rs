@@ -29,6 +29,8 @@ pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10
 pub enum Channel<'pem> {
     /// No transport security. No composition root builds this; the adapter's own unit cells do.
     Plaintext,
+    /// AES encryption and SHA-2 integrity; the unauthenticated DH does not verify the server.
+    NativeEncryption,
     /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
     /// public certificate authorities rather than adding to them.
     Verified { anchors_pem: &'pem str },
@@ -42,6 +44,7 @@ pub struct Dial<'dial> {
     service_name: &'dial str,
     channel: Channel<'dial>,
     deadline: std::time::Duration,
+    allow_legacy_verifiers: bool,
 }
 
 /// Why a [`Dial`] has no driver configuration.
@@ -99,7 +102,14 @@ impl<'dial> Dial<'dial> {
             service_name,
             channel,
             deadline: DIAL_DEADLINE,
+            allow_legacy_verifiers: false,
         }
+    }
+
+    /// Enables legacy password logins only for an encrypted channel. Plaintext remains refused by the product parser.
+    #[must_use]
+    pub const fn allow_legacy_verifiers(self) -> Self {
+        Self { allow_legacy_verifiers: !matches!(self.channel, Channel::Plaintext), ..self }
     }
 
     /// The bound on the TCP connect.
@@ -136,16 +146,18 @@ impl<'dial> Dial<'dial> {
     pub fn prepare(self) -> Result<PreparedDial, PrepareError> {
         let address = ezconnect(self.host, self.port, self.service_name);
         let connect_string = match self.channel {
-            Channel::Plaintext => address,
+            Channel::Plaintext | Channel::NativeEncryption => address,
             Channel::Verified { .. } => format!("tcps://{address}"),
         };
         let config = oracledb::Config::default()
             .set_connect_string(&connect_string)
             .map_err(PrepareError::Address)?
             .set_follow_redirects(false)
+            .set_allow_legacy_verifiers(self.allow_legacy_verifiers)
             .set_transport_connect_timeout(Some(self.deadline));
         match self.channel {
             Channel::Plaintext => Ok(PreparedDial(config)),
+            Channel::NativeEncryption => Ok(PreparedDial(config.set_native_encryption(true))),
             Channel::Verified { anchors_pem } => config
                 .set_trust_anchors_pem(anchors_pem)
                 .map(PreparedDial)
