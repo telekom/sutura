@@ -35,7 +35,7 @@
 //! Its own module rather than a row in `obligations`, which holds STEP `if:` conditions by step
 //! name: this holds ENV INPUT source jobs by env var name, over a different block of the same file.
 //!
-//! Four env inputs are pinned to their exact normalised condition, not only their source job: an
+//! Five env inputs are pinned to their exact normalised condition, not only their source job: an
 //! equivalent rewrite is refused until the table is edited, which fails closed. That pin holds
 //! the TEXT, not that the condition is the right one - and it does not hold that
 //! `CAUS_REQUIRED`/`PGD_REQUIRED`/`SHIP_REQUIRED`/`BQC_REQUIRED` agree with their job's own `if:`
@@ -56,6 +56,7 @@ use std::path::Path;
 /// must name; a reference to any other job is refused.
 const REQUIRED: &[(&str, &str)] = &[
     ("CI_RESULT", "ci"),
+    ("RELEASE_RESULT", "release-status"),
     ("KC_RESULT", "keycloak-served-test"),
     ("KC_SELECTED", "ci"),
     ("BQ_RESULT", "bigquery-driver-check"),
@@ -91,6 +92,10 @@ const REQUIRED: &[(&str, &str)] = &[
 /// that start off `identity-classify` (#1280, #1696) are required under. Exact text, so a
 /// neutralised copy (`false && ..`) is refused.
 const EXPRESSIONS: &[(&str, &str)] = &[
+    (
+        "RELEASE_RESULT",
+        "(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success'",
+    ),
     (
         "CAUS_REQUIRED",
         "needs.ci.outputs.rust == 'true' && github.event_name != 'push'",
@@ -485,6 +490,7 @@ mod tests {
     fn real_env() -> String {
         [
             "          CI_RESULT: ${{ needs.ci.result }}",
+            "          RELEASE_RESULT: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success' }}",
             "          KC_RESULT: ${{ needs.keycloak-served-test.result }}",
             "          KC_SELECTED: ${{ needs.ci.outputs.identity }}",
             "          BQ_RESULT: ${{ needs.bigquery-driver-check.result }}",
