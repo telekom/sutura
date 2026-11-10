@@ -11,10 +11,16 @@ fn a_release_status_requires_successful_tag_workflows_and_a_published_release() 
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("workspace root");
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("release-status-{}", std::process::id()));
     std::fs::create_dir_all(&root).expect("fake tools directory");
+    let bash = std::env::split_paths(&std::env::var_os("PATH").expect("tool path"))
+        .map(|dir| dir.join("bash"))
+        .find(|path| path.is_file())
+        .expect("bash on tool path");
     std::fs::write(
         root.join("gh"),
-        r#"#!/usr/bin/env bash
-set -eu
+        format!(
+            "#!{}\n{}",
+            bash.display(),
+            r#"set -eu
 case "$1 $2" in
   'run list')
     [ "$RELEASE_CASE" != absent ] || exit 0
@@ -29,9 +35,10 @@ case "$1 $2" in
   *) exit 90 ;;
 esac
 "#,
+        ),
     )
     .expect("fake forge CLI");
-    std::fs::write(root.join("sleep"), "#!/usr/bin/env bash\nexit 0\n").expect("fake wait");
+    std::fs::write(root.join("sleep"), format!("#!{}\nexit 0\n", bash.display())).expect("fake wait");
     let chmod = Command::new("chmod")
         .arg("+x")
         .arg(root.join("gh"))
