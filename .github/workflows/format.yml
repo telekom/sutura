@@ -331,7 +331,9 @@ jobs:
 
       - name: Run complete lint preflight
         if: inputs.operation == 'lint'
-        run: nix build .#checks.x86_64-linux.fmt .#checks.x86_64-linux.clippy .#checks.x86_64-linux.hygiene --print-build-logs
+        run: |
+          nix build .#checks.x86_64-linux.fmt .#checks.x86_64-linux.clippy .#checks.x86_64-linux.hygiene --print-build-logs
+          nix shell --inputs-from . nixpkgs#just --command just lint-workflows
 
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
