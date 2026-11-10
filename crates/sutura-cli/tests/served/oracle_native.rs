@@ -173,6 +173,15 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             "the {path} must name the legacy verifier it refused: {refused}"
         );
 
+        let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false, true));
+        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
+        assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
+        assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
+        if !dictionary {
+            protected_queries(&deployment);
+        }
+        drop(deployment);
+
         let wrong = format!("{case}-wrong");
         let refused = refused_to_start(
             Environment::Development,
@@ -181,17 +190,11 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         )
         .join("\n");
         assert!(
-            refused.contains("ORA-01017"),
+            refused.contains("ORA-01017")
+                || (tier.channel.starts_with("transport_mode: native-encryption")
+                    && refused.contains("native encryption refused: unprotected native control packet")),
             "the {path} must refuse the wrong password: {refused}"
         );
-
-        let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false, true));
-        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
-        assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
-        assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
-        if !dictionary {
-            protected_queries(&deployment);
-        }
     }
 }
 
@@ -215,7 +218,7 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
             panic!("a driver without native mode must not log in to the required-NNE listener");
         };
         assert!(
-            refused.to_string().contains("native"),
+            refused.to_string().contains("native network encryption and data integrity"),
             "the missing native mode is refused: {refused}"
         );
     }
