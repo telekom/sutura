@@ -95,7 +95,29 @@ cases = [
     ("absolute-read-deadline", "src/transport.rs", "fn read_packet(&mut self) -> Result<usize, Error> {\n        if let Some(deadline) = self.native_deadline {\n            self.negotiation_deadline(deadline)?;\n        }", "fn read_packet(&mut self) -> Result<usize, Error> {", deadline),
     ("active-encryption-legacy", "src/messages/auth.rs", "if verifier != Verifier::Pbkdf2 && !client.encrypted_transport()", "if false && verifier != Verifier::Pbkdf2 && !client.encrypted_transport()", legacy),
     ("unprotected-control", "src/transport.rs", "if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA", "if false && self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA", control),
+    ("default-off", "src/config/base.rs", "native_encryption: false,", "native_encryption: true,", "nne::tests::native_is_explicit_and_defaults_off"),
+    ("malformed-header", "src/nne/mod.rs", "if frame_length(input)? != input.len()", "if input.len() < 6", "nne::tests::malformed_bounded_negotiation_never_becomes_a_session"),
+    ("unknown-service", "src/nne/mod.rs", "if !(1..=4).contains(&kind) || seen[kind as usize - 1]", "if false && (!(1..=4).contains(&kind) || seen[kind as usize - 1])", "nne::tests::duplicate_missing_and_unknown_services_are_refused"),
+    ("outer-zero-compatibility", "src/nne/mod.rs", "let _version = reader.u32()?;", "require_modern(reader.u32()?)?;", "nne::tests::modern_services_do_not_require_the_outer_ano_version_to_be_set"),
+    ("nist-iv", "src/nne/record.rs", "let iv = &self.iv[..16];\n        let length = data.len();", "let iv = &[0u8; 16];\n        let length = data.len();", "nne::record::tests::cbc_matches_independent_nist_sp800_38a_vectors"),
+    ("algorithm-pair-iv", "src/nne/record.rs", "let iv = &self.iv[..16];\n        let length = data.len();", "let iv = &[0u8; 16];\n        let length = data.len();", "nne::record::tests::every_algorithm_pair_protects_directional_multirecord_and_padding_boundaries"),
+    ("replay-integrity", "src/nne/record.rs", "let valid = self.hash.verify(&plaintext[..data_end], &plaintext[data_end..end]);", "let valid = true;", "nne::record::tests::replay_and_reordering_cannot_reuse_a_directional_integrity_mask"),
+    ("one-way-fold", "src/nne/record.rs", "if self.folded || !matches!(authentication_key.len(), 16 | 24 | 32)", "if !matches!(authentication_key.len(), 16 | 24 | 32)", "nne::record::tests::authentication_key_folding_is_a_one_way_phase_change"),
+    ("protected-sdu", "src/nne/record.rs", "self.hash.algorithm.size() + 17", "0", "transport::native_tests::protected_fragmentation_keeps_every_wire_packet_inside_its_sdu"),
 ]
+
+# All native test files are new in this driver patch, including the transport/auth
+# modules included from this directory. Inventory the source rather than the cases.
+inventory = [
+    {"file": str(path.relative_to(source)), "test": name}
+    for path in sorted((source / "vendor/rust-oracledb/src/nne").glob("*.rs"))
+    for name in re.findall(r"#\[test\]\s+fn\s+(\w+)", path.read_text())
+]
+names = {cell["test"] for cell in inventory}
+targeted = {test.rsplit("::", 1)[1] for _, _, _, _, test in cases}
+(output / "driver-test-inventory.json").write_text(json.dumps(inventory, indent=2) + "\n")
+if len(names) != len(inventory) or names != targeted:
+    raise SystemExit(f"native test inventory mismatch: untargeted={names - targeted}, absent={targeted - names}")
 
 for _, _, _, _, test in cases:
     if f"test {test} ... ok" not in head:
@@ -131,4 +153,4 @@ for name, relative, before, after, test in cases:
 status, restored = run(command + selected, output / "driver-restored.log", cwd=scratch)
 if status or "test result: ok" not in restored:
     raise SystemExit("restored standalone driver tests failed")
-print(f"{len(summary)} named behavioral kills; head and restored tests green", flush=True)
+print(f"{len(summary)} named behavioral kills over {len(names)} cells; head and restored tests green", flush=True)
