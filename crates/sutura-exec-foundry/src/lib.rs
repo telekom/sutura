@@ -355,7 +355,9 @@ where
             FoundryError::Unannounced {
                 cause: UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. },
             } => true,
-            FoundryError::Arrow { cause: arrow_schema::ArrowError::MemoryError(_) } => true,
+            FoundryError::Arrow {
+                cause: arrow_schema::ArrowError::MemoryError(_),
+            } => true,
             FoundryError::Endpoint { cause } => self.transport.result_did_not_fit(cause),
             FoundryError::Arrow { .. }
             | FoundryError::DeadlineSpent
@@ -546,14 +548,16 @@ fn validate_buffers(
     budget: ResultBudget,
     charged: &mut usize,
 ) -> Result<(), arrow_schema::ArrowError> {
-    let buffers = batch.buffers().ok_or_else(|| {
-        arrow_schema::ArrowError::IpcError(String::from("Arrow IPC record batch has no buffers"))
-    })?;
+    let buffers = batch
+        .buffers()
+        .ok_or_else(|| arrow_schema::ArrowError::IpcError(String::from("Arrow IPC record batch has no buffers")))?;
     for buffer in buffers {
         let offset = buffer.offset();
         let length = buffer.length();
         if offset < 0 || length < 0 || offset.checked_add(length).is_none_or(|end| end > body_bytes) {
-            return Err(arrow_schema::ArrowError::IpcError(String::from("Arrow IPC buffer exceeds its body")));
+            return Err(arrow_schema::ArrowError::IpcError(String::from(
+                "Arrow IPC buffer exceeds its body",
+            )));
         }
         let length = usize::try_from(length).map_err(|error| {
             arrow_schema::ArrowError::ParseError(format!("Arrow IPC buffer length does not fit in usize: {error}"))
@@ -561,7 +565,9 @@ fn validate_buffers(
         // Count repeated references too: the decoder can copy each unaligned buffer separately.
         *charged = charged.saturating_add(length);
         if *charged > budget.bytes() {
-            return Err(arrow_schema::ArrowError::MemoryError(String::from("Foundry IPC buffers exceed the result budget")));
+            return Err(arrow_schema::ArrowError::MemoryError(String::from(
+                "Foundry IPC buffers exceed the result budget",
+            )));
         }
     }
     Ok(())
@@ -586,11 +592,21 @@ fn validate_fb_field(
 ) -> Result<(), arrow_schema::ArrowError> {
     if field.dictionary().is_some()
         || field.children().is_some_and(|children| !children.is_empty())
-        || !matches!(field.type_type(), arrow_ipc::Type::Int | arrow_ipc::Type::FloatingPoint
-            | arrow_ipc::Type::Utf8 | arrow_ipc::Type::LargeUtf8 | arrow_ipc::Type::Utf8View
-            | arrow_ipc::Type::Bool | arrow_ipc::Type::Date | arrow_ipc::Type::Decimal)
+        || !matches!(
+            field.type_type(),
+            arrow_ipc::Type::Int
+                | arrow_ipc::Type::FloatingPoint
+                | arrow_ipc::Type::Utf8
+                | arrow_ipc::Type::LargeUtf8
+                | arrow_ipc::Type::Utf8View
+                | arrow_ipc::Type::Bool
+                | arrow_ipc::Type::Date
+                | arrow_ipc::Type::Decimal
+        )
     {
-        return Err(arrow_schema::ArrowError::IpcError(String::from("unsupported Foundry IPC field type")));
+        return Err(arrow_schema::ArrowError::IpcError(String::from(
+            "unsupported Foundry IPC field type",
+        )));
     }
     *fields = fields.saturating_add(1);
     if *fields > MAX_SCHEMA_FIELDS {

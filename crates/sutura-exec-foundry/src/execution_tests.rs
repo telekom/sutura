@@ -7,16 +7,16 @@ use arrow_ipc::writer::StreamWriter;
 use arrow_schema::{DataType, Field, Schema};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::definitions::DefinitionDigest;
-use sutura_domain::pinned::MetricDigest;
 use sutura_domain::identity::{Presented, Secret};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+use sutura_domain::pinned::MetricDigest;
 use sutura_domain::plan::{
     Executable, LegPlan, PlanBindings, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
     QueryPlan, ResultLabel, StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_domain::warehouse::{ResultBudget, Warehouse as _};
 
 use super::{FoundryTransport, FoundryWarehouse, OntologyIdentifier, SqlRequest};
 

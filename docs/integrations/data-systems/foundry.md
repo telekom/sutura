@@ -27,11 +27,11 @@ the catalog that defines the questions.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `endpoint` | string | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials. |
-| `ontology` | string | required | The ontology API name or RID. |
-| `token_file` | absolute path | required | A deployment bearer token, read once at startup. Restart to replace it. |
+| Key          | Type          | Default  | Meaning                                                                                                             |
+| ------------ | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `endpoint`   | string        | required | `scheme://host[:port]`. HTTPS for remote hosts; HTTP only for a loopback IP address. No path, query or credentials. |
+| `ontology`   | string        | required | The ontology API name or RID.                                                                                       |
+| `token_file` | absolute path | required | A deployment bearer token, read once at startup. Restart to replace it.                                             |
 
 The source's token setting is separate from the catalog's authentication settings. Catalog OAuth
 client credentials do not provide a query credential. The source uses `security.outbound` for its
@@ -66,7 +66,12 @@ complete federated leg. Larger legs need a different completeness mechanism befo
 The adapter supports semantic plans and whole federated legs; raw SQL, split reads and compound-key
 probes are unsupported.
 
-One request deadline covers the HTTP request and response. Local deadline checks cannot establish
+Only uncompressed Arrow streams with supported scalar columns are accepted. Dictionary and nested
+fields are refused. Response bodies have an 8 MiB cap; the configured runtime result budget also
+applies before batch decoding and to accumulated results.
+
+One request deadline covers the HTTP request, response and decode checks. Decoding is checked between
+batches rather than interrupted inside one. Local deadline checks cannot establish
 that Foundry stopped its server-side work after the client stopped waiting. SQL parsing goldens do
 not prove Foundry's result types, date-bucket behavior, permissions or aggregate equivalence. A real
 tenant must exercise those paths, anchors and refusal cases before this integration can leave draft.

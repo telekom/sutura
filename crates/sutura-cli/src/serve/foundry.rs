@@ -51,7 +51,10 @@ mod tests {
         let error = refusal(
             open_engine(
                 &bundle_over(&[("customers", "warehouse", "customers")]),
-                &registry(entry), one_worker(), default_timeout(), None,
+                &registry(entry),
+                one_worker(),
+                default_timeout(),
+                None,
             ),
             "a build without Foundry must refuse the source",
         );
