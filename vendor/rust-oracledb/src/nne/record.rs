@@ -189,7 +189,8 @@ impl Protection {
         record.extend_from_slice(plaintext);
         record.extend_from_slice(&self.hash.compute(plaintext));
         let padding = (16 - record.len() % 16) % 16;
-        record.resize(record.len() + padding, 0);
+        let padded_length = record.len() + padding;
+        record.resize(padded_length, 0);
         self.encrypt(&mut record)?;
         record.push((padding + 1) as u8);
         record.push(u8::from(self.folded));
