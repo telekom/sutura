@@ -2,6 +2,8 @@ name: release-feature-diagnostic
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ci/release-feature-diagnostic]
 
 permissions:
   contents: read
