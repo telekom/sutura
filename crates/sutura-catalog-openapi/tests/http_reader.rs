@@ -129,10 +129,7 @@ mod tests {
 
     #[test]
     fn a_final_response_body_past_the_deadline_is_refused() {
-        let server = FakeServer::start(vec![Scripted::delayed(
-            &json!({ "items": [] }),
-            Duration::from_millis(1200),
-        )]);
+        let server = FakeServer::start(vec![Scripted::delayed(&json!({ "items": [] }), Duration::from_millis(1200))]);
         let refused = catalog(&server, 1, 1 << 20)
             .load()
             .expect_err("the final response body arrives after the one-second deadline");

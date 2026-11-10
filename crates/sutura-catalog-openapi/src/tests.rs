@@ -436,7 +436,14 @@ fn every_request_goes_under_the_declared_base_path() {
 
 #[test]
 fn a_base_path_that_is_not_plain_segments_is_refused() {
-    for base in ["api", "/api/", "/api/../admin", "//other.example.com", "/a%2Fb", "/api//admin"] {
+    for base in [
+        "api",
+        "/api/",
+        "/api/../admin",
+        "//other.example.com",
+        "/a%2Fb",
+        "/api//admin",
+    ] {
         let refused = refused_contract(DOCUMENT, &format!("base_path: \"{base}\"\n{MAPPING}"));
         assert!(matches!(refused, ContractError::Mapping { .. }), "{base}: {refused:?}");
     }
