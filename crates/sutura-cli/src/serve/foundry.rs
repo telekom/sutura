@@ -40,7 +40,8 @@ pub(crate) fn open_foundry(
     ))
 }
 
-#[cfg(all(test, not(feature = "foundry")))]
+#[cfg(test)]
+#[cfg(not(feature = "foundry"))]
 mod tests {
     use crate::serve::open_engine;
     use crate::serve::tests::{bundle_over, default_timeout, one_worker, refusal, registry};
