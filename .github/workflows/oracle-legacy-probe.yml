@@ -3,10 +3,10 @@ name: oracle-legacy-probe
 on:
   pull_request:
     paths:
-      - '.github/workflows/oracle-legacy-probe.yml'
-      - 'nix/oracle-legacy-probe.sh'
-      - 'nix/oracle-native-probe.sh'
-      - 'nix/oracle-public-dh-probe.py'
+      - ".github/workflows/oracle-legacy-probe.yml"
+      - "nix/oracle-legacy-probe.sh"
+      - "nix/oracle-native-probe.sh"
+      - "nix/oracle-public-dh-probe.py"
 
 permissions:
   contents: read
