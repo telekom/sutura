@@ -168,7 +168,8 @@ let
       # behind a default-off feature), so the Fifteenth amendment's "every adapter compiled in"
       # applies identically. `oracle` is not probed either: the one C it links is `ring`, which
       # `clickhouse`'s probe already links alone on every triple.
-      probeFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" ];
+      # `openapi` also holds its standalone build: all-features hid a missing rotation cfg.
+      probeFeatures = [ "bigquery" "postgres" "duckdb" "clickhouse" "openapi" ];
       # THE COMPLETE optional feature list, for `allFeaturesProbes` below - `github.com/telekom/
       # sutura#685` step 1's fat-LTO probe, one build with every feature on rather than one per
       # feature.
