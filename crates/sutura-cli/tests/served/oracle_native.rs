@@ -59,7 +59,7 @@ impl Tier {
         )
     }
 
-    fn settings(&self, case: &str, dictionary: bool, legacy: bool, wrong_password: bool) -> String {
+    fn settings(&self, case: &str, dictionary: bool, legacy: bool, wrong_password: bool, oracle_source: bool) -> String {
         let root = derived_beside(&config_path(case));
         std::fs::create_dir_all(&root).expect("the fixture directory creates");
         let legacy_password = root.join("legacy-password");
@@ -88,11 +88,15 @@ impl Tier {
                 tested,
             )
         };
+        let (source, tools) = if oracle_source {
+            (format!("kind: oracle\n    {source}"), "tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n")
+        } else {
+            (format!("kind: files\n    data_dir: {}", root.display()), "")
+        };
         format!(
             "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\n\
              catalogs:\n{catalog}\
-             sources:\n  local:\n    kind: oracle\n    {source}\n    posture: shared-service-user\n\
-             tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n",
+             sources:\n  local:\n    {source}\n    posture: shared-service-user\n{tools}",
         )
     }
 }
@@ -136,7 +140,7 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let off = format!("{case}-off");
         let refused = refused_to_start(
             Environment::Development,
-            written(&off, &tier.settings(&off, dictionary, false, false)),
+            written(&off, &tier.settings(&off, dictionary, false, false, true)),
             &[],
         )
         .join("\n");
@@ -148,13 +152,13 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let wrong = format!("{case}-wrong");
         let refused = refused_to_start(
             Environment::Development,
-            written(&wrong, &tier.settings(&wrong, dictionary, true, true)),
+            written(&wrong, &tier.settings(&wrong, dictionary, true, true, true)),
             &[],
         )
         .join("\n");
         assert!(refused.contains("ORA-01017"), "the {path} must refuse the wrong password: {refused}");
 
-        let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false));
+        let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false, true));
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
@@ -185,7 +189,7 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
     for dictionary in [false, true] {
         let path = if dictionary { "dictionary" } else { "source" };
         let case = format!("oracle-native-{expected}-{path}");
-        let settings = tier.settings(&case, dictionary, false, false);
+        let settings = tier.settings(&case, dictionary, false, false, expected == "success" || !dictionary);
         if expected == "success" {
             let deployment = start_configured(&case, &settings);
             let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
