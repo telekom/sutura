@@ -118,7 +118,7 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
     std::fs::create_dir_all(&catalog).expect("the local catalog creates");
     std::fs::write(
         catalog.join("declaration.md"),
-        "---\nkind: declaration\ndefinitions: [structure, metrics, grains, dimensions, anchors, descriptions, column_types]\nknowledge: []\n---\n",
+        "---\nkind: declaration\ndefinitions: [structure, metrics, grains, anchors, descriptions, column_types]\nknowledge: []\n---\n",
     )
     .expect("the declaration writes");
     std::fs::write(
