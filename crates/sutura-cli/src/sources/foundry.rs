@@ -2,7 +2,7 @@
 
 use sutura_domain::model::SourceName;
 
-use crate::sources::{Opened, OpenedWith};
+use crate::sources::Opened;
 
 /// Opens one Foundry SQL source under its declared shared deployment token.
 #[cfg(feature = "foundry")]
@@ -14,7 +14,7 @@ pub(super) fn open(
     working_set: sutura_exec_datafusion::WorkingSet,
 ) -> Result<Opened, String> {
     let engine = crate::foundry::build(source, configured, outbound, working_set)?;
-    Ok(Opened::Foundry(OpenedWith {
+    Ok(Opened::Foundry(super::OpenedWith {
         engines: sutura_app::Warehouses::of(engine),
         attached: None,
         broker: sutura_config::StaticCredentialBroker::from_registry(registry),
