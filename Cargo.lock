@@ -1932,6 +1932,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
+name = "des"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "916a94e407b54f9034d71dd748234cd1e516ced6284009906ae246f177eafe5a"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3003,6 +3012,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3260,10 +3279,13 @@ dependencies = [
  "base64ct",
  "cbc",
  "chrono",
+ "des",
+ "md-5",
  "pbkdf2",
  "pkcs8",
  "rand 0.10.2",
  "rustls",
+ "sha1",
  "sha2",
  "uuid",
  "webpki-roots",
@@ -4200,6 +4222,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4386,7 +4419,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "sutura-adbc"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4401,7 +4434,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-adbc-postgres"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4415,7 +4448,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-app"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -4451,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-bounded-read"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "rustix",
  "thiserror 2.0.21",
@@ -4459,7 +4492,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-cube"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "jsonwebtoken",
  "serde",
@@ -4474,7 +4507,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-datacontract"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "rustix",
  "serde",
@@ -4486,7 +4519,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-datahub"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4502,7 +4535,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-local"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "rustix",
  "serde",
@@ -4514,7 +4547,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-okf"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "rustix",
  "serde",
@@ -4526,7 +4559,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-openapi"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4541,7 +4574,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-openmetadata"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4556,7 +4589,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-rdbms"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "arrow-array",
@@ -4574,7 +4607,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-catalog-wren"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4584,7 +4617,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-cli"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -4638,7 +4671,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-config"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "config",
  "rustls-pki-types",
@@ -4653,7 +4686,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-conformance"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -4668,7 +4701,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-dev"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "jsonwebtoken",
@@ -4681,7 +4714,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-domain"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -4697,7 +4730,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-bigquery"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4714,7 +4747,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-clickhouse"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4734,7 +4767,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-cube"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "jsonwebtoken",
  "serde",
@@ -4749,7 +4782,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-datafusion"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "async-trait",
  "bzip2",
@@ -4781,7 +4814,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-duckdb"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4797,7 +4830,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-node"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-flight",
@@ -4819,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-oracle"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -4838,7 +4871,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-exec-postgres"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "adbc_core",
  "adbc_driver_manager",
@@ -4858,7 +4891,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-flight"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-array",
  "arrow-flight",
@@ -4880,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-flight",
  "axum",
@@ -4921,7 +4954,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-http-client"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "rcgen",
@@ -4937,7 +4970,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-mcp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "axum",
  "http",
@@ -4959,7 +4992,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-operator"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "k8s-openapi",
  "schemars",
@@ -4976,7 +5009,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-oracle-connect"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "oracledb",
  "thiserror 2.0.21",
@@ -4984,7 +5017,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-runtime"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "serde_json",
  "sutura-config",
@@ -4999,7 +5032,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-semantic"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "sutura-domain",
  "thiserror 2.0.21",
@@ -5007,7 +5040,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-sql"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arrow-schema",
  "polyglot-sql",
@@ -5019,7 +5052,7 @@ dependencies = [
 
 [[package]]
 name = "sutura-tls"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "rcgen",
@@ -6101,7 +6134,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "proc-macro2",
  "regex",

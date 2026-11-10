@@ -262,6 +262,7 @@ pub(crate) trait Message {
 }
 
 pub(crate) use auth::AuthMessage;
+pub(crate) use auth::LoginKey;
 pub(crate) use commit::CommitMessage;
 pub(crate) use connect::ConnectMessage;
 pub(crate) use data_types::DataTypesMessage;

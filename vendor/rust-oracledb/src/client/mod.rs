@@ -57,6 +57,7 @@ use crate::messages::FastAuthMessage;
 use crate::messages::FetchMessage;
 use crate::messages::FlushOutBindsMessage;
 use crate::messages::LobOpMessage;
+use crate::messages::LoginKey;
 use crate::messages::LogoffMessage;
 use crate::messages::MarkerMessage;
 use crate::messages::Message;
@@ -83,7 +84,7 @@ pub struct Client {
     transport: Transport,
     caps: capabilities::Capabilities,
     config: Config,
-    combo_key: Option<[u8; 32]>,
+    combo_key: Option<LoginKey>,
     dbobject_type_cache: DbObjectTypeCache,
     charset_id: u16,
     ncharset_id: u16,
