@@ -44,14 +44,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  foundry-validation:
+  foundry-lock:
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 168c01f8fbdd507b420a6e56b1052db2f9fab493
+          ref: 15d9905af3dc8f2870b0f0939599621788b31476
           fetch-depth: 0
           persist-credentials: false
 
@@ -78,15 +78,20 @@ jobs:
         with:
           scope: ci
 
-      - name: Run the exact-head validation gate
+      - name: Regenerate the workspace lock with the pinned toolchain
         run: |
           set -euo pipefail
-          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command just validate
+          nix run .#cargo -- update --workspace
+          git diff --numstat -- Cargo.lock
+          git rev-parse HEAD > foundry-lock-head.txt
 
-      - name: Run the committed-diff ship check
-        run: |
-          set -euo pipefail
-          nix shell --inputs-from . nixpkgs#devenv nixpkgs#just nixpkgs#pixi --command just ship-check
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-workspace-lock
+          path: |
+            Cargo.lock
+            foundry-lock-head.txt
+          if-no-files-found: error
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
