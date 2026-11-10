@@ -44,6 +44,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  foundry-sql-snapshots:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Generate and measure Foundry render goldens
+        run: |
+          set -euo pipefail
+          mkdir -p target
+          nix build --impure --expr '
+            let flake = builtins.getFlake (toString ./.); in
+            flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
+              INSTA_UPDATE = "always";
+              checkPhase = builtins.replaceStrings
+                [ "--workspace --all-features" ]
+                [ "--workspace --all-features -E \"test(dialects::foundry::) | test(legs::foundry::) | test(qualified::foundry::) | package(sutura-sql) | test(foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped)\"" ]
+                old.checkPhase;
+              postInstall = (old.postInstall or "") + "\ncp crates/sutura-app/tests/snapshots/*@foundry.snap $out/\n";
+            })
+          ' -L --out-link target/foundry-sql-snapshots 2>&1 | tee target/foundry-sql-proof.log
+          mkdir -p target/foundry-sql-export
+          cp target/foundry-sql-snapshots/*@foundry.snap target/foundry-sql-export/
+          git rev-parse HEAD > target/foundry-sql-export/source-head.txt
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: foundry-sql-snapshots
+          path: |
+            target/foundry-sql-export/
+            target/foundry-sql-proof.log
+          if-no-files-found: error
+
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
+
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 20
