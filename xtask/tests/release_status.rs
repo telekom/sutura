@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 #[test]
-fn a_release_status_requires_a_successful_workflow_and_a_published_release() {
+fn a_release_status_requires_successful_tag_workflows_and_a_published_release() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("workspace root");
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("release-status-{}", std::process::id()));
     std::fs::create_dir_all(&root).expect("fake tools directory");
@@ -14,8 +14,12 @@ fn a_release_status_requires_a_successful_workflow_and_a_published_release() {
         r#"#!/usr/bin/env bash
 set -eu
 case "$1 $2" in
-  'run list') [ "$RELEASE_CASE" = absent ] || echo 123 ;;
-  'run watch') [ "$RELEASE_CASE" != failed ] ;;
+  'run list')
+    [ "$RELEASE_CASE" != absent ] || exit 0
+    if [ "$4" = fuzz.yml ]; then echo 456; else echo 123; fi ;;
+  'run watch')
+    [ "$RELEASE_CASE" != failed ] || exit 1
+    [ "$RELEASE_CASE $3" != 'fuzz-failed 456' ] ;;
   'run view') echo v0.12.1 ;;
   'release view')
     [ "$RELEASE_CASE" != missing ] || exit 1
@@ -34,7 +38,7 @@ esac
         .expect("make fake tools executable");
     assert!(chmod.success());
     let path = format!("{}:{}", root.display(), std::env::var("PATH").expect("tool path"));
-    for case in ["published", "failed", "missing", "draft", "absent"] {
+    for case in ["published", "failed", "fuzz-failed", "missing", "draft", "absent"] {
         let result = Command::new("bash")
             .arg(repo.join("nix/wait-for-release.sh"))
             .env("PATH", &path)
