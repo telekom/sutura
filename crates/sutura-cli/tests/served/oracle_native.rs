@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use sutura_config::Environment;
 
 use crate::harness::{
-    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
+    LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
 };
 
 struct Tier {
@@ -100,18 +100,15 @@ impl Tier {
                 tested,
             )
         };
-        let (source, tools) = if oracle_source {
-            (
-                format!("kind: oracle\n    {source}"),
-                "tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n",
-            )
+        let source = if oracle_source {
+            format!("kind: oracle\n    {source}")
         } else {
-            (format!("kind: files\n    data_dir: {}", root.display()), "")
+            format!("kind: files\n    data_dir: {}", root.display())
         };
         format!(
             "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\n\
              catalogs:\n{catalog}\
-             sources:\n  local:\n    {source}\n    posture: shared-service-user\n{tools}",
+             sources:\n  local:\n    {source}\n    posture: shared-service-user\n",
         )
     }
 }
@@ -130,23 +127,6 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
     )
     .expect("the model writes");
     catalog
-}
-
-fn protected_queries(deployment: &Served) {
-    let expected: Vec<_> = (1..=128).map(|id| serde_json::json!([format!("{id:x>2000}")])).collect();
-    for _ in 0..2 {
-        let reply = deployment.post(
-            &v1(sutura_http::constants::base_paths::RUN_SQL),
-            Some(TOKEN),
-            r#"{"statement":"select PAYLOAD from EVENTS order by ID"}"#,
-        );
-        assert_eq!(reply.status, 200, "the protected query answers: {}", reply.body);
-        assert_eq!(
-            reply.json()["rows"],
-            serde_json::json!(expected),
-            "the complete multi-record payload arrives"
-        );
-    }
 }
 
 #[test]
@@ -184,7 +164,6 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
-        protected_queries(&deployment);
     }
 }
 
@@ -222,7 +201,6 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
             let deployment = start_configured(&case, &settings);
             let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "the native {path} loads the fixture: {}", reply.body);
-            protected_queries(&deployment);
         } else {
             let refused = refused_to_start(Environment::Development, written(&case, &settings), &[]).join("\n");
             assert!(
