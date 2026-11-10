@@ -421,3 +421,23 @@ fn a_link_onto_a_model_without_a_single_column_key_is_refused() {
         "{refused:?}"
     );
 }
+
+#[test]
+fn every_request_goes_under_the_declared_base_path() {
+    let mapping = format!("base_path: /api\n{MAPPING}");
+    let contract = Contract::parse(DOCUMENT, &mapping).expect("a base path of plain segments checks");
+    let answers = recorded()
+        .into_iter()
+        .map(|(target, answer)| (format!("/api{target}"), answer))
+        .collect();
+    let pinned = load(contract, answers).expect("every recorded answer is asked for under /api");
+    assert_eq!(pinned.definitions().relationships().len(), 2);
+}
+
+#[test]
+fn a_base_path_that_is_not_plain_segments_is_refused() {
+    for base in ["api", "/api/", "/api/../admin", "//other.example.com", "/a%2Fb", "/api//admin"] {
+        let refused = refused_contract(DOCUMENT, &format!("base_path: \"{base}\"\n{MAPPING}"));
+        assert!(matches!(refused, ContractError::Mapping { .. }), "{base}: {refused:?}");
+    }
+}

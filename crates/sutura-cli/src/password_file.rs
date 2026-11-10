@@ -1,5 +1,5 @@
 //! A declared secret read from its file: a `clickhouse`, `oracle` or `postgres` entry's password,
-//! an `rdbms` catalog's, or a `bigquery` delegation exchange's client secret.
+//! an `rdbms` or `openapi` catalog's, or a `bigquery` delegation exchange's client secret.
 //!
 //! **One copy for every root that reads one** (`crate::clickhouse`, `crate::oracle`,
 //! `crate::postgres`, `crate::catalog`, `crate::serve::broker`), so the trim, the empty-file

@@ -13,6 +13,11 @@ use sutura_domain::model::ModelName;
 use crate::document::{Document, Operation};
 use crate::mapping::{Columns, Fallbacks, Mapping, OperationId, Paging, ParameterName, PathSegment, Pointer};
 
+/// The document's file name in a catalog directory.
+pub const DOCUMENT_FILE: &str = "openapi.json";
+/// The mapping's file name in a catalog directory.
+pub const MAPPING_FILE: &str = "mapping.yaml";
+
 /// The most bytes the mapping may hold before it is parsed.
 pub const MAX_MAPPING_BYTES: usize = 64 * 1024;
 
@@ -21,6 +26,11 @@ pub const MAX_MAPPING_BYTES: usize = 64 * 1024;
 /// No variant carries a token or an answer; a document value is repeated at most 64 bytes long.
 #[derive(Debug, thiserror::Error)]
 pub enum ContractError {
+    #[error("a catalog file could not be read")]
+    Read {
+        #[source]
+        cause: sutura_bounded_read::ReadError,
+    },
     #[error("the {what} is larger than the {limit}-byte cap")]
     TooLarge { what: &'static str, limit: usize },
     #[error("the document is not JSON")]
@@ -108,6 +118,17 @@ impl Contract {
         self.relationships.as_ref()
     }
 
+    /// Reads [`DOCUMENT_FILE`] and [`MAPPING_FILE`] out of `dir`, each opened once and both under
+    /// one byte budget, and [parses](Self::parse) them.
+    pub fn read(dir: &std::path::Path) -> Result<Self, ContractError> {
+        let read = |file: &str, total: u64| {
+            sutura_bounded_read::read_document(dir, &dir.join(file), total).map_err(|cause| ContractError::Read { cause })
+        };
+        let document = read(DOCUMENT_FILE, 0)?;
+        let mapping = read(MAPPING_FILE, document.len() as u64)?;
+        Self::parse(&document, &mapping)
+    }
+
     /// Parses a document and a mapping and checks the one against the other.
     ///
     /// Both are capped before they are parsed. Nothing is fetched: the document's `servers` are
@@ -176,7 +197,11 @@ fn bind(
     };
     let rest = operation.path.strip_prefix('/').ok_or_else(off_origin)?;
     let mut pieces = Vec::new();
-    let mut current = String::from("/");
+    let mut current = mapping
+        .base_path
+        .as_ref()
+        .map_or_else(String::new, |base| base.as_str().to_owned());
+    current.push('/');
     for (index, segment) in rest.split('/').enumerate() {
         if index > 0 {
             current.push('/');

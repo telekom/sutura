@@ -2,6 +2,7 @@
 //! and asserts the typed variant. A file of its own because `settings/tests.rs` is at the
 //! thousand-line cap, matching the seam the other sub-modules already use.
 
+use crate::catalog::InvalidCatalogSettings;
 use crate::settings::{Environment, Settings, SettingsError, Sources};
 
 /// A development overlay that is otherwise fine, so a test can break exactly one thing.
@@ -121,7 +122,12 @@ fn a_bad_source_kind_is_a_settings_error() {
 /// settings before a reader parses its endpoint, so a userinfo endpoint is refused at load, unquoted.
 #[test]
 fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
-    for reader in ["kind: datahub\n    metric_property: m", "kind: openmetadata", "kind: cube"] {
+    for reader in [
+        "kind: datahub\n    metric_property: m",
+        "kind: openmetadata",
+        "kind: cube",
+        "kind: openapi",
+    ] {
         for endpoint in ["https://svc:s3cret@catalog.example", "https://svc/x:s3cret@catalog.example"] {
             let sources = Sources::defaults(Environment::Development).with_overlay(format!(
                 "catalogs:\n  - name: catalog\n    {reader}\n    dir: catalog\n    data_dir: data\n    version: test-1\n    endpoint: {endpoint}\n    token_file: /nowhere/token\n"
@@ -134,4 +140,26 @@ fn a_catalog_endpoint_with_userinfo_is_refused_at_load_without_being_quoted() {
             assert!(!rendered.contains("s3cret"), "{rendered}");
         }
     }
+}
+
+/// An `openapi` catalog is read over HTTP, so it is refused at load without the endpoint its reader
+/// dials, naming the kind and the key.
+#[test]
+fn an_openapi_catalog_without_an_endpoint_is_refused_naming_the_key() {
+    let sources = Sources::defaults(Environment::Development).with_overlay(String::from(
+        "catalogs:\n  - name: registry\n    kind: openapi\n    dir: catalog\n    data_dir: data\n    version: test-1\n    token_file: /nowhere/token\n",
+    ));
+    let error = Settings::load(&sources).expect_err("an openapi catalog needs an endpoint");
+    assert!(
+        matches!(
+            error.reason(),
+            SettingsError::Catalog {
+                cause: InvalidCatalogSettings::MissingForReader {
+                    kind: "openapi",
+                    field: "endpoint"
+                }
+            }
+        ),
+        "{error:?}"
+    );
 }
