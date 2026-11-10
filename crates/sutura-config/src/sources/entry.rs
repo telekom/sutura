@@ -11,7 +11,7 @@ use sutura_domain::model::SourceName;
 use super::billing::InvalidBilling;
 use super::placement::{InvalidDelegation, SourcePlacement};
 use super::workload_identity::DelegationDeclared;
-use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, node, oracle};
+use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind, clickhouse, cube, foundry, node, oracle};
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
 ///
@@ -62,6 +62,7 @@ pub(super) fn parse_placement(
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;
     }
     cube::refuse_elsewhere(alias, kind, entry, written)?;
+    foundry::refuse_elsewhere(alias, kind, entry, written)?;
     match kind {
         SourceKind::Files => {
             refuse_foreign_keys(
@@ -195,6 +196,7 @@ pub(super) fn parse_placement(
         SourceKind::Oracle => oracle::parse_placement(alias, kind, entry, written),
         SourceKind::Cube => cube::parse_placement(alias, kind, entry, written),
         SourceKind::Node => node::parse_placement(alias, kind, entry, written),
+        SourceKind::Foundry => foundry::parse_placement(alias, kind, entry, written),
         SourceKind::Duckdb => {
             refuse_foreign_keys(
                 alias,

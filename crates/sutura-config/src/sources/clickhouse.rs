@@ -187,6 +187,7 @@ mod tests {
             data_dir: None,
             billing_project: None,
             dataset: None,
+            ontology: None,
             max_bytes_billed: None,
             posture: "shared-service-user",
             acknowledged_because: Some("one service user reaching the database for everybody who asks"),

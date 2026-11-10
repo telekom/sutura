@@ -583,6 +583,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
                 settings.spend_budget(),
                 settings.ceilings(),
             ),
+            #[cfg(feature = "foundry")]
+            crate::sources::Opened::Foundry(opened) => answered(
+                &catalog,
+                &question,
+                opened,
+                settings.runtime(),
+                settings.server().request_timeout(),
+                settings.spend_budget(),
+                settings.ceilings(),
+            ),
         }
     })())
 }
