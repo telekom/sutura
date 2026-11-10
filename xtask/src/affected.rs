@@ -810,10 +810,8 @@ macro_rules! registered {
     }
 
     /// Execute the REAL ci-aggregate `run:` shell from `.github/workflows/ci.yml` against canned
-    /// job results. The P1 defect lived in that file and nowhere else - the pure category rule
-    /// above cannot see the release-commit skip (a skipped `ci` implies a skipped `bigquery` leg,
-    /// an event shape the two-axis model has no vocabulary for) - so these tests extract and run
-    /// the script the workflow actually ships.
+    /// job results. The release publication guard lives in that shell, so these tests extract and
+    /// run the script the workflow actually ships.
     pub(super) mod shell_simulation {
         use super::super::aggregate_shell::run_aggregator;
 
@@ -838,6 +836,23 @@ macro_rules! registered {
             assert!(
                 text.contains("ok - every category-gated leg green"),
                 "the aggregator should affirm the belt: {text}"
+            );
+        }
+
+        #[test]
+        fn a_failed_release_workflow_keeps_main_red() {
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "skipped"),
+                ("RELEASE_RESULT", "failure"),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+            ]);
+            assert!(!ok, "a failed release workflow must keep the aggregate RED: {text}");
+            assert!(
+                text.contains("release workflow did not publish this release"),
+                "the release failure should be named: {text}"
             );
         }
 
