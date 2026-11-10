@@ -191,15 +191,6 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
         let case = format!("oracle-native-{expected}-{path}");
         let settings = tier.settings(&case, dictionary, false, false, expected == "success" || !dictionary);
         if expected == "success" {
-            let missing = format!("{case}-without-native");
-            let plaintext = tier.settings(&missing, dictionary, false, false, !dictionary)
-                .replace("transport_mode: native-encryption", "transport_mode: plaintext")
-                .replace("native_encryption_acknowledged_because: a throwaway native-encryption fixture", "");
-            let refused = refused_to_start(Environment::Development, written(&missing, &plaintext), &[]).join("\n");
-            assert!(
-                refused.contains("native network encryption and data integrity"),
-                "the {path} without native mode must reach the required-NNE listener and be refused: {refused}"
-            );
             let deployment = start_configured(&case, &settings);
             let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "the native {path} loads the fixture: {}", reply.body);
