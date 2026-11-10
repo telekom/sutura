@@ -8,10 +8,10 @@
 
 use std::path::PathBuf;
 
+use super::oracle_transport::{NoOracleChannel, RawOracleTransport};
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
 use crate::sources::placement::{HostName, OracleChannel, OracleServiceName, SourcePlacement};
 use sutura_domain::model::SourceName;
-use super::oracle_transport::{NoOracleChannel, RawOracleTransport};
 
 /// Reads a `kind: oracle` entry into its placement.
 ///
@@ -76,23 +76,48 @@ pub(super) fn parse_placement(
     // read is refused identically here - and only then is the mode itself asked about.
     let mode = super::required(alias, kind, "transport_mode", entry.transport_mode)?;
     if mode.trim() == "plaintext" && entry.oracle_options.legacy != Some(true) {
-        let transport = crate::sources::transport::parse(alias, mode, entry.transport_anchors, entry.client_certificate, entry.client_key)
-            .map_err(|cause| InvalidSourceRegistry::Transport { alias: alias.clone(), cause })?;
+        let transport = crate::sources::transport::parse(
+            alias,
+            mode,
+            entry.transport_anchors,
+            entry.client_certificate,
+            entry.client_key,
+        )
+        .map_err(|cause| InvalidSourceRegistry::Transport {
+            alias: alias.clone(),
+            cause,
+        })?;
         super::refuse_remote_plaintext(alias, &host, &transport)?;
     }
-    let channel = match declared(alias, kind, &host, RawOracleTransport {
-        mode,
-        anchors: entry.transport_anchors,
-        client_certificate: entry.client_certificate,
-        client_key: entry.client_key,
-        options: entry.oracle_options,
-    }) {
+    let channel = match declared(
+        alias,
+        kind,
+        &host,
+        RawOracleTransport {
+            mode,
+            anchors: entry.transport_anchors,
+            client_certificate: entry.client_certificate,
+            client_key: entry.client_key,
+            options: entry.oracle_options,
+        },
+    ) {
         Ok(channel) => Some(channel),
         Err(InvalidSourceRegistry::OraclePlaintext { .. }) if cfg!(not(feature = "oracle")) => None,
         Err(cause) => return Err(cause),
     };
-    if entry.posture.trim() == "impersonation-at-source" && channel.as_ref().is_some_and(|channel| matches!(channel.transport(), super::placement::OracleTransport::NativeEncryption { .. })) {
-        return Err(InvalidSourceRegistry::TlsNotDeliverable { alias: alias.clone(), kind, mode: "native-encryption with token authentication (verified TLS required)" });
+    if entry.posture.trim() == "impersonation-at-source"
+        && channel.as_ref().is_some_and(|channel| {
+            matches!(
+                channel.transport(),
+                super::placement::OracleTransport::NativeEncryption { .. }
+            )
+        })
+    {
+        return Err(InvalidSourceRegistry::TlsNotDeliverable {
+            alias: alias.clone(),
+            kind,
+            mode: "native-encryption with token authentication (verified TLS required)",
+        });
     }
     let delegation = super::parse_delegation(alias, kind, entry, None)?;
     Ok(SourcePlacement::Oracle {
@@ -124,8 +149,14 @@ fn declared(
             cause,
         },
         NoOracleChannel::Plaintext => InvalidSourceRegistry::OraclePlaintext { alias: alias.clone() },
-        NoOracleChannel::Transport(cause) => InvalidSourceRegistry::Transport { alias: alias.clone(), cause },
-        cause => InvalidSourceRegistry::OracleTransport { alias: alias.clone(), cause },
+        NoOracleChannel::Transport(cause) => InvalidSourceRegistry::Transport {
+            alias: alias.clone(),
+            cause,
+        },
+        cause => InvalidSourceRegistry::OracleTransport {
+            alias: alias.clone(),
+            cause,
+        },
     })
 }
 

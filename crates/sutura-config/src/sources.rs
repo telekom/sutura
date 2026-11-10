@@ -350,7 +350,11 @@ pub struct UnknownPosture {
 pub enum InvalidSourceRegistry {
     /// An Oracle-only transport or password declaration was refused.
     #[error("`sources.{alias}`: {cause}")]
-    OracleTransport { alias: SourceName, #[source] cause: oracle_transport::NoOracleChannel },
+    OracleTransport {
+        alias: SourceName,
+        #[source]
+        cause: oracle_transport::NoOracleChannel,
+    },
     /// The key is not a name a model could write in its `source:` field.
     #[error("`sources.{written}` is not a source name")]
     Alias {

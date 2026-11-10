@@ -111,7 +111,10 @@ impl<'dial> Dial<'dial> {
     /// Enables legacy password logins only for an encrypted channel. Plaintext remains refused by the product parser.
     #[must_use]
     pub const fn allow_legacy_verifiers(self) -> Self {
-        Self { allow_legacy_verifiers: !matches!(self.channel, Channel::Plaintext), ..self }
+        Self {
+            allow_legacy_verifiers: !matches!(self.channel, Channel::Plaintext),
+            ..self
+        }
     }
 
     /// The bound on the TCP connect.

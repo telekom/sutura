@@ -93,18 +93,24 @@ impl OracleChannel {
                     return Err(NoOracleChannel::Unread { key });
                 }
             }
-            OracleTransport::NativeEncryption { acknowledged_because: reason(NATIVE_REASON, raw.options.native_reason)? }
+            OracleTransport::NativeEncryption {
+                acknowledged_because: reason(NATIVE_REASON, raw.options.native_reason)?,
+            }
         } else {
             let transport = super::transport::parse(alias, raw.mode, raw.anchors, raw.client_certificate, raw.client_key)
                 .map_err(NoOracleChannel::Transport)?;
             // Preserve the remote-plaintext refusal for existing declarations.
             match transport {
                 SourceTransport::Plaintext => return Err(NoOracleChannel::Plaintext),
-                SourceTransport::Verified { anchors: TrustAnchors::File(anchors) } => OracleTransport::Verified {
+                SourceTransport::Verified {
+                    anchors: TrustAnchors::File(anchors),
+                } => OracleTransport::Verified {
                     anchors,
                     server_name: TlsServerName::parse(host).map_err(NoOracleChannel::ServerName)?,
                 },
-                SourceTransport::Verified { anchors: TrustAnchors::System } => return Err(NoOracleChannel::Undeliverable("verified with `transport_anchors: system`")),
+                SourceTransport::Verified {
+                    anchors: TrustAnchors::System,
+                } => return Err(NoOracleChannel::Undeliverable("verified with `transport_anchors: system`")),
                 SourceTransport::Mutual { .. } => return Err(NoOracleChannel::Undeliverable("mutual")),
             }
         };
@@ -113,14 +119,21 @@ impl OracleChannel {
         } else {
             None
         };
-        Ok(Self { transport, legacy_password_verifier })
+        Ok(Self {
+            transport,
+            legacy_password_verifier,
+        })
     }
 
     #[must_use]
-    pub const fn transport(&self) -> &OracleTransport { &self.transport }
+    pub const fn transport(&self) -> &OracleTransport {
+        &self.transport
+    }
 
     #[must_use]
-    pub const fn legacy_password_verifier(&self) -> Option<&AcknowledgementReason> { self.legacy_password_verifier.as_ref() }
+    pub const fn legacy_password_verifier(&self) -> Option<&AcknowledgementReason> {
+        self.legacy_password_verifier.as_ref()
+    }
 
     /// The PEM bundle, present only for verified TLS.
     #[must_use]

@@ -1,12 +1,11 @@
 --- a/crates/sutura-config/src/sources/oracle.rs
 +++ b/crates/sutura-config/src/sources/oracle.rs
-@@ -91,9 +91,6 @@
+@@ -105,7 +105,7 @@
          Err(InvalidSourceRegistry::OraclePlaintext { .. }) if cfg!(not(feature = "oracle")) => None,
          Err(cause) => return Err(cause),
      };
--    if entry.posture.trim() == "impersonation-at-source" && channel.as_ref().is_some_and(|channel| matches!(channel.transport(), super::placement::OracleTransport::NativeEncryption { .. })) {
--        return Err(InvalidSourceRegistry::TlsNotDeliverable { alias: alias.clone(), kind, mode: "native-encryption with token authentication (verified TLS required)" });
--    }
-     let delegation = super::parse_delegation(alias, kind, entry, None)?;
-     Ok(SourcePlacement::Oracle {
-         host,
+-    if entry.posture.trim() == "impersonation-at-source"
++    if false
+         && channel.as_ref().is_some_and(|channel| {
+             matches!(
+                 channel.transport(),

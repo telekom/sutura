@@ -105,15 +105,23 @@ impl OracleLogin {
     /// Oracle native encryption and integrity over TCP; does not authenticate the server.
     #[must_use]
     pub const fn native_encryption(self) -> EncryptedOracleLogin {
-        EncryptedOracleLogin { login: self, anchors_pem: None, allow_legacy_verifiers: false }
+        EncryptedOracleLogin {
+            login: self,
+            anchors_pem: None,
+            allow_legacy_verifiers: false,
+        }
     }
-
 }
 
 impl EncryptedOracleLogin {
     /// The independent legacy-password opt-in, after choosing an encrypted channel.
     #[must_use]
-    pub const fn allow_legacy_verifiers(self) -> Self { Self { allow_legacy_verifiers: true, ..self } }
+    pub const fn allow_legacy_verifiers(self) -> Self {
+        Self {
+            allow_legacy_verifiers: true,
+            ..self
+        }
+    }
 }
 
 /// A live [`DictionaryReader`] over an Oracle documentation schema.
@@ -144,17 +152,21 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
-        let EncryptedOracleLogin { login, anchors_pem, allow_legacy_verifiers } = login;
-        let channel = anchors_pem.as_deref().map_or(Channel::NativeEncryption, |anchors_pem| Channel::Verified { anchors_pem });
-        let dial = Dial::new(
-            &login.host,
-            login.port,
-            &login.service_name,
-            channel,
-        );
-        let dial = if allow_legacy_verifiers { dial.allow_legacy_verifiers() } else { dial };
-        let dial = dial.prepare()
-        .map_err(|refused| match refused {
+        let EncryptedOracleLogin {
+            login,
+            anchors_pem,
+            allow_legacy_verifiers,
+        } = login;
+        let channel = anchors_pem
+            .as_deref()
+            .map_or(Channel::NativeEncryption, |anchors_pem| Channel::Verified { anchors_pem });
+        let dial = Dial::new(&login.host, login.port, &login.service_name, channel);
+        let dial = if allow_legacy_verifiers {
+            dial.allow_legacy_verifiers()
+        } else {
+            dial
+        };
+        let dial = dial.prepare().map_err(|refused| match refused {
             PrepareError::TrustAnchors(cause) => InvalidReaderConfig::TrustAnchors(cause.to_string()),
             PrepareError::Address(cause) => InvalidReaderConfig::Address(cause.to_string()),
         })?;

@@ -25,8 +25,8 @@ use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
 use crate::sources::placement::{
-    HostName, InvalidHostName, InvalidOracleServiceName, InvalidSocketDirectory, InvalidTlsServerName,
-    OracleChannel, OracleServiceName, PostgresDial, SocketDirectory,
+    HostName, InvalidHostName, InvalidOracleServiceName, InvalidSocketDirectory, InvalidTlsServerName, OracleChannel,
+    OracleServiceName, PostgresDial, SocketDirectory,
 };
 use crate::sources::transport::{InvalidTransport, SourceTransport, UnsafeChannel};
 
@@ -436,8 +436,15 @@ impl PostgresCatalogConnection {
             native_reason: raw.native_encryption_acknowledged_because.as_deref(),
             legacy: raw.legacy_password_verifier,
             legacy_reason: raw.legacy_password_verifier_acknowledged_because.as_deref(),
-        }).keys() {
-            if present { return Err(InvalidConnection::ForeignKey { key, dialect: "postgres" }); }
+        })
+        .keys()
+        {
+            if present {
+                return Err(InvalidConnection::ForeignKey {
+                    key,
+                    dialect: "postgres",
+                });
+            }
         }
         let port = raw.port.ok_or(InvalidConnection::Missing { key: "port" })?;
         let dial = match (written(raw.host.as_deref()), written(raw.unix_socket.as_deref())) {
@@ -543,22 +550,36 @@ impl OracleCatalogConnection {
             .map_err(|cause| InvalidConnection::OracleServiceName { cause })?;
         let user = required("user", &raw.user)?.to_owned();
         let password_file = absolute("password_file", required("password_file", &raw.password_file)?)?;
-        if raw.transport_mode.as_deref().is_some_and(|mode| mode.trim() == "plaintext") && raw.legacy_password_verifier != Some(true) {
-            let transport = crate::sources::transport::parse(name, "plaintext", raw.transport_anchors.as_deref(), raw.client_certificate.as_deref(), raw.client_key.as_deref())
-                .map_err(|cause| InvalidConnection::Transport { cause })?;
-            crate::sources::transport::refuse_remote_plaintext(&host, &transport).map_err(|cause| InvalidConnection::Channel { cause })?;
+        if raw.transport_mode.as_deref().is_some_and(|mode| mode.trim() == "plaintext")
+            && raw.legacy_password_verifier != Some(true)
+        {
+            let transport = crate::sources::transport::parse(
+                name,
+                "plaintext",
+                raw.transport_anchors.as_deref(),
+                raw.client_certificate.as_deref(),
+                raw.client_key.as_deref(),
+            )
+            .map_err(|cause| InvalidConnection::Transport { cause })?;
+            crate::sources::transport::refuse_remote_plaintext(&host, &transport)
+                .map_err(|cause| InvalidConnection::Channel { cause })?;
         }
-        let channel = OracleChannel::parse(name, &host, RawOracleTransport {
-            mode: required("transport_mode", &raw.transport_mode)?,
-            anchors: raw.transport_anchors.as_deref(),
-            client_certificate: raw.client_certificate.as_deref(),
-            client_key: raw.client_key.as_deref(),
-            options: RawOracleOptions {
-                native_reason: raw.native_encryption_acknowledged_because.as_deref(),
-                legacy: raw.legacy_password_verifier,
-                legacy_reason: raw.legacy_password_verifier_acknowledged_because.as_deref(),
+        let channel = OracleChannel::parse(
+            name,
+            &host,
+            RawOracleTransport {
+                mode: required("transport_mode", &raw.transport_mode)?,
+                anchors: raw.transport_anchors.as_deref(),
+                client_certificate: raw.client_certificate.as_deref(),
+                client_key: raw.client_key.as_deref(),
+                options: RawOracleOptions {
+                    native_reason: raw.native_encryption_acknowledged_because.as_deref(),
+                    legacy: raw.legacy_password_verifier,
+                    legacy_reason: raw.legacy_password_verifier_acknowledged_because.as_deref(),
+                },
             },
-        }).map_err(|refused| match refused {
+        )
+        .map_err(|refused| match refused {
             NoOracleChannel::Undeliverable(mode) => InvalidConnection::TlsNotDeliverable { mode },
             NoOracleChannel::ServerName(cause) => InvalidConnection::TlsServerName { cause },
             NoOracleChannel::Plaintext => InvalidConnection::OraclePlaintext,
@@ -607,8 +628,9 @@ impl OracleCatalogConnection {
 
     /// The declared encrypted channel and the independent legacy-login acknowledgement.
     #[must_use]
-    pub const fn channel(&self) -> &OracleChannel { &self.channel }
-
+    pub const fn channel(&self) -> &OracleChannel {
+        &self.channel
+    }
 }
 
 /// Written text, trimmed; empty reads as absent, as everywhere else in this crate.
@@ -672,7 +694,10 @@ pub enum InvalidRdbmsCatalog {
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidConnection {
     #[error("`connection`: {cause}")]
-    OracleTransport { #[source] cause: NoOracleChannel },
+    OracleTransport {
+        #[source]
+        cause: NoOracleChannel,
+    },
     #[error("`connection.{key}` is required and was not written")]
     Missing { key: &'static str },
     #[error("`connection.dialect` is `{found}`, not one of: {}", Dialect::known())]

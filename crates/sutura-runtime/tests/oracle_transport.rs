@@ -17,16 +17,32 @@ fn native_oracle_startup_names_the_weaker_channel_and_independent_password_opt_i
     );
     let subscriber = sutura_runtime::telemetry::subscriber(&telemetry, capture.clone()).expect("a subscriber");
     tracing::subscriber::with_default(subscriber, || sutura_runtime::banner::announce(&settings));
-    let events: Vec<Value> = capture.contents().lines().map(|line| serde_json::from_str(line).expect("JSON log event")).collect();
-    let channel = events.iter().find(|event| event["msg"] == "source channel" && event["source"] == "warehouse").expect("source channel record");
+    let events: Vec<Value> = capture
+        .contents()
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("JSON log event"))
+        .collect();
+    let channel = events
+        .iter()
+        .find(|event| event["msg"] == "source channel" && event["source"] == "warehouse")
+        .expect("source channel record");
     assert_eq!(channel["channel"], "native-encryption");
     assert_eq!(channel["anchors"], "none");
-    let native = events.iter().find(|event| event["source"] == "warehouse" && event["level"] == 40 && event["channel"] == "native-encryption").expect("native encryption WARN");
+    let native = events
+        .iter()
+        .find(|event| event["source"] == "warehouse" && event["level"] == 40 && event["channel"] == "native-encryption")
+        .expect("native encryption WARN");
     assert_eq!(native["reason"], "this listener requires native encryption");
     let message = native["msg"].as_str().expect("warning text");
     assert!(message.contains("unauthenticated DH"), "{message}");
     assert!(message.contains("server identity is not verified"), "{message}");
     assert!(message.contains("one shared user"), "{message}");
-    let legacy = events.iter().find(|event| event["source"] == "warehouse" && event["level"] == 40 && event["reason"] == "this account cannot be reset").expect("independent legacy-password WARN");
-    assert_eq!(legacy["msg"], "Oracle legacy password verifiers enabled on the declared encrypted channel");
+    let legacy = events
+        .iter()
+        .find(|event| event["source"] == "warehouse" && event["level"] == 40 && event["reason"] == "this account cannot be reset")
+        .expect("independent legacy-password WARN");
+    assert_eq!(
+        legacy["msg"],
+        "Oracle legacy password verifiers enabled on the declared encrypted channel"
+    );
 }
