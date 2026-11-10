@@ -31,7 +31,7 @@ pub mod http;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SqlRequest {
-    /// The generated Spark SQL statement. Parameters remain in [`parameters`] and are never
+    /// The generated Spark SQL statement. Parameters remain in [`Self::parameters`] and are never
     /// interpolated into this field.
     query: String,
     /// The ontology API name or RID selected by the source connection.
