@@ -232,8 +232,9 @@ fn an_oracle_catalog_with_an_unreadable_password_file_is_refused_naming_it() {
 
 /// **A refresh whose Oracle login gets a malformed authentication response keeps the pinned
 /// bundle and logs the refusal.** The fake accepts the reader's CONNECT and answers the first
-/// authentication message with session data that has none of the verifier fields. The poll runs
-/// inside `catch_unwind`, so a poll that does not return fails this cell's first assertion.
+/// authentication message with session data that names the 12C verifier and has none of its
+/// fields. The poll runs inside `catch_unwind`, so a poll that does not return fails this cell's
+/// first assertion.
 #[test]
 #[cfg(feature = "oracle")]
 fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle() {
@@ -242,8 +243,8 @@ fn a_refresh_whose_oracle_login_fails_on_authentication_keeps_the_pinned_bundle(
 
     let scratch = ScratchDir::prepared();
     let issued = sutura_http_client::tls_test_support::issue();
-    let (port, _sent) =
-        sutura_dev::tns_listener::authenticating_over(tls(&issued), &[("AUTH_SESSKEY", "00")]).expect("the fake listener binds");
+    let session = [("AUTH_VFR_DATA", "00"), ("AUTH_SESSKEY", "00")];
+    let (port, _sent) = sutura_dev::tns_listener::authenticating_over(tls(&issued), &session).expect("the fake listener binds");
     let connection = oracle_connection(
         &readable_password_file(&scratch).display().to_string(),
         &anchors(&scratch, &issued),
