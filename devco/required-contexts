@@ -334,6 +334,10 @@ security-audit.yml:audit
 # reports green when the filter excludes it, which is a context that says nothing.
 format.yml:format
 
+# The manual exact-head validation helper. It is dispatch-only and does not report on pull requests;
+# keep it advisory so the hosted helper can be run without becoming a merge requirement.
+format.yml:foundry-validation
+
 # TPC-H across nodes against one node: four NixOS VMs over SF10, whose lookup legs are read in
 # partitions by two reading workers. Path-scoped to what reads a split leg across nodes, so it
 # reports nothing on most pull requests, which alone rules out requiring it: a required context
