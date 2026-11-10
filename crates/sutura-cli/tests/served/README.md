@@ -9,6 +9,7 @@ tests are all startup refusals, `sutura_http::harness` exercises the router in-c
 service, and `crates/sutura-cli/tests/example.rs` runs the example through a different command
 with no HTTP at all. So every invariant that lives only on the composed path - the bearer gate,
 route governance, the generated document as SERVED, the refusal statuses out of a real transport
+
 - had no end-to-end evidence on any command in any tier.
 
 # It spawns the binary, and that is not a shortcut
