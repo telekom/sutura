@@ -68,3 +68,7 @@ pub(super) fn exchange(negotiated: &Negotiated<'_>) -> Result<(Vec<u8>, Protecti
     finish(&mut response);
     Ok((response, protection))
 }
+
+#[cfg(test)]
+#[path = "dh_tests.rs"]
+mod tests;
