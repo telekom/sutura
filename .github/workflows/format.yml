@@ -44,14 +44,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  foundry-lock:
+  foundry-validation:
     if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 168c01f8fbdd507b420a6e56b1052db2f9fab493
+          ref: 3523c5851756cd81b879f31fc6510484205b4ae1
           fetch-depth: 0
           persist-credentials: false
 
@@ -78,25 +78,15 @@ jobs:
         with:
           scope: ci
 
-      - name: Regenerate the workspace lock with the pinned toolchain
+      - name: Run the exact-head validation gate
         run: |
           set -euo pipefail
-          git -c user.name=CI -c user.email=user@example.com merge --no-commit --no-ff 303283b6a5908d67337b8d26249813846017b047
-          git show 303283b6a5908d67337b8d26249813846017b047:Cargo.lock > Cargo.lock
-          git add Cargo.lock
-          source_tree="$(git write-tree)"
-          test "$source_tree" = 0da11d40ba8ca51982d7d1b6bf4af3923669f72b
-          nix run .#cargo -- update --workspace
-          git diff --numstat -- Cargo.lock
-          printf '%s\n' "$source_tree" > foundry-lock-source-tree.txt
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command just validate
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: foundry-workspace-lock
-          path: |
-            Cargo.lock
-            foundry-lock-source-tree.txt
-          if-no-files-found: error
+      - name: Run the committed-diff ship check
+        run: |
+          set -euo pipefail
+          nix shell --inputs-from . nixpkgs#devenv nixpkgs#just nixpkgs#pixi --command just ship-check
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
