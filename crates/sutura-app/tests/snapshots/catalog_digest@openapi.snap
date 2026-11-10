@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.digest().as_str()
+---
+fab83ec3857ecb0e9386d63c24e25d4f08d2eb26a85f300296019f8322343b33

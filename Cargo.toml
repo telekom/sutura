@@ -27,6 +27,7 @@ members = [
   "crates/sutura-catalog-openmetadata",
   # Declaring source over a Cube metrics serving layer's metadata API - `github.com/telekom/sutura#1340`.
   "crates/sutura-catalog-cube",
+  "crates/sutura-catalog-openapi", # EXPERIMENTAL: declaring source configured by an OpenAPI document - `#1727`.
   "crates/sutura-catalog-wren",
   "crates/sutura-semantic",
   # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
@@ -131,6 +132,7 @@ sutura-catalog-okf = { path = "crates/sutura-catalog-okf" }
 sutura-catalog-datacontract = { path = "crates/sutura-catalog-datacontract" }
 sutura-catalog-openmetadata = { path = "crates/sutura-catalog-openmetadata" }
 sutura-catalog-cube = { path = "crates/sutura-catalog-cube" }
+sutura-catalog-openapi = { path = "crates/sutura-catalog-openapi" }
 sutura-catalog-wren = { path = "crates/sutura-catalog-wren" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
@@ -596,8 +598,6 @@ ureq = { version = "3", default-features = false, features = ["rustls", "rustls-
 # measured at **one** new package - `simple_asn1` 0.6.4, ISC, already allowed - and it would also have
 # switched the feature on for `sutura-http`, undoing half of a decision the `jsonwebtoken` entry below
 # states. `ring` costs neither, so `docs/adr/0018`'s 446-to-446 measurement survives.
-#
-
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
 # environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.

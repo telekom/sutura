@@ -810,3 +810,22 @@ fn a_partition_read_carrying_a_pool_its_grant_does_not_name_is_refused() {
         "a reader was handed a token for a pool its grant does not name"
     );
 }
+
+#[test]
+fn a_partition_read_carrying_no_principal_where_its_grant_names_one_is_refused() {
+    let (wire, partition, key_bytes) = (b"wire-unswitched".to_vec(), b"partition-unswitched".to_vec(), [20_u8; 32]);
+    let grant = switched::granted_switching(
+        &ReadingKey::of(key_bytes),
+        &wire,
+        &partition,
+        "user@example.com",
+        "user@example.com",
+    );
+    let leaf = PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema());
+
+    let failures = installed_and_run(None, leaf, "12121212-1212-1212-1212-121212121212");
+
+    assert!(refused_as_not_naming(&failures), "{failures:?}");
+}
+
+mod switched;

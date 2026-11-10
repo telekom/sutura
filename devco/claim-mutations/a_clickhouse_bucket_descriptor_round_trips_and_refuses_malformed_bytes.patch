@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-clickhouse/src/adbc/buckets/descriptor.rs b/crates/sutura-exec-clickhouse/src/adbc/buckets/descriptor.rs
+index 000000000..000000000 100644
+--- a/crates/sutura-exec-clickhouse/src/adbc/buckets/descriptor.rs
++++ b/crates/sutura-exec-clickhouse/src/adbc/buckets/descriptor.rs
+@@ -70,6 +70,6 @@
+     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+         let (&version, rest) = bytes.split_first().ok_or(InvalidBucketDescriptor::Truncated)?;
+-        if version != VERSION {
++        if version < VERSION {
+             return Err(InvalidBucketDescriptor::Version { found: version });
+         }
+         let (count_bytes, rest) = rest.split_at_checked(4).ok_or(InvalidBucketDescriptor::Truncated)?;

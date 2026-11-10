@@ -22,6 +22,12 @@
 //! - A grant read with the caller's token signs a SHA-256 digest of the token and of its pool's
 //!   audience, and [`forwards`](crate::combine::across::grant::reading::forwards) admits only a
 //!   task carrying exactly that token. A node that sees the grant sees the token's digest.
+//! - A grant read as the caller's principal signs a SHA-256 digest of the principal's name, and
+//!   [`switches`](crate::combine::across::grant::reading::switches) admits only a task carrying
+//!   exactly that name, whose masked rendering is the grant's masked caller. The masked check is
+//!   lossy: it narrows the admission and proves no identity, and the name travels in the same task
+//!   as its reading key, so both catch a mix-up, not a node that rewrites the task. No grant names
+//!   both a token and a principal.
 //! - The worker side of "first key wins" - keeping the FIRST key seen for a given reading task, the
 //!   way `grant::Keys` keeps the first key seen for a question - is `combine::across::grant::ReadingKeys`,
 //!   beside `Keys`, not this module:
@@ -37,14 +43,14 @@ use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 
 use super::super::WorkerRefusal;
-use super::super::partition::Forwarded;
+use super::super::partition::{Forwarded, SwitchedPrincipal};
 
 /// Domain tag, the first field fed into every [`ReadingGrant::signed`] message - so a signature
 /// taken here can never collide with one taken over the same bytes by another signed message in
 /// this workspace, and the version lets the encoding change without a stale signature verifying a
 /// fresh message (`sutura_domain::identity::compute_context`'s `SCHEME` is the same idea for that
 /// module's own digest).
-const SCHEME: &[u8] = b"sutura.reading-grant.v2";
+const SCHEME: &[u8] = b"sutura.reading-grant.v3";
 
 /// Feeds one field's own fixed-width digest into `message`, never the field's raw bytes.
 ///
@@ -205,6 +211,7 @@ pub(super) struct ReadingGrant {
     caller: MaskedCaller,
     bound: StreamBound,
     forwarded: Option<Names>,
+    switched: Option<[u8; 32]>,
 }
 
 impl ReadingGrant {
@@ -226,12 +233,19 @@ impl ReadingGrant {
             caller,
             bound,
             forwarded: None,
+            switched: None,
         }
     }
 
     /// This grant, naming `forwarded`, the caller's token its partition is read with.
     pub(super) fn forwarding(mut self, forwarded: &Forwarded) -> Self {
         self.forwarded = Some(Names::of(forwarded));
+        self
+    }
+
+    /// This grant, naming `switched`, the caller's principal its partition is read as.
+    pub(super) fn switching(mut self, switched: &SwitchedPrincipal) -> Self {
+        self.switched = Some(principal_digest(switched));
         self
     }
 
@@ -261,6 +275,7 @@ impl ReadingGrant {
             .map_or((&[][..], &[][..]), |names| (&names.token[..], &names.pool[..]));
         feed_field(&mut message, token);
         feed_field(&mut message, pool);
+        feed_field(&mut message, self.switched.as_ref().map_or(&[][..], |switched| &switched[..]));
         message
     }
 }
@@ -344,11 +359,13 @@ pub(super) fn encode(grant: &ReadingGrant, signature: &Signature) -> Vec<u8> {
         .map_or((&[][..], &[][..]), |names| (&names.token[..], &names.pool[..]));
     encode_field(&mut buf, token);
     encode_field(&mut buf, pool);
+    encode_field(&mut buf, grant.switched.as_ref().map_or(&[][..], |switched| &switched[..]));
     encode_field(&mut buf, signature.as_bytes());
     buf
 }
 
-/// The inverse of [`encode`], or `None` for anything that is not exactly eleven well-formed fields -
+/// The inverse of [`encode`], or `None` for anything that is not exactly twelve well-formed fields,
+/// and for a grant naming both a token and a principal -
 /// a decode failure is never a panic: a worker calls this on bytes a call presented, and a
 /// malformed presentation is refused the same way a merely wrong one is
 /// ([`WorkerRefusal::GrantNotNaming`]).
@@ -370,6 +387,13 @@ pub(super) fn decode(buf: &[u8]) -> Option<(ReadingGrant, Signature)> {
             pool: pool.try_into().ok()?,
         }),
     };
+    let switched = match decode_field(&mut rest)?.as_slice() {
+        [] => None,
+        switched => Some(<[u8; 32]>::try_from(switched).ok()?),
+    };
+    if forwarded.is_some() && switched.is_some() {
+        return None;
+    }
     let signature = decode_field(&mut rest)?;
     if !rest.is_empty() {
         return None;
@@ -383,6 +407,7 @@ pub(super) fn decode(buf: &[u8]) -> Option<(ReadingGrant, Signature)> {
         StreamBound { rows, bytes },
     );
     grant.forwarded = forwarded;
+    grant.switched = switched;
     Some((grant, Signature(signature)))
 }
 
@@ -423,4 +448,27 @@ pub(super) fn forwards(grant: &ReadingGrant, forwarded: Option<&Forwarded>) -> R
     } else {
         Err(WorkerRefusal::GrantNotNaming)
     }
+}
+
+/// Admits a task presenting `switched` under the already verified `grant` when the grant names
+/// exactly that principal and the principal's masked rendering is the grant's masked caller, or
+/// presenting none where it names none.
+pub(super) fn switches(grant: &ReadingGrant, switched: Option<&SwitchedPrincipal>) -> Result<(), WorkerRefusal> {
+    if grant.switched != switched.map(principal_digest) {
+        return Err(WorkerRefusal::GrantNotNaming);
+    }
+    let masked = switched.map(|switched| SubjectKey::parse(switched.name().as_str()).map(|key| MaskedCaller::of(&key)));
+    match masked {
+        None => Ok(()),
+        Some(Ok(masked)) if masked == grant.caller => Ok(()),
+        Some(_) => Err(WorkerRefusal::GrantNotNaming),
+    }
+}
+
+/// A SHA-256 digest of `switched`'s name, which a grant signs in place of the name.
+fn principal_digest(switched: &SwitchedPrincipal) -> [u8; 32] {
+    let hashed = digest::digest(&digest::SHA256, switched.name().as_str().as_bytes());
+    let mut bytes = [0; 32];
+    bytes.copy_from_slice(hashed.as_ref());
+    bytes
 }
