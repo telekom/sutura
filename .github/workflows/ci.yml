@@ -2609,7 +2609,8 @@ jobs:
   release-status:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # The release critical path allows 210 minutes; leave room for its queued jobs too.
+    timeout-minutes: 360
     permissions:
       contents: read
       actions: read
