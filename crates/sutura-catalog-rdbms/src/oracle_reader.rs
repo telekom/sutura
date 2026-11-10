@@ -116,7 +116,7 @@ impl OracleLogin {
 impl EncryptedOracleLogin {
     /// The independent legacy-password opt-in, after choosing an encrypted channel.
     #[must_use]
-    pub const fn allow_legacy_verifiers(self) -> Self {
+    pub fn allow_legacy_verifiers(self) -> Self {
         Self {
             allow_legacy_verifiers: true,
             ..self

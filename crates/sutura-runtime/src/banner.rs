@@ -10,8 +10,10 @@
 //! whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 //! the ones about what this service does *not* do.
 
+use sutura_config::sources::placement::{OracleChannel, OracleTransport};
 use sutura_config::sources::transport::TrustAnchors;
 use sutura_config::{Environment, InboundIdentity, Settings, SourcePlacement};
+use sutura_domain::model::SourceName;
 
 /// The name, in block letters.
 ///
@@ -274,22 +276,7 @@ fn announce_surface(settings: &Settings) {
             // Declared, as the one mode its driver is given - see `OracleChannel`.
             SourcePlacement::Oracle {
                 channel: Some(channel), ..
-            } => {
-                let mode = match channel.transport() {
-                    sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => {
-                        ("verified", Some(anchors.display().to_string()))
-                    }
-                    sutura_config::sources::placement::OracleTransport::NativeEncryption { acknowledged_because } => {
-                        tracing::warn!(source = %source, channel = "native-encryption", reason = %acknowledged_because,
-                            "Oracle native encryption uses unauthenticated DH; server identity is not verified; queries run as one shared user");
-                        ("native-encryption", None)
-                    }
-                };
-                if let Some(reason) = channel.legacy_password_verifier() {
-                    tracing::warn!(source = %source, reason = %reason, "Oracle legacy password verifiers enabled on the declared encrypted channel");
-                }
-                mode
-            }
+            } => announce_oracle_channel(source, channel),
             // Declared plaintext, in a build that links no Oracle adapter and refuses the source at open.
             SourcePlacement::Oracle { channel: None, .. } => ("plaintext", None),
         };
@@ -301,6 +288,21 @@ fn announce_surface(settings: &Settings) {
             "source channel"
         );
     }
+}
+
+fn announce_oracle_channel(source: &SourceName, channel: &OracleChannel) -> (&'static str, Option<String>) {
+    let mode = match channel.transport() {
+        OracleTransport::Verified { anchors, .. } => ("verified", Some(anchors.display().to_string())),
+        OracleTransport::NativeEncryption { acknowledged_because } => {
+            tracing::warn!(source = %source, channel = "native-encryption", reason = %acknowledged_because,
+                "Oracle native encryption uses unauthenticated DH; server identity is not verified; queries run as one shared user");
+            ("native-encryption", None)
+        }
+    };
+    if let Some(reason) = channel.legacy_password_verifier() {
+        tracing::warn!(source = %source, reason = %reason, "Oracle legacy password verifiers enabled on the declared encrypted channel");
+    }
+    mode
 }
 
 /// The one line an operator must not be able to miss, and it is now two lines because the answer
