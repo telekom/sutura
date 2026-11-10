@@ -441,6 +441,9 @@ TCP instead of `verified` over TCPS. This is for listeners that require Oracle N
 Encryption and Data Integrity and provide no TCPS endpoint. Both services are required, with a
 compiled allowlist of AES-256/192/128 and SHA-512/384/256; no operator setting enables a weaker
 algorithm or disables a service.
+The patched NNE protocol and authentication-key folding are required; a legacy integrity key
+schedule is refused even when the negotiated algorithm names are AES and SHA-2. A hardened server
+venue with `SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS = FALSE` must measure this boundary.
 
 This decision does **not** extend verified TLS's guarantee. NNE's unauthenticated Diffie-Hellman
 exchange proves neither endpoint's identity and permits an active attacker to establish separate

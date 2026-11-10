@@ -69,6 +69,10 @@ The native reason is separate from the shared-service-user posture's `acknowledg
 Native encryption accepts password authentication only; the built, unverified token path still
 requires `verified`.
 
+Native mode requires the patched NNE protocol, including authentication-key folding. The older
+protocol is refused even when it advertises AES and SHA-2. A pre-patch database can still use
+`verified` if it offers TCPS; native mode does not enable its obsolete integrity scheme.
+
 An account with only a 10G or 11G password verifier needs a second opt-in,
 `legacy_password_verifier: true`, and its own reason. Without it, the connection refuses the legacy
 verifier and names its type. An unknown verifier is always refused. A legacy login exposes material
