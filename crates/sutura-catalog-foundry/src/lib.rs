@@ -57,7 +57,7 @@ const SHOWN_CHARS: usize = 80;
 
 /// Where the ontology a [`FoundryCatalog`] decides over comes from.
 ///
-/// The fake seam: [`fixture::FixtureReader`] serves the recorded answers, and
+/// The fake seam: [`fixture::FixtureReader`] serves the synthetic answers, and
 /// [`http::HttpOntologyReader`] (behind the `http` feature) asks a running Foundry.
 pub trait OntologyReader {
     type Error: std::error::Error + Send + Sync + 'static;

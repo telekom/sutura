@@ -35,7 +35,7 @@ and these keys. It does not read `dir` or `data_dir`.
 | `foundry.client_credentials.client_secret_file` | path    | required with `client_id`     | A file that holds the client secret. sutura reads it once at startup.                                        |
 | `foundry.client_credentials.scopes`             | list    | none                          | The scopes to ask for, for example `api:ontologies-read`                                                     |
 | `foundry.client_credentials.token_path`         | string  | `/multipass/api/oauth2/token` | The path of the token endpoint on `endpoint`. A host is refused.                                             |
-| `deadline_seconds`                              | integer | `30`                          | One budget for all requests and token mints; `0` is refused.                                                |
+| `deadline_seconds`                              | integer | `30`                          | One budget for all requests and token mints; `0` is refused.                                                 |
 | `max_response_bytes`                            | integer | `8388608`                     | The size limit for one response. `0` is refused.                                                             |
 
 Write `token_file` or `foundry.client_credentials`, not both. With client credentials, sutura gets
