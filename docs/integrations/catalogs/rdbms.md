@@ -64,18 +64,36 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 | `connection.service_name`                                | string  | none                | Oracle: the service name. Required for Oracle                       |
 | `connection.user`                                        | string  | required            | The login of the catalog                                            |
 | `connection.password_file`                               | path    | required            | An absolute path to a file that holds the password                  |
-| `connection.transport_mode`                              | string  | required            | `plaintext`, `verified` or `mutual`. Oracle accepts `verified` only |
+| `connection.transport_mode`                              | string  | required            | PostgreSQL: `plaintext`, `verified` or `mutual`. Oracle: `verified` or the weaker `native-encryption` |
 | `connection.transport_anchors`                           | path    | none                | The CA file for `verified` and `mutual`                             |
 | `connection.client_certificate`, `connection.client_key` | path    | none                | The client identity for `mutual`                                    |
+| `connection.native_encryption_acknowledged_because` | string | none | Oracle only: required, nonblank reason for `native-encryption`; refused for other modes |
+| `connection.legacy_password_verifier` | boolean | `false` | Oracle only: permits 10G and 11G password logins over `verified` or `native-encryption` |
+| `connection.legacy_password_verifier_acknowledged_because` | string | none | Oracle only: required, nonblank reason when the legacy switch is `true`; refused otherwise |
 
 `sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
 
 `plaintext` needs a loopback IP address as `host`. `verified` and `mutual` need `host`, not
 `unix_socket`. A build with the `rdbms` feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the `oracle` feature. Oracle refuses `plaintext` for every host:
-write `verified` with `transport_anchors` naming a PEM file. Those certificates replace the public
+dictionary needs a build with the `oracle` feature. Oracle refuses `plaintext` for every host.
+For `verified`, write `transport_anchors` naming a PEM file. Those certificates replace the public
 authorities, `host` is the name TLS verifies, and sutura presents no client certificate. The Oracle
 reader refuses a listener that redirects the connection, before it logs in.
+
+Oracle's `native-encryption` uses TCP with required Oracle Native Network Encryption and Data
+Integrity, with only AES-256/192/128 and SHA-512/384/256. **It does not authenticate the listener:**
+the Diffie-Hellman exchange permits an active attacker to establish separate sessions with each
+endpoint. Prefer `verified` when TCPS is available. Native mode requires its own reason, refuses TLS
+anchors and client identity fields, and startup logs it at `WARN`. There is no automatic fallback
+or algorithm setting.
+
+The legacy-verifier switch is a separate decision with a separate reason and startup `WARN`.
+Without it, an Oracle account with only a 10G or 11G verifier is refused with its type named; an
+unknown verifier is always refused. Legacy login exchanges expose material for offline password
+guessing when visible, so this switch requires an encrypted transport. NNE's lack of authenticated
+peer identity still applies. These settings do not change the catalog identity: every read uses
+its declared dictionary login. See the [Oracle source](../data-systems/oracle.md#native-encryption-and-legacy-passwords)
+for the same transport guarantees and limits.
 
 ## Example
 
