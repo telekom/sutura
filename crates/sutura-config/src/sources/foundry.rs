@@ -71,7 +71,8 @@ pub(super) fn refuse_elsewhere(
 
 #[cfg(test)]
 mod tests {
-    use crate::settings::{Environment, Settings, Sources};
+    use crate::environment::Environment;
+    use crate::settings::{Settings, Sources};
     use crate::sources::SourcePlacement;
     use sutura_domain::model::SourceName;
 

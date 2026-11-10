@@ -354,8 +354,8 @@ where
         match error {
             FoundryError::Unannounced {
                 cause: UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. },
-            } => true,
-            FoundryError::Arrow {
+            }
+            | FoundryError::Arrow {
                 cause: arrow_schema::ArrowError::MemoryError(_),
             } => true,
             FoundryError::Endpoint { cause } => self.transport.result_did_not_fit(cause),
