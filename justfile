@@ -696,7 +696,7 @@ infra-preview *flags:
 
 # Offline resource declarations only; BigQuery enforces the live grants.
 infra-test *args:
-    pixi run -e infra python test-infra/pulumi/google/test_split.py {{args}}
+    pixi run --frozen -e infra python test-infra/pulumi/google/test_split.py {{args}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
