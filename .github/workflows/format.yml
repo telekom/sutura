@@ -137,6 +137,19 @@ jobs:
           set -euo pipefail
           nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings 2>&1 | tee /tmp/oracle-export/config-head-all.log
           nix run .#cargo -- test --locked -p sutura-config --no-default-features --test oracle_native_settings 2>&1 | tee /tmp/oracle-export/config-head-default.log
+          nix run .#cargo -- test --locked -p sutura-runtime --all-features --test oracle_transport 2>&1 | tee /tmp/oracle-export/runtime-head.log
+          oracle_source_root=$PWD
+          git worktree add --detach /tmp/oracle-config-mutant HEAD
+          git -C /tmp/oracle-config-mutant apply "$oracle_source_root/devco/claim-mutations/native_mode_cannot_carry_oracle_external_token_authentication.patch"
+          cd /tmp/oracle-config-mutant
+          set +e
+          nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings native_mode_cannot_carry_oracle_external_token_authentication -- --exact > /tmp/oracle-export/config-mutation.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/oracle-export/config-mutation.log
+          test "$status" -ne 0
+          grep -q 'test result: FAILED' /tmp/oracle-export/config-mutation.log
+          cd "$oracle_source_root"
           base=$(git merge-base HEAD origin/main)
           git worktree add --detach /tmp/oracle-config-base "$base"
           cp crates/sutura-config/tests/oracle_native_settings.rs /tmp/oracle-config-base/crates/sutura-config/tests/
