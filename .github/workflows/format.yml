@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, validate]
+        options: [text, format, lock-format, config, validate]
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ concurrency:
 jobs:
   oracle-export:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: rust-mcp-16core
+    runs-on: ${{ inputs.operation == 'text' && 'ubuntu-latest' || 'rust-mcp-16core' }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,8 +113,28 @@ jobs:
           nix run .#cargo -- fmt --manifest-path vendor/rust-oracledb/Cargo.toml
 
       - name: Format text with the pinned tools
-        if: inputs.operation != 'validate'
+        if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format'
         run: bash nix/format-text.sh fmt
+
+      - name: Measure config head and base
+        if: inputs.operation == 'config'
+        run: |
+          set -euo pipefail
+          nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings 2>&1 | tee /tmp/oracle-export/config-head-all.log
+          nix run .#cargo -- test --locked -p sutura-config --no-default-features --test oracle_native_settings 2>&1 | tee /tmp/oracle-export/config-head-default.log
+          base=$(git merge-base HEAD origin/main)
+          git worktree add --detach /tmp/oracle-config-base "$base"
+          cp crates/sutura-config/tests/oracle_native_settings.rs /tmp/oracle-config-base/crates/sutura-config/tests/
+          git -C /tmp/oracle-config-base add -N crates/sutura-config/tests/oracle_native_settings.rs
+          printf '%s\n' "$base" > /tmp/oracle-export/config-base-sha
+          cd /tmp/oracle-config-base
+          set +e
+          nix run .#cargo -- test --locked -p sutura-config --all-features --test oracle_native_settings > /tmp/oracle-export/config-base-all.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/oracle-export/config-base-all.log
+          test "$status" -ne 0
+          grep -q 'test result: FAILED' /tmp/oracle-export/config-base-all.log
 
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
