@@ -816,6 +816,30 @@ macro_rules! registered {
         use super::super::aggregate_shell::run_aggregator;
 
         #[test]
+        fn a_release_commit_skip_of_ci_is_green() {
+            // The release push: `chore(release):` skips `ci`, and the skip propagates to every
+            // leg that `needs: [ci]` - bigquery-acceptance included - so the belt is intentionally
+            // skipped together and a skipped `ci` reports no category outputs. This verdict was
+            // RED before the fix (the shell read `skipped` as a failure on the always-required
+            // base) and is the documented, valid release shape now.
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "skipped"),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+                ("EVENT", "push"),
+                ("PR_HEAD", ""),
+                ("REPO", "telekom/sutura"),
+            ]);
+            assert!(ok, "release-commit skip must aggregate GREEN, got: {text}");
+            assert!(
+                text.contains("ok - every category-gated leg green"),
+                "the aggregator should affirm the belt: {text}"
+            );
+        }
+
+        #[test]
         fn a_failed_release_workflow_keeps_main_red() {
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "skipped"),
