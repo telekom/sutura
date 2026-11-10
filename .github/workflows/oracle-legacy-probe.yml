@@ -57,6 +57,9 @@ jobs:
           name: oracle-native-probe
           path: target/oracle-native-probe
   oracle-legacy-probe:
+    concurrency:
+      group: oracle-legacy-probe-${{ github.ref }}
+      cancel-in-progress: false
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: rust-mcp-16core
     timeout-minutes: 25

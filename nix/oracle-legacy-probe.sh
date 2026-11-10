@@ -6,7 +6,7 @@ image=docker.io/gvenzl/oracle-xe:18.4.0-slim-faststart
 name="sutura-oracle-legacy-${GITHUB_RUN_ID:-$$}"
 out="$PWD/target/oracle-legacy-probe"
 mkdir -p "$out"
-password="$(openssl rand -hex 16)"
+password="$(openssl rand -hex 12)"
 echo "::add-mask::$password"
 export ORACLE_PASSWORD="$password"
 volumes=()
@@ -28,6 +28,10 @@ for _ in $(seq 1 180); do
   if docker exec "$name" healthcheck.sh >/dev/null 2>&1; then
     ready=true
     break
+  fi
+  if [ "$(docker inspect "$name" --format '{{.State.Running}}')" != true ]; then
+    echo 'Oracle XE exited before becoming healthy' >&2
+    exit 1
   fi
   sleep 5
 done
