@@ -25,7 +25,10 @@ def api(path, body=None):
     request = urllib.request.Request(
         base + path,
         data=None if body is None else json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
@@ -59,7 +62,11 @@ def run(query, destination=None):
     api(
         "/jobs",
         {
-            "jobReference": {"projectId": project, "jobId": job_id, "location": location},
+            "jobReference": {
+                "projectId": project,
+                "jobId": job_id,
+                "location": location,
+            },
             "configuration": {"query": config, "jobTimeoutMs": "600000"},
         },
     )
@@ -100,5 +107,7 @@ proof = run(
 counts = [int(field["v"]) for field in proof["rows"][0]["f"]]
 assert counts == [600000, 600000, 358, 358, 0], "live fixture shape differs from bound"
 print("fixture: 600000 rows, 600000 distinct, 358 bytes per id, zero nulls")
-print("fixture: shared and A-only IAM unchanged; A-only table unchanged; STRING NULLABLE")
+print(
+    "fixture: shared and A-only IAM unchanged; A-only table unchanged; STRING NULLABLE"
+)
 print("fixture: logical storage below 256 MiB; each query billed at most 1 GiB")

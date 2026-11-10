@@ -140,7 +140,9 @@ jobs:
           SUTURA_BQ_FIXTURE_TOKEN: ${{ secrets.SUTURA_BQ_FIXTURE_TOKEN }}
           SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
           SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
-        run: python3 -I .github/pr1801-seed.py
+        run: |
+          set -euo pipefail
+          python3 -I .github/pr1801-seed.py 2>&1 | tee "$RUNNER_TEMP/fixture-summary.txt"
 
       # The driver, built for this runner's own triple. It is a REAL artefact of this repository -
       # the same derivation `checks.adbc-driver-bigquery` realises - rather than a CDN download, so
@@ -266,7 +268,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bigquery-declared-principal-digest
-          path: ${{ runner.temp }}/leg-digest.txt
+          path: |
+            ${{ runner.temp }}/leg-digest.txt
+            ${{ runner.temp }}/fixture-summary.txt
           if-no-files-found: warn
           retention-days: 3
 
@@ -276,3 +280,4 @@ jobs:
           rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
           rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt" "$RUNNER_TEMP/inbound-a.txt" "$RUNNER_TEMP/inbound-b.txt"
           rm -f "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt"
+          rm -f "$RUNNER_TEMP/fixture-summary.txt"
