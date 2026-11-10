@@ -104,6 +104,9 @@ pr-title
 
 [advisory]
 
+# A release commit's tag workflow must publish before ci-aggregate can be green. Skipped on PRs.
+ci.yml:release-status
+
 # A red leg in this section does not block a merge, read on 2026-09-24, in the queue or out of it,
 # with no override and no bypass - nobody has to click anything. Present tense on purpose: see the
 # dated paragraph in the header for what a ruleset's representation does and does not say about

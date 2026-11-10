@@ -204,9 +204,8 @@ jobs:
     # expensive commit in the repository to re-run, because it moves the workspace version and
     # therefore crane's dependency derivation, so nothing in the build cache is reusable.
     #
-    # WHAT IS GIVEN UP: `main` gets no `ci` run for that commit. Its tree is the reviewed trunk
-    # plus a version number, and release.yml reruns the full gates from the tag - so what is
-    # skipped is an immediately duplicated cold build of the same release commit.
+    # The tag reruns the gates. `release-status` waits for that workflow and verifies publication;
+    # `ci-aggregate` requires its success on this push, so a failed release leaves main red.
     #
     # `head_commit` exists on `push` and on nothing else. A `pull_request` event reads the empty
     # string and runs, which is what stops this from silently withholding a REQUIRED check: a
@@ -2609,6 +2608,26 @@ jobs:
           set -eu
           nix run .#kind-smoke
 
+  release-status:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    # The release critical path allows 210 minutes; leave room for its queued jobs too.
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require publication and green release-tag workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: bash nix/wait-for-release.sh
+
   ci-aggregate:
     runs-on: ubuntu-latest
     needs: [
@@ -2629,6 +2648,7 @@ jobs:
       k3s-autoscaling,
       cross,
       queue-validated,
+      release-status,
     ]
     # Never category-skipped and never suppressed by an upstream failure: it reads the results.
     if: ${{ !cancelled() }}
@@ -2636,6 +2656,9 @@ jobs:
       - name: Aggregate the category-gated legs
         env:
           CI_RESULT: ${{ needs.ci.result }}
+          # Non-release events carry a synthetic success so the shell below stays pure Bash;
+          # release pushes retain the tag workflow's result.
+          RELEASE_RESULT: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success' }}
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity == 'true' && needs.queue-validated.outputs.keycloak_served_test != 'true' }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
@@ -2668,6 +2691,9 @@ jobs:
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
+          if [ "$RELEASE_RESULT" != "success" ]; then
+            fail "release workflow did not publish this release: '$RELEASE_RESULT'"
+          fi
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one
           # situation: the release commit, whose `chore(release):` message skips the whole belt
           # below `ci` (see `ci`'s own `if:`, top of the file) - `bigquery-driver-check` included,
@@ -2680,7 +2706,8 @@ jobs:
           # reads `needs.ci.outputs.identity`, and a SKIPPED `ci` publishes no outputs at all, so
           # that renders `''` rather than `true` - the check below places no requirement on
           # `KC_RESULT` regardless of what `identity-classify` decided about the same diff. Every
-          # other non-`success` `ci` is a real failure, and the checks below are untouched: a
+          # other non-`success` `ci` is a real failure. `release-status` above independently
+          # requires publication on that skipped release commit. The checks below are untouched: a
           # selected-but-skipped leg still fails, whatever `ci` reported.
           if [ "$CI_RESULT" != "success" ] && [ "$CI_RESULT" != "skipped" ]; then
             fail "ci reported '$CI_RESULT'"

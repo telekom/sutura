@@ -39,10 +39,11 @@
   #
   # `--release` rather than `--profile release` for that one profile, matching what crane's helper
   # does, so a build log reads the same either way.
+  # Cargo's native precursor records compilation units. The metadata fallback unifies workspace
+  # and dev features, so it can name a dependency this binary never builds. Both flags are needed.
   buildCommand = profile:
-    if profile == "release"
-    then "cargo auditable build --release"
-    else "cargo auditable build --profile ${profile}";
+    "CARGO_BUILD_SBOM=true cargo auditable build -Z sbom "
+    + (if profile == "release" then "--release" else "--profile ${profile}");
 
   # ON THE FINAL BUILD ONLY, never on the args that feed `buildDepsOnly`. Two reasons, and the
   # second is the expensive one to get wrong.
