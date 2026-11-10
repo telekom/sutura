@@ -135,9 +135,9 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
 
 fn protected_queries(deployment: &Served) {
     let mut expected: Vec<_> = (1..=128)
-        .map(|id| serde_json::json!(["2026-06-01", format!("{id:x>2000}"), id.to_string()]))
+        .map(|id| serde_json::json!([format!("{id:x>2000}"), "2026-06-01", id.to_string()]))
         .collect();
-    expected.sort_by(|left, right| left[1].as_str().cmp(&right[1].as_str()));
+    expected.sort_by(|left, right| left[0].as_str().cmp(&right[0].as_str()));
     for _ in 0..2 {
         let reply = deployment.post(
             &v1(sutura_http::constants::base_paths::QUERY),
