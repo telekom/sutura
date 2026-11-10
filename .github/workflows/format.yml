@@ -88,7 +88,7 @@ jobs:
               INSTA_UPDATE = "always";
               checkPhase = builtins.replaceStrings
                 [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"package(sutura-app) & test(/golden/)\"" ]
+                [ "--workspace --all-features -E \"package(sutura-app) & binary(=golden)\"" ]
                 old.checkPhase;
               postInstall = (old.postInstall or "") + "\ncp crates/sutura-app/tests/snapshots/*@foundry.snap $out/\n";
             })
