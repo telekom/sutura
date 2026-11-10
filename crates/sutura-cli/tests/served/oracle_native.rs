@@ -21,6 +21,7 @@ struct Tier {
     channel: String,
 }
 
+#[derive(Clone, Copy)]
 enum FixtureSource {
     Oracle,
     Files,
