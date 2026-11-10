@@ -44,6 +44,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  foundry-lock:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: d4afd5961
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+
+      - name: Regenerate the workspace lock with the pinned toolchain
+        run: |
+          set -euo pipefail
+          nix run .#cargo -- update --workspace
+          git diff --numstat -- Cargo.lock
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foundry-workspace-lock-v0121
+          path: Cargo.lock
+          if-no-files-found: error
+
+      - uses: ./.github/actions/nix-store-cache-report
+        if: always()
+
   format:
     runs-on: ubuntu-latest
     timeout-minutes: 20
