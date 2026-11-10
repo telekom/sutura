@@ -79,12 +79,7 @@ jobs:
           scope: ci
 
       - name: Run the exact-head validation gate
-        run: |
-          set -euo pipefail
-          betterleaks="$(nix eval --raw .#apps.x86_64-linux.betterleaks.program)"
-          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command env \
-            "BETTERLEAKS_BIN=$(dirname "$betterleaks")" \
-            bash -c 'PATH="$BETTERLEAKS_BIN:$PATH"; just validate'
+        run: nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate
 
       - name: Run the committed-diff ship check
         run: |
