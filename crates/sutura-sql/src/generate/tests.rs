@@ -254,8 +254,10 @@ fn every_order_by_states_nulls_last() {
         assert!(sql.contains("ORDER BY"), "{dialect}: {sql}");
         match dialect {
             // BigQuery's default puts nulls first; DuckDB's null ordering is no longer treated
-            // as fixed by the layer. Both need the keyword to agree with the AST.
-            Dialect::BigQuery | Dialect::DuckDb => assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}"),
+            // as fixed by the layer. Foundry uses Spark's nulls-first default too.
+            Dialect::BigQuery | Dialect::DuckDb | Dialect::Foundry => {
+                assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}");
+            }
             // `NULLS LAST` is still these dialects' own fixed default for an ascending sort, so
             // the layer collapses it away. The placement is still stated in the AST
             // (`ordered_nulls_last`) and this arm confirms the collapse is the layer's doing
@@ -552,7 +554,7 @@ fn a_compound_key_probe_renders_only_where_a_null_safe_tuple_distinct_exists() {
             );
             continue;
         }
-        if dialect == Dialect::BigQuery {
+        if matches!(dialect, Dialect::BigQuery | Dialect::Foundry) {
             assert!(
                 matches!(outcome, Err(GenerateError::CompoundKeyProbeUnsupported { dialect: refused }) if refused == dialect),
                 "{dialect} must refuse a compound probe by name, not render one: {outcome:?}"
@@ -840,4 +842,21 @@ fn polyglot_renders_an_oracle_limit_as_fetch_first() {
         .expect("a limited select renders for Oracle");
     assert!(sql.ends_with("FETCH FIRST 7 ROWS ONLY"), "Oracle takes FETCH FIRST:\n{sql}");
     assert!(!sql.contains("LIMIT"), "Oracle refuses LIMIT:\n{sql}");
+}
+
+#[test]
+fn foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets() {
+    let dialect = Dialect::parse("foundry").expect("Foundry is a rendering target");
+    let plan = month_plan();
+    let query = generate(&plan, dialect).expect("an ontology query renders");
+    let sql = query.sql();
+    assert!(sql.contains("DATE_TRUNC('month', `orders`.`order_date`)"), "{sql}");
+    assert!(sql.contains("CAST("), "{sql}");
+    assert!(sql.contains(" AS DATE)"), "{sql}");
+    assert!(sql.contains("NULLS LAST"), "{sql}");
+    assert_eq!(sql.matches('?').count(), query.params().len(), "{sql}");
+    assert_eq!(query.params(), plan.params());
+    assert!(!sql.contains("2026-06-01"), "{sql}");
+    assert!(!sql.contains("2026-07-01"), "{sql}");
+    assert!(polyglot_sql::parse(sql, super::dialect_type(dialect)).is_ok(), "{sql}");
 }

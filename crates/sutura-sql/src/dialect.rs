@@ -73,13 +73,15 @@ with_all! {
         ClickHouse,
         BigQuery,
         Oracle,
+        // Preview Ontology SQL uses Spark syntax; no tenant execution is claimed.
+        Foundry,
     }
 }
 
 /// How a bind parameter is written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaceholderStyle {
-    /// `?`, positional by order of appearance. `DuckDB`, `ClickHouse` and `BigQuery`.
+    /// `?`, positional by order of appearance. `DuckDB`, `ClickHouse`, `BigQuery` and Foundry.
     Question,
     /// `$1`, `$2`, numbered from one. Postgres.
     ///
@@ -103,7 +105,7 @@ pub enum PlaceholderStyle {
 pub enum IdentifierQuote {
     /// `"name"`. `DuckDB`, Postgres, `ClickHouse` and Oracle.
     Double,
-    /// `` `name` ``. `BigQuery`.
+    /// `` `name` ``. `BigQuery` and Foundry Ontology SQL.
     ///
     /// **The asymmetry that makes this worth a type, and this is the wrong-NUMBER risk on this
     /// dialect.** For the other four a double quote is an identifier quote and a backtick is a
@@ -206,6 +208,7 @@ impl Dialect {
             Self::ClickHouse => "clickhouse",
             Self::BigQuery => "bigquery",
             Self::Oracle => "oracle",
+            Self::Foundry => "foundry",
         }
     }
 
@@ -232,9 +235,9 @@ impl Dialect {
     #[inline]
     pub const fn placeholder_style(self) -> PlaceholderStyle {
         match self {
-            // All three accept positional `?`. `ClickHouse` also has a named form, and the driver
+            // All four accept positional `?`. `ClickHouse` also has a named form, and the driver
             // decides which it wants; `?` is the one every driver we have accepts.
-            Self::DuckDb | Self::ClickHouse | Self::BigQuery => PlaceholderStyle::Question,
+            Self::DuckDb | Self::ClickHouse | Self::BigQuery | Self::Foundry => PlaceholderStyle::Question,
             Self::Postgres => PlaceholderStyle::Numbered,
             Self::Oracle => PlaceholderStyle::Colon,
         }
@@ -249,7 +252,7 @@ impl Dialect {
     pub const fn identifier_quote(self) -> IdentifierQuote {
         match self {
             Self::DuckDb | Self::Postgres | Self::ClickHouse | Self::Oracle => IdentifierQuote::Double,
-            Self::BigQuery => IdentifierQuote::Backtick,
+            Self::BigQuery | Self::Foundry => IdentifierQuote::Backtick,
         }
     }
 
@@ -261,7 +264,7 @@ impl Dialect {
     #[must_use]
     pub const fn date_trunc_shape(self) -> DateTruncShape {
         match self {
-            Self::DuckDb | Self::Postgres | Self::ClickHouse => DateTruncShape::GrainFirstAsLiteral,
+            Self::DuckDb | Self::Postgres | Self::ClickHouse | Self::Foundry => DateTruncShape::GrainFirstAsLiteral,
             Self::BigQuery => DateTruncShape::DateFirstAsKeyword,
             Self::Oracle => DateTruncShape::DateFirstAsQuotedFormat,
         }
@@ -316,7 +319,8 @@ impl Dialect {
     pub const fn qualification(self) -> Qualification {
         match self {
             Self::DuckDb => Qualification::TableOnly,
-            Self::Postgres | Self::ClickHouse | Self::Oracle => Qualification::Dataset,
+            // Foundry accepts ontology API name + object type API name.
+            Self::Postgres | Self::ClickHouse | Self::Oracle | Self::Foundry => Qualification::Dataset,
             Self::BigQuery => Qualification::ProjectAndDataset,
         }
     }
@@ -377,7 +381,7 @@ impl Dialect {
     pub const fn identifier_case(self) -> IdentifierCase {
         match self {
             Self::Postgres | Self::ClickHouse => IdentifierCase::Sensitive,
-            Self::DuckDb | Self::BigQuery | Self::Oracle => IdentifierCase::InsensitiveAscii,
+            Self::DuckDb | Self::BigQuery | Self::Oracle | Self::Foundry => IdentifierCase::InsensitiveAscii,
         }
     }
 }
