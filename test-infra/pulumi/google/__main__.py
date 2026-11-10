@@ -533,7 +533,7 @@ for fixture, row_count, readers, output in (
         opts=pulumi.ResourceOptions(provider=gcp_provider),
     )
     # The projected id must be wide: the driver partitions the query result, not the source table.
-    # 600,000 distinct 358-byte ids plus Arrow offsets occupy about 217 MB, below its 256 MiB bound.
+    # Its byte guard charges Arrow twice plus the row/cell structures, not only the ID bytes.
     statement = (
         Path(__file__).with_name("split-shared.sql").read_text(encoding="utf-8")
         if fixture == "shared"

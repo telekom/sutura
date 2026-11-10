@@ -105,8 +105,8 @@ proof = run(
     f"MAX(BYTE_LENGTH(id)), COUNTIF(id IS NULL) FROM `{shared}`"
 )
 counts = [int(field["v"]) for field in proof["rows"][0]["f"]]
-assert counts == [600000, 600000, 358, 358, 0], "live fixture shape differs from bound"
-print("fixture: 600000 rows, 600000 distinct, 358 bytes per id, zero nulls")
+assert counts == [600000, 600000, 158, 158, 0], "live fixture shape differs from bound"
+print("fixture: 600000 rows, 600000 distinct, 158 bytes per id, zero nulls")
 print(
     "fixture: shared and A-only IAM unchanged; A-only table unchanged; STRING NULLABLE"
 )
