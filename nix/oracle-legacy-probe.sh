@@ -78,6 +78,7 @@ EXIT
 SQL
   export SUTURA_ORACLE_ACCEPTANCE_MODE=verified
   export SUTURA_ORACLE_ACCEPTANCE_CA="$PWD/target/oracle-tier-tls/ca.pem"
-  export SUTURA_ORACLE_ACCEPTANCE_PORT="$(docker port "$name" 2484/tcp | sed 's/.*://')"
+  SUTURA_ORACLE_ACCEPTANCE_PORT="$(docker port "$name" 2484/tcp | sed 's/.*://')"
+  export SUTURA_ORACLE_ACCEPTANCE_PORT
   bash nix/oracle-login-fixtures.sh "$name" XEPDB1 10G
 fi
