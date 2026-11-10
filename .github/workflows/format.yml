@@ -44,13 +44,13 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, config, vectors, validate]
+        options: [text, format, lock-format, config, vectors, native, validate]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.operation }}-${{ inputs.source_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -185,6 +185,10 @@ jobs:
           cat /tmp/oracle-export/config-base-all.log
           test "$status" -ne 0
           grep -q 'test result: FAILED' /tmp/oracle-export/config-base-all.log
+
+      - name: Run hosted native and legacy product acceptance
+        if: inputs.operation == 'native'
+        run: nix run .#oracle-native-acceptance
 
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
