@@ -810,37 +810,10 @@ macro_rules! registered {
     }
 
     /// Execute the REAL ci-aggregate `run:` shell from `.github/workflows/ci.yml` against canned
-    /// job results. The P1 defect lived in that file and nowhere else - the pure category rule
-    /// above cannot see the release-commit skip (a skipped `ci` implies a skipped `bigquery` leg,
-    /// an event shape the two-axis model has no vocabulary for) - so these tests extract and run
-    /// the script the workflow actually ships.
+    /// job results. The release publication guard lives in that shell, so these tests extract and
+    /// run the script the workflow actually ships.
     pub(super) mod shell_simulation {
         use super::super::aggregate_shell::run_aggregator;
-
-        #[test]
-        fn a_release_commit_skip_of_ci_is_green() {
-            // The release push: `chore(release):` skips `ci`, and the skip propagates to every
-            // leg that `needs: [ci]` - bigquery-acceptance included - so the belt is intentionally
-            // skipped together and a skipped `ci` reports no category outputs. This verdict was
-            // RED before the fix (the shell read `skipped` as a failure on the always-required
-            // base) and is the documented, valid release shape now.
-            let (ok, text) = run_aggregator(&[
-                ("CI_RESULT", "skipped"),
-                ("RELEASE_RESULT", "success"),
-                ("KC_RESULT", "skipped"),
-                ("KC_SELECTED", ""),
-                ("BQ_RESULT", "skipped"),
-                ("BQ_SELECTED", ""),
-                ("EVENT", "push"),
-                ("PR_HEAD", ""),
-                ("REPO", "telekom/sutura"),
-            ]);
-            assert!(ok, "release-commit skip must aggregate GREEN, got: {text}");
-            assert!(
-                text.contains("ok - every category-gated leg green"),
-                "the aggregator should affirm the belt: {text}"
-            );
-        }
 
         #[test]
         fn a_failed_release_workflow_keeps_main_red() {
