@@ -4460,6 +4460,7 @@ dependencies = [
  "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
+ "sutura-catalog-foundry",
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openapi",
@@ -4528,6 +4529,19 @@ dependencies = [
  "sutura-domain",
  "sutura-http-client",
  "sutura-semantic",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
+name = "sutura-catalog-foundry"
+version = "0.12.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "sutura-http-client",
  "sutura-tls",
  "thiserror 2.0.21",
  "ureq",
@@ -4638,6 +4652,7 @@ dependencies = [
  "sutura-catalog-cube",
  "sutura-catalog-datacontract",
  "sutura-catalog-datahub",
+ "sutura-catalog-foundry",
  "sutura-catalog-local",
  "sutura-catalog-okf",
  "sutura-catalog-openapi",
@@ -4652,6 +4667,7 @@ dependencies = [
  "sutura-exec-cube",
  "sutura-exec-datafusion",
  "sutura-exec-duckdb",
+ "sutura-exec-foundry",
  "sutura-exec-node",
  "sutura-exec-oracle",
  "sutura-exec-postgres",
@@ -4829,6 +4845,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-exec-foundry"
+version = "0.12.0"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-ipc",
+ "arrow-schema",
+ "serde",
+ "serde_json",
+ "sutura-domain",
+ "sutura-http-client",
+ "sutura-sql",
+ "sutura-tls",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
 name = "sutura-exec-node"
 version = "0.12.0"
 dependencies = [
@@ -4957,6 +4991,7 @@ name = "sutura-http-client"
 version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
+ "parking_lot 0.13.0",
  "rcgen",
  "rustls",
  "serde",
