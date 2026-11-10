@@ -136,7 +136,7 @@ impl Reach {
 /// reverting one of these in a tree whose test files are held at HEAD produces a tree that cannot
 /// build - a dependency this branch added would be gone while the test needing it stays. Anything
 /// else non-Rust is data, and reverting data is the fix in this module's header.
-fn is_build_input(path: &str) -> bool {
+pub(super) fn is_build_input(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     matches!(name, "Cargo.toml" | "Cargo.lock" | "rust-toolchain.toml")
         || path.starts_with(".cargo/")
