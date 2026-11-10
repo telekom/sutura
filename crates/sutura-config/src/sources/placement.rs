@@ -579,6 +579,19 @@ pub enum SourcePlacement {
         /// hop's token, for the node's audience, is the bearer of every leg.
         delegation: Vec<crate::sources::workload_identity::DelegationDeclared>,
     },
+    /// A Foundry ontology SQL endpoint, reached over its synchronous Arrow API.
+    ///
+    /// The source carries a deployment token and an ontology identifier. The endpoint is parsed
+    /// by the HTTP adapter at the composition root, where the shared outbound TLS declaration is
+    /// available; keeping the raw endpoint here preserves the config crate's adapter boundary.
+    Foundry {
+        /// The Foundry origin, without an API path.
+        endpoint: String,
+        /// The ontology API name or resource identifier sent in the request body.
+        ontology: String,
+        /// The deployment token read once at boot.
+        token_file: PathBuf,
+    },
 }
 
 impl SourcePlacement {
@@ -599,6 +612,7 @@ impl SourcePlacement {
             Self::Cube { .. } => SourceKind::Cube,
             Self::Duckdb { .. } => SourceKind::Duckdb,
             Self::Node { .. } => SourceKind::Node,
+            Self::Foundry { .. } => SourceKind::Foundry,
         }
     }
 }

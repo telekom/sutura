@@ -104,6 +104,9 @@ mod cube;
 /// The ONE DuckDB composition, reached by both composition roots below - `oracle`'s shape.
 #[cfg(feature = "duckdb")]
 mod duckdb;
+/// The EXPERIMENTAL Foundry source composition, shared by `serve` and `query`/`mcp`.
+#[cfg(feature = "foundry")]
+mod foundry;
 mod import;
 mod mcp;
 /// The EXPERIMENTAL `openapi` catalog composition, reached through `crate::catalog`.

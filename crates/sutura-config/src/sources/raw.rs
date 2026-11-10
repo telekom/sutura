@@ -7,6 +7,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) data_dir: Option<&'raw str>,
     pub(crate) billing_project: Option<&'raw str>,
     pub(crate) dataset: Option<&'raw str>,
+    pub(crate) ontology: Option<&'raw str>,
     pub(crate) max_bytes_billed: Option<u64>,
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,
