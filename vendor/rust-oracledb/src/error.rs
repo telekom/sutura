@@ -33,6 +33,7 @@ use std::fmt;
 use std::io;
 use std::str;
 
+use crate::constants;
 use crate::db_type::DbType;
 use crate::response::DbError;
 use crate::response::ResponseLocation;
@@ -90,6 +91,7 @@ pub enum ErrorKind {
     OutOfRange(String),
     PacketTooShort(usize),
     ParseError(String, usize),
+    PasswordVerifierRefused(u32),
     PemFileOperation,
     PoolHasBusyConnections,
     PoolIncrementZero,
@@ -399,6 +401,21 @@ impl fmt::Display for Error {
             }
             ErrorKind::OperationOnlySupportedOnBfile => {
                 fmt.write_str("operation is only supported on BFILE LOBs")?
+            }
+            ErrorKind::PasswordVerifierRefused(verifier_type) => {
+                match legacy_verifier_name(*verifier_type) {
+                    Some(name) => write!(
+                        fmt,
+                        "password verifier type 0x{verifier_type:x} \
+                         ({name}) is refused: legacy password verifiers \
+                         are not allowed"
+                    )?,
+                    None => write!(
+                        fmt,
+                        "password verifier type 0x{verifier_type:x} is \
+                         refused: the driver does not support it"
+                    )?,
+                }
             }
             ErrorKind::PemFileOperation => {
                 fmt.write_str("PEM file read operation failed")?
@@ -843,6 +860,12 @@ impl Error {
         Error::new(ErrorKind::PacketTooShort(length), None)
     }
 
+    /// Creates an error for a password verifier type the server asked for
+    /// that the driver does not support or the configuration does not allow.
+    pub(crate) fn password_verifier_refused(verifier_type: u32) -> Error {
+        Error::new(ErrorKind::PasswordVerifierRefused(verifier_type), None)
+    }
+
     pub(crate) fn parse_error(s: String, p: usize) -> Error {
         Error::new(ErrorKind::ParseError(s, p), None)
     }
@@ -1027,5 +1050,17 @@ impl Error {
     /// Returns the kind of error.
     pub fn kind(&self) -> &ErrorKind {
         &self.0.kind
+    }
+}
+
+/// Returns the name of a legacy password verifier type, or None for a type
+/// the driver does not know.
+fn legacy_verifier_name(verifier_type: u32) -> Option<&'static str> {
+    match verifier_type {
+        constants::VERIFIER_TYPE_10G => Some("10G"),
+        constants::VERIFIER_TYPE_11G_1 | constants::VERIFIER_TYPE_11G_2 => {
+            Some("11G")
+        }
+        _ => None,
     }
 }

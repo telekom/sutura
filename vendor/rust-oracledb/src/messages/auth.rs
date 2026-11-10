@@ -29,6 +29,35 @@
 // This is the fourth (and fifth) messages sent to the database while
 // establishing a connection and can be combined with the protocol and data
 // types messages when fast authentication is available.
+//
+// The 10G password verifier (des_verifier) and the 16 byte combo key of a
+// 10G login are a port, not a copy, of getKeyFromUserNameAndPassword and
+// generatePasswordEncKey in v2/auth_object.go of
+// github.com/sijms/go-ora at commit
+// 62f8a42fe821414cec8fcacb1b877dfef836f798, which carries this notice:
+//
+// MIT License
+//
+// Copyright (c) 2020 Samy Sultan
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
 // -----------------------------------------------------------------------------
 
 use aes::cipher::block_padding::NoPadding;
@@ -45,9 +74,6 @@ use crate::ora_version::OracleVersion;
 use crate::response::Response;
 use crate::write_buffer::WriteBuffer;
 
-type Aes256CbcDec = cbc::Decryptor<aes::Aes256>;
-type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
-
 // The most PBKDF2 iterations the driver runs for a count the database sends
 // in AUTH_PBKDF2_VGEN_COUNT or AUTH_PBKDF2_SDER_COUNT. Oracle does not document
 // a range for these counts. The OWASP Password Storage Cheat Sheet
@@ -55,6 +81,9 @@ type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
 // recommends 220,000 iterations for PBKDF2-HMAC-SHA512; the cap is nearly five
 // times that, and bounds the work one login can ask the client to do.
 const MAX_PBKDF2_ITERATIONS: u32 = 1 << 20;
+
+// The DES key of the first pass of the 10G password verifier.
+const DES_10G_KEY: [u8; 8] = [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef];
 
 struct Pair {
     key: String,
@@ -68,23 +97,173 @@ impl Pair {
     }
 }
 
-fn decrypt_cbc(
-    key: &[u8; 32],
-    encrypted_text: &[u8],
-    plain_text: &mut [u8],
-) -> Result<(), Error> {
-    let iv = [0u8; 16];
-    Aes256CbcDec::new(key.into(), &iv.into())
-        .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
-        .map_err(|_| Error::invalid_auth_response("AUTH_SESSKEY"))?;
-    Ok(())
+/// The password verifier the database asks a login to use, named by the
+/// flags of the AUTH_VFR_DATA pair it sends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verifier {
+    /// 0x939: DES over the user name and the password.
+    Legacy10g,
+    /// 0xb152 or 0x1b25: SHA-1 over the password and a salt.
+    Legacy11g,
+    /// 0x4815: PBKDF2 with SHA-512 over the password and a salt.
+    Pbkdf2,
 }
 
-fn encrypt_cbc(key: &[u8; 32], plain_text: &[u8], encrypted_text: &mut [u8]) {
-    let iv = [0u8; 16];
-    Aes256CbcEnc::new(key.into(), &iv.into())
-        .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
-        .unwrap();
+impl Verifier {
+    /// Returns the verifier the flags name. A type the driver does not know,
+    /// or a 10G or 11G type when legacy verifiers are not allowed, is
+    /// ErrorKind::PasswordVerifierRefused naming the type.
+    fn from_flags(flags: u32, allow_legacy: bool) -> Result<Verifier, Error> {
+        let verifier = match flags {
+            constants::VERIFIER_TYPE_12C => return Ok(Verifier::Pbkdf2),
+            constants::VERIFIER_TYPE_11G_1 | constants::VERIFIER_TYPE_11G_2 => {
+                Verifier::Legacy11g
+            }
+            constants::VERIFIER_TYPE_10G => Verifier::Legacy10g,
+            _ => return Err(Error::password_verifier_refused(flags)),
+        };
+        if allow_legacy {
+            Ok(verifier)
+        } else {
+            Err(Error::password_verifier_refused(flags))
+        }
+    }
+
+    /// Returns how the combo key is derived, chosen by the negotiated logon
+    /// mode and the verifier. When the server negotiated custom hashing - it
+    /// sends AUTH_PBKDF2_CSK_SALT and AUTH_PBKDF2_SDER_COUNT - every verifier
+    /// derives the combo key with PBKDF2 (10G 16 bytes, 11G 24 bytes, 12C
+    /// 32 bytes). Without custom hashing a 10G login MD5s bytes 16 to 32 of
+    /// the two session keys and an 11G login with 48 byte session keys MD5s
+    /// bytes 16 to 40. A 12C verifier is always a PBKDF2 verifier, so its
+    /// login derives the combo key with PBKDF2 whatever the custom-hash
+    /// signal; this lets the per-field validation name which PBKDF2 field of
+    /// a malformed session is missing. Any other session key length is an
+    /// error.
+    fn combo_key_derivation(
+        self,
+        session_key_len: usize,
+        custom_hash: bool,
+    ) -> Result<ComboKeyDerivation, Error> {
+        match (self, custom_hash) {
+            // A 12C verifier is always PBKDF2, independently of the
+            // custom-hash signal, so a malformed 12C session names the
+            // per-field error. The session key length is validated here so a
+            // malformed AUTH_SESSKEY names itself before the PBKDF2 reads.
+            (Verifier::Pbkdf2, _) => match session_key_len {
+                32 | 48 => Ok(ComboKeyDerivation::Pbkdf2),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+            // Custom-hash mode (the server sent AUTH_PBKDF2_CSK_SALT and
+            // AUTH_PBKDF2_SDER_COUNT): a legacy 10G or 11G login derives the
+            // combo key with PBKDF2 too. The session key length is validated
+            // here so a malformed AUTH_SESSKEY names itself.
+            (_, true) => match session_key_len {
+                32 | 48 => Ok(ComboKeyDerivation::Pbkdf2),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+            // Without custom hashing a 10G login MD5s bytes 16 to 32 of the
+            // two session keys and an 11G login with 48 byte session keys MD5s
+            // bytes 16 to 40. Any other session key length is an error.
+            (Verifier::Legacy10g, false) => match session_key_len {
+                32 | 48 => Ok(ComboKeyDerivation::Md5),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+            (Verifier::Legacy11g, false) => match session_key_len {
+                48 => Ok(ComboKeyDerivation::Md5),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+        }
+    }
+}
+
+/// How the combo key of a login is derived from its two session keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ComboKeyDerivation {
+    Pbkdf2,
+    Md5,
+}
+
+/// An AES key of a login: the password hash the session keys are encrypted
+/// with, or the combo key the passwords are encrypted with. Its length
+/// follows the verifier: 16 bytes for 10G, 24 bytes for 11G and 32 bytes for
+/// 12C. Both encrypt in CBC mode with a zero IV and no padding.
+#[derive(Clone, Copy)]
+pub(crate) enum LoginKey {
+    Aes128([u8; 16]),
+    Aes192([u8; 24]),
+    Aes256([u8; 32]),
+}
+
+impl LoginKey {
+    /// Returns a key of zeros of the length the verifier uses.
+    fn zeroed(verifier: Verifier) -> LoginKey {
+        match verifier {
+            Verifier::Legacy10g => LoginKey::Aes128([0; 16]),
+            Verifier::Legacy11g => LoginKey::Aes192([0; 24]),
+            Verifier::Pbkdf2 => LoginKey::Aes256([0; 32]),
+        }
+    }
+
+    fn as_mut_bytes(&mut self) -> &mut [u8] {
+        match self {
+            LoginKey::Aes128(key) => key,
+            LoginKey::Aes192(key) => key,
+            LoginKey::Aes256(key) => key,
+        }
+    }
+
+    /// Decrypts a value the database sent. A value that is not whole blocks,
+    /// or longer than the output, is an error naming AUTH_SESSKEY, the one
+    /// value decrypted.
+    fn decrypt(
+        &self,
+        encrypted_text: &[u8],
+        plain_text: &mut [u8],
+    ) -> Result<(), Error> {
+        let iv = [0u8; 16];
+        let result = match self {
+            LoginKey::Aes128(key) => {
+                cbc::Decryptor::<aes::Aes128>::new(key.into(), &iv.into())
+                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .map(|_| ())
+            }
+            LoginKey::Aes192(key) => {
+                cbc::Decryptor::<aes::Aes192>::new(key.into(), &iv.into())
+                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .map(|_| ())
+            }
+            LoginKey::Aes256(key) => {
+                cbc::Decryptor::<aes::Aes256>::new(key.into(), &iv.into())
+                    .decrypt_padded_b2b::<NoPadding>(encrypted_text, plain_text)
+                    .map(|_| ())
+            }
+        };
+        result.map_err(|_| Error::invalid_auth_response("AUTH_SESSKEY"))
+    }
+
+    /// Encrypts a value the driver built in whole blocks into an output of
+    /// the same length.
+    fn encrypt(&self, plain_text: &[u8], encrypted_text: &mut [u8]) {
+        let iv = [0u8; 16];
+        match self {
+            LoginKey::Aes128(key) => {
+                cbc::Encryptor::<aes::Aes128>::new(key.into(), &iv.into())
+                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .unwrap();
+            }
+            LoginKey::Aes192(key) => {
+                cbc::Encryptor::<aes::Aes192>::new(key.into(), &iv.into())
+                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .unwrap();
+            }
+            LoginKey::Aes256(key) => {
+                cbc::Encryptor::<aes::Aes256>::new(key.into(), &iv.into())
+                    .encrypt_padded_b2b::<NoPadding>(plain_text, encrypted_text)
+                    .unwrap();
+            }
+        }
+    }
 }
 
 fn get_derived_key(
@@ -96,12 +275,153 @@ fn get_derived_key(
     pbkdf2::pbkdf2_hmac::<sha2::Sha512>(key, salt, iterations, derived_key);
 }
 
+/// Returns the last block of DES in CBC mode, with a zero IV, over text of
+/// whole blocks.
+fn des_cbc_last_block(key: &[u8; 8], text: &[u8]) -> [u8; 8] {
+    let iv = [0u8; 8];
+    let mut encrypted_text = vec![0u8; text.len()];
+    cbc::Encryptor::<des::Des>::new(key.into(), &iv.into())
+        .encrypt_padded_b2b::<NoPadding>(text, &mut encrypted_text)
+        .unwrap();
+    let mut last_block = [0u8; 8];
+    if let Some(block) = encrypted_text.rchunks_exact(8).next() {
+        last_block.copy_from_slice(block);
+    }
+    last_block
+}
+
+/// Returns the 10G password verifier of a user name and a password: their
+/// upper-cased text in UTF-16 (big-endian), padded with zeros to whole DES
+/// blocks, run through DES in CBC mode under a fixed key, then again under
+/// the last block of that first pass. The last block of the second pass is
+/// the verifier.
+///
+/// The UTF-16 (big-endian) encoding is verified only by the ASCII known-answer
+/// vectors below; non-ASCII legacy-credential encoding is unverified against a
+/// real server.
+fn des_verifier(user: &str, password: &str) -> [u8; 8] {
+    let mut text: Vec<u8> = user
+        .to_uppercase()
+        .encode_utf16()
+        .chain(password.to_uppercase().encode_utf16())
+        .flat_map(u16::to_be_bytes)
+        .collect();
+    text.resize(text.len().div_ceil(8) * 8, 0);
+    let first_pass = des_cbc_last_block(&DES_10G_KEY, &text);
+    des_cbc_last_block(&first_pass, &text)
+}
+
+/// Returns the AES-128 password hash of a 10G login: the 10G verifier with
+/// eight zero bytes appended.
+fn des_password_hash(user: &str, password: &str) -> LoginKey {
+    let mut key = [0u8; 16];
+    key[..8].copy_from_slice(&des_verifier(user, password));
+    LoginKey::Aes128(key)
+}
+
+/// Returns the AES-192 password hash of an 11G login: SHA-1 over the
+/// password and the verifier data, with four zero bytes appended.
+fn sha1_password_hash(password: &[u8], verifier_data: &[u8]) -> LoginKey {
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(password);
+    hasher.update(verifier_data);
+    let mut key = [0u8; 24];
+    key[..20].copy_from_slice(&hasher.finalize());
+    LoginKey::Aes192(key)
+}
+
+/// Returns the PBKDF2 password key of a 12C login, which the speedy key
+/// carries, and its AES-256 password hash: the first half of SHA-512 over
+/// that password key and the verifier data.
+fn pbkdf2_password_hash(
+    password: &[u8],
+    verifier_data: &[u8],
+    iterations: u32,
+) -> ([u8; 64], LoginKey) {
+    let mut salt = verifier_data.to_vec();
+    salt.extend(b"AUTH_PBKDF2_SPEEDY_KEY");
+    let mut password_key = [0u8; 64];
+    get_derived_key(password, &salt, iterations, &mut password_key);
+    let mut hasher = sha2::Sha512::new();
+    hasher.update(password_key);
+    hasher.update(verifier_data);
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hasher.finalize()[..32]);
+    (password_key, LoginKey::Aes256(key))
+}
+
+/// Returns the combo key of a login in custom-hash mode: PBKDF2 with SHA-512
+/// over the upper-case hex text of the client's and then the server's
+/// session key bytes, cut to the verifier's key length. The window follows
+/// go-ora generatePasswordEncKey: for a 10G login it is half the session key
+/// (client[:len/2] + server[:len/2]), for an 11G login bytes 0..24 of each,
+/// and for a 12C login the whole 32 byte session keys.
+fn pbkdf2_combo_key(
+    verifier: Verifier,
+    server_key: &[u8],
+    client_key: &[u8],
+    salt: &[u8],
+    iterations: u32,
+) -> LoginKey {
+    let mut combo_key = LoginKey::zeroed(verifier);
+    let derived_key = combo_key.as_mut_bytes();
+    let window = match verifier {
+        Verifier::Legacy10g => server_key.len() / 2,
+        Verifier::Legacy11g => 24,
+        // A 12C login uses the whole session keys (go-ora case 18453).
+        Verifier::Pbkdf2 => server_key.len(),
+    };
+    let mut temp_key = client_key[..window].to_vec();
+    temp_key.extend_from_slice(&server_key[..window]);
+    let temp_key_str = base16ct::upper::encode_string(&temp_key);
+    get_derived_key(temp_key_str.as_bytes(), salt, iterations, derived_key);
+    combo_key
+}
+
+/// Returns the combo key of a legacy login, from the two session keys it
+/// exchanged. A 10G login XORs bytes 16 to 32 and MD5s them into a 16 byte
+/// AES-128 key, whatever the session key length; an 11G login with 48 byte
+/// session keys XORs bytes 16 to 40, MD5s bytes 16 to 32 and bytes 32 to 40
+/// into a 24 byte AES-192 key. A 12C login derives its combo key with PBKDF2
+/// and never reaches this.
+fn md5_combo_key(
+    verifier: Verifier,
+    server_key: &[u8],
+    client_key: &[u8],
+) -> LoginKey {
+    match verifier {
+        Verifier::Legacy10g => {
+            let mut mixed = [0u8; 16];
+            for (i, byte) in mixed.iter_mut().enumerate() {
+                *byte = server_key[i + 16] ^ client_key[i + 16];
+            }
+            let mut key = [0u8; 16];
+            key.copy_from_slice(&md5::Md5::digest(&mixed));
+            LoginKey::Aes128(key)
+        }
+        Verifier::Legacy11g => {
+            let mut mixed = [0u8; 24];
+            for (i, byte) in mixed.iter_mut().enumerate() {
+                *byte = server_key[i + 16] ^ client_key[i + 16];
+            }
+            let mut key = [0u8; 24];
+            key[..16].copy_from_slice(&md5::Md5::digest(&mixed[..16]));
+            key[16..].copy_from_slice(&md5::Md5::digest(&mixed[16..])[..8]);
+            LoginKey::Aes192(key)
+        }
+        Verifier::Pbkdf2 => unreachable!(
+            "a 12C login derives its combo key with PBKDF2, never MD5"
+        ),
+    }
+}
+
 pub struct AuthMessage {
     pub session_data: HashMap<String, String>,
     pairs: Vec<Pair>,
-    combo_key: Option<[u8; 32]>,
+    combo_key: Option<LoginKey>,
     external_auth: bool,
     resend_needed: bool,
+    verifier_type: Option<u32>,
 }
 
 impl AuthMessage {
@@ -163,7 +483,7 @@ impl AuthMessage {
         &mut self,
         key: &str,
         password: &[u8],
-        combo_key: &[u8; 32],
+        combo_key: &LoginKey,
     ) {
         let pad_amount = 16 - password.len() % 16;
         let mut padded_input = vec![0u8; password.len() + pad_amount + 16];
@@ -175,16 +495,12 @@ impl AuthMessage {
             padded_input[offset + i] = pad_byte;
         }
         let mut output_val = vec![0u8; padded_input.len()];
-        encrypt_cbc(combo_key, &padded_input, &mut output_val);
+        combo_key.encrypt(&padded_input, &mut output_val);
         self.add_pair_binary(key, &output_val[..], 0);
     }
 
     /// Encrypts the main password (and the new password, if applicable).
-    fn encrypt_passwords(
-        &mut self,
-        client: &mut Client,
-        combo_key: &[u8; 32],
-    ) {
+    fn encrypt_passwords(&mut self, client: &mut Client, combo_key: &LoginKey) {
         self.encrypt_password(
             "AUTH_PASSWORD",
             &client.config().get_password_bytes(),
@@ -199,83 +515,164 @@ impl AuthMessage {
         }
     }
 
-    /// Generates the combo key used for encrypting the passwords sent to the
-    /// server for validation.
-    fn generate_combo_key(
+    /// Decrypts the server's half of the session key, generates the client's
+    /// half and adds it, encrypted, to the pairs sent to the database.
+    fn exchange_session_keys<const N: usize>(
         &mut self,
-        session_key_part_a: &[u8],
-        session_key_part_b: &[u8],
-        combo_key: &mut [u8; 32],
-    ) -> Result<(), Error> {
-        let iterations = self.session_iterations("AUTH_PBKDF2_SDER_COUNT")?;
-        let salt = self.session_bytes("AUTH_PBKDF2_CSK_SALT")?;
-        let mut raw_temp_key: [u8; 64] = [0; 64];
-        raw_temp_key[..32].copy_from_slice(session_key_part_b);
-        raw_temp_key[32..].copy_from_slice(session_key_part_a);
-        let temp_key_str = base16ct::upper::encode_string(&raw_temp_key);
-        let temp_key = temp_key_str.as_bytes();
-        get_derived_key(temp_key, &salt, iterations, combo_key);
-        Ok(())
+        password_hash: &LoginKey,
+        encoded_server_key: &[u8],
+    ) -> Result<([u8; N], [u8; N]), Error> {
+        let mut server_key = [0u8; N];
+        password_hash.decrypt(encoded_server_key, &mut server_key)?;
+        let mut client_key = [0u8; N];
+        rand::rng().fill(&mut client_key[..]);
+        let mut encoded_client_key = [0u8; N];
+        password_hash.encrypt(&client_key, &mut encoded_client_key);
+        self.add_pair_binary("AUTH_SESSKEY", &encoded_client_key, 1);
+        Ok((server_key, client_key))
     }
 
     /// Generates the "speedy" key used by the server for validation without
-    /// requiring time consuming calculations.
+    /// requiring time consuming calculations. Only a 12C login sends one.
     fn generate_speedy_key(
         &mut self,
-        password_key: &[u8],
-        combo_key: &[u8; 32],
+        password_key: &[u8; 64],
+        combo_key: &LoginKey,
     ) {
         let mut input_val = [0u8; 80];
         rand::rng().fill(&mut input_val[..16]);
         input_val[16..].copy_from_slice(password_key);
         let mut speedy_key = [0u8; 80];
-        encrypt_cbc(combo_key, &input_val, &mut speedy_key);
+        combo_key.encrypt(&input_val, &mut speedy_key);
         self.add_pair_binary("AUTH_PBKDF2_SPEEDY_KEY", &speedy_key, 0);
     }
 
     /// Generates the password verifier and the various keys required by the
-    /// server for validation.
+    /// server for validation. The verifier type the database asked for is
+    /// checked first, so a refused one fails before any value derived from
+    /// the password is computed or sent.
     fn generate_verifier(&mut self, client: &mut Client) -> Result<(), Error> {
+        let verifier_type = self
+            .verifier_type
+            .ok_or_else(|| Error::invalid_auth_response("AUTH_VFR_DATA"))?;
+        let verifier = Verifier::from_flags(
+            verifier_type,
+            client.config().allow_legacy_verifiers(),
+        )?;
+
         // create password hash
-        let iterations = self.session_iterations("AUTH_PBKDF2_VGEN_COUNT")?;
-        let verifier_data = self.session_bytes("AUTH_VFR_DATA")?;
-        let mut salt = verifier_data.clone();
-        salt.extend(b"AUTH_PBKDF2_SPEEDY_KEY");
-        let mut password_key: [u8; 64] = [0; 64];
         let password = client.config().get_password_bytes();
-        get_derived_key(&password, &salt, iterations, &mut password_key);
-        let mut hasher = sha2::Sha512::new();
-        hasher.update(password_key);
-        hasher.update(verifier_data);
-        let password_hash: &[u8; 32] =
-            &hasher.finalize()[..32].try_into().unwrap();
+        let mut password_key = None;
+        let password_hash = match verifier {
+            Verifier::Pbkdf2 => {
+                let iterations =
+                    self.session_iterations("AUTH_PBKDF2_VGEN_COUNT")?;
+                let verifier_data = self.session_bytes("AUTH_VFR_DATA")?;
+                let (key, hash) =
+                    pbkdf2_password_hash(&password, &verifier_data, iterations);
+                password_key = Some(key);
+                hash
+            }
+            Verifier::Legacy11g => sha1_password_hash(
+                &password,
+                &self.session_bytes("AUTH_VFR_DATA")?,
+            ),
+            Verifier::Legacy10g => des_password_hash(
+                client.config().user().ok_or_else(Error::no_credentials)?,
+                std::str::from_utf8(&password)?,
+            ),
+        };
 
-        // decrypt first half of session key
+        // exchange the session keys and calculate the combo key from them
         let encoded_server_key = self.session_bytes("AUTH_SESSKEY")?;
-        let mut session_key_part_a = [0u8; 32];
-        decrypt_cbc(
-            password_hash,
-            &encoded_server_key,
-            &mut session_key_part_a,
-        )?;
-
-        // generate second half of session key
-        let mut session_key_part_b = [0u8; 32];
-        rand::rng().fill(&mut session_key_part_b);
-        let mut session_key = vec![0; 32];
-        encrypt_cbc(password_hash, &session_key_part_b, &mut session_key);
-        self.add_pair_binary("AUTH_SESSKEY", &session_key, 1);
-
-        // calculate combo key
-        let mut combo_key = [0u8; 32];
-        self.generate_combo_key(
-            &session_key_part_a,
-            &session_key_part_b,
-            &mut combo_key,
-        )?;
+        // The negotiated logon mode: a server that sends either PBKDF2 combo
+        // field (the salt or the iteration count) has attempted custom hashing,
+        // whatever verifier it serves (go-ora's logonCompatibility & 32 custom-
+        // hash branch). Only when the server sends BOTH do we read them; when it
+        // sends EXACTLY ONE the challenge is partial and the Pbkdf2 arm reads
+        // both in order and names the missing field rather than falling to the
+        // legacy MD5 path.
+        let custom_hash = self
+            .session_data
+            .contains_key("AUTH_PBKDF2_CSK_SALT")
+            || self
+                .session_data
+                .contains_key("AUTH_PBKDF2_SDER_COUNT");
+        let combo_key = match verifier.combo_key_derivation(
+            encoded_server_key.len(),
+            custom_hash,
+        )? {
+            ComboKeyDerivation::Pbkdf2 => {
+                let iterations =
+                    self.session_iterations("AUTH_PBKDF2_SDER_COUNT")?;
+                let salt = self.session_bytes("AUTH_PBKDF2_CSK_SALT")?;
+                // The session keys a server sends are 32 or 48 bytes; the
+                // PBKDF2 window and the derived key length follow the verifier.
+                match encoded_server_key.len() {
+                    32 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<32>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        pbkdf2_combo_key(
+                            verifier,
+                            &server_key,
+                            &client_key,
+                            &salt,
+                            iterations,
+                        )
+                    }
+                    48 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<48>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        pbkdf2_combo_key(
+                            verifier,
+                            &server_key,
+                            &client_key,
+                            &salt,
+                            iterations,
+                        )
+                    }
+                    _ => {
+                        return Err(Error::invalid_auth_response("AUTH_SESSKEY"))
+                    }
+                }
+            }
+            ComboKeyDerivation::Md5 => {
+                // The session keys a server sends are 32 or 48 bytes; the
+                // verifier picks the MD5 variant (16 or 24 byte combo key).
+                match encoded_server_key.len() {
+                    32 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<32>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        md5_combo_key(verifier, &server_key, &client_key)
+                    }
+                    48 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<48>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        md5_combo_key(verifier, &server_key, &client_key)
+                    }
+                    _ => {
+                        return Err(Error::invalid_auth_response("AUTH_SESSKEY"))
+                    }
+                }
+            }
+        };
 
         // generate speedy key
-        self.generate_speedy_key(&password_key, &combo_key);
+        if let Some(password_key) = password_key {
+            self.generate_speedy_key(&password_key, &combo_key);
+        }
 
         // encrypt password(s)
         self.encrypt_passwords(client, &combo_key);
@@ -484,17 +881,18 @@ impl AuthMessage {
             combo_key: None,
             external_auth: false,
             resend_needed: false,
+            verifier_type: None,
         }
     }
 
     /// Sets the combo key to use for performing authentication.
-    pub(crate) fn set_combo_key(&mut self, combo_key: &[u8; 32]) {
+    pub(crate) fn set_combo_key(&mut self, combo_key: &LoginKey) {
         self.combo_key = Some(*combo_key);
     }
 
     /// Takes the combo key from the auth message so it can be stored
     /// elsewhere.
-    pub(crate) fn take_combo_key(&mut self) -> Option<[u8; 32]> {
+    pub(crate) fn take_combo_key(&mut self) -> Option<LoginKey> {
         self.combo_key.take()
     }
 }
@@ -509,7 +907,11 @@ impl Message for AuthMessage {
         for _ in 0..num_params {
             let key = resp.read_utf8_with_double_length()?.to_string();
             let value = resp.read_utf8_with_double_length()?.to_string();
-            resp.read_ub4()?; // flags
+            let flags = resp.read_ub4()?;
+            // the flags of AUTH_VFR_DATA name the password verifier type
+            if key == "AUTH_VFR_DATA" {
+                self.verifier_type = Some(flags);
+            }
             self.session_data.insert(key, value);
         }
         Ok(())
@@ -594,4 +996,369 @@ impl Message for AuthMessage {
             self.write_pair(buf, pair);
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ErrorKind;
+
+    fn bytes(hex: &str) -> Vec<u8> {
+        base16ct::upper::decode_vec(hex).unwrap()
+    }
+
+    fn key_bytes(key: &LoginKey) -> Vec<u8> {
+        let mut key = *key;
+        key.as_mut_bytes().to_vec()
+    }
+
+    fn refused_type(result: Result<Verifier, Error>) -> u32 {
+        match result.unwrap_err().kind() {
+            ErrorKind::PasswordVerifierRefused(verifier_type) => *verifier_type,
+            kind => panic!("expected PasswordVerifierRefused, got {kind:?}"),
+        }
+    }
+
+    // Oracle's 10G hashes of default accounts, as published in default
+    // password lists: SCOTT/TIGER is F894844C34402B67 and SYSTEM/MANAGER is
+    // D4DF7931AB130E37. Both recomputed on the side with LibreSSL 3.3.6:
+    // `openssl enc -des-cbc -nopad -iv 0000000000000000`, under the key
+    // 0123456789ABCDEF and then under the last block of that pass, over the
+    // UTF-16BE text of SCOTTTIGER (or SYSTEMMANAGER) padded with zeros.
+    #[test]
+    fn the_10g_verifier_is_the_published_des_hash() {
+        assert_eq!(
+            des_verifier("SCOTT", "TIGER").to_vec(),
+            bytes("F894844C34402B67")
+        );
+        assert_eq!(
+            des_verifier("SYSTEM", "MANAGER").to_vec(),
+            bytes("D4DF7931AB130E37")
+        );
+    }
+
+    #[test]
+    fn the_10g_verifier_ignores_the_case_of_user_and_password() {
+        assert_eq!(des_verifier("scott", "tiger"), des_verifier("SCOTT", "TIGER"));
+        assert_eq!(
+            key_bytes(&des_password_hash("Scott", "Tiger")),
+            bytes("F894844C34402B670000000000000000")
+        );
+    }
+
+    // hashcat's published example hash for mode 112, "Oracle S: Type
+    // (Oracle 11+)", which is SHA-1 over the password and the salt:
+    // ac5f1e62d21fd0529428b84d42e8955b04966703 with the salt
+    // 38445748184477378130 for the password "hashcat". Recomputed on the
+    // side with Python 3 `hashlib.sha1(b"hashcat" + salt).hexdigest()`.
+    #[test]
+    fn the_11g_password_hash_is_sha1_of_password_and_salt() {
+        let hash =
+            sha1_password_hash(b"hashcat", &bytes("38445748184477378130"));
+        assert_eq!(
+            key_bytes(&hash),
+            bytes("AC5F1E62D21FD0529428B84D42E8955B0496670300000000")
+        );
+    }
+
+    // Computed with Python 3 hashlib:
+    // pk = hashlib.pbkdf2_hmac("sha512", b"tiger",
+    //     vfr + b"AUTH_PBKDF2_SPEEDY_KEY", 4096, 64)
+    // hashlib.sha512(pk + vfr).digest()[:32]
+    // with vfr = A1B2C3D4E5F60718293A4B5C6D7E8F90.
+    #[test]
+    fn the_12c_password_hash_is_pbkdf2_then_sha512() {
+        let (password_key, hash) = pbkdf2_password_hash(
+            b"tiger",
+            &bytes("A1B2C3D4E5F60718293A4B5C6D7E8F90"),
+            4096,
+        );
+        assert_eq!(
+            password_key.to_vec(),
+            bytes(
+                "FC38EE411C0D55C36219B018DBED798B5B70515699E9B724053FE02E24AC0720\
+                 4DE7FD2E4120BDD8F14655C9DE851F334C9FF24E70D37F1DC30545F4FE03E2C9"
+            )
+        );
+        assert_eq!(
+            key_bytes(&hash),
+            bytes(
+                "56F513B0BD502AF6A056AF6A7427A7FB247FB28BA83F861205E5B6F1E5E701DF"
+            )
+        );
+    }
+
+    // Computed with Python 3 hashlib, for n in 16, 24, 32:
+    // temp = (client[:n] + server[:n]).hex().upper().encode()
+    // hashlib.pbkdf2_hmac("sha512", temp, salt, 3, n)
+    // with server = bytes(range(0x00, 0x20)),
+    // client = bytes(range(0x20, 0x40)) and
+    // salt = 0F1E2D3C4B5A69788796A5B4C3D2E1F0.
+    // For a 10G login the window is client[:len/2] + server[:len/2] with a 32
+    // byte session key, so a custom-hash 10G login reaches this too.
+    #[test]
+    fn the_pbkdf2_combo_key_has_the_verifier_s_key_length() {
+        let server_key: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let client_key: [u8; 32] = std::array::from_fn(|i| 0x20 + i as u8);
+        let salt = bytes("0F1E2D3C4B5A69788796A5B4C3D2E1F0");
+        let combo_key = |verifier| {
+            key_bytes(&pbkdf2_combo_key(
+                verifier,
+                &server_key,
+                &client_key,
+                &salt,
+                3,
+            ))
+        };
+        assert_eq!(
+            combo_key(Verifier::Legacy10g),
+            bytes("7354FACE7838731D624750690CE14EA0")
+        );
+        assert_eq!(
+            combo_key(Verifier::Legacy11g),
+            bytes("0C465732B9E15E6C78FF48D99318ACFC18D8E73234D6C8D1")
+        );
+        assert_eq!(
+            combo_key(Verifier::Pbkdf2),
+            bytes(
+                "3F225E6EE15DE8C7DBD2544177587CB8A477531D449AC7BDD47CA9B2E99666E6"
+            )
+        );
+    }
+
+    // Computed with Python 3 hashlib:
+    // x = bytes(a ^ b for a, b in zip(server[16:40], client[16:40]))
+    // (hashlib.md5(x[:16]).digest() + hashlib.md5(x[16:]).digest())[:24]
+    // with server = bytes(range(0x00, 0x30)) and
+    // client = bytes(range(0x80, 0xb0)).
+    #[test]
+    fn the_md5_combo_key_of_48_byte_session_keys() {
+        let server_key: [u8; 48] = std::array::from_fn(|i| i as u8);
+        let client_key: [u8; 48] = std::array::from_fn(|i| 0x80 + i as u8);
+        assert_eq!(
+            key_bytes(&md5_combo_key(Verifier::Legacy11g, &server_key, &client_key)),
+            bytes("324C5183D4096C99A3D737B4522F21B2D0B32013C743BC99")
+        );
+    }
+
+    // Computed with Python 3 hashlib:
+    // x = bytes(a ^ b for a, b in zip(server[16:32], client[16:32]))
+    // hashlib.md5(x).digest()
+    // with server = bytes(range(0x00, 0x20)) and
+    // client = bytes([0x80 - i for i in range(0x20)]).
+    #[test]
+    fn the_10g_combo_key_is_md5_of_the_xor_of_session_key_bytes() {
+        let server_key: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let client_key: [u8; 32] = std::array::from_fn(|i| 0x80u8 - i as u8);
+        assert_eq!(
+            key_bytes(&md5_combo_key(
+                Verifier::Legacy10g,
+                &server_key,
+                &client_key,
+            )),
+            bytes("3FDDC6C5B58046D477165B04ADF45474")
+        );
+    }
+
+    // Regresses the PR 1856 P1: the combo-key derivation follows the
+    // negotiated logon mode, not the verifier alone. A custom-hash 10G
+    // challenge derives the PBKDF2 16 byte key (go-ora custom-hash case
+    // 2361), a legacy-MD5 10G challenge the MD5 16 byte key (go-ora
+    // non-customHash case 2361). Each vector is independently derived.
+    #[test]
+    fn a_10g_login_derives_the_combo_key_by_the_negotiated_mode() {
+        let salt = bytes("0F1E2D3C4B5A69788796A5B4C3D2E1F0");
+        // Custom-hash PBKDF2: server 0x00..0x1f, client 0x20..0x3f.
+        let server_key_p: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let client_key_p: [u8; 32] =
+            std::array::from_fn(|i| 0x20 + i as u8);
+        assert_eq!(
+            key_bytes(&pbkdf2_combo_key(
+                Verifier::Legacy10g,
+                &server_key_p,
+                &client_key_p,
+                &salt,
+                3,
+            )),
+            bytes("7354FACE7838731D624750690CE14EA0")
+        );
+        // Legacy MD5: server 0x00..0x1f, client 0x80..0x61.
+        let server_key_m: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let client_key_m: [u8; 32] =
+            std::array::from_fn(|i| 0x80u8 - i as u8);
+        assert_eq!(
+            key_bytes(&md5_combo_key(
+                Verifier::Legacy10g,
+                &server_key_m,
+                &client_key_m,
+            )),
+            bytes("3FDDC6C5B58046D477165B04ADF45474")
+        );
+        // The dispatch picks the derivation by the negotiated mode.
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(32, true).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(32, false).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+    }
+
+    // FIPS 197 appendix C.1, C.2 and C.3: the plaintext
+    // 00112233445566778899AABBCCDDEEFF under the keys 000102... of 16, 24
+    // and 32 bytes. One block in CBC mode with a zero IV is that block in
+    // ECB mode; recomputed on the side with LibreSSL 3.3.6
+    // `openssl enc -aes-{128,192,256}-cbc -nopad -iv 0...0`.
+    #[test]
+    fn a_login_key_encrypts_with_aes_of_its_length() {
+        let plain_text = bytes("00112233445566778899AABBCCDDEEFF");
+        let cases = [
+            (
+                LoginKey::Aes128(std::array::from_fn(|i| i as u8)),
+                "69C4E0D86A7B0430D8CDB78070B4C55A",
+            ),
+            (
+                LoginKey::Aes192(std::array::from_fn(|i| i as u8)),
+                "DDA97CA4864CDFE06EAF70A0EC0D7191",
+            ),
+            (
+                LoginKey::Aes256(std::array::from_fn(|i| i as u8)),
+                "8EA2B7CA516745BFEAFC49904B496089",
+            ),
+        ];
+        for (key, expected) in cases {
+            let mut encrypted_text = [0u8; 16];
+            key.encrypt(&plain_text, &mut encrypted_text);
+            assert_eq!(encrypted_text.to_vec(), bytes(expected));
+            let mut decrypted_text = [0u8; 16];
+            key.decrypt(&encrypted_text, &mut decrypted_text).unwrap();
+            assert_eq!(decrypted_text.to_vec(), plain_text);
+        }
+    }
+
+    #[test]
+    fn a_session_key_that_is_not_whole_blocks_is_an_invalid_response() {
+        let key = LoginKey::Aes256([0; 32]);
+        let mut plain_text = [0u8; 32];
+        let err = key.decrypt(&[0u8; 31], &mut plain_text).unwrap_err();
+        assert_eq!(
+            err.kind(),
+            &ErrorKind::InvalidAuthResponse("AUTH_SESSKEY".to_string())
+        );
+    }
+
+    #[test]
+    fn a_legacy_verifier_is_refused_unless_allowed() {
+        for flags in [
+            constants::VERIFIER_TYPE_10G,
+            constants::VERIFIER_TYPE_11G_1,
+            constants::VERIFIER_TYPE_11G_2,
+        ] {
+            assert_eq!(refused_type(Verifier::from_flags(flags, false)), flags);
+        }
+        assert_eq!(
+            Verifier::from_flags(constants::VERIFIER_TYPE_10G, true).unwrap(),
+            Verifier::Legacy10g
+        );
+        assert_eq!(
+            Verifier::from_flags(constants::VERIFIER_TYPE_11G_1, true).unwrap(),
+            Verifier::Legacy11g
+        );
+        assert_eq!(
+            Verifier::from_flags(constants::VERIFIER_TYPE_11G_2, true).unwrap(),
+            Verifier::Legacy11g
+        );
+    }
+
+    #[test]
+    fn the_12c_verifier_needs_no_opt_in() {
+        assert_eq!(
+            Verifier::from_flags(constants::VERIFIER_TYPE_12C, false).unwrap(),
+            Verifier::Pbkdf2
+        );
+    }
+
+    #[test]
+    fn an_unknown_verifier_is_refused_with_or_without_the_opt_in() {
+        assert_eq!(refused_type(Verifier::from_flags(0x1234, false)), 0x1234);
+        assert_eq!(refused_type(Verifier::from_flags(0x1234, true)), 0x1234);
+    }
+
+    #[test]
+    fn the_refusal_names_the_verifier_type() {
+        let message = |flags| {
+            Verifier::from_flags(flags, false).unwrap_err().to_string()
+        };
+        assert_eq!(
+            message(constants::VERIFIER_TYPE_10G),
+            "password verifier type 0x939 (10G) is refused: legacy password \
+             verifiers are not allowed"
+        );
+        assert_eq!(
+            message(constants::VERIFIER_TYPE_11G_2),
+            "password verifier type 0x1b25 (11G) is refused: legacy password \
+             verifiers are not allowed"
+        );
+        assert_eq!(
+            message(0x1234),
+            "password verifier type 0x1234 is refused: the driver does not \
+             support it"
+        );
+    }
+
+    #[test]
+    fn a_legacy_login_takes_the_derivation_of_its_negotiated_mode() {
+        // Custom-hash mode (the server sent AUTH_PBKDF2_CSK_SALT and
+        // AUTH_PBKDF2_SDER_COUNT): every verifier uses PBKDF2.
+        for verifier in
+            [Verifier::Legacy10g, Verifier::Legacy11g, Verifier::Pbkdf2]
+        {
+            assert_eq!(
+                verifier.combo_key_derivation(32, true).unwrap(),
+                ComboKeyDerivation::Pbkdf2
+            );
+            assert_eq!(
+                verifier.combo_key_derivation(48, true).unwrap(),
+                ComboKeyDerivation::Pbkdf2
+            );
+        }
+        // Legacy mode (no custom hash): a 10G login MD5s 32 or 48 byte session
+        // keys; an 11G login MD5s only 48 byte ones; a 12C login still uses
+        // PBKDF2.
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(32, false).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(48, false).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+        assert_eq!(
+            Verifier::Legacy11g.combo_key_derivation(48, false).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+        assert!(Verifier::Legacy11g.combo_key_derivation(32, false).is_err());
+        // A 12C verifier is always a PBKDF2 verifier, so it derives the combo
+        // key with PBKDF2 even without the custom-hash signal; this lets a
+        // malformed 12C session name the missing PBKDF2 field.
+        assert_eq!(
+            Verifier::Pbkdf2.combo_key_derivation(32, false).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
+        assert_eq!(
+            Verifier::Pbkdf2.combo_key_derivation(48, false).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
+        // Every verifier validates the session key length in the dispatch, so
+        // a malformed AUTH_SESSKEY names itself before any per-field read.
+        for verifier in
+            [Verifier::Legacy10g, Verifier::Legacy11g, Verifier::Pbkdf2]
+        {
+            for len in [0, 16, 64] {
+                assert!(verifier.combo_key_derivation(len, false).is_err());
+            }
+        }
+    }
+
 }

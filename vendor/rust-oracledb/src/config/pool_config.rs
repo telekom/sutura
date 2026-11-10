@@ -104,6 +104,12 @@ impl PoolConfig {
         self.connection_increment.unwrap_or(1)
     }
 
+    /// Returns whether a login may use a 10G or 11G password verifier when
+    /// the database asks for one. The default value is false.
+    pub fn allow_legacy_verifiers(&self) -> bool {
+        self.connection_config.allow_legacy_verifiers()
+    }
+
     /// Returns the driver name in use by the configuration.
     pub fn driver_name(&self) -> &str {
         self.connection_config.driver_name()
@@ -161,6 +167,16 @@ impl PoolConfig {
     /// the name of the program that is running.
     pub fn program(&self) -> &str {
         self.connection_config.program()
+    }
+
+    /// Sets whether a login may use a 10G or 11G password verifier when the
+    /// database asks for one. When false, the connection attempt fails with
+    /// [ErrorKind::PasswordVerifierRefused](crate::ErrorKind::PasswordVerifierRefused)
+    /// before any value derived from the password is sent.
+    pub fn set_allow_legacy_verifiers(mut self, value: bool) -> Self {
+        self.connection_config =
+            self.connection_config.set_allow_legacy_verifiers(value);
+        self
     }
 
     /// Sets the authorization mode that should be used to establish a

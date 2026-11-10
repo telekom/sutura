@@ -47,6 +47,7 @@ use rustls::pki_types::TrustAnchor;
 /// database using [connect()](`crate::connect`).
 #[derive(Clone, PartialEq, Eq)]
 pub struct Config {
+    allow_legacy_verifiers: Option<bool>,
     user: Option<String>,
     password: Option<SecretValue>,
     new_password: Option<SecretValue>,
@@ -143,6 +144,12 @@ impl Config {
         }
     }
 
+    /// Returns whether a login may use a 10G or 11G password verifier when
+    /// the database asks for one. The default value is false.
+    pub fn allow_legacy_verifiers(&self) -> bool {
+        self.allow_legacy_verifiers.unwrap_or(false)
+    }
+
     /// Returns the authorization mode associated with the configuration.
     pub fn auth_mode(&self) -> u8 {
         self.auth_mode.unwrap_or(0)
@@ -188,6 +195,18 @@ impl Config {
     /// the name of the program that is running.
     pub fn program(&self) -> &str {
         self.program.as_deref().unwrap_or(defaults::default_program())
+    }
+
+    /// Sets whether a login may use a 10G or 11G password verifier when the
+    /// database asks for one. When false, the connection attempt fails with
+    /// [ErrorKind::PasswordVerifierRefused](crate::ErrorKind::PasswordVerifierRefused)
+    /// before any value derived from the password is sent. These verifiers
+    /// are older and weaker than the 12C verifier: whoever sees the login
+    /// exchange can use it to guess the password offline, so they belong on
+    /// an encrypted connection only.
+    pub fn set_allow_legacy_verifiers(mut self, value: bool) -> Self {
+        self.allow_legacy_verifiers = Some(value);
+        self
     }
 
     /// Sets the authorization mode that should be used to establish a
@@ -421,6 +440,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            allow_legacy_verifiers: None,
             user: None,
             password: None,
             new_password: None,
@@ -454,6 +474,13 @@ mod tests {
     #[test]
     fn redirects_are_followed_by_default() {
         assert!(Config::default().check_redirect_allowed().is_ok());
+    }
+
+    #[test]
+    fn legacy_verifiers_are_refused_by_default() {
+        assert!(!Config::default().allow_legacy_verifiers());
+        let config = Config::default().set_allow_legacy_verifiers(true);
+        assert!(config.allow_legacy_verifiers());
     }
 
     #[test]

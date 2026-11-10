@@ -143,7 +143,8 @@ pub fn sending(bytes: Vec<u8>) -> std::io::Result<u16> {
 /// Binds a listener on `127.0.0.1` that accepts ONE client's CONNECT, and returns its port.
 ///
 /// It offers fast authentication, then answers the first authentication message with `session`,
-/// the key and value pairs of the session data the driver reads its verifier fields from.
+/// the key and value pairs of the session data the driver reads its verifier fields from, as a
+/// server answers for an account with a 12C password verifier.
 ///
 /// # Errors
 ///
@@ -250,8 +251,12 @@ fn accept() -> Vec<u8> {
     body
 }
 
-/// A TTC parameter message with the session data pairs, each with zero flags, then a status
-/// message that ends the answer.
+/// The flags a server sends with `AUTH_VFR_DATA` for an account with a 12C password verifier: the
+/// verifier type `0x4815` as a TTC `ub4`, its byte count and then its bytes.
+const VERIFIER_TYPE_12C: [u8; 3] = [2, 0x48, 0x15];
+
+/// A TTC parameter message with the session data pairs, then a status message that ends the
+/// answer. Every pair's flags are zero but those of `AUTH_VFR_DATA`, which name the 12C verifier.
 fn session_data(pairs: &[(&str, &str)]) -> Vec<u8> {
     let count = u8::try_from(pairs.len()).unwrap_or(u8::MAX);
     let mut ttc = vec![8, 1, count];
@@ -261,7 +266,11 @@ fn session_data(pairs: &[(&str, &str)]) -> Vec<u8> {
             ttc.extend([1, length, length]);
             ttc.extend(text.as_bytes());
         }
-        ttc.push(0);
+        if *key == "AUTH_VFR_DATA" {
+            ttc.extend(VERIFIER_TYPE_12C);
+        } else {
+            ttc.push(0);
+        }
     }
     ttc.extend([9, 0, 0]);
     ttc
