@@ -1,4 +1,4 @@
-//! What an ontology becomes, and every load refusal, over the recorded answers and edits of them.
+//! What an ontology becomes, and every load refusal, over the synthetic answers and edits of them.
 
 use std::collections::BTreeMap;
 
@@ -34,7 +34,7 @@ where
     )
 }
 
-/// The recorded answers as JSON a cell can edit: the object types, and each one's link sides.
+/// The synthetic answers as JSON a cell can edit: the object types, and each one's link sides.
 struct Answers {
     types: Vec<serde_json::Value>,
     links: BTreeMap<String, serde_json::Value>,
@@ -69,7 +69,7 @@ impl Answers {
     }
 }
 
-/// Loads the recorded ontology after `edit` changed it.
+/// Loads the synthetic ontology after `edit` changed it.
 fn load_edited(edit: impl FnOnce(&mut Answers)) -> Result<PinnedDefinitions, FoundryError> {
     let mut answers = Answers::recorded();
     edit(&mut answers);

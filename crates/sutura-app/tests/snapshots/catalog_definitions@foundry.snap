@@ -1,0 +1,156 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.definitions()
+---
+models:
+  Aircraft:
+    name: Aircraft
+    source: local
+    table: Aircraft
+    columns:
+      firstFlightDate:
+        name: firstFlightDate
+        data_type: date
+        description: First flight
+        nullable: ~
+      model:
+        name: model
+        data_type: string
+        description: "The manufacturer's model designation."
+        nullable: ~
+      seatCount:
+        name: seatCount
+        data_type: integer
+        description: How many passenger seats are installed.
+        nullable: ~
+      tailNumber:
+        name: tailNumber
+        data_type: string
+        description: The registration painted on the airframe.
+        nullable: ~
+    primary_key:
+      - tailNumber
+    description: "One airframe, identified by its registration."
+  Airport:
+    name: Airport
+    source: local
+    table: Airport
+    columns:
+      airportCode:
+        name: airportCode
+        data_type: string
+        description: The three-letter location code.
+        nullable: ~
+      city:
+        name: city
+        data_type: string
+        description: City
+        nullable: ~
+      elevationFeet:
+        name: elevationFeet
+        data_type: integer
+        description: "The elevation of the field, in feet."
+        nullable: ~
+      name:
+        name: name
+        data_type: string
+        description: "The airport's own name."
+        nullable: ~
+    primary_key:
+      - airportCode
+    description: An airport that flights depart from or arrive at.
+  Employee:
+    name: Employee
+    source: local
+    table: Employee
+    columns:
+      employeeId:
+        name: employeeId
+        data_type: string
+        description: The identifier assigned when the employee was hired.
+        nullable: ~
+      fullName:
+        name: fullName
+        data_type: string
+        description: Full name
+        nullable: ~
+      role:
+        name: role
+        data_type: string
+        description: The role the employee is rostered in.
+        nullable: ~
+    primary_key:
+      - employeeId
+    description: Employee
+  Flight:
+    name: Flight
+    source: local
+    table: Flight
+    columns:
+      arrivalAirportCode:
+        name: arrivalAirportCode
+        data_type: string
+        description: The code of the airport the flight lands at.
+        nullable: ~
+      cancelled:
+        name: cancelled
+        data_type: boolean
+        description: Whether the flight was cancelled.
+        nullable: ~
+      departureAirportCode:
+        name: departureAirportCode
+        data_type: string
+        description: The code of the airport the flight leaves.
+        nullable: ~
+      distanceMiles:
+        name: distanceMiles
+        data_type: double
+        description: "The great-circle distance, in miles."
+        nullable: ~
+      flightId:
+        name: flightId
+        data_type: string
+        description: "The carrier code, flight number and departure date."
+        nullable: ~
+      scheduledDeparture:
+        name: scheduledDeparture
+        data_type: timestamp
+        description: Scheduled departure
+        nullable: ~
+      tailNumber:
+        name: tailNumber
+        data_type: string
+        description: The aircraft that flies it.
+        nullable: ~
+    primary_key:
+      - flightId
+    description: One scheduled flight between two airports.
+relationships:
+  Flight_aircraft:
+    name: Flight_aircraft
+    origin_model: Flight
+    target_model: Aircraft
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: tailNumber
+          target: tailNumber
+  Flight_arrivalAirport:
+    name: Flight_arrivalAirport
+    origin_model: Flight
+    target_model: Airport
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: arrivalAirportCode
+          target: airportCode
+  Flight_departureAirport:
+    name: Flight_departureAirport
+    origin_model: Flight
+    target_model: Airport
+    join_type: many_to_one
+    keys:
+      - Equal:
+          origin: departureAirportCode
+          target: airportCode
+metrics: {}

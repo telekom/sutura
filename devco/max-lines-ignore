@@ -106,7 +106,7 @@ vendor/**
 
 [warn]
 
-# FOUR hand-written files are listed here, and the claim this section makes is unchanged by the
+# THREE hand-written files are listed here, and the claim this section makes is unchanged by the
 # count: an entry here is a promise to split a file, not a way to silence the gate, and it keeps
 # printing until somebody keeps that promise. This paragraph is maintained BY HAND - the
 # inert-exemption rule is literal-scoped for the reason argued three sections up, so it cannot see
@@ -154,11 +154,3 @@ vendor/**
 # file was honest to offset them - the alternative was a decision written nowhere near its site,
 # which is the thing the reason paragraphs here exist to prevent.
 flake.nix
-
-# The workspace manifest, over the cap because each member and each dependency keeps its reason
-# beside it, and a new crate adds a member line, a dependency line and usually a comment. Cargo
-# cannot split one manifest across files, so no in-file seam reaches under 1000 without deleting
-# or compressing those reasons, which review refused as a way to fit. This entry is the tracking:
-# the split it promises is moving per-dependency rationale that no gate reads out of the manifest,
-# decided by a reader, not by the line count.
-Cargo.toml

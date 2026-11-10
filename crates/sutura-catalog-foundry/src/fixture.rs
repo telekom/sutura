@@ -1,4 +1,4 @@
-//! The recorded answers and the fake reader that serves them.
+//! The synthetic answers and the fake reader that serves them.
 //!
 //! Written from Foundry's public API reference, not recorded from a tenant: one page of
 //! `objectTypes` and one page of `outgoingLinkTypes` per object type, every field in the documented
@@ -13,10 +13,10 @@ use sutura_domain::pinned::DefinitionVersion;
 use crate::document::{LinkTypeSide, ObjectType, Ontology, Page};
 use crate::{FoundryCatalog, FoundryError, OntologyReader};
 
-/// The recorded `objectTypes` page.
+/// The synthetic `objectTypes` page.
 pub const OBJECT_TYPES: &str = include_str!("fixture/object-types.json");
 
-/// The recorded `outgoingLinkTypes` page of each object type, by its API name.
+/// The synthetic `outgoingLinkTypes` page of each object type, by its API name.
 pub const OUTGOING: &[(&str, &str)] = &[
     ("Aircraft", include_str!("fixture/outgoing/Aircraft.json")),
     ("Airport", include_str!("fixture/outgoing/Airport.json")),
@@ -24,7 +24,7 @@ pub const OUTGOING: &[(&str, &str)] = &[
     ("Flight", include_str!("fixture/outgoing/Flight.json")),
 ];
 
-/// The fake [`OntologyReader`]: it decodes the recorded pages on every read, through the same
+/// The fake [`OntologyReader`]: it decodes the synthetic pages on every read, through the same
 /// [`Page`] decode a live answer takes.
 #[derive(Debug, Clone, Copy)]
 pub struct FixtureReader;
@@ -44,7 +44,7 @@ impl OntologyReader for FixtureReader {
     }
 }
 
-/// A [`FoundryCatalog`] over the recorded answers, every object type on `name`. The conformance
+/// A [`FoundryCatalog`] over the synthetic answers, every object type on `name`. The conformance
 /// registry opens it.
 #[must_use]
 pub fn over_fixture_source(name: SourceName, version: DefinitionVersion) -> FoundryCatalog<FixtureReader> {

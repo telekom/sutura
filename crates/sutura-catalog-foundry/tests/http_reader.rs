@@ -49,7 +49,7 @@ mod tests {
         serde_json::from_str(text).expect("a recorded page is JSON")
     }
 
-    /// The recorded answers, in the order the reader asks: object types, then each one's links.
+    /// The synthetic answers, in the order the reader asks: object types, then each one's links.
     fn recorded() -> Vec<Scripted> {
         let mut answers = vec![Scripted::ok(&json(fixture::OBJECT_TYPES))];
         answers.extend(fixture::OUTGOING.iter().map(|(_, page)| Scripted::ok(&json(page))));

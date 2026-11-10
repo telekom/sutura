@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "EXPERIMENTAL: a SemanticCatalog adapter over a Palantir Foundry ontology's v2 metadata API - a declaring source, tested against recorded answers only."
+description = "EXPERIMENTAL: a SemanticCatalog adapter over a Palantir Foundry ontology's v2 metadata API - a declaring source, tested against synthetic public-reference fixtures only."
 
 [features]
 # Off by default for `sutura-catalog-cube`'s reason: what arrives with it is an outbound TLS stack,
