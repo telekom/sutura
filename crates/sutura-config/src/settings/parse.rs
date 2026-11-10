@@ -158,6 +158,11 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
                 user: source.user.as_deref(),
                 password_file: source.password_file.as_deref(),
                 transport_mode: source.transport_mode.as_deref(),
+                oracle_options: crate::sources::oracle_transport::RawOracleOptions {
+                    native_reason: source.native_encryption_acknowledged_because.as_deref(),
+                    legacy: source.legacy_password_verifier,
+                    legacy_reason: source.legacy_password_verifier_acknowledged_because.as_deref(),
+                },
                 transport_anchors: source.transport_anchors.as_deref(),
                 client_certificate: source.client_certificate.as_deref(),
                 client_key: source.client_key.as_deref(),

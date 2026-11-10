@@ -512,18 +512,7 @@ fn open_one_rdbms_catalog(
                 &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
-            let anchors_pem = crate::oracle::read_anchors(
-                &format!("catalogs.{}.connection.transport_anchors", settings.name()),
-                connection.transport_anchors(),
-            )?;
-            let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
-                String::from(connection.server_name().as_str()),
-                connection.port(),
-                String::from(connection.service_name().as_str()),
-                String::from(connection.user()),
-                password,
-            )
-            .verified(anchors_pem);
+            let login = crate::oracle::dictionary_login(settings.name(), connection, password)?;
             sutura_catalog_rdbms::oracle_reader::OracleReader::new(
                 login,
                 &documentation_schema,
