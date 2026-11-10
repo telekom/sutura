@@ -861,6 +861,8 @@
       
         
       
+        
+      
     
     
     
@@ -949,6 +951,34 @@
     
   
     OpenMetadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/catalogs/openapi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OpenAPI (experimental)
   
 
     
@@ -2526,12 +2556,14 @@ no answer can name a URL to dial.</p>
 <li>The catalog is read as the deployment: every caller sees what the deployment's token sees.</li>
 <li><code>OpenAPI</code> 3.0 and 3.1 only, as JSON; a Swagger 2.0 document is refused by name.</li>
 <li>A link with no foreign-key column on this side (a to-many side) is not carried.</li>
+<li>The token is read once, when the reader is built: a token that expires is not renewed.</li>
 </ul>
 <h2 id="trait-answerreader"><code>trait AnswerReader</code><a class="headerlink" href="#trait-answerreader" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">AnswerReader</span>
 </span></code></pre></div>
 <p>Where the answers come from: one <code>GET</code> of a <code>Target</code> on the declared endpoint.</p>
-<p>The fake seam: <code>fixture::FixtureReader</code> serves recorded answers.</p>
+<p>The fake seam: <code>fixture::FixtureReader</code> serves recorded answers, and <code>http::HttpAnswerReader</code>
+(behind the <code>http</code> feature) asks the declared endpoint.</p>
 <h2 id="struct-target"><code>struct Target</code><a class="headerlink" href="#struct-target" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Target</span>
 </span></code></pre></div>
@@ -2581,7 +2613,11 @@ no answer can name a URL to dial.</p>
 <h2 id="use-contracterror"><code>use ContractError</code><a class="headerlink" href="#use-contracterror" title="Permanent link">&para;</a></h2>
 <p>Why a document and a mapping do not make a catalog. Checked at construction, before any request.</p>
 <p>No variant carries a token or an answer; a document value is repeated at most 64 bytes long.</p>
+<h2 id="use-document_file"><code>use DOCUMENT_FILE</code><a class="headerlink" href="#use-document_file" title="Permanent link">&para;</a></h2>
+<h2 id="use-mapping_file"><code>use MAPPING_FILE</code><a class="headerlink" href="#use-mapping_file" title="Permanent link">&para;</a></h2>
+<p>The mapping's file name in a catalog directory.</p>
 <h2 id="use-max_mapping_bytes"><code>use MAX_MAPPING_BYTES</code><a class="headerlink" href="#use-max_mapping_bytes" title="Permanent link">&para;</a></h2>
+<p>The most bytes the mapping may hold before it is parsed.</p>
 <h2 id="use-max_document_bytes"><code>use MAX_DOCUMENT_BYTES</code><a class="headerlink" href="#use-max_document_bytes" title="Permanent link">&para;</a></h2>
 <p>The most bytes the document may hold before it is parsed.</p>
 <h2 id="use-max_cursor_bytes"><code>use MAX_CURSOR_BYTES</code><a class="headerlink" href="#use-max_cursor_bytes" title="Permanent link">&para;</a></h2>
@@ -2639,6 +2675,68 @@ opens it.</p>
 <p>The vendor sample's document subset.</p>
 <h3 id="constant-sample_mapping"><code>constant SAMPLE_MAPPING</code><a class="headerlink" href="#constant-sample_mapping" title="Permanent link">&para;</a></h3>
 <p>The vendor sample's mapping.</p>
+<h2 id="module-http">Module <code>http</code><a class="headerlink" href="#module-http" title="Permanent link">&para;</a></h2>
+<p>The real <code>crate::AnswerReader</code>: one <code>GET</code> of a <code>Target</code> on the declared endpoint.</p>
+<p>Behind the crate's default-off <code>http</code> feature, so a build that does not ask for it links no
+outbound TLS stack.</p>
+<h1 id="auth">Auth<a class="headerlink" href="#auth" title="Permanent link">&para;</a></h1>
+<p>The deployment's token as a <code>Secret</code>, sent as <code>Authorization: Bearer &lt;token&gt;</code>, read once when
+the reader is built. A token that expires is not renewed here: minting one per load (<code>OAuth2</code>
+client credentials) is a token-source seam this reader does not have yet.</p>
+<h1 id="bounds-tls-and-the-endpoint">Bounds, TLS and the endpoint<a class="headerlink" href="#bounds-tls-and-the-endpoint" title="Permanent link">&para;</a></h1>
+<p><code>Endpoint::parse</code> accepts <code>https://</code> for any host and <code>http://</code> only for an IP loopback
+literal, so a token is never sent in plain text to a host that is not this one. The trust anchors
+are <code>ureq</code>'s compiled-in roots, or exactly the deployment's <code>security.outbound.transport_anchors</code>.
+Redirects are never followed: a <code>3xx</code> is a refusal. <code>ReadBounds</code> caps each answer, and its
+timeout is ONE nominal deadline for the whole load, opened when the load began, so every page
+and every per-model listing shares it. Socket I/O gets a five-second margin so a late body can
+be refused after it arrives; JSON decoding and catalog assembly happen after that body check.</p>
+<h3 id="enum-httpreadererror"><code>enum HttpReaderError</code><a class="headerlink" href="#enum-httpreadererror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">HttpReaderError</span>
+</span></code></pre></div>
+<p>Why an answer was not read.</p>
+<p>Reaches <code>crate::OpenApiCatalog</code> boxed inside <code>crate::OpenApiError::Read</code>.
+<code>HttpReaderError::Refused</code> displays only the status; its <code>EndpointMessage</code> debug output
+redacts the bounded API text. The raw text remains accessible through <code>EndpointMessage::as_str</code>
+and may contain a token echoed by the API.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Unreachable</code></li>
+<li><code>Unreadable</code></li>
+<li><code>Refused</code></li>
+<li><code>TooLarge</code></li>
+<li><code>Shape</code></li>
+<li><code>DeadlineSpent</code></li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-httpanswerreader"><code>struct HttpAnswerReader</code><a class="headerlink" href="#struct-httpanswerreader" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">HttpAnswerReader</span>
+</span></code></pre></div>
+<p>One API's endpoint, reached over HTTP with the deployment's token.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">anchors</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadedAnchors</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A reader over a fixed agent: <code>anchors</code> <code>None</code> keeps <code>ureq</code>'s compiled-in roots, <code>Some</code>
+replaces them with exactly the declared certificates.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating</span><span class="p">(</span><span class="n">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nc">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_tls</span><span class="p">::</span><span class="n">Rotating</span><span class="o">&lt;</span><span class="n">ureq</span><span class="p">::</span><span class="n">Agent</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>A reader over the rotating agent a composition root built with <code>Self::rotating_agent</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rotating_agent</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">ReadBounds</span><span class="p">,</span><span class="w"> </span><span class="n">declared</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">Declared</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">OutboundAgent</span><span class="p">,</span><span class="w"> </span><span class="n">sutura_tls</span><span class="p">::</span><span class="n">LoadError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The rotating agent for a declared <code>security.outbound</code> set, and its poll handle.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p>The declared bundle or client identity cannot be loaded.</p>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>AnswerReader</code>, <code>Clone</code>, <code>Debug</code></p>
+<h3 id="use-default_max_response_bytes"><code>use DEFAULT_MAX_RESPONSE_BYTES</code><a class="headerlink" href="#use-default_max_response_bytes" title="Permanent link">&para;</a></h3>
+<h3 id="use-default_timeout_seconds"><code>use DEFAULT_TIMEOUT_SECONDS</code><a class="headerlink" href="#use-default_timeout_seconds" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpoint"><code>use Endpoint</code><a class="headerlink" href="#use-endpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-endpointmessage"><code>use EndpointMessage</code><a class="headerlink" href="#use-endpointmessage" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidendpoint"><code>use InvalidEndpoint</code><a class="headerlink" href="#use-invalidendpoint" title="Permanent link">&para;</a></h3>
+<h3 id="use-invalidreadbounds"><code>use InvalidReadBounds</code><a class="headerlink" href="#use-invalidreadbounds" title="Permanent link">&para;</a></h3>
+<h3 id="use-outboundagent"><code>use OutboundAgent</code><a class="headerlink" href="#use-outboundagent" title="Permanent link">&para;</a></h3>
+<h3 id="use-readbounds"><code>use ReadBounds</code><a class="headerlink" href="#use-readbounds" title="Permanent link">&para;</a></h3>
 
 
 
