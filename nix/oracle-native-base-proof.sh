@@ -5,6 +5,7 @@ base="$1"
 [[ "$base" =~ ^[0-9a-f]{40}$ ]]
 head_root="$(git rev-parse --show-toplevel)"
 head="$(git rev-parse HEAD)"
+test -z "$(git status --porcelain)"
 test "$base" != "$head"
 git merge-base --is-ancestor "$base" "$head"
 out="$head_root/target/oracle-native-base-proof"

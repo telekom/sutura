@@ -198,7 +198,7 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
         } else {
             let refused = refused_to_start(Environment::Development, written(&case, &settings), &[]).join("\n");
             assert!(
-                refused.contains("native encryption") || refused.contains("ORA-12650") || refused.contains("ORA-12269"),
+                refused.contains("native encryption refused") || refused.contains("ORA-12650") || refused.contains("ORA-12269"),
                 "the weak-only {expected} peer must be refused at negotiation on the {path}: {refused}"
             );
         }
