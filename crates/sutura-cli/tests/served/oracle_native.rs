@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use sutura_config::Environment;
 
-use crate::harness::{LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written};
+use crate::harness::{
+    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
+};
 
 struct Tier {
     port: u16,
@@ -33,7 +35,9 @@ impl Tier {
             )
         };
         Self {
-            port: required("SUTURA_ORACLE_ACCEPTANCE_PORT").parse().expect("the published port is a u16"),
+            port: required("SUTURA_ORACLE_ACCEPTANCE_PORT")
+                .parse()
+                .expect("the published port is a u16"),
             service: required("SUTURA_ORACLE_ACCEPTANCE_SERVICE"),
             user: required("SUTURA_ORACLE_ACCEPTANCE_USER"),
             password: required("SUTURA_ORACLE_ACCEPTANCE_PASSWORD"),
@@ -67,7 +71,11 @@ impl Tier {
         std::fs::write(&password, &self.password).expect("the modern fixture password writes");
         std::fs::write(
             &legacy_password,
-            if wrong_password { "not-the-fixture-password" } else { &self.legacy_password },
+            if wrong_password {
+                "not-the-fixture-password"
+            } else {
+                &self.legacy_password
+            },
         )
         .expect("the legacy fixture password writes");
         let tested = self.connection(&self.legacy_user, &legacy_password, legacy);
@@ -84,12 +92,18 @@ impl Tier {
         } else {
             let catalog = local_catalog(&root);
             (
-                format!("  - name: model\n    kind: markdown\n    version: native-fixture\n    dir: {}\n", catalog.display()),
+                format!(
+                    "  - name: model\n    kind: markdown\n    version: native-fixture\n    dir: {}\n",
+                    catalog.display()
+                ),
                 tested,
             )
         };
         let (source, tools) = if oracle_source {
-            (format!("kind: oracle\n    {source}"), "tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n")
+            (
+                format!("kind: oracle\n    {source}"),
+                "tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n",
+            )
         } else {
             (format!("kind: files\n    data_dir: {}", root.display()), "")
         };
@@ -126,7 +140,11 @@ fn protected_queries(deployment: &Served) {
             r#"{"statement":"select PAYLOAD from EVENTS order by ID"}"#,
         );
         assert_eq!(reply.status, 200, "the protected query answers: {}", reply.body);
-        assert_eq!(reply.json()["rows"], serde_json::json!(expected), "the complete multi-record payload arrives");
+        assert_eq!(
+            reply.json()["rows"],
+            serde_json::json!(expected),
+            "the complete multi-record payload arrives"
+        );
     }
 }
 
@@ -156,7 +174,10 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             &[],
         )
         .join("\n");
-        assert!(refused.contains("ORA-01017"), "the {path} must refuse the wrong password: {refused}");
+        assert!(
+            refused.contains("ORA-01017"),
+            "the {path} must refuse the wrong password: {refused}"
+        );
 
         let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false, true));
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
@@ -168,7 +189,10 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
 
 #[test]
 #[ignore = "requires just oracle-native-acceptance"]
-#[expect(clippy::disallowed_methods, reason = "the default driver is also checked against the real required-NNE listener")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the default driver is also checked against the real required-NNE listener"
+)]
 fn oracle_native_logins_require_both_strong_services_on_both_production_paths() {
     let mut tier = Tier::here();
     let expected = std::env::var("SUTURA_ORACLE_NATIVE_EXPECT").expect("the native acceptance task declares its server policy");
@@ -182,7 +206,10 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
         let Err(refused) = oracledb::connect(plain) else {
             panic!("a driver without native mode must not log in to the required-NNE listener");
         };
-        assert!(refused.to_string().contains("native"), "the missing native mode is refused: {refused}");
+        assert!(
+            refused.to_string().contains("native"),
+            "the missing native mode is refused: {refused}"
+        );
     }
     tier.legacy_user = tier.user.clone();
     tier.legacy_password = tier.password.clone();
