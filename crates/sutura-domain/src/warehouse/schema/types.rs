@@ -15,6 +15,7 @@ pub enum TypeDialect {
     ClickHouse,
     BigQuery,
     Oracle,
+    Foundry,
 }
 
 impl TypeDialect {
@@ -43,6 +44,7 @@ impl TypeDialect {
                 Self::ClickHouse => clickhouse(name, parameters),
                 Self::BigQuery => bigquery(name, parameters),
                 Self::Oracle => oracle(name, parameters),
+                Self::Foundry => foundry(name, parameters),
                 Self::DuckDb | Self::Postgres => postgres(name, parameters),
             },
         }
@@ -82,6 +84,22 @@ fn bigquery(name: &str, parameters: Option<&str>) -> Option<DataType> {
         "date" => Some(DataType::Date32),
         "timestamp" => Some(micros(Some("UTC"))),
         "datetime" => Some(micros(None)),
+        _ => None,
+    }
+}
+
+fn foundry(name: &str, parameters: Option<&str>) -> Option<DataType> {
+    match name {
+        "byte" | "tinyint" => Some(DataType::Int8),
+        "short" | "smallint" => Some(DataType::Int16),
+        "integer" | "int" => Some(DataType::Int32),
+        "long" | "bigint" => Some(DataType::Int64),
+        "float" => Some(DataType::Float32),
+        "double" => Some(DataType::Float64),
+        "decimal" => parameters.and_then(decimal),
+        "date" => Some(DataType::Date32),
+        "timestamp" => Some(micros(Some("UTC"))),
+        "binary" => Some(DataType::Binary),
         _ => None,
     }
 }

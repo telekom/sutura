@@ -313,6 +313,7 @@ polyglot-sql = { version = "0.14.0", default-features = false, features = [
   "dialect-clickhouse",
   "dialect-bigquery",
   "dialect-oracle",
+  "dialect-spark",
 ] }
 
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no
