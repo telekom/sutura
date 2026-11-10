@@ -71,6 +71,7 @@ pub(super) fn written(plan: &LogicalPlan, dialect: TypeDialect, read: &[Statemen
         TypeDialect::DataFusion => unparse(&DefaultDialect {}),
         TypeDialect::Postgres | TypeDialect::Cube => unparse(&PostgreSqlDialect {}),
         TypeDialect::Oracle => oracle::statement(plan),
+        TypeDialect::Foundry => plan_err!("only a source that takes raw statements has a part"),
         TypeDialect::BigQuery => unparse(&BigQueryDialect {}),
         TypeDialect::ClickHouse => unparse(
             &CustomDialectBuilder::new()
