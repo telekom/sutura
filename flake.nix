@@ -1455,6 +1455,9 @@
             if [ -n "''${SUTURA_ORACLE_BASE_SHA:-}" ]; then
               exec bash nix/oracle-native-base-proof.sh "$SUTURA_ORACLE_BASE_SHA"
             fi
+            (
+              exec cargo test --profile ci -p sutura-cli --features oracle,rdbms --test served --no-run
+            )
             if [ "''${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
               exec bash nix/oracle-native-probe.sh
             fi
