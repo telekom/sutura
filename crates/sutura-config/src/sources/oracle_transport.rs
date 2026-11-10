@@ -28,6 +28,7 @@ impl RawOracleOptions<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RawOracleTransport<'raw> {
     pub(crate) mode: &'raw str,
     pub(crate) anchors: Option<&'raw str>,

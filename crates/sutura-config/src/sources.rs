@@ -701,9 +701,10 @@ pub enum InvalidSourceRegistry {
     },
 }
 
-/// Declared sources, keyed by the alias a model names. The private map keeps duplicate-alias
-/// checks in the parser. An empty registry is valid; the composition root refuses a catalog
-/// naming an undeclared source before binding a listener.
+/// Declared sources, keyed by the alias a model names.
+///
+/// The private map keeps duplicate-alias checks in the parser. An empty registry is valid;
+/// the composition root refuses a catalog naming an undeclared source before binding a listener.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceRegistry {
     by_alias: BTreeMap<SourceName, ConfiguredSource>,
