@@ -13,7 +13,7 @@ import tomllib
 source = Path.cwd()
 output = Path(os.environ["RUNNER_TEMP"]) / "oracle-provider-proof"
 output.mkdir()
-scratch = output / "scratch"
+scratch = Path(os.environ["RUNNER_TEMP"]) / "oracle-provider-scratch"
 relative = "vendor/rust-oracledb/src/transport.rs"
 fallback = "transport::tests::tls_uses_aws_lc_fallback_without_installing_a_provider"
 installed = "transport::tests::tls_preserves_an_installed_provider_and_its_resolver_snapshot"
@@ -82,7 +82,8 @@ for name, cell in (("fallback-head", fallback), ("installed-head", installed)):
 
 # Retain the exact head test tail and restore only the parent's production bytes.
 # No source-text assertion substitutes for the actual named runtime failures below.
-base_sha = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
+base_sha = "5279abb4f0bc87de1018eaa5c572898e7c0305a9"
+subprocess.run(["git", "merge-base", "--is-ancestor", base_sha, "HEAD"], check=True)
 base = subprocess.check_output(["git", "show", f"{base_sha}:{relative}"], text=True)
 marker = "#[cfg(test)]\nmod tests {"
 assert head.count(marker) == base.count(marker) == 1
