@@ -1452,6 +1452,9 @@
             ${cargoWarmStart}
             export SUTURA_ORACLE_CARGO_PROFILE=ci
             export SUTURA_ORACLE_RUN_ACCEPTANCE=1
+            if [ -n "''${SUTURA_ORACLE_BASE_SHA:-}" ]; then
+              exec bash nix/oracle-native-base-proof.sh "$SUTURA_ORACLE_BASE_SHA"
+            fi
             bash nix/oracle-native-probe.sh
             bash nix/oracle-legacy-probe.sh
           '');

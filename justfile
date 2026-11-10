@@ -910,6 +910,10 @@ oracle-native-acceptance:
     SUTURA_ORACLE_RUN_ACCEPTANCE=1 bash nix/oracle-native-probe.sh
     SUTURA_ORACLE_RUN_ACCEPTANCE=1 bash nix/oracle-legacy-probe.sh
 
+# Hosted live base-red proof for both ignored product cells.
+oracle-native-base-proof base:
+    SUTURA_ORACLE_BASE_SHA={{quote(base)}} nix run .#oracle-native-acceptance
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
