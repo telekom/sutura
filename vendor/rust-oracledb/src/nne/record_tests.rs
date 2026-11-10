@@ -107,3 +107,36 @@ fn authentication_key_folding_is_a_one_way_phase_change() {
     }
     assert!(protection(17, 5).fold(&[]).is_err());
 }
+
+#[test]
+fn protected_records_match_independent_go_ora_v3_vectors() {
+    // reference_vectors.go, pinned go-ora 62f8a42fe821414cec8fcacb1b877dfef836f798.
+    // Hosted generator SHA256: d0ed9ddd0c2ad63921949bfb02024d2f2d9b6d9545c8ab2e19c501375fbf38bc.
+    // These cover the client direction and 32-byte folding; live peers must prove interoperability.
+    let lines: Vec<_> = include_str!("reference_vectors.txt").lines().collect();
+    assert_eq!(lines.len(), 54);
+    for group in lines.chunks_exact(3) {
+        let mut fields = group[0].split_whitespace();
+        let encryption = fields.next().unwrap().parse().unwrap();
+        let integrity = fields.next().unwrap().parse().unwrap();
+        let folded: bool = fields.next().unwrap().parse().unwrap();
+        let mut client = protection(encryption, integrity);
+        let mut peer = protection(encryption, integrity);
+        if folded {
+            client.fold(&[0xa5; 32]).unwrap();
+            peer.fold(&[0xa5; 32]).unwrap();
+        }
+        let mut peer = server(peer);
+        for (index, (line, plaintext)) in group.iter().zip([b"first".as_slice(), b"second", b""]).enumerate() {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(fields.len(), 5);
+            assert_eq!(fields[0].parse::<u8>().unwrap(), encryption);
+            assert_eq!(fields[1].parse::<u8>().unwrap(), integrity);
+            assert_eq!(fields[2].parse::<bool>().unwrap(), folded);
+            assert_eq!(fields[3].parse::<usize>().unwrap(), index);
+            let expected = bytes(fields[4]);
+            assert_eq!(client.seal(plaintext).unwrap(), expected);
+            assert_eq!(peer.open(&expected).unwrap(), plaintext);
+        }
+    }
+}
