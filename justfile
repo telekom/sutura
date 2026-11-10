@@ -902,6 +902,9 @@ oracle-tier: oracle-acceptance
 oracle-legacy-probe:
     bash nix/oracle-legacy-probe.sh
 
+oracle-native-probe:
+    bash nix/oracle-native-probe.sh
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
