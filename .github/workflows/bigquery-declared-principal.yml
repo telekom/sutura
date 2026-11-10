@@ -112,6 +112,20 @@ jobs:
           printf 'SUTURA_BQ_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
           echo "two resource names masked for the rest of this job"
 
+      # Register the project mask before a step header can print project-qualified table vars.
+      - name: Mask the split fixture names
+        env:
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
+        run: |
+          set -eu
+          for name in SUTURA_BQ_SPLIT_TABLE SUTURA_BQ_A_ONLY_TABLE; do
+            value="${!name}"
+            test -n "$value" || { echo "the bq-test environment defines no $name" >&2; exit 1; }
+            printf '::add-mask::%s\n' "$value"
+          done
+          echo "four resource names masked for the rest of this job"
+
       # The driver, built for this runner's own triple. It is a REAL artefact of this repository -
       # the same derivation `checks.adbc-driver-bigquery` realises - rather than a CDN download, so
       # what this leg exercises is what a release would ship.
@@ -176,6 +190,13 @@ jobs:
       # asserts the two answers differ from each other and from the deployment's own. The first
       # `assert_ne!` refuses a MISCONFIGURED venue (one assertion presented twice).
       #
+      # `declared_principal::split` reads a split leg's streams with caller A's forwarded token.
+      # Its two tables are named by `SUTURA_BQ_SPLIT_TABLE` and `SUTURA_BQ_A_ONLY_TABLE`, which this
+      # step does NOT pass yet: `check-venues` refuses a variable the bq-test sync script does not
+      # push, and the environment's provisioning is the owner's. Until both land, each split cell
+      # panics naming the variable, so the run is red by name and never green over nothing.
+      # `--no-fail-fast`, so those reds do not hide what the other cells observed.
+      #
       # With `--no-capture`, a refusal renders the driver's own error text. A missing pool provider
       # can refuse the assertion at STS; a missing BigQuery grant can refuse jobs or reads after it.
       # Read the error to distinguish a venue misconfiguration from an adapter defect.
@@ -184,13 +205,15 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/bq-ci-key.json
           SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
           SUTURA_BQ_AUDIENCE: ${{ secrets.SUTURA_BQ_WORKLOAD_AUDIENCE }}
           SUTURA_BQ_ASSERTION_A_FILE: ${{ runner.temp }}/assertion-a.txt
           SUTURA_BQ_ASSERTION_B_FILE: ${{ runner.temp }}/assertion-b.txt
           SUTURA_BQ_INBOUND_A_FILE: ${{ runner.temp }}/inbound-a.txt
           SUTURA_BQ_INBOUND_B_FILE: ${{ runner.temp }}/inbound-b.txt
         run: |
-          set -eu
+          set -euo pipefail
           if [ -z "${SUTURA_BQ_PROJECT:-}" ]; then
             echo "the bq-test environment defines no SUTURA_BQ_PROJECT - the leg needs the project the principals live in" >&2
             exit 1
@@ -208,14 +231,32 @@ jobs:
           # The assertions reach the leg as VALUES rather than paths, because the transport posts
           # each one to Google's token service from memory and never writes it to a file. Read
           # here, in one step, from files this job placed and removes.
+          # The job log of this environment is not readable, so the output is also kept in a raw file
+          # that `nix/bigquery-leg-digest.py` reduces to outcome, panic, assertion and `observed,`
+          # lines, redacted, for the artifact below. The cell's own exit code is what the step returns.
+          umask 077
+          status=0
           SUTURA_BQ_ASSERTION_A="$(cat "$SUTURA_BQ_ASSERTION_A_FILE")" \
           SUTURA_BQ_ASSERTION_B="$(cat "$SUTURA_BQ_ASSERTION_B_FILE")" \
           SUTURA_BQ_INBOUND_A="$(cat "$SUTURA_BQ_INBOUND_A_FILE")" \
           SUTURA_BQ_INBOUND_B="$(cat "$SUTURA_BQ_INBOUND_B_FILE")" \
-            nix run .#bigquery-declared-principal -- --no-capture
+            nix run .#bigquery-declared-principal -- --no-capture --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/leg-raw.log" || status=$?
+          python3 -I nix/bigquery-leg-digest.py "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt" \
+            || echo "the digest could not be written" >&2
+          exit "$status"
+
+      - name: Upload the redacted digest
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bigquery-declared-principal-digest
+          path: ${{ runner.temp }}/leg-digest.txt
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Remove the credentials
         if: always()
         run: |
           rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
           rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt" "$RUNNER_TEMP/inbound-a.txt" "$RUNNER_TEMP/inbound-b.txt"
+          rm -f "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt"

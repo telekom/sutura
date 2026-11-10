@@ -59,7 +59,7 @@
  	JobCreationModeOptional    = "optional"
 --- a/job_query.go
 +++ b/job_query.go
-@@ -323,6 +323,42 @@
+@@ -323,6 +323,50 @@
  	return bigqueryRdr, totalRows, nil
  }
 
@@ -69,9 +69,21 @@
 +// rather than new machinery. There is no known BigQuery schema for a bare
 +// stream name, so ipcReaderFromArrowIterator falls back to the schema
 +// carried in the Arrow IPC stream itself, exactly as it already does when a
-+// job's reported schema field count does not match.
-+func readPartitionRecordReader(ctx context.Context, client *bigquery.Client, readStream string, alloc memory.Allocator, resultRecordBufferSize int) (array.RecordReader, error) {
-+	arrowIterator, err := readRowsArrowIteratorForStream(ctx, client, readStream, nil)
++// job's reported schema field count does not match. A failure before the
++// reader exists cancels the stream's context, so its gRPC stream does not
++// stay open; once it exists, releasing it cancels the stream.
++func readPartitionRecordReader(ctx context.Context, client *bigquery.Client, readStream string, alloc memory.Allocator, resultRecordBufferSize int) (_ array.RecordReader, err error) {
++	ctx, cancelFn := context.WithCancel(ctx)
++	defer func() {
++		if err != nil {
++			cancelFn()
++		}
++	}()
++
++	// A session stream takes no per-request serialization options: BigQuery refuses
++	// them with InvalidArgument ("only supported for job streams"). Its compression
++	// is the session's own, set by createPartitionReadSession.
++	arrowIterator, err := readRowsArrowIteratorForStream(ctx, client, &storagepb.ReadRowsRequest{ReadStream: readStream}, nil)
 +	if err != nil {
 +		return nil, errToAdbcErr(adbc.StatusIO, err, "open read partition stream")
 +	}
@@ -81,14 +93,10 @@
 +		return nil, errToAdbcErr(adbc.StatusIO, err, "decode read partition stream")
 +	}
 +
-+	chs := make([]chan arrow.RecordBatch, 1)
-+	ctx, cancelFn := context.WithCancel(ctx)
 +	ch := make(chan arrow.RecordBatch, resultRecordBufferSize)
-+	chs[0] = ch
-+
 +	result := &reader{
 +		refCount:   1,
-+		chs:        chs,
++		chs:        []chan arrow.RecordBatch{ch},
 +		curChIndex: 0,
 +		err:        nil,
 +		cancelFn:   cancelFn,
@@ -102,35 +110,58 @@
  // streamRecordBatches reads a RecordReader into a channel; it terminates if the supplied context is cancelled.
  func streamRecordBatches(ctx context.Context, source array.RecordReader, result *reader, ch chan arrow.RecordBatch) {
  	defer close(ch)
-@@ -476,6 +512,17 @@
+@@ -476,6 +520,27 @@
  }
 
  func newReadRowsArrowIterator(ctx context.Context, client *bigquery.Client, job *bigquery.Job, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
 +	readStream := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/streams/_default", job.ProjectID(), job.Location(), job.ID())
-+	return readRowsArrowIteratorForStream(ctx, client, readStream, schema)
++	return readRowsArrowIteratorForStream(ctx, client, &storagepb.ReadRowsRequest{
++		ReadStream: readStream,
++		// TODO(lidavidm): if we get an inline response, we can use it, then set the offset to skip it
++		Offset: 0,
++		OutputFormatSerializationOptions: &storagepb.ReadRowsRequest_ArrowSerializationOptions{
++			ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
++				BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
++				// TODO: hmm, there's a way to get nanos and picos (string) out of BigQuery...
++			},
++		},
++	}, schema)
 +}
 +
-+// readRowsArrowIteratorForStream opens ReadRows on an arbitrary Storage Read
-+// API stream name using the connection's own StorageReadClient, i.e. its own
-+// credentials. newReadRowsArrowIterator calls it for a job's implicit default
-+// stream; ReadPartition calls it for a stream named by an explicit
-+// CreateReadSession (see partitions.go), reusing the same machinery rather
-+// than opening a second kind of stream reader.
-+func readRowsArrowIteratorForStream(ctx context.Context, client *bigquery.Client, readStream string, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
++// readRowsArrowIteratorForStream opens ReadRows for request using the
++// connection's own StorageReadClient, i.e. its own credentials.
++// newReadRowsArrowIterator calls it for a job's implicit default stream;
++// ReadPartition calls it for a stream named by an explicit CreateReadSession
++// (see partitions.go), reusing the same machinery rather than opening a second
++// kind of stream reader.
++func readRowsArrowIteratorForStream(ctx context.Context, client *bigquery.Client, request *storagepb.ReadRowsRequest, schema bigquery.Schema) (bigquery.ArrowIterator, error) {
  	rc := client.StorageReadClient()
  	if rc == nil {
  		// TODO(lidavidm): eventually we will need to support disabling this
-@@ -487,7 +534,6 @@
+@@ -487,18 +552,8 @@
  		// https://cloud.google.com/bigquery/quotas#storage-limits
  		grpc.MaxCallRecvMsgSize(1024 * 1024 * 129),
  	)
 -	readStream := fmt.Sprintf("projects/%s/locations/%s/jobs/%s/streams/_default", job.ProjectID(), job.Location(), job.ID())
- 	rows, err := rc.ReadRows(ctx, &storagepb.ReadRowsRequest{
- 		ReadStream: readStream,
- 		// TODO(lidavidm): if we get an inline response, we can use it, then set the offset to skip it
+-	rows, err := rc.ReadRows(ctx, &storagepb.ReadRowsRequest{
+-		ReadStream: readStream,
+-		// TODO(lidavidm): if we get an inline response, we can use it, then set the offset to skip it
+-		Offset: 0,
+-		OutputFormatSerializationOptions: &storagepb.ReadRowsRequest_ArrowSerializationOptions{
+-			ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
+-				BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
+-				// TODO: hmm, there's a way to get nanos and picos (string) out of BigQuery...
+-			},
+-		},
+-	}, msgSizeOpt)
++	readStream := request.GetReadStream()
++	rows, err := rc.ReadRows(ctx, request, msgSizeOpt)
+ 	if err != nil {
+ 		return nil, err
+ 	}
 --- /dev/null
 +++ b/partitions.go
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,169 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -236,7 +267,9 @@
 +
 +// createPartitionReadSession opens a multi-stream Storage Read API session
 +// against a query's destination table and returns the Arrow schema and the
-+// resulting streams' resource names, one per partition.
++// resulting streams' resource names, one per partition. It asks for exactly
++// maxStreamCount streams, as both bounds; BigQuery's preferred minimum is best
++// effort, so the session may still hold fewer.
 +func createPartitionReadSession(ctx context.Context, client *bigquery.Client, dst *bigquery.Table, maxStreamCount int32) (*arrow.Schema, []string, error) {
 +	rc := client.StorageReadClient()
 +	if rc == nil {
@@ -254,8 +287,18 @@
 +		ReadSession: &storagepb.ReadSession{
 +			Table:      tablePath,
 +			DataFormat: storagepb.DataFormat_ARROW,
++			ReadOptions: &storagepb.ReadSession_TableReadOptions{
++				OutputFormatSerializationOptions: &storagepb.ReadSession_TableReadOptions_ArrowSerializationOptions{
++					ArrowSerializationOptions: &storagepb.ArrowSerializationOptions{
++						BufferCompression: storagepb.ArrowSerializationOptions_ZSTD,
++					},
++				},
++			},
 +		},
-+		MaxStreamCount: maxStreamCount,
++		// MaxStreamCount alone is a ceiling the server may answer with one stream;
++		// the preferred minimum asks it to split the table at least this far.
++		MaxStreamCount:          maxStreamCount,
++		PreferredMinStreamCount: maxStreamCount,
 +	}, msgSizeOpt)
 +	if err != nil {
 +		return nil, nil, errToAdbcErr(adbc.StatusIO, err, "create read session")
@@ -290,7 +333,7 @@
 +}
 --- /dev/null
 +++ b/partitions_test.go
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,372 @@
 +// Copyright (c) 2026 ADBC Drivers Contributors
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -309,10 +352,21 @@
 +
 +import (
 +	"context"
++	"net"
 +	"testing"
++	"time"
 +
 +	"cloud.google.com/go/bigquery"
++	"cloud.google.com/go/bigquery/storage/apiv1/storagepb"
 +	"github.com/apache/arrow-adbc/go/adbc"
++	"github.com/apache/arrow-go/v18/arrow"
++	"github.com/apache/arrow-go/v18/arrow/array"
++	"github.com/apache/arrow-go/v18/arrow/memory"
++	"google.golang.org/api/option"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
 +)
 +
 +func TestPartitionDescriptorRoundTrip(t *testing.T) {
@@ -402,6 +456,35 @@
 +	}
 +}
 +
++func TestExecutePartitionsRefusesBoundParameters(t *testing.T) {
++	params, err := array.NewRecordReader(arrow.NewSchema(nil, nil), nil)
++	if err != nil {
++		t.Fatalf("array.NewRecordReader: %v", err)
++	}
++	st := &statement{
++		queryConfig: bigquery.QueryConfig{Q: "SELECT 1"},
++		params:      params,
++	}
++
++	_, partitions, rows, err := st.ExecutePartitions(context.Background())
++	if err == nil {
++		t.Fatal("ExecutePartitions: expected an error for bound parameters, got nil")
++	}
++	adbcErr, ok := err.(adbc.Error)
++	if !ok {
++		t.Fatalf("ExecutePartitions: error %v is not an adbc.Error", err)
++	}
++	if adbcErr.Code != adbc.StatusNotImplemented {
++		t.Fatalf("ExecutePartitions: code = %v, want StatusNotImplemented", adbcErr.Code)
++	}
++	if partitions.NumPartitions != 0 || len(partitions.PartitionIDs) != 0 {
++		t.Fatalf("ExecutePartitions: expected no partitions on refusal, got %+v", partitions)
++	}
++	if rows != -1 {
++		t.Fatalf("ExecutePartitions: rows = %d, want -1", rows)
++	}
++}
++
 +func TestPartitionStreamCountFor(t *testing.T) {
 +	cases := []struct {
 +		name                string
@@ -482,6 +565,147 @@
 +		}
 +	})
 +}
++
++// fakeStorageRead stands in for the Storage Read API on loopback: it records the
++// one request each call receives and refuses it, so a test reads what the driver
++// sent without a session to serve.
++type fakeStorageRead struct {
++	storagepb.UnimplementedBigQueryReadServer
++	sessions chan *storagepb.CreateReadSessionRequest
++	reads    chan *storagepb.ReadRowsRequest
++	// read, when set, serves a ReadRows call after its request is recorded;
++	// unset, the call is refused.
++	read func(storagepb.BigQueryRead_ReadRowsServer) error
++}
++
++func (f *fakeStorageRead) CreateReadSession(_ context.Context, req *storagepb.CreateReadSessionRequest) (*storagepb.ReadSession, error) {
++	f.sessions <- req
++	return nil, status.Error(codes.InvalidArgument, "fake: recorded")
++}
++
++func (f *fakeStorageRead) ReadRows(req *storagepb.ReadRowsRequest, stream storagepb.BigQueryRead_ReadRowsServer) error {
++	f.reads <- req
++	if f.read != nil {
++		return f.read(stream)
++	}
++	return status.Error(codes.InvalidArgument, "fake: recorded")
++}
++
++func clientOfFakeStorageRead(t *testing.T) (*bigquery.Client, *fakeStorageRead) {
++	t.Helper()
++	lis, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatalf("listen: %v", err)
++	}
++	fake := &fakeStorageRead{
++		sessions: make(chan *storagepb.CreateReadSessionRequest, 1),
++		reads:    make(chan *storagepb.ReadRowsRequest, 1),
++	}
++	srv := grpc.NewServer()
++	storagepb.RegisterBigQueryReadServer(srv, fake)
++	go func() { _ = srv.Serve(lis) }()
++	t.Cleanup(srv.Stop)
++
++	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
++	if err != nil {
++		t.Fatalf("dial the fake: %v", err)
++	}
++	ctx := context.Background()
++	client, err := bigquery.NewClient(ctx, "p", option.WithoutAuthentication())
++	if err != nil {
++		t.Fatalf("bigquery.NewClient: %v", err)
++	}
++	t.Cleanup(func() { _ = client.Close() })
++	if err := client.EnableStorageReadClient(ctx, option.WithGRPCConn(conn), option.WithoutAuthentication()); err != nil {
++		t.Fatalf("EnableStorageReadClient: %v", err)
++	}
++	return client, fake
++}
++
++func recorded[T any](t *testing.T, ch chan T) T {
++	t.Helper()
++	select {
++	case req := <-ch:
++		return req
++	case <-time.After(10 * time.Second):
++		var zero T
++		t.Fatal("the fake Storage Read API received no request")
++		return zero
++	}
++}
++
++// BigQuery refuses per-request serialization options on a session stream with
++// InvalidArgument ("Arrow serialization options are only supported for job
++// streams"), so ReadPartition must send none.
++func TestPartitionReadSendsNoRequestSerializationOptions(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++
++	if _, err := readPartitionRecordReader(context.Background(), client, streamName, memory.DefaultAllocator, 1); err == nil {
++		t.Fatal("readPartitionRecordReader: the fake refuses every read, got no error")
++	}
++	req := recorded(t, fake.reads)
++	if req.GetReadStream() != streamName {
++		t.Fatalf("ReadRows stream = %q, want %q", req.GetReadStream(), streamName)
++	}
++	if opts := req.GetOutputFormatSerializationOptions(); opts != nil {
++		t.Fatalf("ReadRows on a session stream carries serialization options %v; BigQuery accepts them only on a job stream", opts)
++	}
++}
++
++// The session, not the read, carries the compression, and its preferred minimum
++// equals its maximum, so a small table is still asked to split that far.
++func TestPartitionReadSessionCompressesAndAsksForAMinimum(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++
++	if _, _, err := createPartitionReadSession(context.Background(), client, client.Dataset("d").Table("t"), 2); err == nil {
++		t.Fatal("createPartitionReadSession: the fake refuses every session, got no error")
++	}
++	req := recorded(t, fake.sessions)
++	if got := req.GetReadSession().GetTable(); got != "projects/p/datasets/d/tables/t" {
++		t.Fatalf("session table = %q", got)
++	}
++	if got := req.GetReadSession().GetReadOptions().GetArrowSerializationOptions().GetBufferCompression(); got != storagepb.ArrowSerializationOptions_ZSTD {
++		t.Fatalf("session buffer compression = %v, want ZSTD", got)
++	}
++	if req.GetMaxStreamCount() != 2 || req.GetPreferredMinStreamCount() != 2 {
++		t.Fatalf("session stream counts max=%d preferred_min=%d, want 2 and 2", req.GetMaxStreamCount(), req.GetPreferredMinStreamCount())
++	}
++}
++
++// A stream whose Arrow schema does not decode leaves ReadPartition with an
++// error and no reader to release, so nothing but ReadPartition itself can
++// close the gRPC stream it opened.
++func TestPartitionReadClosesStreamWhenDecodingFails(t *testing.T) {
++	client, fake := clientOfFakeStorageRead(t)
++	closed := make(chan struct{})
++	fake.read = func(stream storagepb.BigQueryRead_ReadRowsServer) error {
++		// A message length of 2 where the schema message belongs: it cannot be decoded.
++		undecodable := []byte{2, 0, 0, 0}
++		if err := stream.Send(&storagepb.ReadRowsResponse{
++			Schema: &storagepb.ReadRowsResponse_ArrowSchema{
++				ArrowSchema: &storagepb.ArrowSchema{SerializedSchema: undecodable},
++			},
++		}); err != nil {
++			return err
++		}
++		<-stream.Context().Done()
++		close(closed)
++		return stream.Context().Err()
++	}
++
++	streamName := "projects/p/locations/us/sessions/s1/streams/stream-0"
++	if _, err := readPartitionRecordReader(context.Background(), client, streamName, memory.DefaultAllocator, 1); err == nil {
++		t.Fatal("readPartitionRecordReader: the stream's schema cannot be decoded, got no error")
++	}
++	recorded(t, fake.reads)
++
++	select {
++	case <-closed:
++	case <-time.After(10 * time.Second):
++		t.Fatal("the read stream stayed open after its schema failed to decode")
++	}
++}
 --- a/statement.go
 +++ b/statement.go
 @@ -28,6 +28,7 @@
@@ -543,7 +767,7 @@
  // ExecutePartitions executes the current statement and gets the results
  // as a partitioned result set.
  //
-@@ -954,13 +985,112 @@
+@@ -954,13 +985,121 @@
  // descriptors and the number of rows affected, if known. If unknown,
  // the number of rows affected will be -1.
  //
@@ -568,6 +792,9 @@
 +// A dry run (bigquery.query.dry_run) never runs the query to a destination
 +// table, so it cannot be partitioned either; this returns an error rather
 +// than a partition list or a row-count estimate.
++//
++// Bound parameters are not supported either: a statement with parameters
++// bound is refused as StatusNotImplemented rather than run with them ignored.
  func (st *statement) ExecutePartitions(ctx context.Context) (*arrow.Schema, adbc.Partitions, int64, error) {
 -	return nil, adbc.Partitions{}, -1, adbc.Error{
 -		Code: adbc.StatusNotImplemented,
@@ -586,7 +813,13 @@
 +			Code: adbc.StatusInvalidState,
 +			Msg:  "[bq] ExecutePartitions does not support bigquery.query.dry_run: a dry run has no destination table to partition",
 +		}
- 	}
++	}
++	if st.params != nil {
++		return nil, adbc.Partitions{}, -1, adbc.Error{
++			Code: adbc.StatusNotImplemented,
++			Msg:  "[bq] ExecutePartitions does not support bound parameters",
++		}
++	}
 +
 +	query := st.query()
 +
@@ -617,7 +850,7 @@
 +	cfg, err := job.Config()
 +	if err != nil {
 +		return nil, adbc.Partitions{}, -1, errToAdbcErr(adbc.StatusInternal, err, "read job config")
-+	}
+ 	}
 +	queryCfg, ok := cfg.(*bigquery.QueryConfig)
 +	if !ok || queryCfg.Dst == nil {
 +		return nil, adbc.Partitions{}, -1, adbc.Error{
