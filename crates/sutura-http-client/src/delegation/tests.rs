@@ -248,12 +248,14 @@ fn an_unreachable_idp_is_unreachable_and_names_no_token() {
 
 #[test]
 fn an_answer_over_the_cap_is_too_large() {
-    let server = FakeServer::start(vec![Scripted::ok(&issued(&good_token()))]);
-    let failed = exchanging_at(&format!("{}/token", server.endpoint()), 16)
-        .exchange(&Secret::new(SUBJECT_TOKEN), &audience())
-        .expect_err("the answer is over a 16-byte cap");
-    assert!(matches!(failed, DelegationFailed::TooLarge { cap: 16 }), "{failed:?}");
-    drop(server.finish());
+    for token in [good_token(), "x".repeat(2048)] {
+        let server = FakeServer::start(vec![Scripted::ok(&issued(&token))]);
+        let failed = exchanging_at(&format!("{}/token", server.endpoint()), 16)
+            .exchange(&Secret::new(SUBJECT_TOKEN), &audience())
+            .expect_err("the answer is over a 16-byte cap");
+        assert!(matches!(failed, DelegationFailed::TooLarge { cap: 16 }), "{failed:?}");
+        drop(server.finish());
+    }
 }
 
 #[test]
