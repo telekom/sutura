@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: e0562bbacf28e2a8a14f12e0de07cbd3f1ca38bc
+          ref: 0b23a9b606dc9ebb2fd1c42e72344c06166e8ea6
           fetch-depth: 0
           persist-credentials: false
 
@@ -77,78 +77,6 @@ jobs:
       - uses: ./.github/actions/nix-store-cache
         with:
           scope: ci
-
-      - name: Export all Foundry SQL golden snapshots
-        run: |
-          set -euo pipefail
-          mkdir -p target/foundry-sql-export
-          nix build --impure --expr '
-            let flake = builtins.getFlake (toString ./.); in
-            flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
-              INSTA_UPDATE = "always";
-              checkPhase = builtins.replaceStrings
-                [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"package(sutura-app) & binary(=golden)\"" ]
-                old.checkPhase;
-              postInstall = (old.postInstall or "") + "\ncp crates/sutura-app/tests/snapshots/*@foundry.snap $out/\n";
-            })
-          ' -L --out-link target/foundry-sql-snapshots 2>&1 | tee target/foundry-sql-proof.log
-          cp target/foundry-sql-snapshots/*@foundry.snap target/foundry-sql-export/
-          git rev-parse HEAD > target/foundry-sql-export/source-head.txt
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: foundry-sql-snapshots
-          path: |
-            target/foundry-sql-export/
-            target/foundry-sql-proof.log
-          if-no-files-found: error
-
-      - name: Test Foundry execution and source configuration
-        run: |
-          set -euo pipefail
-          mkdir -p target/foundry-preparation
-          nix build --impure --expr '
-            let flake = builtins.getFlake (toString ./.); in
-            flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
-              checkPhase = builtins.replaceStrings
-                [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"package(sutura-exec-foundry) | package(sutura-config)\"" ]
-                old.checkPhase;
-            })
-          ' -L --no-link 2>&1 | tee target/foundry-preparation/tests.log
-
-      - name: Measure the pre-decode buffer budget regression
-        run: |
-          set -euo pipefail
-          mkdir -p target/foundry-preparation
-          status=0
-          nix build --impure --expr '
-            let flake = builtins.getFlake (toString ./.); in
-            flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
-              checkPhase = builtins.replaceStrings
-                [ "--workspace --all-features" ]
-                [ "--workspace --all-features -E \"test(ipc_buffers_over_budget_are_refused_before_batch_materialisation)\"" ]
-                old.checkPhase;
-              postPatch = (old.postPatch or "") + "\nsubstituteInPlace crates/sutura-exec-foundry/src/lib.rs --replace-fail \"*charged = charged.saturating_add(length);\" \"*charged = charged.saturating_add(length.saturating_sub(length));\"\n";
-            })
-          ' -L --no-link 2>&1 | tee target/foundry-preparation/mutation.log || status=$?
-          if [ "$status" -eq 0 ]; then
-            echo "the IPC buffer budget mutation unexpectedly passes" >&2
-            exit 1
-          fi
-          python3 - <<'CHECK'
-          import pathlib
-          import re
-          log = pathlib.Path("target/foundry-preparation/mutation.log").read_text()
-          log = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
-          failed = set(re.findall(r"\bFAIL\b[^\n]*::([a-zA-Z0-9_]+)", log))
-          expected = {"ipc_buffers_over_budget_are_refused_before_batch_materialisation"}
-          if failed != expected:
-              raise SystemExit(f"expected failures {sorted(expected)}, observed {sorted(failed)}")
-          print(f"measured IPC budget mutation failures: {sorted(failed)}")
-          CHECK
 
       - name: Run the exact-head validation gate
         run: |
