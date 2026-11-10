@@ -77,8 +77,13 @@ mod tests {
     use sutura_domain::model::SourceName;
 
     fn overlay(kind: &str) -> String {
+        let token_file = if kind == "node" {
+            ""
+        } else {
+            "    token_file: /run/sutura/foundry-token\n"
+        };
         format!(
-            "security:\n  identity: single-user\n  single_user_because: one operator\nsources:\n  warehouse:\n    kind: {kind}\n    endpoint: https://foundry.example.com\n    ontology: sales\n    token_file: /run/sutura/foundry-token\n    posture: shared-service-user\n"
+            "security:\n  identity: single-user\n  single_user_because: one operator\nsources:\n  warehouse:\n    kind: {kind}\n    endpoint: https://foundry.example.com\n    ontology: sales\n{token_file}    posture: shared-service-user\n"
         )
     }
 
