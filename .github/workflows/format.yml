@@ -96,6 +96,55 @@ jobs:
             target/foundry-sql-proof.log
           if-no-files-found: error
 
+      - name: Measure the focused SQL and type cells against mapping mutations
+        run: |
+          set -euo pipefail
+          mkdir -p target/foundry-sql-mutation
+          git rev-parse HEAD > target/foundry-sql-mutation/source-head.txt
+          status=0
+          nix build --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              mutation = builtins.path {
+                path = ./nix/draft-readiness/foundry-sql-mapping.patch;
+                name = "foundry-sql-mapping.patch";
+              };
+            in flake.checks.x86_64-linux.nextest.overrideAttrs (old: {
+              NEXTEST_PROFILE = "nofailfast";
+              checkPhase = builtins.replaceStrings
+                [ "--workspace --all-features" ]
+                [ "--workspace --all-features -E \"test(foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets) | test(foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped)\"" ]
+                old.checkPhase;
+              postPatch = (old.postPatch or "") + "\npatch -p1 < ${mutation}\n";
+            })
+          ' -L --no-link 2>&1 | tee target/foundry-sql-mutation/mutation.log || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "the mapping mutations unexpectedly pass" >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import pathlib
+          import re
+
+          expected = {
+              "foundry_ontology_sql_keeps_values_bound_and_uses_spark_date_buckets",
+              "foundry_property_type_words_pin_numeric_widths_and_leave_nested_types_unmapped",
+          }
+          log = pathlib.Path("target/foundry-sql-mutation/mutation.log").read_text()
+          log = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", log)
+          failed = set(re.findall(r"\bFAIL\b[^\n]*::([a-zA-Z0-9_]+)", log))
+          if failed != expected:
+              raise SystemExit(f"expected failures {sorted(expected)}, observed {sorted(failed)}")
+          print(f"measured mapping mutation failures: {sorted(failed)}")
+          PY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: foundry-sql-mutation
+          path: target/foundry-sql-mutation/
+          if-no-files-found: error
+
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
 
