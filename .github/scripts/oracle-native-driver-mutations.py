@@ -73,6 +73,11 @@ for _, _, _, _, test in cases:
     if f"test {test} ... ok" not in head:
         raise SystemExit(f"head did not execute {test}")
 
+selected = ["--", "nne::", "transport::native_tests::", "messages::auth::legacy_transport_tests::"]
+status, baseline = run(command + selected, output / "driver-scratch-head.log", cwd=scratch)
+if status or any(f"test {test} ... ok" not in baseline for _, _, _, _, test in cases):
+    raise SystemExit("standalone head did not pass each mutation target")
+
 for name, relative, before, after, test in cases:
     path = scratch / relative
     original = path.read_text()
@@ -95,7 +100,7 @@ for name, relative, before, after, test in cases:
         raise SystemExit(f"{name}: no named behavioral kill; compile/setup errors do not count")
 
 # Prove the same scratch/toolchain route green again after restoring the final mutation.
-status, restored = run(command + ["nne::", "transport::native_tests::", "messages::auth::legacy_transport_tests::"], output / "driver-restored.log", cwd=scratch)
+status, restored = run(command + selected, output / "driver-restored.log", cwd=scratch)
 if status or "test result: ok" not in restored:
     raise SystemExit("restored standalone driver tests failed")
 print(f"{len(summary)} named behavioral kills; head and restored tests green", flush=True)
