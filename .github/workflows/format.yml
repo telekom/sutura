@@ -246,7 +246,7 @@ jobs:
           path: |
             target/oracle-native-probe
             target/oracle-legacy-probe
-            target/oracle-native-base
+            target/oracle-native-base-proof
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
