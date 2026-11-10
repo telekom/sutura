@@ -445,8 +445,8 @@ schedule is refused even when the negotiated algorithm names are AES and SHA-2. 
 venue with `SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS = FALSE` must measure this boundary.
 
 This decision does **not** extend verified TLS's guarantee. NNE's unauthenticated Diffie-Hellman
-exchange proves neither endpoint's identity and permits an active attacker to establish separate
-sessions with each endpoint. `verified` remains preferable where a TCPS endpoint is available.
+exchange proves neither endpoint's identity against an active network attacker. `verified` remains
+preferable where a TCPS endpoint is available.
 Native mode is default-off, requires `native_encryption_acknowledged_because`, and is logged at
 `WARN`. Its reason is separate from any shared-service-user acknowledgement. It supplies no TLS
 trust anchor, client identity or token authentication. Oracle's existing token path remains

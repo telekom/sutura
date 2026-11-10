@@ -61,9 +61,8 @@ declared trust anchors. Prefer it when the database provides a TCPS listener.
 both services, offers only AES-256/192/128 and SHA-512/384/256, and refuses a missing service or an
 algorithm outside those lists. There is no algorithm setting or fallback to plaintext. The
 Diffie-Hellman exchange authenticates neither endpoint: encryption and integrity do **not** prove
-the listener's identity or protect against an active attacker establishing separate sessions with
-each endpoint. This mode is an explicit operator decision for a listener that provides NNE rather
-than TCPS. It is never selected automatically, and startup logs it at `WARN`.
+the listener's identity against an active network attacker. This mode is an explicit operator
+decision for a listener that provides NNE rather than TCPS. It is never selected automatically, and startup logs it at `WARN`.
 
 The native reason is separate from the shared-service-user posture's `acknowledged_because`.
 Native encryption accepts password authentication only; the built, unverified token path still

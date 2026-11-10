@@ -82,9 +82,9 @@ reader refuses a listener that redirects the connection, before it logs in.
 
 Oracle's `native-encryption` uses TCP with required Oracle Native Network Encryption and Data
 Integrity, with only AES-256/192/128 and SHA-512/384/256. **It does not authenticate the listener:**
-the Diffie-Hellman exchange permits an active attacker to establish separate sessions with each
-endpoint. Prefer `verified` when TCPS is available. Native mode requires its own reason, refuses TLS
-anchors and client identity fields, and startup logs it at `WARN`. There is no automatic fallback
+the unauthenticated Diffie-Hellman exchange does not establish the listener's identity against
+an active network attacker. Prefer `verified` when TCPS is available. Native mode requires its own
+reason, refuses TLS anchors and client identity fields, and startup logs it at `WARN`. There is no automatic fallback
 or algorithm setting.
 
 The legacy-verifier switch is a separate decision with a separate reason and startup `WARN`.
