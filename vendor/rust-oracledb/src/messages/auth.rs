@@ -135,16 +135,36 @@ impl Verifier {
     /// derives the combo key with PBKDF2 (10G 16 bytes, 11G 24 bytes, 12C
     /// 32 bytes). Without custom hashing a 10G login MD5s bytes 16 to 32 of
     /// the two session keys and an 11G login with 48 byte session keys MD5s
-    /// bytes 16 to 40. A 12C verifier is a PBKDF2 verifier and requires custom
-    /// hashing, so a 12C login without it is refused. Any other session key
-    /// length is an error.
+    /// bytes 16 to 40. A 12C verifier is always a PBKDF2 verifier, so its
+    /// login derives the combo key with PBKDF2 whatever the custom-hash
+    /// signal; this lets the per-field validation name which PBKDF2 field of
+    /// a malformed session is missing. Any other session key length is an
+    /// error.
     fn combo_key_derivation(
         self,
         session_key_len: usize,
         custom_hash: bool,
     ) -> Result<ComboKeyDerivation, Error> {
         match (self, custom_hash) {
-            (_, true) => Ok(ComboKeyDerivation::Pbkdf2),
+            // A 12C verifier is always PBKDF2, independently of the
+            // custom-hash signal, so a malformed 12C session names the
+            // per-field error. The session key length is validated here so a
+            // malformed AUTH_SESSKEY names itself before the PBKDF2 reads.
+            (Verifier::Pbkdf2, _) => match session_key_len {
+                32 | 48 => Ok(ComboKeyDerivation::Pbkdf2),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+            // Custom-hash mode (the server sent AUTH_PBKDF2_CSK_SALT and
+            // AUTH_PBKDF2_SDER_COUNT): a legacy 10G or 11G login derives the
+            // combo key with PBKDF2 too. The session key length is validated
+            // here so a malformed AUTH_SESSKEY names itself.
+            (_, true) => match session_key_len {
+                32 | 48 => Ok(ComboKeyDerivation::Pbkdf2),
+                _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
+            },
+            // Without custom hashing a 10G login MD5s bytes 16 to 32 of the
+            // two session keys and an 11G login with 48 byte session keys MD5s
+            // bytes 16 to 40. Any other session key length is an error.
             (Verifier::Legacy10g, false) => match session_key_len {
                 32 | 48 => Ok(ComboKeyDerivation::Md5),
                 _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
@@ -153,9 +173,6 @@ impl Verifier {
                 48 => Ok(ComboKeyDerivation::Md5),
                 _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
             },
-            (Verifier::Pbkdf2, false) => {
-                Err(Error::invalid_auth_response("AUTH_SESSKEY"))
-            }
         }
     }
 }
@@ -568,13 +585,17 @@ impl AuthMessage {
 
         // exchange the session keys and calculate the combo key from them
         let encoded_server_key = self.session_bytes("AUTH_SESSKEY")?;
-        // The negotiated logon mode: a server that sends the PBKDF2 salt and
-        // iteration count uses custom hashing, whatever verifier it serves
-        // (go-ora's logonCompatibility & 32 custom-hash branch).
+        // The negotiated logon mode: a server that sends either PBKDF2 combo
+        // field (the salt or the iteration count) has attempted custom hashing,
+        // whatever verifier it serves (go-ora's logonCompatibility & 32 custom-
+        // hash branch). Only when the server sends BOTH do we read them; when it
+        // sends EXACTLY ONE the challenge is partial and the Pbkdf2 arm reads
+        // both in order and names the missing field rather than falling to the
+        // legacy MD5 path.
         let custom_hash = self
             .session_data
             .contains_key("AUTH_PBKDF2_CSK_SALT")
-            && self
+            || self
                 .session_data
                 .contains_key("AUTH_PBKDF2_SDER_COUNT");
         let combo_key = match verifier.combo_key_derivation(
@@ -1318,9 +1339,19 @@ mod tests {
             ComboKeyDerivation::Md5
         );
         assert!(Verifier::Legacy11g.combo_key_derivation(32, false).is_err());
-        // A 12C verifier requires custom hashing, so without it it is refused.
-        assert!(Verifier::Pbkdf2.combo_key_derivation(32, false).is_err());
-        assert!(Verifier::Pbkdf2.combo_key_derivation(48, false).is_err());
+        // A 12C verifier is always a PBKDF2 verifier, so it derives the combo
+        // key with PBKDF2 even without the custom-hash signal; this lets a
+        // malformed 12C session name the missing PBKDF2 field.
+        assert_eq!(
+            Verifier::Pbkdf2.combo_key_derivation(32, false).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
+        assert_eq!(
+            Verifier::Pbkdf2.combo_key_derivation(48, false).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
+        // Every verifier validates the session key length in the dispatch, so
+        // a malformed AUTH_SESSKEY names itself before any per-field read.
         for verifier in
             [Verifier::Legacy10g, Verifier::Legacy11g, Verifier::Pbkdf2]
         {
@@ -1329,4 +1360,5 @@ mod tests {
             }
         }
     }
+
 }
