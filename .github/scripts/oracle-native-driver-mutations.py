@@ -16,10 +16,11 @@ scratch = Path("/tmp/oracle-driver-mutants")
 summary = []
 
 
-def run(command, log, cwd=source):
+def run(command, log, cwd=source, display=True):
     with log.open("w") as stream:
         result = subprocess.run(command, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT, check=False)
-    print(log.read_text(), flush=True)
+    if display:
+        print(log.read_text(), flush=True)
     return result.returncode, log.read_text()
 
 
@@ -48,8 +49,8 @@ for key in ["CARGO_UNSTABLE_CODEGEN_BACKEND", "CARGO_PROFILE_DEV_CODEGEN_BACKEND
 # Cargo must prune workspace-only packages/features for this standalone manifest.
 # Resolve only in the hosted scratch copy, then refuse any identity not in the root lock.
 status, _ = run(
-    ["nix", "run", f"{source}#cargo", "--", "metadata", "--format-version", "1", "--no-deps", "--features", "arrow"],
-    output / "driver-scratch-metadata.log", cwd=scratch,
+    ["nix", "run", f"{source}#cargo", "--", "metadata", "--format-version", "1", "--features", "arrow"],
+    output / "driver-scratch-metadata.log", cwd=scratch, display=False,
 )
 if status:
     raise SystemExit("standalone lock setup failed; no mutation verdict")
