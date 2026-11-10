@@ -93,8 +93,9 @@ impl Tier {
             let catalog = local_catalog(&root);
             (
                 format!(
-                    "  - name: model\n    kind: markdown\n    version: native-fixture\n    dir: {}\n",
-                    catalog.display()
+                    "  - name: model\n    kind: markdown\n    version: native-fixture\n    dir: {}\n    data_dir: {}\n",
+                    catalog.display(),
+                    root.display()
                 ),
                 tested,
             )

@@ -78,6 +78,10 @@ SQL
   sleep 2
 done
 test "$readable" = true
+if [ "$SUTURA_ORACLE_ACCEPTANCE_MODE" = native ] && [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
+  SUTURA_ORACLE_NATIVE_EXPECT=success cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \
+    oracle_native::oracle_native_logins_require_both_strong_services_on_both_production_paths -- --ignored --nocapture
+fi
 oracle_test_filter=oracle_native::oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in
 if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" = 1 ]; then
   oracle_test_filter=oracle_native::
