@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, config, validate]
+        options: [text, format, lock-format, config, vectors, validate]
 
 permissions:
   contents: read
@@ -130,6 +130,28 @@ jobs:
       - name: Format text with the pinned tools
         if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format'
         run: bash nix/format-text.sh fmt
+
+      - name: Generate independently sourced modern NNE vectors
+        if: inputs.operation == 'vectors'
+        env:
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          oracle_source_root=$PWD
+          git init /tmp/oracle-go-reference
+          git -C /tmp/oracle-go-reference remote add origin https://github.com/sijms/go-ora.git
+          git -C /tmp/oracle-go-reference fetch --depth=1 origin 62f8a42fe821414cec8fcacb1b877dfef836f798
+          git -C /tmp/oracle-go-reference checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/oracle-go-reference rev-parse HEAD)" = 62f8a42fe821414cec8fcacb1b877dfef836f798
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-nne-vectors.go" > /tmp/oracle-nne-vectors.go
+          sha256sum /tmp/oracle-nne-vectors.go > /tmp/oracle-export/vector-generator.sha256
+          git -C /tmp/oracle-go-reference rev-parse HEAD > /tmp/oracle-export/reference-sha
+          cd /tmp/oracle-go-reference/v3
+          nix shell --inputs-from "$oracle_source_root" nixpkgs#go --command go run /tmp/oracle-nne-vectors.go > /tmp/oracle-export/nne-reference-vectors.txt
+          test "$(wc -l < /tmp/oracle-export/nne-reference-vectors.txt)" -eq 54
+          cat /tmp/oracle-export/nne-reference-vectors.txt
 
       - name: Measure config head and base
         if: inputs.operation == 'config'
