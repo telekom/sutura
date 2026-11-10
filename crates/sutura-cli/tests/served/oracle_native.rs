@@ -177,9 +177,10 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
             "the {path} must name the legacy verifier it refused: {refused}"
         );
 
-        let deployment =
-            std::panic::catch_unwind(|| start_configured(&case, &tier.settings(&case, dictionary, true, false, FixtureSource::Oracle)))
-                .expect("the legacy opt-in must let the correct credentials serve");
+        let deployment = std::panic::catch_unwind(|| {
+            start_configured(&case, &tier.settings(&case, dictionary, true, false, FixtureSource::Oracle))
+        })
+        .expect("the legacy opt-in must let the correct credentials serve");
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
