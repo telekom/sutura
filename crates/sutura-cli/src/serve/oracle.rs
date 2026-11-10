@@ -269,8 +269,9 @@ mod tests {
 
     /// **A malformed authentication response refuses the source, and the process keeps running.**
     /// The fake accepts the CONNECT and answers the first authentication message with session
-    /// data that has none of the verifier fields. The open runs inside `catch_unwind`, so an open
-    /// that does not return fails this cell's first assertion rather than the test harness.
+    /// data that names the 12C verifier and has none of its fields. The open runs inside
+    /// `catch_unwind`, so an open that does not return fails this cell's first assertion rather
+    /// than the test harness.
     #[test]
     #[cfg(feature = "oracle")]
     fn a_malformed_authentication_response_refuses_the_oracle_source() {
@@ -279,8 +280,9 @@ mod tests {
         let password = directory.join("password");
         std::fs::write(&password, "not-a-real-password").expect("the password file writes");
         let anchors = directory.join("ca.pem");
-        let (port, _sent) = sutura_dev::tns_listener::authenticating_over(tls_fake(&anchors), &[("AUTH_SESSKEY", "00")])
-            .expect("the fake listener binds");
+        let session = [("AUTH_VFR_DATA", "00"), ("AUTH_SESSKEY", "00")];
+        let (port, _sent) =
+            sutura_dev::tns_listener::authenticating_over(tls_fake(&anchors), &session).expect("the fake listener binds");
         let entry = format!(
             "  warehouse:\n    kind: \"oracle\"\n    host: \"127.0.0.1\"\n    port: {port}\n    \
              service_name: \"FREEPDB1\"\n    user: \"sutura\"\n    password_file: \"{}\"\n    \
