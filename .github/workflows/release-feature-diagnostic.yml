@@ -1,0 +1,41 @@
+name: release-feature-diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-tree:
+    runs-on: rust-mcp-16core
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b1 # 31.11.3
+        with:
+          extra_nix_config: |
+            fallback = true
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Resolve the shipped feature graph
+        run: |
+          set -euo pipefail
+          features='bigquery,postgres,duckdb,clickhouse,tls,datahub,openmetadata,cube,rdbms,oracle,agent,distributed'
+          nix run .#cargo -- tree --locked --package sutura-cli --features "$features" --edges features --invert sqlparser | tee release-sqlparser-tree.txt
+          nix run .#cargo -- tree --locked --package sutura-cli --features "$features" --edges features --invert datafusion-sql | tee release-datafusion-sql-tree.txt
+          nix run .#cargo -- tree --locked --package sutura-cli --features "$features" --edges features | rg 'sqlparser|datafusion-sql' > release-parser-feature-lines.txt || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-feature-diagnostic
+          path: |
+            release-sqlparser-tree.txt
+            release-datafusion-sql-tree.txt
+            release-parser-feature-lines.txt
+          if-no-files-found: error
