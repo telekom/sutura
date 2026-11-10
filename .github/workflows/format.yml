@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, config, vectors, native, validate]
+        options: [text, format, lock-format, config, vectors, driver, native, validate]
 
 permissions:
   contents: read
@@ -185,6 +185,13 @@ jobs:
           cat /tmp/oracle-export/config-base-all.log
           test "$status" -ne 0
           grep -q 'test result: FAILED' /tmp/oracle-export/config-base-all.log
+
+      - name: Measure driver head and killing mutations
+        if: inputs.operation == 'driver'
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-native-driver-mutations.py" > /tmp/oracle-native-driver-mutations.py
+          python3 /tmp/oracle-native-driver-mutations.py
 
       - name: Run hosted native and legacy product acceptance
         if: inputs.operation == 'native'
