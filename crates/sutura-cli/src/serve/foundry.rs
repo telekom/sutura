@@ -59,7 +59,7 @@ mod tests {
             "a build without Foundry must refuse the source",
         );
         assert!(error.contains("warehouse"), "{error}");
-        assert!(error.contains("foundry"), "{error}");
+        assert!(error.contains("`kind: foundry`"), "{error}");
         assert!(error.contains("without the `foundry` feature"), "{error}");
     }
 }
