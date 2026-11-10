@@ -72,8 +72,8 @@ pub(super) fn refuse_elsewhere(
 #[cfg(test)]
 mod tests {
     use crate::environment::Environment;
-    use crate::settings::{Settings, Sources};
-    use crate::sources::SourcePlacement;
+    use crate::settings::{Settings, SettingsError, Sources};
+    use crate::sources::{InvalidSourceRegistry, SourcePlacement};
     use sutura_domain::model::SourceName;
 
     fn overlay(kind: &str) -> String {
@@ -94,7 +94,15 @@ mod tests {
         for kind in ["cube", "node"] {
             let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay(kind)))
                 .expect_err("other endpoint sources must refuse ontology");
-            assert!(error.to_string().contains("ontology"), "{kind}: {error}");
+            assert!(
+                matches!(
+                    error.reason(),
+                    SettingsError::Sources {
+                        cause: InvalidSourceRegistry::KeyNotForKind { key: "ontology", .. }
+                    }
+                ),
+                "{kind}: {error:?}"
+            );
         }
     }
 }
