@@ -269,6 +269,9 @@ impl Transport {
             return Ok(None);
         }
         self.last_packet_bytes = self.get_packet_size();
+        if self.last_packet_bytes < 8 && !self.native_requested {
+            return Err(Error::packet_too_short(self.last_packet_bytes));
+        }
         if self.last_packet_bytes < 8 || self.last_packet_bytes > self.max_packet_size {
             return Err(Error::native_encryption_refused("invalid packet length"));
         }
