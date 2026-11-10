@@ -108,7 +108,14 @@ fn arrow_ipc_is_decoded_through_the_domain_schema_guard() {
 #[test]
 fn ipc_buffers_over_budget_are_refused_before_batch_materialisation() {
     let warehouse = warehouse(1);
-    let error = warehouse.decode(arrow_bytes(), 1, super::boot_deadline()).expect_err("eight bytes exceed one");
-    assert!(matches!(&error, super::FoundryError::Arrow { cause: arrow_schema::ArrowError::MemoryError(_) }));
+    let error = warehouse
+        .decode(arrow_bytes(), 1, super::boot_deadline())
+        .expect_err("eight bytes exceed one");
+    assert!(matches!(
+        &error,
+        super::FoundryError::Arrow {
+            cause: arrow_schema::ArrowError::MemoryError(_)
+        }
+    ));
     assert!(sutura_domain::warehouse::Warehouse::result_did_not_fit(&warehouse, &error));
 }
