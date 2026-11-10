@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4dc7f17549f550b3ecb00efaee7770e3ea7eff0a
+          ref: 1dd20648f417ab7e4a1e9090b891d817793b6acc
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/reclaim-disk
@@ -39,13 +39,13 @@ jobs:
       - name: Validate exact final source
         run: |
           set -euo pipefail
-          mkdir -p proof
-          git rev-parse HEAD > proof/source-sha
-          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate 2>&1 | tee proof/validate.log
+          mkdir -p "$RUNNER_TEMP/peer-window-proof"
+          git rev-parse HEAD > "$RUNNER_TEMP/peer-window-proof/source-sha"
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate 2>&1 | tee "$RUNNER_TEMP/peer-window-proof/validate.log"
           git diff --exit-code
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: peer-window-validate-4dc7f1754
-          path: proof/
+          name: peer-window-validate-1dd20648f
+          path: ${{ runner.temp }}/peer-window-proof/
           if-no-files-found: error
