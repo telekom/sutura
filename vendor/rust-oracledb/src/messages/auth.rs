@@ -138,6 +138,10 @@ impl Verifier {
         session_key_len: usize,
     ) -> Result<ComboKeyDerivation, Error> {
         match (self, session_key_len) {
+            // A 10G login derives its combo key with MD5 from bytes 16 to 32
+            // of the two session keys, whether the server sent 32 or 48 byte
+            // session keys; a 10G server predates the PBKDF2 custom hash.
+            (Verifier::Legacy10g, 32 | 48) => Ok(ComboKeyDerivation::Md5),
             (_, 32) => Ok(ComboKeyDerivation::Pbkdf2),
             (Verifier::Legacy11g, 48) => Ok(ComboKeyDerivation::Md5),
             _ => Err(Error::invalid_auth_response("AUTH_SESSKEY")),
@@ -263,6 +267,10 @@ fn des_cbc_last_block(key: &[u8; 8], text: &[u8]) -> [u8; 8] {
 /// blocks, run through DES in CBC mode under a fixed key, then again under
 /// the last block of that first pass. The last block of the second pass is
 /// the verifier.
+///
+/// The UTF-16 (big-endian) encoding is verified only by the ASCII known-answer
+/// vectors below; non-ASCII legacy-credential encoding is unverified against a
+/// real server.
 fn des_verifier(user: &str, password: &str) -> [u8; 8] {
     let mut text: Vec<u8> = user
         .to_uppercase()
@@ -334,18 +342,41 @@ fn pbkdf2_combo_key(
     combo_key
 }
 
-/// Returns the combo key of an 11G login with 48 byte session keys: MD5 over
-/// bytes 16 to 32 and MD5 over bytes 32 to 40 of the two session keys
-/// combined with XOR, cut to 24 bytes.
-fn md5_combo_key(server_key: &[u8; 48], client_key: &[u8; 48]) -> LoginKey {
-    let mut mixed = [0u8; 24];
-    for (i, byte) in mixed.iter_mut().enumerate() {
-        *byte = server_key[i + 16] ^ client_key[i + 16];
+/// Returns the combo key of a legacy login, from the two session keys it
+/// exchanged. A 10G login XORs bytes 16 to 32 and MD5s them into a 16 byte
+/// AES-128 key, whatever the session key length; an 11G login with 48 byte
+/// session keys XORs bytes 16 to 40, MD5s bytes 16 to 32 and bytes 32 to 40
+/// into a 24 byte AES-192 key. A 12C login derives its combo key with PBKDF2
+/// and never reaches this.
+fn md5_combo_key(
+    verifier: Verifier,
+    server_key: &[u8],
+    client_key: &[u8],
+) -> LoginKey {
+    match verifier {
+        Verifier::Legacy10g => {
+            let mut mixed = [0u8; 16];
+            for (i, byte) in mixed.iter_mut().enumerate() {
+                *byte = server_key[i + 16] ^ client_key[i + 16];
+            }
+            let mut key = [0u8; 16];
+            key.copy_from_slice(&md5::Md5::digest(&mixed));
+            LoginKey::Aes128(key)
+        }
+        Verifier::Legacy11g => {
+            let mut mixed = [0u8; 24];
+            for (i, byte) in mixed.iter_mut().enumerate() {
+                *byte = server_key[i + 16] ^ client_key[i + 16];
+            }
+            let mut key = [0u8; 24];
+            key[..16].copy_from_slice(&md5::Md5::digest(&mixed[..16]));
+            key[16..].copy_from_slice(&md5::Md5::digest(&mixed[16..])[..8]);
+            LoginKey::Aes192(key)
+        }
+        Verifier::Pbkdf2 => unreachable!(
+            "a 12C login derives its combo key with PBKDF2, never MD5"
+        ),
     }
-    let mut key = [0u8; 24];
-    key[..16].copy_from_slice(&md5::Md5::digest(&mixed[..16]));
-    key[16..].copy_from_slice(&md5::Md5::digest(&mixed[16..])[..8]);
-    LoginKey::Aes192(key)
 }
 
 pub struct AuthMessage {
@@ -539,12 +570,29 @@ impl AuthMessage {
                 )
             }
             ComboKeyDerivation::Md5 => {
-                let (server_key, client_key) = self
-                    .exchange_session_keys::<48>(
-                        &password_hash,
-                        &encoded_server_key,
-                    )?;
-                md5_combo_key(&server_key, &client_key)
+                // The session keys a server sends are 32 or 48 bytes; the
+                // verifier picks the MD5 variant (16 or 24 byte combo key).
+                match encoded_server_key.len() {
+                    32 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<32>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        md5_combo_key(verifier, &server_key, &client_key)
+                    }
+                    48 => {
+                        let (server_key, client_key) = self
+                            .exchange_session_keys::<48>(
+                                &password_hash,
+                                &encoded_server_key,
+                            )?;
+                        md5_combo_key(verifier, &server_key, &client_key)
+                    }
+                    _ => {
+                        return Err(Error::invalid_auth_response("AUTH_SESSKEY"))
+                    }
+                }
             }
         };
 
@@ -967,7 +1015,10 @@ mod tests {
         );
     }
 
-    // Computed with Python 3 hashlib, for n in 16, 24, 32:
+    // Computed with Python 3 hashlib, for n in 24, 32. The 10G 16 byte arm is
+    // not here: a 10G login derives its combo key with MD5 (go-ora's
+    // non-customHash generatePasswordEncKey case 2361), never via PBKDF2, so
+    // the 10G verifier does not reach pbkdf2_combo_key.
     // temp = (client[:n] + server[:n]).hex().upper().encode()
     // hashlib.pbkdf2_hmac("sha512", temp, salt, 3, n)
     // with server = bytes(range(0x00, 0x20)),
@@ -987,10 +1038,6 @@ mod tests {
                 3,
             ))
         };
-        assert_eq!(
-            combo_key(Verifier::Legacy10g),
-            bytes("7354FACE7838731D624750690CE14EA0")
-        );
         assert_eq!(
             combo_key(Verifier::Legacy11g),
             bytes("0C465732B9E15E6C78FF48D99318ACFC18D8E73234D6C8D1")
@@ -1013,8 +1060,27 @@ mod tests {
         let server_key: [u8; 48] = std::array::from_fn(|i| i as u8);
         let client_key: [u8; 48] = std::array::from_fn(|i| 0x80 + i as u8);
         assert_eq!(
-            key_bytes(&md5_combo_key(&server_key, &client_key)),
+            key_bytes(&md5_combo_key(Verifier::Legacy11g, &server_key, &client_key)),
             bytes("324C5183D4096C99A3D737B4522F21B2D0B32013C743BC99")
+        );
+    }
+
+    // Computed with Python 3 hashlib:
+    // x = bytes(a ^ b for a, b in zip(server[16:32], client[16:32]))
+    // hashlib.md5(x).digest()
+    // with server = bytes(range(0x00, 0x20)) and
+    // client = bytes([0x80 - i for i in range(0x20)]).
+    #[test]
+    fn the_10g_combo_key_is_md5_of_the_xor_of_session_key_bytes() {
+        let server_key: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let client_key: [u8; 32] = std::array::from_fn(|i| 0x80u8 - i as u8);
+        assert_eq!(
+            key_bytes(&md5_combo_key(
+                Verifier::Legacy10g,
+                &server_key,
+                &client_key,
+            )),
+            bytes("3FDDC6C5B58046D477165B04ADF45474")
         );
     }
 
@@ -1121,23 +1187,37 @@ mod tests {
     }
 
     #[test]
-    fn only_an_11g_login_takes_48_byte_session_keys() {
-        for verifier in
-            [Verifier::Legacy10g, Verifier::Legacy11g, Verifier::Pbkdf2]
-        {
-            assert_eq!(
-                verifier.combo_key_derivation(32).unwrap(),
-                ComboKeyDerivation::Pbkdf2
-            );
-            for len in [0, 16, 64] {
-                assert!(verifier.combo_key_derivation(len).is_err());
-            }
-        }
+    fn a_legacy_login_takes_the_derivation_of_its_session_key_length() {
+        // A 10G login uses MD5 for 32 or 48 byte session keys; an 11G login
+        // uses PBKDF2 for 32 byte ones and MD5 for 48 byte ones; a 12C login
+        // always uses PBKDF2.
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(32).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+        assert_eq!(
+            Verifier::Legacy10g.combo_key_derivation(48).unwrap(),
+            ComboKeyDerivation::Md5
+        );
+        assert_eq!(
+            Verifier::Legacy11g.combo_key_derivation(32).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
         assert_eq!(
             Verifier::Legacy11g.combo_key_derivation(48).unwrap(),
             ComboKeyDerivation::Md5
         );
-        assert!(Verifier::Legacy10g.combo_key_derivation(48).is_err());
+        assert_eq!(
+            Verifier::Pbkdf2.combo_key_derivation(32).unwrap(),
+            ComboKeyDerivation::Pbkdf2
+        );
         assert!(Verifier::Pbkdf2.combo_key_derivation(48).is_err());
+        for verifier in
+            [Verifier::Legacy10g, Verifier::Legacy11g, Verifier::Pbkdf2]
+        {
+            for len in [0, 16, 64] {
+                assert!(verifier.combo_key_derivation(len).is_err());
+            }
+        }
     }
 }
