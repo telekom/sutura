@@ -67,8 +67,7 @@ fn ontology_identifier_matches_the_catalog_identifier_grammar() {
     }
 }
 
-#[test]
-fn arrow_ipc_is_decoded_through_the_domain_schema_guard() {
+fn arrow_bytes() -> Vec<u8> {
     let schema = Arc::new(Schema::new(vec![Field::new("count", DataType::Int64, false)]));
     let values: ArrayRef = Arc::new(Int64Array::from(vec![7_i64]));
     let batch = RecordBatch::try_new(Arc::clone(&schema), vec![values]).expect("the test batch is rectangular");
@@ -78,7 +77,11 @@ fn arrow_ipc_is_decoded_through_the_domain_schema_guard() {
         writer.write(&batch).expect("the IPC batch writes");
         writer.finish().expect("the IPC stream finishes");
     }
-    let warehouse = FoundryWarehouse::new(
+    bytes
+}
+
+fn warehouse(budget: usize) -> FoundryWarehouse<TestTransport> {
+    FoundryWarehouse::new(
         SourceName::parse("warehouse").expect("the test source is a name"),
         SourcePosture::SharedServiceUser {
             declared: sutura_domain::source::SharedIdentityDeclared::of(
@@ -88,11 +91,24 @@ fn arrow_ipc_is_decoded_through_the_domain_schema_guard() {
         OntologyIdentifier::parse("sales_ontology").expect("the ontology is valid"),
         Secret::new("test-token"),
         TestTransport,
-        ResultBudget::of_bytes(core::num::NonZeroUsize::new(1024 * 1024).expect("the test budget is non-zero")),
-    );
+        ResultBudget::of_bytes(core::num::NonZeroUsize::new(budget).expect("the test budget is non-zero")),
+    )
+}
+
+#[test]
+fn arrow_ipc_is_decoded_through_the_domain_schema_guard() {
+    let warehouse = warehouse(1024 * 1024);
     let result = warehouse
-        .decode(bytes, super::FOUNDRY_MAX_ROW_LIMIT - 1, super::boot_deadline())
+        .decode(arrow_bytes(), super::FOUNDRY_MAX_ROW_LIMIT - 1, super::boot_deadline())
         .expect("the Arrow stream is readable");
     assert_eq!(result.rows(), 1);
     assert_eq!(result.schema().fields().len(), 1);
+}
+
+#[test]
+fn ipc_buffers_over_budget_are_refused_before_batch_materialisation() {
+    let warehouse = warehouse(1);
+    let error = warehouse.decode(arrow_bytes(), 1, super::boot_deadline()).expect_err("eight bytes exceed one");
+    assert!(matches!(&error, super::FoundryError::Arrow { cause: arrow_schema::ArrowError::MemoryError(_) }));
+    assert!(sutura_domain::warehouse::Warehouse::result_did_not_fit(&warehouse, &error));
 }

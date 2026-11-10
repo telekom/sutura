@@ -218,11 +218,8 @@ impl<T> FoundryWarehouse<T> {
     }
 }
 
-/// The maximum rows accepted from one synchronous Arrow response. The request uses one extra row
-/// so a service-side truncation cannot look complete.
-pub const MOST_RESULT_ROWS: usize = sutura_domain::plan::MAX_ROWS as usize + 1;
 /// Foundry's service-side hard row cap. A response reaching this marker is potentially truncated.
-pub const FOUNDRY_MAX_ROW_LIMIT: usize = sutura_domain::plan::MAX_ROWS as usize;
+pub const FOUNDRY_MAX_ROW_LIMIT: usize = 10_000;
 const MAX_SCHEMA_FIELDS: usize = 1024;
 const MAX_SCHEMA_TEXT_BYTES: usize = 64 * 1024;
 impl<T> FoundryWarehouse<T>
@@ -258,7 +255,7 @@ where
     }
 
     fn decode(&self, bytes: Vec<u8>, most_rows: usize, deadline: Deadline) -> WarehouseResult<T::Error, ResultBatches> {
-        validate_ipc(&bytes).map_err(|cause| FoundryError::Arrow { cause })?;
+        validate_ipc(&bytes, self.result_budget).map_err(|cause| FoundryError::Arrow { cause })?;
         let mut decoder = arrow_ipc::reader::StreamDecoder::new();
         let mut input = Buffer::from_vec(bytes);
         let mut accumulating: Option<Accumulating> = None;
@@ -358,6 +355,7 @@ where
             FoundryError::Unannounced {
                 cause: UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. },
             } => true,
+            FoundryError::Arrow { cause: arrow_schema::ArrowError::MemoryError(_) } => true,
             FoundryError::Endpoint { cause } => self.transport.result_did_not_fit(cause),
             FoundryError::Arrow { .. }
             | FoundryError::DeadlineSpent
@@ -402,8 +400,9 @@ const fn ipc_i32(bytes: [u8; 4]) -> i32 {
 
 /// Checks IPC framing and schema conversion before the decoder allocates metadata or record
 /// bodies. Compression is refused until decoded expansion can be charged against the result budget.
-fn validate_ipc(bytes: &[u8]) -> Result<(), arrow_schema::ArrowError> {
+fn validate_ipc(bytes: &[u8], budget: ResultBudget) -> Result<(), arrow_schema::ArrowError> {
     let mut offset = 0_usize;
+    let mut charged_buffers = 0_usize;
     let mut first = true;
     loop {
         if bytes.len().saturating_sub(offset) < 4 {
@@ -475,6 +474,7 @@ fn validate_ipc(bytes: &[u8]) -> Result<(), arrow_schema::ArrowError> {
             let batch = message
                 .header_as_record_batch()
                 .ok_or_else(|| arrow_schema::ArrowError::IpcError(String::from("Arrow IPC record batch header is absent")))?;
+            validate_buffers(&batch, message.bodyLength(), budget, &mut charged_buffers)?;
             if batch.compression().is_some() {
                 return Err(arrow_schema::ArrowError::IpcError(String::from(
                     "compressed Foundry Arrow results are unsupported",
@@ -540,6 +540,33 @@ fn validate_ipc(bytes: &[u8]) -> Result<(), arrow_schema::ArrowError> {
     }
 }
 
+fn validate_buffers(
+    batch: &arrow_ipc::RecordBatch<'_>,
+    body_bytes: i64,
+    budget: ResultBudget,
+    charged: &mut usize,
+) -> Result<(), arrow_schema::ArrowError> {
+    let buffers = batch.buffers().ok_or_else(|| {
+        arrow_schema::ArrowError::IpcError(String::from("Arrow IPC record batch has no buffers"))
+    })?;
+    for buffer in buffers {
+        let offset = buffer.offset();
+        let length = buffer.length();
+        if offset < 0 || length < 0 || offset.checked_add(length).is_none_or(|end| end > body_bytes) {
+            return Err(arrow_schema::ArrowError::IpcError(String::from("Arrow IPC buffer exceeds its body")));
+        }
+        let length = usize::try_from(length).map_err(|error| {
+            arrow_schema::ArrowError::ParseError(format!("Arrow IPC buffer length does not fit in usize: {error}"))
+        })?;
+        // Count repeated references too: the decoder can copy each unaligned buffer separately.
+        *charged = charged.saturating_add(length);
+        if *charged > budget.bytes() {
+            return Err(arrow_schema::ArrowError::MemoryError(String::from("Foundry IPC buffers exceed the result budget")));
+        }
+    }
+    Ok(())
+}
+
 fn validate_fb_schema(schema: &arrow_ipc::Schema) -> Result<(), arrow_schema::ArrowError> {
     let mut fields = 0_usize;
     let mut text_bytes = 0_usize;
@@ -557,6 +584,14 @@ fn validate_fb_field(
     fields: &mut usize,
     text_bytes: &mut usize,
 ) -> Result<(), arrow_schema::ArrowError> {
+    if field.dictionary().is_some()
+        || field.children().is_some_and(|children| !children.is_empty())
+        || !matches!(field.type_type(), arrow_ipc::Type::Int | arrow_ipc::Type::FloatingPoint
+            | arrow_ipc::Type::Utf8 | arrow_ipc::Type::LargeUtf8 | arrow_ipc::Type::Utf8View
+            | arrow_ipc::Type::Bool | arrow_ipc::Type::Date | arrow_ipc::Type::Decimal)
+    {
+        return Err(arrow_schema::ArrowError::IpcError(String::from("unsupported Foundry IPC field type")));
+    }
     *fields = fields.saturating_add(1);
     if *fields > MAX_SCHEMA_FIELDS {
         return Err(arrow_schema::ArrowError::IpcError(String::from(
@@ -565,11 +600,6 @@ fn validate_fb_field(
     }
     validate_fb_text(field.name(), text_bytes)?;
     validate_fb_metadata(field.custom_metadata(), text_bytes)?;
-    if let Some(children) = field.children() {
-        for child in children {
-            validate_fb_field(&child, fields, text_bytes)?;
-        }
-    }
     Ok(())
 }
 
