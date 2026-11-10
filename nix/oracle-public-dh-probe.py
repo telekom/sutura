@@ -48,13 +48,13 @@ def main():
         if kind != 2:
             raise RuntimeError(f'TNS did not accept: packet type {kind}')
         print('accept version', int.from_bytes(accepted[:2], 'big'), 'flags', accepted[14:16].hex(), flush=True)
-        version = tlv(5, bytes.fromhex('0b200200'))
+        version = tlv(5, bytes.fromhex('17000000'))
         array = bytes.fromhex('deadbeef0003') + struct.pack('!I4H', 4, 4, 1, 2, 3)
         services = service(4, [version, tlv(1, bytes.fromhex('0000101c66ec28ea')), tlv(1, array)])
         services += service(1, [version, tlv(3, bytes.fromhex('e0e1')), tlv(6, bytes.fromhex('fcff'))])
         services += service(2, [version, tlv(1, bytes([17, 16, 15])), tlv(2, b'\1')])
         services += service(3, [version, tlv(1, bytes([4, 6, 5]))])
-        ano = struct.pack('!IHIHB', 0xdeadbeef, 13 + len(services), 0x0b200200, 4, 0) + services
+        ano = struct.pack('!IHIHB', 0xdeadbeef, 13 + len(services), 0x17000000, 4, 0) + services
         sock.sendall(struct.pack('!IBBH', len(ano) + 10, 6, 0, 0) + bytes(2) + ano)
         kind, data = packet(sock, True)
         if kind != 6 or len(data) < 15:
