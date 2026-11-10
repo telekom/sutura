@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 //! The release monitor executes against a fake forge CLI, including failed and absent releases.
 
+#![cfg(test)]
+
 use std::path::Path;
 use std::process::Command;
 

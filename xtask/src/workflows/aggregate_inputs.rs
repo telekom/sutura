@@ -56,6 +56,7 @@ use std::path::Path;
 /// must name; a reference to any other job is refused.
 const REQUIRED: &[(&str, &str)] = &[
     ("CI_RESULT", "ci"),
+    ("RELEASE_RESULT", "release-status"),
     ("KC_RESULT", "keycloak-served-test"),
     ("KC_SELECTED", "ci"),
     ("BQ_RESULT", "bigquery-driver-check"),
@@ -485,6 +486,7 @@ mod tests {
     fn real_env() -> String {
         [
             "          CI_RESULT: ${{ needs.ci.result }}",
+            "          RELEASE_RESULT: ${{ needs.release-status.result }}",
             "          KC_RESULT: ${{ needs.keycloak-served-test.result }}",
             "          KC_SELECTED: ${{ needs.ci.outputs.identity }}",
             "          BQ_RESULT: ${{ needs.bigquery-driver-check.result }}",
