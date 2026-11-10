@@ -7,92 +7,45 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: peer-window-proof-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  format-export:
+  validate:
     runs-on: rust-mcp-32core
-    timeout-minutes: 45
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 5480106340efc37226c12786f80d054704df4f47
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
-        with:
-          extra_nix_config: |
-            fallback = true
-            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
-            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - uses: ./.github/actions/nix-store-cache
-        with:
-          scope: ci
-      - name: Format source and export the patch
-        run: |
-          set -euo pipefail
-          nix shell --inputs-from . nixpkgs#just --command just fmt
-          mkdir -p proof
-          git rev-parse HEAD > proof/source-sha
-          git diff --binary > proof/format.patch
-          git ls-files -z | xargs -0 sha256sum > proof/formatted-tree.sha256
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        if: always()
-        with:
-          name: peer-window-format-548010634
-          path: proof/
-          if-no-files-found: error
-
-  exact-input:
-    runs-on: rust-mcp-32core
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 5480106340efc37226c12786f80d054704df4f47
+          ref: 4dc7f17549f550b3ecb00efaee7770e3ea7eff0a
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/reclaim-disk
         with:
           minimum-gb: "25"
+      - name: Open KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b
         with:
           extra_nix_config: |
             fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
-      - name: Replay unchanged input against original constructors
+      - uses: ./.github/actions/nix-store-cache
+        with:
+          scope: ci
+      - name: Validate exact final source
         run: |
           set -euo pipefail
           mkdir -p proof
-          seed=fuzz/seeds/peer_stage/empty-window-expressions
-          sha256sum "$seed" > proof/seed.sha256
-          base64 -w0 "$seed" > proof/seed.base64
-          test "$(cat proof/seed.base64)" = ehMKBhoECgAQARoEEgKgARgUUIBA
-          git restore --source 7b9037192 --worktree -- vendor/datafusion-physical-plan/src/windows/window_agg_exec.rs vendor/datafusion-physical-plan/src/windows/bounded_window_agg_exec.rs
-          set +e
-          nix run .#fuzz -- run --codegen-units=16 peer_stage "$seed" -- -runs=1 > proof/base.log 2>&1
-          status=$?
-          set -e
-          cat proof/base.log
-          printf '%s\n' "$status" > proof/base.exit
-          git restore --source HEAD --worktree -- vendor/datafusion-physical-plan/src/windows/window_agg_exec.rs vendor/datafusion-physical-plan/src/windows/bounded_window_agg_exec.rs
-          test "$status" -ne 0
-          grep -F 'window_agg_exec.rs:89:57' proof/base.log
-          grep -F 'index out of bounds: the len is 0 but the index is 0' proof/base.log
-          sha256sum --check proof/seed.sha256
-      - name: Replay unchanged input and peer-stage corpus against fixed constructors
-        run: |
-          set -euo pipefail
-          nix run .#fuzz -- run --codegen-units=16 peer_stage fuzz/seeds/peer_stage/empty-window-expressions -- -runs=1 2>&1 | tee proof/head.log
-          sha256sum --check proof/seed.sha256
-          bash nix/run-fuzz.sh smoke 0 peer_stage 2>&1 | tee proof/corpus.log
+          git rev-parse HEAD > proof/source-sha
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate 2>&1 | tee proof/validate.log
           git diff --exit-code
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: peer-window-replay-548010634
+          name: peer-window-validate-4dc7f1754
           path: proof/
           if-no-files-found: error
