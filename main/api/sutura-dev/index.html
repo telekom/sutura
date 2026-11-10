@@ -3548,7 +3548,8 @@ framed or not, then closes, and returns its port.</p>
 </span></code></pre></div>
 <p>Binds a listener on <code>127.0.0.1</code> that accepts ONE client's CONNECT, and returns its port.</p>
 <p>It offers fast authentication, then answers the first authentication message with <code>session</code>,
-the key and value pairs of the session data the driver reads its verifier fields from.</p>
+the key and value pairs of the session data the driver reads its verifier fields from, as a
+server answers for an account with a 12C password verifier.</p>
 <h1 id="errors_14">Errors<a class="headerlink" href="#errors_14" title="Permanent link">&para;</a></h1>
 <p>A listener that cannot bind or has no local address.</p>
 <h3 id="fn-authenticating_over"><code>fn authenticating_over</code><a class="headerlink" href="#fn-authenticating_over" title="Permanent link">&para;</a></h3>
