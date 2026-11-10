@@ -32,8 +32,10 @@ use crate::{AnswerReader, Target};
 
 /// Why an answer was not read.
 ///
-/// Reaches [`crate::OpenApiCatalog`] boxed inside [`crate::OpenApiError::Read`]. No variant carries
-/// the token, and [`HttpReaderError::Refused`] keeps the endpoint's text bounded.
+/// Reaches [`crate::OpenApiCatalog`] boxed inside [`crate::OpenApiError::Read`].
+/// [`HttpReaderError::Refused`] displays only the status; its [`EndpointMessage`] debug output
+/// redacts the bounded API text. The raw text remains accessible through [`EndpointMessage::as_str`]
+/// and may contain a token echoed by the API.
 #[derive(Debug, thiserror::Error)]
 pub enum HttpReaderError {
     #[error("the API was not reached")]
