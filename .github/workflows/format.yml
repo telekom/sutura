@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, config, vectors, driver, native, validate]
+        options: [text, format, lock-format, config, vectors, driver, native, native-base, validate]
 
 permissions:
   contents: read
@@ -207,6 +207,15 @@ jobs:
         if: inputs.operation == 'native'
         run: nix run .#oracle-native-acceptance
 
+      - name: Measure native product cells against base
+        if: inputs.operation == 'native-base'
+        run: |
+          set -euo pipefail
+          SUTURA_ORACLE_BASE_SHA=$(git merge-base HEAD origin/main)
+          export SUTURA_ORACLE_BASE_SHA
+          printf '%s\n' "$SUTURA_ORACLE_BASE_SHA" > /tmp/oracle-export/native-base-sha
+          nix run .#oracle-native-acceptance
+
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
         run: nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate
@@ -228,6 +237,16 @@ jobs:
         with:
           name: oracle-export-${{ inputs.operation }}-${{ inputs.source_sha }}
           path: /tmp/oracle-export/
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base')
+        with:
+          name: oracle-fixture-${{ inputs.operation }}-${{ inputs.source_sha }}
+          path: |
+            target/oracle-native-probe
+            target/oracle-legacy-probe
+            target/oracle-native-base
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
