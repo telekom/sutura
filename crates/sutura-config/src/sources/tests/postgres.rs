@@ -27,6 +27,7 @@ fn postgres(written: &str) -> RawSourceEntry<'_> {
         user: Some("sutura"),
         password_file: Some("/etc/sutura/pg-password"),
         transport_mode: Some("plaintext"),
+        oracle_options: crate::sources::oracle_transport::RawOracleOptions::default(),
         transport_anchors: None,
         client_certificate: None,
         client_key: None,

@@ -61,6 +61,9 @@ pub(super) fn parse_placement(
     ) {
         refuse_foreign_keys(alias, kind, [("delegation", entry.delegation.is_some())])?;
     }
+    if kind != SourceKind::Oracle {
+        refuse_foreign_keys(alias, kind, entry.oracle_options.keys())?;
+    }
     cube::refuse_elsewhere(alias, kind, entry, written)?;
     match kind {
         SourceKind::Files => {

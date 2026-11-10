@@ -60,5 +60,9 @@ required-features = ["test-capture"]
 name = "principal_privacy"
 required-features = ["test-capture"]
 
+[[test]]
+name = "oracle_transport"
+required-features = ["test-capture"]
+
 [lints]
 workspace = true

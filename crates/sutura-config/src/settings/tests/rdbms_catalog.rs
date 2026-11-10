@@ -320,10 +320,10 @@ fn a_complete_oracle_catalog_loads() {
 #[test]
 fn a_loopback_oracle_plaintext_catalog_is_refused() {
     let plaintext = overlay("rdbms", ENTRY, Some(ORACLE_CONNECTION));
-    load(&plaintext).expect_err("an Oracle dictionary is read over verified TLS only, loopback or not");
+    load(&plaintext).expect_err("an Oracle dictionary requires an encrypted channel, loopback or not");
     assert_names(
         &refusal(&plaintext),
-        "`transport_mode` is `plaintext`, and an Oracle dictionary is read over verified TLS only",
+        "`transport_mode` is `plaintext`, and an Oracle dictionary requires verified TLS or acknowledged native encryption",
     );
 }
 
