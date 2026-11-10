@@ -15,6 +15,10 @@ The Foundry catalog reads an ontology over Foundry's ontology API v2. The crate 
 `sutura-catalog-foundry`, and the catalog kind is `foundry`. It supplies models, column types,
 descriptions and joins.
 
+To execute questions on Foundry itself, declare a separate
+[`kind: foundry` data source](../data-systems/foundry.md). The catalog's metadata token does not
+become a query credential.
+
 ## When to use it
 
 - Your organisation keeps its object types and their links in a Foundry ontology.
