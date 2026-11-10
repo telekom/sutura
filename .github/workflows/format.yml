@@ -110,7 +110,6 @@ jobs:
         run: |
           nix run .#cargo -- run -q -p xtask -- fmt
           nix run .#cargo -- run -q -p xtask -- text-hygiene --fix
-          nix run .#cargo -- fmt --manifest-path vendor/rust-oracledb/Cargo.toml
 
       - name: Format text with the pinned tools
         if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format'
