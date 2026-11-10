@@ -315,7 +315,7 @@ impl CatalogUnderTest for sutura_catalog_cube::CubeCatalog<sutura_catalog_cube::
 /// object-type metadata carries no measure. The universal cells hold because the bundle is
 /// measured against the declaration.
 impl CatalogUnderTest for sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader> {
-    const NAME: &'static str = "foundry";
+    const NAME: &'static str = "foundry-catalog";
 
     fn open() -> Self {
         sutura_catalog_foundry::fixture::over_fixture_source(source(), version())
