@@ -885,7 +885,7 @@ silently non-federating. Note this is the same signature the credential port cha
 
 **One thing that does not move, and it is the reason this is affordable.** Every leg is still
 mono-source, so `QueryPlan`'s single `source` field stays, *a plan cannot silently span two sources*
-applies per leg unchanged, and no existing SQL golden moves - the invariant in `.agents/skills/sutura/invariants/SKILL.md` (150 SQL goldens reading
+applies per leg unchanged, and no existing SQL golden moves - the invariant in `.agents/skills/sutura/invariants/SKILL.md` (180 SQL goldens reading
 `LIMIT 10001`, counted by `check-guidance`) stands, because a federated leg is a new plan shape with its own goldens
 rather than an edit to those.
 
