@@ -34,7 +34,12 @@
 name: bigquery-declared-principal
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      seed_shared:
+        type: boolean
+        default: false
+        description: Update the bounded nonproduction shared fixture before the venue
 
 permissions:
   contents: read
@@ -65,6 +70,9 @@ jobs:
             fallback = true
             extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
             extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
+
+      - name: Check the fixture resource declarations
+        run: nix develop --command just infra-test
 
       # THE DEPLOYMENT'S OWN IDENTITY, which is what the CONTROL leg reads back - the shared
       # posture runs on application default credentials and impersonates nothing. The
@@ -125,6 +133,14 @@ jobs:
             printf '::add-mask::%s\n' "$value"
           done
           echo "four resource names masked for the rest of this job"
+
+      - name: Update the bounded shared fixture
+        if: inputs.seed_shared
+        env:
+          SUTURA_BQ_FIXTURE_TOKEN: ${{ secrets.SUTURA_BQ_FIXTURE_TOKEN }}
+          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
+          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
+        run: python3 -I .github/pr1801-seed.py
 
       # The driver, built for this runner's own triple. It is a REAL artefact of this repository -
       # the same derivation `checks.adbc-driver-bigquery` realises - rather than a CDN download, so

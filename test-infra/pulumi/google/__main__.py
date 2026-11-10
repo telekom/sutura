@@ -521,11 +521,13 @@ for fixture, row_count, readers, output in (
         dataset_id=split_dataset.dataset_id,
         table_id=fixture,
         schema=json.dumps(
-            [{
-                "name": "id",
-                "type": "STRING" if fixture == "shared" else "INTEGER",
-                "mode": "NULLABLE" if fixture == "shared" else "REQUIRED",
-            }]
+            [
+                {
+                    "name": "id",
+                    "type": "STRING" if fixture == "shared" else "INTEGER",
+                    "mode": "NULLABLE" if fixture == "shared" else "REQUIRED",
+                }
+            ]
         ),
         deletion_protection=False,
         opts=pulumi.ResourceOptions(provider=gcp_provider),
