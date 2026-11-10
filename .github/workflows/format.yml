@@ -44,7 +44,11 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, config, vectors, driver, native, native-base, validate]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, validate]
+      main_sha:
+        description: Exact main commit for main-forward-lock
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -117,8 +121,49 @@ jobs:
           Path("/tmp/oracle-export/source-files.json").write_text(json.dumps(records, indent=2) + "\n")
           PYHASH
 
+      - name: Prepare exact main-forward generator inputs
+        if: inputs.operation == 'main-forward-lock'
+        env:
+          MAIN_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse "$MAIN_SHA")" = "$MAIN_SHA"
+          git config user.name ci
+          git config user.email user@example.com
+          set +e
+          git merge --no-ff --no-commit "$MAIN_SHA"
+          status=$?
+          set -e
+          test "$status" -le 1
+          conflicts=$(git diff --name-only --diff-filter=U)
+          test -z "$conflicts" || test "$conflicts" = Cargo.lock
+          git show HEAD:Cargo.lock > Cargo.lock
+          git add Cargo.lock
+          test -z "$(git ls-files -u)"
+          printf '%s\n' "$MAIN_SHA" > /tmp/oracle-export/main-forward-sha
+          git write-tree > /tmp/oracle-export/main-forward-input-tree
+          git diff --cached --binary > /tmp/oracle-export/main-forward-input.patch
+          python3 - <<'PYHASH'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          records = []
+          for raw in subprocess.check_output(["git", "ls-files", "-z"]).split(b"\0"):
+              if not raw:
+                  continue
+              path = Path(os.fsdecode(raw))
+              symlink = path.is_symlink()
+              data = os.fsencode(os.readlink(path)) if symlink else path.read_bytes()
+              records.append({"path": str(path), "symlink": symlink, "sha256": hashlib.sha256(data).hexdigest()})
+          Path("/tmp/oracle-export/main-forward-input-files.json").write_text(json.dumps(records, indent=2) + "\n")
+          PYHASH
+
       - name: Resolve with the pinned generator
-        if: inputs.operation == 'lock-format'
+        if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
         run: nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
 
       - name: Format Rust with the pinned toolchain
