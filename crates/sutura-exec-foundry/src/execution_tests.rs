@@ -172,7 +172,7 @@ fn an_answer_at_the_service_marker_is_refused_as_too_large() {
             MetricName::parse("revenue").expect("the metric parses"),
             DefinitionDigest::parse("a".repeat(64)).expect("the digest parses"),
         ),
-        table: plan.tables().clone(),
+        table: StatementTables::only(plan.table_name().clone()),
         keys: plan.keys().to_vec(),
         bindings: PlanBindings::none(),
     };
