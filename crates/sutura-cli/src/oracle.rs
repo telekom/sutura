@@ -172,7 +172,7 @@ pub(crate) fn dictionary_login(
     );
     let login = match connection.channel().transport() {
         sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => login.verified(read_anchors(
-            &format!("catalogs.{}.connection.transport_anchors", catalog),
+            &format!("catalogs.{catalog}.connection.transport_anchors"),
             anchors,
         )?),
         sutura_config::sources::placement::OracleTransport::NativeEncryption { acknowledged_because } => {

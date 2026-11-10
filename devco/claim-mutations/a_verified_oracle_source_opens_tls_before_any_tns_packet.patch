@@ -1,18 +1,12 @@
 diff --git a/crates/sutura-cli/src/oracle.rs b/crates/sutura-cli/src/oracle.rs
 --- a/crates/sutura-cli/src/oracle.rs
 +++ b/crates/sutura-cli/src/oracle.rs
-@@ -92,8 +92,12 @@
-         channel.server_name().as_str(),
-         port,
-         service_name.as_str(),
--        Channel::Verified {
--            anchors_pem: &anchors_pem,
-+        if anchors_pem.is_empty() {
-+            Channel::Verified {
-+                anchors_pem: &anchors_pem,
-+            }
-+        } else {
-+            Channel::Plaintext
-         },
-     );
-     let opened = OracleWarehouse::connect(
+@@ -98,7 +98,7 @@
+     };
+     let transport = anchors_pem
+         .as_deref()
+-        .map_or(Channel::NativeEncryption, |anchors_pem| Channel::Verified { anchors_pem });
++        .map_or(Channel::NativeEncryption, |_| Channel::Plaintext);
+     let dial = Dial::new(host.as_str(), port, service_name.as_str(), transport);
+     let dial = if channel.legacy_password_verifier().is_some() {
+         dial.allow_legacy_verifiers()

@@ -70,15 +70,15 @@ mod tests {
                 load(&config(channel, "legacy_password_verifier: false")).expect("legacy login can remain explicitly disabled");
                 load(&config(channel, "legacy_password_verifier: true")).expect_err("legacy login requires its own reason");
                 load(&config(
-                        channel,
-                        "legacy_password_verifier: true\n    legacy_password_verifier_acknowledged_because: ' '"
-                    ))
-                    .expect_err("legacy login refuses a blank reason");
+                    channel,
+                    "legacy_password_verifier: true\n    legacy_password_verifier_acknowledged_because: ' '",
+                ))
+                .expect_err("legacy login refuses a blank reason");
                 load(&config(
-                        channel,
-                        "legacy_password_verifier: false\n    legacy_password_verifier_acknowledged_because: unused"
-                    ))
-                    .expect_err("disabled legacy login cannot consume a reason");
+                    channel,
+                    "legacy_password_verifier: false\n    legacy_password_verifier_acknowledged_because: unused",
+                ))
+                .expect_err("disabled legacy login cannot consume a reason");
                 load(&config(channel, "legacy_password_verifier_acknowledged_because: unused"))
                     .expect_err("a legacy reason requires the opt-in");
             }
