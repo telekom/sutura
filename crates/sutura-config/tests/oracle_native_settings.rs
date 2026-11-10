@@ -95,7 +95,9 @@ fn oracle_only_options_are_refused_on_other_sources_and_dictionary_dialects() {
 #[test]
 fn native_mode_cannot_carry_oracle_external_token_authentication() {
     let delegation = "delegation:\n      - token_endpoint: https://idp.example.com/token\n        client_id: sutura\n        client_secret_file: /run/secrets/delegation\n        audience: https://db.example.com";
-    let config = |channel| source(channel, delegation).replace("shared-service-user", "impersonation-at-source");
+    let config = |channel| source(channel, delegation)
+        .replace("shared-service-user", "impersonation-at-source")
+        .replace("sources:\n", "  inbound:\n    mode: direct\n    resource: https://sutura.example.com\n    authorization_server: https://issuer.example.com\n    key_set_file: /etc/sutura/jwks.json\n    algorithms: [RS256]\nsources:\n");
     load(&config(VERIFIED)).expect("otherwise-valid external-token configuration loads over verified TLS");
     let error = load(&config(NATIVE)).expect_err("token authentication still requires verified TCPS");
     assert!(matches!(error.reason(), sutura_config::SettingsError::Sources {
