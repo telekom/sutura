@@ -21,6 +21,11 @@ struct Tier {
     channel: String,
 }
 
+enum FixtureSource {
+    Oracle,
+    Files,
+}
+
 impl Tier {
     fn here() -> Self {
         let required = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("the Oracle acceptance task sets {name}"));
@@ -63,7 +68,7 @@ impl Tier {
         )
     }
 
-    fn settings(&self, case: &str, dictionary: bool, legacy: bool, wrong_password: bool, oracle_source: bool) -> String {
+    fn settings(&self, case: &str, dictionary: bool, legacy: bool, wrong_password: bool, source_kind: FixtureSource) -> String {
         let root = derived_beside(&config_path(case));
         std::fs::create_dir_all(&root).expect("the fixture directory creates");
         let legacy_password = root.join("legacy-password");
@@ -100,10 +105,9 @@ impl Tier {
                 tested,
             )
         };
-        let source = if oracle_source {
-            format!("kind: oracle\n    {source}")
-        } else {
-            format!("kind: files\n    data_dir: {}", root.display())
+        let source = match source_kind {
+            FixtureSource::Oracle => format!("kind: oracle\n    {source}"),
+            FixtureSource::Files => format!("kind: files\n    data_dir: {}", root.display()),
         };
         format!(
             "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\n\
@@ -164,7 +168,7 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let off = format!("{case}-off");
         let refused = refused_to_start(
             Environment::Development,
-            written(&off, &tier.settings(&off, dictionary, false, false, true)),
+            written(&off, &tier.settings(&off, dictionary, false, false, FixtureSource::Oracle)),
             &[],
         )
         .join("\n");
@@ -174,7 +178,7 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         );
 
         let deployment =
-            std::panic::catch_unwind(|| start_configured(&case, &tier.settings(&case, dictionary, true, false, true)))
+            std::panic::catch_unwind(|| start_configured(&case, &tier.settings(&case, dictionary, true, false, FixtureSource::Oracle)))
                 .expect("the legacy opt-in must let the correct credentials serve");
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
@@ -187,7 +191,7 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let wrong = format!("{case}-wrong");
         let refused = refused_to_start(
             Environment::Development,
-            written(&wrong, &tier.settings(&wrong, dictionary, true, true, true)),
+            written(&wrong, &tier.settings(&wrong, dictionary, true, true, FixtureSource::Oracle)),
             &[],
         )
         .join("\n");
@@ -229,7 +233,12 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
     for dictionary in [false, true] {
         let path = if dictionary { "dictionary" } else { "source" };
         let case = format!("oracle-native-{expected}-{path}");
-        let settings = tier.settings(&case, dictionary, false, false, expected == "success" || !dictionary);
+        let source_kind = if expected == "success" || !dictionary {
+            FixtureSource::Oracle
+        } else {
+            FixtureSource::Files
+        };
+        let settings = tier.settings(&case, dictionary, false, false, source_kind);
         if expected == "success" {
             let deployment = std::panic::catch_unwind(|| start_configured(&case, &settings))
                 .expect("native mode must let the correct credentials serve");
