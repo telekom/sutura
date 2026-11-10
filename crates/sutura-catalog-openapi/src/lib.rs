@@ -30,16 +30,19 @@
 //! - The catalog is read as the deployment: every caller sees what the deployment's token sees.
 //! - `OpenAPI` 3.0 and 3.1 only, as JSON; a Swagger 2.0 document is refused by name.
 //! - A link with no foreign-key column on this side (a to-many side) is not carried.
+//! - The token is read once, when the reader is built: a token that expires is not renewed.
 
 mod contract;
 mod document;
 pub mod fixture;
 mod harvest;
+#[cfg(feature = "http")]
+pub mod http;
 mod mapping;
 
 use std::time::Instant;
 
-pub use contract::{Contract, ContractError, MAX_MAPPING_BYTES};
+pub use contract::{Contract, ContractError, DOCUMENT_FILE, MAPPING_FILE, MAX_MAPPING_BYTES};
 pub use document::MAX_DOCUMENT_BYTES;
 pub use harvest::{MAX_CURSOR_BYTES, MAX_ENTRIES};
 pub use mapping::{OperationId, ParameterName};
@@ -57,7 +60,8 @@ type Content = (Definitions, Knowledge);
 
 /// Where the answers come from: one `GET` of a [`Target`] on the declared endpoint.
 ///
-/// The fake seam: [`fixture::FixtureReader`] serves recorded answers.
+/// The fake seam: [`fixture::FixtureReader`] serves recorded answers, and `http::HttpAnswerReader`
+/// (behind the `http` feature) asks the declared endpoint.
 pub trait AnswerReader {
     type Error: std::error::Error + Send + Sync + 'static;
 

@@ -4531,8 +4531,12 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_norway",
+ "sutura-bounded-read",
  "sutura-domain",
+ "sutura-http-client",
+ "sutura-tls",
  "thiserror 2.0.21",
+ "ureq",
 ]
 
 [[package]]
@@ -4603,6 +4607,7 @@ dependencies = [
  "sutura-catalog-datahub",
  "sutura-catalog-local",
  "sutura-catalog-okf",
+ "sutura-catalog-openapi",
  "sutura-catalog-openmetadata",
  "sutura-catalog-rdbms",
  "sutura-catalog-wren",
