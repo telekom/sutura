@@ -24,10 +24,17 @@ jobs:
         run: |
           mkdir -p target/oracle-format
           git rev-parse HEAD > target/oracle-format/source-head
-          git ls-files -z | xargs -0 sha256sum > target/oracle-format/source-inputs.sha256
-          bash nix/format-text.sh fmt
+          git rev-parse 'HEAD^{tree}' > target/oracle-format/source-tree
+          git ls-files -s > target/oracle-format/source-index
+          while IFS= read -r -d '' file; do
+            if [ -f "$file" ]; then sha256sum "$file"; fi
+          done < <(git ls-files -z) > target/oracle-format/source-inputs.sha256
+          status=0
+          bash nix/format-text.sh fmt || status=$?
           git diff --binary > target/oracle-format/formatted.patch
+          exit "$status"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
           name: oracle-format
           path: target/oracle-format

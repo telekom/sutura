@@ -87,6 +87,10 @@ def main():
                     raise RuntimeError('unbounded ANO field')
                 fields.append((field_type, data[offset:offset + size]))
                 offset += size
+            if fields:
+                print('service-version', kind, hex(int.from_bytes(fields[0][1], 'big')), flush=True)
+            if kind == 4 and len(fields) >= 3:
+                print('supervisor-services', fields[2][1].hex(), flush=True)
             if kind == 2 and len(fields) >= 2:
                 print('encryption-id', int.from_bytes(fields[1][1], 'big'), flush=True)
             if kind == 3 and len(fields) >= 2:
