@@ -107,6 +107,7 @@ impl Tier {
         };
         format!(
             "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\n\
+             telemetry:\n  format: bunyan\n\
              catalogs:\n{catalog}\
              sources:\n  local:\n    {source}\n    posture: shared-service-user\n",
         )
