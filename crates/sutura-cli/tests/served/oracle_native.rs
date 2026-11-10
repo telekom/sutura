@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use sutura_config::Environment;
 
-use crate::harness::{LOOPBACK, SINGLE_USER, config_path, derived_beside, refused_to_start, start_configured, v1, written};
+use crate::harness::{LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written};
 
 struct Tier {
     port: u16,
@@ -89,9 +89,10 @@ impl Tier {
             )
         };
         format!(
-            "server:\n{LOOPBACK}security:\n{SINGLE_USER}\n\
+            "server:\n{LOOPBACK}security:\n{SINGLE_USER}  access_token: {TOKEN}\n\
              catalogs:\n{catalog}\
-             sources:\n  local:\n    kind: oracle\n    {source}\n    posture: shared-service-user\n",
+             sources:\n  local:\n    kind: oracle\n    {source}\n    posture: shared-service-user\n\
+             tools:\n  run_sql:\n    enabled: true\n    sources: [local]\n",
         )
     }
 }
@@ -106,10 +107,23 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
     .expect("the declaration writes");
     std::fs::write(
         catalog.join("model.md"),
-        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n---\n",
+        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n  - {name: PAYLOAD, type: TEXT, nullable: false}\n---\n",
     )
     .expect("the model writes");
     catalog
+}
+
+fn protected_queries(deployment: &Served) {
+    let expected: Vec<_> = (1..=128).map(|id| serde_json::json!([format!("{id:x>2000}")])).collect();
+    for _ in 0..2 {
+        let reply = deployment.post(
+            &v1(sutura_http::constants::base_paths::RUN_SQL),
+            Some(TOKEN),
+            r#"{"statement":"select PAYLOAD from EVENTS order by ID"}"#,
+        );
+        assert_eq!(reply.status, 200, "the protected query answers: {}", reply.body);
+        assert_eq!(reply.json()["rows"], serde_json::json!(expected), "the complete multi-record payload arrives");
+    }
 }
 
 #[test]
@@ -141,9 +155,10 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         assert!(refused.contains("ORA-01017"), "the {path} must refuse the wrong password: {refused}");
 
         let deployment = start_configured(&case, &tier.settings(&case, dictionary, true, false));
-        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), None);
+        let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
+        protected_queries(&deployment);
     }
 }
 
@@ -173,8 +188,9 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
         let settings = tier.settings(&case, dictionary, false, false);
         if expected == "success" {
             let deployment = start_configured(&case, &settings);
-            let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), None);
+            let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "the native {path} loads the fixture: {}", reply.body);
+            protected_queries(&deployment);
         } else {
             let refused = refused_to_start(Environment::Development, written(&case, &settings), &[]).join("\n");
             assert!(
