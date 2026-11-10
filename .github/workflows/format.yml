@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, validate]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, provider, validate]
       main_sha:
         description: Exact main commit for main-forward-lock
         required: false
@@ -313,6 +313,12 @@ jobs:
           printf '%s\n' "$SUTURA_ORACLE_BASE_SHA" > /tmp/oracle-export/native-base-sha
           nix run .#oracle-native-acceptance
 
+      - name: Measure upstream TLS provider adoption
+        if: inputs.operation == 'provider'
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-provider-proof.py" > "$RUNNER_TEMP/oracle-provider-proof.py"
+          python3 "$RUNNER_TEMP/oracle-provider-proof.py"
+
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
         run: nix shell --inputs-from . nixpkgs#just nixpkgs#pixi nixpkgs#betterleaks --command just validate
@@ -348,3 +354,11 @@ jobs:
 
       - uses: ./.github/actions/nix-store-cache-report
         if: always()
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && inputs.operation == 'provider'
+        with:
+          name: oracle-provider-proof-${{ inputs.source_sha }}
+          path: ${{ runner.temp }}/oracle-provider-proof/
+          retention-days: 7
+          if-no-files-found: error
