@@ -209,6 +209,28 @@ mod tests {
     }
 
     #[test]
+    fn a_foundry_answer_arriving_after_the_read_budget_is_refused() {
+        use std::time::Duration;
+        use sutura_catalog_foundry::OntologyReader as _;
+
+        let server = FakeServer::start(vec![Scripted::delayed(
+            &serde_json::json!({ "data": [] }),
+            Duration::from_millis(1200),
+        )]);
+        let bounds = ReadBounds::parse(1, 1024).expect("nonzero bounds");
+        let reader = HttpOntologyReader::new(
+            Endpoint::parse(&server.endpoint()).expect("loopback origin"),
+            OntologyIdentifier::parse(ONTOLOGY).expect("ontology identifier"),
+            TokenSource::fixed(Secret::new(TOKEN)).expect("bearer value"),
+            bounds,
+            sutura_http_client::fixed(bounds, None),
+        );
+        let answer = reader.read();
+        assert!(matches!(answer, Err(HttpReaderError::DeadlineSpent { .. })), "{answer:?}");
+        assert_eq!(server.finish().len(), 1);
+    }
+
+    #[test]
     fn an_ontology_that_is_not_one_path_segment_is_refused() {
         for raw in ["", "..", ".hidden", "a/b", "a?b", "a#b", "a%2Fb", "a b"] {
             assert!(OntologyIdentifier::parse(raw).is_err(), "{raw:?} was accepted");

@@ -36,12 +36,14 @@ nothing else in an answer is followed. The link read is one list per object type
 | knowledge                                                  | `aliases` (empty on the list operation), `status`, `visibility`         | not carried                                                                             |
 
 Refused at load, by name: a foreign key on a `MANY` side, a cardinality other than `ONE` or `MANY`,
-a link to an object type the read did not list, a primary key or foreign key that is not a property.
+a foreign-key-backed link to an object type the read did not list, a primary key or foreign key
+that is not a property.
 
 ## Identity
 
 The reader presents the deployment's own token - a fixed bearer, or one minted by OAuth 2.0 client
-credentials at a token endpoint on the same host and minted again before it expires. Foundry
+credentials at a token endpoint on the same origin, cached until sixty seconds before its declared
+lifetime ends (counted from before minting). That margin does not guarantee completion before expiry. Foundry
 decides what metadata that token sees, and every caller with the catalog scope sees that view. Use a
 service user scoped to what every caller may see. A per-caller catalog is not expressible: the
 catalog port loads without a caller.

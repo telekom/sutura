@@ -28,6 +28,7 @@ use crate::query::Top;
 use crate::warehouse::ParamValue;
 
 use crate::nonempty::NonEmpty;
+mod address_family;
 mod anchor;
 pub mod bindings;
 mod ceiling;
@@ -42,11 +43,15 @@ pub mod stacked;
 pub mod tables;
 
 #[cfg(test)]
+mod address_family_tests;
+
+#[cfg(test)]
 mod anchor_tests;
 
 #[cfg(test)]
 mod split_tests;
 
+pub use crate::plan::address_family::{AddressFamily, UnknownAddressFamily};
 pub use crate::plan::anchor::{AnchorPlan, NotAnAnchorsPlan};
 pub use crate::plan::bindings::{IncoherentBindings, PlanBindings, range_filters};
 pub use crate::plan::ceiling::{
@@ -71,8 +76,8 @@ pub use crate::plan::remote::{
     InvalidWireLabel, LegNotCertified, LegPart, LegWire, NotSendable, WireBucket, WireKey, WireLabel, WireTerm, to_wire,
 };
 pub use crate::plan::split::{
-    EstimatedRows, GrantExpired, Granted, Grantee, LookupSplit, NotGranted, NotOffered, PartitionReader, Partitioned,
-    SplitDecision, SplitRefusal, decide,
+    EstimatedRows, GrantExpired, Granted, Grantee, LookupSplit, NotGranted, NotOffered, NotTheCallersPrincipal,
+    NotTheCallersToken, PartitionReader, Partitioned, ReadAs, SplitDecision, SplitRefusal, decide,
 };
 pub use crate::plan::stacked::{StackedPlan, StackedPlanError};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};

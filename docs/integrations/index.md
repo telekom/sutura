@@ -56,6 +56,16 @@ The catalog reads from a metadata platform over its API.
     Read object types, properties and foreign-key links from a Foundry ontology.
 
     [:octicons-arrow-right-24: Foundry](catalogs/foundry.md)
+-   :material-api:{ .lg .middle } __OpenAPI__
+
+    ---
+
+    <span class="sutura-badge">Experimental</span>
+    <span class="sutura-badge">Catalog · multi-player governance</span>
+
+    Read tables, columns and joins from any metadata API that an OpenAPI document describes.
+
+    [:octicons-arrow-right-24: OpenAPI](catalogs/openapi.md)
 
 </div>
 

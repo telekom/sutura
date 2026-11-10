@@ -244,3 +244,99 @@ fn a_grant_at_its_exact_deadline_is_not_yet_expired() {
     );
     assert_eq!(outcome, Ok(()));
 }
+
+use super::super::super::partition::Forwarded;
+
+fn forwarded(token: &str) -> Forwarded {
+    let pool = sutura_domain::identity::WorkloadPool::parse(
+        "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/q",
+    )
+    .expect("a test pool is a pool");
+    Forwarded::new(sutura_domain::identity::Secret::new(token), &pool)
+}
+
+#[test]
+fn a_grant_whose_forwarded_token_is_swapped_after_signing_is_refused_as_not_naming() {
+    let key = ReadingKey::drawn().expect("a key draws");
+    let now = core::time::Duration::from_secs(1);
+    let (_, signature) = mint(
+        &key,
+        grant(b"leg-one", b"partition-one", 100).forwarding(&forwarded("token-a")),
+    );
+    let tampered = grant(b"leg-one", b"partition-one", 100).forwarding(&forwarded("token-b"));
+    let outcome = verify(&Verification {
+        key: &key,
+        grant: &tampered,
+        signature: &signature,
+        wanted_leg: LegDigest::of(b"leg-one"),
+        wanted_source: &source(),
+        wanted_partition: &Partition::of(b"partition-one".to_vec()),
+        now,
+    });
+    assert_eq!(outcome, Err(WorkerRefusal::GrantNotNaming));
+}
+
+#[test]
+fn a_grant_whose_forwarded_pool_is_swapped_after_signing_is_refused_as_not_naming() {
+    let in_project = |project: u8| {
+        let pool = sutura_domain::identity::WorkloadPool::parse(&format!(
+            "//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/p/providers/q"
+        ))
+        .expect("a test pool is a pool");
+        Forwarded::new(sutura_domain::identity::Secret::new("token-a"), &pool)
+    };
+    let key = ReadingKey::drawn().expect("a key draws");
+    let now = core::time::Duration::from_secs(1);
+    let (_, signature) = mint(&key, grant(b"leg-one", b"partition-one", 100).forwarding(&in_project(1)));
+    let tampered = grant(b"leg-one", b"partition-one", 100).forwarding(&in_project(2));
+    let outcome = verify(&Verification {
+        key: &key,
+        grant: &tampered,
+        signature: &signature,
+        wanted_leg: LegDigest::of(b"leg-one"),
+        wanted_source: &source(),
+        wanted_partition: &Partition::of(b"partition-one".to_vec()),
+        now,
+    });
+    assert_eq!(outcome, Err(WorkerRefusal::GrantNotNaming));
+}
+
+use super::super::super::partition::SwitchedPrincipal;
+
+fn switched(name: &str) -> SwitchedPrincipal {
+    SwitchedPrincipal::new(sutura_domain::identity::PrincipalName::parse(name).expect("a test principal is a principal"))
+}
+
+#[test]
+fn a_grant_whose_principal_is_swapped_after_signing_is_refused_as_not_naming() {
+    let key = ReadingKey::drawn().expect("a key draws");
+    let now = core::time::Duration::from_secs(1);
+    let (_, signature) = mint(
+        &key,
+        grant(b"leg-one", b"partition-one", 100).switching(&switched("reader@example.com")),
+    );
+    let tampered = grant(b"leg-one", b"partition-one", 100).switching(&switched("other@example.com"));
+    let outcome = verify(&Verification {
+        key: &key,
+        grant: &tampered,
+        signature: &signature,
+        wanted_leg: LegDigest::of(b"leg-one"),
+        wanted_source: &source(),
+        wanted_partition: &Partition::of(b"partition-one".to_vec()),
+        now,
+    });
+    assert_eq!(outcome, Err(WorkerRefusal::GrantNotNaming));
+}
+
+#[test]
+fn a_grant_naming_both_a_token_and_a_principal_does_not_decode() {
+    let key = ReadingKey::drawn().expect("a key draws");
+    let (built, signature) = mint(
+        &key,
+        grant(b"leg-one", b"partition-one", 100)
+            .forwarding(&forwarded("token-a"))
+            .switching(&switched("reader@example.com")),
+    );
+    let decoded = super::super::reading::decode(&super::super::reading::encode(&built, &signature));
+    assert!(decoded.is_none(), "a grant naming a token and a principal decoded");
+}

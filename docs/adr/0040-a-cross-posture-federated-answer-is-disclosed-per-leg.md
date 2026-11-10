@@ -163,3 +163,73 @@ service user for each declared user; the boot probe refuses to start without the
 includes `IMPERSONATE` on every user (measured on the 26.8 tier), so a service user with `ALL` can
 become any user, declared or not. ClickHouse Cloud offers neither requirement.
 `where-identity-is-proven.md` records no venue for this claim yet.
+
+## Second amendment, 2026-11-06: each switched statement carries its own settings
+
+The adapter sends the settings that sutura pins (`join_use_nulls = 1`, `max_execution_time`,
+`timeout_overflow_mode = 'throw'` and four `output_format_*` settings) as driver options on the
+connection. Under `EXECUTE AS`, the server switches to the named user's profile and clamps those
+settings to it. A `readonly = 1` profile drops them all without an error, so a whole switched
+question with a left join answered an unmatched `String` key as `''` instead of `NULL`. A tier cell
+measured that on ClickHouse 26.9.15.5 against the tree before this amendment, at
+`github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`.
+
+**Decision.** Every statement the adapter runs for an answer also carries the same settings in its
+own `SETTINGS` clause. The fixture loader's statements do not. The server checks a statement's own
+settings against the switched user's profile and refuses a forbidden one: `READONLY` (164),
+measured at `github.com/telekom/sutura/actions/runs/42293738301/job/128153500961`, or
+`SETTING_CONSTRAINT_VIOLATION` (452) for a constraint, read from the server source, not measured.
+The adapter reads both codes as `AdbcError::SettingRefused`, which its `source_refused` answers
+`true`: the caller gets `source_refused` (403), not the retryable `503` of an outage, because the
+same profile refuses the same statement again. The caller is never answered without the settings.
+The connection options stay. A profile that caps `max_execution_time` below the time a query has
+left is now refused with 452 on every request (read from the server source, not measured); before,
+the server held the query to the cap.
+
+**Why the clause stays on the switched statement.** The clause is the statement's own only when it
+is the first `SETTINGS` after a bare `SELECT`. The server makes a `SETTINGS` output-level when it
+follows a `FORMAT`, a first `SETTINGS`, an `INTO OUTFILE`, or a parenthesised last arm - a statement
+that is one parenthesised `SELECT` is one - and `EXECUTE AS` lifts an output-level `SETTINGS` onto
+the outer statement, where the clamp drops it again. Every statement the adapter renders is a bare
+`SELECT`; a stacked plan is one `SELECT` over a `UNION ALL` subquery. The adapter refuses, as
+`AdbcError::SettingsNotOwn`, a statement that does not open with `SELECT` or `WITH`, and one whose
+top level carries `SETTINGS`, `FORMAT`, `INTO`, `UNION`, `INTERSECT` or `EXCEPT`, before it sends
+it. The opening is an allow-list, so a shape not named here is refused rather than sent. Read from the
+server's 26.9 source; the `readonly` tier cells in
+`crates/sutura-exec-clickhouse/tests/adbc_execute_as.rs` measure it for a whole question, in CI
+only. No tier cell runs a switched stacked plan.
+
+**Limits.**
+
+- The server skips the check for a value that the profile already holds. That case stays silent,
+  and it is harmless: the setting already has the value that sutura needs.
+- Whether the outer statement still enforces `max_execution_time` under the switch is not measured.
+  The clause also sends the deadline to the switched statement.
+- The caller's profile still decides every setting that sutura does not pin, for example `limit`,
+  `max_result_rows` with `result_overflow_mode = 'break'`, `session_timezone`,
+  `count_distinct_implementation`, `join_default_strictness`, `group_by_use_nulls`,
+  `transform_null_in` and `aggregate_functions_null_for_empty`. Any of them can change the rows with
+  no error, and nothing in sutura detects such a profile: the operator keeps them at their defaults.
+  Not measured.
+- On the answering path the driver itself sends only output-level request parameters
+  (`output_format_arrow_compression_method`, `default_format`, the session and query ids). They
+  apply to the outer statement and are not in the clause.
+
+## Third amendment, 2026-11-07: the run measures a missing `NULL` row, not an empty string
+
+**Status of the amendment: accepted; it corrects one sentence of the second amendment.** That
+amendment says a whole switched question with a left join "answered an unmatched `String` key as
+`''` instead of `NULL`", and cites a tier cell's base run for it
+(`github.com/telekom/sutura/actions/runs/42293738301/job/128154791843`). The job does not show
+that. Its log prints `one side answered a row 1 time(s) and the other 0 time(s): [Null,
+Text("2026-01-01"), Integer(50)]`: the unswitched answer holds the row with the `NULL` key, and the
+switched answer holds no such row. It prints neither the row that the switched answer gave nor
+that row's key. The decision of the second amendment stands.
+
+- **What the run measures.** On the tier's ClickHouse, which `nix/clickhouse-tier.nix` pins at
+  26.9.15.5 (the job does not print the version), under a user whose profile sets `readonly = 1`, a
+  whole switched question with a left join did not answer the unmatched key as `NULL`, against the
+  tree without the clause. That is a wrong answer without an error.
+- **What it does not measure.** That the key came back as `''`. That value is read from the
+  documented behaviour of `join_use_nulls = 0` for a `String` key, and the federation record's
+  fourth amendment records it once for a leg. No run cited here prints it for a whole question.

@@ -412,6 +412,19 @@ so a misspelling cannot select the glibc image.
 {{- end -}}
 
 {{/*
+`workerPool.addressFamily` as `server.nodes.address_family` spells it: `auto`, `ipv4` or `ipv6`, empty
+when unset so the binary's own default (`auto`) applies. Any other spelling is refused, so a typo
+fails the render rather than the pod's start.
+*/}}
+{{- define "sutura.addressFamily" -}}
+{{- $family := toString (default "" .Values.workerPool.addressFamily) -}}
+{{- if and $family (not (has $family (list "auto" "ipv4" "ipv6"))) -}}
+{{ fail (printf "workerPool.addressFamily is %q: it must be exactly auto, ipv4 or ipv6" $family) }}
+{{- end -}}
+{{- $family -}}
+{{- end -}}
+
+{{/*
 `image.digest` validated: exactly `sha256:` then 64 lower-case hex digits, the shape `docker pull
 repo@digest` and `crane digest` both produce. Catches a copy-pasted tag or a truncated digest at
 render time rather than at `kubectl apply` or, worse, a pull that silently falls back to `latest`.

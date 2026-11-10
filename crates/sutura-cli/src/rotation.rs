@@ -22,6 +22,7 @@
     feature = "datahub",
     feature = "foundry",
     feature = "node",
+    feature = "openapi",
     feature = "openmetadata",
     feature = "oracle"
 ))]

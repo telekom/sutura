@@ -95,6 +95,28 @@ fn the_exchange_asks_for_an_access_token_at_the_pool_for_the_callers_assertion_a
 }
 
 #[test]
+fn a_read_only_exchange_asks_for_the_bigquery_read_only_scope() {
+    let server = FakeServer::start(vec![Scripted::ok(&answer(ACCESS_TOKEN, "Bearer", &3599.into()))]);
+    let bounds = ReadBounds::parse(5, 64 * 1024).expect("test bounds are nonzero");
+    let endpoint = TokenEndpoint::parse(&format!("{}/v1/token", server.endpoint())).expect("a loopback endpoint parses");
+    GoogleSts::new(endpoint, crate::fixed(bounds, None), bounds)
+        .exchange(&Secret::new(ASSERTION), &pool(), PoolScope::ReadOnly)
+        .expect("a well-formed answer is an access token");
+    let mut requests = server.finish().into_iter();
+    let (Some(request), None) = (requests.next(), requests.next()) else {
+        panic!("expected exactly one request");
+    };
+    let scopes: Vec<String> = request
+        .body()
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .filter(|&(name, _)| decoded(name) == "scope")
+        .map(|(_, value)| decoded(value))
+        .collect();
+    assert_eq!(scopes, ["https://www.googleapis.com/auth/bigquery.readonly"]);
+}
+
+#[test]
 fn an_answer_of_another_token_type_or_not_bearer_is_refused() {
     for (issued_token_type, token_type) in [
         ("urn:ietf:params:oauth:token-type:id_token", "Bearer"),

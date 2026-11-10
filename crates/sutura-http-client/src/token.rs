@@ -7,7 +7,9 @@
 //! What a minted answer is held to: a success status, JSON, `token_type` `Bearer`, and an
 //! `access_token` that is a bearer value (printable ASCII, no space, at most
 //! [`MAX_TOKEN_BYTES`]). The token is opaque here - nothing decodes it - so its lifetime is the
-//! answer's `expires_in`. An answer without one is used for one read and minted again on the next.
+//! answer's integer `expires_in`. A missing or non-integer lifetime, or one within the refresh
+//! margin, is uncacheable: the token is used for this request and minted again for the next. No
+//! expiry is decoded from the token itself.
 
 use std::time::{Duration, Instant};
 
@@ -22,8 +24,8 @@ pub const MAX_TOKEN_BYTES: usize = 16 * 1024;
 /// The cap on a token endpoint's answer: a token, its type, its lifetime and its scope.
 pub const MAX_TOKEN_RESPONSE_BYTES: u64 = 64 * 1024;
 
-/// How long before its `expires_in` a minted token is replaced, so a read that starts on a token
-/// never ends on a dead one.
+/// How long before its `expires_in` a cached token is replaced. This is a refresh margin, not a
+/// guarantee that a read completes before the token expires.
 pub const REFRESH_MARGIN: Duration = Duration::from_secs(60);
 
 const CLIENT_CREDENTIALS: &str = "client_credentials";
@@ -93,8 +95,8 @@ pub struct OffOrigin {
 /// Why no bearer could be presented.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUnavailable {
-    /// The read's own deadline was spent before a token was asked for.
-    #[error("the read's deadline was spent before a token was minted")]
+    /// The read's own deadline was spent while waiting for or minting a token.
+    #[error("the read's deadline was spent before a bearer was available")]
     DeadlineSpent,
     #[error("the token endpoint was not reached")]
     Unreachable(#[source] Box<ureq::Error>),
@@ -210,15 +212,18 @@ impl ClientCredentials {
     /// The held token while it is fresh, else a new one. The lock is held across the mint, so
     /// concurrent reads wait for one answer rather than each asking.
     fn bearer(&self, budget: Budget) -> Result<Bearer, TokenUnavailable> {
-        let mut held = self.minted.lock();
+        let left = budget.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
+        let mut held = self.minted.try_lock_for(left).ok_or(TokenUnavailable::DeadlineSpent)?;
+        let left = budget.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
         if let Some(minted) = held.as_ref().filter(|minted| Instant::now() < minted.fresh_until) {
             return Ok(minted.bearer.clone());
         }
-        let granted = budget
-            .remaining()
-            .ok_or(TokenUnavailable::DeadlineSpent)
-            .and_then(|left| self.mint(left));
-        *held = granted.as_ref().ok().and_then(Granted::held);
+        let started = Instant::now();
+        let granted = self.mint(left).and_then(|granted| {
+            budget.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
+            Ok(granted)
+        });
+        *held = granted.as_ref().ok().and_then(|granted| granted.held(started));
         drop(held);
         granted.map(|granted| granted.bearer)
     }
@@ -257,11 +262,11 @@ struct Granted {
 impl Granted {
     /// What to hold for the next read: nothing for a token without a lifetime, or one inside
     /// [`REFRESH_MARGIN`] of it.
-    fn held(&self) -> Option<Minted> {
+    fn held(&self, started: Instant) -> Option<Minted> {
         let fresh_for = self.lifetime?.checked_sub(REFRESH_MARGIN)?;
         Some(Minted {
             bearer: self.bearer.clone(),
-            fresh_until: Instant::now().checked_add(fresh_for)?,
+            fresh_until: started.checked_add(fresh_for)?,
         })
     }
 }
@@ -483,3 +488,6 @@ mod tests {
         assert_eq!(Scopes::parse([]).expect("no scope is a scope list").as_str(), "");
     }
 }
+
+#[cfg(test)]
+mod budget_tests;

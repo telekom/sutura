@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-catalog-openapi/src/document.rs b/crates/sutura-catalog-openapi/src/document.rs
+--- a/crates/sutura-catalog-openapi/src/document.rs
++++ b/crates/sutura-catalog-openapi/src/document.rs
+@@ -258,7 +258,7 @@
+ /// `openapi: 3.0.x` or `3.1.x`. A Swagger 2.0 document is refused by its own version word.
+ fn check_version(root: &Value) -> Result<(), ContractError> {
+     let declared = root.get("openapi").and_then(Value::as_str);
+-    if declared.is_some_and(|version| version.starts_with("3.0.") || version.starts_with("3.1.")) {
++    if declared.is_some_and(|version| version.starts_with("3.0.") || version.starts_with("3.1.") || version.starts_with("4.")) {
+         return Ok(());
+     }
+     let found = declared.map(|version| format!("openapi {}", shown(version))).or_else(|| {

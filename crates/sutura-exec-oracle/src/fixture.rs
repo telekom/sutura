@@ -13,8 +13,56 @@
 //! Postgres, so a shared name there would have implied a coupling that did not exist. Here the
 //! coupling is real - the compose block IS the definition - so sharing the name is the honest
 //! spelling rather than a third naming scheme nobody chose.
+//!
+//! **A private schema user per opened cell, and a corpus CSV as tables in it.** `CellName` and
+//! `FixtureCredential::provision_cell` give each open its own user, so parallel cells sharing one
+//! tier cannot clobber one another's tables - `sutura_exec_postgres`'s per-open schema and
+//! `sutura_exec_clickhouse`'s per-open database, in the namespace Oracle has. `OracleWarehouse::load_csv`
+//! then types each column off `sutura_domain::warehouse::csv::infer` and loads the rows.
 
 use sutura_domain::identity::Secret;
+
+use crate::{DriverError, OracleError};
+
+mod cell;
+pub(crate) mod importer;
+
+pub use cell::CellName;
+pub use importer::Unloadable;
+
+/// The community image's own pluggable database, which is not a secret the tier publishes.
+pub(crate) const SERVICE_NAME: &str = "FREEPDB1";
+
+/// Why the fixture tier could not be given a user or a table.
+#[derive(Debug, thiserror::Error)]
+pub enum FixtureError {
+    /// The tier's password is written into `CREATE USER` as a quoted identifier, which cannot hold
+    /// the quote that closes it.
+    #[error("the tier's password holds a double quote, so it cannot be written into a quoted CREATE USER")]
+    PasswordNotQuotable,
+    /// The administrator's dial was refused before a statement ran.
+    #[error("the tier could not be dialled as its administrator")]
+    Admin(#[source] OracleError),
+    /// The server refused a fixture statement.
+    #[error("the tier refused the fixture statement for {subject}")]
+    Statement {
+        subject: String,
+        #[source]
+        cause: DriverError,
+    },
+    #[error("could not read the fixture {path}")]
+    Read {
+        path: String,
+        #[source]
+        cause: std::io::Error,
+    },
+    #[error("the fixture {path} cannot be loaded")]
+    Unloadable {
+        path: String,
+        #[source]
+        cause: Unloadable,
+    },
+}
 
 /// Why there is no fixture credential to connect with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -79,6 +127,15 @@ impl FixtureCredential {
             password: Secret::new(present("SUTURA_DEV_PASSWORD")?),
             anchors_pem: present(TIER_CA)?,
         })
+    }
+
+    /// Creates `cell`'s user on the tier at `host:port`, as the tier's administrator, replacing a
+    /// stale one of the same name, and returns the credential that logs in as it.
+    ///
+    /// The returned credential carries the tier's certificate authority and the fixture password
+    /// unchanged; only the user differs.
+    pub fn provision_cell(&self, host: &str, port: u16, cell: &CellName) -> Result<Self, FixtureError> {
+        cell::provision(self, host, port, cell)
     }
 
     /// The application schema user - `compose.services.yaml`'s `APP_USER`.

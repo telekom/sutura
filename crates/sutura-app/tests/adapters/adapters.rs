@@ -322,6 +322,18 @@ impl CatalogUnderTest for sutura_catalog_foundry::FoundryCatalog<sutura_catalog_
     }
 }
 
+/// EXPERIMENTAL: an HTTP metadata API within the closed mapping vocabulary, configured by an
+/// `OpenAPI` document and a mapping file, opened over the crate's synthetic registry fixture.
+/// It supplies the physical model, the descriptions and many-to-one joins; the universal cells hold because the bundle is measured against the
+/// declaration.
+impl CatalogUnderTest for sutura_catalog_openapi::OpenApiCatalog<sutura_catalog_openapi::fixture::FixtureReader> {
+    const NAME: &'static str = "openapi";
+
+    fn open() -> Self {
+        sutura_catalog_openapi::fixture::over_fixture_source(source(), version()).expect("the openapi fixture opens")
+    }
+}
+
 /// The narrowest metadata source: `Rdbms`, opened over its recorded dictionary corpus.
 ///
 /// Like `datahub`, its corpus is NOT the example markdown - a database dictionary is not a directory
@@ -502,10 +514,11 @@ impl DataSystemUnderTest for sutura_exec_postgres::adbc::AdbcPostgres {
     }
 }
 
-/// A DATA SOURCE over HTTP, executed against the worktree's `nix/clickhouse-tier.nix` server -
-/// `github.com/telekom/sutura#920`. Postgres's registration, ported: discovery decides `available()`,
-/// the tier publishes the credential and nothing here defaults one, and each open gets a private
-/// database so parallel cells sharing one server cannot clobber one another's tables.
+/// A DATA SOURCE over ADBC, the transport `sutura serve` ships, executed against the worktree's
+/// `nix/clickhouse-tier.nix` server - `github.com/telekom/sutura#920`. Postgres's registration,
+/// ported: discovery decides `available()`, the tier publishes the credential and nothing here
+/// defaults one, and each open gets a private database so parallel cells sharing one server cannot
+/// clobber one another's tables.
 ///
 /// **What it executes as:** the tier's one declared user, over plaintext loopback - the
 /// `shared-service-user` posture every entry here is opened with, never a caller's own identity.
@@ -521,19 +534,24 @@ impl DataSystemUnderTest for ClickHouse {
     }
 }
 
-pub(crate) type ClickHouse = sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>;
+pub(crate) type ClickHouse = sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse;
 type ClickHouseLoad = fn(&ClickHouse, &TableName, &Path) -> Result<(), sutura_exec_clickhouse::fixture::FixtureError>;
 
-/// Opens the `ClickHouse` tier as `name`, each table attached by `load`.
+/// Opens the `ClickHouse` tier as `name` over ADBC, each table attached by `load`.
+///
+/// A tier that is up with no driver to reach it is a provisioner that half-ran, so it panics rather
+/// than skipping: a skip here would read as a cell the shipped transport passed.
 pub(crate) fn clickhouse_on(name: SourceName, tables: Vec<(TableName, PathBuf)>, load: ClickHouseLoad) -> ClickHouse {
     let endpoint = clickhouse_tier().expect("`available()` guards the Open of every clickhouse cell");
-    let auth = sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+    let credential =
+        sutura_exec_clickhouse::fixture::credential_from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
     let database = format!("cell_{}_{}", std::process::id(), schema_counter());
     let warehouse = ClickHouse::connect_in_database(
         name,
         posture(),
-        sutura_exec_clickhouse::transport::Endpoint::plaintext(endpoint.host(), endpoint.port()),
-        auth,
+        endpoint.host(),
+        endpoint.port(),
+        &credential,
         &database,
         result_budget(),
     )
@@ -587,34 +605,42 @@ fn set(name: &str) -> Option<String> {
 
 /// The fourth DATA SOURCE, over the wire like Postgres - `github.com/telekom/sutura#127` PR 2.
 ///
-/// **`available()` answers `false` unconditionally.** Oracle Database HAS a local venue -
-/// `compose.services.yaml`'s `oracle` profile, over `just dev-up-oracle` - but two things stop this
-/// cell from reaching it yet:
+/// **It executes in one venue and no gate: the `oracle-tier` CI job**, where `SUTURA_ORACLE_TIER`
+/// names the compose `oracle` profile `just oracle-acceptance` starts, and it skips under a named
+/// exemption everywhere else. Oracle Database is not packaged in `nixpkgs`, so no `just validate`
+/// leg can provision one. `available()` is deliberately NOT a plain discovery read:
+/// `sutura_dev::provisioned::here` applies `SUTURA_DEV_REQUIRE_TIER` per PROCESS, set the moment
+/// the unrelated Postgres tier comes up, so asking it about `"oracle"` would make every tiered run
+/// fatal over a service nothing asked for. [`oracle_tier`] asks only where the variable is set.
 ///
-/// - **No nix-native venue exists**: Oracle Database is not packaged in `nixpkgs`, so no
-///   `just validate` leg can provision one. And `available()` is deliberately NOT a discovery read:
-///   `sutura_dev::provisioned::here` applies `SUTURA_DEV_REQUIRE_TIER` per PROCESS, set the moment
-///   the unrelated Postgres tier comes up, so asking it about `"oracle"` would make every tiered
-///   run fatal over a service nothing asked for.
-/// - **No CSV-fixture importer exists yet.** `AdbcPostgres`/`DuckDbWarehouse` both grow a
-///   `load_csv`/`attach_csv` that infers a schema from the example corpus's CSVs and loads it;
-///   `OracleWarehouse` has no such method, because writing one blind - with no live Oracle to
-///   validate the generated DDL and bulk-insert shape against - is exactly the "looks like coverage,
-///   proves nothing" failure `AGENTS.md` warns against.
-///
-/// So this registration compiles `OracleWarehouse` against the matrix's own `DataSystemUnderTest`
-/// port and reserves its place; every cell this axis is expanded over skips it under its named
-/// entry in `exemptions::EXEMPTIONS`, and `crates/sutura-app/tests/golden/dialects.rs`'s `oracle` render
-/// cells are still the only Oracle coverage this suite produces.
+/// **What it executes as:** the cell's own user, one per open and created by the tier's
+/// administrator, under the `shared-service-user` posture every entry here is opened with, over TLS
+/// verified against the tier's own certificate authority. Never a caller's identity.
 impl DataSystemUnderTest for sutura_exec_oracle::OracleWarehouse {
     const NAME: &'static str = "oracle";
 
     fn available() -> bool {
-        false
+        oracle_tier().is_some()
     }
 
-    fn open_on(_name: SourceName, _tables: Vec<(TableName, PathBuf)>) -> Self {
-        panic!("`available()` guards the Open of every oracle cell")
+    fn open_on(name: SourceName, tables: Vec<(TableName, PathBuf)>) -> Self {
+        let endpoint = oracle_tier().expect("`available()` guards the Open of every oracle cell");
+        let tier =
+            sutura_exec_oracle::fixture::FixtureCredential::from_env().unwrap_or_else(|unconfigured| panic!("{unconfigured}"));
+        // One PRIVATE user per open, so parallel corpus cells sharing one tier cannot clobber one
+        // another's tables: `postgres`'s per-open schema, in the namespace Oracle has.
+        let cell = sutura_exec_oracle::fixture::CellName::of(std::process::id(), schema_counter());
+        let own = tier
+            .provision_cell(endpoint.host(), endpoint.port(), &cell)
+            .unwrap_or_else(|e| panic!("oracle could not create {cell} at {endpoint}: {e}"));
+        let warehouse = Self::connect_fixture(name, posture(), endpoint.host(), endpoint.port(), &own, result_budget())
+            .unwrap_or_else(|e| panic!("oracle did not open as {cell} at {endpoint}: {e}"));
+        for (table, csv) in tables {
+            warehouse
+                .load_csv(&table, &csv)
+                .unwrap_or_else(|e| panic!("oracle could not load {}: {e}", csv.display()));
+        }
+        warehouse
     }
 }
 
@@ -673,6 +699,27 @@ fn cube_tier() -> Option<&'static Endpoint> {
             match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "cube") {
                 Provisioned::At(endpoint) => Some(endpoint),
                 Provisioned::Skipped(_) => None,
+            }
+        })
+        .as_ref()
+}
+
+/// This worktree's provisioned Oracle endpoint, where `SUTURA_ORACLE_TIER` names the Oracle venue.
+///
+/// [`cube_tier`]'s opt-in, and for its reason: every gate that sets `SUTURA_DEV_REQUIRE_TIER`
+/// provisions Postgres and `ClickHouse` and not Oracle. **Unlike `cube_tier`, a variable that is set
+/// and a tier that does not answer is a PANIC, not a skip**: the `oracle-tier` job sets it to say an
+/// Oracle is up, so a skipped oracle cell there would be a green run that executed nothing.
+fn oracle_tier() -> Option<&'static Endpoint> {
+    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            set("SUTURA_ORACLE_TIER")?;
+            match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle") {
+                Provisioned::At(endpoint) => Some(endpoint),
+                Provisioned::Skipped(absent) => {
+                    panic!("`SUTURA_ORACLE_TIER` is set and no Oracle tier answered discovery: {absent}")
+                }
             }
         })
         .as_ref()
@@ -775,9 +822,9 @@ where
 /// is unreachable on that path. Every other entry is a DATA SOURCE: the plan is rendered into its
 /// dialect's SQL and pushed down. All are `Warehouse` implementations and the corpus does not know
 /// which it is talking to. `Postgres` and `ClickHouse` need a provisioned tier, `BigQuery` a
-/// provisioned dataset, and `Oracle` has no venue at all, so each skips where
-/// [`DataSystemUnderTest::available`] answers `false` - and only under its named entry in
-/// `exemptions::EXEMPTIONS`, which [`runs_here`] is the one reader of.
+/// provisioned dataset, and `Oracle` the compose profile the `oracle-tier` job starts, so each
+/// skips where [`DataSystemUnderTest::available`] answers `false` - and only under its named entry
+/// in `exemptions::EXEMPTIONS`, which [`runs_here`] is the one reader of.
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
@@ -869,6 +916,14 @@ macro_rules! registered {
             declaring,
             sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::fixture::FixtureReader>
         );
+        // `sutura-catalog-openapi`, EXPERIMENTAL: a DECLARING adapter within its closed mapping
+        // vocabulary, configured by an OpenAPI document, over its synthetic fixture registry -
+        // `github.com/telekom/sutura#1727`. Universal cells only.
+        $cell!(
+            openapi,
+            declaring,
+            sutura_catalog_openapi::OpenApiCatalog<sutura_catalog_openapi::fixture::FixtureReader>
+        );
         // `sutura import wren`'s output read by `LocalCatalog` - the path a wren user runs. DECLARING:
         // its corpus is `sutura-cli`'s synthetic wren fixture, not the golden catalog. Universal cells only.
         $cell!(wren, declaring, crate::catalogs::WrenImport);
@@ -885,19 +940,18 @@ macro_rules! registered {
         // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
         // Its cells run against this worktree's provisioned tier and skip where none is up.
         $cell!(postgres, sutura_exec_postgres::adbc::AdbcPostgres);
-        // A DATA SOURCE over HTTP, likewise a development dependency, and likewise run against this
-        // worktree's provisioned tier (`nix/clickhouse-tier.nix`) and skipped where none is up.
-        $cell!(
-            clickhouse,
-            sutura_exec_clickhouse::ClickHouseWarehouse<sutura_exec_clickhouse::transport::Http>
-        );
+        // A DATA SOURCE over ADBC, the transport `sutura serve` ships, likewise a development
+        // dependency, and likewise run against this worktree's provisioned tier
+        // (`nix/clickhouse-tier.nix`) and skipped where none is up.
+        $cell!(clickhouse, sutura_exec_clickhouse::adbc::AdbcClickHouseWarehouse);
         // CLOUD-ONLY: it executes where `SUTURA_BQ_DATASET` names the dataset the
         // `bigquery-conformance` job provisioned, and skips under a named exemption elsewhere.
         $cell!(
             bigquery,
             sutura_exec_bigquery::BigQueryWarehouse<sutura_exec_bigquery::adbc::AdbcBigQuery>
         );
-        // `available()` also answers `false` unconditionally, for its own two reasons: see the impl.
+        // A DATA SOURCE, reached over the wire, and executed only in the `oracle-tier` CI job against
+        // the compose `oracle` profile; skipped under a named exemption everywhere else.
         $cell!(oracle, sutura_exec_oracle::OracleWarehouse);
         // A METRICS LAYER over HTTP: the plan becomes a Cube JSON query and Cube computes each
         // metric. Its cells run against the compose `cube` profile and skip where none is up.
@@ -921,9 +975,9 @@ macro_rules! registered {
             sutura_sql::Dialect::BigQuery,
             polyglot_sql::DialectType::BigQuery
         );
-        // Registered as a data system with `available() == false` (see that impl), so the parse
-        // check this cell runs is the whole of what backs the render: Oracle's grammar accepts it,
-        // which says nothing about a real Oracle agreeing with the number.
+        // The parse check this cell runs backs the RENDER only: Oracle's grammar accepts it, which
+        // says nothing about a real Oracle agreeing with the number. What else backs this dialect's
+        // goldens is `golden/dialects.rs::evidence`'s declaration.
         $cell!(oracle, sutura_sql::Dialect::Oracle, polyglot_sql::DialectType::Oracle);
     };
 }

@@ -3,7 +3,7 @@
 //! link types its v2 metadata API serves, read as a **declaring** source - issue
 //! `github.com/telekom/sutura#1727`.
 //!
-//! Tested against answers recorded from Foundry's public API reference (`src/fixture/`), not
+//! Tested against synthetic answers written from Foundry's public API reference (`src/fixture/`), not
 //! against a running Foundry. `docs/what-foundry-can-carry.md` is the field-by-field finding.
 //!
 //! # What an object type becomes
@@ -21,7 +21,7 @@
 //! `<objectType>_<linkType>`. Nothing else is carried, and nothing else is lost: the `MANY` side of
 //! the same link is its reverse, a `ONE` side without a foreign key has it on the other side, and a
 //! many-to-many link exposes no join table to join through. A foreign key on a `MANY` side, a
-//! cardinality word other than `ONE` or `MANY`, and a link to an object type the read did not list
+//! cardinality word other than `ONE` or `MANY`, and a foreign-key-backed link to an unlisted object type
 //! are refused by name.
 //!
 //! # What stays in Foundry

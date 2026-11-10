@@ -16,7 +16,7 @@
 //! `crates/sutura-cli/src/serve/worker.rs` opens the worker's catalog and declared sources at boot
 //! and keeps them for that reader, which reads only what this check returns. **The limit:** a
 //! planning node routes a split leaf to a worker only for a lookup leg its source granted, which only
-//! a mixed-kind `sutura serve` deployment's PostgreSQL source does.
+//! a `sutura serve` deployment's PostgreSQL source or `BigQuery` pool source does.
 
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;

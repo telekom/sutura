@@ -23,12 +23,15 @@ pub const GOOGLE_STS: &str = "https://sts.googleapis.com/v1/token";
 /// What the caller's assertion is: leg 1 verified a JWT.
 const JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
 
-/// The `BigQuery` client's own scope. The driver's client prepends it to its options, and a
-/// federated token with no impersonation hop is asked for the client's scopes - so this is what the
-/// driver asked for before this process performed the exchange. **Both [`PoolScope`]s ask for it
-/// today:** the read-only scope lands with the forwarded token, the next change of the `BigQuery`
-/// reading worker.
+/// [`PoolScope::Query`]: the `BigQuery` client's own scope. The driver's client prepends it to its
+/// options, and a federated token with no impersonation hop is asked for the client's scopes - so
+/// this is what the driver asked for before this process performed the exchange.
 const BIGQUERY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery";
+
+/// [`PoolScope::ReadOnly`]. Which calls Google refuses a pool principal's token under it is not
+/// measured here: the `domain_delegation` transport measured this scope with a service account's
+/// own token.
+const BIGQUERY_READ_ONLY_SCOPE: &str = "https://www.googleapis.com/auth/bigquery.readonly";
 
 /// [`PoolExchange`] over HTTP, at [`GOOGLE_STS`] or a stand-in for it.
 #[derive(Debug)]
@@ -48,7 +51,8 @@ impl GoogleSts {
 impl PoolExchange for GoogleSts {
     fn exchange(&self, assertion: &Secret, pool: &WorkloadPool, scope: PoolScope) -> Result<Delegated, PoolExchangeFailed> {
         let scope = match scope {
-            PoolScope::Query | PoolScope::ReadOnly => BIGQUERY_SCOPE,
+            PoolScope::Query => BIGQUERY_SCOPE,
+            PoolScope::ReadOnly => BIGQUERY_READ_ONLY_SCOPE,
         };
         #[expect(
             clippy::disallowed_methods,

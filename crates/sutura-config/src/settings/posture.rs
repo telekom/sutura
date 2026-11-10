@@ -543,6 +543,25 @@ pub enum NotFitToServe {
          reading worker certifies a leg against its own catalog before it reads. Declare the catalog"
     )]
     ReadingWorkerWithoutCatalog,
+    /// A reading worker declares a `BigQuery` source that does not federate at a workload identity
+    /// pool. A `BigQuery` partition is read only with the caller's token forwarded for the source's
+    /// pool, so a shared, `google_login` or `domain_delegation` source has nothing to read one with.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is a BigQuery source without \
+         `workload_identity`. A reading worker reads a BigQuery partition only with the caller's \
+         token forwarded for the source's pool. Declare the source's `workload_identity`, or remove it"
+    )]
+    ReadingWorkerBigQueryOutsideAPool { alias: SourceName },
+    /// A reading worker declares an Oracle source without `split: flashback`. An Oracle partition
+    /// is read at its snapshot only at a source whose boot probe passed, and an
+    /// impersonation-at-source source cannot declare the key, so such a source has no partition to
+    /// read.
+    #[error(
+        "server.role is `reading-worker` and `sources.{alias}` is an Oracle source without \
+         `split: flashback`. A reading worker reads an Oracle partition only at a shared source that \
+         declares `split: flashback`. Declare it, or remove the source"
+    )]
+    ReadingWorkerOracleWithoutFlashback { alias: SourceName },
     /// A question would wait for other nodes as long as the request it serves may take, or longer,
     /// so the wait would end in the deadline rather than in planning across the nodes that did start.
     #[error(
@@ -565,6 +584,35 @@ pub enum NotFitToServe {
          `{alias}` from that node's sources"
     )]
     ReadingNodeWithoutInboundIdentity { url: String, alias: String },
+    /// A source declares `hash_buckets_acknowledged_because` and is the only source this
+    /// deployment declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and `{alias}` is the only \
+         source: only a lookup leg of a federated answer is read in hash buckets. Remove the key"
+    )]
+    HashBucketsOnTheOnlySource { alias: SourceName },
+    /// A source declares `hash_buckets_acknowledged_because`, and no `server.nodes` peer reads it,
+    /// so no node is there to read a bucket.
+    #[error(
+        "`sources.{alias}.hash_buckets_acknowledged_because` is written, and no server.nodes peer \
+         lists `{alias}` in its sources: a hash bucket is read on a reading node. Declare one, or \
+         remove the key"
+    )]
+    HashBucketsReadByNoNode { alias: SourceName },
+    /// An Oracle source declares `split: flashback` and is the only source this deployment
+    /// declares, so no federated answer has a lookup leg of it to split.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and `{alias}` is the only source: only a lookup leg \
+         of a federated answer is read in flashback buckets. Remove the key"
+    )]
+    FlashbackOnTheOnlySource { alias: SourceName },
+    /// An Oracle source declares `split: flashback`, and no `server.nodes` peer reads it, so no node
+    /// is there to read a bucket.
+    #[error(
+        "`sources.{alias}.split` is `flashback`, and no server.nodes peer lists `{alias}` in its \
+         sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
+    )]
+    FlashbackReadByNoNode { alias: SourceName },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;

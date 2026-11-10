@@ -68,6 +68,9 @@ pub(crate) enum OpenedCatalogs {
     /// EXPERIMENTAL: a Foundry ontology, behind this crate's default-off `foundry` feature.
     #[cfg(feature = "foundry")]
     Foundry(Vec<sutura_catalog_foundry::FoundryCatalog<sutura_catalog_foundry::http::HttpOntologyReader>>),
+    /// EXPERIMENTAL: an `OpenAPI`-described metadata API, behind the default-off `openapi` feature.
+    #[cfg(feature = "openapi")]
+    OpenApi(Vec<crate::openapi::OpenApiSource>),
     /// A directory of ODCS v3 data-contract documents - `#973`. `sutura-catalog-datacontract` is an
     /// unconditional dependency of this build (pure directory read, no TLS - the same shape
     /// `sutura-catalog-okf` holds), so `catalog.kind: datacontract` is openable by every build of
@@ -96,6 +99,8 @@ macro_rules! with_opened {
             $crate::catalog::OpenedCatalogs::Cube($catalogs) => $body,
             #[cfg(feature = "foundry")]
             $crate::catalog::OpenedCatalogs::Foundry($catalogs) => $body,
+            #[cfg(feature = "openapi")]
+            $crate::catalog::OpenedCatalogs::OpenApi($catalogs) => $body,
             $crate::catalog::OpenedCatalogs::DataContract($catalogs) => $body,
             #[cfg(feature = "rdbms")]
             $crate::catalog::OpenedCatalogs::Rdbms($catalogs) => $body,
@@ -161,6 +166,17 @@ pub(crate) fn open_catalog(
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
         sutura_config::CatalogKind::Cube => open_cube_catalogs(catalogs, outbound),
         sutura_config::CatalogKind::Foundry => foundry::open_foundry_catalogs(catalogs, outbound),
+        #[cfg(feature = "openapi")]
+        sutura_config::CatalogKind::OpenApi => catalogs
+            .each()
+            .map(|settings| crate::openapi::open(settings, outbound))
+            .collect::<Result<Vec<_>, String>>()
+            .map(OpenedCatalogs::OpenApi),
+        #[cfg(not(feature = "openapi"))]
+        sutura_config::CatalogKind::OpenApi => Err(String::from(
+            "catalog.kind: openapi names an EXPERIMENTAL metadata adapter this binary was not built to link - \
+             build sutura-cli with --features openapi, or declare markdown catalogs",
+        )),
         // `Rdbms` is openable behind the `rdbms` feature; a build without it gets the not-linked
         // refusal `open_rdbms_catalogs` returns, which names the feature.
         sutura_config::CatalogKind::Rdbms => {

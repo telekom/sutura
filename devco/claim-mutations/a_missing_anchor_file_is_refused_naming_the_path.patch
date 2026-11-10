@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-exec-clickhouse/src/tls.rs b/crates/sutura-exec-clickhouse/src/tls.rs
+--- a/crates/sutura-exec-clickhouse/src/tls.rs
++++ b/crates/sutura-exec-clickhouse/src/tls.rs
+@@ -146,7 +146,7 @@ fn resolved_identity(identity: &TlsIdentity) -> sutura_tls::Identity {
+ /// Maps `sutura-tls`'s load refusal onto this crate's own error type, field for field.
+ fn from_load_error(cause: sutura_tls::LoadError) -> TlsError {
+     match cause {
+-        sutura_tls::LoadError::AnchorsRead { path, cause } => TlsError::AnchorsRead { path, cause },
++        sutura_tls::LoadError::AnchorsRead { path, cause: _ } => TlsError::AnchorsEmpty { path },
+         sutura_tls::LoadError::AnchorsEmpty { path } => TlsError::AnchorsEmpty { path },
+         sutura_tls::LoadError::SystemStoreRead { errors, cause } => TlsError::SystemStoreRead { errors, cause },
+         sutura_tls::LoadError::SystemStoreEmpty => TlsError::SystemStoreEmpty,

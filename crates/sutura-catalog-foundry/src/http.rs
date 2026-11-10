@@ -18,7 +18,9 @@
 //! One [`Budget`] covers the whole read - every page, every link list and any token mint -
 //! because the link read is one request per object type. [`ReadBounds`] caps each answer, and
 //! [`PageLimits`] caps the entities of each list. A repeated page token, or an empty page that
-//! reports more, is refused rather than followed.
+//! reports more, is refused rather than followed. The socket timeout includes the shared five-second
+//! connection margin; a spent budget is checked after token acquisition and body reading. JSON
+//! decoding and ontology assembly are not interrupted by that deadline.
 //!
 //! # Auth
 //!
@@ -228,14 +230,14 @@ impl HttpOntologyReader {
     where
         T: DeserializeOwned,
     {
-        let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
-            what,
-            budget_seconds: self.bounds.timeout().as_secs(),
-        })?;
         let bearer = self
             .token
             .bearer(budget)
             .map_err(|cause| HttpReaderError::Token { what, cause })?;
+        let left = budget.remaining().ok_or(HttpReaderError::DeadlineSpent {
+            what,
+            budget_seconds: self.bounds.timeout().as_secs(),
+        })?;
         let url = format!("{}{path}", self.endpoint.as_str());
         let mut request = self
             .agent
@@ -271,6 +273,12 @@ impl HttpOntologyReader {
                     cause: Box::new(cause),
                 },
             })?;
+        if budget.remaining().is_none() {
+            return Err(HttpReaderError::DeadlineSpent {
+                what,
+                budget_seconds: self.bounds.timeout().as_secs(),
+            });
+        }
         if text.len() as u64 > cap {
             return Err(HttpReaderError::TooLarge { what, cap });
         }

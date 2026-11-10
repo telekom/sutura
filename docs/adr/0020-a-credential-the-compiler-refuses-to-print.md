@@ -138,7 +138,8 @@ Two costs are real and are not on that list:
 
 `sutura-domain`'s dependency list went from four crates to five with this decision, and
 `ALLOWED_IN_DOMAIN` - since moved to `xtask/src/boundaries/edges.rs` - names **three** new packages
-with the reason. (It is seven crates now; `docs/adr/0039` added `arrow-array` and `arrow-schema`. The
+with the reason. (It is nine crates now; `docs/adr/0039` added `arrow-array` and `arrow-schema`, and the typed rank
+of a federated `top` added `arrow-ord` and `arrow-select`. The
 figures below are this decision's own, measured on the day, and are not restated as current.) That list exists so this is an
 argument in a diff, and it worked as intended: adding `secrecy` and `zeroize` alone failed
 `check-boundaries` by name -

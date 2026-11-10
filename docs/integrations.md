@@ -20,7 +20,8 @@ a page here. [Inbound identity](integrations/identity.md) describes how sutura v
 | [OpenMetadata](integrations/catalogs/openmetadata.md)  | `openmetadata`          | Tables, types, descriptions, joins            |
 | [RDBMS dictionary](integrations/catalogs/rdbms.md)     | `rdbms`                 | Tables, types, descriptions                   |
 | [Cube](integrations/data-systems/cube.md#catalog)      | `cube`                  | Models, types, descriptions                   |
-| [Foundry](integrations/catalogs/foundry.md)            | `foundry`               | Models, types, descriptions, joins            |
+| [Foundry](integrations/catalogs/foundry.md)            | `foundry`               | Experimental: models, types, joins            |
+| [OpenAPI](integrations/catalogs/openapi.md)            | `openapi`               | Experimental: tables, types, joins            |
 | [Wren](integrations/catalogs/wren.md)                  | none: an import command | A markdown catalog to review                  |
 
 A catalog that supplies part of the model declares the rest as absent. A catalog without metrics
@@ -58,8 +59,9 @@ Cube runs its warehouse query with the database identity in its own driver setti
 (`CUBEJS_DB_USER` in the example), not with the caller's identity.
 
 A federated question reads several data systems. Each one runs its part, and DataFusion joins the
-parts. Cube cannot run a part of a federated question. ClickHouse runs a part only as its shared
-user or with a caller's `delegation` token, never through `EXECUTE AS`.
+parts. Cube cannot run a part of a federated question. ClickHouse runs a part as it runs a whole
+question: as its shared user, as the caller's user through `EXECUTE AS`, or with a caller's
+`delegation` token.
 
 ### Data system settings
 

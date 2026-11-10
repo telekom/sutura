@@ -118,6 +118,11 @@ pub(crate) enum AnyWarehouseError {
     #[cfg(feature = "node")]
     #[error(transparent)]
     Node(sutura_exec_node::NodeError),
+    /// A split's forwarded token was exchanged from a credential other than the one the request
+    /// presented for the leg's source: the leg is refused, never granted or read.
+    #[cfg(all(feature = "bigquery", feature = "postgres", feature = "distributed"))]
+    #[error(transparent)]
+    NotTheCallersToken(sutura_domain::plan::NotTheCallersToken),
 }
 
 /// Delegates a `&self` method with no error in its signature to whichever adapter this variant
@@ -198,12 +203,12 @@ fn billed_as<V, E>(billed: BilledResult<V, E>, into: impl FnOnce(E) -> AnyWareho
 /// One of the port's four failure PREDICATES: `&self` paired with `&Self::Error`, answering
 /// `$default` when the two do not name the same adapter.
 ///
-/// **That pairing cannot arise from this port's own contract**, so the fallback arm is defensive
-/// rather than reachable: every error a warehouse hands back is minted by THAT SAME instance's own
-/// `execute`/`dry_run`/`preflight`, never by a different variant's. `$default` is always the
-/// predicate's own safe direction (`false`, or `None`), so a pairing this port cannot actually
-/// produce still answers as if nothing here could tell - never as a capability this adapter never
-/// measured.
+/// **An adapter never mints the other kind's error**: every error a warehouse hands back is minted
+/// by THAT SAME instance's own `execute`/`dry_run`/`preflight`. The one error minted here rather
+/// than by an adapter, `AnyWarehouseError::NotTheCallersToken`, is paired with a `BigQuery`
+/// warehouse and so reaches the fallback arm. `$default` is always the predicate's own safe
+/// direction (`false`, or `None`), so a pairing no adapter produced still answers as if nothing
+/// here could tell - never as a capability this adapter never measured.
 macro_rules! any_predicate {
     ($self:expr, $error:expr, $method:ident, $default:expr) => {
         match ($self, $error) {
@@ -300,31 +305,18 @@ impl Warehouse for AnyWarehouse {
         any_billed!(self, execute_billed, executable, presented, bill_to, labels, deadline)
     }
 
-    /// A `PostgreSQL` lookup leg through `split_by_estimate`, every other kind read whole.
-    ///
-    /// A split of two or more partitions offered a `grantee` is granted to the nodes that read the
-    /// source (`grant::granted_or_read`): its columns described on the exporting connection, each
-    /// partition's descriptor, and the [`SplitLeg`](sutura_exec_postgres::adbc::SplitLeg) itself
-    /// held by the grant, so the exporting transaction stays open as long as the grant does.
-    /// [`Grantee::grant`](sutura_domain::plan::Grantee::grant)'s refusal is the answer, and no
-    /// partition of a granted or refused leg is read here.
-    ///
-    /// Without a `grantee`, with one partition, or with a column whose type its cells decide
-    /// (`NUMERIC`), the reader owns the split and reads by position until it holds no further
-    /// partition, so each is read once, in page order, and the exporting transaction stays open until
-    /// the reader is dropped. A single-kind `postgres` deployment holds the adapter itself rather than
-    /// this enum and reads every leg whole.
-    ///
-    /// **Limits:** a leg answered [`Partitioned::Whole`](sutura_domain::plan::Partitioned::Whole)
-    /// was estimated first, one round trip more than reading it whole outright; a granted one is
-    /// described too, one more. And a link value two partitions both carry is one table's repeated
-    /// tuple to the combine, refused as an ambiguous link - so a leg the whole read answered can be
-    /// refused once split, never answered differently.
+    /// The leg of a kind that splits through its [`SplitKind`](split::SplitKind), every other kind
+    /// read whole. A deployment whose sources are all `postgres` holds this enum only where a
+    /// declared peer reads one of its sources (`postgres::served`); otherwise it holds the adapter
+    /// itself and reads every leg whole.
     ///
     /// Built with `distributed` only: a build without it refuses `server.nodes` at boot
     /// (`nodes::combiner`), so no source is named for splitting and the default reads every leg
     /// whole.
-    #[cfg(all(feature = "postgres", feature = "distributed"))]
+    #[cfg(all(
+        feature = "distributed",
+        any(feature = "postgres", feature = "clickhouse", feature = "oracle")
+    ))]
     fn split_lookup(
         &self,
         leg: &sutura_domain::plan::LegPlan,
@@ -333,23 +325,12 @@ impl Warehouse for AnyWarehouse {
         above_bytes: core::num::NonZeroU64,
         readers: core::num::NonZeroUsize,
         grantee: Option<sutura_domain::plan::Grantee>,
+        labels: &JobLabels,
     ) -> sutura_domain::plan::LookupSplit<'_, Self::Error> {
-        use core::num::{NonZeroU32, NonZeroUsize};
-        use sutura_domain::plan::Partitioned;
-        use sutura_exec_postgres::adbc::{MOST_RESULT_ROWS, Planned};
-
-        let Self::Postgres(postgres) = self else {
-            return Ok(Partitioned::Whole);
+        let Some(kind) = self.splits() else {
+            return Ok(sutura_domain::plan::Partitioned::Whole);
         };
-        let stream_rows = NonZeroUsize::new(MOST_RESULT_ROWS).unwrap_or(NonZeroUsize::MIN);
-        let split = match postgres.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
-            Ok(Planned::Whole) => return Ok(Partitioned::Whole),
-            Ok(Planned::Refused(refusal)) => return Ok(Partitioned::Refused(refusal)),
-            Ok(Planned::Split(split)) => split,
-            Err(cause) => return Err(AnyWarehouseError::Postgres(cause)),
-        };
-        let rows = NonZeroU32::try_from(stream_rows).unwrap_or(NonZeroU32::MAX);
-        grant::granted_or_read(split, grantee, deadline, rows, std::time::SystemTime::now)
+        kind.split(leg, presented, deadline, above_bytes, readers, grantee, labels)
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
@@ -556,7 +537,10 @@ pub(crate) fn open_mixed(
         trust_into(&mut attached, pinned, &grouped.clickhouse);
     }
     if !grouped.oracle.is_empty() {
-        engines = Some(accumulate(engines, oracle_group(&grouped.oracle, registry, runtime)?)?);
+        engines = Some(accumulate(
+            engines,
+            oracle_group(&grouped.oracle, pinned, registry, runtime)?,
+        )?);
         trust_into(&mut attached, pinned, &grouped.oracle);
     }
     if !grouped.duckdb.is_empty() {
@@ -636,11 +620,18 @@ fn accumulate(
     }
 }
 
-/// A split PostgreSQL lookup leg granted to the nodes that read its source, or read here.
-#[cfg(all(feature = "postgres", feature = "distributed"))]
+/// A split lookup leg granted to the nodes that read its source, or read here. Built only beside
+/// the arms that grant through it, `PostgreSQL`'s and Oracle's.
+#[cfg(all(feature = "distributed", any(feature = "postgres", feature = "oracle")))]
 mod grant;
 /// Each kind's group opener, split out for the line cap.
 mod groups;
+/// The one per-kind split dispatch, for the planning node and a reading worker.
+#[cfg(all(
+    feature = "distributed",
+    any(feature = "postgres", feature = "clickhouse", feature = "oracle")
+))]
+pub(super) mod split;
 use groups::{bigquery_group, clickhouse_group, cube_group, duckdb_group, oracle_group, postgres_group};
 
 /// The labels this enum forwards, observed through a fake variant.
@@ -898,6 +889,75 @@ mod tests {
                     "{reason:?}"
                 );
             }
+        }
+    }
+
+    /// A reader's failure answered by its kind: only a partition past the bound is typed, and what is
+    /// logged names the source and never the cause.
+    #[cfg(all(feature = "postgres", feature = "distributed"))]
+    mod reader {
+        use sutura_domain::model::SourceName;
+        use sutura_domain::warehouse::UnannouncedBatch;
+        use sutura_exec_datafusion::Unread;
+        use sutura_exec_postgres::PostgresError;
+        use sutura_exec_postgres::adbc::AdbcError;
+        use sutura_runtime::testing::Capture;
+
+        use super::super::split::postgres::unread;
+
+        fn reader_source() -> SourceName {
+            SourceName::parse("reader_source_q9").expect("a source name")
+        }
+
+        fn unannounced(cause: UnannouncedBatch) -> PostgresError {
+            PostgresError::Adbc {
+                cause: AdbcError::Unannounced(cause),
+            }
+        }
+
+        /// What `unread` logs for `cause`, under the shipped default directive.
+        fn reader_log(cause: PostgresError) -> String {
+            let sink = Capture::new();
+            let telemetry = sutura_config::TelemetrySettings::new(
+                sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+                sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+                sutura_config::LogFormat::Bunyan,
+                true,
+            );
+            let subscriber =
+                sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+            drop(tracing::subscriber::with_default(subscriber, || {
+                unread(&reader_source(), cause)
+            }));
+            sink.contents()
+        }
+
+        #[test]
+        fn only_a_partition_past_the_readers_row_bound_is_read_as_one_that_did_not_fit() {
+            let read = unread(&reader_source(), unannounced(UnannouncedBatch::OverBound { most: 1 }));
+            assert!(matches!(read, Unread::DidNotFit), "{read:?}");
+            let other = unread(
+                &reader_source(),
+                unannounced(UnannouncedBatch::Width {
+                    announced: 2,
+                    delivered: 3,
+                }),
+            );
+            assert!(matches!(other, Unread::Failed(_)), "{other:?}");
+        }
+
+        #[test]
+        fn a_readers_failed_partition_is_logged_naming_the_source_and_never_the_cause() {
+            let marker = "planted_cell_marker_7f3a";
+            let failed = reader_log(PostgresError::UnsupportedType {
+                column: String::from(marker),
+                postgres_type: "point",
+            });
+            assert!(failed.contains("reader_source_q9"), "{failed}");
+            assert!(!failed.contains(marker), "{failed}");
+            let unfit = reader_log(unannounced(UnannouncedBatch::OverBound { most: 1 }));
+            assert!(unfit.contains("reader_source_q9"), "{unfit}");
+            assert!(!unfit.contains("could not answer"), "{unfit}");
         }
     }
 }

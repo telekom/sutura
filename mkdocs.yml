@@ -183,6 +183,7 @@ exclude_docs: |
   what-a-bpmn-file-actually-carries.md
   what-a-data-contract-can-carry.md
   what-foundry-can-carry.md
+  what-an-openapi-catalog-can-carry.md
   what-an-rdf-graph-can-carry.md
   what-okf-can-carry.md
   what-openmetadata-can-carry.md
@@ -228,7 +229,8 @@ nav:
           - Metadata platforms:
               - DataHub: integrations/catalogs/datahub.md
               - OpenMetadata: integrations/catalogs/openmetadata.md
-              - Foundry: integrations/catalogs/foundry.md
+              - Foundry (experimental): integrations/catalogs/foundry.md
+              - OpenAPI (experimental): integrations/catalogs/openapi.md
           - Databases:
               - RDBMS dictionary: integrations/catalogs/rdbms.md
           - Files:

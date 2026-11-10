@@ -33,12 +33,17 @@ and these keys:
 | `password_file`                   | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                               |
 | `transport_mode`                  | string        | required         | `verified`. `plaintext` and `mutual` are refused                                                                                                                                         |
 | `transport_anchors`               | absolute path | required         | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                                     |
+| `split`                           | string        | none             | `flashback`: opts the source's lookup legs into a split at one snapshot; sutura checks the flashback privileges at startup. Refused on `impersonation-at-source`                         |
 | `delegation`                      | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                        |
 | `delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
 | `delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
 | `delegation[].client_secret_file` | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                          |
 | `delegation[].grant`              | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token` |
 | `delegation[].audience`           | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                              |
+
+A serving deployment does not start when a source with `split: flashback` is its only source, or
+when no `server.nodes` peer lists the source in its `sources`. A reading worker does not start when
+it declares an Oracle source without `split: flashback`.
 
 sutura connects at startup, so it does not start if the listener or the login fails. The connect to
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before

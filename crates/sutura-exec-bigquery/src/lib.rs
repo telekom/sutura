@@ -129,6 +129,8 @@ mod preflight;
 
 #[cfg(feature = "adbc")]
 pub mod adbc;
+#[cfg(feature = "adbc")]
+mod over_adbc;
 
 mod billing;
 pub use billing::{JobBilling, TableNamesNoProject};
@@ -607,50 +609,6 @@ where
     }
 }
 
-/// A warehouse whose transport is the ADBC driver (telekom/sutura#913).
-///
-/// Reaching this constructor is what makes the `adbc` module first-party:
-/// `BigQueryWarehouse<adbc::AdbcBigQuery>` is a concrete, constructible transport
-/// the composition root can pick. Default-off (`adbc` feature), for the reason
-/// any out-of-process transport is: the native driver is a per-triple addition.
-#[cfg(feature = "adbc")]
-impl BigQueryWarehouse<adbc::AdbcBigQuery> {
-    /// Opens a dataset over the ADBC transport.
-    ///
-    /// `driver` is where this process reaches the self-built driver: linked into a release
-    /// artefact's own binary, or a `.so` a deployment mounted. [`adbc::DriverLocation`] carries why
-    /// that is a parsed value and not a path, and `nix/bigquery-adbc.nix` builds both shapes from
-    /// one pinned source.
-    ///
-    /// `impersonation` is whether this source impersonates and how - through the pool of the
-    /// source's declared `workload_identity.audience`, with the subject's own Google access token
-    /// for `google_login`, or [`adbc::Impersonation::Disabled`] for a shared one, as a property of
-    /// the source. A pool source also needs [`adbc::AdbcBigQuery::exchanging_through`], which this
-    /// constructor does not take: without it every subject there is refused as uncovered.
-    ///
-    /// `max_bytes_billed` is the source's own `sources.<alias>.max_bytes_billed`, already parsed:
-    /// every job this transport submits carries it as `BigQuery`'s `maximumBytesBilled`, so the bound
-    /// on bytes scanned is enforced by the service. [`adbc::BytesBilledCeiling`] states what it does
-    /// NOT bound - it is per JOB, and `governance.per_replica_spend_ceiling` is a different key that
-    /// this adapter still does not reach.
-    #[must_use]
-    pub const fn over_adbc(
-        source: SourceName,
-        posture: SourcePosture,
-        billing: JobBilling,
-        driver: adbc::DriverLocation,
-        impersonation: adbc::Impersonation,
-        max_bytes_billed: adbc::BytesBilledCeiling,
-    ) -> Self {
-        Self::new(
-            source,
-            posture,
-            billing,
-            adbc::AdbcBigQuery::new(driver, impersonation, max_bytes_billed),
-        )
-    }
-}
-
 impl<T> Warehouse for BigQueryWarehouse<T>
 where
     T: JobTransport,
@@ -710,8 +668,13 @@ where
     /// correctly for the dialect (`crates/sutura-app/tests/golden/legs.rs` at
     /// [`Dialect::BigQuery`]) and the transport submits it with the subject's own credential and
     /// this source's configured `maximumBytesBilled`. **No federated answer has been produced
-    /// against a real `BigQuery` dataset** - the dialect axis declares this dialect
-    /// `Evidence::RenderOnly` and nothing here changes that. And ADBC prices no dry run, so
+    /// against a real `BigQuery` dataset as the asking subject.** One has been produced under a
+    /// shared identity: the `bigquery-conformance` CI job, the only venue and never
+    /// `just validate`, answers the two-fact ratio over two `BigQuery` sources on one dataset
+    /// (`crates/sutura-app/tests/differential/federated/two_fact.rs`), and the dialect axis
+    /// declares this dialect `Evidence::Executed` for that job. It opens every source under its one
+    /// CI identity with impersonation off, so it says nothing about a leg run as the asker. And
+    /// ADBC prices no dry run, so
     /// `docs/adr/0030`'s all-or-nothing charge sums two `PreFlight::NotAsked` legs and charges
     /// nothing at all: `governance.per_replica_spend_ceiling` bounds a federated `BigQuery` answer
     /// exactly as little as it bounds a mono one. [`Self::PRICES_DRY_RUN`] carries that argument.

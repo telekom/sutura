@@ -224,7 +224,10 @@ pub(crate) fn post_capped(
             .with_config()
             .limit(cap.saturating_add(cap.max(1024)))
             .read_to_string()
-            .map_err(Unsent::Unreachable)?,
+            .map_err(|cause| match cause {
+                ureq::Error::BodyExceedsLimit(_) => Unsent::TooLarge(cap),
+                cause => Unsent::Unreachable(cause),
+            })?,
     );
     #[expect(clippy::disallowed_methods, reason = "only the length is read")]
     if text.expose_secret().len() as u64 > cap {

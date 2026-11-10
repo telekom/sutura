@@ -345,13 +345,13 @@ pub(crate) fn run() -> Result<(), String> {
             // its `preflight` is `NotReported` by construction - which `refuse_absent_tables` treats
             // as a WARN rather than a refusal, so the call would add a misleading permission
             // sentence and nothing else. A mistyped `table:` is caught on the first question against
-            // it, as the port itself documents.
-            (shared_identity_service(&catalogs, engines, combiner, None, &settings)?, None)
+            // it, as the port itself documents. A source a declared peer reads is split as a mix's is.
+            (postgres::served(&catalogs, engines, combiner, &settings)?, None)
         }
         #[cfg(feature = "clickhouse")]
         OpenedSources::ClickHouse(engines) => {
-            // No pre-flight, for the `Postgres` arm's reason exactly: `ClickHouseWarehouse` takes
-            // the port's default `preflight`, so there is nothing for the table check to read. The
+            // No pre-flight, for the `Postgres` arm's reason exactly: `AdbcClickHouseWarehouse`
+            // takes the port's default `preflight`, so there is nothing for the table check to read. The
             // declared-map broker, because an `impersonation-at-source` source switches per subject.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
             (compose::started(&catalogs, engines, broker, combiner, None, &settings)?, None)
@@ -361,9 +361,10 @@ pub(crate) fn run() -> Result<(), String> {
             // No pre-flight, for the `Postgres` arm's reason exactly: `OracleWarehouse` takes the
             // port's default `preflight`, so there is nothing for the table check to read. The
             // declared-subject broker, because an `impersonation-at-source` source opens each
-            // question's session with the asker's own token.
+            // question's session with the asker's own token. A source a declared peer reads is split as
+            // a mix's is.
             let broker = broker::build_broker(settings.sources(), outbound.as_ref())?;
-            (compose::started(&catalogs, engines, broker, combiner, None, &settings)?, None)
+            (oracle::served(&catalogs, engines, broker, combiner, &settings)?, None)
         }
         #[cfg(feature = "cube")]
         OpenedSources::Cube(engines) => {
@@ -863,6 +864,18 @@ fn open_engine(
     if declared.is_empty() {
         return Err(String::from("this catalog declares no models, so there is nothing to open"));
     }
+    open_named(&declared, pinned, registry, runtime, request_timeout, outbound)
+}
+
+/// [`open_engine`] over `declared`, the sources of `pinned` to open, which is not empty.
+fn open_named(
+    declared: &[&SourceName],
+    pinned: &PinnedDefinitions,
+    registry: &sutura_config::SourceRegistry,
+    runtime: sutura_config::RuntimeSettings,
+    request_timeout: sutura_config::RequestTimeout,
+    outbound: Option<&sutura_tls::Declared>,
+) -> Result<OpenedSources, String> {
     // Before the engines are built, and the order is the classic one: the cheap check that reads the
     // parsed tree runs before the expensive one that starts a runtime and a memory pool. It also puts
     // the more actionable message first - an anchor with no identity to run it as names the metric.
@@ -874,7 +887,7 @@ fn open_engine(
     // through. Every declared source sharing one kind takes the ORIGINAL single-registry path -
     // no erasure, no `kind::AnyWarehouse` anywhere in the type - and [`kind::open_mixed`] is
     // reached only once more than one group is non-empty.
-    let grouped = kind::group_by_kind(&declared, registry)?;
+    let grouped = kind::group_by_kind(declared, registry)?;
     match (
         grouped.files.is_empty(),
         grouped.bigquery.is_empty(),
@@ -893,7 +906,7 @@ fn open_engine(
         }
         (true, true, false, true, true, true, true, true) => postgres::open_postgres(&grouped.postgres, registry),
         (true, true, true, false, true, true, true, true) => clickhouse::open_clickhouse(&grouped.clickhouse, registry, runtime),
-        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, registry, runtime),
+        (true, true, true, true, false, true, true, true) => oracle::open_oracle(&grouped.oracle, pinned, registry, runtime),
         (true, true, true, true, true, false, true, true) => duckdb::open_duckdb(&grouped.duckdb, registry, runtime),
         (true, true, true, true, true, true, false, true) => cube::open_cube(&grouped.cube, registry, outbound),
         // A `node` group always opens in the mix: it runs legs of a federated answer only.

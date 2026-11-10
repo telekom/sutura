@@ -247,7 +247,7 @@ ci:
     # (NixOS VMs, KVM) run only on an x86_64-linux host; anywhere else each is a stub saying so.
     # vendored-oracledb runs the vendored driver's own unit tests, which the workspace excludes.
     # slides builds the meetup deck, which `docs.yml` publishes; the build is nix-cached.
-    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node k3s-autoscaling k3s-worker-pool vendored-oracledb slides; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs keycloak-tier postgres-tier clickhouse-tier helm-chart adbc-driver-bigquery adbc-driver-postgresql adbc-driver-duckdb adbc-driver-clickhouse postgres-linked-driver multi-node multi-node-postgres k3s-autoscaling k3s-worker-pool vendored-oracledb slides; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L
     done
@@ -320,7 +320,7 @@ gates: hygiene
 bigquery-declared-principal *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the three hosted cells: two read \`SESSION_USER()\` per declared subject, one expects the pool to refuse a token minted for another audience."
+    echo "bigquery-declared-principal: scope sutura-exec-bigquery - the hosted cells: two read \`SESSION_USER()\` per declared subject, one expects the pool to refuse a token minted for another audience, and \`declared_principal::split\` reads a split leg's streams with the forwarded token."
     echo "bigquery-declared-principal: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only \
       -E 'test(/declared_principal::/)' {{ args }}
@@ -673,10 +673,6 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
-# ------------------------------------------------------------------ test-infra ---
-# The Pulumi test infrastructure under `test-infra/`. The `infra-` prefix keeps these out of the way
-# of the Rust surface's tasks; everything runs through pixi, so there is no venv to keep in step.
-
 # Maps to pixi's `gl` task, which runs BOTH gcloud logins into ~/.config/gcloud: the CLI's own
 # credentials, and ADC, which client libraries read. `-e gcloud` is required because pixi declares
 # `gl` in that FEATURE's tasks. The same task as `gcloud-login` above.
@@ -697,6 +693,10 @@ infra-preview *flags:
     # acceptance legs use. just runs each line in a fresh shell, so the identity is set per command.
     PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
     PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://{{ justfile_directory() }}/test-infra/pulumi/google}" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
+
+# Offline resource declarations only; BigQuery enforces the live grants.
+infra-test *args:
+    pixi run --frozen -e infra python test-infra/pulumi/google/test_split.py {{args}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
@@ -844,10 +844,7 @@ dev-up-datahub:
 dev-up-openmetadata:
     cargo run -q -p xtask -- dev-up --with openmetadata
 
-# Off by default because it is a full database server and nothing here reads it in `just validate` -
-# `compose.services.yaml`'s own `oracle` row says why there is no nix-native tier to converge to.
-# The same, plus Oracle Database - `github.com/telekom/sutura#127` - serving TCPS over the wallet
-# `nix/oracle-tier-tls.sh` writes first (#1425).
+# The same, plus Oracle Database (`github.com/telekom/sutura#127`) over the TCPS wallet `nix/oracle-tier-tls.sh` writes first (#1425). Off by default: no `just validate` leg starts one.
 dev-up-oracle:
     bash nix/oracle-tier-tls.sh
     cargo run -q -p xtask -- dev-up --with oracle
@@ -882,11 +879,11 @@ cube-acceptance:
 # says the `cube` cells run instead of `just test`.
 ci-cube-tier: cube-acceptance
 
-# Oracle adapter, catalog and served password cells. Keep the CI app's filters aligned.
+# Oracle adapter, catalog, served password and sutura-app cells; the `oracle-tier` CI job runs it. Keep the CI app's filters aligned.
 oracle-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms and sutura-cli's served source-password cell. NOT a gate: run \`just test\` for the whole suite."
+    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms, sutura-cli's served source-password cell and sutura-app's oracle cells. NOT a gate: run \`just test\` for the whole suite."
     export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
     export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
     just dev-up-oracle
@@ -896,7 +893,10 @@ oracle-acceptance:
     cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
     status=$?
     cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
+    bash nix/oracle-app-cells.sh || status=$?
     exit "$status"
+
+oracle-tier: oracle-acceptance
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own

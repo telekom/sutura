@@ -6,15 +6,21 @@
 //! enabling `/mcp` or Flight, so what is left is this node's worker, built from the listener's pair
 //! and the node authority, served behind the node-certificate gate. `server.nodes` is not read.
 //!
-//! **A `reading-worker` opens its catalog and its declared sources at boot, through the same
-//! `crate::catalog::open_catalog`/`load` and `crate::serve::open_engine` a serving node's own boot
-//! uses** - never a second copy of either constructor. A `worker` still opens neither, having
+//! **A `reading-worker` opens its catalog and the sources it both reads and declares at boot,
+//! through the same `crate::catalog::open_catalog`/`load` and `crate::serve::open_named` a serving
+//! node's own boot uses** - never a second copy of either constructor. A source its catalog reads
+//! and its `sources:` does not declare is not opened. A `worker` still opens neither, having
 //! declared neither.
 //!
-//! **A `reading-worker` built with the `postgres` adapter keeps them for its partition reader**
+//! **A `reading-worker` built with the `postgres` or `clickhouse` adapter keeps them for its partition
+//! reader**
 //! (`partition`), served through `Nodes::worker_reading`: a source-reading task it admits under a
 //! verified reading grant is re-certified against this node's catalog and, for a `PostgreSQL` source,
-//! read. A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
+//! read as its service user, or for a `BigQuery` pool source with the caller's token the grant
+//! named, an arm built only with `postgres`. `ClickHouse` has no arm yet, so a build with it and
+//! without `postgres` reads no partition: it admits a granted task and refuses each partition, where
+//! it served as a `worker` before that build took the reader. No venue runs that role in that build.
+//! A `worker` keeps `Nodes::worker`, which refuses every stage whose leaf reads a source.
 //!
 //! **Limits.** As on a serving node, the pair, the authority and - for a `reading-worker` - the
 //! catalog and the sources are all read once, at boot: a catalog that is re-pinned later is not
@@ -22,10 +28,11 @@
 //! only a call that carries its question's task grant, under the key the first call of that
 //! question installed: a node of the same authority installs that key. The planning node routes a
 //! split leg's partition only to a node `server.nodes` declares as reading its source, and only a
-//! mixed-kind deployment's PostgreSQL source grants one, so no other served lookup leg reaches the
-//! reader. A source
-//! of any kind but `PostgreSQL` - `BigQuery` among them - is refused, and a build without the
-//! `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
+//! serving deployment's PostgreSQL source or `BigQuery` pool source grants one, so no other served
+//! lookup leg reaches the reader. A source of any other kind is refused, a `reading-worker`
+//! declaring a `BigQuery` source outside a pool, or an Oracle source without `split: flashback`,
+//! does not start (`sutura_config`), and a build
+//! without the `postgres` adapter serves a `reading-worker` as a `worker`, reading nothing.
 
 use std::sync::Arc;
 
@@ -115,19 +122,34 @@ fn mounted(
 /// What a `reading-worker` pinned and opened at boot.
 type Opened = (PinnedDefinitions, super::OpenedSources);
 
-/// Opens a `reading-worker`'s own declared catalog and its declared sources, through the exact
-/// constructors `crate::serve::run`'s own boot calls for a serving node - `crate::catalog::open_catalog`,
-/// `crate::catalog::load`, then `super::open_engine`.
+/// Opens a `reading-worker`'s own declared catalog and, of the sources it reads, only those
+/// `sources:` declares, through the exact constructors `crate::serve::run`'s own boot calls for a
+/// serving node - `crate::catalog::open_catalog`, `crate::catalog::load`, then
+/// `super::open_named`.
 ///
-/// **What this proves, and what it does not.** A failure here means the catalog or a source could
-/// not be opened - the same refusal a serving node gives for the same misconfiguration - and stops
-/// this process before it serves. The pinned catalog and the opened sources are kept for this node's
+/// **What this proves, and what it does not.** A failure here means the catalog or a declared source
+/// could not be opened - the same refusal a serving node gives for the same misconfiguration - or
+/// that the catalog reads none of the declared sources, and stops this process before it serves. A
+/// source the catalog reads and `sources:` does not declare is not opened, so no credential for it
+/// is asked for, and a leg on it is refused as uncertified (`sutura_app::recertify_leg`). The
+/// catalog is pinned whole: a lookup leg is certified against the metric it serves, which sits on
+/// another source's model. The pinned catalog and the opened sources are kept for this node's
 /// partition reader, so a source that becomes unreachable after boot is noticed only by a read.
 fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
     let outbound = super::outbound::resolve(settings)?;
     let catalogs = crate::catalog::open_catalog(settings.catalogs(), outbound.as_ref())?;
     let pinned = crate::catalog::load(&catalogs)?;
-    let opened = super::open_engine(
+    let declared: Vec<_> = sutura_app::sources(&pinned)
+        .into_iter()
+        .filter(|source| settings.sources().get(source).is_some())
+        .collect();
+    if declared.is_empty() {
+        return Err(String::from(
+            "this reading worker's catalog reads none of the sources it declares, so there is nothing to read",
+        ));
+    }
+    let opened = super::open_named(
+        &declared,
         &pinned,
         settings.sources(),
         settings.runtime(),
@@ -139,7 +161,7 @@ fn open_reading_sources(settings: &Settings) -> Result<Opened, String> {
 
 /// A `reading-worker`'s [`mount`], reading an admitted partition through a reader over what
 /// [`open_reading_sources`] opened, each read bounded by this node's `server.request_timeout`.
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -150,9 +172,10 @@ fn reading_mount(
     mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
 }
 
-/// A `reading-worker`'s [`mount`] in a build without `PostgreSQL`, the one kind it reads: its
-/// catalog and sources are opened, then dropped, and it serves as a `worker`.
-#[cfg(not(feature = "postgres"))]
+/// A `reading-worker`'s [`mount`] in a build with none of `PostgreSQL`, `ClickHouse` and Oracle, the kinds
+/// its reader is built for: its catalog and sources are opened, then dropped, and it serves as a
+/// `worker`.
+#[cfg(not(any(feature = "postgres", feature = "clickhouse", feature = "oracle")))]
 fn reading_mount(
     tls: &TlsMaterial,
     authority: &std::path::Path,
@@ -162,7 +185,7 @@ fn reading_mount(
     mount(tls, authority, settings.runtime())
 }
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "clickhouse", feature = "oracle"))]
 mod partition;
 #[cfg(test)]
 mod reading;

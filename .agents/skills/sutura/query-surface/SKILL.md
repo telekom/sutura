@@ -101,16 +101,21 @@ produce a mixed-posture answer. **The refusal that compared the two postures is 
 run has been observed, and the record names a posture, not which shared account executed. Two
 impersonating `bigquery` legs federate with a per-subject credential at each, each against its own
 source's pool. **What no green run here
-says:** no federated answer has been produced against a real dataset - the dialect axis declares
-`Dialect::BigQuery` `Evidence::RenderOnly`, so the claim is *the leg renders for the dialect and
-the transport submits it with the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -
+says:** no federated answer has been produced against a real dataset as the asking subject. The
+`bigquery-conformance` CI job (the one venue, never `just validate`) does answer the two-fact ratio
+over two BigQuery sources on one dataset, and the dialect axis declares `Dialect::BigQuery`
+`Evidence::Executed` for it - but under one shared CI identity with impersonation off. So for the
+per-subject path the claim stays *the leg renders for the dialect and the transport submits it with
+the subject's own credential and the configured ceiling*; (2) **no golden reaches the engine's leg path** -
 it emits no SQL, so `tests/golden/legs.rs` pins rendered legs for five dialects and the conformance
 cell plus the differential are the whole of THAT path's evidence. *None of those five is what a
 release executes* was the wording here and is spent: `sutura-exec-postgres` declares
 `EXECUTES_LEGS` and `nix/shipped.nix` carries the `postgres` feature, so the Postgres statements are
 the shape a published binary sends, and its conformance binding executes a leg against the
-provisioned tier. Oracle declares the constant too and has no venue any gate reaches - its leg is
-rendered and gate-checked, never executed - and `sutura-exec-bigquery`'s leg is bound the same way
+provisioned tier. Oracle declares the constant too and executes a leg in ONE venue and no gate: the `oracle-tier`
+CI job's two-fact walk compared an Oracle leg with the engines' answer (its `two-fact: compared`
+line names `oracle`, observed at run 42316428772). One job, the example corpus's two-fact ratio only,
+and no `just validate` leg reaches it - and `sutura-exec-bigquery`'s leg is bound the same way
 Postgres's is (`execute_packs!` tagged `executes_legs`) but against a fixed lookup table rather than
 a provisioned tier or a live dataset - and a BigQuery leg also executes live, in the two-fact
 differential (`crates/sutura-app/tests/differential/federated/two_fact.rs`), in the
@@ -244,9 +249,11 @@ they were **deleted rather than demoted**, which is the table's own rule applied
   default-off feature; a real dataset has accepted the whole corpus and reproduced its anchors, green
   in CI; and a composition root opens the kind. **A published artifact links the crate now:** the
   release binary's `features` in `nix/shipped.nix` carry `bigquery`. The `data_systems:` golden
-  axis registers it with `available()` answering `false` unconditionally - it is cloud-only, so
-  every cell on that axis skips it, and the entry exists so `execute_packs!`'s registry gate can
-  bind the adapter's own conformance packs (`#710`). The DIALECT axis has an entry of its own.
+  axis registers it with `available()` answering `true` only where `SUTURA_BQ_DATASET` names the
+  provisioned dataset, in CI - the `bigquery-conformance` job and nowhere else. Every other run,
+  `just validate` included, skips its cells under the named exemption, and the entry also lets
+  `execute_packs!`'s registry gate bind the adapter's own conformance packs (`#710`). The DIALECT
+  axis declares it `Evidence::Executed` for that same job.
 - **The ClickHouse adapter executes the golden corpus and conformance packs, and every release
   links it.** The golden matrix registers it and runs the example corpus against the server
   `nix/clickhouse-tier.nix` starts - in

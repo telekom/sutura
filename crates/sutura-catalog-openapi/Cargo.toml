@@ -1,0 +1,32 @@
+[package]
+name = "sutura-catalog-openapi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "EXPERIMENTAL. A SemanticCatalog adapter over an HTTP metadata API, configured by a pinned OpenAPI 3.0/3.1 document and a data-only mapping file of JSON Pointers - a declaring source."
+
+[features]
+# Off by default for `sutura-catalog-cube`'s reason: what arrives with it is an outbound TLS stack,
+# and no published binary links one it did not ask for.
+http = ["dep:ureq", "dep:sutura-tls", "dep:sutura-http-client"]
+
+[dependencies]
+sutura-domain = { workspace = true }
+sutura-bounded-read = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_norway = { workspace = true }
+thiserror = { workspace = true }
+ureq = { workspace = true, optional = true }
+sutura-tls = { workspace = true, optional = true }
+sutura-http-client = { workspace = true, optional = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# The loopback fake server `tests/http_reader.rs` answers the reader with.
+sutura-http-client = { workspace = true, features = ["test"] }

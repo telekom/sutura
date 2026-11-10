@@ -136,6 +136,11 @@ workerPool:
   # Seconds a question that goes across waits for a worker. Empty: no wait, and a question with no
   # worker is refused. Must be below server.request_timeout_seconds.
   waitForWorkersSeconds: 20
+  # Which family of address a worker's host name is dialled at: `auto`, `ipv4` or `ipv6`. Empty is
+  # `auto`: one family per host, its IPv4 addresses when it has any, so a dual-stack pod is not two
+  # nodes. Set `ipv6` for an IPv6-only cluster. It chooses among the addresses the name resolves to
+  # and does not make a worker reachable over a family the network does not carry.
+  addressFamily: ""
   # CPU and memory limits and requests for each worker.
   resources: {}
   operator:

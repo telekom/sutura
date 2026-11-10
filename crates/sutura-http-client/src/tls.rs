@@ -24,9 +24,7 @@
 //! re-armors the already-loaded DER this crate holds and hands it to `Certificate::from_pem`/
 //! `PrivateKey::from_pem` instead - the one pair of constructors `ureq` actually exposes, which
 //! recover the kind from the PEM label themselves. [`sutura_tls::LoadedIdentity::key_kind`] is what
-//! chooses that label. `sutura_exec_clickhouse::tls`'s `owned_key` re-armors for the identical
-//! `ureq::tls::KeyKind` limitation, though that crate's certificates go through
-//! `Certificate::from_der` directly rather than a second PEM round trip.
+//! chooses that label.
 
 use sutura_tls::LoadedAnchors;
 
