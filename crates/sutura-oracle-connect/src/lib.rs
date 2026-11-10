@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 //! The Oracle connector `sutura-exec-oracle` dials a source through and `sutura-catalog-rdbms`'s
-//! Oracle reader dials its documentation schema through: one EZCONNECT address, one TLS posture,
+//! Oracle reader dials its documentation schema through: one EZCONNECT address, one declared channel,
 //! one dial bound and one driver configuration, so the two dials cannot drift apart. It cannot live
 //! in the exec adapter, because a catalog adapter may not reach `sutura-sql` and the exec adapter
 //! renders through it.
@@ -11,6 +11,8 @@
 //!   PEM certificates that REPLACE its bundled public certificate authorities. The driver builds
 //!   its own `rustls::ClientConfig`, so a host store and a client certificate have nothing here to
 //!   reach.
+//! - **Native encryption requires AES and SHA-2 integrity but does not authenticate the server.**
+//!   Its DH exchange is unauthenticated, unlike verified TLS.
 //! - **The bound covers the TCP connect only.** The driver reads the TLS and TNS handshakes with no
 //!   timeout, so a listener that accepts and then never answers is not bounded by [`DIAL_DEADLINE`].
 //! - **A listener's redirect is refused**: the driver is told not to follow one, so the connection

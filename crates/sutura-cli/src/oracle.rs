@@ -147,3 +147,33 @@ pub(crate) fn declared_delegation(
     };
     delegation
 }
+
+/// The dictionary's own encrypted login, never borrowed from a data source.
+#[cfg(feature = "rdbms")]
+pub(crate) fn dictionary_login(
+    catalog: &SourceName,
+    connection: &sutura_config::OracleCatalogConnection,
+    password: sutura_domain::identity::Secret,
+) -> Result<sutura_catalog_rdbms::oracle_reader::EncryptedOracleLogin, String> {
+            let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
+                String::from(connection.host().as_str()),
+                connection.port(),
+                String::from(connection.service_name().as_str()),
+                String::from(connection.user()),
+                password,
+            );
+            let login = match connection.channel().transport() {
+                sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => login.verified(read_anchors(
+                    &format!("catalogs.{}.connection.transport_anchors", catalog), anchors,
+                )?),
+                sutura_config::sources::placement::OracleTransport::NativeEncryption { acknowledged_because } => {
+                    tracing::warn!(catalog = %catalog, channel = "native-encryption", reason = %acknowledged_because, "Oracle native encryption uses unauthenticated DH; server identity is not verified; catalog reads as one shared user");
+                    login.native_encryption()
+                },
+            };
+            let login = if let Some(reason) = connection.channel().legacy_password_verifier() {
+                tracing::warn!(catalog = %catalog, reason = %reason, "Oracle legacy password verifiers enabled on the declared encrypted channel");
+                login.allow_legacy_verifiers()
+            } else { login };
+    Ok(login)
+}

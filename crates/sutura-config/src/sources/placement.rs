@@ -525,13 +525,11 @@ pub enum SourcePlacement {
     },
     /// An Oracle Database, reached over its TCP listener.
     ///
-    /// **The static-credential half, in [`Self::ClickHouse`]'s shape - with an [`OracleChannel`]
-    /// rather than a [`SourceTransport`]**, because the driver verifies against a PEM bundle and
-    /// presents no client certificate: `mutual` and `transport_anchors: system` are refused at parse
-    /// rather than carried here. A listener's redirect is refused, so the connection stays on the
-    /// declared host (`crate::sources`' `oracle` parse names the cell that holds it).
+    /// [`OracleChannel`] declares verified TLS or acknowledged native encryption. Native encryption
+    /// does not authenticate the server. Mutual TLS and the host's trust store remain refused.
+    /// A listener redirect is refused, keeping the connection on the declared host.
     Oracle {
-        /// The listener's host, the name [`OracleChannel::server_name`] verifies.
+        /// The listener's host; verified TLS authenticates this name, native encryption does not.
         host: HostName,
         /// The listener's port. `1521` by convention, declared rather than defaulted.
         port: u16,

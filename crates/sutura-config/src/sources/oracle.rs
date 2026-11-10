@@ -146,7 +146,6 @@ fn foreign_keys(entry: &RawSourceEntry<'_>, written: impl Fn(Option<&str>) -> bo
 #[cfg(test)]
 mod tests {
     use sutura_domain::model::SourceName;
-use super::oracle_transport::{NoOracleChannel, RawOracleTransport};
 
     use crate::security::DeploymentIdentity;
     use crate::sources::workload_identity::DelegationGrant;

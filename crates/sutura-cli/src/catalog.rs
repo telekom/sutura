@@ -512,26 +512,7 @@ fn open_one_rdbms_catalog(
                 &format!("catalogs.{}.connection.password_file", settings.name()),
                 connection.password_file(),
             )?;
-            let login = sutura_catalog_rdbms::oracle_reader::OracleLogin::new(
-                String::from(connection.host().as_str()),
-                connection.port(),
-                String::from(connection.service_name().as_str()),
-                String::from(connection.user()),
-                password,
-            );
-            let login = match connection.channel().transport() {
-                sutura_config::sources::placement::OracleTransport::Verified { anchors, .. } => login.verified(crate::oracle::read_anchors(
-                    &format!("catalogs.{}.connection.transport_anchors", settings.name()), anchors,
-                )?),
-                sutura_config::sources::placement::OracleTransport::NativeEncryption { acknowledged_because } => {
-                    tracing::warn!(catalog = %settings.name(), channel = "native-encryption", reason = %acknowledged_because, "Oracle native encryption uses unauthenticated DH; server identity is not verified; catalog reads as one shared user");
-                    login.native_encryption()
-                },
-            };
-            let login = if let Some(reason) = connection.channel().legacy_password_verifier() {
-                tracing::warn!(catalog = %settings.name(), reason = %reason, "Oracle legacy password verifiers enabled on the declared encrypted channel");
-                login.allow_legacy_verifiers()
-            } else { login };
+            let login = crate::oracle::dictionary_login(settings.name(), connection, password)?;
             sutura_catalog_rdbms::oracle_reader::OracleReader::new(
                 login,
                 &documentation_schema,

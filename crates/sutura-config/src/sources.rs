@@ -350,7 +350,7 @@ pub struct UnknownPosture {
 pub enum InvalidSourceRegistry {
     /// An Oracle-only transport or password declaration was refused.
     #[error("`sources.{alias}`: {cause}")]
-    OracleTransport { alias: SourceName, cause: oracle_transport::NoOracleChannel },
+    OracleTransport { alias: SourceName, #[source] cause: oracle_transport::NoOracleChannel },
     /// The key is not a name a model could write in its `source:` field.
     #[error("`sources.{written}` is not a source name")]
     Alias {
@@ -664,12 +664,11 @@ pub enum InvalidSourceRegistry {
          `transport_mode: mutual` with a `client_certificate`/`client_key` pair"
     )]
     RemoteWithoutTls { alias: SourceName, host: String },
-    /// An `oracle` source declared `plaintext`, on any host, in a build with the `oracle` feature:
-    /// its driver's channel is verified TLS only.
+    /// A linked Oracle source declared plaintext; verified TLS or acknowledged native encryption is required.
     #[error(
         "`sources.{alias}` is `kind: oracle` and `sources.{alias}.transport_mode` is `plaintext` - an Oracle \
-         source is read over verified TLS only. Write `transport_mode: verified` with `transport_anchors` \
-         naming a PEM bundle"
+         source requires verified TLS or acknowledged native encryption. Write `transport_mode: verified` with \
+         `transport_anchors`, or `native-encryption` with `native_encryption_acknowledged_because`"
     )]
     OraclePlaintext { alias: SourceName },
     /// A `verified` or `mutual` transport declared on a `unix_socket` dial.
@@ -698,28 +697,15 @@ pub enum InvalidSourceRegistry {
     },
 }
 
-/// Every source this deployment declares, keyed by the alias a model's `source:` names.
-///
-/// A newtype over the map rather than the map, so [`Self::parse_billed`] is the only way one
-/// comes into existence and the duplicate-alias refusal cannot be skipped by building the map
-/// directly.
-///
-/// **May be empty, and that is not a refusal here.** A deployment configuring no source is one that
-/// has not said where its data is; what refuses it is the composition root, which finds the catalog
-/// naming a source with no declaration and stops before a listener is bound. Refusing an empty tree in
-/// this crate would mean `Settings::load` on the embedded defaults could not produce a `Settings` at
-/// all, and the defaults are what the `prompt` command and every settings test read.
+/// Declared sources, keyed by the alias a model names. The private map keeps duplicate-alias
+/// checks in the parser. An empty registry is valid; the composition root refuses a catalog
+/// naming an undeclared source before binding a listener.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceRegistry {
     by_alias: BTreeMap<SourceName, ConfiguredSource>,
 }
 
-/// One entry as it was read, before anything is parsed.
-///
-/// `pub(crate)`, with `pub(crate)` fields, for the reason `crate::raw`'s shapes are private: it is the
-/// *unparsed* form, so a public one would be a second door into [`SourceRegistry`] that skips nothing
-/// and proves nothing. That makes [`SourceRegistry::parse_billed`] crate-visible too - `Settings::parse` is
-/// the only caller, which is what makes the refusals unskippable.
+/// An unparsed entry, private so settings parsing remains the only way into the registry.
 #[derive(Debug, Clone)]
 pub(crate) struct RawSourceEntry<'raw> {
     /// The key, exactly as written, so a refusal can quote what the operator typed.

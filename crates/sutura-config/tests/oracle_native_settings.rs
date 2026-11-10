@@ -53,6 +53,7 @@ fn legacy_source_and_dictionary_require_an_independent_reason_and_an_encrypted_m
     for config in [source, dictionary] {
         for channel in [NATIVE, VERIFIED] {
             load(&config(channel, LEGACY)).expect("independently acknowledged legacy login loads");
+            load(&config(channel, "legacy_password_verifier: false")).expect("legacy login can remain explicitly disabled");
             assert!(load(&config(channel, "legacy_password_verifier: true")).is_err());
             assert!(load(&config(channel, "legacy_password_verifier: true\n    legacy_password_verifier_acknowledged_because: ' '")).is_err());
             assert!(load(&config(channel, "legacy_password_verifier: false\n    legacy_password_verifier_acknowledged_because: unused")).is_err());
@@ -93,9 +94,13 @@ fn oracle_only_options_are_refused_on_other_sources_and_dictionary_dialects() {
 
 #[test]
 fn native_mode_cannot_carry_oracle_external_token_authentication() {
-    load(&source(NATIVE, "")).expect("shared native mode loads");
-    let impersonating = source(NATIVE, "").replace("shared-service-user", "impersonation-at-source");
-    assert!(load(&impersonating).is_err(), "external token authentication still requires verified TCPS");
+    let delegation = "delegation:\n      - token_endpoint: https://idp.example.com/token\n        client_id: sutura\n        client_secret_file: /run/secrets/delegation\n        audience: https://db.example.com";
+    let config = |channel| source(channel, delegation).replace("shared-service-user", "impersonation-at-source");
+    load(&config(VERIFIED)).expect("otherwise-valid external-token configuration loads over verified TLS");
+    let error = load(&config(NATIVE)).expect_err("token authentication still requires verified TCPS");
+    assert!(matches!(error.reason(), sutura_config::SettingsError::Sources {
+        cause: sutura_config::InvalidSourceRegistry::TlsNotDeliverable { mode: "native-encryption with token authentication (verified TLS required)", .. }
+    }), "{error:?}");
 }
 
 #[test]

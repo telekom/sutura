@@ -672,7 +672,7 @@ pub enum InvalidRdbmsCatalog {
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidConnection {
     #[error("`connection`: {cause}")]
-    OracleTransport { cause: NoOracleChannel },
+    OracleTransport { #[source] cause: NoOracleChannel },
     #[error("`connection.{key}` is required and was not written")]
     Missing { key: &'static str },
     #[error("`connection.dialect` is `{found}`, not one of: {}", Dialect::known())]
@@ -716,8 +716,8 @@ pub enum InvalidConnection {
     TlsNotDeliverable { mode: &'static str },
     #[error(
         "`connection` is `dialect: oracle` and declares no transport security: `transport_mode` is `plaintext`, and an \
-         Oracle dictionary is read over verified TLS only. Write `transport_mode: verified` with `transport_anchors` \
-         naming a PEM bundle"
+         Oracle dictionary requires verified TLS or acknowledged native encryption. Write `transport_mode: verified` with \
+         `transport_anchors`, or `native-encryption` with `native_encryption_acknowledged_because`"
     )]
     OraclePlaintext,
     #[error("`connection.host` is not a host name `transport_mode: verified` can verify")]
@@ -750,6 +750,9 @@ mod tests {
             user: Some(String::from("reader")),
             password_file: Some(String::from("/run/secrets/dictionary")),
             transport_mode: Some(String::from("plaintext")),
+            native_encryption_acknowledged_because: None,
+            legacy_password_verifier: None,
+            legacy_password_verifier_acknowledged_because: None,
             transport_anchors: None,
             client_certificate: None,
             client_key: None,
