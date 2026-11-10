@@ -914,6 +914,10 @@ oracle-native-acceptance:
 oracle-native-base-proof base:
     SUTURA_ORACLE_BASE_SHA={{quote(base)}} nix run .#oracle-native-acceptance
 
+# Hosted killing mutations for the two served product cells, using one modern fixture.
+oracle-native-claim-proof:
+    SUTURA_ORACLE_CLAIM_PROOF=1 nix run .#oracle-native-acceptance
+
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
 # remedy for a missing service cites that task. Unlike the other two it must also BUILD the derived
