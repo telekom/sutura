@@ -81,7 +81,8 @@ jobs:
       - name: Run the exact-head validation gate
         run: |
           set -euo pipefail
-          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi .#betterleaks --command just validate
+          betterleaks="$(nix eval --raw .#apps.x86_64-linux.betterleaks.program)"
+          PATH="$(dirname "$betterleaks"):$PATH" nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command just validate
 
       - name: Run the committed-diff ship check
         run: |
