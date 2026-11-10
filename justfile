@@ -896,7 +896,7 @@ oracle-acceptance:
     bash nix/oracle-app-cells.sh || status=$?
     exit "$status"
 
-oracle-tier: oracle-acceptance
+import "nix/oracle-native.just"
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own
