@@ -647,7 +647,11 @@ impl<'a> RecordBatchDecoder<'a> {
                     ))
                 }
             } else {
-                assert!(variadic_counts.is_empty());
+                if !variadic_counts.is_empty() {
+                    return Err(ArrowError::IpcError(
+                        "variadic buffer counts mismatched with schema".to_string(),
+                    ));
+                }
                 RecordBatch::try_new_with_options(schema, columns, &options)
             }
         } else {
@@ -668,7 +672,11 @@ impl<'a> RecordBatchDecoder<'a> {
                     ))
                 }
             } else {
-                assert!(variadic_counts.is_empty());
+                if !variadic_counts.is_empty() {
+                    return Err(ArrowError::IpcError(
+                        "variadic buffer counts mismatched with schema".to_string(),
+                    ));
+                }
                 RecordBatch::try_new_with_options(schema, children, &options)
             }
         }
