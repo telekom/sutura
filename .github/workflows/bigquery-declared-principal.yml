@@ -35,11 +35,6 @@ name: bigquery-declared-principal
 
 on:
   workflow_dispatch:
-    inputs:
-      seed_shared:
-        type: boolean
-        default: false
-        description: Update the bounded nonproduction shared fixture before the venue
 
 permissions:
   contents: read
@@ -148,16 +143,6 @@ jobs:
           out="$(nix build --no-link --print-out-paths .#adbc-driver-bigquery-x86_64-unknown-linux-gnu)"
           echo "SUTURA_BIGQUERY_ADBC_DRIVER=$out/lib/libadbc_driver_bigquery.so" >> "$GITHUB_ENV"
 
-      - name: Update the bounded shared fixture
-        if: inputs.seed_shared
-        env:
-          SUTURA_BQ_FIXTURE_TOKEN: ${{ secrets.SUTURA_BQ_FIXTURE_TOKEN }}
-          SUTURA_BQ_SPLIT_TABLE: ${{ vars.SUTURA_BQ_SPLIT_TABLE }}
-          SUTURA_BQ_A_ONLY_TABLE: ${{ vars.SUTURA_BQ_A_ONLY_TABLE }}
-        run: |
-          set -euo pipefail
-          python3 -I .github/pr1801-seed.py 2>&1 | tee "$RUNNER_TEMP/fixture-summary.txt"
-
       # THE TWO ASSERTIONS, one per principal, minted from that principal's OWN key -
       # `telekom/sutura#376`'s "no new long-lived secret" design, needed again now that the
       # transport federates the asker's own assertion rather than switching to a declared account.
@@ -214,11 +199,8 @@ jobs:
       # `assert_ne!` refuses a MISCONFIGURED venue (one assertion presented twice).
       #
       # `declared_principal::split` reads a split leg's streams with caller A's forwarded token.
-      # Its two tables are named by `SUTURA_BQ_SPLIT_TABLE` and `SUTURA_BQ_A_ONLY_TABLE`, which this
-      # step does NOT pass yet: `check-venues` refuses a variable the bq-test sync script does not
-      # push, and the environment's provisioning is the owner's. Until both land, each split cell
-      # panics naming the variable, so the run is red by name and never green over nothing.
-      # `--no-fail-fast`, so those reds do not hide what the other cells observed.
+      # Its two tables are named by `SUTURA_BQ_SPLIT_TABLE` and `SUTURA_BQ_A_ONLY_TABLE`, passed
+      # below from the fixture environment. `--no-fail-fast` records every cell's outcome.
       #
       # With `--no-capture`, a refusal renders the driver's own error text. A missing pool provider
       # can refuse the assertion at STS; a missing BigQuery grant can refuse jobs or reads after it.
@@ -273,9 +255,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bigquery-declared-principal-digest
-          path: |
-            ${{ runner.temp }}/leg-digest.txt
-            ${{ runner.temp }}/fixture-summary.txt
+          path: ${{ runner.temp }}/leg-digest.txt
           if-no-files-found: warn
           retention-days: 3
 
@@ -285,4 +265,3 @@ jobs:
           rm -f "$RUNNER_TEMP/bq-ci-key.json" "$RUNNER_TEMP/principal-a-key.json" "$RUNNER_TEMP/principal-b-key.json"
           rm -f "$RUNNER_TEMP/assertion-a.txt" "$RUNNER_TEMP/assertion-b.txt" "$RUNNER_TEMP/inbound-a.txt" "$RUNNER_TEMP/inbound-b.txt"
           rm -f "$RUNNER_TEMP/leg-raw.log" "$RUNNER_TEMP/leg-digest.txt"
-          rm -f "$RUNNER_TEMP/fixture-summary.txt"
