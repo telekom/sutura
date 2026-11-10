@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, validate]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, validate]
       main_sha:
         description: Exact main commit for main-forward-lock
         required: false
@@ -320,6 +320,10 @@ jobs:
         env:
           SUTURA_ORACLE_CLAIM_PROOF: "1"
         run: nix run .#oracle-native-acceptance
+
+      - name: Run complete hygiene preflight
+        if: inputs.operation == 'hygiene'
+        run: nix build .#checks.x86_64-linux.hygiene --print-build-logs
 
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
