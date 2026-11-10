@@ -444,7 +444,8 @@ fn a_base_path_that_is_not_plain_segments_is_refused() {
         "/a%2Fb",
         "/api//admin",
     ] {
-        let refused = refused_contract(DOCUMENT, &format!("base_path: \"{base}\"\n{MAPPING}"));
+        let refused = Contract::parse(DOCUMENT, &format!("base_path: \"{base}\"\n{MAPPING}"))
+            .expect_err("a base path must use only plain segments");
         assert!(matches!(refused, ContractError::Mapping { .. }), "{base}: {refused:?}");
     }
 }
