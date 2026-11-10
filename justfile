@@ -908,6 +908,7 @@ oracle-native-probe:
 # Real source and dictionary YAML logins against required native encryption and integrity.
 oracle-native-acceptance:
     SUTURA_ORACLE_RUN_ACCEPTANCE=1 bash nix/oracle-native-probe.sh
+    SUTURA_ORACLE_RUN_ACCEPTANCE=1 bash nix/oracle-legacy-probe.sh
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
 # service behind a profile is brought up by the task named after that profile, and the tier's own

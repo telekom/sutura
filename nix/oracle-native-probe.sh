@@ -52,4 +52,5 @@ if [ "${SUTURA_ORACLE_RUN_ACCEPTANCE:-0}" = 1 ]; then
   export SUTURA_ORACLE_ACCEPTANCE_MODE=native
   export SUTURA_ORACLE_ACCEPTANCE_PORT="$port"
   bash nix/oracle-login-fixtures.sh "$name" FREEPDB1 11G
+  bash nix/oracle-native-cells.sh "$name"
 fi

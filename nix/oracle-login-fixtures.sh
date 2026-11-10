@@ -44,6 +44,7 @@ CREATE TABLE $legacy_user.COLUMNS (
   column_description VARCHAR2(256), is_primary_key NUMBER(1), is_deleted NUMBER(1));
 INSERT INTO $legacy_user.COLUMNS VALUES ('test', NULL, 'FIXTURE12', 'EVENTS', 'events',
   'The login fixture.', 'ID', 1, 'NUMBER', 'An event key.', 1, 0);
+CREATE TABLE FIXTURE12.COLUMNS AS SELECT * FROM $legacy_user.COLUMNS;
 COMMIT;
 SELECT username, password_versions FROM dba_users WHERE username IN ('FIXTURE12', '$legacy_user');
 DECLARE
@@ -76,5 +77,5 @@ SQL
   sleep 2
 done
 test "$readable" = true
-cargo test -p sutura-cli --features oracle,rdbms --test served \
+cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \
   oracle_native::oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in -- --ignored --nocapture

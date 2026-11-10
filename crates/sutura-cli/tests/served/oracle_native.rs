@@ -146,3 +146,41 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
     }
 }
+
+#[test]
+#[ignore = "requires just oracle-native-acceptance"]
+#[expect(clippy::disallowed_methods, reason = "the default driver is also checked against the real required-NNE listener")]
+fn oracle_native_logins_require_both_strong_services_on_both_production_paths() {
+    let mut tier = Tier::here();
+    let expected = std::env::var("SUTURA_ORACLE_NATIVE_EXPECT").expect("the native acceptance task declares its server policy");
+    assert!(matches!(expected.as_str(), "success" | "encryption" | "integrity"));
+    if expected == "success" {
+        let address = format!("127.0.0.1:{}/{}", tier.port, tier.service);
+        let plain = oracledb::Config::default()
+            .set_connect_string(&address)
+            .expect("the published TCP endpoint parses")
+            .set_credentials(&tier.user, &tier.password);
+        let Err(refused) = oracledb::connect(plain) else {
+            panic!("a driver without native mode must not log in to the required-NNE listener");
+        };
+        assert!(refused.to_string().contains("native"), "the missing native mode is refused: {refused}");
+    }
+    tier.legacy_user = tier.user.clone();
+    tier.legacy_password = tier.password.clone();
+    for dictionary in [false, true] {
+        let path = if dictionary { "dictionary" } else { "source" };
+        let case = format!("oracle-native-{expected}-{path}");
+        let settings = tier.settings(&case, dictionary, false, false);
+        if expected == "success" {
+            let deployment = start_configured(&case, &settings);
+            let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), None);
+            assert_eq!(reply.status, 200, "the native {path} loads the fixture: {}", reply.body);
+        } else {
+            let refused = refused_to_start(Environment::Development, written(&case, &settings), &[]).join("\n");
+            assert!(
+                refused.contains("native encryption") || refused.contains("ORA-12650") || refused.contains("ORA-12269"),
+                "the weak-only {expected} peer must be refused at negotiation on the {path}: {refused}"
+            );
+        }
+    }
+}
