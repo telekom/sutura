@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use sutura_config::Environment;
 
 use crate::harness::{
-    LOOPBACK, SINGLE_USER, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
+    LOOPBACK, SINGLE_USER, Served, TOKEN, config_path, derived_beside, refused_to_start, start_configured, v1, written,
 };
 
 struct Tier {
@@ -118,15 +118,35 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
     std::fs::create_dir_all(&catalog).expect("the local catalog creates");
     std::fs::write(
         catalog.join("declaration.md"),
-        "---\nkind: declaration\ndefinitions: [structure, column_types]\nknowledge: []\n---\n",
+        "---\nkind: declaration\ndefinitions: [structure, metrics, grains, dimensions, anchors, descriptions, column_types]\nknowledge: []\n---\n",
     )
     .expect("the declaration writes");
     std::fs::write(
         catalog.join("model.md"),
-        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n  - {name: PAYLOAD, type: TEXT, nullable: false}\n---\n",
+        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n  - {name: PAYLOAD, type: VARCHAR, nullable: false}\n  - {name: MONTH, type: DATE, nullable: false}\n---\nThe login fixture.\n",
     )
     .expect("the model writes");
+    std::fs::write(
+        catalog.join("metric.md"),
+        "---\nkind: metric\nname: payload_total\nmodel: events\nmeasure:\n  simple: {aggregate: sum, column: ID}\ntime_column: MONTH\ngrains: [month]\ndimensions:\n  - {name: payload, column: PAYLOAD}\nanchor:\n  range: {start: 2026-06-01, end: 2026-07-01}\n  value: 8256\naudience: open\n---\nThe fixture total by payload.\n",
+    ).expect("the metric writes");
     catalog
+}
+
+fn protected_queries(deployment: &Served) {
+    let mut expected: Vec<_> = (1..=128).map(|id| {
+        serde_json::json!(["2026-06-01", format!("{id:x>2000}"), id.to_string()])
+    }).collect();
+    expected.sort_by(|left, right| left[1].as_str().cmp(&right[1].as_str()));
+    for _ in 0..2 {
+        let reply = deployment.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            r#"{"metrics":["payload_total"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["payload"]}"#,
+        );
+        assert_eq!(reply.status, 200, "the protected query answers: {}", reply.body);
+        assert_eq!(reply.json()["rows"], serde_json::json!(expected), "the complete multi-record payload arrives");
+    }
 }
 
 #[test]
@@ -164,6 +184,9 @@ fn oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in() {
         let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
         assert_eq!(reply.status, 200, "the {path} logs in and loads the fixture: {}", reply.body);
         assert_eq!(reply.json()["provenance"]["definition_version"], "native-fixture");
+        if !dictionary {
+            protected_queries(&deployment);
+        }
     }
 }
 
@@ -201,6 +224,9 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
             let deployment = start_configured(&case, &settings);
             let reply = deployment.get(&v1(sutura_http::constants::base_paths::CATALOG), Some(TOKEN));
             assert_eq!(reply.status, 200, "the native {path} loads the fixture: {}", reply.body);
+            if !dictionary {
+                protected_queries(&deployment);
+            }
         } else {
             let refused = refused_to_start(Environment::Development, written(&case, &settings), &[]).join("\n");
             assert!(
