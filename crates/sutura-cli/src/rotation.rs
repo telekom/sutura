@@ -21,6 +21,7 @@
     feature = "cube",
     feature = "datahub",
     feature = "node",
+    feature = "openapi",
     feature = "openmetadata",
     feature = "oracle"
 ))]
