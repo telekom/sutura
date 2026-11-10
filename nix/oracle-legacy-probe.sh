@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Feasibility probe only: the hosted run records the image digest before using this old XE tag.
+set -euo pipefail
+
+image=docker.io/gvenzl/oracle-xe:18.4.0-slim-faststart
+name="sutura-oracle-legacy-${GITHUB_RUN_ID:-$$}"
+out="$PWD/target/oracle-legacy-probe"
+mkdir -p "$out"
+password="$(openssl rand -hex 16)"
+echo "::add-mask::$password"
+export ORACLE_PASSWORD="$password"
+cleanup() {
+  docker logs "$name" > "$out/container.log" 2>&1 || true
+  docker rm -f "$name" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker pull "$image"
+docker image inspect "$image" --format '{{json .RepoDigests}}' | tee "$out/image.json"
+docker run -d --name "$name" -e ORACLE_PASSWORD -p 127.0.0.1::1521 "$image"
+ready=false
+for _ in $(seq 1 180); do
+  if docker exec "$name" healthcheck.sh >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  sleep 5
+done
+if [ "$ready" != true ]; then
+  echo 'Oracle XE did not become healthy' >&2
+  exit 1
+fi
+
+docker exec "$name" bash -c 'printf "%s\n" "SQLNET.ALLOWED_LOGON_VERSION_SERVER=8" "SQLNET.ALLOWED_LOGON_VERSION_CLIENT=8" >> "$ORACLE_HOME/network/admin/sqlnet.ora"'
+docker exec -i "$name" sqlplus -s / as sysdba <<'SQL' | tee "$out/verifiers.log"
+WHENEVER SQLERROR EXIT FAILURE
+SET PAGESIZE 100 LINESIZE 200
+SELECT banner FROM v$version;
+ALTER SESSION SET CONTAINER=XEPDB1;
+CREATE USER SCOTT IDENTIFIED BY VALUES 'F894844C34402B67';
+GRANT CREATE SESSION TO SCOTT;
+SELECT username, password_versions FROM dba_users WHERE username='SCOTT';
+DECLARE
+  versions VARCHAR2(100);
+BEGIN
+  SELECT TRIM(password_versions) INTO versions FROM dba_users WHERE username='SCOTT';
+  IF versions <> '10G' OR versions IS NULL THEN
+    RAISE_APPLICATION_ERROR(-20001, 'fixture does not have only the 10G verifier');
+  END IF;
+END;
+/
+EXIT
+SQL
+
+docker exec -i "$name" sqlplus -L -s SCOTT/TIGER@localhost:1521/XEPDB1 <<'SQL' | tee "$out/login.log"
+WHENEVER SQLERROR EXIT FAILURE
+SELECT USER FROM dual;
+SELECT SYS_CONTEXT('USERENV', 'NETWORK_PROTOCOL') FROM dual;
+EXIT
+SQL
+echo 'Oracle XE: real 10G-only account and SQL*Plus TCP login passed; Rust driver not measured here.'

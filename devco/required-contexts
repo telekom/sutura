@@ -104,6 +104,9 @@ pr-title
 
 [advisory]
 
+# Feasibility only: records whether public XE 18.4 exposes a real 10G-only account.
+oracle-legacy-probe.yml:oracle-legacy-probe
+
 # A release commit's tag workflow must publish before ci-aggregate can be green. Skipped on PRs.
 ci.yml:release-status
 

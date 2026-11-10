@@ -1,0 +1,30 @@
+name: oracle-legacy-probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/oracle-legacy-probe.yml'
+      - 'nix/oracle-legacy-probe.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  oracle-legacy-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: rust-mcp-16core
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/reclaim-disk
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
+      - name: Measure the old XE fixture
+        run: nix shell --inputs-from . nixpkgs#just --command just oracle-legacy-probe
+      - name: Keep exact server and image evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-legacy-probe
+          path: target/oracle-legacy-probe
