@@ -134,9 +134,9 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
 }
 
 fn protected_queries(deployment: &Served) {
-    let mut expected: Vec<_> = (1..=128).map(|id| {
-        serde_json::json!(["2026-06-01", format!("{id:x>2000}"), id.to_string()])
-    }).collect();
+    let mut expected: Vec<_> = (1..=128)
+        .map(|id| serde_json::json!(["2026-06-01", format!("{id:x>2000}"), id.to_string()]))
+        .collect();
     expected.sort_by(|left, right| left[1].as_str().cmp(&right[1].as_str()));
     for _ in 0..2 {
         let reply = deployment.post(
@@ -145,7 +145,11 @@ fn protected_queries(deployment: &Served) {
             r#"{"metrics":["payload_total"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["payload"]}"#,
         );
         assert_eq!(reply.status, 200, "the protected query answers: {}", reply.body);
-        assert_eq!(reply.json()["rows"], serde_json::json!(expected), "the complete multi-record payload arrives");
+        assert_eq!(
+            reply.json()["rows"],
+            serde_json::json!(expected),
+            "the complete multi-record payload arrives"
+        );
     }
 }
 
