@@ -1,6 +1,8 @@
 name: release-repair-proof
 
 on:
+  push:
+    branches: [ci/release-repair-proof-final]
   workflow_dispatch:
     inputs:
       task:
@@ -29,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ inputs.sha || github.event.before || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -58,13 +60,13 @@ jobs:
           compression-level: 0
 
   validate:
-    if: inputs.task == 'validate' || inputs.task == 'verify'
+    if: github.event_name == 'push' || inputs.task == 'validate' || inputs.task == 'verify'
     runs-on: rust-mcp-32core
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ inputs.sha || github.event.before || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -77,13 +79,13 @@ jobs:
         run: nix shell nixpkgs#betterleaks nixpkgs#devenv nixpkgs#pixi --command bash -lc 'nix run .#just -- validate'
 
   ship-check:
-    if: inputs.task == 'ship-check' || inputs.task == 'verify'
+    if: github.event_name == 'push' || inputs.task == 'ship-check' || inputs.task == 'verify'
     runs-on: rust-mcp-32core
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ inputs.sha || github.event.before || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -96,13 +98,13 @@ jobs:
         run: nix shell nixpkgs#devenv nixpkgs#pixi --command bash -lc 'nix run .#just -- ship-check'
 
   fuzz-smoke:
-    if: inputs.task == 'fuzz-smoke' || inputs.task == 'verify'
+    if: github.event_name == 'push' || inputs.task == 'fuzz-smoke' || inputs.task == 'verify'
     runs-on: rust-mcp-32core
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ inputs.sha || github.event.before || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
