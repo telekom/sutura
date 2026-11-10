@@ -2654,7 +2654,9 @@ jobs:
       - name: Aggregate the category-gated legs
         env:
           CI_RESULT: ${{ needs.ci.result }}
-          RELEASE_RESULT: ${{ needs.release-status.result }}
+          # Non-release events carry a synthetic success so the shell below stays pure Bash;
+          # release pushes retain the tag workflow's result.
+          RELEASE_RESULT: ${{ (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) && needs.release-status.result || 'success' }}
           KC_RESULT: ${{ needs.keycloak-served-test.result }}
           KC_SELECTED: ${{ needs.ci.outputs.identity == 'true' && needs.queue-validated.outputs.keycloak_served_test != 'true' }}
           BQ_RESULT: ${{ needs.bigquery-driver-check.result }}
@@ -2687,7 +2689,7 @@ jobs:
         run: |
           set -eu
           fail() { echo "ci-aggregate: RED - $*"; exit 1; }
-          if [ "${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):') }}" = "true" ] && [ "$RELEASE_RESULT" != "success" ]; then
+          if [ "$RELEASE_RESULT" != "success" ]; then
             fail "release workflow did not publish this release: '$RELEASE_RESULT'"
           fi
           # `ci` is normally the always-required base context. It is skipped in EXACTLY one

@@ -826,6 +826,7 @@ macro_rules! registered {
             // base) and is the documented, valid release shape now.
             let (ok, text) = run_aggregator(&[
                 ("CI_RESULT", "skipped"),
+                ("RELEASE_RESULT", "success"),
                 ("KC_RESULT", "skipped"),
                 ("KC_SELECTED", ""),
                 ("BQ_RESULT", "skipped"),
@@ -838,6 +839,23 @@ macro_rules! registered {
             assert!(
                 text.contains("ok - every category-gated leg green"),
                 "the aggregator should affirm the belt: {text}"
+            );
+        }
+
+        #[test]
+        fn a_failed_release_workflow_keeps_main_red() {
+            let (ok, text) = run_aggregator(&[
+                ("CI_RESULT", "skipped"),
+                ("RELEASE_RESULT", "failure"),
+                ("KC_RESULT", "skipped"),
+                ("KC_SELECTED", ""),
+                ("BQ_RESULT", "skipped"),
+                ("BQ_SELECTED", ""),
+            ]);
+            assert!(!ok, "a failed release workflow must keep the aggregate RED: {text}");
+            assert!(
+                text.contains("release workflow did not publish this release"),
+                "the release failure should be named: {text}"
             );
         }
 
