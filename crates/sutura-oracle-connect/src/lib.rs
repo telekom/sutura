@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 //! The Oracle connector `sutura-exec-oracle` dials a source through and `sutura-catalog-rdbms`'s
-//! Oracle reader dials its documentation schema through: one EZCONNECT address, one TLS posture,
+//! Oracle reader dials its documentation schema through: one EZCONNECT address, one declared channel,
 //! one dial bound and one driver configuration, so the two dials cannot drift apart. It cannot live
 //! in the exec adapter, because a catalog adapter may not reach `sutura-sql` and the exec adapter
 //! renders through it.
@@ -11,6 +11,8 @@
 //!   PEM certificates that REPLACE its bundled public certificate authorities. The driver builds
 //!   its own `rustls::ClientConfig`, so a host store and a client certificate have nothing here to
 //!   reach.
+//! - **Native encryption requires AES and SHA-2 integrity but does not authenticate the server.**
+//!   Its DH exchange is unauthenticated, unlike verified TLS.
 //! - **The bound covers the TCP connect only.** The driver reads the TLS and TNS handshakes with no
 //!   timeout, so a listener that accepts and then never answers is not bounded by [`DIAL_DEADLINE`].
 //! - **A listener's redirect is refused**: the driver is told not to follow one, so the connection
@@ -29,6 +31,8 @@ pub const DIAL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10
 pub enum Channel<'pem> {
     /// No transport security. No composition root builds this; the adapter's own unit cells do.
     Plaintext,
+    /// AES encryption and SHA-2 integrity; the unauthenticated DH does not verify the server.
+    NativeEncryption,
     /// TLS, verified against these PEM certificates and no others: they replace the driver's bundled
     /// public certificate authorities rather than adding to them.
     Verified { anchors_pem: &'pem str },
@@ -42,6 +46,7 @@ pub struct Dial<'dial> {
     service_name: &'dial str,
     channel: Channel<'dial>,
     deadline: std::time::Duration,
+    allow_legacy_verifiers: bool,
 }
 
 /// Why a [`Dial`] has no driver configuration.
@@ -99,6 +104,16 @@ impl<'dial> Dial<'dial> {
             service_name,
             channel,
             deadline: DIAL_DEADLINE,
+            allow_legacy_verifiers: false,
+        }
+    }
+
+    /// Enables legacy password logins only for an encrypted channel. Plaintext remains refused by the product parser.
+    #[must_use]
+    pub const fn allow_legacy_verifiers(self) -> Self {
+        Self {
+            allow_legacy_verifiers: !matches!(self.channel, Channel::Plaintext),
+            ..self
         }
     }
 
@@ -136,16 +151,18 @@ impl<'dial> Dial<'dial> {
     pub fn prepare(self) -> Result<PreparedDial, PrepareError> {
         let address = ezconnect(self.host, self.port, self.service_name);
         let connect_string = match self.channel {
-            Channel::Plaintext => address,
+            Channel::Plaintext | Channel::NativeEncryption => address,
             Channel::Verified { .. } => format!("tcps://{address}"),
         };
         let config = oracledb::Config::default()
             .set_connect_string(&connect_string)
             .map_err(PrepareError::Address)?
             .set_follow_redirects(false)
+            .set_allow_legacy_verifiers(self.allow_legacy_verifiers)
             .set_transport_connect_timeout(Some(self.deadline));
         match self.channel {
             Channel::Plaintext => Ok(PreparedDial(config)),
+            Channel::NativeEncryption => Ok(PreparedDial(config.set_native_encryption(true))),
             Channel::Verified { anchors_pem } => config
                 .set_trust_anchors_pem(anchors_pem)
                 .map(PreparedDial)

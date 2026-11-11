@@ -292,6 +292,7 @@ mod tests {
             user: None,
             password_file: None,
             transport_mode: None,
+            oracle_options: crate::sources::oracle_transport::RawOracleOptions::default(),
             transport_anchors: None,
             client_certificate: None,
             client_key: None,
