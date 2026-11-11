@@ -17,6 +17,12 @@ impl StatementLegs for OracleLegs {
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
+            // ponytail: translate only this fixture's limit; the live venue executes Oracle spelling.
+            let text = statement
+                .as_str()
+                .replace("OFFSET 1 ROWS FETCH FIRST 1 ROWS ONLY", "LIMIT 1 OFFSET 1");
+            let statement = RawStatement::parse(&text).map_err(|_cause| source.clone())?;
+            return self.engines.run(source, &statement);
         }
         self.engines.run(source, statement)
     }

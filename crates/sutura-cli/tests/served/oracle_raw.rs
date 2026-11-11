@@ -28,7 +28,8 @@ fn oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix() {
     assert_eq!(reply.json()["code"], "tool_not_enabled", "{}", reply.body);
     drop(off);
 
-    let served = start_configured(case, &settings(&tier, case, true, false));
+    let served = std::panic::catch_unwind(|| start_configured(case, &settings(&tier, case, true, false)))
+        .expect("the configured Oracle source accepts raw statements");
     #[cfg(feature = "sql")]
     let statement = "SELECT e.\"ID\" FROM \"EVENTS\" e ORDER BY e.\"ID\" LIMIT 2";
     #[cfg(not(feature = "sql"))]
@@ -130,7 +131,8 @@ fn oracle_raw_deadline_discards_its_session_and_following_call_is_healthy() {
 fn oracle_raw_planned_quoted_aliases_and_offset_execute_at_the_source() {
     let tier = Tier::here();
     let case = "oracle-raw-planned";
-    let served = start_configured(case, &settings(&tier, case, true, true));
+    let served = std::panic::catch_unwind(|| start_configured(case, &settings(&tier, case, true, true)))
+        .expect("the configured Oracle source accepts raw statements");
     let reply = ran(
         &served,
         "SELECT e.\"ID\" AS \"chosen\" FROM \"EVENTS\" e ORDER BY e.\"ID\" LIMIT 1 OFFSET 1",
@@ -178,7 +180,8 @@ fn oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allow
         let settings = format!(
             "{head}\nsources:\n  local:\n{source}  other:\n{source}tools:\n  run_sql:\n    enabled: true\n    sources: [{listed}]\n    federation_allowed: {federation}\n"
         );
-        let served = start_configured(case, &settings);
+        let served = std::panic::catch_unwind(|| start_configured(case, &settings))
+            .expect("the configured Oracle source accepts raw statements");
         let reply = ran(&served, statement);
         if let Some(code) = expected_code {
             assert_eq!(reply.json()["outcome"], "raw_refusal", "{}", reply.body);
