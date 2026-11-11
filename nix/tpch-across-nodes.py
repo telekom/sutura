@@ -542,6 +542,7 @@ def main(plan: dict, query, db, readers: list, start_all, subtest, out: Path) ->
             preflight(venue)
         with subtest("PostgreSQL holds the dimension tables, counted"):
             db.wait_for_unit("postgresql.service")
+            db.wait_for_unit("postgresql-setup.service")
             db.succeed(
                 f"runuser -u postgres -- psql -v ON_ERROR_STOP=1 -f {plan['role']}"
             )
