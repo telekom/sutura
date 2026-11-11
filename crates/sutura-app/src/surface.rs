@@ -595,6 +595,19 @@ where
             bundles.push(pinned);
         }
         let pinned = crate::assemble::assemble(&bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
+        Self::start_pinned(pinned, warehouses, sink, broker, combiner, working_set_bytes)
+    }
+
+    /// Starts from a composition already linked by the application's catalog assembler.
+    /// Warehouse checks and anchors are identical to the homogeneous catalog path.
+    pub fn start_pinned(
+        pinned: PinnedDefinitions,
+        warehouses: Warehouses<W>,
+        sink: S,
+        broker: B,
+        combiner: C,
+        working_set_bytes: u64,
+    ) -> Result<Self, ServiceNotStarted> {
         // The broker is NOT consulted here, and that is the boot path's whole shape: an anchor runs
         // through `Warehouse::verify_anchor`, which takes no credential because there is no caller to
         // mint one for. `docs/adr/0008` part 1 decides it, and `sutura_domain::warehouse` records

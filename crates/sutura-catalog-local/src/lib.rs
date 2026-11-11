@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{
-    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship, UnlinkedContribution,
 };
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
@@ -340,8 +340,8 @@ impl LocalCatalog {
     /// dispatch differs. A second walk over a `knowledge/` subdirectory would make the directory
     /// layout part of the format, and the layout is the one thing about this adapter that another
     /// adapter - a metadata service with no directories at all - cannot reuse.
-    fn read_declared(&self) -> Result<Declared, LocalCatalogError> {
-        let mut collected = Collected::default();
+    fn collect(&self, require_structure: bool) -> Result<Collected, LocalCatalogError> {
+        let mut collected = Collected { require_structure, ..Collected::default() };
         let mut total_bytes: u64 = 0;
 
         for path in self.documents()? {
@@ -395,7 +395,23 @@ impl LocalCatalog {
             collected.absorb(&path, &split, probe.kind())?;
         }
 
-        collected.assemble()
+        Ok(collected)
+    }
+
+    fn read_declared(&self) -> Result<Declared, LocalCatalogError> {
+        self.collect(true)?.assemble()
+    }
+
+    /// Reads this contributor without resolving references supplied by a native dictionary.
+    /// A standalone load still requires its own structure; this value cannot be served directly.
+    pub fn read_unlinked(&self) -> Result<UnlinkedContribution, LocalCatalogError> {
+        let collected = self.collect(false)?;
+        let declared = collected.declared.unwrap_or_else(<Self as SemanticCatalog>::capabilities);
+        Ok(UnlinkedContribution::new(
+            self.name.clone(), self.version.clone(), declared.clone(),
+            collected.models, collected.relationships, collected.metrics,
+            KnowledgeInput::new(declared.knowledge().clone(), collected.glossary, collected.caveats, collected.absences, collected.examples),
+        ))
     }
 
     /// [`Self::read_declared`] without the declaration, for the cells that are about content.
@@ -466,6 +482,7 @@ fn map_read_error(cause: sutura_bounded_read::ReadError) -> LocalCatalogError {
 /// the one walk that fills it.
 #[derive(Default)]
 struct Collected {
+    require_structure: bool,
     models: Vec<Model>,
     relationships: Vec<Relationship>,
     metrics: Vec<Metric>,
@@ -495,7 +512,7 @@ impl Collected {
                 let doc: DeclarationDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
                 let declared = doc.into_domain();
                 let definitions = declared.definitions();
-                if !definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure) {
+                if self.require_structure && (!definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure)) {
                     return Err(LocalCatalogError::DeclarationWithoutStructure {
                         path: PathBuf::from(path),
                     });

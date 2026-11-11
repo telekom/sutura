@@ -795,10 +795,26 @@ pub(crate) struct RawCatalog {
     /// same shape as the Postgres reader.
     #[serde(default)]
     pub(crate) dictionary_source: Option<String>,
+    #[serde(default)]
+    pub(crate) include: Option<Vec<RawDictionaryInclude>>,
+    #[serde(default)]
+    pub(crate) exclude_tables: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) exclude_columns: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) exclude_types: Option<Vec<String>>,
     /// The catalog's OWN read-only connection - never borrowed from a `sources:` entry, because a
     /// catalog read has no caller to run as.
     #[serde(default)]
     pub(crate) connection: Option<RawCatalogConnection>,
+}
+
+/// Native dictionary include pair. Patterns are data, never SQL fragments.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDictionaryInclude {
+    pub(crate) schema: String,
+    pub(crate) table: String,
 }
 
 /// An rdbms catalog's `connection:` block, as read: the keys `sources.<alias>` uses for

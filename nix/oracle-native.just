@@ -13,6 +13,7 @@ oracle-acceptance:
     status=$?
     cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
     bash nix/oracle-split-cells.sh || status=$?
+    cargo test -p sutura-cli --features oracle,rdbms,sql --test served native_oracle_dictionary:: -- --ignored --nocapture || status=$?
     bash nix/oracle-app-cells.sh || status=$?
     exit "$status"
 

@@ -99,9 +99,11 @@ Rules that are not visible from a manifest:
   `C: SemanticCatalog` per call and `SemanticCatalog::KIND`/`capabilities()` are per-TYPE associated
   items with no instance to dispatch on, which is why no enum can wrap both the way `OpenedSources`
   wraps two `Warehouse` adapters (reached through the SAME trait's *instance* methods instead).
-  `sutura-cli`'s `serve::catalog::OpenedCatalogs` is wave one's answer: one catalog kind per deployment,
-  a mixed declaration refused by name. `docs/adr/0016`'s same-day addendum carries the identical
-  sentence.
+  `sutura-cli`'s `catalog::OpenedCatalogs` keeps homogeneous vectors and an explicit native RDBMS
+  plus Markdown arm. That arm checks each contributor's ownership and capability fidelity, then
+  links Markdown declarations against native models; the effective per-source physical allowlist
+  checks all contributors before pinning. Other mixed kinds remain refused. The type-level
+  `SemanticCatalog` contract is unchanged.
 - **A transport is transport-only.** It never reads a catalog directory and never opens a data
   system; a composition root does both. `sutura-mcp` carries no NORMAL dependency on `sutura-http` -
   a dev-dependency exists, for one differential test, and is exempt from that rule the same way

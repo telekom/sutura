@@ -20,16 +20,17 @@
 //!   the composed manifest is those entries, keyed by name, so the digest of the composed bundle
 //!   covers the composition.
 //!
-//! One limit is stated here because it decides what the wave-one deployment looks like: a metric
-//! may reference only a model its own source also declares, because each contribution arrives
-//! already assembled. The cross-source-reference case - the literal "`DataHub`'s model, metrics
-//! certified here" - lands with a raw-content port, which is a separate decision recorded in
-//! `docs/adr/0011`.
+//! Independently pinned contributors remain internally linked. The explicit native RDBMS and
+//! Markdown composition path may also supply unlinked declarations: references resolve only after
+//! ownership and each contributor's own declaration fidelity have been checked.
 
 use std::collections::BTreeMap;
 
 use sutura_domain::capabilities::{MetadataCapabilities, UnfaithfulDeclaration};
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions};
+use sutura_domain::catalog::{Definitions, InconsistentDefinitions, UnlinkedContribution};
+
+mod content;
+use content::Content;
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{InconsistentKnowledge, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteName, Phrase};
 use sutura_domain::model::{MetricName, ModelName, RelationshipName, SourceName};
@@ -167,27 +168,11 @@ impl core::fmt::Display for ElementKind {
     }
 }
 
-/// One source's contribution to a composition, taken apart for merging.
-///
-/// `name` is the manifest key the source's own load stamped and `capabilities` the declaration it
-/// recorded there; `definitions` and `knowledge` borrow the bundle this contributor came from rather
-/// than cloning it.
-///
-/// **This used to own three copies of the same content.** `definitions`/`knowledge` were whole
-/// clones of the bundle's own; `models`, `relationships`, `glossary`, `caveats`, `absences` and
-/// `examples` were a second clone of the same elements, collected out of those clones so the
-/// collision checks below had a `Vec` to borrow from; and the final merge cloned the elements a
-/// THIRD time, flattening across contributors. `models()`/`relationships()`/`glossary()`/etc.
-/// already return the map a collision check needs to borrow directly - the six extra fields, and
-/// the middle clone they existed to hold, were never load-bearing. `definitions`/`knowledge`
-/// borrowing the source bundle removes the first clone; the merge's `flat_map(..).cloned()` is the
-/// one clone that remains, and it is the one that has to: it is building a NEW composed value, not
-/// re-reading an old one.
+/// One contributor, borrowing its own declarations without copying the content.
 struct Contributor<'a> {
     name: SourceName,
     capabilities: MetadataCapabilities,
-    definitions: &'a Definitions,
-    knowledge: &'a Knowledge,
+    content: Content<'a>,
 }
 
 /// Composes N contributions into one bundle, refusing a composition ADR 0011 says cannot exist.
@@ -209,10 +194,15 @@ struct Contributor<'a> {
 /// `Definitions`/`Knowledge` rather than cloning them, so this function never needs to own a bundle
 /// to begin with - a caller that already has a `Vec` passes `&bundles`.
 pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, CompositionError> {
-    let Some(first) = bundles.first() else {
-        return Err(CompositionError::Empty);
-    };
-    let version = first.version().clone();
+    assemble_linked(bundles, &[])
+}
+
+/// Links an explicit set of unlinked declarations beside independently pinned contributors.
+/// Ownership and declaration fidelity are checked before cross-contributor references resolve.
+pub fn assemble_linked(bundles: &[PinnedDefinitions], unlinked: &[UnlinkedContribution]) -> Result<PinnedDefinitions, CompositionError> {
+    let version = bundles.first().map(PinnedDefinitions::version)
+        .or_else(|| unlinked.first().map(UnlinkedContribution::version))
+        .ok_or(CompositionError::Empty)?.clone();
     let mut contributions = Vec::with_capacity(bundles.len());
 
     for bundle in bundles {
@@ -236,8 +226,18 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
         contributions.push(Contributor {
             name,
             capabilities: record.capabilities().clone(),
-            definitions: bundle.definitions(),
-            knowledge: bundle.knowledge(),
+            content: Content::Pinned(bundle),
+        });
+    }
+
+    for input in unlinked {
+        if input.version() != &version {
+            return Err(CompositionError::VersionMismatch { first: version, second: input.version().clone() });
+        }
+        contributions.push(Contributor {
+            name: input.name().clone(),
+            capabilities: input.declared().clone(),
+            content: Content::Unlinked(input),
         });
     }
 
@@ -251,7 +251,7 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
     // sources are merged, a check over the whole bundle could not see that one of them supplied a
     // kind it never declared.
     for contribution in &contributions {
-        let produced = MetadataCapabilities::produced(contribution.definitions, contribution.knowledge);
+        let produced = contribution.content.produced();
         contribution
             .capabilities
             .checked_against(&produced)
@@ -266,7 +266,7 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
     // still refused by `Knowledge::assemble` as `UndeclaredContent` - the per-bundle net under the
     // per-contributor check above.
     let knowledge_declares =
-        KnowledgeCapabilities::of(contributions.iter().flat_map(|c| c.knowledge.declares().declared()).copied());
+        KnowledgeCapabilities::of(contributions.iter().flat_map(|c| c.content.declares().declared()).copied());
 
     // One clone per element here, and it is the one that has to happen: this is building the NEW
     // merged `Vec` a composed bundle owns, not re-reading a `Vec` that already existed. Each source
@@ -274,15 +274,15 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
     // holds a second copy of it first.
     let models = contributions
         .iter()
-        .flat_map(|c| c.definitions.models().values().cloned())
+        .flat_map(|c| c.content.models().cloned())
         .collect();
     let relationships = contributions
         .iter()
-        .flat_map(|c| c.definitions.relationships().values().cloned())
+        .flat_map(|c| c.content.relationships().cloned())
         .collect();
     let metrics = contributions
         .iter()
-        .flat_map(|c| c.definitions.metrics().values().cloned())
+        .flat_map(|c| c.content.metrics().cloned())
         .collect();
     let definitions =
         Definitions::assemble(models, relationships, metrics).map_err(|cause| CompositionError::Definitions { cause })?;
@@ -293,19 +293,19 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
             knowledge_declares,
             contributions
                 .iter()
-                .flat_map(|c| c.knowledge.glossary().values().cloned())
+                .flat_map(|c| c.content.glossary().cloned())
                 .collect(),
             contributions
                 .iter()
-                .flat_map(|c| c.knowledge.caveats().values().cloned())
+                .flat_map(|c| c.content.caveats().cloned())
                 .collect(),
             contributions
                 .iter()
-                .flat_map(|c| c.knowledge.absences().values().cloned())
+                .flat_map(|c| c.content.absences().cloned())
                 .collect(),
             contributions
                 .iter()
-                .flat_map(|c| c.knowledge.examples().values().cloned())
+                .flat_map(|c| c.content.examples().cloned())
                 .collect(),
         ),
     )
@@ -327,7 +327,7 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
 fn check_no_metric_collisions(contributions: &[Contributor<'_>]) -> Result<(), CompositionError> {
     let mut by_name: BTreeMap<&MetricName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for metric in contribution.definitions.metrics().keys() {
+        for metric in contribution.content.metrics().map(sutura_domain::catalog::Metric::name) {
             if let Some(first) = by_name.insert(metric, &contribution.name) {
                 return Err(CompositionError::MetricCollision {
                     metric: metric.clone(),
@@ -343,12 +343,10 @@ fn check_no_metric_collisions(contributions: &[Contributor<'_>]) -> Result<(), C
 /// No two sources may provide the same non-metric element: a model, a relationship, a glossary
 /// term, a caveat, an absence or a worked example, each under its own identifier.
 ///
-/// Every loop below borrows its `Vec` straight off `contribution.definitions`/`.knowledge` -
-/// nothing here iterates a component field, because [`Contributor`] no longer has one.
 fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), CompositionError> {
     let mut models: BTreeMap<&ModelName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for model in contribution.definitions.models().values() {
+        for model in contribution.content.models() {
             if let Some(first) = models.insert(model.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::Model,
@@ -362,7 +360,7 @@ fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), 
 
     let mut relationships: BTreeMap<&RelationshipName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for relationship in contribution.definitions.relationships().values() {
+        for relationship in contribution.content.relationships() {
             if let Some(first) = relationships.insert(relationship.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::Relationship,
@@ -376,7 +374,7 @@ fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), 
 
     let mut glossary: BTreeMap<&Phrase, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for entry in contribution.knowledge.glossary().values() {
+        for entry in contribution.content.glossary() {
             if let Some(first) = glossary.insert(entry.term(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::GlossaryTerm,
@@ -390,7 +388,7 @@ fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), 
 
     let mut caveats: BTreeMap<&NoteName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for caveat in contribution.knowledge.caveats().values() {
+        for caveat in contribution.content.caveats() {
             if let Some(first) = caveats.insert(caveat.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::Caveat,
@@ -404,7 +402,7 @@ fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), 
 
     let mut absences: BTreeMap<&Phrase, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for absence in contribution.knowledge.absences().values() {
+        for absence in contribution.content.absences() {
             if let Some(first) = absences.insert(absence.phrase(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::Absence,
@@ -418,7 +416,7 @@ fn check_no_element_collisions(contributions: &[Contributor<'_>]) -> Result<(), 
 
     let mut examples: BTreeMap<&NoteName, &SourceName> = BTreeMap::new();
     for contribution in contributions {
-        for example in contribution.knowledge.examples().values() {
+        for example in contribution.content.examples() {
             if let Some(first) = examples.insert(example.name(), &contribution.name) {
                 return Err(CompositionError::ElementCollision {
                     kind: ElementKind::WorkedExample,

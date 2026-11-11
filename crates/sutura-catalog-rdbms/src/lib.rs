@@ -94,6 +94,8 @@
 #[cfg(feature = "live")]
 mod documentation;
 pub mod fixture;
+mod native;
+pub use native::{NativeAllowlist, NativeSelectionError};
 #[cfg(feature = "live-oracle")]
 pub mod oracle_reader;
 #[cfg(feature = "live")]
@@ -146,7 +148,7 @@ use sutura_domain::model::{
     TableName, TableQualifier,
 };
 use sutura_domain::pinned::{
-    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+    CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
 };
 
 /// The two halves of a bundle, read and checked but not yet pinned.
@@ -190,6 +192,8 @@ pub trait DictionaryReader {
 /// a reader back to all of them.
 #[derive(Debug, thiserror::Error)]
 pub enum RdbmsError {
+    #[error("native dictionary selection refused the load")]
+    Native { #[from] cause: NativeSelectionError },
     /// The reader could not fetch the dictionary.
     #[error("reading the dictionary failed: {0}")]
     Read(#[source] Box<dyn std::error::Error + Send + Sync>),
@@ -644,15 +648,7 @@ where
     }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let dictionary = self.reader.read_dictionary()?;
-        let (definitions, knowledge) = self.assemble(&dictionary)?;
-        PinnedDefinitions::pin(
-            self.version.clone(),
-            definitions,
-            knowledge,
-            ContributionManifest::single(self.name.clone(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
-        )
-        .map_err(|cause| RdbmsError::Digest { cause })
+        self.load_with_allowlist().map(|(pinned, _)| pinned)
     }
 }
 
@@ -840,12 +836,20 @@ impl Table {
 pub struct Dictionary {
     tables: Vec<Table>,
     relationships: Vec<Relationship>,
+    native: bool,
 }
 
 impl Dictionary {
     /// A dictionary assembled from what a reader fetched.
     pub const fn new(tables: Vec<Table>, relationships: Vec<Relationship>) -> Self {
-        Self { tables, relationships }
+        Self { tables, relationships, native: false }
+    }
+
+    /// Applies native selection before the dictionary crosses its reader port.
+    pub fn native(self, selection: &sutura_domain::catalog::DictionarySelection, dialect: sutura_domain::warehouse::TypeDialect) -> Result<Self, RdbmsError> {
+        let mut selected = crate::native::select(self, selection, dialect)?;
+        selected.native = true;
+        Ok(selected)
     }
 
     /// The tables the dictionary names.

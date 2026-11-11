@@ -21,6 +21,7 @@ use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 use sutura_domain::model::{ColumnName, InvalidIdentifier, SourceName};
+use sutura_domain::catalog::{DictionaryInclude, DictionaryPattern, DictionarySelection, InvalidDictionaryPattern, InvalidDictionarySelection};
 
 use crate::raw::{RawCatalog, RawCatalogConnection, RawLiveRowPredicate};
 use crate::sources::SourceRegistry;
@@ -36,13 +37,14 @@ use crate::sources::transport::{InvalidTransport, SourceTransport, UnsafeChannel
 /// as one `Option`, so no state with half of it set is representable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RdbmsSettings {
-    environment: CatalogEnvironment,
+    environment: Option<CatalogEnvironment>,
     live_row_predicate: Option<LiveRowPredicate>,
     source_alias: SourceName,
     dictionary_schema: Option<DocumentationSchema>,
     max_dictionary_rows: Option<NonZeroU64>,
     max_dictionary_bytes: Option<NonZeroU64>,
     dictionary_source: DictionarySource,
+    selection: Option<DictionarySelection>,
     connection: CatalogConnection,
 }
 
@@ -51,11 +53,25 @@ impl RdbmsSettings {
     /// refusals; `sources` is the parsed registry, so a `source_alias` naming no declared source is
     /// refused here rather than at the composition root.
     pub(crate) fn parse(name: &SourceName, raw: &RawCatalog, sources: &SourceRegistry) -> Result<Self, InvalidRdbmsCatalog> {
-        let environment = CatalogEnvironment::parse(
-            raw.environment
-                .as_deref()
-                .ok_or(InvalidRdbmsCatalog::Missing { key: "environment" })?,
-        )?;
+        let dictionary_source = DictionarySource::parse(raw.dictionary_source.as_deref())?;
+        let selection = match dictionary_source {
+            DictionarySource::DocumentationSchema => {
+                if raw.include.is_some() || raw.exclude_tables.is_some() || raw.exclude_columns.is_some() || raw.exclude_types.is_some() {
+                    return Err(InvalidRdbmsCatalog::NativeKeysOnView);
+                }
+                None
+            }
+            DictionarySource::NativeDictionary => {
+                if raw.environment.is_some() || raw.dictionary_schema.is_some() || raw.live_row_predicate.is_some() {
+                    return Err(InvalidRdbmsCatalog::ViewKeysOnNative);
+                }
+                Some(native_selection(raw)?)
+            }
+        };
+        let environment = match dictionary_source {
+            DictionarySource::DocumentationSchema => Some(CatalogEnvironment::parse(raw.environment.as_deref().ok_or(InvalidRdbmsCatalog::Missing { key: "environment" })?)?),
+            DictionarySource::NativeDictionary => None,
+        };
         let live_row_predicate = raw.live_row_predicate.as_ref().map(LiveRowPredicate::parse).transpose()?;
         let alias = raw
             .source_alias
@@ -78,7 +94,6 @@ impl RdbmsSettings {
             .map(DocumentationSchema::parse)
             .transpose()
             .map_err(|cause| InvalidRdbmsCatalog::DictionarySchema { cause })?;
-        let dictionary_source = DictionarySource::parse(raw.dictionary_source.as_deref())?;
         Ok(Self {
             environment,
             live_row_predicate,
@@ -87,14 +102,19 @@ impl RdbmsSettings {
             max_dictionary_rows: non_zero("max_dictionary_rows", raw.max_dictionary_rows)?,
             max_dictionary_bytes: non_zero("max_dictionary_bytes", raw.max_dictionary_bytes)?,
             dictionary_source,
+            selection,
             connection,
         })
     }
 
     #[inline]
     #[must_use]
-    pub const fn environment(&self) -> &CatalogEnvironment {
-        &self.environment
+    pub const fn environment(&self) -> Option<&CatalogEnvironment> {
+        self.environment.as_ref()
+    }
+
+    pub const fn native_selection(&self) -> Option<&DictionarySelection> {
+        self.selection.as_ref()
     }
 
     #[inline]
@@ -143,6 +163,16 @@ impl RdbmsSettings {
     pub const fn dictionary_source(&self) -> DictionarySource {
         self.dictionary_source
     }
+}
+
+fn native_selection(raw: &RawCatalog) -> Result<DictionarySelection, InvalidRdbmsCatalog> {
+    let pattern = |text: &str| DictionaryPattern::parse(text).map_err(|cause| InvalidRdbmsCatalog::Pattern { cause });
+    let include = raw.include.as_deref().unwrap_or_default().iter().map(|pair| {
+        Ok(DictionaryInclude::new(pattern(&pair.schema)?, pattern(&pair.table)?))
+    }).collect::<Result<Vec<_>, InvalidRdbmsCatalog>>()?;
+    let patterns = |written: &Option<Vec<String>>| written.as_deref().unwrap_or_default().iter().map(|text| pattern(text)).collect::<Result<Vec<_>, _>>();
+    DictionarySelection::parse(include, patterns(&raw.exclude_tables)?, patterns(&raw.exclude_columns)?, patterns(&raw.exclude_types)?)
+        .map_err(|cause| InvalidRdbmsCatalog::Selection { cause })
 }
 
 /// A written zero is refused rather than stored: it would refuse every read rather than bound one,
@@ -300,16 +330,13 @@ pub enum InvalidDocumentationSchema {
 
 /// Which dictionary an `rdbms` catalog reads.
 ///
-/// `documentation_schema` (the default) is the only one a build reads; the composition root refuses
-/// `native_dictionary` as not supported by this build, so it is checked but never opened. A closed
-/// set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
+/// A closed set: a new one is a visible diff plus a parse arm and a reader arm, which is the review it
 /// deserves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DictionarySource {
     /// A `columns` documentation-schema view installed in the database (the default).
     DocumentationSchema,
-    /// The database's own dictionary views. No reader for it exists; it is refused at the
-    /// composition root.
+    /// The database's own visible dictionary views, under an explicit selection.
     NativeDictionary,
 }
 
@@ -651,6 +678,14 @@ fn absolute(key: &'static str, written: &str) -> Result<PathBuf, InvalidConnecti
 pub enum InvalidRdbmsCatalog {
     #[error("`{key}` is required for `kind: rdbms` and was not written")]
     Missing { key: &'static str },
+    #[error("native include/exclude keys require dictionary_source: native_dictionary")]
+    NativeKeysOnView,
+    #[error("native dictionaries read no documentation environment, schema or live-row predicate")]
+    ViewKeysOnNative,
+    #[error("a native dictionary pattern is invalid")]
+    Pattern { #[source] cause: InvalidDictionaryPattern },
+    #[error("native dictionary selection is invalid")]
+    Selection { #[source] cause: InvalidDictionarySelection },
     #[error("`environment` is empty - write the key that selects this deployment's dictionary rows")]
     EmptyEnvironment,
     #[error("`source_alias` is not a source name")]
@@ -799,7 +834,7 @@ mod tests {
             .expect("a complete rdbms catalog loads");
         let catalog = settings.catalogs().each().next().expect("one catalog");
         let rdbms = catalog.rdbms().expect("an rdbms entry carries its rdbms settings");
-        assert_eq!(rdbms.environment().as_str(), "prod");
+        assert_eq!(rdbms.environment().map(|value| value.as_str()), Some("prod"));
         assert_eq!(rdbms.source_alias().as_str(), "warehouse");
         assert_eq!(rdbms.max_dictionary_rows(), NonZeroU64::new(1000));
         assert_eq!(rdbms.max_dictionary_bytes(), None);

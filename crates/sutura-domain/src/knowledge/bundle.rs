@@ -106,7 +106,7 @@ impl KnowledgeInput {
     }
 
     /// How many notes arrived for one capability. What the undeclared-content check counts.
-    const fn supplied(&self, capability: Capability) -> usize {
+    pub(crate) const fn supplied(&self, capability: Capability) -> usize {
         match capability {
             Capability::Glossary => self.glossary.len(),
             Capability::Caveats => self.caveats.len(),
@@ -114,6 +114,12 @@ impl KnowledgeInput {
             Capability::Examples => self.examples.len(),
         }
     }
+
+    pub const fn declares(&self) -> &KnowledgeCapabilities { &self.declares }
+    pub fn glossary(&self) -> &[GlossaryEntry] { &self.glossary }
+    pub fn caveats(&self) -> &[Caveat] { &self.caveats }
+    pub fn absences(&self) -> &[Absence] { &self.absences }
+    pub fn examples(&self) -> &[Example] { &self.examples }
 
     /// The authored bytes across every note, before any of it is indexed.
     ///

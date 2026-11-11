@@ -81,6 +81,12 @@ mod rdbms;
 #[path = "served/oracle_native.rs"]
 mod oracle_native;
 
+#[cfg(unix)]
+#[cfg(test)]
+#[cfg(all(feature = "oracle", feature = "rdbms", feature = "sql"))]
+#[path = "served/native_oracle_dictionary.rs"]
+mod native_oracle_dictionary;
+
 // The agent-surface cells (`/mcp` hidden behind leg 1, the boot refusal, two callers), split out
 // for the same `max-lines` reason; the default build has no `/mcp` at all, so the feature is its own attribute.
 #[cfg(feature = "agent")]
