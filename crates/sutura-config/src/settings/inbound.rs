@@ -42,6 +42,13 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
     let key_set = key_set(written, mode)?;
     let algorithms = PinnedAlgorithms::parse(&written.algorithms).map_err(|cause| SettingsError::InboundAlgorithms { cause })?;
     let address_claim = address_claim(written)?;
+    let max_token_bytes = written
+        .max_token_bytes
+        .map_or(
+            Ok(crate::inbound::MaxTokenBytes::DEFAULT),
+            crate::inbound::MaxTokenBytes::parse,
+        )
+        .map_err(|cause| SettingsError::InboundValue { cause })?;
     match mode {
         "behind-gateway" => {
             read_only_in(written.audience.is_some(), TokenAudience::KEY, "direct")?;
@@ -80,6 +87,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                     Some(seconds) => transit_lifetime(seconds, written.accept_long_transit_lifetime)?,
                 },
             )
+            .limiting_token_bytes(max_token_bytes)
             .admitting_once(written.transit_single_use)
             .reading_address_from(address_claim);
             Ok(InboundIdentity::BehindGateway {
@@ -93,7 +101,7 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
         // Written as the fallback arm rather than as `"direct" =>` plus an unreachable one, so there
         // is no arm here that a test cannot provoke.
         _ => Ok(InboundIdentity::Direct {
-            resource: direct_resource(written, mode)?,
+            resource: direct_resource(written, mode)?.limiting_token_bytes(max_token_bytes),
             authorization_server: IssuerUrl::parse(required(written.authorization_server.as_deref(), IssuerUrl::KEY, mode)?)
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
             key_set,

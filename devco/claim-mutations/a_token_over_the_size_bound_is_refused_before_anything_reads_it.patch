@@ -1,0 +1,10 @@
+--- a/crates/sutura-http/src/inbound/gate.rs
++++ b/crates/sutura-http/src/inbound/gate.rs
+@@ -260,7 +260,6 @@
+     /// at all - which is how the narrow reason got discovered.
+     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
+         let presented = self.presented(headers)?;
+-        self.validator.check_size(presented)?;
+         let id = TokenValidator::key_id(presented)?;
+         let key = self
+             .keys

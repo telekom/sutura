@@ -47,6 +47,7 @@ const TRANSIT_HEADER: &str = "x-transit-proof";
 // the declarations and the header maps. Its own module because this file was eight lines under the
 // limit `cargo xtask max-lines` enforces and cannot exempt, at the banner it already carried.
 mod fixtures;
+mod token_bytes;
 
 use fixtures::{
     MockIssuer, StubSource, a_token, assertion_living, bearer, cache_of_family, cache_over, claims, direct, direct_over,
@@ -414,7 +415,7 @@ async fn a_token_over_the_size_bound_is_refused_before_anything_reads_it() {
         .await
         .expect_err("an oversized token establishes nobody");
     assert!(
-        matches!(rejected, TokenRejected::TooLong { limit } if limit == MAX_TOKEN_BYTES),
+        matches!(rejected, TokenRejected::TooLong { limit, .. } if limit == MAX_TOKEN_BYTES),
         "{rejected:?}"
     );
     // And an absent header is its own variant, because "no client configured" and "wrong token" are
