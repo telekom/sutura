@@ -39,7 +39,19 @@ message WorkerToCoordinatorMsg {
     LoadInfo load_info = 2;
 
     bool load_info_eos = 3;
+    TaskCompletion task_completion = 4;
   }
+}
+
+message TaskCompletion {
+  TaskKey task_key = 1;
+  repeated bytes records = 2;
+}
+
+message CompletionRequest {
+  uint64 max_records = 1;
+  uint64 max_bytes = 2;
+  uint64 timeout_ms = 3;
 }
 
 message TaskMetrics {
@@ -107,6 +119,7 @@ message SetPlanRequest {
   // Unix nanos when the query started as reported by the coordinator. Used for collecting temporal metrics
   // relative to when the query was fired in the coordinator.
   uint64 query_start_time_ns = 6;
+  optional CompletionRequest completion = 7;
 }
 
 message WorkUnitBatch {

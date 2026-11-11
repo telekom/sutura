@@ -21,7 +21,7 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_exec_datafusion::{Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, Unread, read_later};
+use sutura_exec_datafusion::{Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, SubmissionCapture, Unread, read_later};
 
 use super::super::OpenedSources;
 use super::super::kind::split;
@@ -49,11 +49,17 @@ impl PartitionReader for Reader {
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
+        capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         let opened = Arc::clone(&self.0);
         let (wire, source, partition, granted) = (wire.to_vec(), source.clone(), partition.to_vec(), Arc::clone(schema));
         Ok(read_later(Arc::clone(schema), async move {
-            sutura_runtime::spawn_carrying_span(move || opened.read(&wire, &source, &partition, &granted))
+            sutura_runtime::spawn_carrying_span(move || {
+                let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
+                let mut answered = opened.read(&wire, &source, &partition, &granted)?;
+                if let Some(recording) = recording { recording.complete(&mut answered)?; }
+                Ok(answered)
+            })
                 .await
                 .map_err(Unread::failed)?
         }))
@@ -66,11 +72,17 @@ impl PartitionReader for Reader {
         partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        capture: Option<SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         let opened = Arc::clone(&self.0);
         let (wire, source, partition) = (wire.to_vec(), source.clone(), partition.to_vec());
         Ok(read_later(Arc::clone(schema), async move {
-            sutura_runtime::spawn_carrying_span(move || opened.read_forwarded(&wire, &source, &partition, forwarded))
+            sutura_runtime::spawn_carrying_span(move || {
+                let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
+                let mut answered = opened.read_forwarded(&wire, &source, &partition, forwarded)?;
+                if let Some(recording) = recording { recording.complete(&mut answered)?; }
+                Ok(answered)
+            })
                 .await
                 .map_err(Unread::failed)?
         }))

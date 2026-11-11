@@ -15,7 +15,7 @@ use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::deadline::Deadline;
 pub use sutura_http_client::{Endpoint, InvalidEndpoint, InvalidReadBounds, ReadBounds};
 
-use crate::{Answer, CubeTransport};
+use crate::{Answer, CubeTransport, Loaded};
 
 /// The metadata API's path under a Cube server's root.
 pub const META_PATH: &str = "/cubejs-api/v1/meta";
@@ -130,10 +130,16 @@ impl CubeTransport for HttpCube {
         self.answer(response)
     }
 
-    fn load(&self, query: &serde_json::Value, token: &Secret, deadline: Deadline) -> Answer<Self::Error> {
+    fn load(&self, query: &serde_json::Value, token: &Secret, deadline: Deadline) -> Result<Loaded, Self::Error> {
         let url = format!("{}{LOAD_PATH}", self.endpoint.as_str());
-        let body = serde_json::to_vec(&serde_json::json!({ "query": query })).map_err(HttpCubeError::Unencodable)?;
+        let payload = serde_json::json!({ "query": query });
+        let body = serde_json::to_vec(&payload).map_err(HttpCubeError::Unencodable)?;
+        let mut submissions = Vec::new();
+        let mut submitted_bytes = 0_u64;
+        let cap = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
         loop {
+            submitted_bytes = submitted_bytes.saturating_add(body.len() as u64);
+            if submitted_bytes > cap { return Err(HttpCubeError::TooLarge { cap }); }
             let response = self
                 .agent
                 .current()
@@ -145,9 +151,10 @@ impl CubeTransport for HttpCube {
                 .header("content-type", "application/json")
                 .send(&body)
                 .map_err(|cause| HttpCubeError::Unreachable(Box::new(cause)))?;
+            submissions.push(payload.clone());
             let answer = self.answer(response)?;
             if !still_computing(&answer) {
-                return Ok(answer);
+                return Ok(Loaded { body: answer, submissions });
             }
         }
     }

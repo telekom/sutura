@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arrow_array::RecordBatch;
-use arrow_flight::decode::FlightRecordBatchStream;
+use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
 use arrow_flight::flight_service_client::FlightServiceClient;
 use futures_util::{StreamExt as _, TryStreamExt as _, stream};
@@ -111,28 +111,44 @@ impl Call {
 
 /// The reply's batches, each checked against the first one's schema and charged as it arrives.
 async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultBudget) -> Result<ResultBatches, NodeError> {
-    let mut decoded = FlightRecordBatchStream::new_from_flight_data(
-        reply.map(|frame| frame.map_err(|status| FlightError::Tonic(Box::new(status)))),
+    let metadata_limit = sutura_domain::warehouse::execution::wire::byte_limit(budget.bytes());
+    let mut first_frame = true;
+    let mut decoded = FlightDataDecoder::new(
+        reply.map(move |frame| {
+            let frame = frame.map_err(|status| FlightError::Tonic(Box::new(status)))?;
+            if frame.app_metadata.len() > metadata_limit || first_frame == frame.app_metadata.is_empty() {
+                return Err(FlightError::DecodeError(String::from("missing or repeated execution metadata")));
+            }
+            first_frame = false;
+            Ok(frame)
+        }),
     );
     let mut accumulating: Option<Accumulating> = None;
-    while let Some(batch) = decoded.try_next().await.map_err(|cause| match cause {
+    let mut executions = None;
+    let mut schema_seen = false;
+    while let Some(frame) = decoded.try_next().await.map_err(|cause| match cause {
         FlightError::Tonic(status) => NodeError::of_status(&status),
         _ => NodeError::Answer,
     })? {
-        accumulating
-            .get_or_insert_with(|| Accumulating::announcing(batch.schema(), usize::MAX, budget))
-            .push(batch)
-            .map_err(|cause| NodeError::Result { cause })?;
+        let metadata = frame.app_metadata();
+        match frame.payload {
+            DecodedPayload::Schema(schema) if !schema_seen => {
+                schema_seen = true;
+                let records = sutura_domain::warehouse::execution::wire::decode(&metadata, metadata_limit).map_err(|_cause| NodeError::Answer)?;
+                if records.is_empty() { return Err(NodeError::Answer); }
+                let left = budget.bytes().checked_sub(metadata.len()).and_then(core::num::NonZeroUsize::new).ok_or(NodeError::Answer)?;
+                accumulating = Some(Accumulating::announcing(schema, usize::MAX, ResultBudget::of_bytes(left)));
+                executions = Some(records);
+            },
+            DecodedPayload::RecordBatch(batch) if schema_seen && metadata.is_empty() => {
+                accumulating.as_mut().ok_or(NodeError::Answer)?.push(batch).map_err(|cause| NodeError::Result { cause })?;
+            },
+            DecodedPayload::None if schema_seen && metadata.is_empty() => {},
+            _ => return Err(NodeError::Answer),
+        }
     }
-    accumulating.map_or_else(
-        || {
-            decoded
-                .schema()
-                .map(|schema| ResultBatches::none_under(Arc::clone(schema)))
-                .ok_or(NodeError::Answer)
-        },
-        |accumulated| Ok(accumulated.finish()),
-    )
+    let rows = accumulating.ok_or(NodeError::Answer)?.finish();
+    Ok(rows.with_executions(executions.ok_or(NodeError::Answer)?))
 }
 
 fn client_config(anchors: impl IntoIterator<Item = CertificateDer<'static>>) -> Result<ClientConfig, NotBuilt> {

@@ -57,7 +57,7 @@ pub struct ResultBatches {
     schema: SchemaRef,
     batches: Vec<RecordBatch>,
     rows: usize,
-    execution: Option<super::execution::Execution>,
+    executions: Vec<super::execution::Execution>,
 }
 
 /// Why a result stream was refused, before any value in it was read.
@@ -302,7 +302,7 @@ impl Accumulating {
             schema: self.announced,
             batches: self.batches,
             rows: self.rows,
-            execution: None,
+            executions: Vec::new(),
         }
     }
 }
@@ -311,13 +311,32 @@ impl ResultBatches {
     /// Attaches facts from the same execution that produced these batches.
     #[must_use]
     pub fn with_execution(mut self, execution: super::execution::Execution) -> Self {
-        self.execution = Some(execution);
+        self.executions.push(execution);
         self
     }
 
+    /// Appends owned submissions in logical order, without collapsing repeats.
+    #[must_use]
+    pub fn with_executions(mut self, executions: Vec<super::execution::Execution>) -> Self {
+        self.executions.extend(executions);
+        self
+    }
+
+    /// Prepends earlier submissions, moving this result's existing records after them.
+    #[must_use]
+    pub fn with_prior_executions(mut self, mut executions: Vec<super::execution::Execution>) -> Self {
+        executions.extend(self.take_executions());
+        self.executions = executions;
+        self
+    }
+
+    /// Whether this result reports at least one actual submission, even with zero rows.
+    #[must_use]
+    pub fn has_executions(&self) -> bool { !self.executions.is_empty() }
+
     /// Takes the request's execution facts before the presentation edge decodes the batches.
-    pub const fn take_execution(&mut self) -> Option<super::execution::Execution> {
-        self.execution.take()
+    pub fn take_executions(&mut self) -> Vec<super::execution::Execution> {
+        core::mem::take(&mut self.executions)
     }
 
     /// A result with no rows, under a schema - what an adapter answers for an empty stream.

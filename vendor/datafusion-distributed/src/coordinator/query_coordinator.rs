@@ -28,6 +28,7 @@ use futures::{Stream, StreamExt, TryStreamExt};
 use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use url::Url;
@@ -94,7 +95,7 @@ impl QueryCoordinator {
     /// the query is finished, ending them, and propagating the EOS to the workers so that they can
     /// clean up any remaining state.
     pub(super) fn end_query_guard(&self) -> NotifyGuard {
-        NotifyGuard(Arc::clone(&self.end_stream_notifier))
+        NotifyGuard(Arc::clone(&self.end_stream_notifier), self.session_config().get_extension::<crate::QueryCompletion>().map(|v| v.ended.clone()))
     }
 
     /// Blocks until all background tasks have finished (e.g., sending WorkUnit feeds, or collecting
@@ -151,7 +152,10 @@ impl<'a> StageCoordinator<'a> {
             task_number: task_i,
         };
 
+        let completion = session_config.get_extension::<crate::QueryCompletion>();
+        let completion_request = completion.as_ref().map(|capture| capture.register(task_key)).transpose()?;
         let set_plan_request = SetPlanRequest {
+            completion: completion_request,
             task_key,
             task_count: self.task_count,
             plan: MaybeEncoded::Decoded(specialized),
@@ -168,20 +172,12 @@ impl<'a> StageCoordinator<'a> {
         let mut headers = get_config_extension_propagation_headers(session_config)?;
         headers.extend(get_passthrough_headers(session_config));
 
-        let coordinator_to_worker_stream = UnboundedReceiverStream::new(coordinator_to_worker_rx)
-            .map(set_work_unit_send_time)
-            // Keep the request side of the channel open until the query ends: this tail emits
-            // no messages and only completes, once the `Notify` fires. Workers interpret this
-            // EOS of this stream as a query finished/aborted signal. The flow looks like this:
-            // 1. The query ends normally, as all Arrow RecordBatches are already streamed.
-            // 2. The end stream notifier guard is dropped in `DistributedExec::execute()`.
-            // 3. Here, `end_stream_notifier` fires and the coordinator->worker channel is
-            //    gracefully ended.
-            // 4. The coordinator->worker channel EOS is received in `impl_coordinator_channel.rs`.
-            // 5. The metrics are send back in the worker->coordinator channel, and then that
-            //    channel is closed.
-            .chain(keep_stream_alive(Arc::clone(self.end_stream_notifier)))
-            .boxed();
+        let outbound = UnboundedReceiverStream::new(coordinator_to_worker_rx).map(set_work_unit_send_time);
+        let coordinator_to_worker_stream = match &completion {
+            Some(capture) => outbound.chain(futures::stream::pending())
+                .take_until(capture.ended.clone().cancelled_owned()).boxed(),
+            None => outbound.chain(keep_stream_alive(Arc::clone(self.end_stream_notifier))).boxed(),
+        };
 
         let metrics = self.metrics.clone();
         let metrics_set = self.metrics_set.clone();
@@ -201,7 +197,7 @@ impl<'a> StageCoordinator<'a> {
                     ch_resolver.get_worker_client_for_url(&url).await
                 }
             }?;
-            let mut worker_to_coordinator_stream = client
+            let worker_to_coordinator_stream = client
                 .coordinator_channel(
                     headers,
                     set_plan_request,
@@ -211,12 +207,8 @@ impl<'a> StageCoordinator<'a> {
                 )
                 .await?;
             metrics.plan_send_latency.record(&start);
-            while let Some(msg) = worker_to_coordinator_stream.try_next().await? {
-                if worker_to_coordinator_tx.send(msg).is_err() {
-                    break; // receiver dropped
-                }
-            }
-            Ok::<_, DataFusionError>(())
+            receive_worker_messages(worker_to_coordinator_stream, worker_to_coordinator_tx,
+                task_key, completion, completion_request).await
         });
 
         Ok((coordinator_to_worker_tx, worker_to_coordinator_rx))
@@ -245,6 +237,7 @@ impl<'a> StageCoordinator<'a> {
         tokio::spawn(async move {
             while let Some(msg) = worker_to_coordinator_rx.recv().await {
                 match msg {
+                    WorkerToCoordinatorMsg::TaskCompletion(_) => break,
                     WorkerToCoordinatorMsg::TaskMetrics(v) => {
                         if let Some(task_metrics) = &task_metrics {
                             task_metrics.insert(task_key, v);
@@ -329,9 +322,16 @@ impl<'a> StageCoordinator<'a> {
             }
         }
 
+        let ended = self.task_ctx.session_config().get_extension::<crate::QueryCompletion>().map(|v| v.ended.clone());
         self.join_set.lock().unwrap().spawn(async move {
             let _guard = WorkUnitEosOnDrop(tx);
-            futures::future::try_join_all(futures).await?;
+            match ended {
+                Some(ended) => tokio::select! {
+                    result = futures::future::try_join_all(futures) => { result?; }
+                    () = ended.cancelled() => {}
+                },
+                None => { futures::future::try_join_all(futures).await?; }
+            }
             Ok(())
         });
         Ok(())
@@ -425,15 +425,47 @@ fn roundtrip_pb(
     decode_execution_plan(&encoded, ctx)
 }
 
+async fn receive_worker_messages(
+    mut worker_to_coordinator_stream: futures::stream::BoxStream<'static, Result<WorkerToCoordinatorMsg>>,
+    worker_to_coordinator_tx: UnboundedSender<WorkerToCoordinatorMsg>,
+    task_key: TaskKey,
+    completion: Option<Arc<crate::QueryCompletion>>,
+    completion_request: Option<crate::CompletionRequest>,
+) -> Result<()> {
+    let mut completed = false;
+    while let Some(msg) = worker_to_coordinator_stream.try_next().await? {
+        if let WorkerToCoordinatorMsg::TaskCompletion(payload) = msg {
+            let capture = completion.as_ref()
+        .ok_or_else(|| datafusion::common::exec_datafusion_err!("unexpected task completion"))?;
+            if completed {
+        return exec_err!("duplicate task completion");
+            }
+            completion_request.ok_or_else(|| datafusion::common::exec_datafusion_err!("unregistered completion"))?.check(&payload.records)?;
+            capture.accept(task_key, payload)?;
+            completed = true;
+            continue;
+        }
+        // Completion is consumed before the detached metrics collector, within the query JoinSet.
+        if worker_to_coordinator_tx.send(msg).is_err() && completion.is_none() {
+            break;
+        }
+    }
+    if completion.is_some() && !completed {
+        return exec_err!("worker channel closed without task completion");
+    }
+    Ok::<_, DataFusionError>(())
+}
+
 fn keep_stream_alive<T: 'static>(notify: Arc<Notify>) -> impl Stream<Item = T> + 'static {
     futures::stream::once(notify.notified_owned()).filter_map(|()| futures::future::ready(None))
 }
 
-pub(super) struct NotifyGuard(Arc<Notify>);
+pub(super) struct NotifyGuard(Arc<Notify>, Option<CancellationToken>);
 
 impl Drop for NotifyGuard {
     fn drop(&mut self) {
         self.0.notify_waiters();
+        if let Some(ended) = &self.1 { ended.cancel(); }
     }
 }
 
@@ -474,6 +506,25 @@ impl CoordinatorToWorkerMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn completion_is_consumed_after_the_detached_metrics_receiver_disappears() {
+        let key = TaskKey { query_id: uuid::Uuid::from_u128(1), stage_id: 0, task_number: 0 };
+        let capture = Arc::new(crate::QueryCompletion::new(1, 1, 8,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(10)).unwrap());
+        let request = capture.register(key).unwrap();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        drop(rx);
+        let messages = futures::stream::iter([
+            Ok(WorkerToCoordinatorMsg::LoadInfoEos),
+            Ok(WorkerToCoordinatorMsg::TaskCompletion(crate::TaskCompletion {
+                task_key: key, records: vec![vec![7]],
+            })),
+        ]).boxed();
+        receive_worker_messages(messages, tx, key, Some(Arc::clone(&capture)), Some(request)).await.unwrap();
+        capture.finish().unwrap();
+        assert_eq!(capture.take().unwrap()[0].records, vec![vec![7]]);
+    }
 
     /// Regression test for a rustc miscompilation (present at least through
     /// 1.96, fixed in 1.98) of [`CoordinatorToWorkerMetrics::new`].

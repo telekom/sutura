@@ -715,6 +715,7 @@ where
         .map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
             // `#[source]` chain under it.
+            ServiceError::MissingExecution => SurfaceFailure::Miswired { cause: Box::new(sutura_domain::warehouse::execution::MissingExecution) },
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
             // Two brokers' worth of failure, kept apart on the way out for the reason the variants
@@ -853,6 +854,7 @@ where
             // Identical to `answer`'s own match, variant for variant: the error type is the same
             // `ServiceError<W::Error, B::Error, C::Error>`, and a transport tells the two call kinds
             // apart by which method it called, not by a different failure vocabulary.
+            ServiceError::MissingExecution => SurfaceFailure::Miswired { cause: Box::new(sutura_domain::warehouse::execution::MissingExecution) },
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
             ServiceError::Broker { cause } => broker_failure(Box::new(cause)),

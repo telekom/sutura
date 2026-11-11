@@ -461,6 +461,9 @@ impl AdbcClickHouseWarehouse {
             RunsAs::Switched(ref user) => user.execute_as(&sql),
             RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,
         };
+        let execution = sutura_domain::warehouse::execution::Execution::sql(
+            self.source.clone(), TypeDialect::ClickHouse, sql.clone(), query.params(),
+        );
         statement
             .set_sql_query(sql)
             .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
@@ -469,7 +472,7 @@ impl AdbcClickHouseWarehouse {
                 .bind(batch)
                 .map_err(|error| AdbcError::Driver(DriverMessage::of(&error)))?;
         }
-        execute_to_completion(&mut statement, most_rows, self.result_budget)
+        execute_to_completion(&mut statement, most_rows, self.result_budget).map(|rows| rows.with_execution(execution))
     }
     /// [`AdbcClickHouseWarehouse::split_by_estimate`]: the `ClickHouse` bucket split's API parent,
     /// stubbed to the whole read. The behaviour PR estimates and cuts the leg, and answers

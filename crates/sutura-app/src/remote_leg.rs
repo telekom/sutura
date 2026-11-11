@@ -188,7 +188,8 @@ where
     };
     let runner = crate::federated::LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
     match LegRunner::run(&runner, &plan) {
-        Ok(batches) => Ok(RanRemoteLeg::under(&credentials, RemoteLegOutcome::Answer { batches })),
+        Ok(batches) if batches.has_executions() => Ok(RanRemoteLeg::under(&credentials, RemoteLegOutcome::Answer { batches })),
+        Ok(_) => Err(ServiceError::MissingExecution),
         Err(LegError::Refusal(reason)) => Ok(RanRemoteLeg::under(&credentials, RemoteLegOutcome::Refusal { reason })),
         Err(LegError::Failure(failure)) => Err(failure),
     }

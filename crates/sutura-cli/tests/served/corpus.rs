@@ -174,20 +174,20 @@ mod tests {
             let mut engine_body = engine_body;
             let mut postgres_body = postgres_body;
             if stem == "active-subscriptions-by-month" {
-                assert!(engine_body["logical_plan"].as_str().is_some_and(|plan| !plan.is_empty()));
-                assert_eq!(postgres_body.get("logical_plan"), Some(&serde_json::Value::Null));
-                assert_eq!(engine_body.get("executed_sql"), Some(&serde_json::Value::Null));
-                assert_eq!(postgres_body.get("executed_sql"), Some(&serde_json::Value::Null));
+                assert_eq!(engine_body["executions"][0]["kind"], "datafusion");
+                assert_eq!(postgres_body["executions"][0]["kind"], "sql");
+                assert_eq!(postgres_body["executions"][0]["dialect"], "postgres");
+                assert!(!postgres_body["executions"][0]["sql"].as_str().expect("submitted SQL").is_empty());
             }
             // Plans describe each execution engine; compare the semantic answers below.
             engine_body
                 .as_object_mut()
                 .expect("an answer is an object")
-                .remove("logical_plan");
+                .remove("executions");
             postgres_body
                 .as_object_mut()
                 .expect("an answer is an object")
-                .remove("logical_plan");
+                .remove("executions");
             assert_eq!(
                 quantised(engine_body),
                 quantised(postgres_body),

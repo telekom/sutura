@@ -50,7 +50,7 @@ mod tests {
             .load(&query, &token(), deadline())
             .expect("the fake answers");
         let requests = server.finish();
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).expect("JSON"), answer);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(body.body()).expect("JSON"), answer);
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].request_line(), format!("POST {LOAD_PATH} HTTP/1.1"));
         assert_eq!(requests[0].authorization(), Some(format!("Bearer {TOKEN}").as_str()));
@@ -72,7 +72,9 @@ mod tests {
             .expect("the second answer is the result");
         let requests = server.finish();
         assert_eq!(requests.len(), 2);
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).expect("JSON"), answer);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(body.body()).expect("JSON"), answer);
+        let sent: Vec<serde_json::Value> = requests.iter().map(|request| serde_json::from_str(request.body()).expect("JSON payload")).collect();
+        assert_eq!(body.submissions(), sent, "each retry retains the exact submitted payload");
     }
 
     #[test]

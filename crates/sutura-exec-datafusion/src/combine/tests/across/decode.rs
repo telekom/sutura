@@ -80,6 +80,7 @@ fn refused(plan: &PhysicalPlanNode) -> DataFusionError {
         reason = "the question id is a `uuid`, which this crate does not name; the decoder reads no id"
     )]
     let stage = SetPlanRequest {
+        completion: None,
         task_key: TaskKey {
             query_id: Default::default(),
             stage_id: 1,

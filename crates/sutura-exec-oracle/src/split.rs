@@ -266,7 +266,10 @@ pub(super) fn read_partition(
     declared.map_or_else(
         || of_row_set(&rows).map_err(|cause| OracleError::Shape { cause }),
         |schema| columns::typed(&rows, &schema, warehouse.result_budget),
-    )
+    ).map(|rows| rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+        warehouse.routing.source.clone(), sutura_domain::warehouse::schema::TypeDialect::Oracle,
+        query.sql().to_owned(), query.params(),
+    )))
 }
 
 /// The descriptor `bytes` parse into, at a source that declared and probed its flashback split.

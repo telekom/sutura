@@ -140,6 +140,9 @@ pub use crate::spend::{SpendBudget, SpendLedger};
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError<E, M, C> {
+    #[error("the successful result carried no execution submissions")]
+    MissingExecution,
+
     /// The pinned bundle would not compile this question, or the splitter built a two-source plan
     /// this workspace could not then assemble.
     ///
@@ -754,7 +757,8 @@ where
     // this is the one call that turns it into the rows a caller reads, and it is above every adapter
     // rather than inside each one. The two bounds below count rows and bytes, so they read the
     // decoded set - an Arrow row count would not see the width a caller's cells add up to.
-    let execution = rows.take_execution();
+    if !rows.has_executions() { return Err(ServiceError::MissingExecution); }
+    let executions = rows.take_executions();
     let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
     // `max_rows`, so more than that many coming back means the result was cut short - and a
@@ -777,7 +781,7 @@ where
     // cannot see because it counts rows and not the bytes a caller's own cells add up to. Checked
     // here, still inside the closure `sutura_runtime::spawn_carrying_span` already moved onto the
     // blocking pool for `warehouse.execute` above, so this costs no second offload.
-    if let Some(limit_bytes) = exceeds_response_bound(&rows, execution.as_ref()) {
+    if let Some(limit_bytes) = exceeds_response_bound(&rows, &executions) {
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
@@ -797,7 +801,7 @@ where
     let provenance = pinned
         .provenance_for(definitions.schemas().digest(), executed_as, query.metrics())
         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?
-        .with_execution(execution);
+        .with_executions(executions);
     Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
 }
 

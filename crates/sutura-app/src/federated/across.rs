@@ -67,7 +67,7 @@ where
         Err(error) => return error.answered_under(&credentials),
     };
     let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
-    let assembled = match settled::<W, B, C>(
+    let mut assembled = match settled::<W, B, C>(
         combiner,
         &credentials,
         combiner.execute_across(plan, &runner, working_set_bytes),
@@ -78,9 +78,10 @@ where
         Ok(batches) => batches,
         Err(done) => return *done,
     };
+    let executions = assembled.take_executions();
     let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     bounded_answer::<W, B, C>(
-        answer,
+        (answer, executions),
         ceilings,
         &credentials,
         (pinned, schema_digest),

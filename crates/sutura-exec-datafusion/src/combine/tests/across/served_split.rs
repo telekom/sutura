@@ -103,9 +103,40 @@ fn whole(links: Links) -> ResultBatches {
 /// Every partition a reader was asked for, in the order it was asked.
 type Asked = Arc<Mutex<Vec<Vec<u8>>>>;
 
+/// The fake source's in-memory partition operation records its own fixture submission.
+struct FixtureReader<F>(F);
+
+impl<F> PartitionReader for FixtureReader<F>
+where
+    F: Fn(&SourceName, &[u8], &SchemaRef) -> Result<SendableRecordBatchStream, DataFusionError> + Send + Sync,
+{
+    fn read(
+        &self,
+        _wire: &[u8],
+        source: &SourceName,
+        partition: &[u8],
+        schema: &SchemaRef,
+        capture: Option<crate::SubmissionCapture>,
+    ) -> Result<SendableRecordBatchStream, crate::Unread> {
+        let recording = capture.as_ref().map(crate::SubmissionCapture::begin).transpose()?;
+        let stream = (self.0)(source, partition, schema).map_err(crate::Unread::Failed)?;
+        if let Some(recording) = recording {
+            let mut facts = ResultBatches::none_under(Arc::clone(schema)).with_execution(
+                sutura_domain::warehouse::execution::Execution::DataFusion {
+                    source: Some(source.clone()),
+                    stage: sutura_domain::warehouse::execution::PlanStage::Files,
+                    logical_plan: format!("fixture in-memory partition {partition:?}"),
+                },
+            );
+            recording.complete(&mut facts)?;
+        }
+        Ok(stream)
+    }
+}
+
 /// A reader answering a partition with its one row, each ask logged in `asked`.
 fn reader(asked: Asked) -> Arc<dyn PartitionReader> {
-    Arc::new(
+    Arc::new(FixtureReader(
         move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
             asked.lock().push(partition.to_vec());
             let &[_, link] = partition else {
@@ -123,7 +154,7 @@ fn reader(asked: Asked) -> Arc<dyn PartitionReader> {
                 stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
             )))
         },
-    )
+    ))
 }
 
 /// A reading node other than the planning one, with every request it was sent and every partition
@@ -545,7 +576,7 @@ fn filled(schema: &SchemaRef, links: &[u8]) -> Result<RecordBatch, DataFusionErr
 
 /// A reader answering a partition with [`filled`]'s one row for its link, each ask logged in `asked`.
 fn filling(asked: Asked) -> Arc<dyn PartitionReader> {
-    Arc::new(
+    Arc::new(FixtureReader(
         move |_: &SourceName, partition: &[u8], schema: &SchemaRef| -> Result<SendableRecordBatchStream, DataFusionError> {
             asked.lock().push(partition.to_vec());
             let batch = filled(schema, partition.get(1..).unwrap_or_default())?;
@@ -554,7 +585,7 @@ fn filling(asked: Asked) -> Arc<dyn PartitionReader> {
                 stream::iter(vec![Ok::<_, DataFusionError>(batch)]),
             )))
         },
-    )
+    ))
 }
 
 /// [`Peer::serve`], each partition read by [`filling`].

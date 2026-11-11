@@ -140,7 +140,8 @@ where
         labels,
         deadline,
     ) {
-        Ok(rows) => Ok(rows),
+        Ok(rows) if rows.has_executions() => Ok(rows),
+        Ok(_) => Err(ServiceError::MissingExecution.into()),
         Err(billed) => {
             let cause = billed.into_source().map_err(LegError::Refusal)?;
             Err(classified::<W, B, C>(warehouse, cause, deadline))
@@ -365,7 +366,9 @@ where
                     }
                     parts
                         .next()
-                        .map(|part| part.map_err(|cause| classified::<W, B, C>(warehouse, cause, deadline)))
+                        .map(|part| part.map_err(|cause| classified::<W, B, C>(warehouse, cause, deadline)).and_then(|rows| {
+                            if rows.has_executions() { Ok(rows) } else { Err(ServiceError::MissingExecution.into()) }
+                        }))
                 }))))
             }
             Ok(Partitioned::Granted(grant)) => Ok(Asked::Granted(grant)),

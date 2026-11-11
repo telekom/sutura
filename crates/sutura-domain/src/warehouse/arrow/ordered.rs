@@ -65,7 +65,7 @@ impl ResultBatches {
             schema: self.schema,
             rows: first.num_rows(),
             batches: vec![first],
-            execution: None,
+            executions: self.executions,
         })
     }
 }

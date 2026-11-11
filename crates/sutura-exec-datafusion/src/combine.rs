@@ -72,12 +72,11 @@ use datafusion::datasource::MemTable;
 use datafusion::functions_aggregate::expr_fn::count;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, lit};
 use datafusion::prelude::{SessionConfig, SessionContext};
-// `StreamExt::next`, so the combined answer is charged batch by batch instead of collected first.
-use futures_util::StreamExt as _;
 use sutura_domain::model::{Aggregate, SourceName};
 use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs, WorkersShort};
 use sutura_domain::query::MAX_LOOKUP_LEGS;
-use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
+use sutura_domain::warehouse::{ResultBatches, UnannouncedBatch};
+use sutura_domain::warehouse::execution::{Execution, PlanStage};
 
 use crate::pool::{self, WorkingSet};
 
@@ -86,6 +85,8 @@ use crate::pool::{self, WorkingSet};
 mod across;
 /// The one logical plan above the legs, and the labels and leaves it reads.
 mod arm;
+mod collecting;
+use collecting::collected;
 /// The cast a relationship's declared key comparison asks of a link column.
 mod cast;
 /// The refusal of an answer whose measure is not a finite number.
@@ -103,7 +104,7 @@ mod served;
 mod statement;
 #[cfg(feature = "distributed")]
 pub use across::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, SplitScan, StreamBound, SwitchedPrincipal, TaskGrant,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound, SubmissionCapture, SwitchedPrincipal, TaskGrant,
     TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 pub use provider::SourceProvider;
@@ -528,8 +529,9 @@ impl DataFusionCombiner {
         working_set: WorkingSet,
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
-        let logical = arm_plan(plan, legs, context, ceiling_bytes, working_set).await?;
+        let (logical, executions) = arm_plan(plan, legs, context, ceiling_bytes, working_set).await?;
         executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
+            .map(|rows| rows.with_prior_executions(executions))
     }
 }
 
@@ -543,6 +545,10 @@ async fn executed(
     ceiling_bytes: u64,
     working_set: WorkingSet,
 ) -> Result<ResultBatches, CombineError> {
+    let execution = Execution::DataFusion {
+        source: None, stage: PlanStage::Combine,
+        logical_plan: format!("{}", logical.display_indent()),
+    };
     let frame = context
         .execute_logical_plan(logical)
         .await
@@ -561,7 +567,7 @@ async fn executed(
     }
     let answered = collected(frame, ceiling_bytes, working_set).await?;
     refuse_non_finite(&answered, measures)?;
-    Ok(answered)
+    Ok(answered.with_execution(execution))
 }
 
 /// One joined arm's logical plan over `context`: its legs checked, registered under the fixed leg
@@ -575,7 +581,7 @@ async fn arm_plan(
     context: &SessionContext,
     ceiling_bytes: u64,
     working_set: WorkingSet,
-) -> Result<LogicalPlan, CombineError> {
+) -> Result<(LogicalPlan, Vec<Execution>), CombineError> {
     let fact = LegSchema::of(FACT, legs.fact().schema())?;
     let lookups = legs
         .lookups()
@@ -666,6 +672,7 @@ async fn arm_plan(
     // table over all its partitions, so a tuple repeated across two of them is refused too. A
     // granted leg is counted inside the plan that joins it instead (`served::joined`), so each of
     // its partitions is read once.
+    let mut executions = Vec::new();
     let in_plan = served::counted_in_plan(&lookups.iter().map(|&(_, _, read, _)| read).collect::<Vec<_>>());
     for (position, &(_, table, _, _)) in lookups.iter().enumerate() {
         if in_plan.get(position) == Some(&true) {
@@ -673,21 +680,22 @@ async fn arm_plan(
         }
         let own = plan.link_labels(position);
         let on: Vec<&str> = own.iter().map(String::as_str).collect();
-        refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?;
+        executions.extend(refuse_ambiguous_link(context, table, &on, ceiling_bytes, working_set).await?);
     }
     // The second fact is joined on every link AND the bucket, so a second row for one tuple of them
     // fans every first-fact row under it out exactly as a second lookup row would.
     if second_fact.is_some() {
         let on: Vec<&str> = links.iter().map(String::as_str).chain([plan.bucket_label()]).collect();
-        refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+        executions.extend(refuse_ambiguous_link(context, SECOND_FACT_TABLE, &on, ceiling_bytes, working_set).await?);
         // A cast can make two first-fact groups one key, and each would meet the second fact's row.
         if casts.fact.is_some() {
-            refuse_ambiguous_link(context, FACT_TABLE, &on, ceiling_bytes, working_set).await?;
+            executions.extend(refuse_ambiguous_link(context, FACT_TABLE, &on, ceiling_bytes, working_set).await?);
         }
     }
 
     let second_table = second_fact.as_ref().map(|_| SECOND_FACT_TABLE);
-    combine_plan(plan, context, &links, &leaves, second_table, &in_plan).await
+    let logical = combine_plan(plan, context, &links, &leaves, second_table, &in_plan).await?;
+    Ok((logical, executions))
 }
 
 /// Whether `sources` name more than one data system.
@@ -922,7 +930,7 @@ async fn refuse_ambiguous_link(
     on: &[&str],
     ceiling_bytes: u64,
     working_set: WorkingSet,
-) -> Result<(), CombineError> {
+) -> Result<Vec<Execution>, CombineError> {
     let probe = probe_label();
     let scanned = scan(context, table).await?;
     let columns: Vec<Expr> = on.iter().map(|label| qualified(table, label)).collect();
@@ -939,62 +947,18 @@ async fn refuse_ambiguous_link(
         .and_then(|past_one| past_one.limit(0, Some(1)))
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
+    let execution = Execution::DataFusion { source: None, stage: PlanStage::Combine, logical_plan: format!("{}", logical.display_indent()) };
     let frame = context
         .execute_logical_plan(logical)
         .await
         .map_err(|cause| CombineError::Analyze { cause })?;
-    let found = collected(frame, ceiling_bytes, working_set).await?;
-    if found.rows() > 0 {
-        return Err(CombineError::AmbiguousLink);
-    }
-    Ok(())
+    let mut found = collected(frame, ceiling_bytes, working_set).await?;
+    if found.rows() > 0 { return Err(CombineError::AmbiguousLink); }
+    let mut executions = found.take_executions();
+    executions.push(execution);
+    Ok(executions)
 }
 
-/// A frame's batches, streamed into the guard, checked against the frame's own announced schema and
-/// charged against the byte budget as they arrive.
-///
-/// The row ceiling is `usize::MAX` for `crate::collected`'s own reason - `docs/adr/0009` retired the
-/// row cap because a row count is not a memory bound - and the byte budget is what replaced it.
-/// Nothing calls `DataFrame::collect` here any more: a combine that retained every batch before
-/// charging anything would refuse after the memory was spent.
-///
-/// **An over-budget combined answer leaves as [`CombineError::Exhausted`] and not as
-/// [`CombineError::Unannounced`]**, which is a classification decision rather than a convenience.
-/// The budget is the working-set ceiling (`WorkingSet::result_budget`), so what the caller needs to
-/// be told is that this question wanted more memory than the configured number - the same thing a
-/// refused operator reservation means, from the same number, and `working_set_exhausted` is the one
-/// predicate the combiner port has to say it with. Routing it through `Unannounced` instead would
-/// reach the caller as a data-system failure inviting a retry.
-async fn collected(
-    frame: datafusion::prelude::DataFrame,
-    ceiling_bytes: u64,
-    working_set: WorkingSet,
-) -> Result<ResultBatches, CombineError> {
-    let budget = working_set.result_budget();
-    let announced = Arc::clone(frame.schema().inner());
-    // `pool::exhausted` uses `find_root`, because a reservation is refused deep inside an operator
-    // and the engine wraps the error on the way out. Matching the outermost variant would report
-    // almost every real exhaustion as a transport failure, which is the direction that tells a
-    // caller to retry a bound that fires again in the same place.
-    let exhaustion = |cause: datafusion::error::DataFusionError| {
-        if pool::exhausted(&cause) {
-            CombineError::Exhausted { ceiling_bytes }
-        } else {
-            CombineError::Execute { cause }
-        }
-    };
-    let mut stream = frame.execute_stream().await.map_err(exhaustion)?;
-    let mut accumulating = Accumulating::announcing(announced, usize::MAX, budget);
-    while let Some(batch) = stream.next().await {
-        accumulating.push(batch.map_err(exhaustion)?).map_err(|cause| match cause {
-            UnannouncedBatch::OverBudget { .. } => CombineError::Exhausted { ceiling_bytes },
-            UnannouncedBatch::OverBound { .. } | UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
-                CombineError::Unannounced { cause }
-            }
-        })?;
-    }
-    Ok(accumulating.finish())
-}
 
 #[cfg(test)]
 mod tests;

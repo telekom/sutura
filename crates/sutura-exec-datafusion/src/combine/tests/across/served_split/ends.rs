@@ -25,7 +25,7 @@ struct LogsTheEnd {
 }
 
 impl PartitionReader for LogsTheEnd {
-    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef) -> Result<SendableRecordBatchStream, Unread> {
+    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef, _: Option<crate::SubmissionCapture>) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
     }
 
@@ -36,10 +36,11 @@ impl PartitionReader for LogsTheEnd {
         partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.ends.lock().push((forwarded.ends(), forwarded.left()));
         drop(forwarded);
-        self.rows.read(wire, source, partition, schema)
+        self.rows.read(wire, source, partition, schema, capture)
     }
 }
 

@@ -1,49 +1,62 @@
-//! Execution details on a certified answer. Raw statements and connection controls never enter it.
+//! Submitted operations on a certified answer; disclosure, not standalone replay.
 
-use sutura_domain::warehouse::ParamValue;
-use sutura_domain::warehouse::execution::Execution;
+use sutura_domain::plan::remote::LegWire;
+use sutura_domain::warehouse::execution::{Binding, BindingIdentity, BindingValue, Execution, PlanStage};
+use sutura_domain::warehouse::schema::TypeDialect;
 
-/// The exact parameterized `DuckDB` statement submitted for a whole-source answer.
-///
-/// Bind parameters in array order using their declared types. The original table attachments and
-/// execution context are still required; the SQL alone is not an independently runnable query.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct ExecutedSqlBody {
-    source: String,
-    dialect: &'static str,
-    sql: String,
-    parameters: Vec<ParameterBody>,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExecutionBody {
+    BigqueryRead { source: String, operation: &'static str, descriptor_sha256: String },
+    Sql { source: String, dialect: &'static str, sql: String, parameters: Vec<ParameterBody> },
+    Datafusion { source: Option<String>, stage: &'static str, logical_plan: String },
+    Cube { source: String, query: serde_json::Value },
+    Node { source: String, #[schema(value_type = Object)] query: LegWire, parameters: Vec<ParameterBody> },
 }
 
-/// One positional binding, with the type submitted to the driver.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ParameterBody { binding: IdentityBody, value: ValueBody }
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum IdentityBody { Position(usize), Named(String) }
+
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
-enum ParameterBody {
-    Text(String),
-    Date(String),
+enum ValueBody { Utf8(String), OracleString(String), Date32(i32), OracleDate(String) }
+
+fn parameters(values: &[Binding]) -> Vec<ParameterBody> {
+    values.iter().map(|parameter| ParameterBody {
+        binding: match parameter.identity() {
+            BindingIdentity::Position(position) => IdentityBody::Position(*position),
+            BindingIdentity::Named(name) => IdentityBody::Named(name.clone()),
+        },
+        value: match parameter.value() {
+            BindingValue::Utf8(text) => ValueBody::Utf8(text.clone()),
+            BindingValue::OracleString(text) => ValueBody::OracleString(text.clone()),
+            BindingValue::Date32(days) => ValueBody::Date32(*days),
+            BindingValue::OracleDate(date) => ValueBody::OracleDate(date.to_iso()),
+        },
+    }).collect()
 }
 
-pub(super) fn sql(execution: Option<&Execution>) -> Option<Box<ExecutedSqlBody>> {
-    match execution? {
-        Execution::DuckDb { source, sql, parameters } => Some(Box::new(ExecutedSqlBody {
-            source: source.as_str().to_owned(),
-            dialect: "duckdb",
-            sql: sql.clone(),
-            parameters: parameters
-                .iter()
-                .map(|value| match value {
-                    ParamValue::Text(text) => ParameterBody::Text(text.clone()),
-                    ParamValue::Date(date) => ParameterBody::Date(date.to_iso()),
-                })
-                .collect(),
-        })),
-        Execution::DataFusion { .. } => None,
-    }
-}
-
-pub(super) fn logical_plan(execution: Option<&Execution>) -> Option<String> {
-    match execution? {
-        Execution::DataFusion { logical_plan } => Some(logical_plan.clone()),
-        Execution::DuckDb { .. } => None,
-    }
+pub(super) fn list(executions: &[Execution]) -> Vec<ExecutionBody> {
+    executions.iter().map(|execution| match execution {
+        Execution::BigQueryRead { source, descriptor_sha256 } => ExecutionBody::BigqueryRead { source: source.as_str().to_owned(), operation: "adbc_read_partition", descriptor_sha256: descriptor_sha256.iter().map(|byte| format!("{byte:02x}")).collect() },
+        Execution::Sql { source, dialect, sql, parameters: values } => ExecutionBody::Sql {
+            source: source.as_str().to_owned(), dialect: match dialect {
+                TypeDialect::DuckDb => "duckdb", TypeDialect::Postgres => "postgres",
+                TypeDialect::ClickHouse => "clickhouse", TypeDialect::BigQuery => "bigquery", TypeDialect::Oracle => "oracle",
+            }, sql: sql.clone(), parameters: parameters(values),
+        },
+        Execution::DataFusion { source, stage, logical_plan } => ExecutionBody::Datafusion {
+            source: source.as_ref().map(|source| source.as_str().to_owned()),
+            stage: match stage { PlanStage::Files => "files", PlanStage::Combine => "combine" },
+            logical_plan: logical_plan.clone(),
+        },
+        Execution::Cube { source, query } => ExecutionBody::Cube { source: source.as_str().to_owned(), query: query.clone() },
+        Execution::Node { source, query, parameters: values } => ExecutionBody::Node {
+            source: source.as_str().to_owned(), query: query.clone(), parameters: parameters(values),
+        },
+    }).collect()
 }

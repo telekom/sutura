@@ -209,7 +209,7 @@ where
     // a leg's refusal wins over a combine failure; see [`settled`].
     let runner = LegsAtTheirSources::<W, B, C>::new(charged, warehouses, (&credentials, &labels), deadline);
     let executed = combiner.execute(cut, &runner, working_set_bytes);
-    let assembled = match settled::<W, B, C>(
+    let mut assembled = match settled::<W, B, C>(
         combiner,
         &credentials,
         executed,
@@ -239,9 +239,10 @@ where
     // The presentation edge for a two-source answer, and the only decode on this path: the legs
     // stayed Arrow all the way into the combine, so one call turns the ANSWER into the rows the
     // bounds below count and a caller reads.
+    let executions = assembled.take_executions();
     let answer = assembled.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     bounded_answer::<W, B, C>(
-        answer,
+        (answer, executions),
         ceilings,
         &credentials,
         (pinned, schema_digest),
@@ -375,7 +376,7 @@ where
 /// A combined answer held to the federated row cap and the response bound, then certified for
 /// `metrics`.
 fn bounded_answer<'m, W, B, C>(
-    answer: RowSet,
+    (answer, executions): (RowSet, Vec<sutura_domain::warehouse::execution::Execution>),
     ceilings: Ceilings,
     credentials: &BoundToTheRequest,
     (pinned, schema_digest): (&PinnedDefinitions, &SchemaDigest),
@@ -387,12 +388,13 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
+    if executions.is_empty() { return Err(ServiceError::MissingExecution); }
     let federated_ceiling = ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
     }
     // The same third bound the mono-source path checks, over the COMBINED result.
-    if let Some(limit_bytes) = exceeds_response_bound(&answer, None) {
+    if let Some(limit_bytes) = exceeds_response_bound(&answer, &executions) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {
@@ -405,7 +407,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, schema_digest, executed_as, metrics)?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, metrics)?.with_executions(executions),
             rows: answer,
         },
     ))
@@ -486,10 +488,12 @@ where
     let ranked = FederatedPlan::rank(combined, top)
         .map_err(|cause| ServiceError::Miswired {
             cause: crate::FederationMiswired::RankedAnswer { cause },
-        })?
-        .to_rows()
-        .map_err(|cause| ServiceError::Unreadable { cause })?;
-    if let Some(limit_bytes) = exceeds_response_bound(&ranked, None) {
+        })?;
+    let mut ranked = ranked;
+    if !ranked.has_executions() { return Err(ServiceError::MissingExecution); }
+    let executions = ranked.take_executions();
+    let ranked = ranked.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
+    if let Some(limit_bytes) = exceeds_response_bound(&ranked, &executions) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {
@@ -502,7 +506,7 @@ where
     Ok(Answered::under(
         credentials,
         ToolOutcome::Answer {
-            provenance: certified_provenance(pinned, schema_digest, executed_as, [plan.metric()])?,
+            provenance: certified_provenance(pinned, schema_digest, executed_as, [plan.metric()])?.with_executions(executions),
             rows: ranked,
         },
     ))

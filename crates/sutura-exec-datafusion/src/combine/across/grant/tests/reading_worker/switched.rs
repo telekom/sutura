@@ -52,6 +52,7 @@ impl PartitionReader for Switches {
         _source: &SourceName,
         _partition: &[u8],
         _schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from(
             "read as no principal",
@@ -65,6 +66,7 @@ impl PartitionReader for Switches {
         _partition: &[u8],
         schema: &SchemaRef,
         switched: SwitchedPrincipal,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.0.lock().push(String::from(switched.name().as_str()));
         Ok(Box::pin(RecordBatchStreamAdapter::new(

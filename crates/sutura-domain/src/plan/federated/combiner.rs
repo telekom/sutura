@@ -69,6 +69,10 @@ impl LegResult {
         }
     }
 
+    pub(crate) fn take_executions(&mut self) -> Vec<crate::warehouse::execution::Execution> {
+        self.batches.take_executions()
+    }
+
     const fn side_of(plan: &LegPlan) -> LegSide {
         match *plan {
             LegPlan::Fact { .. } => LegSide::Fact,
@@ -637,8 +641,8 @@ pub trait FederationCombiner {
                 .collect();
             (fact, looked_up)
         });
-        let fact = fact.map_err(ExecuteError::Leg)?;
-        let looked_up = looked_up
+        let mut fact = fact.map_err(ExecuteError::Leg)?;
+        let mut looked_up = looked_up
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
             .map_err(ExecuteError::Leg)?;
@@ -646,7 +650,7 @@ pub trait FederationCombiner {
         if lookups.iter().any(|&(_, read)| read.is_empty()) {
             return Err(ExecuteError::Miswired(LegsMiswired::NoPartition));
         }
-        let second_fact = plan
+        let mut second_fact = plan
             .second_fact()
             .map(|leg| runner.run(leg))
             .transpose()
@@ -656,7 +660,18 @@ pub trait FederationCombiner {
             second_fact: second_fact.as_ref(),
             lookups,
         };
-        self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)
+        let mut combined = self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)?;
+        let local = combined.take_executions();
+        let mut executions = fact.take_executions();
+        if let Some(second) = &mut second_fact { executions.extend(second.take_executions()); }
+        for lookup in &mut looked_up {
+            match lookup {
+                Looked::Rows(parts) => for part in parts { executions.extend(part.take_executions()); },
+                Looked::Granted(grant) => executions.extend(grant.take_executions()),
+            }
+        }
+        executions.extend(local);
+        Ok(combined.with_executions(executions))
     }
 
     /// Plans the SQL tool's statement over `question`'s tables, runs each source's part through

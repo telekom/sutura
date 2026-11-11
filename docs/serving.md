@@ -258,35 +258,48 @@ definition version and digest that it came from:
     "definition_version": "local-1",
     "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
   },
-  "executed_sql": null,
-  "logical_plan": null,
+  "executions": [{
+    "kind": "datafusion",
+    "source": "local",
+    "stage": "files",
+    "logical_plan": "Projection: period, recurring_revenue\n  TableScan: monthly_revenue"
+  }],
   "columns": ["period", "recurring_revenue"],
   "rows": [["2026-06-01", "202121"]]
 }
 ```
 
-Answers include two nullable execution fields on HTTP and MCP:
+HTTP and MCP answers carry an ordered `executions` list:
 
-- `executed_sql` is an object with `source`, `dialect: "duckdb"`, `sql` and `parameters` for a whole
-  DuckDB execution. Each positional parameter has `type: "date"` or `type: "text"` and a string
-  `value`, in binding order. SQL and bindings come from the same statement submitted to the driver;
-  parameter values are not inlined.
-- `logical_plan` is the diagnostic DataFusion logical plan submitted to the engine for a whole
-  `files` answer, before analysis and optimization. Its text format may change. It is not SQL, a
-  physical plan or a replay format.
+| `kind` | Contents |
+| --- | --- |
+| `sql` | Source, dialect, final submitted SQL and ordered typed parameters. |
+| `datafusion` | Source for `stage: "files"`, or `source: null` for `stage: "combine"`, and diagnostic logical-plan text. |
+| `cube` | Source and the native submitted JSON payload, including each continue-wait retry. |
+| `node` | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records. |
+| `bigquery_read` | Source, `operation: "adbc_read_partition"` and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned. |
 
-The unused field is `null`. One whole statement or plan may combine several metrics at the source
-and still be reported. Both fields are `null` for other adapters and answers assembled from several
-executions, including federation, drill-across and partitioned execution: no single statement or
-plan explains their complete execution in this version. These fields contain no authentication or session-control statements. A caller
-allowed to query a metric may see its physical identifiers and certified fixed-filter values here;
-this does not change the separate audience policy for catalog listings. Refusals carry neither
-field. Never invent verification SQL when it is unavailable or when only a logical plan is present.
-Execution details are recorded outside the definition and schema digests; the record is not a
-cryptographic proof that the engine ran it. Even exact SQL needs the original attachments and
-execution context to replay. The existing
-response text budget also counts these details; it remains a text estimate, not a strict JSON wire
-size limit.
+Each SQL/Node parameter has `binding: {"kind":"position","value":0}` for a zero-based
+position, or `binding: {"kind":"named","value":"p0"}` for ClickHouse. Its `value` has
+`type` and `value`: `utf8` text or `date32` days since the Unix epoch for Arrow bindings;
+`oracle_string` text or `oracle_date` ISO date for Oracle's native bindings. Values are not
+inlined into SQL. ClickHouse SQL includes the final placeholder, timeout-settings and
+`EXECUTE AS` rewrites.
+
+Federation, drill-across and partitioned execution retain their individual submissions in logical
+plan order, followed by combine submissions; repeated submissions are retained. A successful
+adapter result with no capture fails the answer. This is disclosure to the caller authorized to
+ask the metric: physical identifiers and certified fixed-filter values may be visible, independently
+of the audience policy for catalog listings. Authentication and session-control statements are not
+included. Refusals carry no `executions` field.
+
+Logical-plan text may change and is neither SQL, a physical plan nor a stable replay format.
+Native stream-read digests identify an operation without making it replayable. Never invent
+verification SQL for a record that supplies none. Records sit outside definition and schema digests;
+they are not cryptographic proof of execution, and a remote receipt describes what the peer reported.
+Even exact SQL needs the original attachments and execution context to replay. The response text
+budget counts every record and binding, but excludes JSON escaping and structural overhead; it is
+not a strict JSON wire-size limit.
 
 A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentence:
 

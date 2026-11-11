@@ -525,4 +525,34 @@ mod adbc_execute_as_legs {
         expected.sort();
         assert_eq!(identities, expected, "{logged}");
     }
+
+    #[test]
+    fn a_switched_leg_reports_final_rewrites_and_typed_bindings() {
+        use sutura_domain::warehouse::execution::{BindingIdentity, BindingValue, Execution};
+        use sutura_domain::warehouse::schema::TypeDialect;
+        let Some(tier) = Tier::here("execution_capture") else { return };
+        tier.load(LEGS);
+        let case = corpus::leg_case();
+        let mut answered = tier.at(LEGS, SourcePosture::ImpersonationAtSource)
+            .execute(Executable::Leg(case.leg()), &switched_to("sutura_switched"), corpus::deadline())
+            .expect("the switched leg answers");
+        let records = answered.take_executions();
+        let [Execution::Sql { source, dialect, sql, parameters }] = records.as_slice() else { panic!("one submitted SQL record: {records:?}"); };
+        assert_eq!(source, &corpus::source());
+        assert_eq!(*dialect, TypeDialect::ClickHouse);
+        assert!(sql.starts_with("EXECUTE AS "), "{sql}");
+        assert!(sql.contains("sutura_switched"), "{sql}");
+        assert!(sql.contains("SETTINGS"), "{sql}");
+        assert!(sql.contains("max_execution_time"), "{sql}");
+        assert_eq!(parameters.len(), case.leg().params().len());
+        for (position, (binding, value)) in parameters.iter().zip(case.leg().params()).enumerate() {
+            assert_eq!(binding.identity(), &BindingIdentity::Named(format!("p{position}")));
+            let expected = match value {
+                ParamValue::Text(text) => BindingValue::Utf8(text.clone()),
+                ParamValue::Date(date) => BindingValue::Date32(date.days_since_epoch()),
+            };
+            assert_eq!(binding.value(), &expected);
+            assert!(sql.contains(&format!("{{p{position}:")), "the final named placeholder survives: {sql}");
+        }
+    }
 }

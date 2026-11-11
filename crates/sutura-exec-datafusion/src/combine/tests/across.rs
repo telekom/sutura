@@ -614,6 +614,7 @@ fn a_node_refuses_a_stage_that_reads_a_source() {
             reason = "the question id is a `uuid`, which this crate does not name; the check reads no id"
         )]
         let stage = SetPlanRequest {
+            completion: None,
             task_key: TaskKey {
                 query_id: Default::default(),
                 stage_id: 1,
@@ -653,6 +654,7 @@ fn a_node_refuses_a_stage_it_cannot_decode_rather_than_stopping() {
         reason = "the question id is a `uuid`, which this crate does not name; the decoder reads no id"
     )]
     let stage = SetPlanRequest {
+        completion: None,
         task_key: TaskKey {
             query_id: Default::default(),
             stage_id: 1,

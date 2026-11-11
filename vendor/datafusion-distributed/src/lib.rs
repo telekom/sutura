@@ -2,6 +2,9 @@
 
 mod codec;
 mod common;
+mod completion;
+
+pub use completion::{CompletionRequest, QueryCompletion, TaskCompletion, TaskCompletionProducer};
 mod config_extension_ext;
 mod coordinator;
 mod distributed_ext;

@@ -54,7 +54,7 @@
 //! disagree.
 
 pub mod execution;
-use execution::ExecutedSqlContent;
+use execution::ExecutionContent;
 
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{MAX_METRICS, Query, ToolOutcome};
@@ -245,12 +245,8 @@ pub enum OutcomeContent {
         /// for the reason stated there. The two wire types are kept equal by review; an adapter may
         /// not reach into another adapter.
         executed_as: Vec<LegContent>,
-        /// Exact SQL and ordered typed bindings for a whole `DuckDB` answer; null otherwise.
-        /// Unavailable for other adapters and for federated, partitioned or combined answers.
-        executed_sql: Option<Box<ExecutedSqlContent>>,
-        /// The `DataFusion` logical plan handed to the engine, before analysis and optimization.
-        /// Diagnostic text, not SQL or a stable replay format. Null for other or multi-stage answers.
-        logical_plan: Option<String>,
+        /// Actual submissions in logical execution order. Requires the original execution context to replay.
+        executions: Vec<ExecutionContent>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the one
@@ -332,8 +328,7 @@ impl From<&ToolOutcome> for OutcomeContent {
             } => Self::Answer {
                 provenance: provenance_content(provenance),
                 executed_as: legs(provenance.executed_as()),
-                executed_sql: execution::sql(provenance.execution()),
-                logical_plan: execution::logical_plan(provenance.execution()),
+                executions: execution::list(provenance.executions()),
                 columns: rows.columns().to_vec(),
                 rows: render(rows),
             },
@@ -371,8 +366,7 @@ impl OutcomeContent {
             Self::Answer {
                 ref provenance,
                 ref executed_as,
-                ref executed_sql,
-                ref logical_plan,
+                ref executions,
                 ref columns,
                 ref rows,
             } => {
@@ -405,13 +399,7 @@ impl OutcomeContent {
                     out.push_str(" as: ");
                     out.push_str(leg.posture);
                 }
-                if let Some(sql) = executed_sql {
-                    sql.append_text(&mut out);
-                }
-                if let Some(plan) = logical_plan {
-                    out.push_str("\nDataFusion logical plan (before analysis and optimization):\n  ");
-                    out.push_str(&escaped(plan));
-                }
+                for execution in executions { execution.append_text(&mut out); }
                 out
             }
             // The code as well as the sentence, because the code is the part that is stable and the
@@ -735,8 +723,7 @@ mod tests {
                 source: String::from("local"),
                 posture: "shared-service-user",
             }],
-            executed_sql: None,
-            logical_plan: None,
+            executions: Vec::new(),
             columns: vec![
                 String::from("region\nread from local as: shared-service-user"),
                 String::from("amount"),

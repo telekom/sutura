@@ -26,6 +26,7 @@ use datafusion::prelude::SessionContext;
 use sutura_domain::plan::{Arm, ArmLegs, DrillAcrossCombiner, DrillAcrossPlan, LocalArm};
 use sutura_domain::query::{TopBy, TopDirection};
 use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::execution::Execution;
 
 use super::arm::{above_expression, leaf_labels, qualified, scan, schema_mismatch};
 use super::schema::{FACT, LegSchema, same_kind};
@@ -70,7 +71,7 @@ async fn merged(
     }
     let grouped: Vec<&str> = plan.keys().into_iter().chain([plan.bucket_label()]).collect();
     let first_legs = arms.first().ok_or(CombineError::ArmsMiswired { arm: 0 })?;
-    let first = cut(
+    let (first, mut executions) = cut(
         0,
         plan.arms().first(),
         first_legs,
@@ -83,7 +84,8 @@ async fn merged(
     let mut running = aliased(first, MERGED)?;
     let mut measures = vec![plan.arms().first().measure_label()];
     for (index, (arm, legs)) in plan.arms().iter().zip(arms).enumerate().skip(1) {
-        let next = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
+        let (next, submitted) = cut(index, arm, legs, &grouped, context, (ceiling_bytes, working_set)).await?;
+        executions.extend(submitted);
         agreeing_kinds(&grouped, plan.bucket_label(), &first_kinds, &kinds_of(&next, &grouped)?)?;
         running = joined_with(running, next, &grouped, &measures, arm.measure_label())?;
         measures.push(arm.measure_label());
@@ -112,6 +114,7 @@ async fn merged(
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
     executed(context, logical, labels, measures.len(), ceiling_bytes, working_set).await
+        .map(|rows| rows.with_prior_executions(executions))
 }
 
 /// One arm's logical plan.
@@ -122,11 +125,11 @@ async fn cut(
     grouped: &[&str],
     context: &SessionContext,
     (ceiling_bytes, working_set): (u64, WorkingSet),
-) -> Result<LogicalPlan, CombineError> {
+) -> Result<(LogicalPlan, Vec<Execution>), CombineError> {
     match (arm, legs) {
         (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, legs, context, ceiling_bytes, working_set).await,
         (Arm::Local(local), ArmLegs::Local { metric, batches }) if *metric == arm.metric() => {
-            local_plan(local, grouped, context, batches).await
+            local_plan(local, grouped, context, batches).await.map(|logical| (logical, Vec::new()))
         }
         (Arm::Joined(_), ArmLegs::Local { .. }) | (Arm::Local(_), ArmLegs::Joined(_) | ArmLegs::Local { .. }) => {
             Err(CombineError::ArmsMiswired { arm: index })

@@ -102,22 +102,23 @@ mod tests {
             assert_eq!(http.status, 200, "{}", http.body);
             let body = http.json();
             let sql = body
-                .get("executed_sql")
+                .pointer("/executions/0")
                 .filter(|value| value.is_object())
                 .expect("a DuckDB answer carries its executed statement");
             assert_eq!(sql["source"], "local");
             assert_eq!(sql["dialect"], "duckdb");
             assert_eq!(sql["sql"], expected_sql);
-            let mut parameters = vec![
-                serde_json::json!({"type": "date", "value": start}),
-                serde_json::json!({"type": "date", "value": end}),
-            ];
+            let mut parameters = [start, end].into_iter().enumerate().map(|(position, day)| {
+                let days = sutura_domain::calendar::Date::parse(day).expect("fixture date").days_since_epoch();
+                serde_json::json!({"binding": {"kind": "position", "value": position}, "value": {"type": "date32", "value": days}})
+            }).collect::<Vec<_>>();
             if fixed {
-                parameters.push(serde_json::json!({"type": "text", "value": "active"}));
+                parameters.push(serde_json::json!({"binding": {"kind": "position", "value": 2}, "value": {"type": "utf8", "value": "active"}}));
                 assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
             }
             assert_eq!(sql["parameters"], serde_json::json!(parameters));
-            assert_eq!(body.get("logical_plan"), Some(&serde_json::Value::Null));
+            assert_eq!(body["executions"].as_array().expect("submissions").len(), 1);
+            assert_eq!(sql["kind"], "sql");
             assert!(
                 !http.body.contains(TOKEN),
                 "the response must not carry the access credential"
@@ -132,12 +133,13 @@ mod tests {
             );
             assert_eq!(mcp.status, 200, "{}", mcp.body);
             let result = mcp.json();
-            assert_eq!(result["result"]["structuredContent"]["executed_sql"], *sql);
+            assert_eq!(result["result"]["structuredContent"]["executions"], body["executions"]);
             let text = result["result"]["content"][0]["text"]
                 .as_str()
                 .expect("MCP has a text result");
             assert!(text.contains(expected_sql), "{text}");
-            assert!(text.contains(start), "{text}");
+            let days = sutura_domain::calendar::Date::parse(start).expect("fixture date").days_since_epoch();
+            assert!(text.contains(&days.to_string()), "{text}");
             assert!(!mcp.body.contains(TOKEN), "MCP must not carry the access credential");
         }
         let refused = served.post(
@@ -146,8 +148,7 @@ mod tests {
             r#"{"metrics":["absent"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
         );
         assert_eq!(refused.status, 404, "{}", refused.body);
-        assert!(refused.json().get("executed_sql").is_none());
-        assert!(refused.json().get("logical_plan").is_none());
+        assert!(refused.json().get("executions").is_none());
         let raw_input = served.post(
             &v1(sutura_http::constants::base_paths::QUERY),
             Some(TOKEN),
@@ -211,12 +212,11 @@ mod tests {
         assert_eq!(bounded.status, 413, "rows alone fit; execution text must cross the budget");
         let body = bounded.json();
         assert_eq!(body["reason"]["code"], "result_too_large");
-        assert!(body.get("executed_sql").is_none());
-        assert!(body.get("logical_plan").is_none());
+        assert!(body.get("executions").is_none());
     }
 
     #[test]
-    fn a_files_answer_reports_a_logical_plan_but_a_combined_answer_claims_no_single_execution() {
+    fn files_and_combined_answers_report_every_submitted_plan() {
         let served = start_configured(
             "files-logical-plan",
             &crate::harness::settings(&crate::harness::example_root()),
@@ -228,9 +228,10 @@ mod tests {
         );
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
-        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
+        assert_eq!(body["executions"][0]["kind"], "datafusion");
+        assert_eq!(body["executions"][0]["source"], "local");
         let plan = body
-            .get("logical_plan")
+            .pointer("/executions/0/logical_plan")
             .and_then(serde_json::Value::as_str)
             .expect("files reports its submitted logical plan");
         assert!(plan.contains("TableScan: fct_subscription_monthly"), "{plan}");
@@ -248,8 +249,8 @@ mod tests {
         );
         assert_eq!(stacked.status, 200, "{}", stacked.body);
         let body = stacked.json();
-        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
-        let plan = body["logical_plan"].as_str().expect("one complete stacked plan is reported");
+        assert_eq!(body["executions"].as_array().expect("submissions").len(), 1);
+        let plan = body["executions"][0]["logical_plan"].as_str().expect("one complete stacked plan is reported");
         assert!(plan.contains("TableScan: fct_subscription_monthly"), "{plan}");
         assert!(plan.contains("TableScan: fct_usage_daily"), "{plan}");
         assert_eq!(
@@ -268,8 +269,13 @@ mod tests {
         );
         assert_eq!(reply.status, 200, "{}", reply.body);
         let body = reply.json();
-        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
-        assert_eq!(body.get("logical_plan"), Some(&serde_json::Value::Null));
+        let executions = body["executions"].as_array().expect("all source and combine submissions");
+        assert!(executions.len() >= 3, "{body}");
+        assert_eq!(executions[0]["stage"], "files");
+        assert_eq!(executions[1]["stage"], "files");
+        assert_ne!(executions[0]["source"], executions[1]["source"]);
+        assert!(executions.iter().skip(2).all(|execution| execution["stage"] == "combine"));
+        assert!(executions.iter().all(|execution| execution["logical_plan"].as_str().is_some_and(|plan| !plan.is_empty())));
     }
 }
 

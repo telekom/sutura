@@ -132,6 +132,7 @@ fn a_granted_partition_read_runs_end_to_end_through_in_process_workers() {
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key: task,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -184,6 +185,7 @@ fn a_reading_worker_refuses_an_ungranted_source_leaf() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task_key("22222222-2222-2222-2222-222222222222"),
                     task_count: 1,
                     plan: MaybeEncoded::Decoded(scan),
@@ -235,6 +237,7 @@ fn a_reading_worker_refuses_a_grant_whose_leg_digest_is_not_the_wires() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -276,6 +279,7 @@ fn a_reading_worker_refuses_a_leaf_carrying_no_grant() {
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -336,6 +340,7 @@ fn a_second_reading_key_presented_for_the_same_task_is_refused() {
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -376,6 +381,7 @@ impl PartitionReader for CertifiesNothing {
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Ok(read_later(Arc::clone(schema), async { Err(Unread::LegNotCertified) }))
     }
@@ -409,6 +415,7 @@ fn a_reading_worker_refusing_to_certify_its_leg_is_read_back_as_the_planning_nod
                 .coordinator_channel(
                     HeaderMap::new(),
                     SetPlanRequest {
+                        completion: None,
                         task_key: task,
                         task_count: 1,
                         plan: MaybeEncoded::Encoded(encoded),
@@ -494,6 +501,7 @@ impl PartitionReader for Forwards {
         _source: &SourceName,
         _partition: &[u8],
         _schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
     }
@@ -509,6 +517,7 @@ impl PartitionReader for Forwards {
         _partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         let for_pool = forwarded.for_pool(&pool());
         self.0
@@ -536,6 +545,7 @@ fn installed_and_run(reader: Option<Arc<dyn PartitionReader>>, leaf: PartitionSc
             .coordinator_channel(
                 HeaderMap::new(),
                 SetPlanRequest {
+                    completion: None,
                     task_key: task,
                     task_count: 1,
                     plan: MaybeEncoded::Encoded(encoded),
@@ -680,6 +690,7 @@ impl PartitionReader for Either {
         _source: &SourceName,
         _partition: &[u8],
         schema: &SchemaRef,
+        _capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.unforwarded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(Box::pin(RecordBatchStreamAdapter::new(
@@ -695,8 +706,9 @@ impl PartitionReader for Either {
         partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
+        capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
-        self.forwards.read_forwarded(wire, source, partition, schema, forwarded)
+        self.forwards.read_forwarded(wire, source, partition, schema, forwarded, capture)
     }
 }
 
