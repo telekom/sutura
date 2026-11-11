@@ -10,8 +10,8 @@ import subprocess
 import sys
 import tempfile
 
-SOURCE = "976bf04b52724dc45fd6bf95e0277e5d5ddec033"
-TREE = "4eaae03d1f117799821d534f7648ec4d7fe24e53"
+SOURCE = "ce1717f7320f2b6a554a6443e20557e8e39bc0ef"
+TREE = "8ae15b55441c15dc8bb8d8ea3ff521507915aa53"
 BASE = "fadd25ee2ae393e9312ef0afe24140a16c7b12e3"
 RUNNER = "nix/oracle-raw-cells.sh"
 SERVED = "crates/sutura-cli/tests/served/oracle_raw.rs"
@@ -26,9 +26,9 @@ CELLS = {
         "",
         PREFIX + "oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows",
         SERVED,
-        'assert_eq!(reply.status, 403, "{}", reply.body);',
+        'assert_eq!(reply.status, status, "{}", reply.body);',
         ["left: 200", "right: 403"],
-        "c0a34b47405a8fa4b225d374dce3716c7819eaa6",
+        "71e007625d9bddcade58a1abf350fc10ce084184",
     ),
     "admission": (
         RAW,
@@ -38,7 +38,7 @@ CELLS = {
         PORT,
         "assert_eq!(\n                error.to_string(),",
         ['right: "this source accepts one SELECT or WITH query without statement delimiters"'],
-        "7d5f54baa2e981560e0d9cd1e83ecf7ade51662c",
+        "fbc2657bb26554e61760b4acfac9c234beff94d3",
     ),
     "cap": (
         RAW,
@@ -48,7 +48,7 @@ CELLS = {
         PORT,
         "assert_eq!(rows.rows().len(), cap as usize + 1);",
         ["left: 10002", "right: 10001"],
-        "bd49938aa0c4063ca6cf2c2835c0fc4b61484a5f",
+        "100923f41da07d432d3674136a4b88789ff59bcc",
     ),
     "audit": (
         "crates/sutura-app/src/surface.rs",
@@ -58,7 +58,7 @@ CELLS = {
         AUDIT,
         'assert!(lines[0].contains("local=shared-service-user"), "{lines:?}");',
         ["executed_as=None"],
-        "118caa8a7ff42202822e8f36d5b19aac8cf5389b",
+        "3a50d8b393f1ba6a0f8d1cca713f5188870d3d69",
     ),
 }
 
@@ -289,6 +289,10 @@ def claims(out, args):
     assert text.count("test " + PREFIX + "oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix ... ok") == 2
     assert manifest() == baseline
     for name, (path, before, after, cell, test, marker, needles, expected) in CELLS.items():
+        if name == "read-only":
+            mode = os.environ["SUTURA_ORACLE_ACCEPTANCE_MODE"]
+            assert mode in ("native", "verified")
+            needles = ["left: 200", "right: 422" if mode == "native" else "right: 403"]
         if name == "audit" and os.environ["SUTURA_ORACLE_ACCEPTANCE_MODE"] != "native":
             continue
         status, text = execute(command(cell), out / f"{name}-green.log")
@@ -346,11 +350,14 @@ def base_cells(out):
         ("oracle,rdbms,sql", "oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allowed"),
     ]:
         full = PREFIX + cell
-        marker = 'assert_eq!(reply.status, 200, "{}", reply.body);'
+        marker = '.expect("the configured Oracle source accepts raw statements")'
         line = assertion_line(SERVED, marker, full)
         invocation = ["cargo", "test", "--locked", "--profile", os.environ["SUTURA_ORACLE_CARGO_PROFILE"], "-p", "sutura-cli", "--features", features, "--test", "served", full, "--", "--exact", "--ignored", "--nocapture"]
         status, text = execute(invocation, out / f"{features.replace(',', '-')}-{cell}.log")
-        red(status, text, full, SERVED, line, ["right: 200"])
+        red(status, text, full, SERVED, line, [
+            "the configured Oracle source accepts raw statements",
+            "tools.run_sql.sources lists `local`, whose adapter accepts no raw statement. List a source that does, or set tools.run_sql.enabled to false",
+        ])
         assert manifest() == baseline
     state(out, "base-overlay-after")
 
