@@ -17,25 +17,21 @@ replace(
             );
             return Err(Error::native_encryption_refused("unprotected native control packet"));''',
 )
-replace(
-    "crates/sutura-cli/tests/served/oracle_native.rs",
-    'let case = format!("oracle-native-{expected}-{path}");',
-    '''let case = format!("oracle-native-{expected}-{path}");
-        eprintln!("native-control-diagnostic path={path} expected={expected}");''',
-)
-for old, new in [
-    ('let connection = self.connect()?;', 'eprintln!("native-control-diagnostic dictionary_stage=connect");\n        let connection = self.connect()?;\n        eprintln!("native-control-diagnostic dictionary_stage=read_only");'),
-    ('let binds = self.binds();', 'eprintln!("native-control-diagnostic dictionary_stage=query");\n        let binds = self.binds();'),
-    ('let dictionary = assemble(', 'eprintln!("native-control-diagnostic dictionary_stage=rows");\n        let dictionary = assemble('),
-    ('connection.rollback().map_err(read_err)?;', 'eprintln!("native-control-diagnostic dictionary_stage=rollback");\n        connection.rollback().map_err(read_err)?;'),
+for old, stage in [
+    ('connection.map_err(read_err)', 'connect'),
+    ('connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;', 'read_only'),
+    ('connection.query(&self.statement, &params).map_err(read_err)?;', 'query'),
+    ('row.map_err(read_err)?', 'rows'),
+    ('connection.rollback().map_err(read_err)?;', 'rollback'),
 ]:
-    replace("crates/sutura-catalog-rdbms/src/oracle_reader.rs", old, new)
+    labeled = old.replace('map_err(read_err)', f'map_err(|on| {{ eprintln!("native-control-diagnostic dictionary_stage={stage}"); read_err(on) }})')
+    replace("crates/sutura-catalog-rdbms/src/oracle_reader.rs", old, labeled)
 replace(
     "nix/oracle-login-fixtures.sh",
     '''  SUTURA_ORACLE_NATIVE_EXPECT=success cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \\
     oracle_native::oracle_native_logins_require_both_strong_services_on_both_production_paths -- --ignored --nocapture''',
     '''  diagnostic_out="$PWD/target/oracle-native-probe/cohort-$SUTURA_ORACLE_DIAGNOSTIC_COHORT"
-  diagnostic_iteration=1
+  for diagnostic_iteration in $(seq 1 100); do
     diagnostic_log="$(mktemp)"
     printf '%s iteration=%s start\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" | tee -a "$diagnostic_out/iterations.tsv"
     set +e
@@ -47,6 +43,10 @@ replace(
     rm -f "$diagnostic_log"
     cat "$diagnostic_out/iteration-$diagnostic_iteration.log"
     printf '%s iteration=%s exit=%s\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" "$diagnostic_status" | tee -a "$diagnostic_out/iterations.tsv"
+    if [ "$diagnostic_status" -ne 0 ]; then
+      break
+    fi
+  done
   return 0''',
 )
 replace(
@@ -69,7 +69,7 @@ diagnostic_traces=0
 for trace in /opt/oracle/diag/rdbms/*/*/trace/*.trc; do
   [ -f "$trace" ] || continue
   diagnostic_traces=$((diagnostic_traces + 1))
-  { head -n 400 "$trace"; tail -n 400 "$trace"; } | awk '/^ERROR #/ { if (match($0, /err=[0-9]+/)) { err=substr($0, RSTART, RLENGTH); if (match($0, /tim=[0-9]+/)) print err, substr($0, RSTART, RLENGTH) } }'
+  { head -n 400 "$trace"; tail -n 400 "$trace"; } | awk '/^\\*\\*\\* [0-9][0-9][0-9][0-9]-/ { stamp=$2 } /^ERROR #/ { if (match($0, /err=[0-9]+/)) { err=substr($0, RSTART, RLENGTH); if (match($0, /tim=[0-9]+/)) print err, substr($0, RSTART, RLENGTH) } } /ORA-01466/ { print stamp, "ORA-01466" }'
 done
 printf 'trace_files=%s head_lines=400 tail_lines=400\\n' "$diagnostic_traces"
 DIAGNOSTIC''',
@@ -77,7 +77,7 @@ DIAGNOSTIC''',
 replace(
     "nix/oracle-native-probe.sh",
     "SET PAGESIZE 100 LINESIZE 200",
-    "EXEC DBMS_MONITOR.SERV_MOD_ACT_TRACE_ENABLE(service_name => SYS_CONTEXT('USERENV', 'SERVICE_NAME'), waits => FALSE, binds => FALSE);\nSET PAGESIZE 100 LINESIZE 200",
+    "ALTER SYSTEM SET EVENTS '1466 trace name errorstack level 1';\nSET PAGESIZE 100 LINESIZE 200",
 )
 replace(
     "nix/oracle-native-probe.sh",
@@ -92,8 +92,5 @@ replace(
 replace(
     "flake.nix",
     "            bash nix/oracle-native-probe.sh\n",
-    '''            for diagnostic_cohort in 1 2 3; do
-              SUTURA_ORACLE_DIAGNOSTIC_COHORT="$diagnostic_cohort" bash nix/oracle-native-probe.sh
-            done
-''',
+    '            SUTURA_ORACLE_DIAGNOSTIC_COHORT=1 bash nix/oracle-native-probe.sh\n',
 )
