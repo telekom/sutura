@@ -756,7 +756,13 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     // answer is bounded by construction and there is nothing to detect.
     let (ordering, limit) = match plan.top() {
         Some(requested) => (
-            top::ordering(requested, measure_expr, bucket_expr, tiebreak),
+            top::ordering(
+                requested,
+                // Repeating a guard here would add placeholders without recording their values.
+                if primary.guard().is_empty() { measure_expr } else { builder::col(primary.label()) },
+                bucket_expr,
+                tiebreak,
+            ),
             usize::try_from(requested.n().get()).unwrap_or(usize::MAX),
         ),
         None => (tiebreak, usize::try_from(plan.row_limit()).unwrap_or(usize::MAX)),
