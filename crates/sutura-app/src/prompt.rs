@@ -808,10 +808,11 @@ rather than presenting the two numbers as comparable.
 
 Use `executed_sql` when the answer supplies it: the submitted DuckDB statement and ordered typed
 bindings. `logical_plan` is instead a diagnostic DataFusion plan submitted to its engine, not SQL
-or a stable replay format. Null means unavailable; combined and unsupported executions report no
-single statement or plan. Never invent verification SQL when SQL is unavailable, or label a logical
-plan as SQL. Replaying either needs the original tables and execution context. These details may
-reveal physical identifiers and certified filter values to the caller authorized to ask the metric.";
+or a stable replay format. Null means unavailable; unsupported adapters and answers assembled from
+several executions report no single statement or plan. Never invent verification SQL when SQL is
+unavailable, or label a logical plan as SQL. Replaying either needs the original tables and execution
+context. These details may reveal physical identifiers and certified filter values to the caller
+authorized to ask the metric.";
 
 /// The operator's own text, appended last.
 fn operator_instructions(text: &str) -> String {

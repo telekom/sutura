@@ -82,8 +82,9 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              an approximate answer. Every answer carries the definition version and digest that produced it, \
              and the rows themselves. executed_sql contains the submitted DuckDB statement and typed \
              bindings when available; files answers instead carry a diagnostic DataFusion logical_plan. \
-             Null means unavailable, including combined answers. Never invent verification SQL from \
-             missing SQL or a logical plan. Neither field promises an independent replay. \
+             Null means unavailable, including answers assembled from several executions. \
+             Never invent verification SQL from missing SQL or a logical plan. \
+             Neither field promises an independent replay. \
              There is no way to send SQL, a table name or a filter expression, and \
              an argument that names one is rejected."
         }
