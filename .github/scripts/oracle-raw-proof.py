@@ -154,7 +154,7 @@ def red(status, text, cell, path, line, needles):
 def diagnostic(out):
     assert os.environ["SUTURA_ORACLE_ACCEPTANCE_MODE"] == "native"
     baseline = state(out, "diagnostic-before")
-    paths = ["crates/sutura-exec-oracle/src/lib.rs", SERVED]
+    paths = ["crates/sutura-exec-oracle/src/lib.rs", SERVED, RAW]
     saved = {name: (Path(name).read_bytes(), Path(name).stat().st_mode & 0o777) for name in paths}
     try:
         path = Path(paths[0])
@@ -173,13 +173,65 @@ def diagnostic(out):
         _ => (None, "other_driver_error"),
     };
     eprintln!("oracle_raw_diagnostic code={code:?} kind={kind}");
+    let reason = match cause.kind() {
+        oracledb::ErrorKind::NativeEncryptionRefused(reason) => match *reason {
+            "invalid Diffie-Hellman group" => "invalid_diffie_hellman_group",
+            "invalid Diffie-Hellman parameters" => "invalid_diffie_hellman_parameters",
+            "invalid Diffie-Hellman public value" => "invalid_diffie_hellman_public_value",
+            "invalid Diffie-Hellman shared value" => "invalid_diffie_hellman_shared_value",
+            "invalid Diffie-Hellman subgroup" => "invalid_diffie_hellman_subgroup",
+            "invalid native key state" => "invalid_native_key_state",
+            "invalid negotiation field" => "invalid_negotiation_field",
+            "invalid negotiation header" => "invalid_negotiation_header",
+            "invalid negotiation packet" => "invalid_negotiation_packet",
+            "invalid negotiation service fields" => "invalid_negotiation_service_fields",
+            "invalid packet length" => "invalid_packet_length",
+            "invalid protected record" => "invalid_protected_record",
+            "invalid supervisor services" => "invalid_supervisor_services",
+            "legacy native cryptography is not supported" => "legacy_native_cryptography_is_not_supported",
+            "malformed negotiation" => "malformed_negotiation",
+            "missing Diffie-Hellman exchange" => "missing_diffie_hellman_exchange",
+            "missing authentication key folding" => "missing_authentication_key_folding",
+            "missing or repeated authentication key folding" => "missing_or_repeated_authentication_key_folding",
+            "native connection closed on reset" => "native_connection_closed_on_reset",
+            "native mode cannot renegotiate TLS" => "native_mode_cannot_renegotiate_tls",
+            "native mode requires TCP" => "native_mode_requires_tcp",
+            "negotiation deadline exceeded" => "negotiation_deadline_exceeded",
+            "negotiation exceeds bound" => "negotiation_exceeds_bound",
+            "negotiation length mismatch" => "negotiation_length_mismatch",
+            "packet size cannot hold protection" => "packet_size_cannot_hold_protection",
+            "peer disabled native negotiation" => "peer_disabled_native_negotiation",
+            "peer refused required negotiation service" => "peer_refused_required_negotiation_service",
+            "required negotiation services missing" => "required_negotiation_services_missing",
+            "short native key material" => "short_native_key_material",
+            "supervisor refused negotiation" => "supervisor_refused_negotiation",
+            "unexpected native authentication service" => "unexpected_native_authentication_service",
+            "unknown or duplicate negotiation service" => "unknown_or_duplicate_negotiation_service",
+            "unprotected native control packet" => "unprotected_native_control_packet",
+            "unsupported Diffie-Hellman group" => "unsupported_diffie_hellman_group",
+            "unsupported Diffie-Hellman size" => "unsupported_diffie_hellman_size",
+            _ => "other_static_reason",
+        },
+        _ => "not_native_encryption_refused",
+    };
+    eprintln!("oracle_raw_diagnostic_reason={reason}");
 '''
         assert path.read_text().count(before) == 1
         path.write_text(path.read_text().replace(before, after))
+        path = Path(RAW)
+        text = path.read_text()
+        marker = '.map_err(execute_err_mapped)?'
+        assert text.count(marker) == 4
+        for stage in ["set_read_only", "statement_text", "statement_build", "parse_describe"]:
+            text = text.replace(marker, f'.map_err(|cause| {{ let mapped = execute_err_mapped(cause); eprintln!("oracle_raw_diagnostic_stage={stage}"); mapped }})?', 1)
+        marker = "        || timed(connection, deadline),\n    )?;"
+        assert text.count(marker) == 1
+        text = text.replace(marker, '        || timed(connection, deadline),\n    ).map_err(|cause| { eprintln!("oracle_raw_diagnostic_stage=fetch"); cause })?;')
+        path.write_text(text)
         path = Path(SERVED)
         before = '        let reply = ran(&served, statement);\n        assert_eq!(reply.status, 403, "{}", reply.body);\n'
         after = '''        let reply = ran(&served, statement);
-        for line in served.awaiting("oracle_raw_diagnostic").iter().filter(|line| line.starts_with("oracle_raw_diagnostic ")) {
+        for line in served.awaiting("oracle_raw_diagnostic_stage=").iter().filter(|line| line.starts_with("oracle_raw_diagnostic")) {
             println!("{line}");
         }
         assert_eq!(reply.status, 403, "{}", reply.body);
@@ -201,8 +253,10 @@ def diagnostic(out):
         status, text = execute(command(cell), out / "read-only-diagnostic.log")
         red(status, text, cell, SERVED, line, ["left: 422", "right: 403"])
         codes = re.findall(r"^oracle_raw_diagnostic code=(None|Some\(\d+\)) kind=([a-z_]+)$", text, re.MULTILINE)
-        assert codes
-        record(out / "read-only-diagnostic.json", {"codes": codes, "diagnostic_only": True})
+        reasons = re.findall(r"^oracle_raw_diagnostic_reason=([a-z_]+)$", text, re.MULTILINE)
+        stages = re.findall(r"^oracle_raw_diagnostic_stage=([a-z_]+)$", text, re.MULTILINE)
+        assert codes and reasons and stages
+        record(out / "read-only-diagnostic.json", {"codes": codes, "reasons": reasons, "stages": stages, "diagnostic_only": True})
     finally:
         for name, (data, mode) in saved.items():
             Path(name).write_bytes(data)
