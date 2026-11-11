@@ -234,6 +234,9 @@ fn query_of(body: QuestionBody, clock: &impl sutura_runtime::relative_range::Wal
     )
 }
 
+pub mod execution;
+use execution::ExecutedSqlBody;
+
 // ---------------------------------------------------------------- responses ----
 
 /// What a question produced.
@@ -261,6 +264,12 @@ pub enum OutcomeBody {
         /// so an `executed_as` inside it would be an empty list on every catalog response, which reads
         /// as "no leg ran" rather than as "this is not an answer".
         executed_as: Vec<LegBody>,
+        /// Exact SQL and ordered typed bindings for a whole DuckDB answer; null otherwise.
+        /// Unavailable for other adapters and for federated, partitioned or combined answers.
+        executed_sql: Option<ExecutedSqlBody>,
+        /// The DataFusion logical plan handed to the engine, before analysis and optimization.
+        /// Diagnostic text, not SQL or a stable replay format. Null for other or multi-stage answers.
+        logical_plan: Option<String>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the
@@ -399,6 +408,8 @@ impl From<&ToolOutcome> for Outcome {
                 body: OutcomeBody::Answer {
                     provenance: provenance_body(provenance),
                     executed_as: legs(provenance.executed_as()),
+                    executed_sql: execution::sql(provenance.execution()),
+                    logical_plan: execution::logical_plan(provenance.execution()),
                     columns: rows.columns().to_vec(),
                     rows: render(rows),
                 },

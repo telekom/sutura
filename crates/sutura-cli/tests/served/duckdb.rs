@@ -61,6 +61,124 @@ mod tests {
         assert_eq!(dropped.json()["outcome"], "raw_refusal", "{}", dropped.body);
         assert_eq!(raw(SEGMENTS).json()["rows"], body["rows"]);
     }
+    #[cfg(feature = "agent")]
+    #[test]
+    fn a_served_duckdb_answer_reports_its_statement_and_only_its_own_bindings_on_both_transports() {
+        let case = "duckdb-executed-sql";
+        let settings = crate::harness::raw_sql_deployment(
+            case,
+            crate::harness::AGENT_LOOPBACK,
+            &format!("{}  access_token: \"{}\"\n", crate::harness::SINGLE_USER, TOKEN),
+        );
+        let served = start_configured(case, &settings);
+        let initialized = served.mcp(Some(TOKEN), &serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                "clientInfo": {"name": "execution-details", "version": "0.0.0"}}
+        }).to_string());
+        assert_eq!(initialized.status, 200, "{}", initialized.body);
+        let revenue = include_str!("../snapshots/recurring-revenue-june__statement.snap")
+            .lines().find(|line| line.starts_with("SELECT ")).expect("the golden carries SQL");
+        let churn = include_str!("../snapshots/churn-rate-by-month__statement.snap")
+            .lines().find(|line| line.starts_with("SELECT ")).expect("the golden carries SQL");
+        for (metric, start, end, expected_sql, fixed) in [
+            ("recurring_revenue", "2026-06-01", "2026-07-01", revenue, true),
+            ("churn_rate", "2026-05-01", "2026-06-01", churn, false),
+        ] {
+            let question = serde_json::json!({"metrics": [metric], "grain": "month", "range": {"start": start, "end": end}});
+            let http = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &question.to_string());
+            assert_eq!(http.status, 200, "{}", http.body);
+            let body = http.json();
+            let sql = body.get("executed_sql").filter(|value| value.is_object()).expect("a DuckDB answer carries its executed statement");
+            assert_eq!(sql["source"], "local");
+            assert_eq!(sql["dialect"], "duckdb");
+            assert_eq!(sql["sql"], expected_sql);
+            let mut parameters = vec![serde_json::json!({"type": "date", "value": start}), serde_json::json!({"type": "date", "value": end})];
+            if fixed {
+                parameters.push(serde_json::json!({"type": "text", "value": "active"}));
+                assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+            }
+            assert_eq!(sql["parameters"], serde_json::json!(parameters));
+            assert_eq!(body.get("logical_plan"), Some(&serde_json::Value::Null));
+            assert!(!http.body.contains(TOKEN), "the response must not carry the access credential");
+            let mcp = served.mcp(Some(TOKEN), &serde_json::json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "ask_metric", "arguments": question}
+            }).to_string());
+            assert_eq!(mcp.status, 200, "{}", mcp.body);
+            let result = mcp.json();
+            assert_eq!(result["result"]["structuredContent"]["executed_sql"], *sql);
+            let text = result["result"]["content"][0]["text"].as_str().expect("MCP has a text result");
+            assert!(text.contains(expected_sql), "{text}");
+            assert!(text.contains(start), "{text}");
+            assert!(!mcp.body.contains(TOKEN), "MCP must not carry the access credential");
+        }
+        let refused = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN),
+            r#"{"metrics":["absent"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#);
+        assert_eq!(refused.status, 404, "{}", refused.body);
+        assert!(refused.json().get("executed_sql").is_none());
+        assert!(refused.json().get("logical_plan").is_none());
+        let raw_input = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), r#"{"sql":"SELECT 1"}"#);
+        assert_eq!(raw_input.status, 400, "{}", raw_input.body);
+    }
+
+    #[test]
+    fn reported_execution_text_counts_toward_the_served_response_budget() {
+        let case = "execution-text-budget";
+        let root = crate::harness::derived_beside(&crate::harness::config_path(case));
+        let catalog = root.join("catalog");
+        std::fs::create_dir_all(&catalog).expect("the fixture catalog creates");
+        for (name, document) in [
+            ("declaration.md", "---\nkind: declaration\ndefinitions: [structure, metrics, grains, anchors, descriptions, column_types]\nknowledge: []\n---\n"),
+            ("model.md", "---\nkind: model\nname: events\nsource: local\ntable: events\ncolumns:\n  - {name: month, type: DATE, nullable: false}\n  - {name: amount, type: NUMERIC, nullable: false}\n  - {name: payload, type: VARCHAR, nullable: false}\n---\nThe fixture events.\n"),
+            ("metric.md", "---\nkind: metric\nname: payload_total\nmodel: events\nmeasure:\n  simple: {aggregate: sum, column: amount}\ntime_column: month\ngrains: [month]\ndimensions:\n  - {name: payload, column: payload}\nanchor:\n  range: {start: 2026-06-01, end: 2026-07-01}\n  value: 1\naudience: open\n---\nThe fixture total.\n"),
+        ] {
+            std::fs::write(catalog.join(name), document).expect("the fixture document writes");
+        }
+        let limit = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
+        // The payload, ten date bytes and one measure byte leave exactly one byte for execution.
+        let payload = "x".repeat(usize::try_from(limit - 12).expect("the test budget fits usize"));
+        std::fs::write(root.join("events.csv"), format!("month,amount,payload\n2026-06-01,1,{payload}\n"))
+            .expect("the fixture data writes");
+        let settings = crate::harness::settings_over(
+            &catalog, &root, crate::harness::LOOPBACK,
+            &format!("{}  access_token: \"{}\"\n", crate::harness::SINGLE_USER, TOKEN),
+            &crate::harness::files_source("local", &root),
+        );
+        let served = start_configured(case, &settings);
+        let mut question = serde_json::json!({"metrics": ["payload_total"], "grain": "month", "range": {"start": "2026-06-01", "end": "2026-07-01"}});
+        let small = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &question.to_string());
+        assert_eq!(small.status, 200, "{}", small.body);
+        assert_eq!(small.json()["rows"], serde_json::json!([["2026-06-01", "1"]]));
+        question["dimensions"] = serde_json::json!(["payload"]);
+        let bounded = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &question.to_string());
+        assert_eq!(bounded.status, 413, "rows alone fit; execution text must cross the budget");
+        let body = bounded.json();
+        assert_eq!(body["reason"]["code"], "result_too_large");
+        assert!(body.get("executed_sql").is_none());
+        assert!(body.get("logical_plan").is_none());
+    }
+
+    #[test]
+    fn a_files_answer_reports_a_logical_plan_but_a_combined_answer_claims_no_single_execution() {
+        let served = start_configured("files-logical-plan", &crate::harness::settings(&crate::harness::example_root()));
+        let reply = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &recurring_revenue_june());
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
+        let plan = body.get("logical_plan").and_then(serde_json::Value::as_str).expect("files reports its submitted logical plan");
+        assert!(plan.contains("TableScan: fct_subscription_monthly"), "{plan}");
+        assert!(plan.contains("Aggregate:") && plan.contains("mrr_cents"), "{plan}");
+        assert!(!plan.contains(TOKEN));
+        assert!(!plan.contains(".csv"), "the logical display must not print the file provider: {plan}");
+        assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+        let combined = start_configured("combined-execution-unavailable", &crate::harness::settings_spanning_two_sources("combined-execution-unavailable"));
+        let reply = combined.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN), &crate::harness::recurring_revenue_by_region());
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        let body = reply.json();
+        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
+        assert_eq!(body.get("logical_plan"), Some(&serde_json::Value::Null));
+    }
 }
 
 // `tools.run_sql.sources` and `federation_allowed` on the served binary, declared here because

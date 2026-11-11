@@ -258,10 +258,34 @@ definition version and digest that it came from:
     "definition_version": "local-1",
     "definition_digest": "bbc08b0aadb05419d46c0855edcf9db6c1b204fead86569bc4c872377cd55af4"
   },
+  "executed_sql": null,
+  "logical_plan": null,
   "columns": ["period", "recurring_revenue"],
   "rows": [["2026-06-01", "202121"]]
 }
 ```
+
+Answers include two nullable execution fields on HTTP and MCP:
+
+- `executed_sql` is an object with `source`, `dialect: "duckdb"`, `sql` and `parameters` for a whole
+  DuckDB execution. Each positional parameter has `type: "date"` or `type: "text"` and a string
+  `value`, in binding order. SQL and bindings come from the same statement submitted to the driver;
+  parameter values are not inlined.
+- `logical_plan` is the diagnostic DataFusion logical plan submitted to the engine for a whole
+  `files` answer, before analysis and optimization. Its text format may change. It is not SQL, a
+  physical plan or a replay format.
+
+The unused field is `null`. Both are `null` for other adapters, federation, drill-across and
+partitioned or combined answers: no single statement or plan explains their complete execution in
+this version. These fields contain no authentication or session-control statements. A caller
+allowed to query a metric may see its physical identifiers and certified fixed-filter values here;
+this does not change the separate audience policy for catalog listings. Refusals carry neither
+field. Never invent verification SQL when it is unavailable or when only a logical plan is present.
+Execution details are recorded outside the definition and schema digests; the record is not a
+cryptographic proof that the engine ran it. Even exact SQL needs the original attachments and
+execution context to replay. The existing
+response text budget also counts these details; it remains a text estimate, not a strict JSON wire
+size limit.
 
 A refusal has `"outcome": "refusal"` and a status, a stable `code` and a sentence:
 

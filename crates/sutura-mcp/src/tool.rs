@@ -80,7 +80,11 @@ pub(crate) const fn description(capability: Capability) -> &'static str {
              The metrics, time grains, dimensions and permitted filter values are fixed by this deployment: \
              a question outside them comes back as a refusal with a machine-readable reason rather than as \
              an approximate answer. Every answer carries the definition version and digest that produced it, \
-             and the rows themselves. There is no way to send SQL, a table name or a filter expression, and \
+             and the rows themselves. executed_sql contains the submitted DuckDB statement and typed \
+             bindings when available; files answers instead carry a diagnostic DataFusion logical_plan. \
+             Null means unavailable, including combined answers. Never invent verification SQL from \
+             missing SQL or a logical plan. Neither field promises an independent replay. \
+             There is no way to send SQL, a table name or a filter expression, and \
              an argument that names one is rejected."
         }
         // Never advertised here: `crate::server::AgentSurface::asked` removes it unconditionally. The

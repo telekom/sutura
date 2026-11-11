@@ -57,6 +57,7 @@ pub struct ResultBatches {
     schema: SchemaRef,
     batches: Vec<RecordBatch>,
     rows: usize,
+    execution: Option<super::execution::Execution>,
 }
 
 /// Why a result stream was refused, before any value in it was read.
@@ -301,11 +302,24 @@ impl Accumulating {
             schema: self.announced,
             batches: self.batches,
             rows: self.rows,
+            execution: None,
         }
     }
 }
 
 impl ResultBatches {
+    /// Attaches facts from the same execution that produced these batches.
+    #[must_use]
+    pub fn with_execution(mut self, execution: super::execution::Execution) -> Self {
+        self.execution = Some(execution);
+        self
+    }
+
+    /// Takes the request's execution facts before the presentation edge decodes the batches.
+    pub fn take_execution(&mut self) -> Option<super::execution::Execution> {
+        self.execution.take()
+    }
+
     /// A result with no rows, under a schema - what an adapter answers for an empty stream.
     ///
     /// The budget is the smallest one that exists and nothing is charged against it: no batch is

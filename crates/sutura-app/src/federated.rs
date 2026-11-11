@@ -392,7 +392,7 @@ where
         return Ok(too_many_rows(credentials, federated_ceiling));
     }
     // The same third bound the mono-source path checks, over the COMBINED result.
-    if let Some(limit_bytes) = exceeds_response_bound(&answer) {
+    if let Some(limit_bytes) = exceeds_response_bound(&answer, None) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {
@@ -489,7 +489,7 @@ where
         })?
         .to_rows()
         .map_err(|cause| ServiceError::Unreadable { cause })?;
-    if let Some(limit_bytes) = exceeds_response_bound(&ranked) {
+    if let Some(limit_bytes) = exceeds_response_bound(&ranked, None) {
         return Ok(Answered::under(
             credentials,
             ToolOutcome::Refusal {

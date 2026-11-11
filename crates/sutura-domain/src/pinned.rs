@@ -119,6 +119,7 @@ pub struct Provenance {
     digest: DefinitionDigest,
     schema_digest: SchemaDigest,
     executed_as: ExecutedAs,
+    execution: Option<crate::warehouse::execution::Execution>,
     /// One digest per metric this answer measured, in the order the question listed them.
     ///
     /// The bundle digest names the whole snapshot; each of these names the one metric whose
@@ -128,6 +129,19 @@ pub struct Provenance {
 }
 
 impl Provenance {
+    /// Records request-local execution details, outside the definition and schema digests.
+    #[must_use]
+    pub fn with_execution(mut self, execution: Option<crate::warehouse::execution::Execution>) -> Self {
+        self.execution = execution;
+        self
+    }
+
+    /// A whole-source execution's details, when reported. No record for a partial or combined answer.
+    #[must_use]
+    pub const fn execution(&self) -> Option<&crate::warehouse::execution::Execution> {
+        self.execution.as_ref()
+    }
+
     /// Private, and that is the second half of the fix in this file.
     ///
     /// [`PinnedDefinitions::provenance`] is the only way to obtain one, so a `Provenance` is always a
@@ -148,6 +162,7 @@ impl Provenance {
             digest,
             schema_digest,
             executed_as,
+            execution: None,
             metric_digests,
         }
     }
