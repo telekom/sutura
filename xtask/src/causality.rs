@@ -823,16 +823,6 @@ fn separable_verdict(
             // there: `reverted` asks whether it sat inside a test region of the tree the
             // revert restores, and the post-image cannot answer a question about a line it
             // does not contain. Bound once above, where `relocation` needs the same reader.
-            // Shared by both halves of the composite below - the partition does not change
-            // when some tests are claimed - so it is bound once.
-            let reach = Attempts::of(
-                &separable.revert,
-                &separable.held(),
-                &separable.test_files,
-                files,
-                working_tree,
-                base_tree,
-            );
             if let Some(claim) = claim::Claim::of(messages) {
                 let declared: BTreeSet<String> = claim.cells().iter().cloned().collect();
                 let claim_verdict = claim::run(root, &scoped, &separable.test_files, &claim, claim::Caller::TEST_CAUSALITY);
@@ -845,10 +835,25 @@ fn separable_verdict(
                     // Every added test is a claim cell: the claim arm is the whole proof.
                     return claim_verdict;
                 };
+                // Only an accepted mutation proof can release a claim-only file from the
+                // measured set. It stays at HEAD first, then follows the existing held retry.
+                let ordinary_plan = if claim_verdict == Verdict::Pass {
+                    separable.after_claims(&scoped, &declared, working_tree, base_tree)
+                } else {
+                    separable.clone()
+                };
+                let reach = Attempts::of(
+                    &ordinary_plan.revert,
+                    &ordinary_plan.held(),
+                    &ordinary_plan.test_files,
+                    files,
+                    working_tree,
+                    base_tree,
+                );
                 let ordinary = prove(
                     root,
                     at,
-                    separable,
+                    &ordinary_plan,
                     &remaining,
                     &live.coverage(Coverage::of(remaining.tests(), files, working_tree)),
                     &reach,
@@ -862,6 +867,14 @@ fn separable_verdict(
                     _ => Verdict::Pass,
                 };
             }
+            let reach = Attempts::of(
+                &separable.revert,
+                &separable.held(),
+                &separable.test_files,
+                files,
+                working_tree,
+                base_tree,
+            );
             let coverage = live.coverage(Coverage::of(scoped.tests(), files, working_tree));
             prove(root, at, separable, &scoped, &coverage, &reach, files, working_tree, exempt)
         }

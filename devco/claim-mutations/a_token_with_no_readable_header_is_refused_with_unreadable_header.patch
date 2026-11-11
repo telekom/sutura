@@ -1,9 +1,9 @@
 diff --git a/crates/sutura-http/src/inbound/token.rs b/crates/sutura-http/src/inbound/token.rs
 --- a/crates/sutura-http/src/inbound/token.rs
 +++ b/crates/sutura-http/src/inbound/token.rs
-@@ -369,5 +369,6 @@
-             return Err(TokenRejected::TooLong { limit: MAX_TOKEN_BYTES });
-         }
+@@ -453,5 +453,6 @@
+     pub fn key_id(token: &str) -> Result<KeyId, TokenRejected> {
+         check_size(token, sutura_config::inbound::MaxTokenBytes::CEILING)?;
 -        let header = jsonwebtoken::decode_header(token).map_err(|cause| TokenRejected::UnreadableHeader { cause })?;
 +        let header =
 +            jsonwebtoken::decode_header(token).map_err(|cause| TokenRejected::NotVerified(NotVerified::Crypto { cause }))?;

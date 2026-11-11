@@ -587,6 +587,9 @@ pub(crate) struct RawOutbound {
     reason = "three are an operator's acceptance by name and one a switch, each read once at load"
 )]
 pub(crate) struct RawInbound {
+    /// Both modes: the token size bound, excluding the scheme.
+    #[serde(default)]
+    pub(crate) max_token_bytes: Option<usize>,
     /// `direct` or `behind-gateway`. **Required**, and there is no default because both would be
     /// wrong - see `crate::inbound`.
     #[serde(default)]
