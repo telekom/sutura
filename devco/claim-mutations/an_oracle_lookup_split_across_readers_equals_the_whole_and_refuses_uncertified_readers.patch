@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/serve/kind/split/oracle.rs b/crates/sutura-cli/src/serve/kind/split/oracle.rs
+--- a/crates/sutura-cli/src/serve/kind/split/oracle.rs
++++ b/crates/sutura-cli/src/serve/kind/split/oracle.rs
+@@ -49,6 +49,9 @@
+         grantee: Option<Grantee>,
+         _labels: &JobLabels,
+     ) -> LookupSplit<'_, AnyWarehouseError> {
++        if grantee.is_some() {
++            return Ok(Partitioned::Whole);
++        }
+         let stream_rows = NonZeroUsize::new(STREAM_ROWS).unwrap_or(NonZeroUsize::MIN);
+         let split = match self.split_by_estimate(leg, presented, deadline, above_bytes, stream_rows, readers) {
+             Ok(Planned::Whole) => return Ok(Partitioned::Whole),

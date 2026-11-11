@@ -33,6 +33,7 @@ use super::provenance::Reach;
 use super::regions::{PostImage, has_non_test_additions, scope};
 
 mod separable;
+mod vendored;
 
 /// One file whose diff deleted the evidence a pre-existing test carried.
 #[derive(Debug, PartialEq, Eq)]
@@ -174,7 +175,7 @@ pub(super) fn partition(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let mut build_inputs = Vec::new();
 
     for file in files {
-        match Reach::of(&file.path) {
+        match vendored::reconstruction(Reach::of(&file.path), &file.path) {
             // Nothing cargo builds reads it, so it holds no test any run can reach and reverting
             // it would change nothing either.
             Reach::Outside => {}

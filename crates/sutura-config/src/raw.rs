@@ -202,6 +202,14 @@ pub(crate) struct RawSource {
     /// How the channel to a `postgres` source is secured: `plaintext`, `verified`, or `mutual`.
     #[serde(default)]
     pub(crate) transport_mode: Option<String>,
+    /// Oracle native transport requires its own acknowledgement.
+    #[serde(default)]
+    pub(crate) native_encryption_acknowledged_because: Option<String>,
+    /// Oracle legacy logins are a separate opt-in, with a separate acknowledgement.
+    #[serde(default)]
+    pub(crate) legacy_password_verifier: Option<bool>,
+    #[serde(default)]
+    pub(crate) legacy_password_verifier_acknowledged_because: Option<String>,
     /// The trust anchors a TLS `postgres` source verifies against: `system` or an absolute PEM path.
     #[serde(default)]
     pub(crate) transport_anchors: Option<String>,
@@ -822,6 +830,14 @@ pub(crate) struct RawCatalogConnection {
     pub(crate) password_file: Option<String>,
     #[serde(default)]
     pub(crate) transport_mode: Option<String>,
+    /// Oracle native transport requires its own acknowledgement.
+    #[serde(default)]
+    pub(crate) native_encryption_acknowledged_because: Option<String>,
+    /// Oracle legacy logins are a separate opt-in, with a separate acknowledgement.
+    #[serde(default)]
+    pub(crate) legacy_password_verifier: Option<bool>,
+    #[serde(default)]
+    pub(crate) legacy_password_verifier_acknowledged_because: Option<String>,
     #[serde(default)]
     pub(crate) transport_anchors: Option<String>,
     #[serde(default)]

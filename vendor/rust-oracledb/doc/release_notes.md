@@ -1,5 +1,12 @@
 # <a name="releasenotes"></a> rust-oracledb Release Notes
 
+## Backported fixes
+
+1.  Fixed panic when establishing TCPS connections with multiple rustls crypto
+    providers enabled and no process-wide provider installed. The driver now
+    uses AWS-LC as a fallback while respecting an application-installed provider
+    ([issue 34](https://github.com/oracle/rust-oracledb/issues/34)).
+
 ## rust-oracledb 26.0.0-beta.5 (October 28, 2026)
 
 1.  Added methods
