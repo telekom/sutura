@@ -728,12 +728,11 @@ pub(super) fn also_accept_refusals(inbound: Option<&InboundIdentity>, also_accep
     let all: Vec<(&InboundIdentity, usize)> = std::iter::once((primary, usize::MAX))
         .chain(also_accept.iter().enumerate().map(|(i, v)| (v, i)))
         .collect();
-    for window_end in 1..all.len() {
-        let (later, later_index) = all[window_end];
+    for (window_end, &(later, later_index)) in all.iter().enumerate().skip(1) {
         let later_req = later.requirement();
         let later_issuer = later_req.issuer().as_str();
         let later_audience = later_req.audience().as_str();
-        for &(earlier, _) in &all[..window_end] {
+        for &(earlier, _) in all.iter().take(window_end) {
             let earlier_req = earlier.requirement();
             if earlier_req.issuer().as_str() == later_issuer {
                 refusals.push(NotFitToServe::AlsoAcceptDuplicateIssuer {
