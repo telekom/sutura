@@ -286,7 +286,15 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // principal beside it**: the source opens this request's session with it and resolves
             // who it is. A caller with no assertion has nothing to exchange and is refused. The
             // exchange runs below, after every refusal.
+            //
+            // **A gateway-admitted caller is also refused here (`github.com/telekom/sutura#1884`).**
+            // A gateway proof is a credential the gateway minted — not the caller's own direct
+            // assertion. The gateway has already performed any credential exchange; re-exchanging its
+            // intermediate assertion would bypass the caller's own identity boundary.
             if let Some(delegation) = self.authenticating.get(source) {
+                if context.is_gateway_admitted() {
+                    return Ok(Minted::Refused { source: source.clone() });
+                }
                 let (Some(_), Some(assertion), Some(expires)) = (key, assertion, assertion_expires) else {
                     return Ok(Minted::Refused { source: source.clone() });
                 };
@@ -304,8 +312,12 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                     return Ok(Minted::Refused { source: source.clone() });
                 }
                 // A caller who signs in presents the EXCHANGED token beside their name; the exchange
-                // runs below, after every refusal.
+                // runs below, after every refusal. Gateway-admitted callers are refused before the
+                // exchange path for the same reason as the authenticating case above.
                 if let Some(delegation) = delegation.as_ref() {
+                    if context.is_gateway_admitted() {
+                        return Ok(Minted::Refused { source: source.clone() });
+                    }
                     let (Some(assertion), Some(expires)) = (assertion, assertion_expires) else {
                         return Ok(Minted::Refused { source: source.clone() });
                     };
@@ -327,6 +339,10 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // nothing for Google's token service to verify - and the only alternative to refusing is
             // answering as the deployment. Every other caller is presented its own assertion: which
             // rows that caller reads is the data system's grants on its federated principal.
+            // Gateway-admitted callers are also refused: same boundary, same reason.
+            if context.is_gateway_admitted() {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
             let (Some(_), Some(assertion), Some(expires)) = (key, assertion, assertion_expires) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };

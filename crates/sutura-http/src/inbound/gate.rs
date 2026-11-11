@@ -61,6 +61,12 @@ use crate::problem::Failure;
 const AUTHORIZATION: &str = "authorization";
 const BEARER: &str = "Bearer";
 
+/// The gate chosen for a request, paired with the token string presented to it.
+///
+/// `'g` borrows from the outer gate (via `&self`) and `'h` borrows from the request headers.
+/// [`InboundGate::select_gate`] produces this pair when routing succeeds.
+type SelectedGate<'g, 'h> = (&'g InboundGate, &'h str);
+
 /// Everything one deployment needs to establish who a caller is, built once at startup.
 ///
 /// **Built by the composition root and not by [`crate::ServiceState::new`]**, because building it
@@ -245,6 +251,23 @@ impl InboundGate {
         &self.header
     }
 
+    /// The issuer this gate validates tokens for, for multi-verifier assembly in tests.
+    #[cfg(test)]
+    pub(crate) fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    /// Attaches additional verifiers to this gate, keyed by their issuer string.
+    ///
+    /// **Test-only**: production paths use [`Self::from_declarations_trusting`], which reads each
+    /// secondary verifier's key set from the filesystem or a URL. Tests supply the key set document
+    /// through [`Self::over`] and assemble the multi-verifier gate with this method instead.
+    #[cfg(test)]
+    pub(crate) fn with_also_accept(mut self, also_accept: std::collections::BTreeMap<String, Self>) -> Self {
+        self.also_accept = also_accept;
+        self
+    }
+
     /// How many keys are cached, and their ids. For the startup log.
     pub async fn describe_keys(&self) -> (usize, Vec<String>) {
         self.keys.describe().await
@@ -304,28 +327,85 @@ impl InboundGate {
     /// at all - which is how the narrow reason got discovered.
     ///
     /// **Multi-verifier routing** (`github.com/telekom/sutura#1884`): when `also_accept` is non-empty,
-    /// the token's unverified `iss` claim selects the verifier. Reading an unauthenticated claim to
-    /// dispatch is safe here because the selected verifier still checks the signature, issuer match and
-    /// audience with keys it built for that issuer at startup. An `iss` that selects the wrong verifier
-    /// fails that verifier's checks; an `iss` that matches no verifier is `UnknownIssuer` immediately,
-    /// with no key lookup and no signature work.
+    /// [`Self::select_gate`] finds the right sub-gate from the headers. Reading an unauthenticated
+    /// `iss` claim to dispatch is safe because the selected verifier still checks the signature, issuer
+    /// match and audience with keys it built for that issuer at startup. An `iss` that selects the wrong
+    /// verifier fails that verifier's checks; an `iss` that matches no verifier is `UnknownIssuer`
+    /// immediately, with no key lookup and no signature work.
     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
-        let presented = self.presented(headers)?;
-        self.validator.check_size(presented)?;
         if self.also_accept.is_empty() {
             // Single-verifier fast path: skip the issuer peek entirely.
-            return self.establish_token(presented, now).await;
+            let presented = self.presented(headers)?;
+            self.validator.check_size(presented)?;
+            let caller = self.establish_token(presented, now).await?;
+            return Ok(if self.challenges {
+                caller
+            } else {
+                caller.admitted_via_gateway()
+            });
         }
-        // Multi-verifier: peek at the unverified `iss` to select the right sub-gate.
-        let iss = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
-        let gate = if iss == self.issuer {
-            self
-        } else if let Some(alt) = self.also_accept.get(iss.as_str()) {
-            alt
+        let (gate, presented) = self.select_gate(headers)?;
+        gate.validator.check_size(presented)?;
+        let caller = gate.establish_token(presented, now).await?;
+        Ok(if gate.challenges {
+            caller
         } else {
-            return Err(TokenRejected::UnknownIssuer);
-        };
-        gate.establish_token(presented, now).await
+            caller.admitted_via_gateway()
+        })
+    }
+
+    /// Finds the verifier and the already-extracted token for a multi-verifier request.
+    ///
+    /// **Two cases, depending on what the headers carry:**
+    ///
+    /// - Primary header present: peek at `iss` to pick the verifier among all gates that share that
+    ///   header. If the iss-selected gate uses a different header, re-read from that gate's location.
+    ///
+    /// - Primary header absent: try every secondary gate whose header differs from the primary in turn.
+    ///   Exactly one must have a token; two or more is [`TokenRejected::AmbiguousProof`].
+    ///
+    /// The returned `presented` str is borrowed from the headers for the lifetime `'h`.
+    fn select_gate<'h>(&self, headers: &'h HeaderMap) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
+        match self.presented(headers) {
+            Ok(primary_presented) => {
+                // Primary header has a token. Peek at `iss` to route.
+                let iss = unverified_issuer(primary_presented).ok_or(TokenRejected::UnknownIssuer)?;
+                if iss == self.issuer {
+                    return Ok((self, primary_presented));
+                }
+                let gate = self.also_accept.get(iss.as_str()).ok_or(TokenRejected::UnknownIssuer)?;
+                if gate.header == self.header {
+                    // Same header as primary; reuse the already-read token.
+                    return Ok((gate, primary_presented));
+                }
+                // The selected gate declares a different header. Re-read from that location.
+                let gate_presented = gate.presented(headers)?;
+                Ok((gate, gate_presented))
+            }
+            Err(TokenRejected::Absent { .. }) => {
+                // Primary header is absent. Try secondary gates that use a different location.
+                let mut found: Option<SelectedGate<'_, 'h>> = None;
+                for gate in self.also_accept.values() {
+                    if gate.header == self.header {
+                        continue; // same header as primary — already tried above, was absent
+                    }
+                    match gate.presented(headers) {
+                        Ok(presented) => {
+                            if found.is_some() {
+                                return Err(TokenRejected::AmbiguousProof);
+                            }
+                            found = Some((gate, presented));
+                        }
+                        Err(TokenRejected::Absent { .. }) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                found.ok_or(TokenRejected::Absent {
+                    location: self.header.clone(),
+                })
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Verifies an already-extracted token against this gate's validator and key set.

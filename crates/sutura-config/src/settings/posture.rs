@@ -647,6 +647,29 @@ pub enum NotFitToServe {
          or remove security.also_accept"
     )]
     AlsoAcceptWithoutPrimaryInbound,
+    /// A `direct` secondary verifier whose audience equals its own issuer URL.
+    ///
+    /// **The same boundary as [`Self::InboundAudienceIsTheIssuer`], applied per entry.**  An
+    /// authorization server whose issuer URL is also its resource audience would accept its own
+    /// access tokens for every resource it protects, so a token for a different service silently
+    /// becomes a valid credential here. The index names the `also_accept` entry that introduced it.
+    #[error(
+        "security.also_accept[{index}] is a `direct` verifier whose audience is the same as its \
+         issuer `{audience}`. Give the verifier a resource audience that is not the issuer URL"
+    )]
+    AlsoAcceptAudienceIsTheIssuer { audience: String, index: usize },
+    /// A secondary verifier reads the `Authorization` header while `security.access_token` is set.
+    ///
+    /// **The same boundary as [`Self::DeploymentTokenSharesTheHeader`], applied per entry.** When
+    /// the deployment bearer token also lives in `Authorization`, any verifier reading that header
+    /// would see—and try to verify—the deployment token as a caller assertion. The index names the
+    /// `also_accept` entry that introduced the collision.
+    #[error(
+        "security.also_accept[{index}] reads the Authorization header, and security.access_token \
+         is set: the deployment bearer token and the inbound caller token would share the same \
+         header. Give the also_accept verifier a distinct header, or remove security.access_token"
+    )]
+    AlsoAcceptSharesTheDeploymentTokenHeader { index: usize },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
@@ -704,15 +727,24 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
 
 /// Checks that every `also_accept` entry is compatible with the primary `inbound` declaration.
 ///
-/// Three rules, all checked here:
+/// Five rules, all checked here:
 /// - `also_accept` without `inbound` is refused (`AlsoAcceptWithoutPrimaryInbound`).
 /// - Duplicate issuers across verifiers are refused (`AlsoAcceptDuplicateIssuer`).
 /// - Overlapping audiences are refused (`AlsoAcceptOverlappingAudience`).
+/// - A `direct` secondary entry whose audience equals its issuer (`AlsoAcceptAudienceIsTheIssuer`).
+/// - A secondary entry reading `Authorization` while `access_token` is set (`AlsoAcceptSharesTheDeploymentTokenHeader`).
 ///
 /// The audience and issuer checks are symmetric: they compare each `also_accept` entry against
 /// the primary verifier and against every earlier `also_accept` entry, so the index in the error
 /// message names the LATER entry that introduced the collision.
-pub(super) fn also_accept_refusals(inbound: Option<&InboundIdentity>, also_accept: &[InboundIdentity]) -> Vec<NotFitToServe> {
+///
+/// `has_access_token` is `true` when `security.access_token` is set, which the caller reads from
+/// the same settings tree.
+pub(super) fn also_accept_refusals(
+    inbound: Option<&InboundIdentity>,
+    also_accept: &[InboundIdentity],
+    has_access_token: bool,
+) -> Vec<NotFitToServe> {
     let mut refusals = Vec::new();
     if also_accept.is_empty() {
         return refusals;
@@ -746,6 +778,16 @@ pub(super) fn also_accept_refusals(inbound: Option<&InboundIdentity>, also_accep
                     index: later_index,
                 });
             }
+        }
+        // Per-entry rules, applied to each secondary verifier independently.
+        if matches!(*later, InboundIdentity::Direct { .. }) && later_audience == later_issuer {
+            refusals.push(NotFitToServe::AlsoAcceptAudienceIsTheIssuer {
+                audience: String::from(later_audience),
+                index: later_index,
+            });
+        }
+        if has_access_token && later.reads_the_authorization_header() {
+            refusals.push(NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { index: later_index });
         }
     }
     refusals

@@ -998,3 +998,7 @@ async fn the_deployment_token_gate_runs_ahead_of_leg_one_on_every_route() {
 /// The `behind-gateway` mode with the assertion in `Authorization: Bearer`.
 #[cfg(test)]
 mod gateway_bearer;
+
+/// Multi-verifier admission: a primary direct verifier and a secondary behind-gateway verifier.
+#[cfg(test)]
+mod multi_verifier;

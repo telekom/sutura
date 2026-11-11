@@ -304,6 +304,16 @@ pub struct VerifiedCaller {
     address: Option<sutura_domain::identity::VerifiedAddress>,
     /// The OAuth client the token named in `azp` and `client_id`, for the audit record only.
     client: sutura_domain::identity::ClientClaims,
+    /// Whether a secondary `also_accept` gate that does not challenge (behind-gateway mode)
+    /// admitted this token (`github.com/telekom/sutura#1884`).
+    ///
+    /// A gateway proof is an assertion the gateway minted, not a caller's own direct credential.
+    /// The gateway has already performed any credential exchange on the caller's behalf, so this
+    /// deployment must NOT perform delegation again: doing so would exchange a gateway-minted
+    /// intermediate assertion for a data-source credential, bypassing the caller's own identity
+    /// boundary. Set to `true` by [`Self::admitted_via_gateway`] when the selected verifier does
+    /// not issue `WWW-Authenticate` challenges (the `behind-gateway` and `Header` modes).
+    gateway_admitted: bool,
 }
 
 impl VerifiedCaller {
@@ -334,7 +344,29 @@ impl VerifiedCaller {
             expires,
             address: None,
             client,
+            gateway_admitted: false,
         }
+    }
+
+    /// The same caller, tagged as admitted by a behind-gateway verifier.
+    ///
+    /// Called by the multi-verifier router when the selected gate does not challenge (the
+    /// `behind-gateway` and custom-`Header` modes). Downstream credential exchange is then refused:
+    /// the gateway has already performed any exchange on the caller's behalf.
+    #[inline]
+    #[must_use]
+    pub(crate) const fn admitted_via_gateway(mut self) -> Self {
+        self.gateway_admitted = true;
+        self
+    }
+
+    /// Whether this caller was admitted by a behind-gateway (non-challenging) verifier.
+    ///
+    /// The credential decision reads this to refuse delegation exchange for gateway-admitted callers.
+    #[inline]
+    #[must_use]
+    pub const fn is_gateway_admitted(&self) -> bool {
+        self.gateway_admitted
     }
 
     /// The same caller, with the address [`crate::inbound::token::TokenValidator::verify`] read.

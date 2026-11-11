@@ -124,8 +124,10 @@ const STARTUP: Subject = Subject {
     // `FlashbackOnTheOnlySource` and `FlashbackReadByNoNode` (#828), a `split: flashback` opt-in
     // with no other source to federate with or no peer to read its buckets. 48:
     // `AlsoAcceptWithoutPrimaryInbound`, `AlsoAcceptDuplicateIssuer`, and
-    // `AlsoAcceptOverlappingAudience` (#1884), multi-verifier config violations.
-    variants: variants(48),
+    // `AlsoAcceptOverlappingAudience` (#1884), multi-verifier config violations. 50:
+    // `AlsoAcceptAudienceIsTheIssuer` and `AlsoAcceptSharesTheDeploymentTokenHeader` (#1884),
+    // per-entry startup refusals for secondary verifiers.
+    variants: variants(50),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the

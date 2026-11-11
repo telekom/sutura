@@ -861,3 +861,72 @@ fn also_accept_overlapping_audience_is_refused_naming_the_index() {
         "{refusals:?}"
     );
 }
+
+#[test]
+fn an_also_accept_direct_entry_whose_audience_is_its_issuer_does_not_start() {
+    // A secondary `direct` verifier whose `resource` (= audience) equals its `authorization_server`
+    // (= issuer) would accept any token the issuer minted for itself — including tokens for other
+    // services that happen to reach this deployment. The check is the per-entry equivalent of
+    // `InboundAudienceIsTheIssuer` for the primary verifier.
+    let same_url = "https://secondary.example.com";
+    let audience_is_issuer = format!(
+        "security:\n{DIRECT_INBOUND}  also_accept:\n    - mode: \"direct\"\n      \
+         resource: \"{same_url}\"\n      authorization_server: \"{same_url}\"\n      \
+         key_set_file: \"/k2.json\"\n      algorithms: [\"ES256\"]\n"
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(audience_is_issuer))
+        .expect_err("a secondary direct entry whose audience is its issuer does not start");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(
+        refusals.iter().any(|r| matches!(
+            *r,
+            NotFitToServe::AlsoAcceptAudienceIsTheIssuer { ref audience, index: 0 }
+                if audience == same_url
+        )),
+        "{refusals:?}"
+    );
+    // The error message names the index and the audience so an operator can fix it.
+    let rendered = refusals
+        .iter()
+        .find(|r| matches!(**r, NotFitToServe::AlsoAcceptAudienceIsTheIssuer { .. }))
+        .unwrap()
+        .to_string();
+    assert!(rendered.contains("[0]"), "{rendered}");
+    assert!(rendered.contains(same_url), "{rendered}");
+}
+
+#[test]
+fn an_also_accept_entry_in_the_authorization_header_beside_a_deployment_token_does_not_start() {
+    // A secondary verifier that reads `Authorization` while `security.access_token` is configured
+    // would try to verify the deployment bearer token as a caller assertion. The check is the
+    // per-entry equivalent of `DeploymentTokenSharesTheHeader` for the primary verifier.
+    //
+    // The primary is `behind-gateway` (X-Transit-Proof) so it does NOT trigger the primary
+    // header-collision refusal; only the secondary's Authorization read is at issue.
+    let authorization_also_accept = format!(
+        "security:\n  access_token: \"{TOKEN}\"\n{GATEWAY_INBOUND}  also_accept:\n    - mode: \"behind-gateway\"\n      \
+         transit_header: \"Authorization\"\n      transit_issuer: \"https://secondary.example.com\"\n      \
+         transit_audience: \"/hub/secondary/v1\"\n      key_set_file: \"/k2.json\"\n      \
+         algorithms: [\"ES256\"]\n      transit_token_type: \"at+jwt\"\n"
+    );
+    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(authorization_also_accept))
+        .expect_err("a secondary verifier sharing the access_token header does not start");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(
+        refusals
+            .iter()
+            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { index: 0 })),
+        "{refusals:?}"
+    );
+    // The error message names the index so an operator can find the entry.
+    let rendered = refusals
+        .iter()
+        .find(|r| matches!(**r, NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { .. }))
+        .unwrap()
+        .to_string();
+    assert!(rendered.contains("[0]"), "{rendered}");
+}

@@ -294,6 +294,7 @@ impl Settings {
         refusals.extend(posture::also_accept_refusals(
             self.security.inbound(),
             self.security.also_accept(),
+            self.security.access_token().is_some(),
         ));
         refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(posture::run_sql_multi_user_refusal(

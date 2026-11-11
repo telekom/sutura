@@ -238,6 +238,15 @@ pub enum TokenRejected {
     /// the response which verifiers are configured and which are not.
     #[error("the token's issuer is not one this deployment accepts")]
     UnknownIssuer,
+    /// A multi-verifier deployment with verifiers in different header locations received tokens in
+    /// more than one of those locations simultaneously.
+    ///
+    /// **Refused rather than arbitrarily selected.** Each configured location carries exactly one
+    /// verifier, and a request presenting credentials in two of them is a request this gate cannot
+    /// decide: choosing either would silently ignore the other. The same `401` a wrong credential
+    /// produces; a caller does not learn which locations are configured.
+    #[error("tokens were presented in more than one configured header location")]
+    AmbiguousProof,
 }
 
 /// Why a presented token did not verify, when it did not.

@@ -376,3 +376,56 @@ fn an_address_outside_the_domains_is_refused_before_any_exchange() {
         .expect("an answer");
     assert!(matches!(inside, Minted::Granted { .. }), "{inside:?}");
 }
+
+// -------------------------------------------------- gateway-admitted callers (#1884) ----
+
+/// A caller the multi-verifier gate admitted via a non-challenging (behind-gateway) verifier.
+fn gateway_caller(raw: &str) -> RequestContext {
+    asking(raw).admitted_via_gateway()
+}
+
+/// A gateway-admitted caller is refused at every exchange-touching source without reaching the
+/// identity provider.
+///
+/// **Finding 2 of PR #1884's review**: the gateway already performed the credential exchange; a
+/// second exchange inside this deployment would re-negotiate something the gateway already decided.
+/// The refusal is `Minted::Refused` - the same shape as a declined source - so callers see a
+/// permission boundary rather than an error.
+///
+/// **The exchange port is proven unreached**: if `Refused` is returned, the code path that calls
+/// `idp.exchange()` was bypassed, and the fake's report channel stays empty.
+#[test]
+fn a_gateway_admitted_caller_is_refused_at_a_federating_source_and_the_idp_is_not_called() {
+    let (idp, asked) = fake(false);
+    let broker = delegated_warehouse(&idp);
+    let caller = gateway_caller("analyst-a@example.com");
+    let sources = SourceSet::of(source("warehouse"));
+    let minted = broker.mint(&caller, &sources).expect("a refusal, not an error");
+    assert!(
+        matches!(minted, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "a gateway-admitted caller must be refused at a federating source: {minted:?}"
+    );
+    let reached: Vec<Asked> = asked.try_iter().collect();
+    assert!(
+        reached.is_empty(),
+        "the identity provider was called for a gateway-admitted caller: {reached:?}"
+    );
+}
+
+#[test]
+fn a_gateway_admitted_caller_is_refused_at_an_authenticating_source_and_the_idp_is_not_called() {
+    let (idp, asked) = fake(false);
+    let broker = authenticating_warehouse(&idp);
+    let caller = gateway_caller("analyst-a@example.com");
+    let sources = SourceSet::of(source("warehouse"));
+    let minted = broker.mint(&caller, &sources).expect("a refusal, not an error");
+    assert!(
+        matches!(minted, Minted::Refused { ref source } if source.as_str() == "warehouse"),
+        "a gateway-admitted caller must be refused at an authenticating source: {minted:?}"
+    );
+    let reached: Vec<Asked> = asked.try_iter().collect();
+    assert!(
+        reached.is_empty(),
+        "the identity provider was called for a gateway-admitted caller: {reached:?}"
+    );
+}
