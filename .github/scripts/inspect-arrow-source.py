@@ -10,7 +10,8 @@ out = Path('/tmp/oracle-export')
 locked = json.loads(Path('flake.lock').read_text())['nodes']['arrow-adbc-src']['locked']
 assert locked['rev'] == 'a3f81c6feb1133ba80600ac32e6d7c0b0b407e18'
 (out / 'arrow-locked.json').write_text(json.dumps(locked, indent=2) + '\n')
-metadata = json.loads(subprocess.check_output(['nix', 'flake', 'prefetch', '--json', '--refresh', f"github:apache/arrow-adbc/{locked['rev']}"]))
+fetch_env = os.environ | {'XDG_CACHE_HOME': '/tmp/arrow-fresh-fetch-cache'}
+metadata = json.loads(subprocess.check_output(['nix', 'flake', 'prefetch', '--json', '--refresh', f"github:apache/arrow-adbc/{locked['rev']}"], env=fetch_env))
 (out / 'arrow-prefetched.json').write_text(json.dumps(metadata, indent=2) + '\n')
 root = Path(metadata['storePath'])
 actual = subprocess.check_output(['nix', 'hash', 'path', str(root)], text=True).strip()
@@ -30,8 +31,14 @@ for raw in entries:
         continue
     header, name = raw.split(b'\t', 1)
     mode, kind, oid = header.decode().split()
-    assert kind == 'blob', (mode, kind, name)
     name = os.fsdecode(name)
+    if kind == 'commit':
+        assert mode == '160000', (mode, kind, name)
+        path = root / name
+        assert not path.exists() or (path.is_dir() and not any(path.iterdir())), name
+        manifest.append({'path': name, 'mode': mode, 'gitlink': oid, 'uninitialised': True})
+        continue
+    assert kind == 'blob', (mode, kind, name)
     paths.add(name)
     path = root / name
     assert path.is_symlink() == (mode == '120000'), name
