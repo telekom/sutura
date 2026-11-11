@@ -45,7 +45,8 @@
     bigquery-adbc-src.flake = false;
     # The ADBC PostgreSQL driver (`c/driver/postgresql`, C++ over libpq), self-built
     # per release triple like the BigQuery one (telekom/sutura#913). Apache-2.0.
-    arrow-adbc-src.url = "github:apache/arrow-adbc/apache-arrow-adbc-24";
+    # GitHub archives expand export-subst abbreviations that can grow at the same revision.
+    arrow-adbc-src.url = "git+https://github.com/apache/arrow-adbc?ref=refs/tags/apache-arrow-adbc-24&shallow=1";
     arrow-adbc-src.flake = false;
   };
 
@@ -1431,6 +1432,9 @@
             cargo run -q -p xtask -- dev-up --with oracle
             export SUTURA_DEV_REQUIRE_TIER=1
             export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
+            if [ "''${SUTURA_ORACLE_SPLIT_CLAIM_PROOF:-0}" = 1 ]; then
+              exec bash nix/oracle-split-cells.sh --profile ci
+            fi
             set +e
             cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
@@ -1438,8 +1442,32 @@
             (
               exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
             ) || status=$?
+            bash nix/oracle-split-cells.sh --profile ci || status=$?
             bash nix/oracle-app-cells.sh --profile ci || status=$?
             exit "$status"
+          '');
+        };
+
+        apps.oracle-native-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-oracle-native-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:${pkgs.openssl}/bin:${pkgs.python3}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            export SUTURA_ORACLE_CARGO_PROFILE=ci
+            export SUTURA_ORACLE_RUN_ACCEPTANCE=1
+            if [ -n "''${SUTURA_ORACLE_BASE_SHA:-}" ]; then
+              exec bash nix/oracle-native-base-proof.sh "$SUTURA_ORACLE_BASE_SHA"
+            fi
+            (
+              exec cargo test --profile ci -p sutura-cli --features oracle,rdbms --test served --no-run
+            )
+            if [ "''${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
+              exec bash nix/oracle-native-probe.sh
+            fi
+            bash nix/oracle-native-probe.sh
+            bash nix/oracle-legacy-probe.sh
           '');
         };
 

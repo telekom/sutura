@@ -1063,6 +1063,20 @@ pub trait PhysicalPlanNodeExt: Sized {
                 self.node(),
             ))
         })?;
+        #[cfg(feature = "parquet")]
+        if let PhysicalPlanType::ParquetScan(scan) = plan
+            && let Some(conf) = &scan.base_conf
+            && let Some(schema) = &conf.schema
+            && let Some(index) = conf
+                .projection
+                .iter()
+                .find(|&&index| index as usize >= schema.columns.len())
+        {
+            return Err(proto_error(format!(
+                "Parquet projection index {index} is out of bounds for {} columns",
+                schema.columns.len()
+            )));
+        }
         // Decode context for plans migrated to the `try_from_proto` pattern
         // (#22419). Arms for migrated plans are one-liners delegating to the
         // plan's own crate; un-migrated arms keep their inline bodies.

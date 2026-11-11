@@ -2433,6 +2433,18 @@ jobs:
       - name: Oracle acceptance cells
         run: nix run .#oracle-acceptance -- --no-capture
 
+      - name: Oracle native encryption and legacy verifier cells
+        run: nix run .#oracle-native-acceptance
+
+      - name: Keep Oracle native and legacy venue evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-native-acceptance
+          path: |
+            target/oracle-native-probe
+            target/oracle-legacy-probe
+
   # The DataHub metadata tier, as a live acceptance venue: brings up the docker `datahub`
   # compose profile (five containers, three JVMs and a migration job, so the cap is wide) and
   # runs the cells `just datahub-acceptance`'s recipe weaves together - the instance reachable,
