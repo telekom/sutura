@@ -1,11 +1,5 @@
 //! The values an inbound-identity declaration is made of, each parsed rather than checked.
 //!
-//! Newtypes and enums, and every one of them exists because the value it holds is compared against
-//! something a caller sent. That is the whole reason they are types: an audience claim is compared
-//! **byte for byte** against [`ResourceIdentifier`], so anything that could make two spellings of
-//! the same identifier compare unequal - or two different identifiers compare equal -
-//! is a hole, and the place to close it is where the value comes into existence.
-//!
 //! # Why URL parsing does not normalise the stored value
 //!
 //! A URL parser validates the structure and is then discarded, because **normalisation is the wrong
@@ -60,6 +54,8 @@ const REQUIRED_SCHEME: &str = "https://";
 /// needs to find the character; the character itself is often the one that draws nothing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidInboundValue {
+    #[error("security.inbound.max_token_bytes must be 1 to {limit} bytes, not {found}")]
+    TokenBytesOutOfRange { found: usize, limit: usize },
     /// Empty, or whitespace only.
     ///
     /// Empty is not absent. An unset variable arrives in a shell as `""`, and a key present and
@@ -175,6 +171,7 @@ pub struct ResourceIdentifier {
     audience: TokenAudience,
     /// Which claims beside `scope` grant scopes. None unless the deployment names them.
     extra_scope_claims: ExtraScopeClaims,
+    max_token_bytes: super::MaxTokenBytes,
 }
 
 /// Where the tokens this deployment accepts are minted.
@@ -601,16 +598,24 @@ pub(super) fn percent_escapes_are_complete(raw: &str) -> bool {
 }
 
 impl ResourceIdentifier {
+    pub(crate) fn limiting_token_bytes(self, max_token_bytes: super::MaxTokenBytes) -> Self {
+        Self { max_token_bytes, ..self }
+    }
+
+    pub(super) const fn max_token_bytes(&self) -> super::MaxTokenBytes {
+        self.max_token_bytes
+    }
+
     /// The key this value is written under, so the refusal and the documentation name the same one.
     pub const KEY: &'static str = "security.inbound.resource";
 
-    /// Reads the identifier this deployment declares for itself.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue> {
         let identifier = parse_https_uri(Self::KEY, raw.as_ref())?;
         Ok(Self {
             audience: TokenAudience::verbatim(identifier.clone()),
             identifier,
             extra_scope_claims: ExtraScopeClaims::none(),
+            max_token_bytes: super::MaxTokenBytes::DEFAULT,
         })
     }
 

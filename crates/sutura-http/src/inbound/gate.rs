@@ -25,16 +25,17 @@
 //! RFC 9728 document built from the same token requirement as the validator. It is omitted for any
 //! other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
 //! gateway assertion is minted by the component, not by an authorization server a client can use, so
-//! that mode offers no Bearer challenge - wherever the assertion arrives.
+//! that mode offers no Bearer challenge for ordinary authentication failures. Oversize alone
+//! carries `invalid_token` with byte counts so the sender can diagnose the configured bound.
 //!
 //! An unknown key id while the key source is down is `503 identity_unavailable` instead, with no
 //! challenge: the token may be fine, and the outage is this deployment's. So is any token once no look
 //! has confirmed the key set for the declared `key_set_max_stale_seconds`, and a new assertion while
 //! the store of seen assertions is full, where single use is declared.
 //!
-//! What the response does **not** say is which check failed. The log says - through the `#[source]`
-//! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
-//! audience did not" tells somebody which half of a forgery to fix.
+//! Apart from the numeric token-size refusal, the response does **not** say which check failed.
+//! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
+//! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -259,6 +260,7 @@ impl InboundGate {
     /// at all - which is how the narrow reason got discovered.
     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let presented = self.presented(headers)?;
+        self.validator.check_size(presented)?;
         let id = TokenValidator::key_id(presented)?;
         let key = self
             .keys
@@ -371,8 +373,15 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     ) {
         return Failure::IdentityUnavailable.into_response();
     }
-    let mut response = Failure::Unauthorized.into_response();
-    if let Some(challenge) = gate.challenge(request_uri, headers) {
+    let mut response = match *rejected {
+        TokenRejected::TooLong { found, limit } => Failure::TokenTooLong { found, limit },
+        _ => Failure::Unauthorized,
+    }
+    .into_response();
+    if let Some(challenge) = gate
+        .challenge(request_uri, headers)
+        .or_else(|| matches!(rejected, TokenRejected::TooLong { .. }).then(|| String::from("Bearer error=\"invalid_token\"")))
+    {
         challenged(&mut response, &challenge);
     }
     response

@@ -11,12 +11,13 @@ index 14aa4b225..8f3feb295 100644
          header: ProofHeader,
          issuer: IssuerUrl,
          audience: TokenAudience,
-@@ -222,11 +222,12 @@ impl TransitProof {
+@@ -237,12 +237,13 @@ impl TransitProof {
          token_type: RequiredTokenType,
          max_lifetime: ProofLifetime,
      ) -> Self {
 +        drop(key_set);
          Self {
+             max_token_bytes: MaxTokenBytes::DEFAULT,
              header,
              issuer,
              audience,

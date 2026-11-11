@@ -171,6 +171,8 @@ pub enum Failure {
     /// One variant for all three, deliberately: telling a caller which of the three they got wrong
     /// is telling them whether the secret they tried was close.
     Unauthorized,
+    /// A bounded token was too large; only byte counts may leave this failure.
+    TokenTooLong { found: usize, limit: usize },
     /// The caller is authenticated and was not granted the capability this route needs.
     ///
     /// **`403` and not `401`, and the difference is the whole point.** A `401` says *present a
@@ -278,7 +280,7 @@ impl Failure {
     const fn status(&self) -> axum::http::StatusCode {
         use axum::http::StatusCode;
         match *self {
-            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Unauthorized | Self::TokenTooLong { .. } => StatusCode::UNAUTHORIZED,
             Self::InsufficientScope { .. } | Self::ToolNotEnabled { .. } | Self::HostNotAllowed | Self::IdentityNotLinked => {
                 StatusCode::FORBIDDEN
             }
@@ -308,6 +310,7 @@ impl Failure {
         match *self {
             Self::AtCapacity { retry_after_seconds } => Some(retry_after_seconds),
             Self::Unauthorized
+            | Self::TokenTooLong { .. }
             | Self::InsufficientScope { .. }
             | Self::ToolNotEnabled { .. }
             | Self::HostNotAllowed
@@ -327,7 +330,7 @@ impl Failure {
     /// The stable machine-readable code. What a client branches on.
     pub(crate) const fn code(&self) -> &'static str {
         match *self {
-            Self::Unauthorized => "unauthorized",
+            Self::Unauthorized | Self::TokenTooLong { .. } => "unauthorized",
             Self::InsufficientScope { .. } => "insufficient_scope",
             Self::ToolNotEnabled { .. } => "tool_not_enabled",
             Self::HostNotAllowed => "host_not_allowed",
@@ -349,6 +352,9 @@ impl Failure {
     fn detail(&self) -> String {
         match *self {
             Self::Unauthorized => String::from("this service requires a bearer token"),
+            Self::TokenTooLong { found, limit } => {
+                format!("token is {found} bytes; security.inbound.max_token_bytes is {limit}")
+            }
             // The scope, and nothing else about this deployment. See the variant.
             Self::InsufficientScope { required } => {
                 format!("your credential does not carry the scope `{required}`, which this operation requires")
@@ -407,7 +413,7 @@ pub struct ProblemBody {
     /// The HTTP status, repeated in the body so a client that logged only the body still has it.
     #[schema(example = 401)]
     status: u16,
-    /// A sentence for a person. Never carries anything about this deployment's internals.
+    /// A sentence for a person. May name the configured token-byte bound, but never token material.
     detail: String,
 }
 
