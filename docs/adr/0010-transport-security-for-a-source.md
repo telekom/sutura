@@ -432,3 +432,48 @@ names an issuer's `jwks_uri`, and `sutura_http::inbound::UrlKeySet` reads it ove
 built-in web roots when not, so an issuer behind a private CA is the reuse case that sentence named.
 Two limits: the fetch presents no client identity, even when `security.outbound` declares one, and it
 loads the anchors once at start, so a rotated bundle reaches it on the next start, not on the poll.
+
+## Eighth amendment, 2026-11-10: Oracle native encryption is a separate, weaker transport
+
+An Oracle source or Oracle dictionary connection may explicitly choose `native-encryption` over
+TCP instead of `verified` over TCPS. This is for listeners that require Oracle Native Network
+Encryption and Data Integrity and provide no TCPS endpoint. Both services are required, with a
+compiled allowlist of AES-256/192/128 and SHA-512/384/256; no operator setting enables a weaker
+algorithm or disables a service.
+The patched NNE protocol and authentication-key folding are required; a legacy integrity key
+schedule is refused even when the negotiated algorithm names are AES and SHA-2. A hardened server
+venue with `SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS = FALSE` must measure this boundary.
+
+This decision does **not** extend verified TLS's guarantee. NNE's unauthenticated Diffie-Hellman
+exchange proves neither endpoint's identity against an active network attacker. `verified` remains
+preferable where a TCPS endpoint is available.
+Native record integrity excludes TNS headers and data flags. CBC reuses the derived IV for records
+within each protocol phase: equal plaintext block prefixes produce equal ciphertext prefixes.
+It is not TLS-equivalent or AEAD.
+Native mode is default-off, requires `native_encryption_acknowledged_because`, and is logged at
+`WARN`. Its reason is separate from any shared-service-user acknowledgement. It supplies no TLS
+trust anchor, client identity or token authentication. Oracle's existing token path remains
+verified-TLS-only and unverified against a token-accepting database.
+
+A second default-off switch, `legacy_password_verifier`, permits the 10G and 11G password logins
+only over `verified` or `native-encryption`. It requires its own
+`legacy_password_verifier_acknowledged_because` and startup `WARN`. These logins expose material
+for offline password guessing when the exchange is visible; encrypted transport is required,
+and native mode retains the unauthenticated-peer limit above. Unknown verifier types remain
+refused. A modern verifier needs no switch.
+
+The typed Oracle channel and configuration refusals hold the mode and reason requirements for
+both the source and dictionary. Driver negotiation and protected packet reads and writes hold the
+algorithm and required-service boundary. The connection's transport representation must preserve
+the distinction between native encryption and verified TLS; neither setting changes which
+principal executes a query or reads a dictionary. Redirect refusal and connection deadlines remain
+in force. The implementation uses the vendored pure-Rust driver, not a proprietary client library
+or a proxy; `VENDOR.md` records protocol-source attribution and upstream removal conditions.
+
+The [measured acceptance](../integrations/data-systems/oracle.md#measured-acceptance) covers
+required AES-256/SHA-256 native services, weak-only refusal and 11G-only logins over native
+encryption, and 10G-only logins over verified TCPS, through the product source and dictionary paths.
+Dictionary positives measure startup/catalog reads only. The 16-byte native authentication-key
+fold remains unit/source-only, and other compiled AES/SHA-2 combinations have vector/unit coverage
+rather than live interoperability evidence. Parser fixtures and known-answer vectors cover their
+own inputs. No new Oracle per-caller identity venue is introduced by this decision.

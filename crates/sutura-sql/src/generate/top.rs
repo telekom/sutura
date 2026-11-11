@@ -11,9 +11,9 @@ use sutura_domain::query::{Top, TopBy, TopDirection};
 
 /// Ranks by `top.by()` in `top.direction()`, then appends `tiebreak` unchanged.
 ///
-/// `measure` and `bucket` are the two exprs [`super::generate()`] already built for the projection,
-/// passed in rather than rebuilt: [`TopBy::Metric`] takes the one already computed for the measure
-/// column, [`TopBy::Period`] the one for the time bucket.
+/// `measure` is the projected measure expression or its alias when guarded, so ordering does not
+/// repeat its bind placeholders. `bucket` is the projection's time expression. The stacked path
+/// supplies its outer aggregate for `measure`.
 pub(super) fn ordering(top: Top, measure: Expr, bucket: Expr, tiebreak: Vec<Expr>) -> Vec<Expr> {
     let primary = match top.by() {
         TopBy::Metric => measure,
