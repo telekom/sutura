@@ -852,7 +852,7 @@ mod tests {
                 ".github/actions/push-images/action.yml:84 -> inputs.binaries",
                 ".github/workflows/cross-link.yml:271 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:224 -> env.BINARIES",
-                ".github/workflows/release-performance.yml:315 -> env.BINARIES",
+                ".github/workflows/release-performance.yml:326 -> env.BINARIES",
                 ".github/workflows/release.yml:323 -> env.BINARIES",
                 ".github/workflows/release.yml:517 -> env.BINARIES",
             ],

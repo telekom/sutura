@@ -118,7 +118,7 @@ fn oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows(
 fn oracle_raw_deadline_discards_its_session_and_following_call_is_healthy() {
     let tier = Tier::here();
     let case = "oracle-raw-deadline";
-    let settings = settings(&tier, case, true, false).replace("server:\n", "server:\n  request_timeout_seconds: 3\n");
+    let settings = settings(&tier, case, true, false).replace("server:\n", "server:\n  request_timeout_seconds: 4\n");
     let served = start_configured(case, &settings);
     let started = std::time::Instant::now();
     let reply = ran(
