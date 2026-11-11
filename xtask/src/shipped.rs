@@ -854,7 +854,7 @@ mod tests {
                 ".github/workflows/release-performance.yml:224 -> env.BINARIES",
                 ".github/workflows/release-performance.yml:315 -> env.BINARIES",
                 ".github/workflows/release.yml:323 -> env.BINARIES",
-                ".github/workflows/release.yml:506 -> env.BINARIES",
+                ".github/workflows/release.yml:517 -> env.BINARIES",
             ],
             "the set of declarations referencing the shipped set has changed"
         );

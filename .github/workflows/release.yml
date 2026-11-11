@@ -5,7 +5,6 @@
 # and, as `sutura serve`, answers certified questions over HTTP. `sutura-operator` sizes the
 # worker pool a federated JOIN runs on, and the chart's operator image is this release's
 # (`docs/adr/20261030193029-operator-sizes-the-worker-pool.md`, Decision 15).
-# The additive SQL variant builds four more images with the same sutura executable.
 #
 # `nix/shipped.nix` is the list, and `cargo xtask check-shipped-binaries` is what makes `BINARIES`
 # below agree with it - on a pull request, before anything is tagged. NOT the arrival check in
