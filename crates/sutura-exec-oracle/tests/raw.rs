@@ -133,7 +133,10 @@ mod acceptance {
             "WITH FUNCTION attempt RETURN NUMBER IS BEGIN EXECUTE IMMEDIATE 'CREATE TABLE raw_forbidden (n NUMBER)'; RETURN 1; END; SELECT attempt FROM dual",
         ] {
             let error = run(&warehouse, sql).expect_err("the raw statement is refused");
-            assert!(matches!(error, OracleError::RawNotQuery), "{error:?}");
+            assert_eq!(
+                error.to_string(),
+                "this source accepts one SELECT or WITH query without statement delimiters"
+            );
         }
         let rows = run(
             &warehouse,
