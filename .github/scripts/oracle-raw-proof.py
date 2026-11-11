@@ -151,6 +151,63 @@ def red(status, text, cell, path, line, needles):
         assert needle in text, (cell, needle)
 
 
+def diagnostic(out):
+    baseline = state(out, "diagnostic-before")
+    paths = ["crates/sutura-exec-oracle/src/lib.rs", SERVED]
+    saved = {name: (Path(name).read_bytes(), Path(name).stat().st_mode & 0o777) for name in paths}
+    try:
+        path = Path(paths[0])
+        before = "pub(crate) fn execute_err_mapped(cause: oracledb::Error) -> OracleError {\n"
+        after = before + '''    let (code, kind) = match cause.kind() {
+        oracledb::ErrorKind::DbError(error) => (Some(error.code()), "db_error"),
+        oracledb::ErrorKind::CallTimeoutExceeded => (None, "call_timeout"),
+        oracledb::ErrorKind::UnableToRecover => (None, "unable_to_recover"),
+        oracledb::ErrorKind::NotConnected => (None, "not_connected"),
+        _ => (None, "other_driver_error"),
+    };
+    eprintln!("oracle_raw_diagnostic code={code:?} kind={kind}");
+'''
+        assert path.read_text().count(before) == 1
+        path.write_text(path.read_text().replace(before, after))
+        path = Path(SERVED)
+        before = '        let reply = ran(&served, statement);\n        assert_eq!(reply.status, 403, "{}", reply.body);\n'
+        after = '''        let reply = ran(&served, statement);
+        for line in served.awaiting("oracle_raw_diagnostic").iter().filter(|line| line.starts_with("oracle_raw_diagnostic ")) {
+            println!("{line}");
+        }
+        assert_eq!(reply.status, 403, "{}", reply.body);
+'''
+        assert path.read_text().count(before) == 1
+        path.write_text(path.read_text().replace(before, after))
+        before = '    let audit = served.awaiting("raw_answered");\n'
+        after = before + '''    for line in audit.iter().filter(|line| line.contains("raw_answered")) {
+        println!("oracle_raw_diagnostic_audit={line}");
+    }
+'''
+        assert path.read_text().count(before) == 1
+        path.write_text(path.read_text().replace(before, after))
+        state(out, "diagnostic-overlay")
+        cell = PREFIX + "oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows"
+        line = assertion_line(SERVED, 'assert_eq!(reply.status, 403, "{}", reply.body);', cell)
+        status, text = execute(command(cell), out / "read-only-diagnostic.log")
+        red(status, text, cell, SERVED, line, ["left: 422", "right: 403"])
+        codes = re.findall(r"^oracle_raw_diagnostic code=(None|Some\(\d+\)) kind=([a-z_]+)$", text, re.MULTILINE)
+        assert codes
+        record(out / "read-only-diagnostic.json", {"codes": codes, "diagnostic_only": True})
+        cell = PREFIX + "oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix"
+        line = assertion_line(SERVED, '.expect("the raw call has an audit record")', cell)
+        status, text = execute(command(cell), out / "audit-diagnostic.log")
+        red(status, text, cell, SERVED, line, ["the raw call has an audit record"])
+        records = [json.loads(value) for value in re.findall(r"^oracle_raw_diagnostic_audit=(\{.*\})$", text, re.MULTILINE)]
+        assert records
+        record(out / "audit-diagnostic.json", {"records": records, "diagnostic_only": True})
+    finally:
+        for name, (data, mode) in saved.items():
+            Path(name).write_bytes(data)
+            Path(name).chmod(mode)
+        assert state(out, "diagnostic-restored") == baseline
+
+
 def claims(out, args):
     baseline = state(out, "overlay-before", True)
     assert tree(True) == TREE
@@ -246,13 +303,15 @@ def main():
     if sys.argv[1] == "cell":
         out = Path(os.environ["RAW_PROOF_OUT"]) / os.environ["SUTURA_ORACLE_ACCEPTANCE_MODE"]
         out.mkdir(parents=True, exist_ok=True)
-        if sys.argv[2] == "raw-claims":
+        if sys.argv[2] == "raw-diagnostic":
+            diagnostic(out)
+        elif sys.argv[2] == "raw-claims":
             claims(out, sys.argv[3:])
         else:
             base_cells(out)
         return
     operation = sys.argv[1]
-    assert operation in ("raw-base", "raw-claims")
+    assert operation in ("raw-base", "raw-claims", "raw-diagnostic")
     assert os.environ["GITHUB_ACTIONS"] == "true"
     assert git("rev-parse", "HEAD").decode().strip() == SOURCE
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == TREE
@@ -282,16 +341,24 @@ def main():
             paths = [parent, SERVED, PORT, "nix/oracle-login-fixtures.sh", RUNNER]
         else:
             paths = [RUNNER]
+            if operation == "raw-diagnostic":
+                paths += ["nix/oracle-login-fixtures.sh", "nix/oracle-native-cells.sh"]
         index_path = Path(git("rev-parse", "--git-path", "index").decode().strip()).resolve()
         index = (index_path, index_path.read_bytes())
         saved = {name: (Path(name).read_bytes(), Path(name).stat().st_mode & 0o777) if Path(name).exists() else None for name in paths}
         if operation == "raw-base":
             for name in paths[:-1]:
                 Path(name).write_bytes(git("show", f"{SOURCE}:{name}"))
-        else:
+        elif operation == "raw-claims":
             original_runner = out / "original-runner.sh"
             original_runner.write_bytes(Path(RUNNER).read_bytes())
             os.environ["RAW_PROOF_ORIGINAL"] = str(original_runner)
+        if operation == "raw-diagnostic":
+            path = Path("nix/oracle-login-fixtures.sh")
+            marker = 'if [ "${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then\n'
+            assert path.read_text().count(marker) == 1
+            path.write_text(path.read_text().split(marker)[0] + 'bash nix/oracle-raw-cells.sh "$name" "$service" "$legacy_user"\n')
+            Path("nix/oracle-native-cells.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n")
         script = Path(__file__).resolve()
         Path(RUNNER).write_text(f'#!/usr/bin/env bash\nset -euo pipefail\nexec python3 {script} cell {operation} "$@"\n')
         if operation == "raw-base":
