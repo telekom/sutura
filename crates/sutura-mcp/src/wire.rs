@@ -245,10 +245,10 @@ pub enum OutcomeContent {
         /// for the reason stated there. The two wire types are kept equal by review; an adapter may
         /// not reach into another adapter.
         executed_as: Vec<LegContent>,
-        /// Exact SQL and ordered typed bindings for a whole DuckDB answer; null otherwise.
+        /// Exact SQL and ordered typed bindings for a whole `DuckDB` answer; null otherwise.
         /// Unavailable for other adapters and for federated, partitioned or combined answers.
-        executed_sql: Option<ExecutedSqlContent>,
-        /// The DataFusion logical plan handed to the engine, before analysis and optimization.
+        executed_sql: Option<Box<ExecutedSqlContent>>,
+        /// The `DataFusion` logical plan handed to the engine, before analysis and optimization.
         /// Diagnostic text, not SQL or a stable replay format. Null for other or multi-stage answers.
         logical_plan: Option<String>,
         /// Column labels, in projection order.

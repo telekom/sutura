@@ -9,13 +9,13 @@ use crate::warehouse::ParamValue;
 /// stable interchange format. Neither promises a replay without the original execution context.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Execution {
-    /// The exact parameterized statement and bindings submitted to DuckDB.
+    /// The exact parameterized statement and bindings submitted to `DuckDB`.
     DuckDb {
         source: SourceName,
         sql: String,
         parameters: Vec<ParamValue>,
     },
-    /// The DataFusion logical plan handed to the engine, before analysis and optimization.
+    /// The `DataFusion` logical plan handed to the engine, before analysis and optimization.
     DataFusion { logical_plan: String },
 }
 

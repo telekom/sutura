@@ -3,6 +3,8 @@
 //! reaches a data system - split out of `lib.rs` for `cargo xtask max-lines`'s cap rather than for
 //! thematic tidiness, the same reason `federated` is its own file.
 
+use sutura_domain::warehouse::execution::Execution;
+
 /// Whether a result set came back with more rows than its plan capped it at.
 ///
 /// **A governance control, so the direction it fails in is the whole of what this function is for.**
@@ -39,14 +41,11 @@ pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
 /// [`ResponseByteLimit::DEFAULT`](sutura_domain::query::ResponseByteLimit::DEFAULT) for the factor
 /// measured between them and what it means for the number this compares against. Named, for the
 /// reason `exceeds_row_cap` is: the boundary is testable without a data system.
-pub(crate) fn exceeds_response_bound(
-    rows: &sutura_domain::warehouse::RowSet,
-    execution: Option<&sutura_domain::warehouse::execution::Execution>,
-) -> Option<u64> {
+pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet, execution: Option<&Execution>) -> Option<u64> {
     let limit = sutura_domain::query::ResponseByteLimit::DEFAULT;
     (rows
         .rendered_byte_len()
-        .saturating_add(execution.map_or(0, |details| details.rendered_byte_len()))
+        .saturating_add(execution.map_or(0, Execution::rendered_byte_len))
         > limit.bytes())
     .then_some(limit.bytes())
 }

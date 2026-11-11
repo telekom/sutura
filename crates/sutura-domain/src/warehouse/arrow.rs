@@ -316,7 +316,7 @@ impl ResultBatches {
     }
 
     /// Takes the request's execution facts before the presentation edge decodes the batches.
-    pub fn take_execution(&mut self) -> Option<super::execution::Execution> {
+    pub const fn take_execution(&mut self) -> Option<super::execution::Execution> {
         self.execution.take()
     }
 

@@ -3,7 +3,7 @@
 use sutura_domain::warehouse::ParamValue;
 use sutura_domain::warehouse::execution::Execution;
 
-/// The exact parameterized DuckDB statement submitted for a whole-source answer.
+/// The exact parameterized `DuckDB` statement submitted for a whole-source answer.
 ///
 /// Bind parameters in array order using their declared types. The original table attachments and
 /// execution context are still required; the SQL alone is not an independently runnable query.
@@ -23,9 +23,9 @@ enum ParameterBody {
     Date(String),
 }
 
-pub(super) fn sql(execution: Option<&Execution>) -> Option<ExecutedSqlBody> {
+pub(super) fn sql(execution: Option<&Execution>) -> Option<Box<ExecutedSqlBody>> {
     match execution? {
-        Execution::DuckDb { source, sql, parameters } => Some(ExecutedSqlBody {
+        Execution::DuckDb { source, sql, parameters } => Some(Box::new(ExecutedSqlBody {
             source: source.as_str().to_owned(),
             dialect: "duckdb",
             sql: sql.clone(),
@@ -36,7 +36,7 @@ pub(super) fn sql(execution: Option<&Execution>) -> Option<ExecutedSqlBody> {
                     ParamValue::Date(date) => ParameterBody::Date(date.to_iso()),
                 })
                 .collect(),
-        }),
+        })),
         Execution::DataFusion { .. } => None,
     }
 }

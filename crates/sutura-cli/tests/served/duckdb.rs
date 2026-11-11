@@ -241,6 +241,22 @@ mod tests {
             "the logical display must not print the file provider: {plan}"
         );
         assert_eq!(body["rows"], serde_json::json!([["2026-06-01", "202121"]]));
+        let stacked = served.post(
+            &v1(sutura_http::constants::base_paths::QUERY),
+            Some(TOKEN),
+            r#"{"metrics":["recurring_revenue","data_per_subscription"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+        );
+        assert_eq!(stacked.status, 200, "{}", stacked.body);
+        let body = stacked.json();
+        assert_eq!(body.get("executed_sql"), Some(&serde_json::Value::Null));
+        let plan = body["logical_plan"].as_str().expect("one complete stacked plan is reported");
+        assert!(plan.contains("TableScan: fct_subscription_monthly"), "{plan}");
+        assert!(plan.contains("TableScan: fct_usage_daily"), "{plan}");
+        assert_eq!(
+            body["columns"],
+            serde_json::json!(["period", "recurring_revenue", "data_per_subscription"])
+        );
+        assert_eq!(body["rows"][0][1], "202121");
         let combined = start_configured(
             "combined-execution-unavailable",
             &crate::harness::settings_spanning_two_sources("combined-execution-unavailable"),

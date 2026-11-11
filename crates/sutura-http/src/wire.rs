@@ -264,10 +264,10 @@ pub enum OutcomeBody {
         /// so an `executed_as` inside it would be an empty list on every catalog response, which reads
         /// as "no leg ran" rather than as "this is not an answer".
         executed_as: Vec<LegBody>,
-        /// Exact SQL and ordered typed bindings for a whole DuckDB answer; null otherwise.
+        /// Exact SQL and ordered typed bindings for a whole `DuckDB` answer; null otherwise.
         /// Unavailable for other adapters and for federated, partitioned or combined answers.
-        executed_sql: Option<ExecutedSqlBody>,
-        /// The DataFusion logical plan handed to the engine, before analysis and optimization.
+        executed_sql: Option<Box<ExecutedSqlBody>>,
+        /// The `DataFusion` logical plan handed to the engine, before analysis and optimization.
         /// Diagnostic text, not SQL or a stable replay format. Null for other or multi-stage answers.
         logical_plan: Option<String>,
         /// Column labels, in projection order.

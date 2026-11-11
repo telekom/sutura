@@ -275,9 +275,10 @@ Answers include two nullable execution fields on HTTP and MCP:
   `files` answer, before analysis and optimization. Its text format may change. It is not SQL, a
   physical plan or a replay format.
 
-The unused field is `null`. Both are `null` for other adapters, federation, drill-across and
-partitioned or combined answers: no single statement or plan explains their complete execution in
-this version. These fields contain no authentication or session-control statements. A caller
+The unused field is `null`. One whole statement or plan may combine several metrics at the source
+and still be reported. Both fields are `null` for other adapters and answers assembled from several
+executions, including federation, drill-across and partitioned execution: no single statement or
+plan explains their complete execution in this version. These fields contain no authentication or session-control statements. A caller
 allowed to query a metric may see its physical identifiers and certified fixed-filter values here;
 this does not change the separate audience policy for catalog listings. Refusals carry neither
 field. Never invent verification SQL when it is unavailable or when only a logical plan is present.
