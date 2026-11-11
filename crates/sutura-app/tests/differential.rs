@@ -508,12 +508,12 @@ mod guarded_top {
         let column = |name| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a fixture column"));
         let metric = MetricName::parse(primary).expect("a fixture metric");
         let other = MetricName::parse("other").expect("a fixture metric");
-        let guard = PlanPredicate::NotEquals {
-            column: column("customer_key"),
+        let guard = PlanPredicate::Equals {
+            column: column("status"),
             param: 0,
         };
         let other_guard = PlanPredicate::NotEquals {
-            column: column("customer_key"),
+            column: column("status"),
             param: 1,
         };
         let start = Date::parse("2026-06-01").expect("a fixture date");
@@ -545,8 +545,8 @@ mod guarded_top {
                 ),
             ],
             vec![
-                ParamValue::Integer(0),
-                ParamValue::Integer(-1),
+                ParamValue::Text(String::from("active")),
+                ParamValue::Text(String::from("never")),
                 ParamValue::Date(start),
                 ParamValue::Date(end),
                 ParamValue::Text(String::from("excluded")),
@@ -595,7 +595,8 @@ mod guarded_top {
         for direction in [TopDirection::Asc, TopDirection::Desc] {
             let plan = plan("Select", TopBy::Metric, direction, 3);
             let query = generate(&plan, dialect).expect("guarded multi-metric top renders without extra placeholders");
-            let mut expected = vec![ParamValue::Integer(0); if dialect == Dialect::ClickHouse { 3 } else { 2 }];
+            let repeats = if dialect == Dialect::ClickHouse { 3 } else { 2 };
+            let mut expected = vec![ParamValue::Text(String::from("active")); repeats];
             expected.extend(plan.params().iter().skip(1).cloned());
             assert_eq!(query.params(), expected, "{dialect}: {}", query.sql());
             let quote = dialect.identifier_quote().character();
@@ -641,7 +642,10 @@ mod guarded_top {
         renders(Dialect::Oracle);
     }
 
-    fn executes<W: DataSystemUnderTest>() {
+    fn executes<W>()
+    where
+        W: DataSystemUnderTest,
+    {
         if !runs_here::<W>() {
             return;
         }
@@ -649,7 +653,7 @@ mod guarded_top {
             std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("guarded-top-{}-{}", W::NAME, std::process::id()));
         std::fs::create_dir_all(&dir).expect("the fixture directory writes");
         let csv = dir.join("customers.csv");
-        std::fs::write(&csv, "customer_key,region,signed_on\n1,z,2026-06-01\n1,z,2026-06-01\n2,a,2026-06-01\n5,b,2026-06-01\n0,n,2026-06-01\n100,excluded,2026-06-01\n100,old,2026-05-01\n").expect("the fixture writes");
+        std::fs::write(&csv, "customer_key,region,signed_on,status\n1,z,2026-06-01,active\n1,z,2026-06-01,active\n2,a,2026-06-01,active\n5,b,2026-06-01,active\n0,n,2026-06-01,inactive\n100,excluded,2026-06-01,active\n100,old,2026-05-01,active\n").expect("the fixture writes");
         let warehouse = W::open_on(
             SourceName::parse("local").expect("a fixture source"),
             vec![(TableName::parse("dim_customer").expect("a fixture table"), csv)],
@@ -681,7 +685,7 @@ mod guarded_top {
                     .map(|(region, sum)| {
                         vec![
                             Value::Text(String::from(*region)),
-                            Value::Date(Date::parse("2026-06-01").expect("a fixture date")),
+                            Value::Text(String::from("2026-06-01")),
                             sum.map_or(Value::Null, |value| Value::Real(Real::parse(value).expect("a finite ratio"))),
                             Value::Integer(1),
                         ]
