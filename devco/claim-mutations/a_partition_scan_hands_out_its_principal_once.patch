@@ -1,0 +1,11 @@
+--- a/crates/sutura-exec-datafusion/src/combine/across/partition.rs
++++ b/crates/sutura-exec-datafusion/src/combine/across/partition.rs
+@@ -451,7 +451,7 @@
+             let next = match *carried {
+                 Carried::Nothing => Carried::Nothing,
+                 Carried::Token(_) => Carried::Taken { token: true },
+-                Carried::Principal(_) | Carried::Taken { .. } => Carried::Taken { token: false },
++                Carried::Principal(_) | Carried::Taken { .. } => Carried::Nothing,
+             };
+             core::mem::replace(&mut *carried, next)
+         };

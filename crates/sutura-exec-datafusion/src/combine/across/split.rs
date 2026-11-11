@@ -94,7 +94,9 @@ impl fmt::Debug for Leg {
 }
 
 /// The bound a split leg's every partition stream is read under, signed into its grant: at most
-/// `rows` rows and `bytes` bytes.
+/// `rows` rows and `bytes` bytes of materialisation before emission.
+///
+/// Source allocation/fetch has already happened; this bounds neither process memory nor pre-fetch work.
 #[derive(Clone, Copy, Debug)]
 pub struct StreamBound {
     rows: u32,

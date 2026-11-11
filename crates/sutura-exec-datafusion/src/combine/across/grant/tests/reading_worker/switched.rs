@@ -15,7 +15,7 @@ use super::super::super::super::partition::{PartitionReader, PartitionScanExec, 
 use super::super::super::reading::{
     Expiry, LegDigest, MaskedCaller, Partition, ReadingGrant, ReadingKey, StreamBound, encode, mint,
 };
-use super::{executed, granted, installed_and_run, refused_as_not_naming, schema, source};
+use super::{admitted, executed, granted, installed_and_run, refused_as_not_naming, schema, source};
 
 fn switched(name: &str) -> SwitchedPrincipal {
     SwitchedPrincipal::new(sutura_domain::identity::PrincipalName::parse(name).expect("a test principal is a principal"))
@@ -206,15 +206,23 @@ fn a_reader_whose_sources_switch_to_no_principal_refuses_a_partition_granted_as_
 #[test]
 fn a_partition_scan_hands_out_its_principal_once() {
     let handed = Switched::default();
-    let leaf = PartitionScanExec::new(
+    let (wire, partition, key_bytes) = (
         b"wire-principal-once".to_vec(),
-        source(),
         b"partition-principal-once".to_vec(),
         [24_u8; 32],
-        None,
-        schema(),
+    );
+    let grant = granted_switching(
+        &ReadingKey::of(key_bytes),
+        &wire,
+        &partition,
+        "user@example.com",
+        "user@example.com",
+    );
+    let leaf = admitted(
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema())
+            .switching(switched("user@example.com")),
     )
-    .switching(switched("user@example.com"));
+    .expect("the signed principal read is admitted");
 
     let answered = executed(&leaf, Arc::new(Switches(Arc::clone(&handed))), 2);
 
