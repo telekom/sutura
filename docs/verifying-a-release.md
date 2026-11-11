@@ -69,16 +69,16 @@ statement and chart are the ones on `v<version>`.
 | Artefact                         | Sigstore bundle                                  | SLSA provenance          | Registry signature               |
 | -------------------------------- | ------------------------------------------------ | ------------------------ | -------------------------------- |
 | the eight binary tarballs        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the six musl image tarballs     | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the twenty-four SBOMs                | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the six musl image tarballs      | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the twenty-four SBOMs            | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the two licence documents        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | `image-digests.txt`              | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
-| the twelve leaf images            | n/a                                              | no                       | `cosign sign`, by digest         |
-| the six manifest lists          | n/a                                              | yes                      | `cosign sign`, by digest         |
+| the twelve leaf images           | n/a                                              | no                       | `cosign sign`, by digest         |
+| the six manifest lists           | n/a                                              | yes                      | `cosign sign`, by digest         |
 | the chart                        | n/a                                              | no                       | `cosign sign`, by digest         |
 | each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
-| `sutura-provenance.intoto.jsonl` | seven existing signed attestation bundles         | not recursively attested | n/a                              |
+| `sutura-provenance.intoto.jsonl` | seven existing signed attestation bundles        | not recursively attested | n/a                              |
 
 Binary tarballs cover two binaries at four triples. Images cover three variants at four triples,
 with two SBOM formats per image and two manifest lists per variant. A leaf and the SBOM beside it

@@ -29,33 +29,31 @@ mod acceptance {
         fn here() -> Self {
             if let Ok(mode) = std::env::var("SUTURA_ORACLE_ACCEPTANCE_MODE") {
                 let required = |name| std::env::var(name).expect("the native acceptance task sets its fixture");
-                Self {
+                return Self {
                     host: String::from("127.0.0.1"),
                     port: required("SUTURA_ORACLE_ACCEPTANCE_PORT").parse().expect("a fixture port"),
                     service: required("SUTURA_ORACLE_ACCEPTANCE_SERVICE"),
                     user: required("SUTURA_ORACLE_ACCEPTANCE_USER"),
                     password: required("SUTURA_ORACLE_ACCEPTANCE_PASSWORD"),
                     anchors: (mode == "verified").then(|| {
-                        std::fs::read_to_string(required("SUTURA_ORACLE_ACCEPTANCE_CA"))
-                            .expect("the verified fixture CA reads")
+                        std::fs::read_to_string(required("SUTURA_ORACLE_ACCEPTANCE_CA")).expect("the verified fixture CA reads")
                     }),
-                }
-            } else {
-                let endpoint = provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle")
-                    .endpoint()
-                    .cloned()
-                    .expect("the Oracle acceptance task requires its tier");
-                Self {
-                    host: String::from(endpoint.host()),
-                    port: endpoint.port(),
-                    service: String::from("FREEPDB1"),
-                    user: std::env::var("SUTURA_DEV_USER").expect("the fixture user is set"),
-                    password: std::env::var("SUTURA_DEV_PASSWORD").expect("the fixture password is set"),
-                    anchors: Some(
-                        std::fs::read_to_string(std::env::var("SUTURA_ORACLE_TIER_CA").expect("the fixture CA is set"))
-                            .expect("the fixture CA reads"),
-                    ),
-                }
+                };
+            }
+            let endpoint = provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle")
+                .endpoint()
+                .cloned()
+                .expect("the Oracle acceptance task requires its tier");
+            Self {
+                host: String::from(endpoint.host()),
+                port: endpoint.port(),
+                service: String::from("FREEPDB1"),
+                user: std::env::var("SUTURA_DEV_USER").expect("the fixture user is set"),
+                password: std::env::var("SUTURA_DEV_PASSWORD").expect("the fixture password is set"),
+                anchors: Some(
+                    std::fs::read_to_string(std::env::var("SUTURA_ORACLE_TIER_CA").expect("the fixture CA is set"))
+                        .expect("the fixture CA reads"),
+                ),
             }
         }
 

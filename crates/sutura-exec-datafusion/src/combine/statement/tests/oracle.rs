@@ -25,17 +25,33 @@ impl StatementLegs for OracleLegs {
 #[test]
 fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_federation() {
     let tables = vec![
-        StatementTable::new(named("crm"), QualifiedTable::parse("dim_customer").expect("a fixture table"), TypeDialect::DuckDb, customers().schema()),
-        StatementTable::new(named("geo"), QualifiedTable::parse("dim_region").expect("a fixture table"), TypeDialect::Oracle, regions().schema()),
+        StatementTable::new(
+            named("crm"),
+            QualifiedTable::parse("dim_customer").expect("a fixture table"),
+            TypeDialect::DuckDb,
+            customers().schema(),
+        ),
+        StatementTable::new(
+            named("geo"),
+            QualifiedTable::parse("dim_region").expect("a fixture table"),
+            TypeDialect::Oracle,
+            regions().schema(),
+        ),
     ];
-    for sql in [
-        "select r.region from dim_region r order by r.region limit 1 offset 1",
-        AREAS,
-    ] {
-        let mut legs = OracleLegs { engines: Engines::new(None), statements: Vec::new() };
+    for sql in ["select r.region from dim_region r order by r.region limit 1 offset 1", AREAS] {
+        let mut legs = OracleLegs {
+            engines: Engines::new(None),
+            statements: Vec::new(),
+        };
         let statement = RawStatement::parse(sql).expect("a bounded fixture query");
         let answer = DataFusionCombiner::new().expect("a combiner builds").answer_statement(
-            StatementQuestion::new(&statement, &tables, true, UNBOUNDED, opened(Duration::ZERO, Duration::from_secs(60))),
+            StatementQuestion::new(
+                &statement,
+                &tables,
+                true,
+                UNBOUNDED,
+                opened(Duration::ZERO, Duration::from_secs(60)),
+            ),
             &mut legs,
         );
         let Some(Ok(rows)) = answer else {
@@ -49,7 +65,10 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
         if sql.contains("offset") {
             assert!(text.contains("OFFSET 1 ROWS FETCH FIRST 1 ROWS ONLY"), "{text}");
         } else {
-            assert!(text.contains("AS \"c0\""), "the local combine needs the quoted column label: {text}");
+            assert!(
+                text.contains("AS \"c0\""),
+                "the local combine needs the quoted column label: {text}"
+            );
         }
     }
 }

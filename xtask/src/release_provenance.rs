@@ -603,7 +603,10 @@ mod tests {
         ] {
             use std::fmt::Write as _;
             let mut text = String::new();
-            for (n, variant) in ["glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"].iter().enumerate() {
+            for (n, variant) in ["glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"]
+                .iter()
+                .enumerate()
+            {
                 writeln!(text, "list {variant} {reference}@sha256:{n:064x}").expect("write to String");
             }
             let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{reference}: {cause}"));

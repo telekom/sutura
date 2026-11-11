@@ -17,8 +17,13 @@ fn bundle(subject: &Value) -> Value {
     });
     let encoded = Command::new("bash")
         .args([
-            "--noprofile", "--norc", "-o", "pipefail", "-c",
-            "printf '%s' \"$1\" | base64 | tr -d '\\n'", "encode",
+            "--noprofile",
+            "--norc",
+            "-o",
+            "pipefail",
+            "-c",
+            "printf '%s' \"$1\" | base64 | tr -d '\\n'",
+            "encode",
             &serde_json::to_string(&statement).expect("fixture statement"),
         ])
         .env_remove("BASH_ENV")
@@ -49,10 +54,23 @@ fn release_provenance_requires_both_sql_lists_and_all_six_exact_names() {
     std::fs::write(&checksums, format!("{:064x}  runtime.tar.gz\n", 0)).expect("checksum snapshot");
     let mut records = String::new();
     let mut paths = Vec::new();
-    for (index, variant) in ["assets", "glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"]
-        .iter().enumerate()
+    for (index, variant) in [
+        "assets",
+        "glibc",
+        "musl",
+        "operator-glibc",
+        "operator-musl",
+        "sql-glibc",
+        "sql-musl",
+    ]
+    .iter()
+    .enumerate()
     {
-        let name = if index == 0 { "runtime.tar.gz" } else { "registry.example.com/test/runtime" };
+        let name = if index == 0 {
+            "runtime.tar.gz"
+        } else {
+            "registry.example.com/test/runtime"
+        };
         if index != 0 {
             writeln!(records, "list {variant} {name}@sha256:{index:064x}").expect("image record");
         }
@@ -63,9 +81,29 @@ fn release_provenance_requires_both_sql_lists_and_all_six_exact_names() {
     }
     for (case, records, accepted) in [
         ("complete", records.clone(), true),
-        ("missing SQL glibc", records.lines().filter(|line| !line.starts_with("list sql-glibc ")).collect::<Vec<_>>().join("\n"), false),
-        ("missing SQL musl", records.lines().filter(|line| !line.starts_with("list sql-musl ")).collect::<Vec<_>>().join("\n"), false),
-        ("unknown sixth name", records.replace("list sql-musl ", "list unexpected "), false),
+        (
+            "missing SQL glibc",
+            records
+                .lines()
+                .filter(|line| !line.starts_with("list sql-glibc "))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            false,
+        ),
+        (
+            "missing SQL musl",
+            records
+                .lines()
+                .filter(|line| !line.starts_with("list sql-musl "))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            false,
+        ),
+        (
+            "unknown sixth name",
+            records.replace("list sql-musl ", "list unexpected "),
+            false,
+        ),
         ("duplicate name", records.replace("list sql-musl ", "list sql-glibc "), false),
     ] {
         std::fs::write(&images, records).expect("image records");
@@ -75,12 +113,17 @@ fn release_provenance_requires_both_sql_lists_and_all_six_exact_names() {
             .args(&paths)
             .output()
             .expect("execute real collector");
-        assert_eq!(result.status.code(), Some(if accepted { 0 } else { 1 }), "{case}: {result:?}");
+        assert_eq!(result.status.code(), Some(i32::from(!accepted)), "{case}: {result:?}");
         assert_eq!(output.exists(), accepted, "{case}");
         if accepted {
-            let exported: Vec<Value> = std::fs::read_to_string(&output).expect("export").lines()
-                .map(|line| serde_json::from_str(line).expect("exported bundle")).collect();
-            assert_eq!(exported.len(), 7);
+            let exported = std::fs::read_to_string(&output)
+                .expect("export")
+                .lines()
+                .inspect(|line| {
+                    drop(serde_json::from_str::<Value>(line).expect("exported bundle"));
+                })
+                .count();
+            assert_eq!(exported, 7);
             std::fs::remove_file(&output).expect("remove accepted export before refusal cases");
         }
     }

@@ -380,7 +380,14 @@ jobs:
             "{}: {}\n{}",
             release.status, release.printed, release.calls
         );
-        assert!(release.calls.contains("ghcr.io/example/sutura:latest"), "{}", release.calls);
+        assert!(
+            release
+                .calls
+                .split_whitespace()
+                .any(|tag| tag == "ghcr.io/example/sutura:latest"),
+            "{}",
+            release.calls
+        );
         let optimised = pushed("performance", false);
         assert!(
             optimised.succeeded,
@@ -402,14 +409,28 @@ jobs:
             "{lists:?}"
         );
         for (index, suffix) in [(2, "sql"), (3, "sql-musl")] {
-            assert!(lists[index].starts_with(&format!(
-                "buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance-{suffix} ghcr.io/"
-            )), "{lists:?}");
+            assert!(
+                lists[index].starts_with(&format!(
+                    "buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance-{suffix} ghcr.io/"
+                )),
+                "{lists:?}"
+            );
         }
-        assert!(!release.calls.contains("ghcr.io/example/sutura:latest-sql"), "{}", release.calls);
-        assert!(release.calls.contains("ghcr.io/example/sutura:0.6.1-sql"), "{}", release.calls);
         assert!(
-            !optimised.calls.contains("ghcr.io/example/sutura:latest"),
+            !release.calls.contains("ghcr.io/example/sutura:latest-sql"),
+            "{}",
+            release.calls
+        );
+        assert!(
+            release.calls.contains("ghcr.io/example/sutura:0.6.1-sql"),
+            "{}",
+            release.calls
+        );
+        assert!(
+            !optimised
+                .calls
+                .split_whitespace()
+                .any(|tag| tag == "ghcr.io/example/sutura:latest"),
             "{}",
             optimised.calls
         );
