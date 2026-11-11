@@ -795,9 +795,16 @@ impl Warehouse for OracleWarehouse {
         let rows = self.run_with_deadline(session, (query.sql(), query.params()), deadline, executable.row_limit())?;
         // The Arrow port's conversion, in the adapter that owns the row-speaking driver - see
         // `sutura_exec_postgres`'s own `execute` and `sutura_domain::warehouse::arrow`.
-        of_row_set(&rows).map(|rows| rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
-            self.routing.source.clone(), TypeDialect::Oracle, query.sql().to_owned(), query.params(),
-        ))).map_err(|cause| OracleError::Shape { cause })
+        of_row_set(&rows)
+            .map(|rows| {
+                rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                    self.routing.source.clone(),
+                    TypeDialect::Oracle,
+                    query.sql().to_owned(),
+                    query.params(),
+                ))
+            })
+            .map_err(|cause| OracleError::Shape { cause })
     }
 
     fn type_dialect(&self) -> Option<TypeDialect> {

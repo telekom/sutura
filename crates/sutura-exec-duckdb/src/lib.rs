@@ -730,8 +730,10 @@ impl Warehouse for DuckDbWarehouse {
         let query = Self::render(executable)?;
         let rows = self.answered(&query, executable.row_limit(), Some(deadline))?;
         Ok(rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
-            query.source().clone(), sutura_domain::warehouse::schema::TypeDialect::DuckDb,
-            query.sql().to_owned(), query.params(),
+            query.source().clone(),
+            sutura_domain::warehouse::schema::TypeDialect::DuckDb,
+            query.sql().to_owned(),
+            query.params(),
         )))
     }
 

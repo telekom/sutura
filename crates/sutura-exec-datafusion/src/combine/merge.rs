@@ -113,7 +113,8 @@ async fn merged(
         })
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
-    executed(context, logical, labels, measures.len(), ceiling_bytes, working_set).await
+    executed(context, logical, labels, measures.len(), ceiling_bytes, working_set)
+        .await
         .map(|rows| rows.with_prior_executions(executions))
 }
 
@@ -129,7 +130,9 @@ async fn cut(
     match (arm, legs) {
         (Arm::Joined(joined), ArmLegs::Joined(legs)) => arm_plan(joined, legs, context, ceiling_bytes, working_set).await,
         (Arm::Local(local), ArmLegs::Local { metric, batches }) if *metric == arm.metric() => {
-            local_plan(local, grouped, context, batches).await.map(|logical| (logical, Vec::new()))
+            local_plan(local, grouped, context, batches)
+                .await
+                .map(|logical| (logical, Vec::new()))
         }
         (Arm::Joined(_), ArmLegs::Local { .. }) | (Arm::Local(_), ArmLegs::Joined(_) | ArmLegs::Local { .. }) => {
             Err(CombineError::ArmsMiswired { arm: index })

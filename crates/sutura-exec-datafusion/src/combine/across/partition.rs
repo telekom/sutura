@@ -543,12 +543,16 @@ impl ExecutionPlan for PartitionScanExec {
         let capture = self.submission_capture().map(|capture| capture.for_read());
         let required_capture = capture.clone();
         let mut batches = match self.taken()? {
-            Carried::Token(forwarded) => reader
-                .0
-                .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded, capture),
-            Carried::Principal(switched) => reader
-                .0
-                .read_switched(&self.wire, &self.source, &self.partition, schema, switched, capture),
+            Carried::Token(forwarded) => {
+                reader
+                    .0
+                    .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded, capture)
+            }
+            Carried::Principal(switched) => {
+                reader
+                    .0
+                    .read_switched(&self.wire, &self.source, &self.partition, schema, switched, capture)
+            }
             Carried::Nothing | Carried::Taken { .. } => reader.0.read(&self.wire, &self.source, &self.partition, schema, capture),
         }
         .map_err(Unread::into_error)?;
@@ -564,7 +568,9 @@ impl ExecutionPlan for PartitionScanExec {
                     }
                 })?;
             }
-            if let Some(capture) = required_capture { capture.require_recorded()?; }
+            if let Some(capture) = required_capture {
+                capture.require_recorded()?;
+            }
             Ok(accepted.finish())
         }))
     }
@@ -765,13 +771,21 @@ pub(super) fn reads_partition_or_nothing(
                             .checked_add(admitted.ends)
                             .unwrap_or(SystemTime::UNIX_EPOCH);
                     }
-                    if event.session_config.get_extension::<datafusion_distributed::CompletionRequest>().is_some() {
+                    if event
+                        .session_config
+                        .get_extension::<datafusion_distributed::CompletionRequest>()
+                        .is_some()
+                    {
                         let mut capture = leaf.capture.lock();
-                        let budget = event.session_config.get_extension::<super::receipts::TaskReceiptBudget>()
+                        let budget = event
+                            .session_config
+                            .get_extension::<super::receipts::TaskReceiptBudget>()
                             .ok_or_else(|| DataFusionError::Execution(String::from("task receipt budget is missing")))?;
                         match capture.as_ref() {
                             Some(known) if !known.belongs_to(&budget) => {
-                                return Err(DataFusionError::Execution(String::from("source capture reused by another task")));
+                                return Err(DataFusionError::Execution(String::from(
+                                    "source capture reused by another task",
+                                )));
                             }
                             Some(_) => {}
                             None => *capture = Some(SubmissionCapture::new(leaf.source.clone(), budget)),

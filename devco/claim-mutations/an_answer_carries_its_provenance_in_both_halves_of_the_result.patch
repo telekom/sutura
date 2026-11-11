@@ -1,20 +1,19 @@
 diff --git a/crates/sutura-mcp/src/wire.rs b/crates/sutura-mcp/src/wire.rs
 --- a/crates/sutura-mcp/src/wire.rs
 +++ b/crates/sutura-mcp/src/wire.rs
-@@ -329,14 +329,12 @@ impl From<&ToolOutcome> for OutcomeContent {
+@@ -325,13 +325,12 @@
              ToolOutcome::Answer {
                  ref provenance,
                  ref rows,
 -            } => Self::Answer {
 -                provenance: provenance_content(provenance),
 -                executed_as: legs(provenance.executed_as()),
--                executed_sql: execution::sql(provenance.execution()),
--                logical_plan: execution::logical_plan(provenance.execution()),
+-                executions: execution::list(provenance.executions()),
 -                columns: rows.columns().to_vec(),
 -                rows: render(rows),
 -            },
 +            } => {
-+                let _ = (provenance_content(provenance), legs(provenance.executed_as()), execution::sql(provenance.execution()), execution::logical_plan(provenance.execution()), render(rows));
++                let _ = (provenance_content(provenance), legs(provenance.executed_as()), execution::list(provenance.executions()), render(rows));
 +                Self::from(&ToolOutcome::Refusal {
 +                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
 +                })

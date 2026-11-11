@@ -22,18 +22,28 @@ struct Capture {
     budget: Arc<TaskReceiptBudget>,
 }
 
+type Submission = (usize, Vec<Execution>);
+
 #[derive(Default)]
 struct State {
     sealed: bool,
     active: usize,
     failed: bool,
-    records: Vec<(usize, Vec<Execution>)>,
+    records: Vec<Submission>,
 }
 
 impl SubmissionCapture {
     pub(in crate::combine::across) fn new(source: SourceName, budget: Arc<TaskReceiptBudget>) -> Self {
         let (changed, _) = watch::channel(0);
-        Self(Arc::new(Capture { source, state: Mutex::default(), changed, budget }), Arc::new(AtomicBool::new(false)))
+        Self(
+            Arc::new(Capture {
+                source,
+                state: Mutex::default(),
+                changed,
+                budget,
+            }),
+            Arc::new(AtomicBool::new(false)),
+        )
     }
 
     pub(in crate::combine::across) fn belongs_to(&self, budget: &Arc<TaskReceiptBudget>) -> bool {
@@ -52,7 +62,12 @@ impl SubmissionCapture {
         };
         let sequence = self.0.budget.reserve()?;
         state.active = active;
-        Ok(RecordingSubmission { capture: self.clone(), sequence, completed: false })
+        drop(state);
+        Ok(RecordingSubmission {
+            capture: self.clone(),
+            sequence,
+            completed: false,
+        })
     }
 
     pub(in crate::combine::across) fn for_read(&self) -> Self {
@@ -70,7 +85,7 @@ impl SubmissionCapture {
         self.0.state.lock().sealed = true;
     }
 
-    pub(super) async fn finish(&self) -> Result<Vec<(usize, Vec<Execution>)>, DataFusionError> {
+    pub(super) async fn finish(&self) -> Result<Vec<Submission>, DataFusionError> {
         let mut changed = self.0.changed.subscribe();
         loop {
             {
@@ -82,7 +97,10 @@ impl SubmissionCapture {
                     return Ok(core::mem::take(&mut state.records));
                 }
             }
-            changed.changed().await.map_err(|cause| DataFusionError::External(Box::new(cause)))?;
+            changed
+                .changed()
+                .await
+                .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
         }
     }
 }
@@ -95,14 +113,16 @@ pub struct RecordingSubmission {
 }
 
 impl RecordingSubmission {
-    /// Move the adapter's actual facts before read_later discards everything except rows.
+    /// Move the adapter's actual facts before `read_later` discards everything except rows.
     pub fn complete(mut self, batches: &mut ResultBatches) -> Result<(), Unread> {
         let records = batches.take_executions();
         let mut state = self.capture.0.state.lock();
         if records.iter().any(|record| {
             let source = match record {
-                Execution::Sql { source, .. } | Execution::Cube { source, .. }
-                | Execution::Node { source, .. } | Execution::BigQueryRead { source, .. } => Some(source),
+                Execution::Sql { source, .. }
+                | Execution::Cube { source, .. }
+                | Execution::Node { source, .. }
+                | Execution::BigQueryRead { source, .. } => Some(source),
                 Execution::DataFusion { source, .. } => source.as_ref(),
             };
             source != Some(&self.capture.0.source)
@@ -115,6 +135,7 @@ impl RecordingSubmission {
         self.completed = true;
         self.capture.1.store(true, Ordering::Release);
         self.capture.0.changed.send_replace(state.active);
+        drop(state);
         Ok(())
     }
 }
@@ -143,11 +164,19 @@ pub(in crate::combine::across) struct TaskReceiptBudget {
 }
 
 #[derive(Default)]
-struct BudgetState { records: usize, bytes: u64, failed: bool }
+struct BudgetState {
+    records: usize,
+    bytes: u64,
+    failed: bool,
+}
 
 impl TaskReceiptBudget {
     pub(in crate::combine::across) fn new(max_records: usize, max_bytes: usize) -> Self {
-        Self { max_records, max_bytes: u64::try_from(max_bytes).unwrap_or(u64::MAX), state: Mutex::default() }
+        Self {
+            max_records,
+            max_bytes: u64::try_from(max_bytes).unwrap_or(u64::MAX),
+            state: Mutex::default(),
+        }
     }
 
     fn reserve(&self) -> Result<usize, Unread> {
@@ -158,19 +187,23 @@ impl TaskReceiptBudget {
         }
         let sequence = state.records;
         state.records = state.records.saturating_add(1);
+        drop(state);
         Ok(sequence)
     }
 
     fn commit(&self, records: &[Execution]) -> Result<(), Unread> {
         let mut state = self.state.lock();
         let count = state.records.checked_add(records.len().saturating_sub(1));
-        let bytes = records.iter().fold(state.bytes, |total, record| total.saturating_add(record.rendered_byte_len()));
+        let bytes = records
+            .iter()
+            .fold(state.bytes, |total, record| total.saturating_add(record.rendered_byte_len()));
         if records.is_empty() || state.failed || count.is_none_or(|count| count > self.max_records) || bytes > self.max_bytes {
             state.failed = true;
             return Err(failed("task submission facts missing or over budget"));
         }
         state.records = count.ok_or_else(|| failed("task capture count overflow"))?;
         state.bytes = bytes;
+        drop(state);
         Ok(())
     }
 }

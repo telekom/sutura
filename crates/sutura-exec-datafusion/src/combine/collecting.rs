@@ -1,13 +1,13 @@
 //! Materialized combine results under their existing Arrow budget.
 
-use std::sync::Arc;
-use futures_util::StreamExt as _;
-use sutura_domain::warehouse::ResultBatches;
-use sutura_domain::warehouse::arrow::{Accumulating, UnannouncedBatch};
-use crate::pool::{self, WorkingSet};
 use super::CombineError;
 #[cfg(feature = "distributed")]
 use super::across;
+use crate::pool::{self, WorkingSet};
+use futures_util::StreamExt as _;
+use std::sync::Arc;
+use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::arrow::{Accumulating, UnannouncedBatch};
 
 /// A frame's batches, streamed into the guard, checked against the frame's own announced schema and
 /// charged against the byte budget as they arrive.

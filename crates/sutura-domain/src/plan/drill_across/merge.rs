@@ -102,7 +102,9 @@ pub trait DrillAcrossCombiner: FederationCombiner {
         let local = combined.take_executions();
         let mut executions = Vec::new();
         for arm in &mut held {
-            for leg in arm { executions.extend(leg.take_executions()); }
+            for leg in arm {
+                executions.extend(leg.take_executions());
+            }
         }
         executions.extend(local);
         Ok(combined.with_executions(executions))

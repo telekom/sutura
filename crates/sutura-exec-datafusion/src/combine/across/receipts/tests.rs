@@ -7,8 +7,8 @@ use datafusion::arrow::datatypes::Schema;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use futures_util::{StreamExt as _, poll};
 use sutura_domain::model::SourceName;
-use sutura_domain::warehouse::execution::{Execution, PlanStage};
 use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::execution::{Execution, PlanStage};
 
 use super::{CaptureDistributed, SubmissionCapture, TaskReceiptBudget, completed, executing};
 use crate::pool::WorkingSet;
@@ -49,7 +49,7 @@ fn worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped() {
                 release_rx.recv().expect("the fake source is released");
                 recording.complete(&mut facts("native_source")).expect("the actual facts fit");
             });
-            let receiver = tokio::spawn(async move { native.await });
+            let receiver = tokio::spawn(native);
             started_rx.await.expect("the native closure is running");
             receiver.abort();
             assert!(receiver.await.expect_err("the async receiver was aborted").is_cancelled());
@@ -63,8 +63,11 @@ fn worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped() {
                 .expect("released native work finishes")
                 .expect("finalized capture succeeds");
             assert_eq!(captured, vec![(0, facts("native_source").take_executions())]);
-            assert!(reading.require_recorded().is_ok());
-            assert!(capture.for_read().require_recorded().is_err(), "one read cannot cover another");
+            reading.require_recorded().expect("the successful read supplied its facts");
+            assert!(
+                capture.for_read().require_recorded().is_err(),
+                "one read cannot cover another"
+            );
             assert!(capture.begin().is_err(), "sealed capture admits no late native work");
 
             let abandoned = slot("source", Arc::new(TaskReceiptBudget::new(1, 4096)));
@@ -72,15 +75,31 @@ fn worker_capture_waits_for_native_work_after_its_async_receiver_is_dropped() {
             abandoned.seal();
             assert!(abandoned.finish().await.is_err(), "a dropped native guard is incomplete");
             let first = slot("other_source", Arc::clone(&budget));
-            first.begin().expect("one task record remains").complete(&mut facts("other_source")).expect("facts fit");
+            first
+                .begin()
+                .expect("one task record remains")
+                .complete(&mut facts("other_source"))
+                .expect("facts fit");
             let second = slot("source", budget);
             assert!(second.begin().is_err(), "all leaves share the task count bound");
             let foreign = slot("expected_source", Arc::new(TaskReceiptBudget::new(1, 4096)));
-            assert!(foreign.begin().expect("a submission starts").complete(&mut facts("foreign_source")).is_err());
+            assert!(
+                foreign
+                    .begin()
+                    .expect("a submission starts")
+                    .complete(&mut facts("foreign_source"))
+                    .is_err()
+            );
             foreign.seal();
             assert!(foreign.finish().await.is_err(), "foreign source facts cannot finalize");
             let too_small = slot("source", Arc::new(TaskReceiptBudget::new(1, 1)));
-            assert!(too_small.begin().expect("a submission starts").complete(&mut facts("source")).is_err());
+            assert!(
+                too_small
+                    .begin()
+                    .expect("a submission starts")
+                    .complete(&mut facts("source"))
+                    .is_err()
+            );
             too_small.seal();
             assert!(too_small.finish().await.is_err(), "overflow cannot produce an empty success");
         });
@@ -93,21 +112,30 @@ fn worker_capture_accepts_only_a_witnessed_local_plan_without_worker_receipts() 
         .build()
         .expect("a fixture runtime builds")
         .block_on(async {
-            let context = SessionContext::new_with_config(
-                SessionConfig::new().with_extension(Arc::new(CaptureDistributed)),
-            );
+            let context = SessionContext::new_with_config(SessionConfig::new().with_extension(Arc::new(CaptureDistributed)));
             let frame = context.sql("SELECT 7 AS n").await.expect("a constant plans");
             let working_set = WorkingSet::of_bytes(core::num::NonZeroUsize::new(1 << 20).expect("a positive bound"));
-            let (mut stream, capture) = executing(frame, working_set).await.expect("the local physical plan is witnessed");
+            let (mut stream, capture) = executing(frame, working_set)
+                .await
+                .expect("the local physical plan is witnessed");
             assert!(capture.is_none());
             let mut rows = 0;
-            while let Some(batch) = stream.next().await { rows += batch.expect("a constant executes").num_rows(); }
+            while let Some(batch) = stream.next().await {
+                rows += batch.expect("a constant executes").num_rows();
+            }
             drop(stream);
             assert_eq!(rows, 1);
-            assert!(completed(capture, working_set).expect("a local plan has no worker facts").is_empty());
-            let incomplete = Arc::new(datafusion_distributed::QueryCompletion::new(
-                1, 1, 4096, tokio::time::Instant::now() + Duration::from_secs(10),
-            ).expect("a capture scope is bounded"));
-            assert!(completed(Some(incomplete), working_set).is_err(), "an unwitnessed missing barrier is an error");
+            assert_eq!(
+                completed(capture, working_set).expect("a local plan has no worker facts"),
+                Vec::new()
+            );
+            let incomplete = Arc::new(
+                datafusion_distributed::QueryCompletion::new(1, 1, 4096, tokio::time::Instant::now() + Duration::from_secs(10))
+                    .expect("a capture scope is bounded"),
+            );
+            assert!(
+                completed(Some(incomplete), working_set).is_err(),
+                "an unwitnessed missing barrier is an error"
+            );
         });
 }

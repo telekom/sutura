@@ -22,6 +22,7 @@ use futures_util::stream;
 use parking_lot::Mutex;
 use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
+use sutura_domain::warehouse::execution::Execution;
 use tokio::runtime::Runtime;
 use url::Url;
 
@@ -95,7 +96,7 @@ fn reading(servers: &Runtime, authority: &Authority, values: Values, asked: &Ask
 
 /// What a split leg of `orders` was checked to, and every partition each other node read.
 struct Checked {
-    answer: Result<(), CombineError>,
+    answer: Result<Vec<Execution>, CombineError>,
     elsewhere: Asked,
     orders: [Asked; 2],
 }

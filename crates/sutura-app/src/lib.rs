@@ -626,12 +626,10 @@ where
                 return Ok(Answered::refused(&credentials, deadline_exceeded(deadline)));
             }
             if warehouse.source_refused(&cause) {
-                return Ok(Answered::under(
+                return Ok(Answered::refused(
                     &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::SourceRefused {
-                            source: warehouse.source().clone(),
-                        },
+                    RefusalReason::SourceRefused {
+                        source: warehouse.source().clone(),
                     },
                 ));
             }
@@ -740,12 +738,10 @@ where
             // authorization decision that refuses again at the same place. `preflight_was_refused`
             // is the same split asked of the boot path; this predicate is it asked of `execute`.
             if warehouse.source_refused(&cause) {
-                return Ok(Answered::under(
+                return Ok(Answered::refused(
                     &credentials,
-                    ToolOutcome::Refusal {
-                        reason: RefusalReason::SourceRefused {
-                            source: warehouse.source().clone(),
-                        },
+                    RefusalReason::SourceRefused {
+                        source: warehouse.source().clone(),
                     },
                 ));
             }
@@ -757,7 +753,9 @@ where
     // this is the one call that turns it into the rows a caller reads, and it is above every adapter
     // rather than inside each one. The two bounds below count rows and bytes, so they read the
     // decoded set - an Arrow row count would not see the width a caller's cells add up to.
-    if !rows.has_executions() { return Err(ServiceError::MissingExecution); }
+    if !rows.has_executions() {
+        return Err(ServiceError::MissingExecution);
+    }
     let executions = rows.take_executions();
     let rows = rows.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     // The row cap, enforced rather than merely requested. The plan asked for one row more than

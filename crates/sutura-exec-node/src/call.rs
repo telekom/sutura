@@ -113,16 +113,16 @@ impl Call {
 async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultBudget) -> Result<ResultBatches, NodeError> {
     let metadata_limit = sutura_domain::warehouse::execution::wire::byte_limit(budget.bytes());
     let mut first_frame = true;
-    let mut decoded = FlightDataDecoder::new(
-        reply.map(move |frame| {
-            let frame = frame.map_err(|status| FlightError::Tonic(Box::new(status)))?;
-            if frame.app_metadata.len() > metadata_limit || first_frame == frame.app_metadata.is_empty() {
-                return Err(FlightError::DecodeError(String::from("missing or repeated execution metadata")));
-            }
-            first_frame = false;
-            Ok(frame)
-        }),
-    );
+    let mut decoded = FlightDataDecoder::new(reply.map(move |frame| {
+        let frame = frame.map_err(|status| FlightError::Tonic(Box::new(status)))?;
+        if frame.app_metadata.len() > metadata_limit || first_frame == frame.app_metadata.is_empty() {
+            return Err(FlightError::DecodeError(String::from(
+                "missing or repeated execution metadata",
+            )));
+        }
+        first_frame = false;
+        Ok(frame)
+    }));
     let mut accumulating: Option<Accumulating> = None;
     let mut executions = None;
     let mut schema_seen = false;
@@ -134,16 +134,27 @@ async fn read(reply: tonic::Streaming<arrow_flight::FlightData>, budget: ResultB
         match frame.payload {
             DecodedPayload::Schema(schema) if !schema_seen => {
                 schema_seen = true;
-                let records = sutura_domain::warehouse::execution::wire::decode(&metadata, metadata_limit).map_err(|_cause| NodeError::Answer)?;
-                if records.is_empty() { return Err(NodeError::Answer); }
-                let left = budget.bytes().checked_sub(metadata.len()).and_then(core::num::NonZeroUsize::new).ok_or(NodeError::Answer)?;
+                let records = sutura_domain::warehouse::execution::wire::decode(&metadata, metadata_limit)
+                    .map_err(|_cause| NodeError::Answer)?;
+                if records.is_empty() {
+                    return Err(NodeError::Answer);
+                }
+                let left = budget
+                    .bytes()
+                    .checked_sub(metadata.len())
+                    .and_then(core::num::NonZeroUsize::new)
+                    .ok_or(NodeError::Answer)?;
                 accumulating = Some(Accumulating::announcing(schema, usize::MAX, ResultBudget::of_bytes(left)));
                 executions = Some(records);
-            },
+            }
             DecodedPayload::RecordBatch(batch) if schema_seen && metadata.is_empty() => {
-                accumulating.as_mut().ok_or(NodeError::Answer)?.push(batch).map_err(|cause| NodeError::Result { cause })?;
-            },
-            DecodedPayload::None if schema_seen && metadata.is_empty() => {},
+                accumulating
+                    .as_mut()
+                    .ok_or(NodeError::Answer)?
+                    .push(batch)
+                    .map_err(|cause| NodeError::Result { cause })?;
+            }
+            DecodedPayload::None if schema_seen && metadata.is_empty() => {}
             _ => return Err(NodeError::Answer),
         }
     }

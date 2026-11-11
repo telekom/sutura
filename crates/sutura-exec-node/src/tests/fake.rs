@@ -232,5 +232,6 @@ impl FlightService for Fake {
 
 /// A scripted remote submission, not an engine-attested statement.
 pub(super) fn receipt() -> Vec<u8> {
-    br#"{"version":1,"executions":[{"kind":"sql","source":"sales","dialect":"duckdb","sql":"SELECT 7","parameters":[]}]}"#.to_vec()
+    br#"{"version":1,"executions":[{"kind":"sql","source":"sales","dialect":"duckdb","sql":"SELECT 7","parameters":[]}]}"#
+        .to_vec()
 }

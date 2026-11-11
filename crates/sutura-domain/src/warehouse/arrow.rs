@@ -315,7 +315,7 @@ impl ResultBatches {
         self
     }
 
-    /// Appends owned submissions in logical order, without collapsing repeats.
+    /// Appends owned submissions, preserving their input order and multiplicity.
     #[must_use]
     pub fn with_executions(mut self, executions: Vec<super::execution::Execution>) -> Self {
         self.executions.extend(executions);
@@ -332,7 +332,9 @@ impl ResultBatches {
 
     /// Whether this result reports at least one actual submission, even with zero rows.
     #[must_use]
-    pub fn has_executions(&self) -> bool { !self.executions.is_empty() }
+    pub const fn has_executions(&self) -> bool {
+        !self.executions.is_empty()
+    }
 
     /// Takes the request's execution facts before the presentation edge decodes the batches.
     pub fn take_executions(&mut self) -> Vec<super::execution::Execution> {

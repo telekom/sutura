@@ -119,20 +119,44 @@ mod conformance {
         use sutura_domain::warehouse::schema::TypeDialect;
         let warehouse = match open() {
             Fixture::Standing(warehouse) => warehouse,
-            Fixture::Absent(missing) => { eprintln!("execution capture: NOT RUN - {missing:?}"); return; },
+            Fixture::Absent(missing) => {
+                eprintln!("execution capture: NOT RUN - {missing:?}");
+                return;
+            }
             Fixture::Located(..) => panic!("this fixture uses a private search-path schema"),
         };
-        let case = corpus::cases().into_iter().find(|case| case.name() == "decimal-total-by-day").expect("a date-bound case");
+        let case = corpus::cases()
+            .into_iter()
+            .find(|case| case.name() == "decimal-total-by-day")
+            .expect("a date-bound case");
         let query = sutura_sql::generate::generate(case.plan(), sutura_sql::Dialect::Postgres).expect("the plan renders");
-        let mut answered = warehouse.execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline()).expect("Postgres answers");
+        let mut answered = warehouse
+            .execute(Executable::Query(case.plan()), &corpus::presented(), corpus::deadline())
+            .expect("Postgres answers");
         let records = answered.take_executions();
-        let parameters: Vec<_> = query.params().iter().enumerate().map(|(position, value)| Binding::new(
-            BindingIdentity::Position(position), match value {
-                sutura_domain::warehouse::ParamValue::Text(text) => BindingValue::Utf8(text.clone()),
-                sutura_domain::warehouse::ParamValue::Date(date) => BindingValue::Date32(date.days_since_epoch()),
-            },
-        )).collect();
-        assert_eq!(records, [Execution::Sql { source: corpus::source(), dialect: TypeDialect::Postgres, sql: query.sql().to_owned(), parameters }]);
+        let parameters: Vec<_> = query
+            .params()
+            .iter()
+            .enumerate()
+            .map(|(position, value)| {
+                Binding::new(
+                    BindingIdentity::Position(position),
+                    match value {
+                        sutura_domain::warehouse::ParamValue::Text(text) => BindingValue::Utf8(text.clone()),
+                        sutura_domain::warehouse::ParamValue::Date(date) => BindingValue::Date32(date.days_since_epoch()),
+                    },
+                )
+            })
+            .collect();
+        assert_eq!(
+            records,
+            [Execution::Sql {
+                source: corpus::source(),
+                dialect: TypeDialect::Postgres,
+                sql: query.sql().to_owned(),
+                parameters
+            }]
+        );
     }
 
     // `executes_legs`, because this adapter declares `EXECUTES_LEGS`: a leg renders through

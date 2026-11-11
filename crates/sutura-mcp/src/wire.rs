@@ -245,7 +245,7 @@ pub enum OutcomeContent {
         /// for the reason stated there. The two wire types are kept equal by review; an adapter may
         /// not reach into another adapter.
         executed_as: Vec<LegContent>,
-        /// Actual submissions in logical execution order. Requires the original execution context to replay.
+        /// Actual engine submissions recorded with the answer. Requires the original execution context to replay.
         executions: Vec<ExecutionContent>,
         /// Column labels, in projection order.
         columns: Vec<String>,
@@ -399,7 +399,9 @@ impl OutcomeContent {
                     out.push_str(" as: ");
                     out.push_str(leg.posture);
                 }
-                for execution in executions { execution.append_text(&mut out); }
+                for execution in executions {
+                    execution.append_text(&mut out);
+                }
                 out
             }
             // The code as well as the sentence, because the code is the part that is stable and the

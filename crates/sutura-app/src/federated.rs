@@ -388,7 +388,9 @@ where
     B: CredentialBroker,
     C: FederationCombiner,
 {
-    if executions.is_empty() { return Err(ServiceError::MissingExecution); }
+    if executions.is_empty() {
+        return Err(ServiceError::MissingExecution);
+    }
     let federated_ceiling = ceilings.federated().get();
     if exceeds_row_cap(answer.rows().len(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
@@ -485,12 +487,13 @@ where
     if exceeds_row_cap(combined.rows(), federated_ceiling) {
         return Ok(too_many_rows(credentials, federated_ceiling));
     }
-    let ranked = FederatedPlan::rank(combined, top)
-        .map_err(|cause| ServiceError::Miswired {
-            cause: crate::FederationMiswired::RankedAnswer { cause },
-        })?;
+    let ranked = FederatedPlan::rank(combined, top).map_err(|cause| ServiceError::Miswired {
+        cause: crate::FederationMiswired::RankedAnswer { cause },
+    })?;
     let mut ranked = ranked;
-    if !ranked.has_executions() { return Err(ServiceError::MissingExecution); }
+    if !ranked.has_executions() {
+        return Err(ServiceError::MissingExecution);
+    }
     let executions = ranked.take_executions();
     let ranked = ranked.to_rows().map_err(|cause| ServiceError::Unreadable { cause })?;
     if let Some(limit_bytes) = exceeds_response_bound(&ranked, &executions) {

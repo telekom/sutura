@@ -641,7 +641,13 @@ impl DataFusionWarehouse {
 
         drop(actual);
         let rows = collect::collected(frame, self.working_set).await?;
-        Ok(rows.with_execution(sutura_domain::warehouse::execution::Execution::DataFusion { source: Some(self.source.clone()), stage: sutura_domain::warehouse::execution::PlanStage::Files, logical_plan }))
+        Ok(
+            rows.with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+                source: Some(self.source.clone()),
+                stage: sutura_domain::warehouse::execution::PlanStage::Files,
+                logical_plan,
+            }),
+        )
     }
 
     /// Counts a declared join key's values and its distinct values, in one aggregate.
@@ -682,8 +688,8 @@ mod combine;
 pub use crate::combine::{CombineError, DataFusionCombiner, SourceProvider};
 #[cfg(feature = "distributed")]
 pub use crate::combine::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound, SubmissionCapture, SwitchedPrincipal, TaskGrant,
-    TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound,
+    SubmissionCapture, SwitchedPrincipal, TaskGrant, TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 /// The engine's own types a [`PartitionReader`] names, so an implementor outside this crate needs no
 /// `datafusion` edge of its own.

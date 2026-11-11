@@ -43,9 +43,10 @@ pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
 /// reason `exceeds_row_cap` is: the boundary is testable without a data system.
 pub(crate) fn exceeds_response_bound(rows: &sutura_domain::warehouse::RowSet, executions: &[Execution]) -> Option<u64> {
     let limit = sutura_domain::query::ResponseByteLimit::DEFAULT;
-    (rows
-        .rendered_byte_len()
-        .saturating_add(executions.iter().fold(0_u64, |bytes, execution| bytes.saturating_add(execution.rendered_byte_len())))
-        > limit.bytes())
+    (rows.rendered_byte_len().saturating_add(
+        executions
+            .iter()
+            .fold(0_u64, |bytes, execution| bytes.saturating_add(execution.rendered_byte_len())),
+    ) > limit.bytes())
     .then_some(limit.bytes())
 }

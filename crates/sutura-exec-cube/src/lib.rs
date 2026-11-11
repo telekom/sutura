@@ -38,23 +38,34 @@ use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::arrow::of_row_set;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
+use sutura_domain::warehouse::execution::Execution;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, ResultBatches, RowSet, Warehouse};
 
 use crate::query::{CubeQuery, NotExpressible};
 
 /// A native load's body and every submitted payload, including continue-wait retries.
 #[derive(Debug)]
-pub struct Loaded { body: Vec<u8>, submissions: Vec<serde_json::Value> }
+pub struct Loaded {
+    body: Vec<u8>,
+    submissions: Vec<serde_json::Value>,
+}
 
 impl Loaded {
     #[must_use]
     pub fn one(query: &serde_json::Value, body: Vec<u8>) -> Self {
-        Self { body, submissions: vec![serde_json::json!({ "query": query })] }
+        Self {
+            body,
+            submissions: vec![serde_json::json!({ "query": query })],
+        }
     }
     #[must_use]
-    pub fn body(&self) -> &[u8] { &self.body }
+    pub fn body(&self) -> &[u8] {
+        &self.body
+    }
     #[must_use]
-    pub fn submissions(&self) -> &[serde_json::Value] { &self.submissions }
+    pub fn submissions(&self) -> &[serde_json::Value] {
+        &self.submissions
+    }
 }
 
 /// The two round trips this adapter makes, as a seam: [`http::HttpCube`] for a running Cube, and a
@@ -144,6 +155,8 @@ where
 
 pub(crate) type CubeResult<T, E> = Result<T, CubeError<E>>;
 
+type ExecutedRows = (RowSet, Vec<Execution>);
+
 /// One answer's bytes, or why the transport did not get them.
 pub type Answer<E> = Result<Vec<u8>, E>;
 
@@ -198,7 +211,7 @@ where
         Ok(token)
     }
 
-    fn run(&self, plan: &QueryPlan, limit: u32, token: &Secret, deadline: Deadline) -> CubeResult<(RowSet, Vec<sutura_domain::warehouse::execution::Execution>), T::Error> {
+    fn run(&self, plan: &QueryPlan, limit: u32, token: &Secret, deadline: Deadline) -> CubeResult<ExecutedRows, T::Error> {
         let query = CubeQuery::of(plan, limit).map_err(|cause| CubeError::NotExpressible { cause })?;
         let served = self
             .transport
@@ -215,8 +228,9 @@ where
         let mut bodies = Vec::with_capacity(answers.len());
         for answer in answers {
             bodies.push(answer.body);
-            executions.extend(answer.submissions.into_iter().map(|query| sutura_domain::warehouse::execution::Execution::Cube {
-                source: self.source.clone(), query,
+            executions.extend(answer.submissions.into_iter().map(|query| Execution::Cube {
+                source: self.source.clone(),
+                query,
             }));
         }
         let rows = rows::read(&bodies, &query)?;
@@ -263,7 +277,9 @@ where
             }
         };
         let (rows, executions) = self.run(plan, plan.row_limit(), token, deadline)?;
-        of_row_set(&rows).map(|rows| rows.with_executions(executions)).map_err(|cause| CubeError::Shape { cause })
+        of_row_set(&rows)
+            .map(|rows| rows.with_executions(executions))
+            .map_err(|cause| CubeError::Shape { cause })
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

@@ -162,10 +162,16 @@ impl Warehouse for NodeWarehouse {
         let values = params::batch(leg.params()).map_err(|_cause| NodeError::Framing)?;
         let mut answer = self.call.exchange(&wire, values, bearer(token)?, (deadline, self.budget))?;
         let remote = answer.take_executions();
-        let answer = answer.with_execution(sutura_domain::warehouse::execution::Execution::Node {
-            source: self.source.clone(), query: wire,
-            parameters: sutura_domain::warehouse::execution::Execution::bindings(leg.params(), sutura_domain::warehouse::schema::TypeDialect::DuckDb),
-        }).with_executions(remote);
+        let answer = answer
+            .with_execution(sutura_domain::warehouse::execution::Execution::Node {
+                source: self.source.clone(),
+                query: Box::new(wire),
+                parameters: sutura_domain::warehouse::execution::Execution::bindings(
+                    leg.params(),
+                    sutura_domain::warehouse::schema::TypeDialect::DuckDb,
+                ),
+            })
+            .with_executions(remote);
         let labels = executable.result_labels();
         if answer.schema().fields().iter().map(|field| field.name()).ne(labels.iter()) {
             return Err(NodeError::Labels);

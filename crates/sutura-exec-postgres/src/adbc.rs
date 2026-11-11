@@ -383,9 +383,14 @@ impl Warehouse for AdbcPostgres {
         let bound = parameter_batch(query.params()).map_err(AdbcError::Parameters)?;
         let ceiling = self.statement_timeout_ceiling_ms;
         let batches = self.connected(|connection| session::answer(connection, query.sql(), bound, ceiling, deadline))?;
-        numeric::batches(batches).map(|rows| rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
-            self.source.clone(), TypeDialect::Postgres, query.sql().to_owned(), query.params(),
-        )))
+        numeric::batches(batches).map(|rows| {
+            rows.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                self.source.clone(),
+                TypeDialect::Postgres,
+                query.sql().to_owned(),
+                query.params(),
+            ))
+        })
     }
 
     fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {

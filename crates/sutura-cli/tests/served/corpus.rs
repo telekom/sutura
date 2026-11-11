@@ -177,7 +177,7 @@ mod tests {
                 assert_eq!(engine_body["executions"][0]["kind"], "datafusion");
                 assert_eq!(postgres_body["executions"][0]["kind"], "sql");
                 assert_eq!(postgres_body["executions"][0]["dialect"], "postgres");
-                assert!(!postgres_body["executions"][0]["sql"].as_str().expect("submitted SQL").is_empty());
+                assert_ne!(postgres_body["executions"][0]["sql"].as_str().expect("submitted SQL"), "");
             }
             // Plans describe each execution engine; compare the semantic answers below.
             engine_body

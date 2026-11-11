@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use datafusion::common::TableReference;
+use sutura_domain::warehouse::execution::Execution;
 
 use super::{Nodes, SplitScan, lost, relayed};
 use crate::combine::{CombineError, refuse_ambiguous_link, working_set_of};
@@ -35,7 +36,12 @@ const LOOKUP: &str = "lookup";
 /// # Errors
 ///
 /// [`CombineError::AmbiguousLink`] for such a pair, or why the check could not run.
-pub async fn refuse_ambiguous_split(nodes: &Nodes, leg: SplitScan, on: &[&str], ceiling_bytes: u64) -> Result<(), CombineError> {
+pub async fn refuse_ambiguous_split(
+    nodes: &Nodes,
+    leg: SplitScan,
+    on: &[&str],
+    ceiling_bytes: u64,
+) -> Result<Vec<Execution>, CombineError> {
     let working_set = working_set_of(ceiling_bytes);
     let context = nodes.session(working_set)?;
     context

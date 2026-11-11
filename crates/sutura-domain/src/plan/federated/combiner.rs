@@ -663,10 +663,16 @@ pub trait FederationCombiner {
         let mut combined = self.combine(plan, legs, working_set_bytes).map_err(ExecuteError::Combine)?;
         let local = combined.take_executions();
         let mut executions = fact.take_executions();
-        if let Some(second) = &mut second_fact { executions.extend(second.take_executions()); }
+        if let Some(second) = &mut second_fact {
+            executions.extend(second.take_executions());
+        }
         for lookup in &mut looked_up {
             match lookup {
-                Looked::Rows(parts) => for part in parts { executions.extend(part.take_executions()); },
+                Looked::Rows(parts) => {
+                    for part in parts {
+                        executions.extend(part.take_executions());
+                    }
+                }
                 Looked::Granted(grant) => executions.extend(grant.take_executions()),
             }
         }

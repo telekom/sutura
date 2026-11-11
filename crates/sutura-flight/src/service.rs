@@ -204,9 +204,14 @@ impl<S: Surface + ?Sized> RemoteLegService<S> {
             RemoteLegOutcome::Answer { mut batches } => {
                 let schema = Arc::clone(batches.schema());
                 let executions = batches.take_executions();
-                if executions.is_empty() { return Err(Status::internal("the remote execution capture is missing")); }
-                let metadata = sutura_domain::warehouse::execution::wire::encode(&executions, sutura_domain::warehouse::execution::wire::byte_limit(usize::MAX))
-                    .map_err(|_cause| Status::internal("the remote execution capture is invalid"))?;
+                if executions.is_empty() {
+                    return Err(Status::internal("the remote execution capture is missing"));
+                }
+                let metadata = sutura_domain::warehouse::execution::wire::encode(
+                    &executions,
+                    sutura_domain::warehouse::execution::wire::byte_limit(usize::MAX),
+                )
+                .map_err(|_cause| Status::internal("the remote execution capture is invalid"))?;
                 let records = batches.into_batches();
                 let encoded = FlightDataEncoderBuilder::new()
                     .with_schema(schema)
@@ -354,11 +359,13 @@ mod tests {
         );
         accumulating.push(one_row_batch()).expect("the schema matches");
         RemoteLegOutcome::Answer {
-            batches: accumulating.finish().with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
-                source: Some(SourceName::parse("fixture").expect("fixture source")),
-                stage: sutura_domain::warehouse::execution::PlanStage::Files,
-                logical_plan: String::from("fixture: materialize canned rows"),
-            }),
+            batches: accumulating
+                .finish()
+                .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+                    source: Some(SourceName::parse("fixture").expect("fixture source")),
+                    stage: sutura_domain::warehouse::execution::PlanStage::Files,
+                    logical_plan: String::from("fixture: materialize canned rows"),
+                }),
         }
     }
 

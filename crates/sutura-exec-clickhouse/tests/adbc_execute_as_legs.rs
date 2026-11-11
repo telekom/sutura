@@ -533,11 +533,26 @@ mod adbc_execute_as_legs {
         let Some(tier) = Tier::here("execution_capture") else { return };
         tier.load(LEGS);
         let case = corpus::leg_case();
-        let mut answered = tier.at(LEGS, SourcePosture::ImpersonationAtSource)
-            .execute(Executable::Leg(case.leg()), &switched_to("sutura_switched"), corpus::deadline())
+        let mut answered = tier
+            .at(LEGS, SourcePosture::ImpersonationAtSource)
+            .execute(
+                Executable::Leg(case.leg()),
+                &switched_to("sutura_switched"),
+                corpus::deadline(),
+            )
             .expect("the switched leg answers");
         let records = answered.take_executions();
-        let [Execution::Sql { source, dialect, sql, parameters }] = records.as_slice() else { panic!("one submitted SQL record: {records:?}"); };
+        let [
+            Execution::Sql {
+                source,
+                dialect,
+                sql,
+                parameters,
+            },
+        ] = records.as_slice()
+        else {
+            panic!("one submitted SQL record: {records:?}");
+        };
         assert_eq!(source, &corpus::source());
         assert_eq!(*dialect, TypeDialect::ClickHouse);
         assert!(sql.starts_with("EXECUTE AS "), "{sql}");
@@ -552,7 +567,10 @@ mod adbc_execute_as_legs {
                 ParamValue::Date(date) => BindingValue::Date32(date.days_since_epoch()),
             };
             assert_eq!(binding.value(), &expected);
-            assert!(sql.contains(&format!("{{p{position}:")), "the final named placeholder survives: {sql}");
+            assert!(
+                sql.contains(&format!("{{p{position}:")),
+                "the final named placeholder survives: {sql}"
+            );
         }
     }
 }

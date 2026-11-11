@@ -3,21 +3,21 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::common::DataFusionError;
+use datafusion::common::tree_node::{TreeNode as _, TreeNodeRecursion};
 use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::DataFrame;
 use datafusion_distributed::{CompletionRequest, QueryCompletion, TaskCompletionProducer};
 use sutura_domain::warehouse::execution::{Execution, wire};
 
-use crate::pool::WorkingSet;
-use crate::combine::CombineError;
 use super::partition::PartitionScanExec;
+use crate::combine::CombineError;
+use crate::pool::WorkingSet;
 
 mod capture;
-pub use capture::{RecordingSubmission, SubmissionCapture};
 pub(super) use capture::TaskReceiptBudget;
+pub use capture::{RecordingSubmission, SubmissionCapture};
 
 /// Installed only on sessions that plan distributed executions.
 pub(super) struct CaptureDistributed;
@@ -41,7 +41,8 @@ pub(in crate::combine) async fn executing(
     let state = SessionStateBuilder::new_from_existing(state).with_config(config).build();
     let frame = DataFrame::new(state, logical);
     let context = Arc::new(frame.task_ctx());
-    let plan = tokio::time::timeout_at(deadline, frame.create_physical_plan()).await
+    let plan = tokio::time::timeout_at(deadline, frame.create_physical_plan())
+        .await
         .map_err(|cause| DataFusionError::External(Box::new(cause)))??;
     let mut distributed = 0usize;
     let mut source_leaves = false;
@@ -53,15 +54,22 @@ pub(in crate::combine) async fn executing(
         Ok(TreeNodeRecursion::Continue)
     })?;
     if distributed > 1 || (distributed == 0 && source_leaves) {
-        return Err(DataFusionError::Execution(String::from("physical plan has no single worker completion scope")));
+        return Err(DataFusionError::Execution(String::from(
+            "physical plan has no single worker completion scope",
+        )));
     }
     // Execute exactly the inspected Arc. Local plans without source leaves submit no worker tasks.
     let stream = datafusion::physical_plan::execute_stream(plan, context)?;
     Ok((stream, (distributed == 1).then_some(capture)))
 }
 
-pub(in crate::combine) fn completed(capture: Option<Arc<QueryCompletion>>, working_set: WorkingSet) -> Result<Vec<Execution>, CombineError> {
-    let Some(capture) = capture else { return Ok(Vec::new()); };
+pub(in crate::combine) fn completed(
+    capture: Option<Arc<QueryCompletion>>,
+    working_set: WorkingSet,
+) -> Result<Vec<Execution>, CombineError> {
+    let Some(capture) = capture else {
+        return Ok(Vec::new());
+    };
     let limit = wire::byte_limit(working_set.bytes());
     let mut records = Vec::new();
     for task in capture.take().map_err(|cause| CombineError::Execute { cause })? {
@@ -71,7 +79,7 @@ pub(in crate::combine) fn completed(capture: Option<Arc<QueryCompletion>>, worki
         let captured = wire::decode(envelope, limit).map_err(|cause| CombineError::Execute {
             cause: DataFusionError::External(Box::new(cause)),
         })?;
-        if records.len().saturating_add(captured.len()) > limit / 64 {
+        if records.len().saturating_add(captured.len()) > (limit >> 6) {
             return Err(incomplete("aggregate execution count exceeded"));
         }
         records.extend(captured);
@@ -83,7 +91,9 @@ pub(super) fn install(mut builder: SessionStateBuilder) -> SessionStateBuilder {
     let config = builder.config().take().unwrap_or_default();
     let config = if let Some(request) = config.get_extension::<CompletionRequest>() {
         config.with_extension(Arc::new(TaskReceiptBudget::new(request.max_records(), request.max_bytes())))
-    } else { config };
+    } else {
+        config
+    };
     let producer = TaskCompletionProducer::new(|_, plan, request| Box::pin(produce(plan, request)));
     *builder.config() = Some(config.with_extension(Arc::new(producer)));
     builder
@@ -102,24 +112,29 @@ async fn produce(plan: Arc<dyn ExecutionPlan>, request: CompletionRequest) -> Re
     })?;
     let mut captures = Vec::with_capacity(leaves.len());
     for leaf in &leaves {
-        let scan = leaf.downcast_ref::<PartitionScanExec>()
+        let scan = leaf
+            .downcast_ref::<PartitionScanExec>()
             .ok_or_else(|| DataFusionError::Execution(String::from("source leaf changed during capture")))?;
-        let capture = scan.submission_capture()
+        let capture = scan
+            .submission_capture()
             .ok_or_else(|| DataFusionError::Execution(String::from("source submission capture is missing")))?;
         capture.seal();
         captures.push(capture);
     }
     let mut submissions = Vec::new();
-    for capture in captures { submissions.extend(capture.finish().await?); }
+    for capture in captures {
+        submissions.extend(capture.finish().await?);
+    }
     submissions.sort_unstable_by_key(|(sequence, _)| *sequence);
     let records: Vec<_> = submissions.into_iter().flat_map(|(_, records)| records).collect();
-    let envelope = wire::encode(&records, request.max_bytes())
-        .map_err(|cause| DataFusionError::External(Box::new(cause)))?;
+    let envelope = wire::encode(&records, request.max_bytes()).map_err(|cause| DataFusionError::External(Box::new(cause)))?;
     Ok(vec![envelope])
 }
 
 fn incomplete(message: &'static str) -> CombineError {
-    CombineError::Execute { cause: DataFusionError::Execution(String::from(message)) }
+    CombineError::Execute {
+        cause: DataFusionError::Execution(String::from(message)),
+    }
 }
 
 #[cfg(test)]

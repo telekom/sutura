@@ -21,7 +21,9 @@ use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::ResultBatches;
 use sutura_domain::warehouse::deadline::{Budget, Deadline};
-use sutura_exec_datafusion::{Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, SubmissionCapture, Unread, read_later};
+use sutura_exec_datafusion::{
+    Forwarded, PartitionReader, SchemaRef, SendableRecordBatchStream, SubmissionCapture, Unread, read_later,
+};
 
 use super::super::OpenedSources;
 use super::super::kind::split;
@@ -57,11 +59,13 @@ impl PartitionReader for Reader {
             sutura_runtime::spawn_carrying_span(move || {
                 let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
                 let mut answered = opened.read(&wire, &source, &partition, &granted)?;
-                if let Some(recording) = recording { recording.complete(&mut answered)?; }
+                if let Some(recording) = recording {
+                    recording.complete(&mut answered)?;
+                }
                 Ok(answered)
             })
-                .await
-                .map_err(Unread::failed)?
+            .await
+            .map_err(Unread::failed)?
         }))
     }
 
@@ -80,11 +84,13 @@ impl PartitionReader for Reader {
             sutura_runtime::spawn_carrying_span(move || {
                 let recording = capture.as_ref().map(SubmissionCapture::begin).transpose()?;
                 let mut answered = opened.read_forwarded(&wire, &source, &partition, forwarded)?;
-                if let Some(recording) = recording { recording.complete(&mut answered)?; }
+                if let Some(recording) = recording {
+                    recording.complete(&mut answered)?;
+                }
                 Ok(answered)
             })
-                .await
-                .map_err(Unread::failed)?
+            .await
+            .map_err(Unread::failed)?
         }))
     }
 }

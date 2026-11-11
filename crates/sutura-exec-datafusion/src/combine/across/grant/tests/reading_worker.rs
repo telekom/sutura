@@ -708,7 +708,8 @@ impl PartitionReader for Either {
         forwarded: Forwarded,
         capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
-        self.forwards.read_forwarded(wire, source, partition, schema, forwarded, capture)
+        self.forwards
+            .read_forwarded(wire, source, partition, schema, forwarded, capture)
     }
 }
 

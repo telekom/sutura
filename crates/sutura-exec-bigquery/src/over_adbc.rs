@@ -108,10 +108,14 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
                 readers,
                 ends,
             )
-            .map(|split| split.with_execution(sutura_domain::warehouse::execution::Execution::sql(
-                self.source.clone(), sutura_domain::warehouse::schema::TypeDialect::BigQuery,
-                query.sql().to_owned(), query.params(),
-            )))
+            .map(|split| {
+                split.with_execution(sutura_domain::warehouse::execution::Execution::sql(
+                    self.source.clone(),
+                    sutura_domain::warehouse::schema::TypeDialect::BigQuery,
+                    query.sql().to_owned(),
+                    query.params(),
+                ))
+            })
             .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 
@@ -141,7 +145,12 @@ impl BigQueryWarehouse<adbc::AdbcBigQuery> {
         let payer = self.unstated_payer(&billing::executable_projects(Executable::Leg(leg))?)?;
         self.transport
             .read_partition(&payer, token, descriptor, JobDeadline::Port(deadline))
-            .map(|rows| rows.with_execution(sutura_domain::warehouse::execution::Execution::bigquery_read(self.source.clone(), descriptor)))
+            .map(|rows| {
+                rows.with_execution(sutura_domain::warehouse::execution::Execution::bigquery_read(
+                    self.source.clone(),
+                    descriptor,
+                ))
+            })
             .map_err(|cause| BigQueryError::Endpoint { cause })
     }
 }

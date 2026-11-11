@@ -264,7 +264,7 @@ pub enum OutcomeBody {
         /// so an `executed_as` inside it would be an empty list on every catalog response, which reads
         /// as "no leg ran" rather than as "this is not an answer".
         executed_as: Vec<LegBody>,
-        /// Actual submissions in logical execution order. Requires the original execution context to replay.
+        /// Actual engine submissions recorded with the answer. Requires the original execution context to replay.
         executions: Vec<ExecutionBody>,
         /// Column labels, in projection order.
         columns: Vec<String>,

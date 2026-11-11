@@ -139,7 +139,9 @@ impl CubeTransport for HttpCube {
         let cap = sutura_domain::query::ResponseByteLimit::DEFAULT.bytes();
         loop {
             submitted_bytes = submitted_bytes.saturating_add(body.len() as u64);
-            if submitted_bytes > cap { return Err(HttpCubeError::TooLarge { cap }); }
+            if submitted_bytes > cap {
+                return Err(HttpCubeError::TooLarge { cap });
+            }
             let response = self
                 .agent
                 .current()
@@ -154,7 +156,10 @@ impl CubeTransport for HttpCube {
             submissions.push(payload.clone());
             let answer = self.answer(response)?;
             if !still_computing(&answer) {
-                return Ok(Loaded { body: answer, submissions });
+                return Ok(Loaded {
+                    body: answer,
+                    submissions,
+                });
             }
         }
     }

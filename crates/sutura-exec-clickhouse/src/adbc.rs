@@ -462,7 +462,10 @@ impl AdbcClickHouseWarehouse {
             RunsAs::Deployment | RunsAs::SignedIn { .. } => sql,
         };
         let execution = sutura_domain::warehouse::execution::Execution::sql(
-            self.source.clone(), TypeDialect::ClickHouse, sql.clone(), query.params(),
+            self.source.clone(),
+            TypeDialect::ClickHouse,
+            sql.clone(),
+            query.params(),
         );
         statement
             .set_sql_query(sql)

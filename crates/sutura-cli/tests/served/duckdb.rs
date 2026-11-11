@@ -138,7 +138,9 @@ mod tests {
                 .as_str()
                 .expect("MCP has a text result");
             assert!(text.contains(expected_sql), "{text}");
-            let days = sutura_domain::calendar::Date::parse(start).expect("fixture date").days_since_epoch();
+            let days = sutura_domain::calendar::Date::parse(start)
+                .expect("fixture date")
+                .days_since_epoch();
             assert!(text.contains(&days.to_string()), "{text}");
             assert!(!mcp.body.contains(TOKEN), "MCP must not carry the access credential");
         }
@@ -250,7 +252,9 @@ mod tests {
         assert_eq!(stacked.status, 200, "{}", stacked.body);
         let body = stacked.json();
         assert_eq!(body["executions"].as_array().expect("submissions").len(), 1);
-        let plan = body["executions"][0]["logical_plan"].as_str().expect("one complete stacked plan is reported");
+        let plan = body["executions"][0]["logical_plan"]
+            .as_str()
+            .expect("one complete stacked plan is reported");
         assert!(plan.contains("TableScan: fct_subscription_monthly"), "{plan}");
         assert!(plan.contains("TableScan: fct_usage_daily"), "{plan}");
         assert_eq!(
@@ -275,7 +279,11 @@ mod tests {
         assert_eq!(executions[1]["stage"], "files");
         assert_ne!(executions[0]["source"], executions[1]["source"]);
         assert!(executions.iter().skip(2).all(|execution| execution["stage"] == "combine"));
-        assert!(executions.iter().all(|execution| execution["logical_plan"].as_str().is_some_and(|plan| !plan.is_empty())));
+        assert!(
+            executions
+                .iter()
+                .all(|execution| execution["logical_plan"].as_str().is_some_and(|plan| !plan.is_empty()))
+        );
     }
 }
 

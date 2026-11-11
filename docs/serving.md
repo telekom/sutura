@@ -271,12 +271,12 @@ definition version and digest that it came from:
 
 HTTP and MCP answers carry an ordered `executions` list:
 
-| `kind` | Contents |
-| --- | --- |
-| `sql` | Source, dialect, final submitted SQL and ordered typed parameters. |
-| `datafusion` | Source for `stage: "files"`, or `source: null` for `stage: "combine"`, and diagnostic logical-plan text. |
-| `cube` | Source and the native submitted JSON payload, including each continue-wait retry. |
-| `node` | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records. |
+| `kind`          | Contents                                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sql`           | Source, dialect, final submitted SQL and ordered typed parameters.                                                                          |
+| `datafusion`    | Source for `stage: "files"`, or `source: null` for `stage: "combine"`, and diagnostic logical-plan text.                                    |
+| `cube`          | Source and the native submitted JSON payload, including each continue-wait retry.                                                           |
+| `node`          | Source, outbound native leg and its typed parameters, followed by the remote peer's flat execution records.                                 |
 | `bigquery_read` | Source, `operation: "adbc_read_partition"` and the SHA-256 of the actual opaque stream descriptor. The descriptor itself is never returned. |
 
 Each SQL/Node parameter has `binding: {"kind":"position","value":0}` for a zero-based
@@ -286,9 +286,10 @@ position, or `binding: {"kind":"named","value":"p0"}` for ClickHouse. Its `value
 inlined into SQL. ClickHouse SQL includes the final placeholder, timeout-settings and
 `EXECUTE AS` rewrites.
 
-Federation, drill-across and partitioned execution retain their individual submissions in logical
-plan order, followed by combine submissions; repeated submissions are retained. A successful
-adapter result with no capture fails the answer. This is disclosure to the caller authorized to
+Federation, drill-across and partitioned execution retain their individual source and combine
+submissions. Distributed worker records are ordered by (stage, task), then each task's native
+read-start sequence; this is neither a global logical-plan order nor a wall-clock order. Repeated
+submissions are retained. A successful adapter result with no capture fails the answer. This is disclosure to the caller authorized to
 ask the metric: physical identifiers and certified fixed-filter values may be visible, independently
 of the audience policy for catalog listings. Authentication and session-control statements are not
 included. Refusals carry no `executions` field.

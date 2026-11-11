@@ -75,8 +75,8 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 use sutura_domain::model::{Aggregate, SourceName};
 use sutura_domain::plan::{FederatedAnswerRefusal, FederatedPlan, FederationCombiner, InternalLabel, LegAt, Legs, WorkersShort};
 use sutura_domain::query::MAX_LOOKUP_LEGS;
-use sutura_domain::warehouse::{ResultBatches, UnannouncedBatch};
 use sutura_domain::warehouse::execution::{Execution, PlanStage};
+use sutura_domain::warehouse::{ResultBatches, UnannouncedBatch};
 
 use crate::pool::{self, WorkingSet};
 
@@ -104,8 +104,8 @@ mod served;
 mod statement;
 #[cfg(feature = "distributed")]
 pub use across::{
-    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound, SubmissionCapture, SwitchedPrincipal, TaskGrant,
-    TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
+    Forwarded, NodeIdentity, Nodes, NotAnIdentity, PartitionReader, RecordingSubmission, SplitScan, StreamBound,
+    SubmissionCapture, SwitchedPrincipal, TaskGrant, TokenUnread, Unread, WorkerRefusal, read_later, refuse_ambiguous_split,
 };
 pub use provider::SourceProvider;
 
@@ -530,7 +530,8 @@ impl DataFusionCombiner {
         ceiling_bytes: u64,
     ) -> Result<ResultBatches, CombineError> {
         let (logical, executions) = arm_plan(plan, legs, context, ceiling_bytes, working_set).await?;
-        executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set).await
+        executed(context, logical, answer_labels(plan), 1, ceiling_bytes, working_set)
+            .await
             .map(|rows| rows.with_prior_executions(executions))
     }
 }
@@ -546,7 +547,8 @@ async fn executed(
     working_set: WorkingSet,
 ) -> Result<ResultBatches, CombineError> {
     let execution = Execution::DataFusion {
-        source: None, stage: PlanStage::Combine,
+        source: None,
+        stage: PlanStage::Combine,
         logical_plan: format!("{}", logical.display_indent()),
     };
     let frame = context
@@ -947,18 +949,23 @@ async fn refuse_ambiguous_link(
         .and_then(|past_one| past_one.limit(0, Some(1)))
         .and_then(LogicalPlanBuilder::build)
         .map_err(|cause| CombineError::Build { cause })?;
-    let execution = Execution::DataFusion { source: None, stage: PlanStage::Combine, logical_plan: format!("{}", logical.display_indent()) };
+    let execution = Execution::DataFusion {
+        source: None,
+        stage: PlanStage::Combine,
+        logical_plan: format!("{}", logical.display_indent()),
+    };
     let frame = context
         .execute_logical_plan(logical)
         .await
         .map_err(|cause| CombineError::Analyze { cause })?;
     let mut found = collected(frame, ceiling_bytes, working_set).await?;
-    if found.rows() > 0 { return Err(CombineError::AmbiguousLink); }
+    if found.rows() > 0 {
+        return Err(CombineError::AmbiguousLink);
+    }
     let mut executions = found.take_executions();
     executions.push(execution);
     Ok(executions)
 }
-
 
 #[cfg(test)]
 mod tests;

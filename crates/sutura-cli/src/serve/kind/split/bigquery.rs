@@ -84,7 +84,9 @@ impl SplitKind for BigQuerySource {
                 (),
                 SystemTime::now(),
             )
-            .map_or_else(Partitioned::NotGranted, |grant| Partitioned::Granted(grant.with_executions(executions))))
+            .map_or_else(Partitioned::NotGranted, |grant| {
+                Partitioned::Granted(grant.with_executions(executions))
+            }))
     }
 
     /// Refused: a `BigQuery` partition is read only with its caller's token.
