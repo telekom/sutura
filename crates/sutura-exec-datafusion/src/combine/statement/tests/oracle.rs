@@ -1,5 +1,11 @@
 //! The planner's Oracle leg, executed by a fake source engine; actual Oracle belongs to its venue.
 
+use std::ops::ControlFlow;
+
+use datafusion::sql::sqlparser::ast::{LimitClause, Query, VisitMut as _, VisitorMut};
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::parser::Parser;
+
 use super::*;
 
 struct OracleLegs {
@@ -17,14 +23,51 @@ impl StatementLegs for OracleLegs {
     fn run(&mut self, source: &SourceName, statement: &RawStatement) -> Result<RawRows, Self::Stop> {
         if *source == named("geo") {
             self.statements.push(String::from(statement.as_str()));
-            // ponytail: translate only this fixture's limit; the live venue executes Oracle spelling.
-            let text = statement
-                .as_str()
-                .replace("OFFSET 1 ROWS FETCH FIRST 1 ROWS ONLY", "LIMIT 1 OFFSET 1");
-            let statement = RawStatement::parse(&text).map_err(|_cause| source.clone())?;
+            // ponytail: only the fake normalizes FETCH; the live venue executes Oracle spelling.
+            let mut parsed = Parser::parse_sql(&GenericDialect, statement.as_str()).map_err(|_cause| source.clone())?;
+            let [sql] = parsed.as_mut_slice() else {
+                return Err(source.clone());
+            };
+            if sql.visit(&mut OracleLimits).is_break() {
+                return Err(source.clone());
+            }
+            let statement = RawStatement::parse(sql.to_string()).map_err(|_cause| source.clone())?;
             return self.engines.run(source, &statement);
         }
         self.engines.run(source, statement)
+    }
+}
+
+struct OracleLimits;
+
+impl VisitorMut for OracleLimits {
+    type Break = ();
+
+    fn post_visit_query(&mut self, query: &mut Query) -> ControlFlow<Self::Break> {
+        let Some(fetch) = query.fetch.take() else {
+            return ControlFlow::Continue(());
+        };
+        if fetch.with_ties || fetch.percent {
+            return ControlFlow::Break(());
+        }
+        let Some(quantity) = fetch.quantity else {
+            return ControlFlow::Break(());
+        };
+        let offset = match query.limit_clause.take() {
+            None => None,
+            Some(LimitClause::LimitOffset {
+                limit: None,
+                offset,
+                limit_by,
+            }) if limit_by.is_empty() => offset,
+            Some(_) => return ControlFlow::Break(()),
+        };
+        query.limit_clause = Some(LimitClause::LimitOffset {
+            limit: Some(quantity),
+            offset,
+            limit_by: Vec::new(),
+        });
+        ControlFlow::Continue(())
     }
 }
 

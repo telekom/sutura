@@ -189,7 +189,7 @@ fn oracle_raw_federation_reads_two_registered_sources_only_when_listed_and_allow
             .split_once("\nsources:\n  local:\n")
             .expect("the fixture declares one source");
         let catalog = derived_beside(&config_path(case)).join("catalog");
-        std::fs::write(catalog.join("other.md"), "---\nkind: model\nname: events_more\nsource: other\ntable: EVENTS_MORE\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n---\nThe second raw fixture table.\n")
+        std::fs::write(catalog.join("other.md"), "---\nkind: model\nname: events_more\nsource: other\ntable: EVENTS_MORE\ncolumns:\n  - {name: ID, type: NUMBER(10), nullable: false}\n---\nThe second raw fixture table.\n")
             .expect("the second model writes");
         let settings = format!(
             "{head}\nsources:\n  local:\n{source}  other:\n{source}tools:\n  run_sql:\n    enabled: true\n    sources: [{listed}]\n    federation_allowed: {federation}\n"

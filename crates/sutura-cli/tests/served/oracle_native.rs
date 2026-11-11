@@ -129,7 +129,7 @@ fn local_catalog(root: &std::path::Path) -> PathBuf {
     .expect("the declaration writes");
     std::fs::write(
         catalog.join("model.md"),
-        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMERIC, nullable: false}\n  - {name: PAYLOAD, type: VARCHAR, nullable: false}\n  - {name: MONTH, type: DATE, nullable: false}\n---\nThe login fixture.\n",
+        "---\nkind: model\nname: events\nsource: local\ntable: EVENTS\ncolumns:\n  - {name: ID, type: NUMBER(10), nullable: false}\n  - {name: PAYLOAD, type: VARCHAR, nullable: false}\n  - {name: MONTH, type: DATE, nullable: false}\n---\nThe login fixture.\n",
     )
     .expect("the model writes");
     std::fs::write(
