@@ -126,12 +126,12 @@ The native mode needs no documentation view. It refuses `environment`, `dictiona
 and `live_row_predicate`, which select only that view.
 
 ```yaml
-    dictionary_source: native_dictionary
-    include:
-      - { schema: INVENTORY, table: 'REPO_*' }
-    exclude_tables: [REPO_SCRIPTS]
-    exclude_columns: ['SECRET*', '*EMAIL*']
-    exclude_types: [CLOB, BLOB, LONG]
+dictionary_source: native_dictionary
+include:
+  - { schema: INVENTORY, table: "REPO_*" }
+exclude_tables: [REPO_SCRIPTS]
+exclude_columns: ["SECRET*", "*EMAIL*"]
+exclude_types: [CLOB, BLOB, LONG]
 ```
 
 Each include is a schema/table pair, and every pair must match a visible table before exclusions.
