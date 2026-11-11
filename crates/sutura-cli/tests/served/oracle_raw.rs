@@ -48,7 +48,7 @@ fn oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix() {
     let record = audit
         .iter()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find(|line| line["msg"] == "raw_answered")
+        .find(|line| line["msg"] == "[REQUEST - EVENT] raw_answered")
         .expect("the raw call has an audit record");
     assert_eq!(record["rows"], 2, "{record}");
     assert!(
