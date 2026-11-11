@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -165,6 +165,12 @@ jobs:
       - name: Resolve with the pinned generator
         if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
         run: nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
+
+      - name: Lock the canonical Arrow Git input
+        if: inputs.operation == 'arrow-lock'
+        run: |
+          nix --version > /tmp/oracle-export/nix-version.txt
+          nix flake update arrow-adbc-src
 
       - name: Format Rust with the pinned toolchain
         if: inputs.operation == 'format' || inputs.operation == 'lock-format'
@@ -332,7 +338,7 @@ jobs:
         run: nix run .#oracle-acceptance
 
       - name: Inspect the locked Arrow archive against its Git objects
-        if: inputs.operation == 'arrow-source'
+        if: inputs.operation == 'arrow-source' || inputs.operation == 'arrow-lock'
         run: |
           git show "$GITHUB_WORKFLOW_SHA:.github/scripts/inspect-arrow-source.py" > /tmp/inspect-arrow-source.py
           sha256sum /tmp/inspect-arrow-source.py > /tmp/oracle-export/arrow-inspector.sha256

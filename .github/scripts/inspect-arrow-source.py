@@ -5,17 +5,25 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 out = Path('/tmp/oracle-export')
 locked = json.loads(Path('flake.lock').read_text())['nodes']['arrow-adbc-src']['locked']
 assert locked['rev'] == 'a3f81c6feb1133ba80600ac32e6d7c0b0b407e18'
 (out / 'arrow-locked.json').write_text(json.dumps(locked, indent=2) + '\n')
 fetch_env = os.environ | {'XDG_CACHE_HOME': '/tmp/arrow-fresh-fetch-cache'}
-metadata = json.loads(subprocess.check_output(['nix', 'flake', 'prefetch', '--json', '--refresh', f"github:apache/arrow-adbc/{locked['rev']}"], env=fetch_env))
+uri = f"github:apache/arrow-adbc/{locked['rev']}"
+if locked['type'] == 'git':
+    uri = f"git+{locked['url']}?ref={quote(locked['ref'], safe='')}&rev={locked['rev']}"
+    if locked.get('shallow'):
+        uri += '&shallow=1'
+metadata = json.loads(subprocess.check_output(['nix', 'flake', 'prefetch', '--json', '--refresh', uri], env=fetch_env))
 (out / 'arrow-prefetched.json').write_text(json.dumps(metadata, indent=2) + '\n')
 root = Path(metadata['storePath'])
 actual = subprocess.check_output(['nix', 'hash', 'path', str(root)], text=True).strip()
 assert actual == metadata['hash'], metadata
+if locked['type'] == 'git':
+    assert actual == locked['narHash'], (actual, locked)
 repo = Path('/tmp/arrow-identity')
 subprocess.run(['git', 'init', str(repo)], check=True)
 subprocess.run(['git', '-C', str(repo), 'fetch', '--depth=1', 'https://github.com/apache/arrow-adbc.git', locked['rev']], check=True)
@@ -63,6 +71,8 @@ for raw in entries:
         changed.append({'path': name, 'diff': '\n'.join(difflib.unified_diff(before, after, fromfile='git/' + name, tofile='archive/' + name))})
 actual_paths = {str(p.relative_to(root)) for p in root.rglob('*') if p.is_file() or p.is_symlink()}
 assert paths == actual_paths, sorted(paths ^ actual_paths)
+if locked['type'] == 'git':
+    assert not changed, changed
 (out / 'arrow-files.json').write_text(json.dumps(manifest, indent=2) + '\n')
 summary = {'commit': locked['rev'], 'tree': tree, 'locked_nar': locked['narHash'], 'fetched_nar': actual, 'files': len(manifest), 'changes': changed}
 (out / 'arrow-identity.json').write_text(json.dumps(summary, indent=2) + '\n')
