@@ -106,7 +106,7 @@ fn an_oracle_part_preserves_quoted_aliases_and_fetch_limits_alone_and_in_a_feder
         let Some(Ok(rows)) = answer else {
             panic!("the Oracle part must run: {answer:?}");
         };
-        assert_eq!(rows, legs.engines.as_one(sql));
+        assert_eq!(rows, legs.engines.as_one(sql), "Oracle SQL: {:?}", legs.statements);
         assert_eq!(legs.statements.len(), 1);
         let text = &legs.statements[0];
         assert!(!text.contains("LIMIT"), "{text}");
