@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, raw-baseline]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -356,6 +356,112 @@ jobs:
           set -e
           printf '%s\n' "$status" > /tmp/oracle-export/postgres-diagnostic.exit
           exit "$status"
+
+      - name: Measure current-driver raw deadline baseline
+        if: inputs.operation == 'raw-baseline'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/oracle-export/raw-baseline
+          printf '%s\n' "$GITHUB_WORKFLOW_SHA" > /tmp/oracle-export/raw-baseline/helper-sha
+          test "$(git rev-parse HEAD)" = a28830c159897be3b70024e36260cc47baf7af77
+          python3 - <<'PYBASELINE'
+          import subprocess
+          from pathlib import Path
+
+          payloads = {
+              "raw_deadline_probe.rs": "crates/sutura-exec-oracle/examples/raw_deadline_probe.rs",
+              "observer.sql": "nix/oracle-raw-baseline-observer.sql",
+              "run.sh": "nix/oracle-raw-baseline.sh",
+          }
+          helper = __import__("os").environ["GITHUB_WORKFLOW_SHA"]
+          assert all(not Path(name).exists() for name in payloads.values())
+          Path("/tmp/oracle-export/raw-baseline/injection-owned").touch()
+          for name, destination in payloads.items():
+              path = Path(destination)
+              assert not path.exists(), destination
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(subprocess.check_output(["git", "show", f"{helper}:.github/scripts/oracle-raw-baseline/{name}"]))
+              subprocess.run(["git", "add", "-N", destination], check=True)
+          path = Path("justfile")
+          path.write_text(path.read_text() + "\noracle-raw-baseline:\n    bash nix/oracle-raw-baseline.sh\n")
+          path = Path("flake.nix")
+          text = path.read_text()
+          anchor = "            export SUTURA_ORACLE_CARGO_PROFILE=ci\n"
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, '''            export PATH="${pkgs.just}/bin:$PATH"
+                      if [ "''${SUTURA_ORACLE_RAW_BASELINE:-0}" = 1 ]; then
+                        exec just oracle-raw-baseline
+                      fi
+          ''' + anchor)
+          path.write_text(text)
+          path = Path("nix/oracle-native-probe.sh")
+          text = path.read_text()
+          start = text.index("cleanup() {\n")
+          end = text.index("trap cleanup EXIT\n", start)
+          text = text[:start] + '''container_id=
+          cleanup() {
+            test -n "$container_id" || return 0
+            timeout --kill-after=2s 10s docker logs "$container_id" > "$out/container.log" 2>&1 || true
+            set +e
+            timeout --kill-after=2s 15s docker rm -f "$container_id" >/dev/null 2>&1
+            cleanup_status=$?
+            set -e
+            mkdir -p target/oracle-raw-baseline
+            printf '%s\\n' "$cleanup_status" > target/oracle-raw-baseline/native-cleanup-status
+          }
+          ''' + text[end:]
+          anchor = 'docker run -d --name "$name" -e ORACLE_PASSWORD -p 127.0.0.1::1521 "$image"\n'
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, '''container_id=$(docker create --name "$name" -e ORACLE_PASSWORD -p 127.0.0.1::1521 "$image")
+          name="$container_id"
+          docker start "$container_id"
+          ''')
+          anchor = 'if [ "${SUTURA_ORACLE_RUN_ACCEPTANCE:-0}" = 1 ]; then\n'
+          assert text.count(anchor) == 1
+          text = text.replace(anchor, '''mkdir -p target/oracle-raw-baseline/native
+          cp "$out/sqlnet.log" "$out/server.log" "$out/public-dh.log" target/oracle-raw-baseline/native/
+          SUTURA_ORACLE_RAW_CONTAINER="$container_id" SUTURA_ORACLE_RAW_MODE=native \\
+          SUTURA_ORACLE_RAW_PORT="$port" SUTURA_ORACLE_RAW_SERVICE=FREEPDB1 \\
+          SUTURA_ORACLE_RAW_PASSWORD="$ORACLE_PASSWORD" just oracle-raw-baseline
+          ''' + anchor)
+          path.write_text(text)
+          subprocess.run(["git", "add", *payloads.values(), "justfile", "flake.nix", str(path)], check=True)
+          PYBASELINE
+          set +e
+          SUTURA_ORACLE_RAW_BASELINE=1 timeout --kill-after=30s 70m nix run .#oracle-native-acceptance
+          status=$?
+          set -e
+          printf '%s\n' "$status" > /tmp/oracle-export/raw-baseline/workflow-status
+          exit "$status"
+
+      - name: Retain baseline diagnostics and restore only its source overlay
+        if: always() && inputs.operation == 'raw-baseline'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/oracle-export/raw-baseline
+          if [ -d target/oracle-raw-baseline ]; then
+            cp -R target/oracle-raw-baseline/. /tmp/oracle-export/raw-baseline/
+          fi
+          git diff HEAD --binary > /tmp/oracle-export/raw-baseline/injection-final.patch
+          git status --short > /tmp/oracle-export/raw-baseline/injection-final-status
+          python3 - <<'PYRESTORE'
+          import subprocess
+          from pathlib import Path
+
+          if not Path("/tmp/oracle-export/raw-baseline/injection-owned").exists():
+              raise SystemExit(0)
+          added = ["crates/sutura-exec-oracle/examples/raw_deadline_probe.rs",
+                   "nix/oracle-raw-baseline-observer.sql", "nix/oracle-raw-baseline.sh"]
+          for name in added:
+              if Path(name).exists():
+                  subprocess.run(["git", "rm", "--cached", "--force", "--", name], check=True)
+                  Path(name).unlink()
+          for name in ["flake.nix", "justfile", "nix/oracle-native-probe.sh"]:
+              Path(name).write_bytes(subprocess.check_output(["git", "show", f"HEAD:{name}"]))
+          subprocess.run(["git", "add", "flake.nix", "justfile", "nix/oracle-native-probe.sh"], check=True)
+          PYRESTORE
+          git status --porcelain > /tmp/oracle-export/raw-baseline/restored-status
+          test ! -s /tmp/oracle-export/raw-baseline/restored-status
 
       - name: Export exact generated bytes
         if: always()
