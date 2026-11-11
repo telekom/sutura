@@ -291,7 +291,10 @@ impl Settings {
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
         refusals.extend(posture::audience_refusal(self.security.inbound()));
-        refusals.extend(posture::also_accept_refusals(self.security.inbound(), self.security.also_accept()));
+        refusals.extend(posture::also_accept_refusals(
+            self.security.inbound(),
+            self.security.also_accept(),
+        ));
         refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(posture::run_sql_multi_user_refusal(
             &self.tools,

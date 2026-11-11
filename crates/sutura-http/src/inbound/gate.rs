@@ -477,8 +477,7 @@ fn unverified_issuer(token: &str) -> Option<String> {
         iss: String,
     }
     let mut segments = token.split('.');
-    let (Some(_header), Some(payload), Some(_sig), None) =
-        (segments.next(), segments.next(), segments.next(), segments.next())
+    let (Some(_header), Some(payload), Some(_sig), None) = (segments.next(), segments.next(), segments.next(), segments.next())
     else {
         return None;
     };

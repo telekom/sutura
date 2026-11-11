@@ -712,10 +712,7 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
 /// The audience and issuer checks are symmetric: they compare each `also_accept` entry against
 /// the primary verifier and against every earlier `also_accept` entry, so the index in the error
 /// message names the LATER entry that introduced the collision.
-pub(super) fn also_accept_refusals(
-    inbound: Option<&InboundIdentity>,
-    also_accept: &[InboundIdentity],
-) -> Vec<NotFitToServe> {
+pub(super) fn also_accept_refusals(inbound: Option<&InboundIdentity>, also_accept: &[InboundIdentity]) -> Vec<NotFitToServe> {
     let mut refusals = Vec::new();
     if also_accept.is_empty() {
         return refusals;

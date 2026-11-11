@@ -792,12 +792,11 @@ fn also_accept_beside_a_primary_inbound_loads_and_the_secondary_is_accessible() 
 fn also_accept_without_a_primary_inbound_is_refused() {
     // `also_accept` extends a primary verifier - there is no "secondary only" shape, because
     // RFC 9728 describes one resource server and that is the primary.
-    let rendered = Settings::load(
-        &Sources::defaults(Environment::Development).with_overlay(format!("security:\n{GATEWAY_ALSO_ACCEPT}")),
-    )
-    .expect_err("also_accept without primary inbound is refused")
-    .reason()
-    .to_string();
+    let rendered =
+        Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{GATEWAY_ALSO_ACCEPT}")))
+            .expect_err("also_accept without primary inbound is refused")
+            .reason()
+            .to_string();
     assert!(rendered.contains("security.also_accept"), "{rendered}");
     assert!(rendered.contains("security.inbound"), "{rendered}");
 }
