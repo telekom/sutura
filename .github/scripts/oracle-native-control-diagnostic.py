@@ -17,6 +17,11 @@ replace(
             );
             return Err(Error::native_encryption_refused("unprotected native control packet"));''',
 )
+replace(
+    "crates/sutura-cli/tests/served/oracle_native.rs",
+    '.expect("native mode must let the correct credentials serve");',
+    '.inspect_err(|_| eprintln!("native-control-diagnostic path={path} expected={expected}"))\n                .expect("native mode must let the correct credentials serve");',
+)
 for old, stage in [
     ('connection.map_err(read_err)', 'connect'),
     ('connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;', 'read_only'),
