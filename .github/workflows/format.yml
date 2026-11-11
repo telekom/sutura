@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -337,6 +337,13 @@ jobs:
           git show "$GITHUB_WORKFLOW_SHA:.github/scripts/inspect-arrow-source.py" > /tmp/inspect-arrow-source.py
           sha256sum /tmp/inspect-arrow-source.py > /tmp/oracle-export/arrow-inspector.sha256
           python3 /tmp/inspect-arrow-source.py
+
+      - name: Compare Arrow fetch cache metadata
+        if: inputs.operation == 'arrow-cache'
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/inspect-arrow-cache.py" > /tmp/inspect-arrow-cache.py
+          sha256sum /tmp/inspect-arrow-cache.py > /tmp/oracle-export/arrow-cache-inspector.sha256
+          python3 /tmp/inspect-arrow-cache.py
 
       - name: Run complete hygiene preflight
         if: inputs.operation == 'hygiene'
