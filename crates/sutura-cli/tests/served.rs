@@ -188,6 +188,12 @@ mod split_grant;
 
 #[cfg(unix)]
 #[cfg(test)]
+#[cfg(all(feature = "oracle", feature = "distributed"))]
+#[path = "served/oracle_split.rs"]
+mod oracle_split;
+
+#[cfg(unix)]
+#[cfg(test)]
 mod tests {
     use std::sync::mpsc::channel;
     use std::sync::{Arc, Barrier};
