@@ -455,3 +455,10 @@ it moves when what a metric means changes and does not move when a document is m
 Quote both whenever you report a figure, alongside the period and any filters applied. If two
 answers in one conversation carry different digests, the definitions changed underneath you: say so
 rather than presenting the two numbers as comparable.
+
+Use `executed_sql` when the answer supplies it: the submitted DuckDB statement and ordered typed
+bindings. `logical_plan` is instead a diagnostic DataFusion plan submitted to its engine, not SQL
+or a stable replay format. Null means unavailable; combined and unsupported executions report no
+single statement or plan. Never invent verification SQL when SQL is unavailable, or label a logical
+plan as SQL. Replaying either needs the original tables and execution context. These details may
+reveal physical identifiers and certified filter values to the caller authorized to ask the metric.
