@@ -16,8 +16,8 @@ use rustls::pki_types::{CertificateDer, ServerName};
 use sutura_dev::issuer::{MockIssuer, PublishedKeySet};
 
 use crate::harness::{
-    LOCAL_SOURCE, LOOKUP_SOURCE, SINGLE_USER, Served, accepted_by, an_issuer, bound_address,
-    catalog_spanning_two_sources, example_root, files_source, recurring_revenue_by_region, settings_over, start_configured, v1,
+    LOCAL_SOURCE, LOOKUP_SOURCE, SINGLE_USER, Served, accepted_by, an_issuer, bound_address, catalog_spanning_two_sources,
+    example_root, files_source, recurring_revenue_by_region, settings_over, start_configured, v1,
 };
 
 const CASE: &str = "oracle-split-differential";
@@ -37,10 +37,15 @@ struct Fixture {
 }
 
 impl Fixture {
-    #[expect(clippy::disallowed_methods, reason = "a hosted test provisions its own Oracle schema through the real driver")]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a hosted test provisions its own Oracle schema through the real driver"
+    )]
     fn here() -> Self {
         let provisioned = sutura_dev::provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "oracle");
-        let endpoint = provisioned.endpoint().expect("the named Oracle acceptance task requires its tier");
+        let endpoint = provisioned
+            .endpoint()
+            .expect("the named Oracle acceptance task requires its tier");
         let required = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("the acceptance task sets {name}"));
         let password = required("SUTURA_DEV_PASSWORD");
         let authority = required("SUTURA_ORACLE_TIER_CA");
@@ -50,10 +55,14 @@ impl Fixture {
             .expect("the tier endpoint is an Oracle connect string")
             .set_trust_anchors_pem(&anchors)
             .expect("the tier authority is an anchor");
-        let admin = oracledb::connect(dial.clone().set_credentials("SYSTEM", &password)).expect("the fixture administrator opens");
+        let admin =
+            oracledb::connect(dial.clone().set_credentials("SYSTEM", &password)).expect("the fixture administrator opens");
         let user = format!("SPLIT_{}", std::process::id());
         if let Err(cause) = admin.execute(&format!("DROP USER \"{user}\" CASCADE"), &[]) {
-            assert!(cause.to_string().contains("ORA-01918"), "the previous fixture did not drop: {cause}");
+            assert!(
+                cause.to_string().contains("ORA-01918"),
+                "the previous fixture did not drop: {cause}"
+            );
         }
         assert!(!password.contains('"'), "the generated fixture password must be quotable");
         for statement in [
@@ -63,7 +72,9 @@ impl Fixture {
             admin.execute(&statement, &[]).expect("the private fixture schema creates");
         }
         let setup = oracledb::connect(dial.set_credentials(&user, &password)).expect("the fixture service user opens");
-        setup.set_call_timeout(Some(Duration::from_secs(30))).expect("the fixture timeout sets");
+        setup
+            .set_call_timeout(Some(Duration::from_secs(30)))
+            .expect("the fixture timeout sets");
         setup.execute(
             &format!("CREATE TABLE \"{TABLE}\" (\"customer_key\" NUMBER(10,0), \"customer_id\" VARCHAR2(16), \"segment\" VARCHAR2(16), \"region\" VARCHAR2(16))"),
             &[],
@@ -76,18 +87,22 @@ impl Fixture {
             let fields: Vec<_> = line.split(',').collect();
             assert_eq!(fields.len(), 4, "a fixture customer has four fields");
             let key: i64 = fields[0].parse().expect("the customer key is an integer");
-            setup.execute(
-                &format!("INSERT INTO \"{TABLE}\" VALUES (:1, :2, :3, :4)"),
-                &[&key, &fields[1], &fields[2], &fields[3]],
-            ).expect("a fixture customer inserts");
+            setup
+                .execute(
+                    &format!("INSERT INTO \"{TABLE}\" VALUES (:1, :2, :3, :4)"),
+                    &[&key, &fields[1], &fields[2], &fields[3]],
+                )
+                .expect("a fixture customer inserts");
             customers += 1;
         }
         assert_eq!(customers, 40, "the disclosed actual row count changed");
         setup.commit().expect("the fixture commits");
-        setup.execute(
-            &format!("BEGIN DBMS_STATS.SET_TABLE_STATS(USER, '\"{TABLE}\"', numrows => 1200000, avgrlen => 48); END;"),
-            &[],
-        ).expect("the fixture's synthetic statistics set");
+        setup
+            .execute(
+                &format!("BEGIN DBMS_STATS.SET_TABLE_STATS(USER, '\"{TABLE}\"', numrows => 1200000, avgrlen => 48); END;"),
+                &[],
+            )
+            .expect("the fixture's synthetic statistics set");
         let buckets = setup.query(
             &format!("SELECT ORA_HASH(\"customer_key\", 1), COUNT(*) FROM \"{TABLE}\" GROUP BY ORA_HASH(\"customer_key\", 1) ORDER BY 1"),
             &[],
@@ -112,65 +127,134 @@ impl Fixture {
         rewrite(&model, "table: dim_customer\n", &format!("table: {TABLE}\n"));
         let issuer = an_issuer();
         let keys = PublishedKeySet::of(&issuer, CASE).expect("the fixture key set publishes");
-        Self { root, catalog, host: String::from(endpoint.host()), port: endpoint.port(), user, authority, certificate: pair.cert.der().clone(), issuer, keys }
+        Self {
+            root,
+            catalog,
+            host: String::from(endpoint.host()),
+            port: endpoint.port(),
+            user,
+            authority,
+            certificate: pair.cert.der().clone(),
+            issuer,
+            keys,
+        }
     }
 
     fn source(&self, split: bool) -> String {
         format!(
             "  {LOOKUP_SOURCE}:\n    kind: oracle\n    host: {}\n    port: {}\n    service_name: FREEPDB1\n    user: {}\n    password_file: {}\n    transport_mode: verified\n    transport_anchors: {}\n    posture: shared-service-user\n{}",
-            self.host, self.port, self.user, self.root.join("password").display(), self.authority,
+            self.host,
+            self.port,
+            self.user,
+            self.root.join("password").display(),
+            self.authority,
             if split { "    split: flashback\n" } else { "" },
         )
     }
 
     fn pair(&self) -> String {
-        format!("  tls_certificate: {}\n  tls_key: {}\n  tls_node_authority: {}\n", self.root.join("node.pem").display(), self.root.join("node.key").display(), self.root.join("node.pem").display())
+        format!(
+            "  tls_certificate: {}\n  tls_key: {}\n  tls_node_authority: {}\n",
+            self.root.join("node.pem").display(),
+            self.root.join("node.key").display(),
+            self.root.join("node.pem").display()
+        )
     }
 
     fn reader(&self, name: &str, catalog: &Path) -> Served {
         let server = format!("  role: reading-worker\n  host: 127.0.0.1\n  port: 0\n{}", self.pair());
         let security = format!("{SINGLE_USER}  tls_termination: in-process\n");
-        start_configured(&format!("{CASE}-{name}"), &settings_over(catalog, &example_root().join("data"), &server, &security, &self.source(true)))
+        start_configured(
+            &format!("{CASE}-{name}"),
+            &settings_over(catalog, &example_root().join("data"), &server, &security, &self.source(true)),
+        )
     }
 
     fn serving(&self, name: &str, readers: &[String], split: bool) -> Served {
-        let port = TcpListener::bind(("127.0.0.1", 0)).and_then(|socket| socket.local_addr()).expect("a loopback port is free").port();
+        let port = TcpListener::bind(("127.0.0.1", 0))
+            .and_then(|socket| socket.local_addr())
+            .expect("a loopback port is free")
+            .port();
         let nodes = if readers.is_empty() {
             String::new()
         } else {
-            let others = readers.iter().map(|url| format!("      - url: {url}\n        role: reading-worker\n        sources: [{LOOKUP_SOURCE}]\n")).collect::<Vec<_>>().concat();
+            let others = readers
+                .iter()
+                .map(|url| format!("      - url: {url}\n        role: reading-worker\n        sources: [{LOOKUP_SOURCE}]\n"))
+                .collect::<Vec<_>>()
+                .concat();
             format!("  nodes:\n    own: https://127.0.0.1:{port}\n    others:\n{others}    across_above_bytes: 1\n")
         };
         let server = format!("  host: 127.0.0.1\n  port: {port}\n{}{nodes}", self.pair());
-        let security = format!("  identity: multi-user\n  tls_termination: in-process\n  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n", self.issuer.audience(), self.issuer.issuer(), self.keys.path().display());
-        let sources = format!("{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}", files_source(LOCAL_SOURCE, &example_root().join("data")), self.source(split));
-        start_configured(&format!("{CASE}-{name}"), &settings_over(&self.catalog, &example_root().join("data"), &server, &security, &sources))
+        let security = format!(
+            "  identity: multi-user\n  tls_termination: in-process\n  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n",
+            self.issuer.audience(),
+            self.issuer.issuer(),
+            self.keys.path().display()
+        );
+        let sources = format!(
+            "{}{ACKNOWLEDGED}{}{ACKNOWLEDGED}",
+            files_source(LOCAL_SOURCE, &example_root().join("data")),
+            self.source(split)
+        );
+        start_configured(
+            &format!("{CASE}-{name}"),
+            &settings_over(&self.catalog, &example_root().join("data"), &server, &security, &sources),
+        )
     }
 
     fn ask(&self, served: &Served) -> (u16, serde_json::Value) {
         let address = address(served);
-        let token = self.issuer.mint(&accepted_by("user@example.com")).expect("the fake issuer signs a token");
+        let token = self
+            .issuer
+            .mint(&accepted_by("user@example.com"))
+            .expect("the fake issuer signs a token");
         let mut roots = rustls::RootCertStore::empty();
         roots.add(self.certificate.clone()).expect("the node pair is an anchor");
         let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions().expect("the default TLS versions are safe")
-            .with_root_certificates(roots).with_no_client_auth();
-        let connection = rustls::ClientConnection::new(Arc::new(config), ServerName::try_from("127.0.0.1").expect("an IP address is a server name").to_owned()).expect("the client connection builds");
+            .with_safe_default_protocol_versions()
+            .expect("the default TLS versions are safe")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let connection = rustls::ClientConnection::new(
+            Arc::new(config),
+            ServerName::try_from("127.0.0.1")
+                .expect("an IP address is a server name")
+                .to_owned(),
+        )
+        .expect("the client connection builds");
         let tcp = TcpStream::connect(&address).expect("the serving node accepts a connection");
-        tcp.set_read_timeout(Some(Duration::from_secs(120))).expect("the read timeout sets");
+        tcp.set_read_timeout(Some(Duration::from_secs(120)))
+            .expect("the read timeout sets");
         let mut tls = rustls::StreamOwned::new(connection, tcp);
         let question = recurring_revenue_by_region();
-        let request = format!("POST {} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{question}", v1(sutura_http::constants::base_paths::QUERY), question.len());
+        let request = format!(
+            "POST {} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{question}",
+            v1(sutura_http::constants::base_paths::QUERY),
+            question.len()
+        );
         tls.write_all(request.as_bytes()).expect("the question writes");
         let mut raw = Vec::new();
-        if let Err(cause) = tls.read_to_end(&mut raw) && cause.kind() != ErrorKind::UnexpectedEof {
+        if let Err(cause) = tls.read_to_end(&mut raw)
+            && cause.kind() != ErrorKind::UnexpectedEof
+        {
             panic!("the reply is not readable: {cause}");
         }
         let raw = String::from_utf8_lossy(&raw);
         let (head, body) = raw.split_once("\r\n\r\n").expect("the HTTP reply has a head and body");
-        assert!(!head.to_ascii_lowercase().contains("transfer-encoding: chunked"), "the fixture expects a length-delimited reply");
-        let status = head.split_whitespace().nth(1).and_then(|value| value.parse().ok()).expect("the HTTP status is an integer");
-        (status, serde_json::from_str(body).unwrap_or_else(|cause| panic!("the reply is not JSON ({cause}): {body}")))
+        assert!(
+            !head.to_ascii_lowercase().contains("transfer-encoding: chunked"),
+            "the fixture expects a length-delimited reply"
+        );
+        let status = head
+            .split_whitespace()
+            .nth(1)
+            .and_then(|value| value.parse().ok())
+            .expect("the HTTP status is an integer");
+        (
+            status,
+            serde_json::from_str(body).unwrap_or_else(|cause| panic!("the reply is not JSON ({cause}): {body}")),
+        )
     }
 }
 
@@ -182,7 +266,11 @@ impl Drop for Fixture {
 }
 
 fn address(served: &Served) -> String {
-    served.startup.iter().find_map(|line| bound_address(line)).expect("the served binary reported its bound address")
+    served
+        .startup
+        .iter()
+        .find_map(|line| bound_address(line))
+        .expect("the served binary reported its bound address")
 }
 
 fn rewrite(path: &Path, from: &str, to: &str) {
@@ -208,35 +296,76 @@ fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertifie
         ["west", "2026-06-01", "49425"],
         ["null", "2026-06-01", "4999"],
     ]);
-    assert_eq!(whole["columns"], serde_json::json!(["region", "period", "recurring_revenue"]), "{whole}");
+    assert_eq!(
+        whole["columns"],
+        serde_json::json!(["region", "period", "recurring_revenue"]),
+        "{whole}"
+    );
     assert_eq!(whole["rows"], golden, "the whole lookup must match the hard golden in order");
     drop(reference);
 
-    let unresolved = fixture.serving("unresolved", &[String::from("https://reader-a.invalid:8443"), String::from("https://reader-b.invalid:8443")], true);
+    let unresolved = fixture.serving(
+        "unresolved",
+        &[
+            String::from("https://reader-a.invalid:8443"),
+            String::from("https://reader-b.invalid:8443"),
+        ],
+        true,
+    );
     let (status, refused) = fixture.ask(&unresolved);
-    assert_eq!(status, 503, "a granted Oracle lookup with no resolved reader must refuse: {refused}");
+    assert_eq!(
+        status, 503,
+        "a granted Oracle lookup with no resolved reader must refuse: {refused}"
+    );
     assert_eq!(refused["reason"]["code"], "source_unavailable", "{refused}");
     drop(unresolved);
 
-    let readers = [fixture.reader("reader-a", &fixture.catalog), fixture.reader("reader-b", &fixture.catalog)];
+    let readers = [
+        fixture.reader("reader-a", &fixture.catalog),
+        fixture.reader("reader-b", &fixture.catalog),
+    ];
     let peers = readers.each_ref().map(|reader| format!("https://{}", address(reader)));
     let split = fixture.serving("split", &peers, true);
     let (status, answer) = fixture.ask(&split);
-    assert_eq!(status, 200, "the granted Oracle lookup must answer through its reading workers: {answer}");
+    assert_eq!(
+        status, 200,
+        "the granted Oracle lookup must answer through its reading workers: {answer}"
+    );
     assert_eq!(answer["outcome"], "answer", "{answer}");
-    assert_eq!(answer["columns"], whole["columns"], "the split columns and order match the whole");
-    assert_eq!(answer["rows"], whole["rows"], "every split row and its position match the whole");
-    assert_eq!(answer["executed_as"], serde_json::json!([
-        {"source": LOOKUP_SOURCE, "posture": "shared-service-user"},
-        {"source": LOCAL_SOURCE, "posture": "shared-service-user"},
-    ]), "{answer}");
+    assert_eq!(
+        answer["columns"], whole["columns"],
+        "the split columns and order match the whole"
+    );
+    assert_eq!(
+        answer["rows"], whole["rows"],
+        "every split row and its position match the whole"
+    );
+    assert_eq!(
+        answer["executed_as"],
+        serde_json::json!([
+            {"source": LOOKUP_SOURCE, "posture": "shared-service-user"},
+            {"source": LOCAL_SOURCE, "posture": "shared-service-user"},
+        ]),
+        "{answer}"
+    );
     drop(split);
     drop(readers);
 
     let different = catalog_spanning_two_sources(&format!("{CASE}-different"), LOOKUP_SOURCE);
-    rewrite(&different.join("models/customers.md"), "table: dim_customer\n", &format!("table: {TABLE}\n"));
-    rewrite(&different.join("metrics/recurring_revenue.md"), "description: Where the customer is.\n", "description: Where the customer was.\n");
-    let readers = [fixture.reader("different-a", &different), fixture.reader("different-b", &different)];
+    rewrite(
+        &different.join("models/customers.md"),
+        "table: dim_customer\n",
+        &format!("table: {TABLE}\n"),
+    );
+    rewrite(
+        &different.join("metrics/recurring_revenue.md"),
+        "description: Where the customer is.\n",
+        "description: Where the customer was.\n",
+    );
+    let readers = [
+        fixture.reader("different-a", &different),
+        fixture.reader("different-b", &different),
+    ];
     let peers = readers.each_ref().map(|reader| format!("https://{}", address(reader)));
     let split = fixture.serving("different", &peers, true);
     let (status, refused) = fixture.ask(&split);
@@ -245,5 +374,7 @@ fn an_oracle_lookup_split_across_readers_equals_the_whole_and_refuses_uncertifie
     drop(split);
     drop(readers);
     drop(std::fs::remove_dir_all(different));
-    eprintln!("oracle-split: 40 actual rows, 1200000 declared rows, two nonempty buckets; exact whole/split columns and ordered rows; unresolved and uncertified readers refused");
+    eprintln!(
+        "oracle-split: 40 actual rows, 1200000 declared rows, two nonempty buckets; exact whole/split columns and ordered rows; unresolved and uncertified readers refused"
+    );
 }
