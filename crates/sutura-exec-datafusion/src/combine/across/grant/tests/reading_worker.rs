@@ -700,6 +700,20 @@ impl PartitionReader for Either {
     }
 }
 
+/// Runs the real worker admission before a test executes a leaf directly.
+fn admitted(leaf: PartitionScanExec) -> Result<Arc<PartitionScanExec>, DataFusionError> {
+    let leaf = Arc::new(leaf);
+    let plan = Arc::clone(&leaf) as Arc<dyn ExecutionPlan>;
+    super::super::super::partition::reads_partition_or_nothing(
+        datafusion_distributed::WorkerPlanRewriteEvent {
+            plan,
+            session_config: &datafusion::prelude::SessionConfig::new(),
+        },
+        &super::super::ReadingKeys::default(),
+    )?;
+    Ok(leaf)
+}
+
 /// `leaf` executed `times` times on this node under `reader`, and what each answered.
 fn executed(leaf: &PartitionScanExec, reader: Arc<dyn PartitionReader>, times: usize) -> Vec<Result<(), DataFusionError>> {
     let config = datafusion::prelude::SessionConfig::new()
@@ -713,15 +727,12 @@ fn executed(leaf: &PartitionScanExec, reader: Arc<dyn PartitionReader>, times: u
 #[test]
 fn a_partition_scan_hands_out_its_token_once() {
     let handed = Handed::default();
-    let leaf = PartitionScanExec::new(
-        b"wire-once".to_vec(),
-        source(),
-        b"partition-once".to_vec(),
-        [15_u8; 32],
-        None,
-        schema(),
+    let (wire, partition, key_bytes) = (b"wire-once".to_vec(), b"partition-once".to_vec(), [15_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let leaf = admitted(
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-a")),
     )
-    .forwarding(forwarded("token-a"));
+    .expect("the signed token read is admitted");
 
     let unforwarded = Arc::default();
     let reader = Either {
@@ -750,15 +761,12 @@ fn a_partition_scan_hands_out_its_token_once() {
 #[test]
 fn a_partition_scan_shows_whether_it_holds_a_token_and_never_the_token() {
     let handed = Handed::default();
-    let leaf = PartitionScanExec::new(
-        b"wire-shown".to_vec(),
-        source(),
-        b"partition-shown".to_vec(),
-        [16_u8; 32],
-        None,
-        schema(),
+    let (wire, partition, key_bytes) = (b"wire-shown".to_vec(), b"partition-shown".to_vec(), [16_u8; 32]);
+    let grant = granted_forwarding(&ReadingKey::of(key_bytes), &wire, &partition, &forwarded("token-a"));
+    let leaf = admitted(
+        PartitionScanExec::new(wire, source(), partition, key_bytes, Some(grant), schema()).forwarding(forwarded("token-a")),
     )
-    .forwarding(forwarded("token-a"));
+    .expect("the signed token read is admitted");
     let shown = |leaf: &PartitionScanExec| {
         (
             format!("{leaf:?}"),
@@ -828,4 +836,5 @@ fn a_partition_read_carrying_no_principal_where_its_grant_names_one_is_refused()
     assert!(refused_as_not_naming(&failures), "{failures:?}");
 }
 
+mod bounds;
 mod switched;

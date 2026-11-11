@@ -196,6 +196,14 @@ pub(crate) enum LoginKey {
 }
 
 impl LoginKey {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Aes128(key) => key,
+            Self::Aes192(key) => key,
+            Self::Aes256(key) => key,
+        }
+    }
+
     /// Returns a key of zeros of the length the verifier uses.
     fn zeroed(verifier: Verifier) -> LoginKey {
         match verifier {
@@ -559,6 +567,10 @@ impl AuthMessage {
             verifier_type,
             client.config().allow_legacy_verifiers(),
         )?;
+
+        if verifier != Verifier::Pbkdf2 && !client.encrypted_transport() {
+            return Err(Error::legacy_verifier_requires_encryption(verifier_type));
+        }
 
         // create password hash
         let password = client.config().get_password_bytes();
@@ -1362,3 +1374,7 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "../nne/legacy_transport_tests.rs"]
+mod legacy_transport_tests;

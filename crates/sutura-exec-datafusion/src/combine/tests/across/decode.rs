@@ -6,9 +6,10 @@ use datafusion::error::DataFusionError;
 use datafusion_distributed::{MaybeEncoded, SetPlanRequest, TaskKey};
 use datafusion_proto::protobuf::physical_expr_node::ExprType;
 use datafusion_proto::protobuf::physical_plan_node::PhysicalPlanType;
+use datafusion_proto::protobuf::window_agg_exec_node::InputOrderMode;
 use datafusion_proto::protobuf::{
     ArrowType, CsvScanExecNode, EmptyExecNode, EmptyMessage, Field, FileScanExecConf, FilterExecNode, ParquetScanExecNode,
-    PhysicalExprNode, PhysicalPlanNode, ScalarValue, Schema,
+    PartiallySortedInputOrderMode, PhysicalExprNode, PhysicalPlanNode, ScalarValue, Schema, WindowAggExecNode,
 };
 use datafusion_proto_common::protobuf_common::arrow_type::ArrowTypeEnum;
 use datafusion_proto_common::protobuf_common::scalar_value::Value as ScalarValueKind;
@@ -96,6 +97,41 @@ fn refused(plan: &PhysicalPlanNode) -> DataFusionError {
         .expect("a node ran a stage it cannot decode")
 }
 
+fn window_without_expressions(input_order_mode: Option<InputOrderMode>) -> PhysicalPlanNode {
+    PhysicalPlanNode {
+        physical_plan_type: Some(PhysicalPlanType::Window(Box::new(WindowAggExecNode {
+            input: Some(empty_child()),
+            window_expr: vec![],
+            partition_keys: vec![],
+            input_order_mode,
+        }))),
+    }
+}
+
+#[test]
+fn a_node_refuses_an_unbounded_window_stage_without_expressions() {
+    let refused = refused(&window_without_expressions(None));
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Plan(message) if message == "WindowAggExec requires at least one window expression"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_node_refuses_a_bounded_window_stage_without_expressions() {
+    for order in [
+        InputOrderMode::Linear(EmptyMessage {}),
+        InputOrderMode::PartiallySorted(PartiallySortedInputOrderMode { columns: vec![] }),
+        InputOrderMode::Sorted(EmptyMessage {}),
+    ] {
+        let refused = refused(&window_without_expressions(Some(order)));
+        assert!(
+            matches!(refused.find_root(), DataFusionError::Plan(message) if message == "BoundedWindowAggExec requires at least one window expression"),
+            "{refused}"
+        );
+    }
+}
+
 #[test]
 fn a_node_refuses_a_literal_whose_decimal_value_is_the_wrong_length() {
     // A `Decimal32Value` with 3 value bytes rather than the 4 `i32::from_be_bytes` needs. The
@@ -181,6 +217,17 @@ fn a_node_refuses_a_file_scan_whose_constraint_mode_is_unset() {
     let refused = refused(&plan);
     assert!(
         matches!(refused.find_root(), DataFusionError::Plan(message) if message.contains("constraint_mode")),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_node_refuses_a_parquet_scan_whose_projection_is_out_of_bounds() {
+    let plan = PhysicalPlanNode::decode(&[10, 6, 10, 4, 18, 0, 32, 10][..]).expect("the fuzz input is a valid protobuf message");
+    let refused = refused(&plan);
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Internal(message)
+            if message == "Parquet projection index 10 is out of bounds for 0 columns"),
         "{refused}"
     );
 }

@@ -53,6 +53,7 @@ mod json;
 mod lob;
 mod messages;
 mod metadata;
+mod nne;
 mod ora_type;
 mod ora_version;
 mod packet;

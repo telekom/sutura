@@ -24,22 +24,25 @@ Oracle Database 19.18 or later (not 21c) accepts these tokens.
 The entry reads the [settings that every data system has](../../integrations.md#data-system-settings)
 and these keys:
 
-| Key                               | Type          | Default          | Meaning                                                                                                                                                                                  |
-| --------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host`                            | string        | required         | The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies                                                                                                |
-| `port`                            | integer       | required         | The TCPS listener port, often `2484`                                                                                                                                                     |
-| `service_name`                    | string        | required         | The service name: letters, digits, `_` and `.`                                                                                                                                           |
-| `user`                            | string        | required         | The user that sutura connects as                                                                                                                                                         |
-| `password_file`                   | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                               |
-| `transport_mode`                  | string        | required         | `verified`. `plaintext` and `mutual` are refused                                                                                                                                         |
-| `transport_anchors`               | absolute path | required         | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused                                                                                     |
-| `split`                           | string        | none             | `flashback`: opts the source's lookup legs into a split at one snapshot; sutura checks the flashback privileges at startup. Refused on `impersonation-at-source`                         |
-| `delegation`                      | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                        |
-| `delegation[].token_endpoint`     | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
-| `delegation[].client_id`          | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
-| `delegation[].client_secret_file` | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                          |
-| `delegation[].grant`              | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token` |
-| `delegation[].audience`           | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                              |
+| Key                                             | Type          | Default          | Meaning                                                                                                                                                                                  |
+| ----------------------------------------------- | ------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`                                          | string        | required         | The listener host: a valid DNS name or an IP address. In `verified` mode, the TLS handshake verifies this name                                                                           |
+| `port`                                          | integer       | required         | The listener port, often `2484` for TLS or `1521` for native encryption                                                                                                                  |
+| `service_name`                                  | string        | required         | The service name: letters, digits, `_` and `.`                                                                                                                                           |
+| `user`                                          | string        | required         | The user that sutura connects as                                                                                                                                                         |
+| `password_file`                                 | absolute path | required         | A file that holds the password. sutura reads it at startup                                                                                                                               |
+| `transport_mode`                                | string        | required         | `verified` or the explicit weaker `native-encryption` mode below. `plaintext` and `mutual` are refused                                                                                   |
+| `transport_anchors`                             | absolute path | for `verified`   | A PEM bundle. Its certificates are the only ones the server is verified against. `system` is refused; anchors are refused for native encryption                                          |
+| `native_encryption_acknowledged_because`        | string        | none             | Required, nonblank reason for `native-encryption`; refused for other modes                                                                                                               |
+| `legacy_password_verifier`                      | boolean       | `false`          | Explicitly permits 10G and 11G password logins, only over `verified` or `native-encryption`                                                                                              |
+| `legacy_password_verifier_acknowledged_because` | string        | none             | Required, nonblank reason when the legacy switch is `true`; refused otherwise                                                                                                            |
+| `split`                                         | string        | none             | `flashback`: opts the source's lookup legs into a split at one snapshot; sutura checks the flashback privileges at startup. Refused on `impersonation-at-source`                         |
+| `delegation`                                    | list          | none             | For `impersonation-at-source`, required: the hops that exchange the caller's token, in order. Must not be present without a value                                                        |
+| `delegation[].token_endpoint`                   | URL           | required         | The token endpoint of the identity provider for this hop                                                                                                                                 |
+| `delegation[].client_id`                        | string        | required         | The client ID that sutura uses at this identity provider                                                                                                                                 |
+| `delegation[].client_secret_file`               | absolute path | required         | A file that holds the client secret. sutura reads it at startup                                                                                                                          |
+| `delegation[].grant`                            | string        | `token-exchange` | `token-exchange` (RFC 8693), `on-behalf-of` (Microsoft Entra ID), or `broker-token` (Keycloak sends back the token of an external identity provider). The last hop is not `broker-token` |
+| `delegation[].audience`                         | string        | required         | The audience that the token from this hop must carry. With `on-behalf-of`, sutura asks for the scope `<audience>/.default`.                                                              |
 
 A serving deployment does not start when a source with `split: flashback` is its only source, or
 when no `server.nodes` peer lists the source in its `sources`. A reading worker does not start when
@@ -48,6 +51,53 @@ it declares an Oracle source without `split: flashback`.
 sutura connects at startup, so it does not start if the listener or the login fails. The connect to
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
 it logs in, so declare the address that answers.
+
+### Native encryption and legacy passwords
+
+`verified` uses TLS to encrypt the connection and verify the listener's identity against the
+declared trust anchors. Prefer it when the database provides a TCPS listener.
+
+`native-encryption` uses Oracle Native Network Encryption and Data Integrity over TCP. It requires
+both services, offers only AES-256/192/128 and SHA-512/384/256, and refuses a missing service or an
+algorithm outside those lists. There is no algorithm setting or fallback to plaintext. The
+Diffie-Hellman exchange authenticates neither endpoint: encryption and integrity do **not** prove
+the listener's identity against an active network attacker. This mode is an explicit operator
+decision for a listener that provides NNE rather than TCPS. It is never selected automatically, and startup logs it at `WARN`.
+
+Native record integrity excludes TNS headers and data flags. CBC reuses the derived IV for records
+within each protocol phase: equal plaintext block prefixes produce equal ciphertext prefixes.
+This is not TLS-equivalent protection or authenticated encryption with associated data.
+
+The native reason is separate from the shared-service-user posture's `acknowledged_because`.
+Native encryption accepts password authentication only; the built, unverified token path still
+requires `verified`.
+
+Native mode requires the patched NNE protocol, including authentication-key folding. The older
+protocol is refused even when it advertises AES and SHA-2. A pre-patch database can still use
+`verified` if it offers TCPS; native mode does not enable its obsolete integrity scheme.
+
+An account with only a 10G or 11G password verifier needs a second opt-in,
+`legacy_password_verifier: true`, and its own reason. Without it, the connection refuses the legacy
+verifier and names its type. An unknown verifier is always refused. A legacy login exposes material
+for offline password guessing if the login exchange is visible; the encrypted transport is
+required, and the native mode's unauthenticated-peer limit still applies. A password reset can
+provide a modern verifier where the database's policy permits it; the switch is for accounts that
+cannot migrate yet. Startup logs the legacy opt-in at `WARN`.
+
+### Measured acceptance
+
+[Hosted acceptance on 2026-11-11](https://github.com/telekom/sutura/actions/runs/42931009000)
+passed through both the product source and dictionary paths: required AES-256/SHA-256 native
+services with `SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS = FALSE`, default-off refusal, and refusal of
+3DES-only encryption and SHA-1-only integrity. The 11G-only account passed opt-off, opt-on and
+wrong-password checks over native encryption; the 10G-only account passed those checks over
+verified TCPS. Stored verifier types were checked on the servers.
+
+Source positives read two exact 128-row results with 2000-byte payloads. Dictionary positives
+measure protected startup and catalog reads; that fixture has no measures. This run does not
+establish 10G native interoperability: 16-byte native authentication-key folding has unit and
+source evidence only. Other allowed AES/SHA-2 combinations have vector and unit coverage, not
+live interoperability evidence. No Oracle per-caller identity claim follows from this run.
 
 ## Example
 
@@ -67,6 +117,28 @@ sources:
     posture: "shared-service-user"
     acknowledged_because: "one read-only Oracle user for every caller"
 ```
+
+For a TCP listener that requires native encryption and integrity:
+
+```yaml
+sources:
+  warehouse:
+    kind: "oracle"
+    host: "db.example.com"
+    port: 1521
+    service_name: "orcl.example.com"
+    user: "sutura"
+    password_file: "/run/secrets/oracle-password"
+    transport_mode: "native-encryption"
+    native_encryption_acknowledged_because: "the listener requires NNE and provides no TCPS endpoint"
+    legacy_password_verifier: true
+    legacy_password_verifier_acknowledged_because: "this account cannot yet migrate its password verifier"
+    posture: "shared-service-user"
+    acknowledged_because: "one read-only Oracle user for every caller"
+```
+
+Omit the two legacy fields for an account with a modern verifier. Native encryption and the legacy
+fields are Oracle-only; other data systems refuse them.
 
 Each caller with their own database user, which is built and not verified (see
 [Identity](#identity)). The caller signs in to Keycloak through Microsoft Entra ID. Keycloak sends

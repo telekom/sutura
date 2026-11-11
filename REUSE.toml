@@ -102,6 +102,13 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = ["2026 Oracle and/or its affiliates", "2020 Samy Sultan"]
 SPDX-License-Identifier = "(UPL-1.0 OR Apache-2.0) AND MIT"
 
+# Local native negotiation and record state adapt go-ora's MIT protocol implementation.
+[[annotations]]
+path = ["vendor/rust-oracledb/src/nne/**", "vendor/rust-oracledb/LICENSE-go-ora"]
+precedence = "override"
+SPDX-FileCopyrightText = "2020 Samy Sultan"
+SPDX-License-Identifier = "MIT"
+
 # The vendored distributed engine, the published 4.0.0 crate plus one local patch `VENDOR.md`
 # records. Apache-2.0; the copyright line is the one in its own `LICENSE.txt`.
 [[annotations]]
