@@ -187,8 +187,7 @@ fn a_node_refuses_a_file_scan_whose_constraint_mode_is_unset() {
 
 #[test]
 fn a_node_refuses_a_parquet_scan_whose_projection_is_out_of_bounds() {
-    let plan = PhysicalPlanNode::decode(&[10, 6, 10, 4, 18, 0, 32, 10][..])
-        .expect("the fuzz input is a valid protobuf message");
+    let plan = PhysicalPlanNode::decode(&[10, 6, 10, 4, 18, 0, 32, 10][..]).expect("the fuzz input is a valid protobuf message");
     let refused = refused(&plan);
     assert!(
         matches!(refused.find_root(), DataFusionError::Internal(message)
