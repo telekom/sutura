@@ -1,7 +1,7 @@
 diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
 --- a/crates/sutura-app/src/lib.rs
 +++ b/crates/sutura-app/src/lib.rs
-@@ -755,12 +755,15 @@
+@@ -793,13 +793,16 @@
      //
      // The per-metric digests follow the question's metric order, which is also the column order a
      // measure occupies in the rows, so the Nth digest certifies the Nth measure column.
@@ -9,7 +9,8 @@ diff --git a/crates/sutura-app/src/lib.rs b/crates/sutura-app/src/lib.rs
      let provenance = pinned
 -        .provenance_for(definitions.schemas().digest(), executed_as, query.metrics())
 +        .provenance_for(&served, executed_as, query.metrics())
-         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?;
+         .map_err(|cause| ServiceError::AnswersDoNotCertify { cause })?
+         .with_execution(execution);
      Ok(Answered::under(&credentials, ToolOutcome::Answer { provenance, rows }))
  }
  

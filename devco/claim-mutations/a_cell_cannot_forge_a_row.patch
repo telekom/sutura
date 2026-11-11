@@ -1,14 +1,15 @@
 diff --git a/crates/sutura-mcp/src/wire.rs b/crates/sutura-mcp/src/wire.rs
-index 031941e97..3b35984e5 100644
 --- a/crates/sutura-mcp/src/wire.rs
 +++ b/crates/sutura-mcp/src/wire.rs
-@@ -373,12 +373,12 @@ impl From<&ToolOutcome> for OutcomeContent {
+@@ -329,14 +329,12 @@ impl From<&ToolOutcome> for OutcomeContent {
              ToolOutcome::Answer {
                  ref provenance,
                  ref rows,
 -            } => Self::Answer {
 -                provenance: provenance_content(provenance),
 -                executed_as: legs(provenance.executed_as()),
+-                executed_sql: execution::sql(provenance.execution()),
+-                logical_plan: execution::logical_plan(provenance.execution()),
 -                columns: rows.columns().to_vec(),
 -                rows: render(rows),
 -            },

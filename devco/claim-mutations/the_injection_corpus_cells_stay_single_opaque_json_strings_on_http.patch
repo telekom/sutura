@@ -1,8 +1,7 @@
 diff --git a/crates/sutura-http/src/wire.rs b/crates/sutura-http/src/wire.rs
-index 776188fed..c9bfe3ed3 100644
 --- a/crates/sutura-http/src/wire.rs
 +++ b/crates/sutura-http/src/wire.rs
-@@ -391,16 +391,12 @@ impl From<&ToolOutcome> for Outcome {
+@@ -403,18 +403,12 @@ impl From<&ToolOutcome> for Outcome {
              ToolOutcome::Answer {
                  ref provenance,
                  ref rows,
@@ -11,6 +10,8 @@ index 776188fed..c9bfe3ed3 100644
 -                body: OutcomeBody::Answer {
 -                    provenance: provenance_body(provenance),
 -                    executed_as: legs(provenance.executed_as()),
+-                    executed_sql: execution::sql(provenance.execution()),
+-                    logical_plan: execution::logical_plan(provenance.execution()),
 -                    columns: rows.columns().to_vec(),
 -                    rows: render(rows),
 -                },
