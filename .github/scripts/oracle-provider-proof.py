@@ -82,7 +82,7 @@ for name, cell in (("fallback-head", fallback), ("installed-head", installed)):
 
 # Retain the exact head test tail and restore only the parent's production bytes.
 # No source-text assertion substitutes for the actual named runtime failures below.
-base_sha = "5279abb4f0bc87de1018eaa5c572898e7c0305a9"
+base_sha = "cef39d54a2c321ca6a5572331eb9c2692a78eb03"
 subprocess.run(["git", "merge-base", "--is-ancestor", base_sha, "HEAD"], check=True)
 base = subprocess.check_output(["git", "show", f"{base_sha}:{relative}"], text=True)
 marker = "#[cfg(test)]\nmod tests {"
