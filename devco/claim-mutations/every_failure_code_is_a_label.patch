@@ -1,0 +1,10 @@
+--- a/crates/sutura-http/src/metrics.rs
++++ b/crates/sutura-http/src/metrics.rs
+@@ -76,7 +76,6 @@
+     label("timeout"),
+     label("too_large"),
+     label("tool_not_enabled"),
+-    UNAUTHORIZED,
+     label("unavailable"),
+     label("unusable_bill_to"),
+ ];

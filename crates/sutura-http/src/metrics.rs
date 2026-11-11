@@ -388,6 +388,10 @@ mod tests {
     fn every_failure_code_is_a_label() {
         let every = [
             Failure::Unauthorized,
+            Failure::TokenTooLong {
+                found: 8193,
+                limit: 8192,
+            },
             Failure::InsufficientScope {
                 required: "catalog.read",
             },
@@ -416,6 +420,7 @@ mod tests {
             // closed metric vocabulary is decided explicitly.
             match failure {
                 Failure::Unauthorized
+                | Failure::TokenTooLong { .. }
                 | Failure::InsufficientScope { .. }
                 | Failure::ToolNotEnabled { .. }
                 | Failure::HostNotAllowed

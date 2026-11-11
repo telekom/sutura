@@ -47,7 +47,7 @@
 //!
 //! # Where the caller's own text is bounded
 //!
-//! Before anything expensive: [`MAX_TOKEN_BYTES`] caps what is even looked at, and `SubjectId` and
+//! Before anything expensive: the declared token byte bound caps what is looked at, and `SubjectId` and
 //! `Actor` are parsed by `sutura_domain::identity`, which bounds their length and refuses a control
 //! character or an invisible one - because those values are written into an audit record that is one
 //! line per call.
@@ -67,13 +67,9 @@ use crate::inbound::caller::{Groups, InvalidGroup, InvalidScope, Scopes, Verifie
 use crate::inbound::keys::{KeyId, NotAKeyId};
 use crate::inbound::replay::{AssertionId, CAPACITY, MAX_ASSERTION_ID_BYTES, NotAdmitted, SeenAssertions};
 
-/// The largest token this surface will look at.
-///
-/// **Bounded before the signature is checked, because everything before that point is work done on
-/// behalf of an unauthenticated caller.** Eight kibibytes is generous for an access token carrying
-/// groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
-/// be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.
-pub const MAX_TOKEN_BYTES: usize = 8192;
+/// The default token byte bound, retained for the fuzz harness's input limit.
+/// The declaration's parsed `MaxTokenBytes` owns the served limit and fixed ceiling.
+pub const MAX_TOKEN_BYTES: usize = sutura_config::inbound::MaxTokenBytes::DEFAULT.bytes();
 
 /// How much clock skew is tolerated on `exp` and `nbf`, in seconds.
 ///
@@ -123,8 +119,8 @@ pub enum TokenRejected {
     /// Reading either line is choosing which caller to believe, so none is read.
     #[error("more than one {location} line was presented, so none of them is read")]
     Repeated { location: String },
-    #[error("the presented token is longer than {limit} bytes")]
-    TooLong { limit: usize },
+    #[error("token is {found} bytes; security.inbound.max_token_bytes is {limit}")]
+    TooLong { found: usize, limit: usize },
     /// The header is not a JWT header, or names no key.
     #[error("the presented token does not carry a readable header")]
     UnreadableHeader {
@@ -370,6 +366,7 @@ struct Claims {
 /// differently, and every field on it is a control.
 #[derive(Debug)]
 pub struct TokenValidator {
+    max_token_bytes: sutura_config::inbound::MaxTokenBytes,
     validation: Validation,
     audience: TokenAudience,
     /// What a token with no `scope` claim is granted. See `sutura_config::GrantedScopes`.
@@ -387,7 +384,22 @@ pub struct TokenValidator {
     address_claim: Option<ClaimName>,
 }
 
+const fn check_size(token: &str, limit: usize) -> Result<(), TokenRejected> {
+    if token.len() > limit {
+        return Err(TokenRejected::TooLong {
+            found: token.len(),
+            limit,
+        });
+    }
+    Ok(())
+}
+
 impl TokenValidator {
+    /// Bounds unverified input before decoding its header or reading its key.
+    pub(crate) const fn check_size(&self, token: &str) -> Result<(), TokenRejected> {
+        check_size(token, self.max_token_bytes.bytes())
+    }
+
     /// Builds the validation from a declaration `sutura-config` already accepted or refused.
     ///
     /// Every line here is a control, so each one says what it is for. What is **not** here is equally
@@ -414,6 +426,7 @@ impl TokenValidator {
         validation.validate_nbf = true;
         validation.leeway = LEEWAY_SECONDS;
         Self {
+            max_token_bytes: requirement.max_token_bytes(),
             validation,
             audience: requirement.audience().clone(),
             grant: requirement.grant().map(Scopes::declared),
@@ -435,13 +448,10 @@ impl TokenValidator {
     /// why the only thing taken out of it is an identifier that gets bounded, parsed and used as a map
     /// key. The algorithm in that header is read by nothing here.
     ///
-    /// An associated function rather than a method, and that is the same point stated by the signature:
-    /// nothing configured applies yet. There is no `&self` because there is nothing on the validator
-    /// this step is allowed to consult.
+    /// This associated function enforces the hard byte ceiling without consulting a validator.
+    /// The served gate applies the configured byte bound before calling it.
     pub fn key_id(token: &str) -> Result<KeyId, TokenRejected> {
-        if token.len() > MAX_TOKEN_BYTES {
-            return Err(TokenRejected::TooLong { limit: MAX_TOKEN_BYTES });
-        }
+        check_size(token, sutura_config::inbound::MaxTokenBytes::CEILING)?;
         let header = jsonwebtoken::decode_header(token).map_err(|cause| TokenRejected::UnreadableHeader { cause })?;
         let named = header.kid.ok_or(TokenRejected::NoKeyId)?;
         KeyId::parse(named).map_err(|cause| TokenRejected::UnusableKeyId { cause })
@@ -455,6 +465,7 @@ impl TokenValidator {
     /// class check, the actor-nesting bound and the lifetime ceiling all live here and not in
     /// [`Self::key_id`].
     pub fn verify(&self, token: &str, key: &DecodingKey) -> Result<VerifiedCaller, TokenRejected> {
+        self.check_size(token)?;
         let decoded =
             jsonwebtoken::decode::<Claims>(token, key, &self.validation).map_err(|cause: jsonwebtoken::errors::Error| {
                 if matches!(cause.kind(), jsonwebtoken::errors::ErrorKind::Json(_)) {
