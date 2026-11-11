@@ -222,6 +222,17 @@ fn a_node_refuses_a_file_scan_whose_constraint_mode_is_unset() {
 }
 
 #[test]
+fn a_node_refuses_a_parquet_scan_whose_projection_is_out_of_bounds() {
+    let plan = PhysicalPlanNode::decode(&[10, 6, 10, 4, 18, 0, 32, 10][..]).expect("the fuzz input is a valid protobuf message");
+    let refused = refused(&plan);
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Internal(message)
+            if message == "Parquet projection index 10 is out of bounds for 0 columns"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn a_node_refuses_a_parquet_scan_whose_global_options_fail_to_convert() {
     // `TableParquetOptions.global`'s default `writer_version` is the empty string, which fails to
     // parse. The registry crate unwraps that `Result` a second time, after a first `.unwrap()`

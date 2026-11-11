@@ -48,6 +48,7 @@ use rustls::pki_types::TrustAnchor;
 #[derive(Clone, PartialEq, Eq)]
 pub struct Config {
     allow_legacy_verifiers: Option<bool>,
+    native_encryption: bool,
     user: Option<String>,
     password: Option<SecretValue>,
     new_password: Option<SecretValue>,
@@ -150,6 +151,12 @@ impl Config {
         self.allow_legacy_verifiers.unwrap_or(false)
     }
 
+    /// Requires native encryption and integrity when true; defaults to false.
+    /// This does not authenticate the server.
+    pub fn native_encryption(&self) -> bool {
+        self.native_encryption
+    }
+
     /// Returns the authorization mode associated with the configuration.
     pub fn auth_mode(&self) -> u8 {
         self.auth_mode.unwrap_or(0)
@@ -206,6 +213,14 @@ impl Config {
     /// an encrypted connection only.
     pub fn set_allow_legacy_verifiers(mut self, value: bool) -> Self {
         self.allow_legacy_verifiers = Some(value);
+        self
+    }
+
+    /// Requires AES encryption and SHA-2 integrity over TCP. The unauthenticated
+    /// key exchange does not verify the server identity. Cannot be used with TCPS.
+    /// A server refusing either service fails the connection before authentication.
+    pub fn set_native_encryption(mut self, value: bool) -> Self {
+        self.native_encryption = value;
         self
     }
 
@@ -441,6 +456,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             allow_legacy_verifiers: None,
+            native_encryption: false,
             user: None,
             password: None,
             new_password: None,

@@ -1,0 +1,13 @@
+diff --git a/crates/sutura-cli/src/serve/kind/split/oracle.rs b/crates/sutura-cli/src/serve/kind/split/oracle.rs
+--- a/crates/sutura-cli/src/serve/kind/split/oracle.rs
++++ b/crates/sutura-cli/src/serve/kind/split/oracle.rs
+@@ -86,6 +86,9 @@
+         _reads: &PartitionReads,
+         deadline: Deadline,
+     ) -> Result<ResultBatches, Unread> {
++        if !partition.is_empty() {
++            return Err(Unread::DidNotFit);
++        }
+         self.read_partition(leg, partition, deadline)
+             .map_err(|cause| unread(leg.source(), cause))
+     }

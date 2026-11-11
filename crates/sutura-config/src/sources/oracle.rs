@@ -8,19 +8,19 @@
 
 use std::path::PathBuf;
 
+use super::oracle_transport::{NoOracleChannel, RawOracleTransport};
 use super::{InvalidSourceRegistry, RawSourceEntry, SourceKind};
-use crate::sources::placement::{HostName, NoOracleChannel, OracleChannel, OracleServiceName, SourcePlacement};
+use crate::sources::placement::{HostName, OracleChannel, OracleServiceName, SourcePlacement};
 use sutura_domain::model::SourceName;
 
 /// Reads a `kind: oracle` entry into its placement.
 ///
 /// **Every value the driver's connection needs is declared and nothing else is accepted**: the
 /// listener's host and port, the service name it resolves, the user and the file its password is
-/// read from. `transport_mode` is required and must be `verified`, with `transport_anchors` naming a
-/// PEM bundle - the only anchors the server is verified against. `plaintext` is refused for every
-/// host: to a loopback one as [`InvalidSourceRegistry::OraclePlaintext`] in a build with the
-/// `oracle` feature (without it, as a placement with no channel, which the composition root refuses
-/// as not linked), to any other by the parent's remote-plaintext rule.
+/// read from. `transport_mode` is verified TLS against a declared PEM bundle, or native encryption
+/// with its own acknowledgement. Native encryption does not verify the server. Plaintext is refused
+/// for every host in a linked build; an unlinked build tolerates a valid loopback plaintext entry
+/// only to report that its adapter is not linked.
 ///
 /// The connection stays on that host: a listener's redirect is refused before authentication, held
 /// by `sutura-cli`'s `a_listener_redirect_to_an_address_nobody_declared_is_refused`.
@@ -74,26 +74,51 @@ pub(super) fn parse_placement(
     )?;
     // The same flat-key read every dialled kind makes, so a mode that discards a key it would not
     // read is refused identically here - and only then is the mode itself asked about.
-    let transport = crate::sources::transport::parse(
+    let mode = super::required(alias, kind, "transport_mode", entry.transport_mode)?;
+    if mode.trim() == "plaintext" && entry.oracle_options.legacy != Some(true) {
+        let transport = crate::sources::transport::parse(
+            alias,
+            mode,
+            entry.transport_anchors,
+            entry.client_certificate,
+            entry.client_key,
+        )
+        .map_err(|cause| InvalidSourceRegistry::Transport {
+            alias: alias.clone(),
+            cause,
+        })?;
+        super::refuse_remote_plaintext(alias, &host, &transport)?;
+    }
+    let channel = match declared(
         alias,
-        super::required(alias, kind, "transport_mode", entry.transport_mode)?,
-        entry.transport_anchors,
-        entry.client_certificate,
-        entry.client_key,
-    )
-    .map_err(|cause| InvalidSourceRegistry::Transport {
-        alias: alias.clone(),
-        cause,
-    })?;
-    super::refuse_remote_plaintext(alias, &host, &transport)?;
-    // A build without the adapter keeps a loopback `plaintext` entry, so its "not linked" refusal is
-    // the one the operator reads.
-    let unlinked = cfg!(not(feature = "oracle")) && matches!(transport, super::transport::SourceTransport::Plaintext);
-    let channel = if unlinked {
-        None
-    } else {
-        Some(declared(alias, kind, &host, transport)?)
+        kind,
+        &host,
+        RawOracleTransport {
+            mode,
+            anchors: entry.transport_anchors,
+            client_certificate: entry.client_certificate,
+            client_key: entry.client_key,
+            options: entry.oracle_options,
+        },
+    ) {
+        Ok(channel) => Some(channel),
+        Err(InvalidSourceRegistry::OraclePlaintext { .. }) if cfg!(not(feature = "oracle")) => None,
+        Err(cause) => return Err(cause),
     };
+    if entry.posture.trim() == "impersonation-at-source"
+        && channel.as_ref().is_some_and(|channel| {
+            matches!(
+                channel.transport(),
+                super::placement::OracleTransport::NativeEncryption { .. }
+            )
+        })
+    {
+        return Err(InvalidSourceRegistry::TlsNotDeliverable {
+            alias: alias.clone(),
+            kind,
+            mode: "native-encryption with token authentication (verified TLS required)",
+        });
+    }
     let delegation = super::parse_delegation(alias, kind, entry, None)?;
     Ok(SourcePlacement::Oracle {
         host,
@@ -111,9 +136,9 @@ fn declared(
     alias: &SourceName,
     kind: SourceKind,
     host: &HostName,
-    transport: super::transport::SourceTransport,
+    transport: RawOracleTransport<'_>,
 ) -> Result<OracleChannel, InvalidSourceRegistry> {
-    OracleChannel::declared(host, transport).map_err(|refused| match refused {
+    OracleChannel::parse(alias, host, transport).map_err(|refused| match refused {
         NoOracleChannel::Undeliverable(mode) => InvalidSourceRegistry::TlsNotDeliverable {
             alias: alias.clone(),
             kind,
@@ -124,6 +149,14 @@ fn declared(
             cause,
         },
         NoOracleChannel::Plaintext => InvalidSourceRegistry::OraclePlaintext { alias: alias.clone() },
+        NoOracleChannel::Transport(cause) => InvalidSourceRegistry::Transport {
+            alias: alias.clone(),
+            cause,
+        },
+        cause => InvalidSourceRegistry::OracleTransport {
+            alias: alias.clone(),
+            cause,
+        },
     })
 }
 
@@ -183,6 +216,7 @@ mod tests {
             user: Some("sutura"),
             password_file: Some("/etc/sutura/oracle-password"),
             transport_mode: Some("verified"),
+            oracle_options: crate::sources::oracle_transport::RawOracleOptions::default(),
             transport_anchors: Some("/etc/sutura/ca.pem"),
             client_certificate: None,
             client_key: None,
@@ -208,7 +242,7 @@ mod tests {
                 channel: Some(channel),
                 delegation,
             } => {
-                assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
+                assert_eq!(channel.anchors(), Some(std::path::Path::new("/etc/sutura/ca.pem")));
                 assert!(delegation.is_empty(), "a shared source declares no delegation");
                 assert_eq!(host.as_str(), "127.0.0.1");
                 assert_eq!(*port, 1521);
@@ -238,9 +272,9 @@ mod tests {
         else {
             panic!("expected an oracle placement, got {:?}", configured.placement());
         };
-        assert_eq!(channel.anchors(), std::path::Path::new("/etc/sutura/ca.pem"));
+        assert_eq!(channel.anchors(), Some(std::path::Path::new("/etc/sutura/ca.pem")));
         assert_eq!(
-            *channel.server_name(),
+            channel.server_name().expect("verified has a server name").clone(),
             placement::TlsServerName::parse(&placement::HostName::parse("db.example.com").expect("a host name parses"))
                 .expect("a DNS name is a TLS server name")
         );

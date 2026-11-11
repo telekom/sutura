@@ -1,0 +1,12 @@
+diff --git a/crates/sutura-oracle-connect/src/lib.rs b/crates/sutura-oracle-connect/src/lib.rs
+--- a/crates/sutura-oracle-connect/src/lib.rs
++++ b/crates/sutura-oracle-connect/src/lib.rs
+@@ -162,7 +162,7 @@
+             .set_transport_connect_timeout(Some(self.deadline));
+         match self.channel {
+             Channel::Plaintext => Ok(PreparedDial(config)),
+-            Channel::NativeEncryption => Ok(PreparedDial(config.set_native_encryption(true))),
++            Channel::NativeEncryption => Ok(PreparedDial(config.set_native_encryption(false))),
+             Channel::Verified { anchors_pem } => config
+                 .set_trust_anchors_pem(anchors_pem)
+                 .map(PreparedDial)
