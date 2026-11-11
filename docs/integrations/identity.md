@@ -36,7 +36,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `key_set_file`              | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the identity provider. Set this or `key_set_url`                          |
 | `key_set_url`               | `https` URL | none                                 | The `jwks_uri` of the identity provider, instead of `key_set_file`                                                            |
 | `key_set_max_stale_seconds` | integer     | `3600`                               | How long the keys verify after the last look that read a usable key set, 300 to 86400                                         |
-| `max_token_bytes` | integer | `8192` | Maximum token bytes, excluding the header name and scheme; 1 to 12288 |
+| `max_token_bytes`           | integer     | `8192`                               | Maximum token bytes, excluding the header name and scheme; 1 to 12288                                                         |
 | `algorithms`                | list        | required                             | The accepted algorithms, of one key family: `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` or `EdDSA` |
 | `token_type`                | string      | `at+jwt`                             | The required `typ` header. `any` turns the check off                                                                          |
 | `accept_any_token_type`     | boolean     | `false`                              | Must be `true` beside `token_type: any`                                                                                       |
@@ -57,7 +57,7 @@ authenticates the deployment, and every question runs with the access of the dep
 | `key_set_file`                 | path        | required unless `key_set_url` is set | A JWK set, or one PEM public key or certificate, of the gateway               |
 | `key_set_url`                  | `https` URL | none                                 | The JWK set URL of the gateway, instead of `key_set_file`                     |
 | `key_set_max_stale_seconds`    | integer     | `3600`                               | As for `direct`                                                               |
-| `max_token_bytes` | integer | `8192` | Maximum token bytes, excluding the header name and scheme; 1 to 12288 |
+| `max_token_bytes`              | integer     | `8192`                               | Maximum token bytes, excluding the header name and scheme; 1 to 12288         |
 | `algorithms`                   | list        | required                             | The accepted algorithms, as for `direct`                                      |
 | `transit_token_type`           | string      | required                             | The `typ` that the gateway sets, or `any`                                     |
 | `transit_max_lifetime_seconds` | integer     | `120`                                | The longest accepted `exp - iat`, 1 to 3600                                   |
