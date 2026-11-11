@@ -3,6 +3,38 @@ use super::fixtures::{Mutation, inseparable_claim_case};
 use super::{BaseState, retry_with_held_back};
 use crate::Verdict;
 
+#[test]
+fn a_vendored_implementation_is_reverted_without_collecting_its_tests() {
+    use super::fixtures::{changed, manifest, tree};
+    use super::plan::{Plan, partition};
+
+    for source in ["vendor/dep/src/lib.rs", "vendor/dep/src/ffi.RS"] {
+        let test = "crates/x/tests/t.rs";
+        let files = vec![
+            changed(test, 1, &["#[test]", "fn uses_the_dependency() {}"]),
+            changed(source, 1, &["fn fixed() {}", "#[test]", "fn a_vendor_test() {}"]),
+            changed("vendor/dep/Cargo.toml", 1, &["[package]"]),
+            changed("vendor/dep/Cargo.lock", 1, &["version = 4"]),
+            changed("fuzz/fuzz_targets/t.rs", 1, &["#[test]", "fn a_fuzz_test() {}"]),
+            changed("fuzz/Cargo.lock", 1, &["version = 4"]),
+        ];
+        let read = tree(&[
+            (test, "#[test]\nfn uses_the_dependency() {}\n"),
+            ("crates/x/Cargo.toml", &manifest("x")),
+            (source, "fn fixed() {}\n#[test]\nfn a_vendor_test() {}\n"),
+        ]);
+        let Plan::Separable(baseline) = partition(&files, &read) else {
+            panic!("a workspace test over a vendor dependency is separable");
+        };
+        assert_eq!(baseline.revert, [String::from(source)]);
+        assert_eq!(baseline.test_files, [String::from(test)]);
+        assert_eq!(
+            baseline.build_inputs,
+            [String::from("vendor/dep/Cargo.toml"), String::from("vendor/dep/Cargo.lock")]
+        );
+    }
+}
+
 /// `github.com/telekom/sutura#414`: `sources_under`, the step between the census and the
 /// feature scan, carries a refusal through rather than an empty listing that would let
 /// *nothing was enabled* pass unread. The scan itself reads the real repository and has no cell.

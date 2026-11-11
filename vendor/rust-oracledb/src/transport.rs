@@ -39,6 +39,7 @@ use pkcs8::DecodePrivateKey;
 use rustls::ClientConfig as TlsClientConfig;
 use rustls::ClientConnection as TlsClientConnection;
 use rustls::StreamOwned as TlsStream;
+use rustls::crypto::CryptoProvider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::pki_types::TrustAnchor;
@@ -193,6 +194,7 @@ pub(crate) struct Transport {
 // not accept anything less than v3 certificates
 #[derive(Debug)]
 struct CustomClientCertResolver {
+    provider: Arc<CryptoProvider>,
     key: Option<Arc<CertifiedKey>>,
     root_store: Option<rustls::RootCertStore>,
 }
@@ -682,6 +684,9 @@ impl CustomClientCertResolver {
             None => webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
         Self {
+            provider: CryptoProvider::get_default().cloned().unwrap_or_else(
+                || Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
+            ),
             key: None,
             root_store: Some(rustls::RootCertStore { roots }),
         }
@@ -690,7 +695,7 @@ impl CustomClientCertResolver {
     /// Returns the TLS configuration to use when connecting to the database.
     fn get_tls_config(mut self) -> Result<TlsClientConfig, Error> {
         let root_store = self.root_store.take().unwrap();
-        Ok(TlsClientConfig::builder_with_provider(crypto_provider())
+        Ok(TlsClientConfig::builder_with_provider(self.provider.clone())
             .with_safe_default_protocol_versions()?
             .with_root_certificates(root_store)
             .with_client_cert_resolver(Arc::new(self)))
@@ -759,7 +764,7 @@ impl CustomClientCertResolver {
         // server
         if let Some(key) = private_key {
             let signing_key =
-                crypto_provider().key_provider.load_private_key(key)?;
+                self.provider.key_provider.load_private_key(key)?;
             self.key = Some(Arc::new(CertifiedKey::new(certs, signing_key)));
         } else {
             let root_store: &mut rustls::RootCertStore =
@@ -787,13 +792,6 @@ impl rustls::client::ResolvesClientCert for CustomClientCertResolver {
     }
 }
 
-/// Returns the cryptography provider for TLS connections. It is named
-/// explicitly because a program that enables more than one rustls provider
-/// cannot build a configuration from the crate features alone.
-fn crypto_provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
-}
-
 /// Parses the PEM encoded certificates and returns the trust anchors they
 /// define. An error is returned if there are no certificates or if one of them
 /// cannot be used as a trust anchor.
@@ -819,8 +817,57 @@ pub(crate) fn parse_trust_anchors(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustls::crypto::CryptoProvider;
 
     const CA_PEM: &str = include_str!("../tests/data/ca.pem");
+
+    #[test]
+    fn tls_uses_aws_lc_fallback_without_installing_a_provider() {
+        assert!(CryptoProvider::get_default().is_none());
+        let tls = CustomClientCertResolver::new(&Config::default())
+            .get_tls_config().unwrap();
+        let aws_lc = rustls::crypto::aws_lc_rs::default_provider();
+        let groups = |provider: &CryptoProvider| {
+            provider.kx_groups.iter().map(|group| group.name()).collect::<Vec<_>>()
+        };
+        assert_eq!(groups(tls.crypto_provider()), groups(&aws_lc));
+        assert!(CryptoProvider::get_default().is_none());
+    }
+
+    #[test]
+    fn tls_preserves_an_installed_provider_and_its_resolver_snapshot() {
+        // Isolate the irreversible process-wide installation from other cells.
+        if std::env::var_os("ORACLE_PROVIDER_TEST_CHILD").is_none() {
+            let child = std::process::Command::new(
+                std::env::current_exe().unwrap(),
+            )
+            .args([
+                "--exact",
+                "transport::tests::tls_preserves_an_installed_provider_and_its_resolver_snapshot",
+                "--nocapture",
+            ])
+            .env("ORACLE_PROVIDER_TEST_CHILD", "1")
+            .output().unwrap();
+            assert!(child.status.success(), "{}{}",
+                String::from_utf8_lossy(&child.stdout),
+                String::from_utf8_lossy(&child.stderr));
+            return;
+        }
+        assert!(CryptoProvider::get_default().is_none());
+        let before_install = CustomClientCertResolver::new(&Config::default());
+        CryptoProvider {
+            cipher_suites: vec![
+                rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256,
+            ],
+            ..rustls::crypto::aws_lc_rs::default_provider()
+        }.install_default().unwrap();
+        let installed = CryptoProvider::get_default().unwrap();
+        let captured = before_install.get_tls_config().unwrap();
+        assert!(!Arc::ptr_eq(captured.crypto_provider(), installed));
+        let tls = CustomClientCertResolver::new(&Config::default())
+            .get_tls_config().unwrap();
+        assert!(Arc::ptr_eq(tls.crypto_provider(), installed));
+    }
 
     #[test]
     fn public_roots_are_used_without_trust_anchors() {

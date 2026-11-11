@@ -50,7 +50,7 @@ md-5 = "0.11.0"
 pbkdf2 = "0.13.0"
 pkcs8 = { version = "0.11.0", features = ["pem", "encryption"] }
 rand = "0.10.2"
-rustls = { version = "0.23.42", features = ["ring"] }
+rustls = "0.23.42"
 sha1 = "0.11.0"
 sha2 = "0.11.0"
 subtle = "2.6.1"

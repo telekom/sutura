@@ -4,17 +4,18 @@
       "flake": false,
       "locked": {
         "lastModified": 1784901828,
-        "narHash": "sha256-unrLXYqCKo0Q3YRtet82jgwsow7n6vIbkaZsGzoh+co=",
-        "owner": "apache",
-        "repo": "arrow-adbc",
+        "narHash": "sha256-msGDjqHQyEZGNke8nnebetHuqTVPDSyknl7GM+EFRT0=",
+        "ref": "refs/tags/apache-arrow-adbc-24",
         "rev": "a3f81c6feb1133ba80600ac32e6d7c0b0b407e18",
-        "type": "github"
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/apache/arrow-adbc"
       },
       "original": {
-        "owner": "apache",
-        "ref": "apache-arrow-adbc-24",
-        "repo": "arrow-adbc",
-        "type": "github"
+        "ref": "refs/tags/apache-arrow-adbc-24",
+        "shallow": true,
+        "type": "git",
+        "url": "https://github.com/apache/arrow-adbc"
       }
     },
     "bigquery-adbc-src": {

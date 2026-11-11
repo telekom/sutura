@@ -62,24 +62,31 @@ END;
 EXIT
 SQL
 
-# Oracle refuses a read-only snapshot older than the fixture DDL (ORA-01466).
-readable=false
-for _ in $(seq 1 30); do
-  if docker exec -i "$name" sqlplus -s / as sysdba <<SQL
+# Wait for both dictionary users to read their own table in a read-only transaction.
+for readiness_user in FIXTURE12 "$legacy_user"; do
+  readiness_password="$ORACLE_PASSWORD"
+  if [ "$readiness_user" = "$legacy_user" ]; then
+    readiness_password="$SUTURA_ORACLE_ACCEPTANCE_LEGACY_PASSWORD"
+  fi
+  readable=false
+  for _ in $(seq 1 30); do
+    if SUTURA_ORACLE_READINESS_USER="$readiness_user" SUTURA_ORACLE_READINESS_PASSWORD="$readiness_password" \
+      docker exec -i -e SUTURA_ORACLE_READINESS_USER -e SUTURA_ORACLE_READINESS_PASSWORD -e SUTURA_ORACLE_ACCEPTANCE_SERVICE \
+        "$name" bash -c 'exec sqlplus -L -s "$SUTURA_ORACLE_READINESS_USER/$SUTURA_ORACLE_READINESS_PASSWORD@localhost:1521/$SUTURA_ORACLE_ACCEPTANCE_SERVICE"' <<SQL
 WHENEVER SQLERROR EXIT FAILURE
-ALTER SESSION SET CONTAINER=$service;
 SET TRANSACTION READ ONLY;
-SELECT COUNT(*) FROM $legacy_user.COLUMNS;
+SELECT COUNT(*) FROM COLUMNS;
 ROLLBACK;
 EXIT
 SQL
-  then
-    readable=true
-    break
-  fi
-  sleep 2
+    then
+      readable=true
+      break
+    fi
+    sleep 2
+  done
+  test "$readable" = true
 done
-test "$readable" = true
 if [ "${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
   return
 fi
