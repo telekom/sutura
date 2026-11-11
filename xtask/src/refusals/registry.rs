@@ -122,8 +122,10 @@ const STARTUP: Subject = Subject {
     // `ReadingWorkerOracleWithoutFlashback` (#828), a reading worker declaring an Oracle source that
     // does not declare `split: flashback`, so no partition of it is read at a snapshot. 45:
     // `FlashbackOnTheOnlySource` and `FlashbackReadByNoNode` (#828), a `split: flashback` opt-in
-    // with no other source to federate with or no peer to read its buckets.
-    variants: variants(45),
+    // with no other source to federate with or no peer to read its buckets. 48:
+    // `AlsoAcceptWithoutPrimaryInbound`, `AlsoAcceptDuplicateIssuer`, and
+    // `AlsoAcceptOverlappingAudience` (#1884), multi-verifier config violations.
+    variants: variants(48),
 };
 
 /// One refused deployment again, and from the other side of the boot: the settings were fit and the
