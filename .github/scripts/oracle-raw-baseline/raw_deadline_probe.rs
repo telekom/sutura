@@ -17,7 +17,11 @@ fn verdict(error: &oracledb::Error) -> String {
         oracledb::ErrorKind::CallTimeoutExceeded => String::from("call_timeout"),
         oracledb::ErrorKind::UnableToRecover => String::from("unable_to_recover"),
         oracledb::ErrorKind::DbError(error) => format!("ora_{:05}", error.code()),
-        _ => String::from("other_driver_error"),
+        kind => {
+            // Only the enum variant name is exported; its fields and source error stay private.
+            let kind = format!("{kind:?}");
+            format!("kind_{}", kind.split('(').next().unwrap_or("unknown"))
+        }
     }
 }
 
@@ -62,7 +66,7 @@ fn run() -> Result<(), ProbeError> {
     println!("phase=query");
     let started = Instant::now();
     let result = connection.query_row(
-        "SELECT /* sutura_raw_deadline_probe */ SUM(ORA_HASH(LEVEL)) FROM dual CONNECT BY LEVEL <= 1000000000",
+        "SELECT /* sutura_raw_deadline_probe */ raw_deadline_wait() FROM dual",
         &[],
     );
     println!("query_ms={}", started.elapsed().as_millis());
