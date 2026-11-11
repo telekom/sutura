@@ -183,17 +183,34 @@ fn only_a_tree_that_did_not_compile_is_asked_twice() {
 fn an_accepted_claim_body_can_follow_the_existing_held_retry() {
     use std::process::Command;
 
-    assert!(std::env::var_os("NEXTEST").is_some(), "this fixture changes cwd; run under `just test`");
+    assert!(
+        std::env::var_os("NEXTEST").is_some(),
+        "this fixture changes cwd; run under `just test`"
+    );
     let original = std::env::current_dir().unwrap();
     for (case, before_extra, after_extra, visibility, observed, expected) in [
         ("body", "", "", "", 2, Verdict::Pass),
         ("module", "mod child;\n", "mod child;\n", "", 2, Verdict::Fail),
-        ("helper", "fn helper() { every_failure_is_unauthorized(); }\n", "fn helper() { every_failure_is_unauthorized(); }\n", "", 2, Verdict::Fail),
+        (
+            "helper",
+            "fn helper() { every_failure_is_unauthorized(); }\n",
+            "fn helper() { every_failure_is_unauthorized(); }\n",
+            "",
+            2,
+            Verdict::Fail,
+        ),
         ("import", "", "use super::observed;\n", "", 2, Verdict::Fail),
         ("public", "", "", "pub ", 2, Verdict::Fail),
         ("green", "", "", "", 1, Verdict::Fail),
         ("unkilled", "", "", "", 2, Verdict::Fail),
-        ("samefile", "", "#[test]\nfn ordinary_beside_claim() { assert_eq!(super::observed(), 2); }\n", "", 2, Verdict::Fail),
+        (
+            "samefile",
+            "",
+            "#[test]\nfn ordinary_beside_claim() { assert_eq!(super::observed(), 2); }\n",
+            "",
+            2,
+            Verdict::Fail,
+        ),
     ] {
         let dir = std::env::temp_dir().join(format!("sutura-claim-held-{}-{case}", std::process::id()));
         drop(std::fs::remove_dir_all(&dir));
@@ -206,12 +223,20 @@ fn an_accepted_claim_body_can_follow_the_existing_held_retry() {
         };
         let git = |args: &[&str]| {
             let out = output(args);
-            assert!(out.status.success(), "{case}: git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            assert!(
+                out.status.success(),
+                "{case}: git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
         };
         git(&["init", "-q", "-b", "main"]);
         git(&["config", "user.email", "test@example.com"]);
         git(&["config", "user.name", "test"]);
-        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[profile.ci]\ninherits = \"dev\"\n").unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"wired\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[profile.ci]\ninherits = \"dev\"\n",
+        )
+        .unwrap();
         std::fs::write(dir.join("flake.nix"), "{ }\n").unwrap();
         let production = concat!(
             "pub enum Failure { Unauthorized }\n",
@@ -229,7 +254,10 @@ fn an_accepted_claim_body_can_follow_the_existing_held_retry() {
         std::fs::write(dir.join("src/invariant/child.rs"), "").unwrap();
         git(&["add", "-A"]);
         git(&["commit", "-q", "-m", "feat: establish failure vocabulary"]);
-        let base = String::from_utf8(output(&["rev-parse", "HEAD"]).stdout).unwrap().trim().to_owned();
+        let base = String::from_utf8(output(&["rev-parse", "HEAD"]).stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
         let head = production
             .replace("Unauthorized }", "Unauthorized, TokenTooLong }")
             .replace("Failure::Unauthorized =>", "Failure::Unauthorized | Failure::TokenTooLong =>")
@@ -239,19 +267,34 @@ fn an_accepted_claim_body_can_follow_the_existing_held_retry() {
             .replace("Failure::Unauthorized =>", "Failure::Unauthorized | Failure::TokenTooLong =>");
         std::fs::write(dir.join("src/lib.rs"), &head).unwrap();
         std::fs::write(dir.join("src/invariant.rs"), format!("{changed}{after_extra}")).unwrap();
-        std::fs::write(dir.join("tests/ordinary.rs"), format!("#[test]\nfn observes_new_behavior() {{ assert_eq!(wired::observed(), {observed}); }}\n")).unwrap();
+        std::fs::write(
+            dir.join("tests/ordinary.rs"),
+            format!("#[test]\nfn observes_new_behavior() {{ assert_eq!(wired::observed(), {observed}); }}\n"),
+        )
+        .unwrap();
         // A production-only mutation must kill the claim's own assertion before any retry.
         std::fs::write(dir.join(".old.rs"), &head).unwrap();
-        let replacement = if case == "unkilled" { "\"unauthorized\" " } else { "\"broken\"" };
+        let replacement = if case == "unkilled" {
+            "\"unauthorized\" "
+        } else {
+            "\"broken\""
+        };
         std::fs::write(dir.join(".new.rs"), head.replace("\"unauthorized\"", replacement)).unwrap();
-        let patch = String::from_utf8(output(&["diff", "--no-index", "--", ".old.rs", ".new.rs"]).stdout).unwrap()
-            .replace(".old.rs", "src/lib.rs").replace(".new.rs", "src/lib.rs");
+        let patch = String::from_utf8(output(&["diff", "--no-index", "--", ".old.rs", ".new.rs"]).stdout)
+            .unwrap()
+            .replace(".old.rs", "src/lib.rs")
+            .replace(".new.rs", "src/lib.rs");
         std::fs::remove_file(dir.join(".old.rs")).unwrap();
         std::fs::remove_file(dir.join(".new.rs")).unwrap();
         std::fs::create_dir_all(dir.join("devco/claim-mutations")).unwrap();
         std::fs::write(dir.join("devco/claim-mutations/every_failure_is_unauthorized.patch"), patch).unwrap();
         git(&["add", "-A"]);
-        git(&["commit", "-q", "-m", "feat: extend failure vocabulary\n\nClaim-Cell: every_failure_is_unauthorized"]);
+        git(&[
+            "commit",
+            "-q",
+            "-m",
+            "feat: extend failure vocabulary\n\nClaim-Cell: every_failure_is_unauthorized",
+        ]);
         std::env::set_current_dir(&dir).unwrap();
         let verdict = super::run(&[String::from("--since"), base]);
         std::env::set_current_dir(&original).unwrap();

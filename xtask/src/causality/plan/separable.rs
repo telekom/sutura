@@ -21,7 +21,12 @@ impl Separable {
     ) -> Self {
         let mut plan = self.clone();
         plan.test_files.retain(|path| {
-            let cells: Vec<&str> = scoped.tests().iter().filter(|cell| cell.file() == path.as_str()).map(|cell| cell.name()).collect();
+            let cells: Vec<&str> = scoped
+                .tests()
+                .iter()
+                .filter(|cell| cell.file() == path.as_str())
+                .map(crate::causality::place::AddedTest::name)
+                .collect();
             let eligible = !cells.is_empty()
                 && cells.iter().all(|name| accepted.contains(*name))
                 && head(path).zip(base(path)).is_some_and(|(head, base)| {
@@ -82,7 +87,10 @@ fn outside_claim_bodies(text: &str, names: &[&str]) -> Option<String> {
     // A private test can still be called by a child module in another file. Admit only inline
     // module headers in the same narrow one-line shape this reader can account for.
     for line in written.lines() {
-        let words: Vec<&str> = line.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|word| !word.is_empty()).collect();
+        let words: Vec<&str> = line
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|word| !word.is_empty())
+            .collect();
         if words.contains(&"include") || words.contains(&"macro_rules") {
             return None;
         }
@@ -95,12 +103,21 @@ fn outside_claim_bodies(text: &str, names: &[&str]) -> Option<String> {
     for name in names {
         // Exactly one identifier occurrence: no duplicate declaration, call, alias, or use as
         // a helper anywhere this lexer sees, including another accepted body's interior.
-        if written.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|word| word == name).count() != 1 {
+        if written
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|word| word == name)
+            .count()
+            != 1
+        {
             return None;
         }
         let first = (0..lines.len()).find(|index| function_name(&code, *index).is_some_and(|found| found.as_str() == *name))?;
         if lines.get(first)?.trim() != format!("fn {name}() {{")
-            || attached(&lines, first).iter().map(|(_, attribute)| *attribute).collect::<Vec<_>>() != ["#[test]"]
+            || attached(&lines, first)
+                .iter()
+                .map(|(_, attribute)| *attribute)
+                .collect::<Vec<_>>()
+                != ["#[test]"]
         {
             return None;
         }
