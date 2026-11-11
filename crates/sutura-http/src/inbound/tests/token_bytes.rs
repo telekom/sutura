@@ -165,7 +165,11 @@ fn an_oversize_warning_contains_byte_counts_and_no_token_material() {
         true,
     );
     let subscriber = sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a subscriber");
-    let (status, _, _) = tracing::subscriber::with_default(subscriber, || super::block_on(call(app, "direct", &token)));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("a test runtime builds");
+    let (status, _, _) = tracing::subscriber::with_default(subscriber, || runtime.block_on(call(app, "direct", &token)));
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let log = sink.contents();
     assert!(
