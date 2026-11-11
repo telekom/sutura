@@ -14,7 +14,7 @@ diff --git a/crates/sutura-mcp/src/wire.rs b/crates/sutura-mcp/src/wire.rs
 -                rows: render(rows),
 -            },
 +            } => {
-+                let _ = (provenance_content(provenance), legs(provenance.executed_as()), render(rows));
++                let _ = (provenance_content(provenance), legs(provenance.executed_as()), execution::sql(provenance.execution()), execution::logical_plan(provenance.execution()), render(rows));
 +                Self::from(&ToolOutcome::Refusal {
 +                    reason: sutura_domain::query::RefusalReason::FederationNotExecutable,
 +                })
