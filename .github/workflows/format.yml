@@ -383,7 +383,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims')
+        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'oracle-split-claims')
         with:
           name: oracle-fixture-${{ inputs.operation }}-${{ inputs.source_sha }}
           path: |
@@ -391,6 +391,7 @@ jobs:
             target/oracle-legacy-probe
             target/oracle-native-base-proof
             target/oracle-native-claim-proof
+            target/oracle-split-claim-proof
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
