@@ -19,3 +19,7 @@ oracle-native-base-proof base:
 # Hosted killing mutations for the two served product cells, using one modern fixture.
 oracle-native-claim-proof:
     SUTURA_ORACLE_CLAIM_PROOF=1 nix run .#oracle-native-acceptance
+
+# Hosted proof of the served split's no-reader refusal and real reading-worker path.
+oracle-split-claim-proof:
+    SUTURA_ORACLE_SPLIT_CLAIM_PROOF=1 nix run .#oracle-acceptance

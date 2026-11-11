@@ -86,7 +86,8 @@ pub(crate) use two_kind::{PG_SOURCE, settings as two_kind_settings};
 // default-features build is what caught the re-export doing nothing there.
 #[cfg(any(
     all(feature = "node", feature = "flight", feature = "tls"),
-    all(feature = "duckdb", feature = "postgres")
+    all(feature = "duckdb", feature = "postgres"),
+    all(feature = "oracle", feature = "distributed")
 ))]
 pub(crate) use two_source::catalog_spanning_two_sources;
 #[cfg(feature = "postgres")]

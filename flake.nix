@@ -1431,6 +1431,9 @@
             cargo run -q -p xtask -- dev-up --with oracle
             export SUTURA_DEV_REQUIRE_TIER=1
             export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
+            if [ "''${SUTURA_ORACLE_SPLIT_CLAIM_PROOF:-0}" = 1 ]; then
+              exec bash nix/oracle-split-cells.sh --profile ci
+            fi
             set +e
             cargo nextest run --cargo-profile ci -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features \
               --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)' "$@"
@@ -1438,6 +1441,7 @@
             (
               exec cargo test --profile ci -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture
             ) || status=$?
+            bash nix/oracle-split-cells.sh --profile ci || status=$?
             bash nix/oracle-app-cells.sh --profile ci || status=$?
             exit "$status"
           '');
