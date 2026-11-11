@@ -23,6 +23,13 @@ replace(
     '''let case = format!("oracle-native-{expected}-{path}");
         eprintln!("native-control-diagnostic path={path} expected={expected}");''',
 )
+for old, new in [
+    ('let connection = self.connect()?;', 'eprintln!("native-control-diagnostic dictionary_stage=connect");\n        let connection = self.connect()?;\n        eprintln!("native-control-diagnostic dictionary_stage=read_only");'),
+    ('let binds = self.binds();', 'eprintln!("native-control-diagnostic dictionary_stage=query");\n        let binds = self.binds();'),
+    ('let dictionary = assemble(', 'eprintln!("native-control-diagnostic dictionary_stage=rows");\n        let dictionary = assemble('),
+    ('connection.rollback().map_err(read_err)?;', 'eprintln!("native-control-diagnostic dictionary_stage=rollback");\n        connection.rollback().map_err(read_err)?;'),
+]:
+    replace("crates/sutura-catalog-rdbms/src/oracle_reader.rs", old, new)
 replace(
     "nix/oracle-login-fixtures.sh",
     '''  SUTURA_ORACLE_NATIVE_EXPECT=success cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \\
@@ -36,7 +43,7 @@ replace(
       oracle_native::oracle_native_logins_require_both_strong_services_on_both_production_paths -- --ignored --nocapture > "$diagnostic_log" 2>&1
     diagnostic_status=$?
     set -e
-    grep -E 'native-control-diagnostic (path=|packet_type=)|unprotected native control packet|test result:|panicked at|oracle_native::.* \\.\\.\\. (ok|FAILED)' "$diagnostic_log" > "$diagnostic_out/iteration-$diagnostic_iteration.log" || true
+    grep -E 'native-control-diagnostic (path=|packet_type=|dictionary_stage=)|unprotected native control packet|test result:|panicked at|oracle_native::.* \\.\\.\\. (ok|FAILED)' "$diagnostic_log" > "$diagnostic_out/iteration-$diagnostic_iteration.log" || true
     rm -f "$diagnostic_log"
     cat "$diagnostic_out/iteration-$diagnostic_iteration.log"
     printf '%s iteration=%s exit=%s\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" "$diagnostic_status" | tee -a "$diagnostic_out/iterations.tsv"
@@ -49,8 +56,18 @@ replace(
 replace(
     "nix/oracle-native-probe.sh",
     'docker logs "$name" > "$out/container.log" 2>&1 || true',
-    '''docker logs --tail 200 --timestamps "$name" 2>&1 | awk '{ stamp=$1; for (i=2; i<=NF; i++) if ($i ~ /^(ORA-|TNS-|NI)[0-9]+[:,]?$/) print stamp, $i }' > "$out/container.log" || true
-  docker exec "$name" sh -c 'for log in /opt/oracle/diag/tnslsnr/*/listener/trace/listener.log; do tail -n 200 "$log"; done' 2>/dev/null | awk -F ' \\* ' 'NF >= 4 { print $1 " | " $(NF-2) " | " $(NF-1) " | " $NF }' > "$out/listener-status.log" || true''',
+    '''timeout 10s docker logs --tail 200 --timestamps "$name" 2>&1 | awk '{ stamp=$1; for (i=2; i<=NF; i++) if ($i ~ /^(ORA-|TNS-|NI)[0-9]+[:,]?$/) print stamp, $i }' > "$out/container.log" || true
+  timeout 10s docker exec "$name" sh -c 'for log in /opt/oracle/diag/tnslsnr/*/listener/trace/listener.log; do tail -n 200 "$log"; done' 2>/dev/null | awk -F '[*]' 'NF >= 6 && $NF ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { print $1 " | " $(NF-2) " | " $(NF-1) " | " $NF }' > "$out/listener-status.log" || true
+  timeout 10s docker exec -i "$name" sh > "$out/server-error-codes.log" 2>/dev/null <<'DIAGNOSTIC' || true
+for trace in /opt/oracle/diag/rdbms/*/*/trace/*.trc; do
+  tail -n 400 "$trace" | awk '/^\\*\\*\\* [0-9][0-9][0-9][0-9]-/ { stamp=$2 } /ORA-01466/ { print stamp, "ORA-01466" }'
+done
+DIAGNOSTIC''',
+)
+replace(
+    "nix/oracle-native-probe.sh",
+    "SET PAGESIZE 100 LINESIZE 200",
+    "ALTER SYSTEM SET EVENTS '1466 trace name errorstack level 1';\nSET PAGESIZE 100 LINESIZE 200",
 )
 replace(
     "nix/oracle-native-probe.sh",
