@@ -3140,7 +3140,8 @@ private than that function.</p>
 <p>A leg split into partitions, each read only by a task on a worker that reads its source.</p>
 <h2 id="use-streambound"><code>use StreamBound</code><a class="headerlink" href="#use-streambound" title="Permanent link">&para;</a></h2>
 <p>The bound a split leg's every partition stream is read under, signed into its grant: at most
-<code>rows</code> rows and <code>bytes</code> bytes.</p>
+<code>rows</code> rows and <code>bytes</code> bytes of materialisation before emission.</p>
+<p>Source allocation/fetch has already happened; this bounds neither process memory nor pre-fetch work.</p>
 <h2 id="use-switchedprincipal"><code>use SwitchedPrincipal</code><a class="headerlink" href="#use-switchedprincipal" title="Permanent link">&para;</a></h2>
 <p>The caller's own principal a granted partition is read as, which the reading node's source
 switches to. Its <code>Debug</code> prints no name.</p>
