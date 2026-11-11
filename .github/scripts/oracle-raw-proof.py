@@ -10,8 +10,8 @@ import subprocess
 import sys
 import tempfile
 
-SOURCE = "ce1717f7320f2b6a554a6443e20557e8e39bc0ef"
-TREE = "8ae15b55441c15dc8bb8d8ea3ff521507915aa53"
+SOURCE = "bdf26a802c0ac6ebf5f27e34b3d76bb9512cd1dd"
+TREE = "85fcacef0aea9392cf9860923cf2500f177b5328"
 BASE = "fadd25ee2ae393e9312ef0afe24140a16c7b12e3"
 RUNNER = "nix/oracle-raw-cells.sh"
 SERVED = "crates/sutura-cli/tests/served/oracle_raw.rs"
@@ -28,7 +28,7 @@ CELLS = {
         SERVED,
         'assert_eq!(reply.status, status, "{}", reply.body);',
         ["left: 200", "right: 403"],
-        "71e007625d9bddcade58a1abf350fc10ce084184",
+        "e7dfca7ecc9b0d104fcc219062cd781875d7cfea",
     ),
     "admission": (
         RAW,
@@ -38,7 +38,7 @@ CELLS = {
         PORT,
         "assert_eq!(\n                error.to_string(),",
         ['right: "this source accepts one SELECT or WITH query without statement delimiters"'],
-        "fbc2657bb26554e61760b4acfac9c234beff94d3",
+        "76dd36cf1336a33d85e92b19d54a106b7c8b0301",
     ),
     "cap": (
         RAW,
@@ -48,7 +48,7 @@ CELLS = {
         PORT,
         "assert_eq!(rows.rows().len(), cap as usize + 1);",
         ["left: 10002", "right: 10001"],
-        "100923f41da07d432d3674136a4b88789ff59bcc",
+        "cbd795ba368d982e53e835dc5c9f90eab61d41f6",
     ),
     "audit": (
         "crates/sutura-app/src/surface.rs",
@@ -58,7 +58,7 @@ CELLS = {
         AUDIT,
         'assert!(lines[0].contains("local=shared-service-user"), "{lines:?}");',
         ["executed_as=None"],
-        "3a50d8b393f1ba6a0f8d1cca713f5188870d3d69",
+        "b5edab3fe8c06d644dd7fdbe131af053a79db043",
     ),
 }
 
