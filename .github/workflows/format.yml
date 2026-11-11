@@ -178,10 +178,12 @@ jobs:
           LOCK_OPERATION: ${{ inputs.operation }}
         run: |
           set -euo pipefail
-          nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
           if [[ "$LOCK_OPERATION" == lock-overlay ]]; then
+            nix run .#cargo -- metadata --all-features --format-version 1 > /tmp/oracle-export/metadata.json
             nix run .#cargo -- metadata --manifest-path fuzz/Cargo.toml --format-version 1 > /tmp/oracle-export/fuzz-metadata.json
             python3 /tmp/oracle-limit-sort-lock.py check
+          else
+            nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
           fi
 
       - name: Lock the canonical Arrow Git input
