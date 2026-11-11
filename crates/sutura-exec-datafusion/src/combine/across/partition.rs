@@ -13,7 +13,9 @@
 //! - [`PartitionReader`](partition::PartitionReader) is a port: this crate holds no implementation,
 //!   the composition root does. A reader that answers [`Unread::LegNotCertified`] or
 //!   [`Unread::DidNotFit`] fails the task under a relay code [`relay`] reads back; what it
-//!   re-certified against, and the bound it read under, are the reader's.
+//!   re-certified against, and the bound it read under, are the reader's. The consumer also checks
+//!   the authenticated grant's cumulative rows and materialisation budget before emitting any
+//!   batch. This follows source allocation/fetch; it bounds neither pre-fetch work nor process memory.
 //! - The leaf's schema crosses the wire through `datafusion_proto`'s own `Schema` protobuf, the same
 //!   round trip `combine::tests::across::decode` already exercises for one.
 //! - A leaf carrying no grant, or one that fails to decode, reads the same as one wrongly named: the
@@ -48,9 +50,9 @@ use prost::Message as _;
 use ring::digest;
 use sutura_domain::identity::{PrincipalName, Secret, WorkloadPool};
 use sutura_domain::model::SourceName;
-use sutura_domain::warehouse::ResultBatches;
+use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
-use super::grant::{self, ReadingKeys};
+use super::grant::{self, AdmittedRead, ReadingKeys};
 use super::{StageReadsASource, carried};
 
 /// Reads one partition of one source for a reading task. `pub`, not `pub(super)`:
@@ -358,6 +360,7 @@ pub(super) struct PartitionScanExec {
     presented_key: [u8; 32],
     grant: Option<Vec<u8>>,
     carried: Mutex<Carried>,
+    admitted: Mutex<Option<AdmittedRead>>,
     properties: Arc<PlanProperties>,
 }
 
@@ -407,7 +410,7 @@ impl PartitionScanExec {
         let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(schema),
             Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
+            EmissionType::Final,
             Boundedness::Bounded,
         ));
         Self {
@@ -417,6 +420,7 @@ impl PartitionScanExec {
             presented_key,
             grant,
             carried: Mutex::new(Carried::Nothing),
+            admitted: Mutex::new(None),
             properties,
         }
     }
@@ -513,12 +517,16 @@ impl ExecutionPlan for PartitionScanExec {
                 "a partition scan has exactly one partition",
             )));
         }
+        let admitted = self
+            .admitted
+            .lock()
+            .ok_or_else(|| DataFusionError::External(Box::new(super::WorkerRefusal::GrantNotNaming)))?;
         let reader = context
             .session_config()
             .get_extension::<ReaderExtension>()
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
         let schema = self.properties.eq_properties.schema();
-        match self.taken()? {
+        let mut batches = match self.taken()? {
             Carried::Token(forwarded) => reader
                 .0
                 .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded),
@@ -527,7 +535,21 @@ impl ExecutionPlan for PartitionScanExec {
                 .read_switched(&self.wire, &self.source, &self.partition, schema, switched),
             Carried::Nothing | Carried::Taken { .. } => reader.0.read(&self.wire, &self.source, &self.partition, schema),
         }
-        .map_err(Unread::into_error)
+        .map_err(Unread::into_error)?;
+        let schema = Arc::clone(schema);
+        let mut accepted = Accumulating::announcing(Arc::clone(&schema), admitted.rows, admitted.budget);
+        Ok(read_later(schema, async move {
+            while let Some(batch) = batches.next().await {
+                let batch = batch.map_err(Unread::Failed)?;
+                accepted.push(batch).map_err(|cause| match cause {
+                    UnannouncedBatch::OverBound { .. } | UnannouncedBatch::OverBudget { .. } => Unread::DidNotFit,
+                    UnannouncedBatch::Width { .. } | UnannouncedBatch::Mislabelled { .. } => {
+                        Unread::Failed(DataFusionError::External(Box::new(cause)))
+                    }
+                })?;
+            }
+            Ok(accepted.finish())
+        }))
     }
 }
 
@@ -720,10 +742,13 @@ pub(super) fn reads_partition_or_nothing(
                 now,
             );
             match verified {
-                Ok(ends) => {
+                Ok(admitted) => {
                     if let Carried::Token(ref mut forwarded) = *carried {
-                        forwarded.ends = SystemTime::UNIX_EPOCH.checked_add(ends).unwrap_or(SystemTime::UNIX_EPOCH);
+                        forwarded.ends = SystemTime::UNIX_EPOCH
+                            .checked_add(admitted.ends)
+                            .unwrap_or(SystemTime::UNIX_EPOCH);
                     }
+                    *leaf.admitted.lock() = Some(admitted);
                     drop(carried);
                 }
                 Err(cause) => {

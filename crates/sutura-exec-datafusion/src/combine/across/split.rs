@@ -37,7 +37,9 @@
 //! - A `BigQuery` pool source's grant forwards the caller's token. The planning node keeps its copy
 //!   of the token as long as the leg's table is registered, and does not wipe the plan bytes it
 //!   encodes the token into for each task.
-//! - [`StreamBound`](crate::StreamBound) is signed into each grant, and no worker enforces it.
+//! - The worker checks each grant's signed [`StreamBound`](crate::StreamBound) against cumulative
+//!   rows and materialisation bytes after source allocation/fetch and before emitting any batch.
+//!   This bounds neither pre-fetch work nor process memory.
 //! - A worker admits a partition's first key: the same leg's same partition asked of it again within
 //!   that key's idle window, under a fresh key, is refused.
 
@@ -94,7 +96,9 @@ impl fmt::Debug for Leg {
 }
 
 /// The bound a split leg's every partition stream is read under, signed into its grant: at most
-/// `rows` rows and `bytes` bytes.
+/// `rows` rows and `bytes` bytes of materialisation before emission.
+///
+/// Source allocation/fetch has already happened; this bounds neither process memory nor pre-fetch work.
 #[derive(Clone, Copy, Debug)]
 pub struct StreamBound {
     rows: u32,
