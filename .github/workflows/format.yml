@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
+        options: [text, format, lock-format, lock-overlay, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -58,7 +58,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  oracle-export:
+  format:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ inputs.operation == 'text' && 'ubuntu-latest' || 'rust-mcp-16core' }}
     timeout-minutes: 120
@@ -121,6 +121,16 @@ jobs:
           Path("/tmp/oracle-export/source-files.json").write_text(json.dumps(records, indent=2) + "\n")
           PYHASH
 
+      - name: Prepare exact unparser lock overlay
+        if: inputs.operation == 'lock-overlay'
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-limit-sort-lock.py" > /tmp/oracle-limit-sort-lock.py
+          git show "$GITHUB_WORKFLOW_SHA:devco/oracle-limit-sort-product.patch.gz" > /tmp/oracle-export/lock-overlay-product.patch.gz
+          git show "$GITHUB_WORKFLOW_SHA:.github/patches/oracle-limit-sort-product.json" > /tmp/oracle-export/lock-overlay-receipt.json
+          sha256sum /tmp/oracle-limit-sort-lock.py > /tmp/oracle-export/lock-overlay-payload.sha256
+          python3 /tmp/oracle-limit-sort-lock.py apply
+
       - name: Prepare exact main-forward generator inputs
         if: inputs.operation == 'main-forward-lock'
         env:
@@ -163,8 +173,16 @@ jobs:
           PYHASH
 
       - name: Resolve with the pinned generator
-        if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
-        run: nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
+        if: inputs.operation == 'lock-format' || inputs.operation == 'lock-overlay' || inputs.operation == 'main-forward-lock'
+        env:
+          LOCK_OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
+          if [[ "$LOCK_OPERATION" == lock-overlay ]]; then
+            nix run .#cargo -- metadata --manifest-path fuzz/Cargo.toml --format-version 1 > /tmp/oracle-export/fuzz-metadata.json
+            python3 /tmp/oracle-limit-sort-lock.py check
+          fi
 
       - name: Lock the canonical Arrow Git input
         if: inputs.operation == 'arrow-lock'
@@ -173,13 +191,13 @@ jobs:
           nix flake update arrow-adbc-src
 
       - name: Format Rust with the pinned toolchain
-        if: inputs.operation == 'format' || inputs.operation == 'lock-format'
+        if: inputs.operation == 'format' || inputs.operation == 'lock-format' || inputs.operation == 'lock-overlay'
         run: |
           nix run .#cargo -- run -q -p xtask -- fmt
           nix run .#cargo -- run -q -p xtask -- text-hygiene --fix
 
       - name: Format text with the pinned tools
-        if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format'
+        if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format' || inputs.operation == 'lock-overlay'
         run: bash nix/format-text.sh fmt
 
       - name: Generate independently sourced modern NNE vectors
