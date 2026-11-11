@@ -490,6 +490,7 @@ mod tests {
 #[cfg(test)]
 mod guarded_top {
     use sutura_domain::calendar::{Date, TimeRange};
+    use sutura_domain::measure::ZeroDenominator;
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::nonempty::NonEmpty;
     use sutura_domain::plan::{
@@ -497,7 +498,7 @@ mod guarded_top {
         PlannedMeasure, PredicateOrigin, QueryPlan, ResultLabel, StatementTables,
     };
     use sutura_domain::query::{Top, TopBy, TopDirection, TopN};
-    use sutura_domain::warehouse::{ParamValue, Value};
+    use sutura_domain::warehouse::{ParamValue, Real, Value};
     use sutura_sql::{Dialect, generate};
 
     use crate::adapters::{ClickHouse, DataSystemUnderTest, deadline, presented, runs_here};
@@ -507,40 +508,92 @@ mod guarded_top {
         let column = |name| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a fixture column"));
         let metric = MetricName::parse(primary).expect("a fixture metric");
         let other = MetricName::parse("other").expect("a fixture metric");
-        let guard = PlanPredicate::NotEquals { column: column("customer_key"), param: 0 };
-        let other_guard = PlanPredicate::NotEquals { column: column("customer_key"), param: 1 };
+        let guard = PlanPredicate::NotEquals {
+            column: column("customer_key"),
+            param: 0,
+        };
+        let other_guard = PlanPredicate::NotEquals {
+            column: column("customer_key"),
+            param: 1,
+        };
         let start = Date::parse("2026-06-01").expect("a fixture date");
         let end = Date::parse("2026-07-01").expect("a fixture date");
         let bindings = PlanBindings::parse(
             vec![
                 PlanFilter::new(PredicateOrigin::Definition, guard.clone()),
                 PlanFilter::new(PredicateOrigin::Definition, other_guard.clone()),
-                PlanFilter::new(PredicateOrigin::Definition, PlanPredicate::AtOrAfter { column: column("signed_on"), param: 2 }),
-                PlanFilter::new(PredicateOrigin::Definition, PlanPredicate::Before { column: column("signed_on"), param: 3 }),
-                PlanFilter::new(PredicateOrigin::Requested, PlanPredicate::NotEquals { column: column("region"), param: 4 }),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::AtOrAfter {
+                        column: column("signed_on"),
+                        param: 2,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Definition,
+                    PlanPredicate::Before {
+                        column: column("signed_on"),
+                        param: 3,
+                    },
+                ),
+                PlanFilter::new(
+                    PredicateOrigin::Requested,
+                    PlanPredicate::NotEquals {
+                        column: column("region"),
+                        param: 4,
+                    },
+                ),
             ],
-            vec![ParamValue::Integer(0), ParamValue::Integer(-1), ParamValue::Date(start), ParamValue::Date(end), ParamValue::Text(String::from("excluded"))],
-        ).expect("guards precede range and caller filters");
-        let measure = |aggregate| PlanMeasure::Simple { term: PlanTerm::Aggregate { aggregate, column: column("customer_key") } };
+            vec![
+                ParamValue::Integer(0),
+                ParamValue::Integer(-1),
+                ParamValue::Date(start),
+                ParamValue::Date(end),
+                ParamValue::Text(String::from("excluded")),
+            ],
+        )
+        .expect("guards precede range and caller filters");
+        let term = |aggregate| PlanTerm::Aggregate {
+            aggregate,
+            column: column("customer_key"),
+        };
         QueryPlan::with_measures(
             SourceName::parse("local").expect("a fixture source"),
             NonEmpty::of(
-                PlannedMeasure::new(metric.clone(), ResultLabel::measure(&metric), measure(Aggregate::Sum), vec![guard]),
-                vec![PlannedMeasure::new(other.clone(), ResultLabel::measure(&other), measure(Aggregate::CountDistinct), vec![other_guard])],
+                PlannedMeasure::new(
+                    metric.clone(),
+                    ResultLabel::measure(&metric),
+                    PlanMeasure::Ratio {
+                        numerator: term(Aggregate::Sum),
+                        denominator: term(Aggregate::CountDistinct),
+                        zero_denominator: ZeroDenominator::Null,
+                    },
+                    vec![guard],
+                ),
+                vec![PlannedMeasure::new(
+                    other.clone(),
+                    ResultLabel::measure(&other),
+                    PlanMeasure::Simple { term: term(Aggregate::CountDistinct) },
+                    vec![other_guard],
+                )],
             ),
             StatementTables::only(table.clone()),
             PlanBucket::new(ResultLabel::bucket(), Grain::Month, column("signed_on")),
-            vec![PlanKey::new(ResultLabel::dimension(&DimensionName::parse("region").expect("a fixture dimension")), column("region"))],
+            vec![PlanKey::new(
+                ResultLabel::dimension(&DimensionName::parse("region").expect("a fixture dimension")),
+                column("region"),
+            )],
             bindings,
             TimeRange::new(start, end).expect("a bounded month"),
-        ).with_top(Top::new(TopN::parse(n).expect("a fixture row count"), by, direction))
+        )
+        .with_top(Top::new(TopN::parse(n).expect("a fixture row count"), by, direction))
     }
 
     fn renders(dialect: Dialect) {
         for direction in [TopDirection::Asc, TopDirection::Desc] {
             let plan = plan("Select", TopBy::Metric, direction, 3);
             let query = generate(&plan, dialect).expect("guarded multi-metric top renders without extra placeholders");
-            let mut expected = vec![ParamValue::Integer(0); if dialect == Dialect::ClickHouse { 3 } else { 1 }];
+            let mut expected = vec![ParamValue::Integer(0); if dialect == Dialect::ClickHouse { 3 } else { 2 }];
             expected.extend(plan.params().iter().skip(1).cloned());
             assert_eq!(query.params(), expected, "{dialect}: {}", query.sql());
             let quote = dialect.identifier_quote().character();
@@ -548,8 +601,15 @@ mod guarded_top {
             assert!(order.starts_with(&format!("{quote}Select{quote}")), "{dialect}: {order}");
             assert!(!order.contains("CASE") && !order.contains("other"), "{dialect}: {order}");
             assert_eq!(order.contains("DESC"), direction == TopDirection::Desc, "{dialect}: {order}");
-            assert!(order.contains(&format!("{quote}dim_customer{quote}.{quote}region{quote}")), "{dialect}: {order}");
-            let limit = if dialect == Dialect::Oracle { "FETCH FIRST 3 ROWS ONLY" } else { "LIMIT 3" };
+            assert!(
+                order.contains(&format!("{quote}dim_customer{quote}.{quote}region{quote}")),
+                "{dialect}: {order}"
+            );
+            let limit = if dialect == Dialect::Oracle {
+                "FETCH FIRST 3 ROWS ONLY"
+            } else {
+                "LIMIT 3"
+            };
             assert!(query.sql().ends_with(limit), "{dialect}: {}", query.sql());
             let period = generate(&self::plan("Select", TopBy::Period, direction, 3), dialect).expect("period top still renders");
             let period_order = period.sql().split_once("ORDER BY ").expect("period top orders its answer").1;
@@ -560,41 +620,75 @@ mod guarded_top {
     }
 
     #[test]
-    fn duckdb_renders_guarded_multi_metric_top_with_each_bound_value_in_order() { renders(Dialect::DuckDb); }
+    fn duckdb_renders_guarded_multi_metric_top_with_each_bound_value_in_order() {
+        renders(Dialect::DuckDb);
+    }
 
     #[test]
-    fn clickhouse_renders_guarded_multi_metric_top_with_each_bound_value_in_order() { renders(Dialect::ClickHouse); }
+    fn clickhouse_renders_guarded_multi_metric_top_with_each_bound_value_in_order() {
+        renders(Dialect::ClickHouse);
+    }
 
     #[test]
-    fn bigquery_renders_guarded_multi_metric_top_with_each_bound_value_in_order() { renders(Dialect::BigQuery); }
+    fn bigquery_renders_guarded_multi_metric_top_with_each_bound_value_in_order() {
+        renders(Dialect::BigQuery);
+    }
 
     #[test]
-    fn oracle_renders_guarded_multi_metric_top_with_each_bound_value_in_order() { renders(Dialect::Oracle); }
+    fn oracle_renders_guarded_multi_metric_top_with_each_bound_value_in_order() {
+        renders(Dialect::Oracle);
+    }
 
     fn executes<W: DataSystemUnderTest>() {
-        if !runs_here::<W>() { return; }
-        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("guarded-top-{}-{}", W::NAME, std::process::id()));
+        if !runs_here::<W>() {
+            return;
+        }
+        let dir =
+            std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("guarded-top-{}-{}", W::NAME, std::process::id()));
         std::fs::create_dir_all(&dir).expect("the fixture directory writes");
         let csv = dir.join("customers.csv");
         std::fs::write(&csv, "customer_key,region,signed_on\n1,z,2026-06-01\n1,z,2026-06-01\n2,a,2026-06-01\n5,b,2026-06-01\n0,n,2026-06-01\n100,excluded,2026-06-01\n100,old,2026-05-01\n").expect("the fixture writes");
-        let warehouse = W::open_on(SourceName::parse("local").expect("a fixture source"), vec![(TableName::parse("dim_customer").expect("a fixture table"), csv)]);
+        let warehouse = W::open_on(
+            SourceName::parse("local").expect("a fixture source"),
+            vec![(TableName::parse("dim_customer").expect("a fixture table"), csv)],
+        );
         for (direction, regions, sums) in [
-            (TopDirection::Asc, ["a", "z", "b", "n"], [Some(2), Some(2), Some(5), None]),
-            (TopDirection::Desc, ["b", "a", "z", "n"], [Some(5), Some(2), Some(2), None]),
+            (TopDirection::Asc, ["a", "z", "b", "n"], [Some(2.0), Some(2.0), Some(5.0), None]),
+            (TopDirection::Desc, ["b", "a", "z", "n"], [Some(5.0), Some(2.0), Some(2.0), None]),
         ] {
             for n in [3, 4] {
                 // The alias also names an input column: resolve the aggregate, not an ungrouped input.
                 let plan = plan("customer_key", TopBy::Metric, direction, n);
-                let rows = warehouse.execute(Executable::Query(&plan), &presented(), deadline()).expect("the guarded top executes").to_rows().expect("the answer decodes");
-                let expected: Vec<_> = regions.iter().zip(sums).take(n as usize).map(|(region, sum)| vec![Value::Text(String::from(*region)), Value::Date(Date::parse("2026-06-01").expect("a fixture date")), sum.map_or(Value::Null, Value::Integer), Value::Integer(1)]).collect();
+                let rows = warehouse
+                    .execute(Executable::Query(&plan), &presented(), deadline())
+                    .expect("the guarded top executes")
+                    .to_rows()
+                    .expect("the answer decodes");
+                let expected: Vec<_> = regions
+                    .iter()
+                    .zip(sums)
+                    .take(n as usize)
+                    .map(|(region, sum)| {
+                        vec![
+                            Value::Text(String::from(*region)),
+                            Value::Date(Date::parse("2026-06-01").expect("a fixture date")),
+                            sum.map_or(Value::Null, |value| Value::Real(Real::parse(value).expect("a finite ratio"))),
+                            Value::Integer(1),
+                        ]
+                    })
+                    .collect();
                 assert_eq!(rows.rows(), expected, "{} {direction:?} top {n}", W::NAME);
             }
         }
     }
 
     #[test]
-    fn duckdb_executes_guarded_multi_metric_top_with_alias_ties_and_nulls_last() { executes::<sutura_exec_duckdb::DuckDbWarehouse>(); }
+    fn duckdb_executes_guarded_multi_metric_top_with_alias_ties_and_nulls_last() {
+        executes::<sutura_exec_duckdb::DuckDbWarehouse>();
+    }
 
     #[test]
-    fn clickhouse_executes_guarded_multi_metric_top_with_alias_ties_and_nulls_last() { executes::<ClickHouse>(); }
+    fn clickhouse_executes_guarded_multi_metric_top_with_alias_ties_and_nulls_last() {
+        executes::<ClickHouse>();
+    }
 }

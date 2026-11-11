@@ -759,7 +759,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
             top::ordering(
                 requested,
                 // Repeating a guard here would add placeholders without recording their values.
-                if primary.guard().is_empty() { measure_expr } else { builder::col(primary.label()) },
+                if primary.guard().is_empty() {
+                    measure_expr
+                } else {
+                    builder::col(primary.label())
+                },
                 bucket_expr,
                 tiebreak,
             ),
