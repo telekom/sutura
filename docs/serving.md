@@ -202,7 +202,7 @@ with the tool on, no list is a startup refusal, and so is an alias that no sourc
 statement. A build without the `sql` feature passes the statement, unparsed, to the one listed source, and answers only
 where the deployment has one source. The row cap of a certified answer applies, and every call writes an audit record.
 The page of the data system says what bounds a statement: [Postgres](integrations/data-systems/postgres.md),
-[DuckDB](integrations/data-systems/duckdb.md).
+[DuckDB](integrations/data-systems/duckdb.md), [Oracle](integrations/data-systems/oracle.md#raw-sql).
 
 `tools.run_sql.federation_allowed` is `false` by default. A build without the `sql` feature refuses to start with `true`,
 or with more than one listed source, because it links no SQL parser. A build with it plans every statement, with the switch
@@ -219,7 +219,8 @@ there. Planning and that local part stop at the request's deadline. What this do
   cap, whatever their width - and are not charged to the memory pool.
 - A scalar function over constants, such as `repeat`, is folded while the statement is planned. Neither the deadline nor
   the working set stops it, so a large enough value can abort the process rather than be refused. So can an expression
-  nested deeply enough to exhaust the planner's stack. The shipped build has no `sql` feature.
+  nested deeply enough to exhaust the planner's stack. The default image has no `sql` feature;
+  the explicitly named `:<version>-sql` image does. Enabling the tool requires accepting these planner limits.
 - A certified answer that combines legs shares one runtime with the local part, and may wait while it runs.
 
 ## Endpoints

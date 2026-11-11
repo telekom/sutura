@@ -48,10 +48,10 @@
 //!   [`OracleError::RedirectRefused`]: the driver is told not to follow one, so the connection
 //!   stays on the address the source declared. A clustered listener that redirects every client is
 //!   therefore refused too; declare the address that answers.
-//! - **One [`parking_lot::Mutex`] serializes every call**, and for good reason:
-//!   `Connection`'s own methods
-//!   take `&self`, so the port's shared reference alone does not prove the driver tolerates two
-//!   overlapping calls - and nothing here measured that it does.
+//! - **One [`parking_lot::Mutex`] serializes the boot and token-session paths.** The driver's
+//!   `&self` methods do not prove overlapping calls on one session work; none are measured here.
+//!   Raw calls own separate sessions and do not take that lock: their cleanup cannot block the
+//!   certified session, but this adapter does not cap the number of concurrent raw sessions.
 //! - **The session lifecycle, and the bound on sessions.** A question at an impersonating source
 //!   opens its session under that lock, runs on it, and closes it before the lock is released, so a
 //!   source holds at most one asker's session at a time beside its boot connection, and no session
@@ -78,6 +78,7 @@ use crate::datetime::oracle_date;
 
 mod batches;
 mod datetime;
+mod raw;
 /// A lookup leg read in partitions, each at one snapshot - `github.com/telekom/sutura#828`.
 mod split;
 
@@ -203,6 +204,8 @@ pub enum OracleError {
     /// [`refuse_if_spent`] for why this is checked rather than forwarded.
     #[error("the deadline was already spent before the call reached the connection")]
     DeadlineSpent,
+    #[error("this source accepts one SELECT or WITH query without statement delimiters")]
+    RawNotQuery,
     /// [`Connection::set_call_timeout`](oracledb::Connection::set_call_timeout) itself refused the value.
     #[error("the call timeout could not be set on the connection")]
     CallTimeout {
@@ -289,7 +292,9 @@ pub struct OracleWarehouse {
     result_budget: sutura_domain::warehouse::ResultBudget,
     /// The boot connection, under the declared user. A question runs on it only at a shared source.
     connection: oracledb::Connection,
-    /// Serializes every call - see the module header for why.
+    /// The shared identity's config; raw calls open and discard their own session.
+    raw_config: Option<oracledb::Config>,
+    /// Serializes the boot and token-session paths - see the module header for why.
     execution_lock: Mutex<()>,
     /// Whether this source's lookup legs split by flashback query: set only by
     /// [`Self::with_flashback`], after its probe passed.
@@ -430,8 +435,10 @@ impl OracleWarehouse {
         result_budget: sutura_domain::warehouse::ResultBudget,
     ) -> Result<Self, OracleError> {
         let dialled = TokenSessions::new(dial)?;
+        let config = dialled.0.clone().set_credentials(user, password);
         #[expect(clippy::disallowed_methods, reason = "`TokenSessions::new` asked the packet-trace refusal")]
-        let connection = oracledb::connect(dialled.0.clone().set_credentials(user, password)).map_err(connect_err)?;
+        let connection = oracledb::connect(config.clone()).map_err(connect_err)?;
+        let raw_config = matches!(posture, sutura_domain::source::SourcePosture::SharedServiceUser { .. }).then_some(config);
         let per_caller = matches!(posture, sutura_domain::source::SourcePosture::ImpersonationAtSource).then_some(dialled);
         Ok(Self {
             routing: Routing {
@@ -441,6 +448,7 @@ impl OracleWarehouse {
             },
             result_budget,
             connection,
+            raw_config,
             execution_lock: Mutex::new(()),
             flashback: false,
         })
@@ -701,11 +709,8 @@ impl DriverError {
     }
 }
 
-/// A bound parameter, kept owned so the borrows it turns into can outlive the query call.
-///
-/// `oracledb::ToDbValue`'s supertrait `ToBuf` lives in a private module of that crate, so no type
-/// outside it may IMPLEMENT `ToDbValue` - measured by trying it and reading `E0277`. This enum
-/// borrows the driver's OWN implementations (`String`, `OracleTimestamp`) instead of adding a third.
+/// Owned parameters borrow the driver's implementations: `ToDbValue` has a private supertrait,
+/// so external implementations are impossible (`E0277` was measured).
 enum OracleParam {
     Text(String),
     Date(oracledb::OracleTimestamp),
@@ -773,25 +778,31 @@ pub(crate) fn refuse_if_spent(deadline: Deadline) -> Result<std::time::Duration,
 impl Warehouse for OracleWarehouse {
     type Error = OracleError;
 
-    /// **A subject's own token arrives here**, at an `impersonation-at-source` source: each
-    /// question opens its own session with it (`#923`).
+    /// The built token-session path; raw SQL remains restricted to shared-service-user.
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::PerSubjectCredential;
 
-    /// A [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` at
-    /// [`Dialect::Oracle`] and is handed to [`Self::execute`] as any other statement.
-    ///
-    /// **Executed in the `oracle-tier` CI job alone, and nowhere a `just validate` leg reaches.** No
-    /// gate can provision an Oracle (this module's header and
-    /// `xtask/src/conformance/reconcile.rs`'s `UNBOUND` entry say why), so this crate has no
-    /// conformance binding; the golden matrix's `oracle` cells run where `SUTURA_ORACLE_TIER` names
-    /// the compose profile, and `crates/sutura-app/tests/differential/federated/two_fact.rs` runs a
-    /// leg there. Elsewhere the wiring is held by this module's own
-    /// `a_leg_renders_through_the_oracle_dialect` cell and `crates/sutura-app/tests/golden/legs.rs`'s
-    /// Oracle statements, both renderings.
-    ///
-    /// A leg is answered on the session its presented credential selects, as any other statement.
+    /// Legs render at [`Dialect::Oracle`] and execute on the selected session.
+    /// Live evidence belongs to `oracle-tier`'s two-fact differential, never `just validate`;
+    /// the offline golden and this module's leg cell establish rendering only.
     const EXECUTES_LEGS: bool = true;
+
+    const ACCEPTS_RAW_STATEMENTS: bool = true;
+
+    fn accepts_raw_statements(&self) -> bool {
+        self.raw_config.is_some()
+    }
+
+    fn execute_raw(
+        &self,
+        statement: &sutura_domain::raw::RawStatement,
+        presented: &Presented,
+        deadline: Deadline,
+    ) -> sutura_domain::warehouse::RawExecution<Self::Error> {
+        self.raw_config
+            .as_ref()
+            .map(|config| raw::run(self, config, statement, presented, deadline))
+    }
 
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.routing.source
@@ -801,15 +812,8 @@ impl Warehouse for OracleWarehouse {
         &self.routing.posture
     }
 
-    /// **Takes the trait's own default** (`Ok(PreFlight::NotAsked)`) rather than an override.
-    ///
-    /// The pinned `oracledb` does have a parse-only round trip, `Statement::ensure_fully_parsed`,
-    /// and this adapter does not call it: adopting it is a separate change, not made here. Its own
-    /// doc says a DDL statement is executed by it, and whether it reads data for every statement
-    /// this adapter sends is unmeasured. Overriding `dry_run` with `execute`/`query`, which RUN the
-    /// statement, would break the port's contract - "an adapter that overrides it must not read
-    /// data" - so until that is measured the trait's own escape hatch for "checking is not cheaper
-    /// than running here" is the honest answer.
+    /// Certified preflight retains the trait's `NotAsked` default. The raw path's separate
+    /// parse/describe is gated to driver-classified queries: the driver executes DDL on parse.
     fn execute(
         &self,
         executable: Executable<'_>,
@@ -846,16 +850,13 @@ impl Warehouse for OracleWarehouse {
             || matches!(*error, OracleError::Execute { ref cause } if cause.is_call_timeout())
     }
 
-    /// `ORA-01031: insufficient privileges` - the server refusing an identity at the permission
-    /// level, the same class `sutura_exec_postgres::adbc::AdbcPostgres::source_refused` reads off `42501`.
+    /// Admission, insufficient privileges, or an operation refused in a read-only transaction.
     fn source_refused(&self, error: &Self::Error) -> bool {
-        matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031))
+        matches!(*error, OracleError::RawNotQuery)
+            || matches!(*error, OracleError::Execute { ref cause } if cause.has_ora_code(1031) || cause.has_ora_code(1456))
     }
 
-    /// Answers for the MATERIALISATION BUDGET alone: `batches::read` charges each batch against this
-    /// adapter's own budget, so a result refused for crossing it is exactly *the result did not
-    /// fit* - a governance outcome the caller cannot retry past, reached as a refusal rather than
-    /// the `503` a data-system failure would mean. Every other failure shape stays `false`.
+    /// The materialisation budget is a result refusal; other failures retain their own mapping.
     fn result_did_not_fit(&self, error: &Self::Error) -> bool {
         matches!(*error, OracleError::OverBudget { .. })
     }

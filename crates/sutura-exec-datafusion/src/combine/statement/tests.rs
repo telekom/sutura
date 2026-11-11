@@ -22,6 +22,8 @@ use tokio::runtime::Runtime;
 
 use crate::combine::DataFusionCombiner;
 
+mod oracle;
+
 const AREAS: &str = "select r.sales_area, count(*) as customers from dim_customer c join dim_region r on c.region = r.region \
                      group by r.sales_area order by r.sales_area";
 

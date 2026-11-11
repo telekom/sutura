@@ -258,3 +258,6 @@ fn oracle_native_logins_require_both_strong_services_on_both_production_paths() 
         }
     }
 }
+
+#[path = "oracle_raw.rs"]
+mod raw;

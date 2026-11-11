@@ -128,9 +128,13 @@ fn run_sql_writes_one_record_per_outcome_carrying_the_statement_text() {
     impl AuditSink for RecordingSink {
         fn record(&self, record: &CallRecord<'_>) {
             let statement = record.statement().map(|text| text.as_str().to_owned());
+            let executed_as = record.executed_as().map(|ran| {
+                ran.legs().map(|(source, posture)| format!("{source}={}", posture.as_str())).collect::<Vec<_>>()
+            });
             let line = match *record.outcome() {
-                RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows} statement={statement:?}"),
+                RecordedOutcome::RawAnswered { rows, .. } => format!("raw_answered rows={rows} statement={statement:?} executed_as={executed_as:?}"),
                 RecordedOutcome::RawRefused { reason, .. } => {
+                    assert!(executed_as.is_none(), "a refused call carries no success witness");
                     format!("raw_refused reason={reason:?} statement={statement:?}")
                 }
                 RecordedOutcome::Answered { .. } | RecordedOutcome::Refused { .. } => String::from("certified"),
@@ -177,6 +181,7 @@ fn run_sql_writes_one_record_per_outcome_carrying_the_statement_text() {
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert!(lines[0].starts_with("raw_answered"), "{lines:?}");
     assert!(lines[0].contains("select 1"), "{lines:?}");
+    assert!(lines[0].contains("local=shared-service-user"), "{lines:?}");
     assert!(lines[1].starts_with("raw_refused"), "{lines:?}");
     assert!(lines[1].contains("refuse me"), "{lines:?}");
 }

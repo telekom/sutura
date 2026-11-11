@@ -20,10 +20,10 @@
 #
 # | Kind | Where |
 # | --- | --- |
-# | four tarballs per binary, their `.sha256`, each binary's two musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
+# | four tarballs per binary, their `.sha256`, each variant's two musl image tarballs, the SBOMs, `image-digests.txt` | the `v<version>-performance` prerelease |
 # | a Sigstore bundle per asset, SLSA provenance over all of them | the same prerelease |
-# | four leaves per binary, `<version>-performance-<triple>` and `<version>-performance-operator-<triple>` | the registry, signed, each with its SBOM attested |
-# | lists `<version>-performance` (glibc) and `<version>-performance-musl`, and `<version>-performance-operator` and `-operator-musl` | the registry, signed, with provenance |
+# | four leaves per variant, `<version>-performance-<triple>`, `<version>-performance-operator-<triple>` and `<version>-performance-sql-<triple>` | the registry, signed, each with its SBOM attested |
+# | lists `<version>-performance` (glibc) and `<version>-performance-musl`, and `<version>-performance-operator` and `-operator-musl`, and `<version>-performance-sql` and `-sql-musl` | the registry, signed, with provenance |
 #
 # A SEPARATE RELEASE, because the normal one cannot take them: this repository has GitHub's
 # immutable releases enabled, so `v<version>`'s assets froze when it was published and an upload
@@ -298,6 +298,17 @@ jobs:
                   missing=1
                 fi
               done
+            done
+            key="sql-${target}-performance"
+            files="images/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.cdx.json dist/sutura-oci-${key}.spdx.json"
+            case "$target" in
+              *-musl) files="${files} dist/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.tar.gz.sha256" ;;
+            esac
+            for f in $files; do
+              if [ ! -s "$f" ]; then
+                echo "::error::${key}: ${f} is missing or empty"
+                missing=1
+              fi
             done
           done
           [ "$missing" -eq 0 ] || exit 1

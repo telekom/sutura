@@ -27,14 +27,14 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let [checksums, images, output, bundles @ ..] = args else {
         return Verdict::Usage;
     };
-    // The assets, then a glibc and a musl list for each of `sutura` and `sutura-operator`.
-    if bundles.len() != 5 {
-        eprintln!("collect-provenance: expected five bundle paths");
+    // The assets, then a glibc and a musl list for each image variant.
+    if bundles.len() != 7 {
+        eprintln!("collect-provenance: expected seven bundle paths");
         return Verdict::Usage;
     }
     match collect(Path::new(checksums), Path::new(images), Path::new(output), bundles) {
         Ok(subjects) => {
-            println!("collect-provenance: wrote five bundles covering {subjects} unique subjects");
+            println!("collect-provenance: wrote seven bundles covering {subjects} unique subjects");
             Verdict::Pass
         }
         Err(cause) => {
@@ -142,7 +142,7 @@ fn asset_subjects(text: &str) -> Result<Subjects, String> {
 /// `image-digests.txt` carries the header, and the producer prints `$IMAGE@sha256:...`. The
 /// header is part of the format, not a malformed record, and every other reader of the file
 /// already anchors on `list`/`leaf` and skips it. Skipping one hides no record: a commented-out
-/// list is a missing list, which the count below refuses.
+/// list is a missing list, which the required names below refuse.
 ///
 /// The name derivation must AGREE with what the attestation recorded as `subject-name`, because
 /// the caller compares the two sets exactly. Where they could disagree - an untagged reference on
@@ -185,8 +185,8 @@ fn image_subjects(text: &str) -> Result<Subjects, String> {
             return Err(String::from("invalid or duplicate image subject"));
         }
     }
-    if subjects.len() != 4 {
-        return Err(String::from("expected four unique image-list subjects"));
+    if variants != BTreeSet::from(["glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"]) {
+        return Err(String::from("expected the six required image-list names"));
     }
     Ok(subjects)
 }
@@ -351,7 +351,7 @@ mod tests {
     fn fixture(stem: &str) -> Fixture {
         let tree = crate::scratch_tree::Tree::of(&format!("provenance-{stem}"), &[]);
         let root = tree.root().to_path_buf();
-        let hashes: Vec<_> = (0..6).map(|n| format!("{n:064x}")).collect();
+        let hashes: Vec<_> = (0..8).map(|n| format!("{n:064x}")).collect();
         let assets = bundled(&json!([
             {"name": "runtime.tar.gz", "digest": {"sha256": hashes[0]}},
             {"name": "runtime.tar.gz.sha256", "digest": {"sha256": hashes[1]}}
@@ -364,7 +364,7 @@ mod tests {
              # list = multi-arch manifest list; pin this unless you want one architecture\n\
              # leaf = single-arch image, named by its binary key and rust target triple\n",
         );
-        let lists = ["glibc", "musl", "operator-glibc", "operator-musl"];
+        let lists = ["glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"];
         for (variant, digest) in lists.iter().zip(hashes.iter().skip(2)) {
             writeln!(images, "list {variant} registry.example.com/test/runtime@sha256:{digest}").expect("write to a String");
             bundles.push(bundled(&json!([{
@@ -581,7 +581,7 @@ mod tests {
         for (case, verdict, exists) in observed {
             assert_eq!((verdict, exists), (Verdict::Fail, false), "{case}");
         }
-        assert_eq!((clean, count), (Verdict::Pass, 5));
+        assert_eq!((clean, count), (Verdict::Pass, 7));
     }
 
     /// The four reference shapes the name derivation has to tell apart. The UNTAGGED row is what
@@ -603,7 +603,7 @@ mod tests {
         ] {
             use std::fmt::Write as _;
             let mut text = String::new();
-            for (n, variant) in ["glibc", "musl", "operator-glibc", "operator-musl"].iter().enumerate() {
+            for (n, variant) in ["glibc", "musl", "operator-glibc", "operator-musl", "sql-glibc", "sql-musl"].iter().enumerate() {
                 writeln!(text, "list {variant} {reference}@sha256:{n:064x}").expect("write to String");
             }
             let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{reference}: {cause}"));
@@ -622,8 +622,10 @@ mod tests {
              list musl registry.example.com/test/runtime@sha256:{:064x}\n\
              list operator-glibc registry.example.com/test/runtime@sha256:{:064x}\n\
              list operator-musl registry.example.com/test/runtime@sha256:{:064x}\n\
+             list sql-glibc registry.example.com/test/runtime@sha256:{:064x}\n\
+             list sql-musl registry.example.com/test/runtime@sha256:{:064x}\n\
              chart sutura registry.example.com/test/charts/sutura@sha256:{:064x}\n",
-            0, 1, 2, 3, 4
+            0, 1, 2, 3, 4, 5, 6
         );
         let subjects = super::image_subjects(&text).unwrap_or_else(|cause| panic!("{cause}"));
         let names: std::collections::BTreeSet<_> = subjects.iter().map(|(name, _)| name.as_str()).collect();

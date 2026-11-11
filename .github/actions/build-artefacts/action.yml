@@ -147,7 +147,7 @@ runs:
         set -eu
         test -n "$BINARIES" || { echo "::error::BINARIES is empty: this step would build no image"; exit 1; }
         mkdir -p dist images
-        for bin in $BINARIES; do
+        for bin in $BINARIES sutura-sql; do
           if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           nix build ".#oci-${key}" -L -o result-oci
           # Written to a file once and loaded from it, rather than streamed twice: the stream
@@ -181,11 +181,11 @@ runs:
               # The operator's `run` needs a cluster and its `crd` its settings, so `--version` is
               # all it can show here: the image starts its binary, as root and as non-root.
               case "$bin" in
-                sutura)
-                  docker run --rm sutura:latest --version
-                  docker run --rm sutura:latest doctor
+                sutura|sutura-sql)
+                  docker run --rm "${bin}:latest" --version
+                  docker run --rm "${bin}:latest" doctor
                   # Prove the non-root default actually works rather than assuming it.
-                  docker run --rm --user 65532:65532 sutura:latest --version
+                  docker run --rm --user 65532:65532 "${bin}:latest" --version
                   ./.github/serve-smoke.sh "${bin}:latest"
                   ;;
                 sutura-operator)
@@ -214,7 +214,7 @@ runs:
         # take one code path there, and the checksum describes the exact bytes of the asset.
         case "$TARGET" in
           *-musl)
-            for bin in $BINARIES; do
+            for bin in $BINARIES sutura-sql; do
               if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
               cp "images/sutura-oci-${key}.tar.gz" "dist/sutura-oci-${key}.tar.gz"
               ( cd dist && sha256sum "sutura-oci-${key}.tar.gz" > "sutura-oci-${key}.tar.gz.sha256" )
@@ -273,7 +273,7 @@ runs:
         # ONE SBOM PER SHIPPED IMAGE, so the loop is over `BINARIES` as well as over the
         # target: each binary links its own crates, so a single document could never be true of
         # both.
-        for bin in $BINARIES; do
+        for bin in $BINARIES sutura-sql; do
           if [ "$bin" = sutura ]; then key="$TARGET$SUFFIX"; else key="${bin#sutura-}-${TARGET}$SUFFIX"; fi
           gzip -dc "images/sutura-oci-${key}.tar.gz" > sbom-input.tar
           nix run .#syft -- scan "docker-archive:sbom-input.tar" \
@@ -324,13 +324,23 @@ runs:
             # and `k8s-openapi` holds every type the operator reads, so its absence means the
             # section describes something other than this binary.
             case "$bin" in
-              sutura) crate=datafusion ;;
+              sutura|sutura-sql) crate=datafusion ;;
               sutura-operator) crate=k8s-openapi ;;
               *) echo "::error::${bin} names no crate its SBOM must carry"; exit 1 ;;
             esac
             if ! grep -q "\"${crate}\"" "$sbom"; then
               echo "::error::${sbom} does not name ${crate}, which ${bin} links: this is not an inventory of the crates it was built from"
               exit 1
+            fi
+            if [ "$bin" = sutura ] || [ "$bin" = sutura-sql ]; then
+              for sql_crate in sqlparser datafusion-sql; do
+                if grep -q "\"${sql_crate}\"" "$sbom"; then sql_present=yes; else sql_present=no; fi
+                if { [ "$bin" = sutura-sql ] && [ "$sql_present" != yes ]; } ||
+                   { [ "$bin" = sutura ] && [ "$sql_present" != no ]; }; then
+                  echo "::error::${bin}: unexpected ${sql_crate} presence (${sql_present}) in ${sbom}"
+                  exit 1
+                fi
+              done
             fi
             printf '%s: %s named entries\n' "$sbom" "$named"
           done
