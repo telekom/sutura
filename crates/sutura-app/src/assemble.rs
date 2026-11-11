@@ -199,10 +199,16 @@ pub fn assemble(bundles: &[PinnedDefinitions]) -> Result<PinnedDefinitions, Comp
 
 /// Links an explicit set of unlinked declarations beside independently pinned contributors.
 /// Ownership and declaration fidelity are checked before cross-contributor references resolve.
-pub fn assemble_linked(bundles: &[PinnedDefinitions], unlinked: &[UnlinkedContribution]) -> Result<PinnedDefinitions, CompositionError> {
-    let version = bundles.first().map(PinnedDefinitions::version)
+pub fn assemble_linked(
+    bundles: &[PinnedDefinitions],
+    unlinked: &[UnlinkedContribution],
+) -> Result<PinnedDefinitions, CompositionError> {
+    let version = bundles
+        .first()
+        .map(PinnedDefinitions::version)
         .or_else(|| unlinked.first().map(UnlinkedContribution::version))
-        .ok_or(CompositionError::Empty)?.clone();
+        .ok_or(CompositionError::Empty)?
+        .clone();
     let mut contributions = Vec::with_capacity(bundles.len());
 
     for bundle in bundles {
@@ -232,7 +238,10 @@ pub fn assemble_linked(bundles: &[PinnedDefinitions], unlinked: &[UnlinkedContri
 
     for input in unlinked {
         if input.version() != &version {
-            return Err(CompositionError::VersionMismatch { first: version, second: input.version().clone() });
+            return Err(CompositionError::VersionMismatch {
+                first: version,
+                second: input.version().clone(),
+            });
         }
         contributions.push(Contributor {
             name: input.name().clone(),
@@ -272,18 +281,12 @@ pub fn assemble_linked(bundles: &[PinnedDefinitions], unlinked: &[UnlinkedContri
     // merged `Vec` a composed bundle owns, not re-reading a `Vec` that already existed. Each source
     // map is borrowed straight off `contribution.definitions`/`.knowledge` - no intermediate `Vec`
     // holds a second copy of it first.
-    let models = contributions
-        .iter()
-        .flat_map(|c| c.content.models().cloned())
-        .collect();
+    let models = contributions.iter().flat_map(|c| c.content.models().cloned()).collect();
     let relationships = contributions
         .iter()
         .flat_map(|c| c.content.relationships().cloned())
         .collect();
-    let metrics = contributions
-        .iter()
-        .flat_map(|c| c.content.metrics().cloned())
-        .collect();
+    let metrics = contributions.iter().flat_map(|c| c.content.metrics().cloned()).collect();
     let definitions =
         Definitions::assemble(models, relationships, metrics).map_err(|cause| CompositionError::Definitions { cause })?;
 
@@ -291,22 +294,10 @@ pub fn assemble_linked(bundles: &[PinnedDefinitions], unlinked: &[UnlinkedContri
         &definitions,
         KnowledgeInput::new(
             knowledge_declares,
-            contributions
-                .iter()
-                .flat_map(|c| c.content.glossary().cloned())
-                .collect(),
-            contributions
-                .iter()
-                .flat_map(|c| c.content.caveats().cloned())
-                .collect(),
-            contributions
-                .iter()
-                .flat_map(|c| c.content.absences().cloned())
-                .collect(),
-            contributions
-                .iter()
-                .flat_map(|c| c.content.examples().cloned())
-                .collect(),
+            contributions.iter().flat_map(|c| c.content.glossary().cloned()).collect(),
+            contributions.iter().flat_map(|c| c.content.caveats().cloned()).collect(),
+            contributions.iter().flat_map(|c| c.content.absences().cloned()).collect(),
+            contributions.iter().flat_map(|c| c.content.examples().cloned()).collect(),
         ),
     )
     .map_err(|cause| CompositionError::Knowledge { cause })?;

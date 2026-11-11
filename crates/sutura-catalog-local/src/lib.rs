@@ -341,7 +341,10 @@ impl LocalCatalog {
     /// layout part of the format, and the layout is the one thing about this adapter that another
     /// adapter - a metadata service with no directories at all - cannot reuse.
     fn collect(&self, require_structure: bool) -> Result<Collected, LocalCatalogError> {
-        let mut collected = Collected { require_structure, ..Collected::default() };
+        let mut collected = Collected {
+            require_structure,
+            ..Collected::default()
+        };
         let mut total_bytes: u64 = 0;
 
         for path in self.documents()? {
@@ -408,9 +411,19 @@ impl LocalCatalog {
         let collected = self.collect(false)?;
         let declared = collected.declared.unwrap_or_else(<Self as SemanticCatalog>::capabilities);
         Ok(UnlinkedContribution::new(
-            self.name.clone(), self.version.clone(), declared.clone(),
-            collected.models, collected.relationships, collected.metrics,
-            KnowledgeInput::new(declared.knowledge().clone(), collected.glossary, collected.caveats, collected.absences, collected.examples),
+            self.name.clone(),
+            self.version.clone(),
+            declared.clone(),
+            collected.models,
+            collected.relationships,
+            collected.metrics,
+            KnowledgeInput::new(
+                declared.knowledge().clone(),
+                collected.glossary,
+                collected.caveats,
+                collected.absences,
+                collected.examples,
+            ),
         ))
     }
 
@@ -512,7 +525,9 @@ impl Collected {
                 let doc: DeclarationDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
                 let declared = doc.into_domain();
                 let definitions = declared.definitions();
-                if self.require_structure && (!definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure)) {
+                if self.require_structure
+                    && (!definitions.declares(DefinitionKind::Structure) || definitions.is_conditional(DefinitionKind::Structure))
+                {
                     return Err(LocalCatalogError::DeclarationWithoutStructure {
                         path: PathBuf::from(path),
                     });

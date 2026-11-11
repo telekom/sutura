@@ -489,9 +489,17 @@ impl MetadataCapabilities {
     }
 
     /// Observes declarations before cross-contributor references are linked.
-    pub fn produced_input(models: &[Model], relationships: &[Relationship], metrics: &[Metric], knowledge: &KnowledgeInput) -> Self {
+    pub fn produced_input(
+        models: &[Model],
+        relationships: &[Relationship],
+        metrics: &[Metric],
+        knowledge: &KnowledgeInput,
+    ) -> Self {
         Self::of(
-            DefinitionCapabilities::of(DefinitionKind::every().filter(|kind| carried_by(models.iter(), !relationships.is_empty(), metrics.iter(), *kind))),
+            DefinitionCapabilities::of(
+                DefinitionKind::every()
+                    .filter(|kind| carried_by(models.iter(), !relationships.is_empty(), metrics.iter(), *kind)),
+            ),
             KnowledgeCapabilities::of(Capability::every().filter(|kind| knowledge.supplied(*kind) != 0)),
         )
     }
@@ -554,29 +562,42 @@ impl MetadataCapabilities {
 /// nothing observes - which would make [`MetadataCapabilities::checked_against`] silently blind to
 /// it in both directions.
 fn carried(definitions: &Definitions, kind: DefinitionKind) -> bool {
-    carried_by(definitions.models().values(), !definitions.relationships().is_empty(), definitions.metrics().values(), kind)
+    carried_by(
+        definitions.models().values(),
+        !definitions.relationships().is_empty(),
+        definitions.metrics().values(),
+        kind,
+    )
 }
 
 fn carried_by<'a>(
-    models: impl Iterator<Item = &'a Model> + Clone,
+    mut models: impl Iterator<Item = &'a Model>,
     relationships: bool,
-    metrics: impl Iterator<Item = &'a Metric> + Clone,
+    mut metrics: impl Iterator<Item = &'a Metric> + Clone,
     kind: DefinitionKind,
 ) -> bool {
     match kind {
-        DefinitionKind::Structure => models.clone().next().is_some(),
-        DefinitionKind::Descriptions => models.clone().any(|model| !model.description().is_empty())
-            || metrics.clone().any(|metric| !metric.description().is_empty())
-            || metrics.clone().flat_map(|metric| metric.dimensions().values()).any(|dimension| !dimension.description().is_empty()),
+        DefinitionKind::Structure => models.next().is_some(),
+        DefinitionKind::Descriptions => {
+            models.any(|model| !model.description().is_empty())
+                || metrics.clone().any(|metric| !metric.description().is_empty())
+                || metrics
+                    .flat_map(|metric| metric.dimensions().values())
+                    .any(|dimension| !dimension.description().is_empty())
+        }
         DefinitionKind::Relationships => relationships,
-        DefinitionKind::Cardinality => metrics.clone().flat_map(|metric| metric.dimensions().values()).any(|dimension| dimension.via().is_some()),
-        DefinitionKind::Metrics => metrics.clone().next().is_some(),
-        DefinitionKind::RequiredFilters => metrics.clone().any(|metric| !metric.required_filters().is_empty()),
-        DefinitionKind::Grains => metrics.clone().any(|metric| !metric.grains().is_empty()),
-        DefinitionKind::AllowedValues => metrics.clone().flat_map(|metric| metric.dimensions().values()).any(|dimension| dimension.allowed_values().is_some()),
-        DefinitionKind::Anchors => metrics.clone().any(|metric| metric.anchor().is_some()),
-        DefinitionKind::ColumnTypes => models.clone().flat_map(Model::columns).any(|column| column.data_type().is_some()),
-        DefinitionKind::ColumnDescriptions => models.clone().flat_map(Model::columns).any(|column| !column.description().is_empty()),
+        DefinitionKind::Cardinality => metrics
+            .flat_map(|metric| metric.dimensions().values())
+            .any(|dimension| dimension.via().is_some()),
+        DefinitionKind::Metrics => metrics.next().is_some(),
+        DefinitionKind::RequiredFilters => metrics.any(|metric| !metric.required_filters().is_empty()),
+        DefinitionKind::Grains => metrics.any(|metric| !metric.grains().is_empty()),
+        DefinitionKind::AllowedValues => metrics
+            .flat_map(|metric| metric.dimensions().values())
+            .any(|dimension| dimension.allowed_values().is_some()),
+        DefinitionKind::Anchors => metrics.any(|metric| metric.anchor().is_some()),
+        DefinitionKind::ColumnTypes => models.flat_map(Model::columns).any(|column| column.data_type().is_some()),
+        DefinitionKind::ColumnDescriptions => models.flat_map(Model::columns).any(|column| !column.description().is_empty()),
     }
 }
 

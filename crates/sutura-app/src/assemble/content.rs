@@ -36,7 +36,9 @@ impl Content<'_> {
 
     pub(super) fn relationships(&self) -> impl Iterator<Item = &Relationship> {
         match self {
-            Self::Pinned(bundle) => Elements::<RelationshipName, Relationship>::Map(bundle.definitions().relationships().values()),
+            Self::Pinned(bundle) => {
+                Elements::<RelationshipName, Relationship>::Map(bundle.definitions().relationships().values())
+            }
             Self::Unlinked(input) => Elements::Slice(input.relationships().iter()),
         }
     }
@@ -76,7 +78,7 @@ impl Content<'_> {
         }
     }
 
-    pub(super) fn declares(&self) -> &KnowledgeCapabilities {
+    pub(super) const fn declares(&self) -> &KnowledgeCapabilities {
         match self {
             Self::Pinned(bundle) => bundle.knowledge().declares(),
             Self::Unlinked(input) => input.knowledge().declares(),

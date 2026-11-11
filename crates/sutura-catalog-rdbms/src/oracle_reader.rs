@@ -52,7 +52,7 @@ use std::num::NonZeroU64;
 use sutura_domain::identity::Secret;
 use sutura_oracle_connect::{Channel, Dial, PrepareError, PreparedDial};
 
-use crate::documentation::{Assembly, DOCUMENTATION_VIEW, Row as DocumentationRow, checked_bounds, default_bounds, ReadQuery};
+use crate::documentation::{Assembly, DOCUMENTATION_VIEW, ReadQuery, Row as DocumentationRow, checked_bounds, default_bounds};
 use crate::postgres_reader::{InvalidReaderConfig, RowPredicate};
 use crate::{Dictionary, DictionaryBounds, DictionaryReader, RdbmsError};
 
@@ -150,11 +150,24 @@ impl OracleReader {
         byte_cap: Option<NonZeroU64>,
     ) -> Result<Self, InvalidReaderConfig> {
         let bounds = checked_bounds(documentation_schema, &predicate, row_cap, byte_cap)?;
-        Self::open(login, ReadQuery::View { schema: documentation_schema.to_owned(), environment, predicate }, bounds)
+        Self::open(
+            login,
+            ReadQuery::View {
+                schema: documentation_schema.to_owned(),
+                environment,
+                predicate,
+            },
+            bounds,
+        )
     }
 
     /// Opens visible native metadata, preserving the existing transport and dial refusals.
-    pub fn native(login: EncryptedOracleLogin, selection: &sutura_domain::catalog::DictionarySelection, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig> {
+    pub fn native(
+        login: EncryptedOracleLogin,
+        selection: &sutura_domain::catalog::DictionarySelection,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
         Self::open(login, ReadQuery::native(selection), default_bounds(row_cap, byte_cap)?)
     }
 
@@ -225,14 +238,17 @@ impl DictionaryReader for OracleReader {
         connection.execute("SET TRANSACTION READ ONLY", &[]).map_err(read_err)?;
         let binds = self.binds();
         let params: Vec<&dyn oracledb::ToDbValue> = binds.iter().map(|value| value as &dyn oracledb::ToDbValue).collect();
-        let rows = connection.query(&self.query.oracle_statement(self.bounds), &params).map_err(read_err)?;
+        let rows = connection
+            .query(&self.query.oracle_statement(self.bounds), &params)
+            .map_err(read_err)?;
         let dictionary = assemble(
             self.query.environment(),
             self.bounds,
             rows.map(|row| decode_row(&row.map_err(read_err)?)),
         )?;
         connection.rollback().map_err(read_err)?;
-        self.query.finish(dictionary, sutura_domain::warehouse::TypeDialect::Oracle)
+        self.query
+            .finish(dictionary, sutura_domain::warehouse::schema::TypeDialect::Oracle)
     }
 }
 

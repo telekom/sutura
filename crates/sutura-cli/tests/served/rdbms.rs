@@ -156,13 +156,15 @@ mod tests {
     }
     #[cfg(feature = "sql")]
     mod native {
+        use super::{DataDir, settings};
+        use crate::harness::{
+            DiscoveredTier, Reply, Served, TOKEN, discover_tier, refused_to_start, start_configured, v1, written,
+        };
         use std::time::{Duration, Instant};
+        use sutura_config::Environment;
         use sutura_domain::model::SourceName;
         use sutura_exec_postgres::adbc::{Channel, FixtureAdmin, PostgresDriver};
         use sutura_exec_postgres::fixture::FixtureCredential;
-        use crate::harness::{DiscoveredTier, Reply, Served, TOKEN, discover_tier, refused_to_start, start_configured, v1, written};
-        use sutura_config::Environment;
-        use super::{DataDir, settings};
 
         struct Native {
             data: DataDir,
@@ -174,14 +176,25 @@ mod tests {
             fn new(case: &str, tier: &DiscoveredTier) -> Self {
                 let schema = format!("native_{}_{}", case.replace('-', "_"), std::process::id());
                 let source = SourceName::parse("fixture").unwrap();
-                let conninfo = FixtureCredential::from_env().unwrap().conninfo(&source, &tier.host, tier.port, Channel::Plaintext).unwrap();
+                let conninfo = FixtureCredential::from_env()
+                    .unwrap()
+                    .conninfo(&source, &tier.host, tier.port, Channel::Plaintext)
+                    .unwrap();
                 let driver = PostgresDriver::from_host().unwrap();
                 let mut admin = FixtureAdmin::open(&driver, &conninfo).unwrap();
-                admin.run(&format!("CREATE SCHEMA {schema}; CREATE TABLE {schema}.events (id bigint, month date, secret text); \
+                admin
+                    .run(&format!(
+                        "CREATE SCHEMA {schema}; CREATE TABLE {schema}.events (id bigint, month date, secret text); \
                     INSERT INTO {schema}.events VALUES (7, DATE '2026-06-01', 'private value'); \
                     COMMENT ON TABLE {schema}.events IS 'Metadata; ''quotes'' stay descriptive.'; \
-                    COMMENT ON COLUMN {schema}.events.id IS 'The event key.'")).unwrap();
-                Self { data: DataDir::prepared(case), schema, admin }
+                    COMMENT ON COLUMN {schema}.events.id IS 'The event key.'"
+                    ))
+                    .unwrap();
+                Self {
+                    data: DataDir::prepared(case),
+                    schema,
+                    admin,
+                }
             }
 
             fn settings(&self, tier: &DiscoveredTier, extra: &str) -> String {
@@ -195,14 +208,26 @@ mod tests {
             fn compose(&self, base: &str, column: Option<&str>) -> String {
                 let dir = self.data.0.join("catalog");
                 std::fs::create_dir_all(&dir).unwrap();
-                let definitions = if column.is_some() { "structure, metrics, grains, descriptions, column_types" } else { "metrics, grains, descriptions" };
-                std::fs::write(dir.join("declaration.md"), format!("---\nkind: declaration\ndefinitions: [{definitions}]\nknowledge: []\n---\n")).unwrap();
+                let definitions = if column.is_some() {
+                    "structure, metrics, grains, descriptions, column_types"
+                } else {
+                    "metrics, grains, descriptions"
+                };
+                std::fs::write(
+                    dir.join("declaration.md"),
+                    format!("---\nkind: declaration\ndefinitions: [{definitions}]\nknowledge: []\n---\n"),
+                )
+                .unwrap();
                 std::fs::write(dir.join("metric.md"), "---\nkind: metric\nname: event_total\nmodel: events\nmeasure:\n  simple: {aggregate: sum, column: id}\ntime_column: month\ngrains: [month]\ndimensions: []\naudience: open\n---\nIncluded events.\n").unwrap();
                 if let Some(column) = column {
                     let kind = if column == "secret" { "text" } else { "bigint" };
                     std::fs::write(dir.join("alias.md"), format!("---\nkind: model\nname: alias\nsource: warehouse\ntable: {}.events\ncolumns:\n  - {{name: {column}, type: {kind}}}\n---\n", self.schema)).unwrap();
-                 } else if let Err(cause) = std::fs::remove_file(dir.join("alias.md")) {
-                    assert_eq!(cause.kind(), std::io::ErrorKind::NotFound, "the old alias must be removed: {cause}");
+                } else if let Err(cause) = std::fs::remove_file(dir.join("alias.md")) {
+                    assert_eq!(
+                        cause.kind(),
+                        std::io::ErrorKind::NotFound,
+                        "the old alias must be removed: {cause}"
+                    );
                 }
                 base.replace("sources:\n", &format!("  - name: measures\n    kind: markdown\n    version: \"{}\"\n    refresh_seconds: 1\n    dir: {}\n    data_dir: {}\nsources:\n", crate::harness::VERSION, dir.display(), self.data.0.display()))
             }
@@ -215,7 +240,11 @@ mod tests {
         }
 
         fn ran(served: &Served, statement: &str) -> Reply {
-            served.post(&v1(sutura_http::constants::base_paths::RUN_SQL), Some(TOKEN), &serde_json::json!({"statement": statement}).to_string())
+            served.post(
+                &v1(sutura_http::constants::base_paths::RUN_SQL),
+                Some(TOKEN),
+                &serde_json::json!({"statement": statement}).to_string(),
+            )
         }
 
         fn catalog(served: &Served) -> serde_json::Value {
@@ -226,47 +255,116 @@ mod tests {
 
         #[test]
         fn native_postgres_metadata_is_exact_bounded_and_keeps_schema_patterns_as_data() {
-            use sutura_catalog_rdbms::{ColumnMetadata, Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Table, TableAddress};
+            use sutura_catalog_rdbms::{
+                ColumnMetadata, Dictionary, DictionaryReader, RdbmsCatalog, RdbmsError, Table, TableAddress,
+            };
             use sutura_domain::pinned::{DefinitionVersion, SemanticCatalog as _};
             struct Recorded<'a>(&'a str);
             impl DictionaryReader for Recorded<'_> {
                 fn read_dictionary(&self) -> Result<Dictionary, RdbmsError> {
-                    Ok(Dictionary::new(vec![Table::new(String::from("events"),
-                        TableAddress::in_schema(self.0.to_owned(), String::from("events")),
-                        vec![String::from("id"), String::from("month"), String::from("amount")],
-                        Some(String::from("Metadata; 'quotes' stay descriptive.")))
-                        .with_column_metadata([
-                            (String::from("id"), ColumnMetadata::new(Some(String::from("bigint")), Some(String::from("The event key.")))),
-                            (String::from("month"), ColumnMetadata::new(Some(String::from("date")), None)),
-                            (String::from("amount"), ColumnMetadata::new(Some(String::from("numeric(12,2)")), Some(String::from("An exact decimal.")))),
-                        ])], vec![]))
+                    Ok(Dictionary::new(
+                        vec![
+                            Table::new(
+                                String::from("events"),
+                                TableAddress::in_schema(self.0.to_owned(), String::from("events")),
+                                vec![String::from("id"), String::from("month"), String::from("amount")],
+                                Some(String::from("Metadata; 'quotes' stay descriptive.")),
+                            )
+                            .with_column_metadata([
+                                (
+                                    String::from("id"),
+                                    ColumnMetadata::new(Some(String::from("bigint")), Some(String::from("The event key."))),
+                                ),
+                                (String::from("month"), ColumnMetadata::new(Some(String::from("date")), None)),
+                                (
+                                    String::from("amount"),
+                                    ColumnMetadata::new(
+                                        Some(String::from("numeric(12,2)")),
+                                        Some(String::from("An exact decimal.")),
+                                    ),
+                                ),
+                            ]),
+                        ],
+                        vec![],
+                    ))
                 }
             }
             let Some(tier) = discover_tier() else { return };
             let mut fixture = Native::new("native-metadata", &tier);
-            fixture.admin.run(&format!("ALTER TABLE {}.events ADD amount numeric(12,2); COMMENT ON COLUMN {}.events.amount IS 'An exact decimal.'", fixture.schema, fixture.schema)).unwrap();
-            let expected = RdbmsCatalog::new(SourceName::parse("dictionary").unwrap(), DefinitionVersion::parse(crate::harness::VERSION).unwrap(), Recorded(&fixture.schema))
-                .with_source_alias(SourceName::parse("warehouse").unwrap()).load().unwrap();
+            fixture
+                .admin
+                .run(&format!(
+                    "ALTER TABLE {}.events ADD amount numeric(12,2); COMMENT ON COLUMN {}.events.amount IS 'An exact decimal.'",
+                    fixture.schema, fixture.schema
+                ))
+                .unwrap();
+            let expected = RdbmsCatalog::new(
+                SourceName::parse("dictionary").unwrap(),
+                DefinitionVersion::parse(crate::harness::VERSION).unwrap(),
+                Recorded(&fixture.schema),
+            )
+            .with_source_alias(SourceName::parse("warehouse").unwrap())
+            .load()
+            .unwrap();
             let base = fixture.settings(&tier, "");
             let served = start_configured("native-metadata", &base);
-            assert_eq!(catalog(&served)["provenance"]["definition_digest"], expected.digest().as_str(), "native comments and exact decimal metadata must survive the served load");
+            assert_eq!(
+                catalog(&served)["provenance"]["definition_digest"],
+                expected.digest().as_str(),
+                "native comments and exact decimal metadata must survive the served load"
+            );
             drop(served);
             for (case, settings, expected) in [
-                ("row-bound", fixture.settings(&tier, "    max_dictionary_rows: 1\n"), "maximum of 1 rows"),
-                ("byte-bound", fixture.settings(&tier, "    max_dictionary_bytes: 1\n"), "maximum of 1 bytes"),
+                (
+                    "row-bound",
+                    fixture.settings(&tier, "    max_dictionary_rows: 1\n"),
+                    "maximum of 1 rows",
+                ),
+                (
+                    "byte-bound",
+                    fixture.settings(&tier, "    max_dictionary_bytes: 1\n"),
+                    "maximum of 1 bytes",
+                ),
                 ("no-columns", base.replace("['secret*']", "['*']"), "no included column"),
-                ("unmatched-table", base.replace("table: events", "table: missing"), "matches no visible table"),
-                ("schema-data", base.replace(&format!("schema: {}", fixture.schema), r#"schema: "x' OR '1'='1""#), "matches no visible table"),
+                (
+                    "unmatched-table",
+                    base.replace("table: events", "table: missing"),
+                    "matches no visible table",
+                ),
+                (
+                    "schema-data",
+                    base.replace(&format!("schema: {}", fixture.schema), r#"schema: "x' OR '1'='1""#),
+                    "matches no visible table",
+                ),
             ] {
-                let log = refused_to_start(Environment::Development, written(&format!("native-{case}"), &settings), &[]).join("\n");
+                let log =
+                    refused_to_start(Environment::Development, written(&format!("native-{case}"), &settings), &[]).join("\n");
                 assert!(log.contains(expected), "{case}: {log}");
             }
-            for kind in ["jsonb", "real", "bytea", "timestamp without time zone", "timestamp with time zone"] {
-                fixture.admin.run(&format!("ALTER TABLE {}.events ADD unsupported {kind}", fixture.schema)).unwrap();
+            for kind in [
+                "jsonb",
+                "real",
+                "bytea",
+                "timestamp without time zone",
+                "timestamp with time zone",
+            ] {
+                fixture
+                    .admin
+                    .run(&format!("ALTER TABLE {}.events ADD unsupported {kind}", fixture.schema))
+                    .unwrap();
                 let log = refused_to_start(Environment::Development, written("native-unsupported", &base), &[]).join("\n");
-                assert!(log.contains(&format!("no exact supported mapping for {kind}")), "{kind}: {log}");
-                drop(start_configured("native-excluded-type", &fixture.settings(&tier, &format!("    exclude_types: ['{kind}']\n"))));
-                fixture.admin.run(&format!("ALTER TABLE {}.events DROP COLUMN unsupported", fixture.schema)).unwrap();
+                assert!(
+                    log.contains(&format!("no exact supported mapping for {kind}")),
+                    "{kind}: {log}"
+                );
+                drop(start_configured(
+                    "native-excluded-type",
+                    &fixture.settings(&tier, &format!("    exclude_types: ['{kind}']\n")),
+                ));
+                fixture
+                    .admin
+                    .run(&format!("ALTER TABLE {}.events DROP COLUMN unsupported", fixture.schema))
+                    .unwrap();
             }
         }
 
@@ -287,7 +385,10 @@ mod tests {
                 format!("select e.secret from {}.events e", fixture.schema),
                 format!("select \"secret\" from \"{}\".\"events\"", fixture.schema),
                 format!("select id from {}.events where secret = 'private value'", fixture.schema),
-                format!("select a.id from {0}.events a join {0}.events b on a.secret = b.secret", fixture.schema),
+                format!(
+                    "select a.id from {0}.events a join {0}.events b on a.secret = b.secret",
+                    fixture.schema
+                ),
             ] {
                 let reply = ran(&served, &statement);
                 assert_eq!(reply.status, 422, "{statement}: {}", reply.body);
@@ -298,7 +399,12 @@ mod tests {
             let certified = served.post(&v1(sutura_http::constants::base_paths::QUERY), Some(TOKEN),
                 r#"{"metrics":["event_total"],"grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":[]}"#);
             assert_eq!(certified.status, 200, "{}", certified.body);
-            assert_eq!(certified.json()["rows"], serde_json::json!([["2026-06-01", "7"]]), "{}", certified.body);
+            assert_eq!(
+                certified.json()["rows"],
+                serde_json::json!([["2026-06-01", "7"]]),
+                "{}",
+                certified.body
+            );
         }
 
         #[test]
@@ -307,11 +413,13 @@ mod tests {
             let mut fixture = Native::new("native-refresh", &tier);
             let served = start_configured("native-refresh", &fixture.settings(&tier, ""));
             let before = catalog(&served)["provenance"]["definition_digest"].clone();
-            fixture.admin.run(&format!("ALTER TABLE {}.events ADD allowed bigint DEFAULT 9; ALTER TABLE {}.events ADD secret_new text DEFAULT 'another private value'", fixture.schema)).unwrap();
+            fixture.admin.run(&format!("ALTER TABLE {}.events ADD allowed bigint DEFAULT 9; ALTER TABLE {}.events ADD secret_new text DEFAULT 'another private value'", fixture.schema, fixture.schema)).unwrap();
             let deadline = Instant::now() + Duration::from_secs(20);
             let after = loop {
                 let digest = catalog(&served)["provenance"]["definition_digest"].clone();
-                if digest != before { break digest; }
+                if digest != before {
+                    break digest;
+                }
                 assert!(Instant::now() < deadline, "refresh never published the new allowed column");
                 std::thread::sleep(Duration::from_millis(100));
             };
@@ -320,7 +428,10 @@ mod tests {
             assert_eq!(reply.json()["rows"], serde_json::json!([["9"]]));
             let hidden = ran(&served, &format!("select secret_new from {}.events", fixture.schema));
             assert_eq!(hidden.status, 422, "{}", hidden.body);
-            fixture.admin.run(&format!("ALTER TABLE {}.events ADD unsupported jsonb", fixture.schema)).unwrap();
+            fixture
+                .admin
+                .run(&format!("ALTER TABLE {}.events ADD unsupported jsonb", fixture.schema))
+                .unwrap();
             served.awaiting("keeping the bundle already served");
             assert_eq!(catalog(&served)["provenance"]["definition_digest"], after);
             let reply = ran(&served, &format!("select * from {}.events", fixture.schema));
@@ -337,13 +448,23 @@ mod tests {
             drop(start_configured("native-alias-control", &accepted));
             let rejected = fixture.compose(&base, Some("secret"));
             let log = refused_to_start(Environment::Development, written("native-alias-refused", &rejected), &[]).join("\n");
-            assert!(log.contains("outside its native allowlist") && log.contains("secret"), "{log}");
+            assert!(
+                log.contains("outside its native allowlist") && log.contains("secret"),
+                "{log}"
+            );
             let unfaithful = fixture.compose(&base, None);
             let declaration = fixture.data.0.join("catalog/declaration.md");
             let text = std::fs::read_to_string(&declaration).unwrap();
-            std::fs::write(&declaration, text.replace("definitions: [metrics", "definitions: [structure, metrics")).unwrap();
+            std::fs::write(
+                &declaration,
+                text.replace("definitions: [metrics", "definitions: [structure, metrics"),
+            )
+            .unwrap();
             let log = refused_to_start(Environment::Development, written("native-unfaithful", &unfaithful), &[]).join("\n");
-            assert!(log.contains("declares kinds its own content does not supply"), "native models must not make Markdown's own declaration appear faithful: {log}");
+            assert!(
+                log.contains("declares kinds its own content does not supply"),
+                "native models must not make Markdown's own declaration appear faithful: {log}"
+            );
             let duplicate = base.replace("sources:\n", &format!("  - name: second\n    kind: rdbms\n    version: \"{}\"\n    dictionary_source: native_dictionary\n    source_alias: warehouse\n    include: [{{schema: {}, table: events}}]\n    exclude_columns: [secret]\n    connection:\n      host: 127.0.0.1\n      port: {}\n      database: {}\n      user: {}\n      password_file: {}\n      transport_mode: verified\n      transport_anchors: {}\nsources:\n", crate::harness::VERSION, fixture.schema, tier.port, tier.database, tier.user, fixture.data.0.join("password").display(), tier.anchor));
             let log = refused_to_start(Environment::Development, written("native-two-authorities", &duplicate), &[]).join("\n");
             assert!(log.contains("more than one native dictionary authority"), "{log}");

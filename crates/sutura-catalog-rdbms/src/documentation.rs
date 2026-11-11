@@ -46,7 +46,10 @@ pub(crate) fn checked_bounds(
     default_bounds(row_cap, byte_cap)
 }
 
-pub(crate) fn default_bounds(row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<DictionaryBounds, InvalidReaderConfig> {
+pub(crate) fn default_bounds(
+    row_cap: Option<NonZeroU64>,
+    byte_cap: Option<NonZeroU64>,
+) -> Result<DictionaryBounds, InvalidReaderConfig> {
     Ok(DictionaryBounds::new(
         row_cap
             .or_else(|| NonZeroU64::new(DEFAULT_MAX_DICTIONARY_ROWS))
@@ -58,18 +61,30 @@ pub(crate) fn default_bounds(row_cap: Option<NonZeroU64>, byte_cap: Option<NonZe
 }
 
 /// The two fixed read shapes. Native mode carries no documentation-view selectors.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum ReadQuery {
-    View { schema: String, environment: String, predicate: RowPredicate },
-    Native { selection: sutura_domain::catalog::DictionarySelection },
+    View {
+        schema: String,
+        environment: String,
+        predicate: RowPredicate,
+    },
+    Native {
+        selection: sutura_domain::catalog::DictionarySelection,
+    },
 }
 
 impl ReadQuery {
     pub(crate) fn native(selection: &sutura_domain::catalog::DictionarySelection) -> Self {
-        Self::Native { selection: selection.clone() }
+        Self::Native {
+            selection: selection.clone(),
+        }
     }
 
-    pub(crate) fn finish(&self, dictionary: Dictionary, dialect: sutura_domain::warehouse::TypeDialect) -> Result<Dictionary, RdbmsError> {
+    pub(crate) fn finish(
+        &self,
+        dictionary: Dictionary,
+        dialect: sutura_domain::warehouse::schema::TypeDialect,
+    ) -> Result<Dictionary, RdbmsError> {
         match self {
             Self::View { .. } => Ok(dictionary),
             Self::Native { selection } => dictionary.native(selection, dialect),
@@ -77,15 +92,26 @@ impl ReadQuery {
     }
 
     pub(crate) fn environment(&self) -> &str {
-        match self { Self::View { environment, .. } => environment, Self::Native { .. } => "native" }
+        match self {
+            Self::View { environment, .. } => environment,
+            Self::Native { .. } => "native",
+        }
     }
 
     pub(crate) fn binds(&self) -> Vec<String> {
         match self {
-            Self::Native { selection } => selection.include().iter().map(|include| include.schema().sql_like()).collect(),
-            Self::View { environment, predicate, .. } => {
+            Self::Native { selection } => selection
+                .include()
+                .iter()
+                .map(|include| include.schema().sql_like())
+                .collect(),
+            Self::View {
+                environment, predicate, ..
+            } => {
                 let mut values = vec![environment.clone()];
-                if let RowPredicate::Equals { value, .. } = predicate { values.push(value.clone()); }
+                if let RowPredicate::Equals { value, .. } = predicate {
+                    values.push(value.clone());
+                }
                 values
             }
         }
@@ -102,10 +128,12 @@ impl ReadQuery {
                     RowPredicate::IsNotNull(column) => format!(" AND \"{column}\" IS NOT NULL"),
                     RowPredicate::Equals { column, .. } => format!(" AND \"{column}\" = $2"),
                 };
-                format!("SELECT environment, catalog_name, schema_name, table_name, model_name, table_description, \
+                format!(
+                    "SELECT environment, catalog_name, schema_name, table_name, model_name, table_description, \
                          column_name, column_type, column_description, is_primary_key \
                          FROM \"{schema}\".\"{DOCUMENTATION_VIEW}\" WHERE is_deleted = false AND environment = $1{predicate} \
-                         ORDER BY catalog_name, schema_name, table_name, column_ordinal LIMIT {limit}")
+                         ORDER BY catalog_name, schema_name, table_name, column_ordinal LIMIT {limit}"
+                )
             }
         }
     }
@@ -113,7 +141,9 @@ impl ReadQuery {
     #[cfg(feature = "live-oracle")]
     pub(crate) fn oracle_statement(&self, bounds: DictionaryBounds) -> String {
         match self {
-            Self::Native { selection } => crate::native::sql::oracle(selection.include().len(), bounds.max_rows().get().saturating_add(1)),
+            Self::Native { selection } => {
+                crate::native::sql::oracle(selection.include().len(), bounds.max_rows().get().saturating_add(1))
+            }
             Self::View { schema, predicate, .. } => crate::oracle_reader::statement(schema, predicate),
         }
     }

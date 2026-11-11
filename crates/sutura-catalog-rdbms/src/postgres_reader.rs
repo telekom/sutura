@@ -170,14 +170,29 @@ impl PostgresReader {
         Ok(Self {
             driver,
             conninfo,
-            query: ReadQuery::View { schema: documentation_schema, environment, predicate },
+            query: ReadQuery::View {
+                schema: documentation_schema,
+                environment,
+                predicate,
+            },
             bounds,
         })
     }
 
     /// Opens only visible native metadata under the catalog's own login.
-    pub fn native(driver: PostgresDriver, conninfo: Conninfo, selection: &sutura_domain::catalog::DictionarySelection, row_cap: Option<NonZeroU64>, byte_cap: Option<NonZeroU64>) -> Result<Self, InvalidReaderConfig> {
-        Ok(Self { driver, conninfo, query: ReadQuery::native(selection), bounds: default_bounds(row_cap, byte_cap)? })
+    pub fn native(
+        driver: PostgresDriver,
+        conninfo: Conninfo,
+        selection: &sutura_domain::catalog::DictionarySelection,
+        row_cap: Option<NonZeroU64>,
+        byte_cap: Option<NonZeroU64>,
+    ) -> Result<Self, InvalidReaderConfig> {
+        Ok(Self {
+            driver,
+            conninfo,
+            query: ReadQuery::native(selection),
+            bounds: default_bounds(row_cap, byte_cap)?,
+        })
     }
 
     #[must_use]
@@ -204,7 +219,8 @@ impl PostgresReader {
         for batch in select.execute().map_err(adbc)? {
             admit(&mut assembly, &batch.map_err(|cause| read_err(AdbcError::Batch(cause)))?)?;
         }
-        self.query.finish(assembly.finish(), sutura_domain::warehouse::TypeDialect::Postgres)
+        self.query
+            .finish(assembly.finish(), sutura_domain::warehouse::schema::TypeDialect::Postgres)
     }
 }
 

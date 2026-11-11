@@ -67,7 +67,10 @@ pub(crate) enum OpenedCatalogs {
     #[cfg(feature = "rdbms")]
     Rdbms(Vec<native::Rdbms>),
     #[cfg(feature = "rdbms")]
-    RdbmsWithMarkdown { rdbms: Vec<native::Rdbms>, markdown: Vec<LocalCatalog> },
+    RdbmsWithMarkdown {
+        rdbms: Vec<native::Rdbms>,
+        markdown: Vec<LocalCatalog>,
+    },
 }
 
 /// Opens every catalog the settings declare.
@@ -93,7 +96,12 @@ pub(crate) fn open_catalog(
         .ok_or_else(|| String::from("this catalog declares no entries, which Catalogs::parse should already have refused"))?;
     if let Some(mixed) = kinds.find(|kind| *kind != first) {
         #[cfg(feature = "rdbms")]
-        if catalogs.each().all(|settings| matches!(settings.kind(), sutura_config::CatalogKind::Rdbms | sutura_config::CatalogKind::Markdown)) {
+        if catalogs.each().all(|settings| {
+            matches!(
+                settings.kind(),
+                sutura_config::CatalogKind::Rdbms | sutura_config::CatalogKind::Markdown
+            )
+        }) {
             return native::open(catalogs);
         }
         return Err(format!(
@@ -262,7 +270,12 @@ where
         OpenedCatalogs::DataContract(catalogs) => start!(catalogs),
         #[cfg(feature = "rdbms")]
         OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. } => LocalService::start_pinned(
-            load(catalogs)?, engines, sutura_runtime::TracingAuditSink::new(), broker, combiner, working_set_bytes,
+            load(catalogs)?,
+            engines,
+            sutura_runtime::TracingAuditSink::new(),
+            broker,
+            combiner,
+            working_set_bytes,
         ),
     }
     .map(|service| {
@@ -473,7 +486,9 @@ fn open_one_rdbms_catalog(
         || String::from(sutura_catalog_rdbms::postgres_reader::DEFAULT_DOCUMENTATION_SCHEMA),
         |schema| String::from(schema.as_str()),
     );
-    let environment = rdbms.environment().map_or_else(String::new, |environment| environment.as_str().to_owned());
+    let environment = rdbms
+        .environment()
+        .map_or_else(String::new, |environment| environment.as_str().to_owned());
 
     let predicate = match rdbms.live_row_predicate() {
         None => RowPredicate::None,
@@ -505,17 +520,29 @@ fn open_one_rdbms_catalog(
             )?;
             let login = crate::oracle::dictionary_login(settings.name(), connection, password)?;
             let reader = match rdbms.native_selection() {
-                Some(selection) => sutura_catalog_rdbms::oracle_reader::OracleReader::native(login, selection, rdbms.max_dictionary_rows(), rdbms.max_dictionary_bytes()),
-                None => sutura_catalog_rdbms::oracle_reader::OracleReader::new(login, &documentation_schema, environment, predicate, rdbms.max_dictionary_rows(), rdbms.max_dictionary_bytes()),
+                Some(selection) => sutura_catalog_rdbms::oracle_reader::OracleReader::native(
+                    login,
+                    selection,
+                    rdbms.max_dictionary_rows(),
+                    rdbms.max_dictionary_bytes(),
+                ),
+                None => sutura_catalog_rdbms::oracle_reader::OracleReader::new(
+                    login,
+                    &documentation_schema,
+                    environment,
+                    predicate,
+                    rdbms.max_dictionary_rows(),
+                    rdbms.max_dictionary_bytes(),
+                ),
             };
             reader
-            .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
-            .map_err(|cause| {
-                format!(
-                    "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
-                    settings.name()
-                )
-            })
+                .map(|reader| AnyDictionaryReader::Oracle(Box::new(reader)))
+                .map_err(|cause| {
+                    format!(
+                        "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
+                        settings.name()
+                    )
+                })
         }
         #[cfg(not(feature = "oracle"))]
         sutura_config::CatalogConnection::Oracle(_) => Err(oracle_dictionary_not_linked(settings.name())),
@@ -524,8 +551,11 @@ fn open_one_rdbms_catalog(
     // The contribution manifest stays under the catalog NAME while the semantic models bind to the
     // declared `source_alias` - see `RdbmsCatalog::with_source_alias`.
     let bounds = reader.bounds();
-    Ok(sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
-        .with_source_alias(rdbms.source_alias().clone()).with_bounds(bounds))
+    Ok(
+        sutura_catalog_rdbms::RdbmsCatalog::new(settings.name().clone(), settings.version().clone(), reader)
+            .with_source_alias(rdbms.source_alias().clone())
+            .with_bounds(bounds),
+    )
 }
 
 /// The Postgres reader over the catalog's own read-only connection and declared transport.
@@ -601,11 +631,24 @@ fn postgres_dictionary_reader(
         .map_err(|none| format!("`catalogs.{name}` has no driver to open: {}", crate::commands::render(&none)))?;
 
     let reader = match rdbms.native_selection() {
-        Some(selection) => PostgresReader::native(driver, conninfo, selection, rdbms.max_dictionary_rows(), rdbms.max_dictionary_bytes()),
-        None => PostgresReader::new(driver, conninfo, documentation_schema, environment, predicate, rdbms.max_dictionary_rows(), rdbms.max_dictionary_bytes()),
+        Some(selection) => PostgresReader::native(
+            driver,
+            conninfo,
+            selection,
+            rdbms.max_dictionary_rows(),
+            rdbms.max_dictionary_bytes(),
+        ),
+        None => PostgresReader::new(
+            driver,
+            conninfo,
+            documentation_schema,
+            environment,
+            predicate,
+            rdbms.max_dictionary_rows(),
+            rdbms.max_dictionary_bytes(),
+        ),
     };
-    reader
-    .map_err(|cause| {
+    reader.map_err(|cause| {
         format!(
             "`catalogs.{}` has an invalid dictionary reader setting: {cause}",
             settings.name()

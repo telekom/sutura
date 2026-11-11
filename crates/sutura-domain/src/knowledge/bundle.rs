@@ -115,11 +115,21 @@ impl KnowledgeInput {
         }
     }
 
-    pub const fn declares(&self) -> &KnowledgeCapabilities { &self.declares }
-    pub fn glossary(&self) -> &[GlossaryEntry] { &self.glossary }
-    pub fn caveats(&self) -> &[Caveat] { &self.caveats }
-    pub fn absences(&self) -> &[Absence] { &self.absences }
-    pub fn examples(&self) -> &[Example] { &self.examples }
+    pub const fn declares(&self) -> &KnowledgeCapabilities {
+        &self.declares
+    }
+    pub fn glossary(&self) -> &[GlossaryEntry] {
+        &self.glossary
+    }
+    pub fn caveats(&self) -> &[Caveat] {
+        &self.caveats
+    }
+    pub fn absences(&self) -> &[Absence] {
+        &self.absences
+    }
+    pub fn examples(&self) -> &[Example] {
+        &self.examples
+    }
 
     /// The authored bytes across every note, before any of it is indexed.
     ///

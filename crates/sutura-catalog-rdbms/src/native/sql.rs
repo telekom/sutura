@@ -1,7 +1,10 @@
 //! Fixed metadata queries; configuration contributes only bound schema values.
 
 fn schemas(count: usize, column: &str, marker: char) -> String {
-    (1..=count).map(|index| format!("{column} LIKE {marker}{index} ESCAPE '\\'" )).collect::<Vec<_>>().join(" OR ")
+    (1..=count)
+        .map(|index| format!("{column} LIKE {marker}{index} ESCAPE '\\'"))
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 pub(crate) fn postgres(count: usize, limit: u64) -> String {

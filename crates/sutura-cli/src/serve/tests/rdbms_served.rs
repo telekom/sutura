@@ -201,10 +201,16 @@ fn oracle_and_postgres_catalogs_open_native_dictionary_readers() {
         "one rdbms catalog opened"
     );
 
-    let postgres = format!("      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      \
-         user: reader\n      password_file: {}\n      transport_mode: plaintext\n", readable_password_file(&scratch).display());
+    let postgres = format!(
+        "      host: 127.0.0.1\n      port: 5432\n      database: dictionary\n      \
+         user: reader\n      password_file: {}\n      transport_mode: plaintext\n",
+        readable_password_file(&scratch).display()
+    );
     for connection in [postgres.as_str(), oracle.as_str()] {
-        let native = overlay(connection).replace("    environment: \"prod\"\n", "    dictionary_source: native_dictionary\n    include: [{schema: PUBLIC, table: '*'}]\n");
+        let native = overlay(connection).replace(
+            "    environment: \"prod\"\n",
+            "    dictionary_source: native_dictionary\n    include: [{schema: PUBLIC, table: '*'}]\n",
+        );
         let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(native))
             .expect("native settings need no documentation view environment");
         let opened = crate::catalog::open_catalog(settings.catalogs(), None).expect("the native reader opens without dialing");

@@ -1,12 +1,11 @@
-diff --git a/crates/sutura-catalog-rdbms/src/oracle_reader.rs b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
---- a/crates/sutura-catalog-rdbms/src/oracle_reader.rs
-+++ b/crates/sutura-catalog-rdbms/src/oracle_reader.rs
-@@ -146,7 +146,7 @@
-     fn binds(&self) -> Vec<&str> {
-         let mut binds = vec![self.environment.as_str()];
-         if let RowPredicate::Equals { value, .. } = &self.predicate {
--            binds.push(value);
-+            binds.insert(0, value);
-         }
-         binds
-     }
+--- a/crates/sutura-catalog-rdbms/src/documentation.rs
++++ b/crates/sutura-catalog-rdbms/src/documentation.rs
+@@ -110,7 +110,7 @@
+             } => {
+                 let mut values = vec![environment.clone()];
+                 if let RowPredicate::Equals { value, .. } = predicate {
+-                    values.push(value.clone());
++                    values.insert(0, value.clone());
+                 }
+                 values
+             }

@@ -30,16 +30,38 @@ impl UnlinkedContribution {
         metrics: Vec<Metric>,
         knowledge: KnowledgeInput,
     ) -> Self {
-        Self { name, version, declared, models, relationships, metrics, knowledge }
+        Self {
+            name,
+            version,
+            declared,
+            models,
+            relationships,
+            metrics,
+            knowledge,
+        }
     }
 
-    pub const fn name(&self) -> &SourceName { &self.name }
-    pub const fn version(&self) -> &DefinitionVersion { &self.version }
-    pub const fn declared(&self) -> &MetadataCapabilities { &self.declared }
-    pub fn models(&self) -> &[Model] { &self.models }
-    pub fn relationships(&self) -> &[Relationship] { &self.relationships }
-    pub fn metrics(&self) -> &[Metric] { &self.metrics }
-    pub const fn knowledge(&self) -> &KnowledgeInput { &self.knowledge }
+    pub const fn name(&self) -> &SourceName {
+        &self.name
+    }
+    pub const fn version(&self) -> &DefinitionVersion {
+        &self.version
+    }
+    pub const fn declared(&self) -> &MetadataCapabilities {
+        &self.declared
+    }
+    pub fn models(&self) -> &[Model] {
+        &self.models
+    }
+    pub fn relationships(&self) -> &[Relationship] {
+        &self.relationships
+    }
+    pub fn metrics(&self) -> &[Metric] {
+        &self.metrics
+    }
+    pub const fn knowledge(&self) -> &KnowledgeInput {
+        &self.knowledge
+    }
 
     /// Observes only this contributor, never declarations supplied to resolve its references.
     pub fn produced(&self) -> MetadataCapabilities {

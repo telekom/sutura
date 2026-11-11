@@ -82,37 +82,36 @@ where
 }
 
 fn adopt(next: Result<sutura_domain::pinned::PinnedDefinitions, String>, surface: &dyn Surface, coverage: &Gauge) -> Outcome {
-        let next = match next {
-            Ok(next) => next,
-            Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    "a declared catalog's refresh failed to load; keeping the bundle already served"
-                );
-                return Outcome::Rejected;
-            }
-        };
-        match surface.adopt(next) {
-            Ok(Adopted::Unchanged) => Outcome::Unchanged,
-            Ok(Adopted::Rotated { previous, digest }) => {
-                coverage
-                    .set(surface.definitions().definitions().metrics().len() as u64);
-                tracing::info!(
-                    previous_digest = previous.as_str(),
-                    digest = digest.as_str(),
-                    "a declared catalog refresh re-pinned the served bundle"
-                );
-                Outcome::Rotated
-            }
-            Err(cause) => {
-                tracing::error!(
-                    error = %cause,
-                    causes = ?sutura_app::surface::cause_chain(&cause),
-                    "a refreshed bundle was refused; keeping the bundle already served"
-                );
-                Outcome::Rejected
-            }
+    let next = match next {
+        Ok(next) => next,
+        Err(cause) => {
+            tracing::error!(
+                error = %cause,
+                "a declared catalog's refresh failed to load; keeping the bundle already served"
+            );
+            return Outcome::Rejected;
         }
+    };
+    match surface.adopt(next) {
+        Ok(Adopted::Unchanged) => Outcome::Unchanged,
+        Ok(Adopted::Rotated { previous, digest }) => {
+            coverage.set(surface.definitions().definitions().metrics().len() as u64);
+            tracing::info!(
+                previous_digest = previous.as_str(),
+                digest = digest.as_str(),
+                "a declared catalog refresh re-pinned the served bundle"
+            );
+            Outcome::Rotated
+        }
+        Err(cause) => {
+            tracing::error!(
+                error = %cause,
+                causes = ?sutura_app::surface::cause_chain(&cause),
+                "a refreshed bundle was refused; keeping the bundle already served"
+            );
+            Outcome::Rejected
+        }
+    }
 }
 
 /// The shortest declared `refresh_seconds` among the entries this build actually opened.
@@ -166,7 +165,10 @@ pub(crate) fn drive(catalogs: OpenedCatalogs, surface: Arc<dyn Surface>, coverag
         OpenedCatalogs::DataContract(catalogs) => spawn(catalogs, surface, coverage, interval),
         #[cfg(feature = "rdbms")]
         catalogs @ (OpenedCatalogs::Rdbms(_) | OpenedCatalogs::RdbmsWithMarkdown { .. }) => {
-            spawn_poll(move || adopt(crate::catalog::load(&catalogs), surface.as_ref(), &coverage), interval);
+            spawn_poll(
+                move || adopt(crate::catalog::load(&catalogs), surface.as_ref(), &coverage),
+                interval,
+            );
         }
     }
 }
@@ -186,7 +188,8 @@ where
 }
 
 fn spawn_poll<F>(mut poll: F, interval: Duration)
-where F: FnMut() -> Outcome + Send + 'static,
+where
+    F: FnMut() -> Outcome + Send + 'static,
 {
     drop(tokio::spawn(async move {
         loop {

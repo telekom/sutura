@@ -18,12 +18,16 @@ impl DictionaryPattern {
         Ok(Self(text.to_owned()))
     }
 
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 
     /// Bounded dynamic programming: at most 128 pattern bytes by 256 candidate bytes.
     /// Dictionary identifiers beyond the runtime's identifier limit are refused separately.
     pub fn matches(&self, text: &str) -> bool {
-        if text.len() > 256 { return false; }
+        if text.len() > 256 {
+            return false;
+        }
         let mut states = vec![false; text.chars().count() + 1];
         if let Some(first) = states.first_mut() {
             *first = true;
@@ -55,7 +59,10 @@ impl DictionaryPattern {
             match character {
                 '*' => value.push('%'),
                 '?' => value.push('_'),
-                '%' | '_' | '\\' => { value.push('\\'); value.push(character); }
+                '%' | '_' | '\\' => {
+                    value.push('\\');
+                    value.push(character);
+                }
                 literal => value.push(literal),
             }
         }
@@ -71,9 +78,15 @@ pub struct DictionaryInclude {
 }
 
 impl DictionaryInclude {
-    pub const fn new(schema: DictionaryPattern, table: DictionaryPattern) -> Self { Self { schema, table } }
-    pub const fn schema(&self) -> &DictionaryPattern { &self.schema }
-    pub const fn table(&self) -> &DictionaryPattern { &self.table }
+    pub const fn new(schema: DictionaryPattern, table: DictionaryPattern) -> Self {
+        Self { schema, table }
+    }
+    pub const fn schema(&self) -> &DictionaryPattern {
+        &self.schema
+    }
+    pub const fn table(&self) -> &DictionaryPattern {
+        &self.table
+    }
 }
 
 /// Native dictionary selection. Counts bound matching work independently of metadata read bounds.
@@ -92,17 +105,42 @@ pub enum InvalidDictionarySelection {
 }
 
 impl DictionarySelection {
-    pub fn parse(include: Vec<DictionaryInclude>, exclude_tables: Vec<DictionaryPattern>, exclude_columns: Vec<DictionaryPattern>, exclude_types: Vec<DictionaryPattern>) -> Result<Self, InvalidDictionarySelection> {
-        if include.is_empty() || include.len() > 64 || exclude_tables.len().saturating_add(exclude_columns.len()).saturating_add(exclude_types.len()) > 128 {
+    pub fn parse(
+        include: Vec<DictionaryInclude>,
+        exclude_tables: Vec<DictionaryPattern>,
+        exclude_columns: Vec<DictionaryPattern>,
+        exclude_types: Vec<DictionaryPattern>,
+    ) -> Result<Self, InvalidDictionarySelection> {
+        if include.is_empty()
+            || include.len() > 64
+            || exclude_tables
+                .len()
+                .saturating_add(exclude_columns.len())
+                .saturating_add(exclude_types.len())
+                > 128
+        {
             return Err(InvalidDictionarySelection::Count);
         }
-        Ok(Self { include, exclude_tables, exclude_columns, exclude_types })
+        Ok(Self {
+            include,
+            exclude_tables,
+            exclude_columns,
+            exclude_types,
+        })
     }
-    pub fn include(&self) -> &[DictionaryInclude] { &self.include }
-    pub fn excludes_table(&self, table: &str) -> bool { self.exclude_tables.iter().any(|pattern| pattern.matches(table)) }
-    pub fn excludes_column(&self, column: &str) -> bool { self.exclude_columns.iter().any(|pattern| pattern.matches(column)) }
+    pub fn include(&self) -> &[DictionaryInclude] {
+        &self.include
+    }
+    pub fn excludes_table(&self, table: &str) -> bool {
+        self.exclude_tables.iter().any(|pattern| pattern.matches(table))
+    }
+    pub fn excludes_column(&self, column: &str) -> bool {
+        self.exclude_columns.iter().any(|pattern| pattern.matches(column))
+    }
     pub fn excludes_type(&self, native: &str) -> bool {
         let base = native.split('(').next().unwrap_or(native);
-        self.exclude_types.iter().any(|pattern| pattern.matches(native) || pattern.matches(base))
+        self.exclude_types
+            .iter()
+            .any(|pattern| pattern.matches(native) || pattern.matches(base))
     }
 }
