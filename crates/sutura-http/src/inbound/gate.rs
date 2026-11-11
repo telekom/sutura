@@ -37,7 +37,7 @@
 //! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
 //! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -99,7 +99,7 @@ pub struct InboundGate {
     /// **Empty for a single-verifier deployment** - no dispatching cost and no allocation in that
     /// case. When non-empty, `establish` peeks at the unverified `iss` claim to select the right
     /// sub-gate before doing any signature work.
-    also_accept: HashMap<String, InboundGate>,
+    also_accept: BTreeMap<String, Self>,
 }
 
 /// The gate could not be built.
@@ -168,7 +168,7 @@ impl InboundGate {
         anchors: Option<&sutura_tls::Anchors>,
     ) -> Result<Self, InboundNotUsable> {
         let mut primary = Self::from_declaration_trusting(inbound, anchors)?;
-        let map: Result<HashMap<String, InboundGate>, InboundNotUsable> = also_accept
+        let map: Result<BTreeMap<String, Self>, _> = also_accept
             .iter()
             .map(|id| {
                 let gate = Self::from_declaration_trusting(id, anchors)?;
@@ -214,7 +214,7 @@ impl InboundGate {
             challenges,
             protected_resource,
             issuer: String::from(requirement.issuer().as_str()),
-            also_accept: HashMap::new(),
+            also_accept: BTreeMap::new(),
         }
     }
 
@@ -231,7 +231,7 @@ impl InboundGate {
     ///
     /// For multi-verifier deployments, watches the sub-gate key sets too: each verifier has its own
     /// key source and its own rotation cycle.
-    pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown) {
+    pub fn watch_keys_until_shutdown(&self, shutdown: &Shutdown) {
         KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown.clone());
         for gate in self.also_accept.values() {
             KeySetCache::watch_until_shutdown(&gate.keys, MAX_KEY_SET_AGE, shutdown.clone());

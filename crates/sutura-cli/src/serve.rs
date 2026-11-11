@@ -660,7 +660,7 @@ async fn serve_until_stopped(
     // is a bound on how long a REVOKED key keeps verifying while nothing is being asked - the gate's
     // own age check covers the case where requests are arriving.
     if let Some(gate) = inbound {
-        gate.watch_keys_until_shutdown(stopping.clone());
+        gate.watch_keys_until_shutdown(&stopping);
     }
     serve_as_configured(router, address, stopping, material).await
 }
