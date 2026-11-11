@@ -1,10 +1,11 @@
-//! A served Oracle lookup split across two reading workers, compared with the whole lookup.
+//! A served Oracle lookup with two declared reading workers, compared with the whole lookup.
 //!
 //! Forty actual fixture customers carry statistics declaring 1,200,000 rows, forcing two buckets
 //! at the CLI's fixed row target. This measures split mechanics, exact result and order, and
 //! fail-closed reader selection and re-certification; it proves no large-result capacity or row
 //! bound. All processes share one host, node certificate and declared Oracle service user. The
 //! caller's token comes from a fake issuer; nobody signs in and Oracle does not impersonate them.
+//! This cell does not identify which worker reads each bucket; the VM topology proof is pending.
 
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};

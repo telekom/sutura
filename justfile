@@ -879,24 +879,6 @@ cube-acceptance:
 # says the `cube` cells run instead of `just test`.
 ci-cube-tier: cube-acceptance
 
-# Oracle adapter, catalog, served password/split and sutura-app cells; the `oracle-tier` CI job runs it. Keep the CI app's filters aligned.
-oracle-acceptance:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "oracle-acceptance: scope sutura-exec-oracle, sutura-catalog-rdbms, sutura-cli's served source-password/split cells and sutura-app's oracle cells. NOT a gate: run \`just test\` for the whole suite."
-    export SUTURA_DEV_USER="${SUTURA_DEV_USER:-sutura}"
-    export SUTURA_DEV_PASSWORD="${SUTURA_DEV_PASSWORD:-$(openssl rand -hex 12)}"
-    just dev-up-oracle
-    export SUTURA_DEV_REQUIRE_TIER=1
-    export SUTURA_ORACLE_TIER_CA="$PWD/target/oracle-tier-tls/ca.pem"
-    set +e
-    cargo nextest run -p sutura-exec-oracle -p sutura-catalog-rdbms --all-features --run-ignored only --no-fail-fast -E 'test(/^acceptance::/) | test(/^oracle_provisioned::/)'
-    status=$?
-    cargo test -p sutura-cli --features agent,oracle --test served -- source_password::an_oracle_source_password_reaches_no_reply_and_no_log_line_of_a_served_binary --ignored --nocapture || status=$?
-    bash nix/oracle-split-cells.sh || status=$?
-    bash nix/oracle-app-cells.sh || status=$?
-    exit "$status"
-
 import "nix/oracle-native.just"
 
 # The sibling of `dev-up-identity` and `dev-up-datahub`, and it exists for the reason they do: a
