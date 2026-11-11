@@ -573,7 +573,9 @@ mod guarded_top {
                 vec![PlannedMeasure::new(
                     other.clone(),
                     ResultLabel::measure(&other),
-                    PlanMeasure::Simple { term: term(Aggregate::CountDistinct) },
+                    PlanMeasure::Simple {
+                        term: term(Aggregate::CountDistinct),
+                    },
                     vec![other_guard],
                 )],
             ),
@@ -653,8 +655,16 @@ mod guarded_top {
             vec![(TableName::parse("dim_customer").expect("a fixture table"), csv)],
         );
         for (direction, regions, sums) in [
-            (TopDirection::Asc, ["a", "z", "b", "n"], [Some(2.0), Some(2.0), Some(5.0), None]),
-            (TopDirection::Desc, ["b", "a", "z", "n"], [Some(5.0), Some(2.0), Some(2.0), None]),
+            (
+                TopDirection::Asc,
+                ["a", "z", "b", "n"],
+                [Some(2.0), Some(2.0), Some(5.0), None],
+            ),
+            (
+                TopDirection::Desc,
+                ["b", "a", "z", "n"],
+                [Some(5.0), Some(2.0), Some(2.0), None],
+            ),
         ] {
             for n in [3, 4] {
                 // The alias also names an input column: resolve the aggregate, not an ungrouped input.
