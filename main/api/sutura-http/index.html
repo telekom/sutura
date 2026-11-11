@@ -3432,11 +3432,8 @@ examined and rejected is recorded as examined, so identical bytes on the next lo
 <h3 id="use-urlkeyset"><code>use UrlKeySet</code><a class="headerlink" href="#use-urlkeyset" title="Permanent link">&para;</a></h3>
 <p>A JWK set at an <code>https</code> URL.</p>
 <h3 id="use-max_token_bytes"><code>use MAX_TOKEN_BYTES</code><a class="headerlink" href="#use-max_token_bytes" title="Permanent link">&para;</a></h3>
-<p>The largest token this surface will look at.</p>
-<p><strong>Bounded before the signature is checked, because everything before that point is work done on
-behalf of an unauthenticated caller.</strong> Eight kibibytes is generous for an access token carrying
-groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
-be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.</p>
+<p>The default token byte bound, retained for the fuzz harness's input limit.
+The declaration's parsed <code>MaxTokenBytes</code> owns the served limit and fixed ceiling.</p>
 <h3 id="use-presentedtype"><code>use PresentedType</code><a class="headerlink" href="#use-presentedtype" title="Permanent link">&para;</a></h3>
 <p>The <code>typ</code> a refused token presented, where it was one at all.</p>
 <p>A named type rather than an <code>Option&lt;TokenType&gt;</code> in the variant, so the <em>absent</em> case renders as a
@@ -3682,14 +3679,15 @@ reproduce that exact resource, its <code>resource_metadata</code> parameter is t
 RFC 9728 document built from the same token requirement as the validator. It is omitted for any
 other request, because RFC 9728 section 3.3 requires a client to discard mismatched metadata. A
 gateway assertion is minted by the component, not by an authorization server a client can use, so
-that mode offers no Bearer challenge - wherever the assertion arrives.</p>
+that mode offers no Bearer challenge for ordinary authentication failures. Oversize alone
+carries <code>invalid_token</code> with byte counts so the sender can diagnose the configured bound.</p>
 <p>An unknown key id while the key source is down is <code>503 identity_unavailable</code> instead, with no
 challenge: the token may be fine, and the outage is this deployment's. So is any token once no look
 has confirmed the key set for the declared <code>key_set_max_stale_seconds</code>, and a new assertion while
 the store of seen assertions is full, where single use is declared.</p>
-<p>What the response does <strong>not</strong> say is which check failed. The log says - through the <code>#[source]</code>
-chain on <code>TokenRejected</code> - and the caller does not, because "the signature verified and the
-audience did not" tells somebody which half of a forgery to fix.</p>
+<p>Apart from the numeric token-size refusal, the response does <strong>not</strong> say which check failed.
+The log says - through the <code>#[source]</code> chain on <code>TokenRejected</code> - and the caller does not, because
+"the signature verified and the audience did not" tells somebody which half of a forgery to fix.</p>
 <h4 id="struct-inboundgate"><code>struct InboundGate</code><a class="headerlink" href="#struct-inboundgate" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">InboundGate</span>
 </span></code></pre></div>
@@ -4223,7 +4221,7 @@ claim would break every deployment on the issuer's next release. What keeps that
 is that the fields we <em>do</em> read are the only ones anything downstream can see - and one of them,
 the actor chain, is bounded.</p>
 <h1 id="where-the-callers-own-text-is-bounded">Where the caller's own text is bounded<a class="headerlink" href="#where-the-callers-own-text-is-bounded" title="Permanent link">&para;</a></h1>
-<p>Before anything expensive: <code>MAX_TOKEN_BYTES</code> caps what is even looked at, and <code>SubjectId</code> and
+<p>Before anything expensive: the declared token byte bound caps what is looked at, and <code>SubjectId</code> and
 <code>Actor</code> are parsed by <code>sutura_domain::identity</code>, which bounds their length and refuses a control
 character or an invisible one - because those values are written into an audit record that is one
 line per call.</p>
@@ -4352,9 +4350,8 @@ differently, and every field on it is a control.</p>
 caller has to know that: the header of a JWT is unauthenticated input by construction, which is
 why the only thing taken out of it is an identifier that gets bounded, parsed and used as a map
 key. The algorithm in that header is read by nothing here.</p>
-<p>An associated function rather than a method, and that is the same point stated by the signature:
-nothing configured applies yet. There is no <code>&amp;self</code> because there is nothing on the validator
-this step is allowed to consult.</p>
+<p>This associated function enforces the hard byte ceiling without consulting a validator.
+The served gate applies the configured byte bound before calling it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">leeway</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>The leeway in effect, so a test asserts the value rather than the constant.</p>
@@ -4375,11 +4372,8 @@ class check, the actor-nesting bound and the lifetime ceiling all live here and 
 <h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
 <p><code>Debug</code></p>
 <h4 id="constant-max_token_bytes"><code>constant MAX_TOKEN_BYTES</code><a class="headerlink" href="#constant-max_token_bytes" title="Permanent link">&para;</a></h4>
-<p>The largest token this surface will look at.</p>
-<p><strong>Bounded before the signature is checked, because everything before that point is work done on
-behalf of an unauthenticated caller.</strong> Eight kibibytes is generous for an access token carrying
-groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
-be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.</p>
+<p>The default token byte bound, retained for the fuzz harness's input limit.
+The declaration's parsed <code>MaxTokenBytes</code> owns the served limit and fixed ceiling.</p>
 <h2 id="module-metrics">Module <code>metrics</code><a class="headerlink" href="#module-metrics" title="Permanent link">&para;</a></h2>
 <p>The metric series the HTTP surface observes, and the one place their labels are closed.</p>
 <h1 id="it-is-a-boundary-not-a-pass-through">It is a boundary, not a pass-through<a class="headerlink" href="#it-is-a-boundary-not-a-pass-through" title="Permanent link">&para;</a></h1>
@@ -4759,6 +4753,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 </ul>
 <p>One variant for all three, deliberately: telling a caller which of the three they got wrong
   is telling them whether the secret they tried was close.
+- <code>TokenTooLong</code> - A bounded token was too large; only byte counts may leave this failure.
 - <code>InsufficientScope</code> - The caller is authenticated and was not granted the capability this route needs.</p>
 <p><strong><code>403</code> and not <code>401</code>, and the difference is the whole point.</strong> A <code>401</code> says <em>present a
   credential</em>; this says <em>the credential you presented is valid and does not carry this</em>. A

@@ -1944,6 +1944,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#token-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token size
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-key-set" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2706,6 +2717,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#token-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token size
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-key-set" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2892,6 +2914,12 @@ authenticates the deployment, and every question runs with the access of the dep
 <td>How long the keys verify after the last look that read a usable key set, 300 to 86400</td>
 </tr>
 <tr>
+<td><code>max_token_bytes</code></td>
+<td>integer</td>
+<td><code>8192</code></td>
+<td>Maximum token bytes, excluding the header name and scheme; 1 to 12288</td>
+</tr>
+<tr>
 <td><code>algorithms</code></td>
 <td>list</td>
 <td>required</td>
@@ -2984,6 +3012,12 @@ authenticates the deployment, and every question runs with the access of the dep
 <td>As for <code>direct</code></td>
 </tr>
 <tr>
+<td><code>max_token_bytes</code></td>
+<td>integer</td>
+<td><code>8192</code></td>
+<td>Maximum token bytes, excluding the header name and scheme; 1 to 12288</td>
+</tr>
+<tr>
 <td><code>algorithms</code></td>
 <td>list</td>
 <td>required</td>
@@ -3037,6 +3071,21 @@ request, so keep its lifetime short. With <code>transit_single_use: false</code>
 again and again until its <code>exp</code> plus 30 seconds: at most <code>transit_max_lifetime_seconds</code> plus 30
 seconds after its <code>iat</code>, 150 seconds at the default. See
 <a href="../../serving-behind-a-gateway/#single-use">Single use</a>.</p>
+<h2 id="token-size">Token size<a class="headerlink" href="#token-size" title="Permanent link">&para;</a></h2>
+<p><code>security.inbound.max_token_bytes</code> applies to both modes, to <code>/v1</code> and to the HTTP
+<code>/mcp</code> mount. The default is 8192 bytes and the fixed ceiling is 12288. Zero and
+values above the ceiling refuse startup. The check runs before JWT decoding or key lookup.
+An oversized token receives <code>401</code>, an <code>invalid_token</code> challenge, and a detail naming the
+configured limit and actual token byte count. The log records the same counts, never the token.
+This size failure is the exception to the gateway mode's usual absence of a Bearer challenge.</p>
+<p>The ceiling is below the current HTTP/2 header-list limit of 16384 bytes; other headers consume
+that same allowance. HTTP/1 uses the implementation's 417792-byte buffer bound. Neither bound
+guarantees a request reaches the token check. Ingress routers and proxies have their own limits,
+which may reject a request earlier; raising this setting does not raise those limits.</p>
+<p>Prefer a smaller token: remove unnecessary group lists and other unused claims at the issuer.
+Operations use <code>scope</code>, plus <code>scp</code> or <code>roles</code> when <code>extra_scope_claims</code> declares them.
+Groups serve configured <code>security.audience_mapping</code> and source billing group selection; keep
+the memberships those mappings need.</p>
 <h2 id="the-key-set">The key set<a class="headerlink" href="#the-key-set" title="Permanent link">&para;</a></h2>
 <p>sutura reads <code>key_set_file</code> before it opens the listener, and it does not start if the file is not
 a usable key set. It reads the file again 60 seconds after its last read, and when a token names an
