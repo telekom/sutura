@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock, query-snapshots, query-proof]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -360,6 +360,24 @@ jobs:
         run: |
           nix build .#checks.x86_64-linux.fmt .#checks.x86_64-linux.clippy .#checks.x86_64-linux.hygiene --print-build-logs
           nix shell --inputs-from . nixpkgs#just --command just lint-workflows
+
+      - name: Generate query prompt snapshots
+        if: inputs.operation == 'query-snapshots'
+        run: |
+          nix develop .#checks.x86_64-linux.nextest --command bash -c '
+            export INSTA_UPDATE=always
+            export CARGO_TARGET_DIR="$PWD/target/query-proof"
+            nix run .#just -- test "binary(example) & test(the_prompt_for_the_example_catalog_is_pinned)"
+          '
+
+      - name: Measure query execution disclosures and their response bound
+        if: inputs.operation == 'query-proof'
+        env:
+          QUERY_BASE_SHA: ${{ inputs.main_sha }}
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/query-execution-proof.py" > /tmp/query-execution-proof.py
+          sha256sum /tmp/query-execution-proof.py > /tmp/oracle-export/query-proof-script.sha256
+          nix develop .#checks.x86_64-linux.nextest --command python3 /tmp/query-execution-proof.py
 
       - name: Run exact-source validation
         if: inputs.operation == 'validate'
