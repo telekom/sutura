@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -324,6 +324,13 @@ jobs:
         env:
           SUTURA_ORACLE_CLAIM_PROOF: "1"
         run: nix run .#oracle-native-acceptance
+
+      - name: Inspect the locked Arrow archive against its Git objects
+        if: inputs.operation == 'arrow-source'
+        run: |
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/inspect-arrow-source.py" > /tmp/inspect-arrow-source.py
+          sha256sum /tmp/inspect-arrow-source.py > /tmp/oracle-export/arrow-inspector.sha256
+          python3 /tmp/inspect-arrow-source.py
 
       - name: Run complete hygiene preflight
         if: inputs.operation == 'hygiene'
