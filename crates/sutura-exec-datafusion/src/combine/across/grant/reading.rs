@@ -17,8 +17,9 @@
 //!   grant/signature bytes, and the worker's admit rule
 //!   [`decode`](crate::combine::across::grant::reading::decode)s and
 //!   [`verify`](crate::combine::across::grant::reading::verify)s them.
-//! - [`StreamBound`](crate::StreamBound) is signed into the grant and carried, but no worker
-//!   enforces it yet.
+//! - The signed [`StreamBound`](crate::StreamBound) is checked by the partition consumer before
+//!   emitting any batch. The source has already allocated or fetched each arriving batch; this
+//!   is neither a pre-fetch bound nor a bound on process memory.
 //! - A grant read with the caller's token signs a SHA-256 digest of the token and of its pool's
 //!   audience, and [`forwards`](crate::combine::across::grant::reading::forwards) admits only a
 //!   task carrying exactly that token. A node that sees the grant sees the token's digest.
@@ -252,6 +253,11 @@ impl ReadingGrant {
     /// When this grant ends, since the epoch.
     pub(super) const fn ends(&self) -> Duration {
         self.expiry.0
+    }
+
+    /// The signed stream bound, authenticated by the caller before use.
+    pub(super) const fn bound(&self) -> StreamBound {
+        self.bound
     }
 
     /// The bytes an HMAC signs: [`SCHEME`] followed by every field's own fixed-width digest
