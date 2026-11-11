@@ -152,6 +152,7 @@ def red(status, text, cell, path, line, needles):
 
 
 def diagnostic(out):
+    assert os.environ["SUTURA_ORACLE_ACCEPTANCE_MODE"] == "native"
     baseline = state(out, "diagnostic-before")
     paths = ["crates/sutura-exec-oracle/src/lib.rs", SERVED]
     saved = {name: (Path(name).read_bytes(), Path(name).stat().st_mode & 0o777) for name in paths}
@@ -163,6 +164,12 @@ def diagnostic(out):
         oracledb::ErrorKind::CallTimeoutExceeded => (None, "call_timeout"),
         oracledb::ErrorKind::UnableToRecover => (None, "unable_to_recover"),
         oracledb::ErrorKind::NotConnected => (None, "not_connected"),
+        oracledb::ErrorKind::NativeEncryptionRefused(_) => (None, "native_encryption_refused"),
+        oracledb::ErrorKind::NativeAlgorithmRefused(..) => (None, "native_algorithm_refused"),
+        oracledb::ErrorKind::ParseError(..) => (None, "parse_error"),
+        oracledb::ErrorKind::UnsupportedDbType(_) => (None, "unsupported_db_type"),
+        oracledb::ErrorKind::ArrowOperation => (None, "arrow_operation"),
+        oracledb::ErrorKind::StreamOperation => (None, "stream_operation"),
         _ => (None, "other_driver_error"),
     };
     eprintln!("oracle_raw_diagnostic code={code:?} kind={kind}");
@@ -179,13 +186,15 @@ def diagnostic(out):
 '''
         assert path.read_text().count(before) == 1
         path.write_text(path.read_text().replace(before, after))
-        before = '    let audit = served.awaiting("raw_answered");\n'
-        after = before + '''    for line in audit.iter().filter(|line| line.contains("raw_answered")) {
-        println!("oracle_raw_diagnostic_audit={line}");
-    }
+        before = '        "WITH FUNCTION attempt RETURN NUMBER IS BEGIN EXECUTE IMMEDIATE \'DELETE FROM EVENTS\'; RETURN 1; END; SELECT attempt FROM dual",\n'
+        assert path.read_text().count(before) == 1
+        path.write_text(path.read_text().replace(before, ""))
+        before = '''    let healthy = ran(&served, "SELECT COUNT(*) FROM EVENTS");
+    assert_eq!(healthy.status, 200, "{}", healthy.body);
+    assert_eq!(healthy.json()["rows"], json!([["128"]]), "{}", healthy.body);
 '''
         assert path.read_text().count(before) == 1
-        path.write_text(path.read_text().replace(before, after))
+        path.write_text(path.read_text().replace(before, ""))
         state(out, "diagnostic-overlay")
         cell = PREFIX + "oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows"
         line = assertion_line(SERVED, 'assert_eq!(reply.status, 403, "{}", reply.body);', cell)
@@ -194,13 +203,6 @@ def diagnostic(out):
         codes = re.findall(r"^oracle_raw_diagnostic code=(None|Some\(\d+\)) kind=([a-z_]+)$", text, re.MULTILINE)
         assert codes
         record(out / "read-only-diagnostic.json", {"codes": codes, "diagnostic_only": True})
-        cell = PREFIX + "oracle_raw_served_rows_and_overflow_are_ungoverned_and_never_a_prefix"
-        line = assertion_line(SERVED, '.expect("the raw call has an audit record")', cell)
-        status, text = execute(command(cell), out / "audit-diagnostic.log")
-        red(status, text, cell, SERVED, line, ["the raw call has an audit record"])
-        records = [json.loads(value) for value in re.findall(r"^oracle_raw_diagnostic_audit=(\{.*\})$", text, re.MULTILINE)]
-        assert records
-        record(out / "audit-diagnostic.json", {"records": records, "diagnostic_only": True})
     finally:
         for name, (data, mode) in saved.items():
             Path(name).write_bytes(data)
@@ -326,6 +328,7 @@ def main():
     base_original = None
     saved = {}
     index = None
+    expected_stage = None
     try:
         if operation == "raw-base":
             assert os.environ["RAW_BASE_SHA"] == BASE
@@ -342,9 +345,10 @@ def main():
         else:
             paths = [RUNNER]
             if operation == "raw-diagnostic":
-                paths += ["nix/oracle-login-fixtures.sh", "nix/oracle-native-cells.sh"]
+                paths += ["nix/oracle-login-fixtures.sh", "nix/oracle-native-claim-proof.sh"]
         index_path = Path(git("rev-parse", "--git-path", "index").decode().strip()).resolve()
-        index = (index_path, index_path.read_bytes())
+        index = (index_path, index_path.read_bytes(), git("ls-files", "--stage", "-z"))
+        expected_stage = index[2]
         saved = {name: (Path(name).read_bytes(), Path(name).stat().st_mode & 0o777) if Path(name).exists() else None for name in paths}
         if operation == "raw-base":
             for name in paths[:-1]:
@@ -358,14 +362,17 @@ def main():
             marker = 'if [ "${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then\n'
             assert path.read_text().count(marker) == 1
             path.write_text(path.read_text().split(marker)[0] + 'bash nix/oracle-raw-cells.sh "$name" "$service" "$legacy_user"\n')
-            Path("nix/oracle-native-cells.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n")
+            Path("nix/oracle-native-claim-proof.sh").write_text("#!/usr/bin/env bash\nset -euo pipefail\n")
         script = Path(__file__).resolve()
         Path(RUNNER).write_text(f'#!/usr/bin/env bash\nset -euo pipefail\nexec python3 {script} cell {operation} "$@"\n')
         if operation == "raw-base":
             git("add", "-N", SERVED, PORT, RUNNER)
         state(out, "injected", operation == "raw-claims")
+        expected_stage = git("ls-files", "--stage", "-z")
         for key in ["SUTURA_ORACLE_BASE_SHA", "SUTURA_ORACLE_BASE_PROOF", "SUTURA_ORACLE_CLAIM_PROOF"]:
             os.environ.pop(key, None)
+        if operation == "raw-diagnostic":
+            os.environ["SUTURA_ORACLE_CLAIM_PROOF"] = "1"
         os.environ["RAW_PROOF_OUT"] = str(out)
         status, _ = execute(["nix", "run", "--no-write-lock-file", ".#oracle-native-acceptance"], out / "venue.log")
         cleanup_status, cleanup_text = execute(["docker", "ps", "-a", "--format", "{{.Names}}"], out / "fixture-cleanup.log")
@@ -381,9 +388,13 @@ def main():
                 Path(name).write_bytes(previous[0])
                 Path(name).chmod(previous[1])
         if index is not None:
-            assert index[0].read_bytes() == index[1] or operation == "raw-base"
+            observed = digest(index[0].read_bytes())
+            observed_stage = git("ls-files", "--stage", "-z")
             index[0].write_bytes(index[1])
-            record(out / "index-restored.json", {"before": digest(index[1]), "after": digest(index[0].read_bytes())})
+            record(out / "index-restored.json", {"before": digest(index[1]), "observed": observed, "after": digest(index[0].read_bytes()), "stage_before": digest(index[2]), "stage_expected": digest(expected_stage), "stage_observed": digest(observed_stage)})
+            assert index[0].read_bytes() == index[1]
+            assert observed_stage == expected_stage
+            assert git("ls-files", "--stage", "-z") == index[2]
         if base_root is not None:
             assert manifest() == base_original
             assert not git("status", "--porcelain")
