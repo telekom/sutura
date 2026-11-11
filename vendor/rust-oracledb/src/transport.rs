@@ -39,6 +39,7 @@ use pkcs8::DecodePrivateKey;
 use rustls::ClientConfig as TlsClientConfig;
 use rustls::ClientConnection as TlsClientConnection;
 use rustls::StreamOwned as TlsStream;
+use rustls::crypto::CryptoProvider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::pki_types::TrustAnchor;
@@ -53,6 +54,9 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use zeroize::Zeroize;
+use crate::nne;
 
 use crate::config::Address;
 use crate::config::Config;
@@ -160,11 +164,11 @@ impl LowLevelTransport {
         Ok(())
     }
 
-    /// Writes bytes to the low level transport.
-    fn write_all(&mut self, data: &[u8]) -> Result<(), Error> {
+    /// Writes bytes once so the caller can recheck its deadline between syscalls.
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         match self {
-            Self::Tcp(s) => Ok(s.write_all(data)?),
-            Self::Tls(s) => Ok(s.write_all(data)?),
+            Self::Tcp(s) => s.write(data),
+            Self::Tls(s) => s.write(data),
         }
     }
 }
@@ -180,6 +184,9 @@ pub(crate) struct Transport {
     full_packet_size: bool,
     print_packets: bool,
     op_num: usize,
+    native_requested: bool,
+    native_deadline: Option<Instant>,
+    protection: Option<nne::Protection>,
 }
 
 // a custom client certificate resolver is required because the client
@@ -187,6 +194,7 @@ pub(crate) struct Transport {
 // not accept anything less than v3 certificates
 #[derive(Debug)]
 struct CustomClientCertResolver {
+    provider: Arc<CryptoProvider>,
     key: Option<Arc<CertifiedKey>>,
     root_store: Option<rustls::RootCertStore>,
 }
@@ -263,6 +271,12 @@ impl Transport {
             return Ok(None);
         }
         self.last_packet_bytes = self.get_packet_size();
+        if self.last_packet_bytes < 8 && !self.native_requested {
+            return Err(Error::packet_too_short(self.last_packet_bytes));
+        }
+        if self.last_packet_bytes < 8 || self.last_packet_bytes > self.max_packet_size {
+            return Err(Error::native_encryption_refused("invalid packet length"));
+        }
         if self.residual_bytes < self.last_packet_bytes {
             return Ok(None);
         }
@@ -273,7 +287,16 @@ impl Transport {
             let header = self.get_op_header("Receiving packet");
             print_packet(&header, packet_buf);
         }
-        Packet::new(packet_buf).map(Some)
+        let mut packet = Packet::new(packet_buf)?;
+        if self.protection.is_some() && packet.packet_type != constants::PACKET_TYPE_DATA {
+            return Err(Error::native_encryption_refused("unprotected native control packet"));
+        }
+        if packet.packet_type == constants::PACKET_TYPE_DATA {
+            if let Some(protection) = self.protection.as_mut() {
+                packet.buf = protection.open(&packet.buf)?;
+            }
+        }
+        Ok(Some(packet))
     }
 
     /// Returns the op header used when displaying packet data.
@@ -303,6 +326,9 @@ impl Transport {
     /// Attempts to read a packet from the stream, if it is connected. The
     /// number of bytes read is returned.
     fn read_packet(&mut self) -> Result<usize, Error> {
+        if let Some(deadline) = self.native_deadline {
+            self.negotiation_deadline(deadline)?;
+        }
         let buf = &mut self.read_buf[self.residual_bytes..];
         self.low_level_transport
             .as_mut()
@@ -315,20 +341,40 @@ impl Transport {
         if self.low_level_transport.is_none() {
             return Err(Error::not_connected());
         }
-        let data = &self.write_buf[..];
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Sending packet");
-            print_packet(&header, data);
+            print_packet(&header, &self.write_buf);
         }
-        if let Some(t) = self.low_level_transport.as_mut() {
-            t.write_all(data)?;
+        let mut offset = 0;
+        while offset < self.write_buf.len() {
+            if let Some(deadline) = self.native_deadline {
+                self.negotiation_deadline(deadline)?;
+            }
+            let written = match self.low_level_transport.as_mut().ok_or_else(Error::not_connected)?
+                .write(&self.write_buf[offset..]) {
+                    Ok(written) => written,
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => return Err(error.into()),
+                };
+            if written == 0 {
+                return Err(Error::dead_connection());
+            }
+            offset += written;
         }
         Ok(())
     }
 
     /// Closes the TCP connection to the database.
     pub(crate) fn close(&mut self) -> Result<(), Error> {
+        self.protection = None;
+        self.native_deadline = None;
+        if self.native_requested {
+            self.read_buf.zeroize();
+            self.write_buf.zeroize();
+            self.residual_bytes = 0;
+            self.last_packet_bytes = 0;
+        }
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Disconnecting transport");
@@ -347,6 +393,14 @@ impl Transport {
         address: &Address,
         config: &Config,
     ) -> Result<(), Error> {
+        if config.native_encryption() && address.protocol() != "tcp" {
+            return Err(Error::native_encryption_refused("native mode requires TCP"));
+        }
+        self.protection = None;
+        self.native_requested = config.native_encryption();
+        if self.native_requested {
+            self.print_packets = false;
+        }
         stream.set_nodelay(true)?;
         stream.set_read_timeout(None)?;
         self.socket_num = get_socket_num(&stream);
@@ -367,12 +421,89 @@ impl Transport {
             .and_then(|t| t.get_read_timeout())
     }
 
+    /// Establishes protection before the first TTC or authentication message.
+    pub(crate) fn negotiate_native(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
+        let deadline = Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
+        self.native_deadline = Some(deadline);
+        let result = self.negotiate_native_inner(deadline).and_then(|()| {
+            self.set_read_timeout(None)?;
+            self.set_write_timeout(None)
+        });
+        self.native_deadline = None;
+        if result.is_err() {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        match self.low_level_transport.as_ref().ok_or_else(Error::not_connected)? {
+            LowLevelTransport::Tcp(stream) => stream.set_write_timeout(timeout)?,
+            LowLevelTransport::Tls(stream) => stream.sock.set_write_timeout(timeout)?,
+        }
+        Ok(())
+    }
+
+    fn negotiation_deadline(&self, deadline: Instant) -> Result<(), Error> {
+        let remaining = deadline.checked_duration_since(Instant::now())
+            .ok_or_else(|| Error::native_encryption_refused("negotiation deadline exceeded"))?;
+        self.set_read_timeout(Some(remaining))?;
+        self.set_write_timeout(Some(remaining))
+    }
+
+    fn negotiate_native_inner(&mut self, deadline: Instant) -> Result<(), Error> {
+        self.negotiation_deadline(deadline)?;
+        self.send_packets(constants::PACKET_TYPE_DATA, 0, 0, &nne::offer())?;
+        let mut data = Vec::new();
+        loop {
+            self.negotiation_deadline(deadline)?;
+            let packet = self.receive_packet()?;
+            if packet.packet_type != constants::PACKET_TYPE_DATA || packet.data_flags != 0
+                || packet.buf.is_empty() || packet.buf.len() > nne::MAX_NEGOTIATION - data.len()
+            {
+                return Err(Error::native_encryption_refused("invalid negotiation packet"));
+            }
+            data.extend_from_slice(&packet.buf);
+            if data.len() >= 6 {
+                let length = nne::frame_length(&data)?;
+                if data.len() > length {
+                    return Err(Error::native_encryption_refused("negotiation length mismatch"));
+                }
+                if data.len() == length {
+                    break;
+                }
+            }
+        }
+        let (response, protection) = nne::establish(&data)?;
+        self.negotiation_deadline(deadline)?;
+        self.send_packets(constants::PACKET_TYPE_DATA, 0, 0, &response)?;
+        self.protection = Some(protection);
+        Ok(())
+    }
+
+    pub(crate) fn fold_native_key(&mut self, key: &[u8]) -> Result<(), Error> {
+        if let Some(protection) = self.protection.as_mut() {
+            if let Err(error) = protection.fold(key) {
+                let _ = self.close();
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn uses_native(&self) -> bool {
+        self.protection.is_some()
+    }
+
     /// Negotiates TLS on the connection.
     pub(crate) fn negotiate_tls(
         &mut self,
         server_name: &str,
         config: &Config,
     ) -> Result<(), Error> {
+        if self.native_requested {
+            return Err(Error::native_encryption_refused("native mode cannot renegotiate TLS"));
+        }
         if self.print_packets {
             self.op_num += 1;
             let header = self.get_op_header("Negotiate TLS");
@@ -397,6 +528,9 @@ impl Transport {
             full_packet_size: false,
             print_packets: env::var_os("RSO_DEBUG_PACKETS").is_some(),
             op_num: 0,
+            native_requested: false,
+            native_deadline: None,
+            protection: None,
         }
     }
 
@@ -412,6 +546,14 @@ impl Transport {
     /// Reads data from the database and returns a single packet, or an error
     /// indicating that the connection is no longer valid.
     pub(crate) fn receive_packet(&mut self) -> Result<Packet, Error> {
+        let result = self.receive_packet_inner();
+        if result.is_err() && self.native_requested {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn receive_packet_inner(&mut self) -> Result<Packet, Error> {
         if self.residual_bytes > 0 && self.last_packet_bytes > 0 {
             let start_pos = self.last_packet_bytes;
             let end_pos = self.last_packet_bytes + self.residual_bytes;
@@ -437,17 +579,39 @@ impl Transport {
         packet_type: u8,
         packet_flags: u8,
         data_flags: u16,
-        mut data: &[u8],
+        data: &[u8],
+    ) -> Result<(), Error> {
+        let result = self.send_packets_inner(packet_type, packet_flags, data_flags, data);
+        if result.is_err() && self.native_requested {
+            let _ = self.close();
+        }
+        result
+    }
+
+    fn send_packets_inner(
+        &mut self, packet_type: u8, packet_flags: u8, data_flags: u16, mut data: &[u8],
     ) -> Result<(), Error> {
         let mut header_size = 8;
         if packet_type == constants::PACKET_TYPE_DATA {
             header_size += 2;
         }
-        let max_data_size = self.max_packet_size - header_size;
+        let overhead = if packet_type == constants::PACKET_TYPE_DATA {
+            self.protection.as_ref().map_or(0, nne::Protection::overhead)
+        } else { 0 };
+        let max_data_size = self.max_packet_size.checked_sub(header_size + overhead)
+            .filter(|&n| n > 0)
+            .ok_or_else(|| Error::native_encryption_refused("packet size cannot hold protection"))?;
         loop {
             let packet_data_size = min(max_data_size, data.len());
             let packet_data = &data[..packet_data_size];
             data = &data[packet_data_size..];
+            let protected;
+            let packet_data = if packet_type == constants::PACKET_TYPE_DATA {
+                if let Some(protection) = self.protection.as_mut() {
+                    protected = protection.seal(packet_data)?;
+                    protected.as_slice()
+                } else { packet_data }
+            } else { packet_data };
             let packet_size = packet_data.len() + header_size;
             self.write_buf.clear();
             if self.full_packet_size {
@@ -520,6 +684,9 @@ impl CustomClientCertResolver {
             None => webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
         Self {
+            provider: CryptoProvider::get_default().cloned().unwrap_or_else(
+                || Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
+            ),
             key: None,
             root_store: Some(rustls::RootCertStore { roots }),
         }
@@ -528,7 +695,7 @@ impl CustomClientCertResolver {
     /// Returns the TLS configuration to use when connecting to the database.
     fn get_tls_config(mut self) -> Result<TlsClientConfig, Error> {
         let root_store = self.root_store.take().unwrap();
-        Ok(TlsClientConfig::builder_with_provider(crypto_provider())
+        Ok(TlsClientConfig::builder_with_provider(self.provider.clone())
             .with_safe_default_protocol_versions()?
             .with_root_certificates(root_store)
             .with_client_cert_resolver(Arc::new(self)))
@@ -597,7 +764,7 @@ impl CustomClientCertResolver {
         // server
         if let Some(key) = private_key {
             let signing_key =
-                crypto_provider().key_provider.load_private_key(key)?;
+                self.provider.key_provider.load_private_key(key)?;
             self.key = Some(Arc::new(CertifiedKey::new(certs, signing_key)));
         } else {
             let root_store: &mut rustls::RootCertStore =
@@ -625,13 +792,6 @@ impl rustls::client::ResolvesClientCert for CustomClientCertResolver {
     }
 }
 
-/// Returns the cryptography provider for TLS connections. It is named
-/// explicitly because a program that enables more than one rustls provider
-/// cannot build a configuration from the crate features alone.
-fn crypto_provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
-}
-
 /// Parses the PEM encoded certificates and returns the trust anchors they
 /// define. An error is returned if there are no certificates or if one of them
 /// cannot be used as a trust anchor.
@@ -657,8 +817,57 @@ pub(crate) fn parse_trust_anchors(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustls::crypto::CryptoProvider;
 
     const CA_PEM: &str = include_str!("../tests/data/ca.pem");
+
+    #[test]
+    fn tls_uses_aws_lc_fallback_without_installing_a_provider() {
+        assert!(CryptoProvider::get_default().is_none());
+        let tls = CustomClientCertResolver::new(&Config::default())
+            .get_tls_config().unwrap();
+        let aws_lc = rustls::crypto::aws_lc_rs::default_provider();
+        let groups = |provider: &CryptoProvider| {
+            provider.kx_groups.iter().map(|group| group.name()).collect::<Vec<_>>()
+        };
+        assert_eq!(groups(tls.crypto_provider()), groups(&aws_lc));
+        assert!(CryptoProvider::get_default().is_none());
+    }
+
+    #[test]
+    fn tls_preserves_an_installed_provider_and_its_resolver_snapshot() {
+        // Isolate the irreversible process-wide installation from other cells.
+        if std::env::var_os("ORACLE_PROVIDER_TEST_CHILD").is_none() {
+            let child = std::process::Command::new(
+                std::env::current_exe().unwrap(),
+            )
+            .args([
+                "--exact",
+                "transport::tests::tls_preserves_an_installed_provider_and_its_resolver_snapshot",
+                "--nocapture",
+            ])
+            .env("ORACLE_PROVIDER_TEST_CHILD", "1")
+            .output().unwrap();
+            assert!(child.status.success(), "{}{}",
+                String::from_utf8_lossy(&child.stdout),
+                String::from_utf8_lossy(&child.stderr));
+            return;
+        }
+        assert!(CryptoProvider::get_default().is_none());
+        let before_install = CustomClientCertResolver::new(&Config::default());
+        CryptoProvider {
+            cipher_suites: vec![
+                rustls::crypto::aws_lc_rs::cipher_suite::TLS13_AES_128_GCM_SHA256,
+            ],
+            ..rustls::crypto::aws_lc_rs::default_provider()
+        }.install_default().unwrap();
+        let installed = CryptoProvider::get_default().unwrap();
+        let captured = before_install.get_tls_config().unwrap();
+        assert!(!Arc::ptr_eq(captured.crypto_provider(), installed));
+        let tls = CustomClientCertResolver::new(&Config::default())
+            .get_tls_config().unwrap();
+        assert!(Arc::ptr_eq(tls.crypto_provider(), installed));
+    }
 
     #[test]
     fn public_roots_are_used_without_trust_anchors() {
@@ -678,3 +887,7 @@ mod tests {
         assert_eq!(root_store.roots.len(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "nne/transport_tests.rs"]
+mod native_tests;

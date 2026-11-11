@@ -26,6 +26,7 @@
 //! - The grant is a bearer token for its question while the question is kept, held off the wire by
 //!   the link's TLS.
 
+use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -44,6 +45,7 @@ use datafusion_distributed::{DistributedExt as _, NetworkBoundaryExt as _};
 use ring::hmac;
 use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
+use sutura_domain::warehouse::ResultBudget;
 use tonic::Status;
 use tonic::body::Body;
 use tonic::codegen::http::{self, HeaderMap, HeaderValue};
@@ -228,15 +230,23 @@ pub(super) struct ReadingCall<'a> {
     pub(super) switched: Option<&'a SwitchedPrincipal>,
 }
 
+/// A reading grant's authenticated expiry and materialisation bound.
+#[derive(Clone, Copy)]
+pub(super) struct AdmittedRead {
+    pub(super) ends: Duration,
+    pub(super) rows: usize,
+    pub(super) budget: ResultBudget,
+}
+
 /// Admits a source-reading task's call: identifies the task from its wire and partition
 /// ([`reading::task_id`]), decodes its grant under the key `keys` kept for that task - the first
 /// presented for it - checks the decoded grant names the wire's leg digest, the source and the
 /// partition and is not yet past `now` ([`reading::verify`]), then that it names exactly the token
 /// the task carries, or none where it carries none ([`reading::forwards`]), and the same of its
-/// principal ([`reading::switches`]), and answers when the
-/// admitted grant ends, since the epoch. A missing or malformed grant reads the same as one wrongly
-/// named: [`WorkerRefusal::GrantNotNaming`].
-pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<Duration, WorkerRefusal> {
+/// principal ([`reading::switches`]), and answers its authenticated expiry and stream bound.
+/// A zero byte bound is refused rather than widened to a nonzero budget. A missing or malformed
+/// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
+pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<AdmittedRead, WorkerRefusal> {
     let task = reading::task_id(call.wire, call.partition);
     let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
     keys.admit(task, call.key, |key| {
@@ -252,7 +262,16 @@ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Du
         reading::forwards(&grant, call.forwarded)?;
         reading::switches(&grant, call.switched)
     })?;
-    Ok(grant.ends())
+    let bound = grant.bound();
+    let (Ok(rows), Ok(bytes)) = (usize::try_from(bound.rows), usize::try_from(bound.bytes)) else {
+        return Err(WorkerRefusal::GrantNotNaming);
+    };
+    let bytes = NonZeroUsize::new(bytes).ok_or(WorkerRefusal::GrantNotNaming)?;
+    Ok(AdmittedRead {
+        ends: grant.ends(),
+        rows,
+        budget: ResultBudget::of_bytes(bytes),
+    })
 }
 
 /// Mints the grant for one partition of a split leg under a key drawn for that partition alone: the
