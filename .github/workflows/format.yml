@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
+        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -331,6 +331,17 @@ jobs:
           SUTURA_ORACLE_CLAIM_PROOF: "1"
         run: nix run .#oracle-native-acceptance
 
+      - name: Measure raw SQL base or killing mutations
+        if: inputs.operation == 'raw-base' || inputs.operation == 'raw-claims'
+        env:
+          RAW_OPERATION: ${{ inputs.operation }}
+          RAW_BASE_SHA: ${{ inputs.main_sha }}
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-raw-proof.py" > /tmp/oracle-raw-proof.py
+          sha256sum /tmp/oracle-raw-proof.py > /tmp/oracle-export/raw-proof-payload.sha256
+          python3 /tmp/oracle-raw-proof.py "$RAW_OPERATION"
+
       - name: Measure served Oracle split claim mutations
         if: inputs.operation == 'oracle-split-claims'
         env:
@@ -396,7 +407,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'oracle-split-claims')
+        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'oracle-split-claims')
         with:
           name: oracle-fixture-${{ inputs.operation }}-${{ inputs.source_sha }}
           path: |
@@ -405,6 +416,8 @@ jobs:
             target/oracle-native-base-proof
             target/oracle-native-claim-proof
             target/oracle-split-claim-proof
+            target/oracle-raw-product
+            target/oracle-raw-proof
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
