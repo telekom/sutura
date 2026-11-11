@@ -1720,6 +1720,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-encryption-and-legacy-passwords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native encryption and legacy passwords
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#measured-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured acceptance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2667,6 +2695,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-encryption-and-legacy-passwords" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native encryption and legacy passwords
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#measured-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured acceptance
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2758,13 +2814,13 @@ and these keys:</p>
 <td><code>host</code></td>
 <td>string</td>
 <td>required</td>
-<td>The listener host: a valid DNS name or an IP address, the name the TLS handshake verifies</td>
+<td>The listener host: a valid DNS name or an IP address. In <code>verified</code> mode, the TLS handshake verifies this name</td>
 </tr>
 <tr>
 <td><code>port</code></td>
 <td>integer</td>
 <td>required</td>
-<td>The TCPS listener port, often <code>2484</code></td>
+<td>The listener port, often <code>2484</code> for TLS or <code>1521</code> for native encryption</td>
 </tr>
 <tr>
 <td><code>service_name</code></td>
@@ -2788,13 +2844,31 @@ and these keys:</p>
 <td><code>transport_mode</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>verified</code>. <code>plaintext</code> and <code>mutual</code> are refused</td>
+<td><code>verified</code> or the explicit weaker <code>native-encryption</code> mode below. <code>plaintext</code> and <code>mutual</code> are refused</td>
 </tr>
 <tr>
 <td><code>transport_anchors</code></td>
 <td>absolute path</td>
-<td>required</td>
-<td>A PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused</td>
+<td>for <code>verified</code></td>
+<td>A PEM bundle. Its certificates are the only ones the server is verified against. <code>system</code> is refused; anchors are refused for native encryption</td>
+</tr>
+<tr>
+<td><code>native_encryption_acknowledged_because</code></td>
+<td>string</td>
+<td>none</td>
+<td>Required, nonblank reason for <code>native-encryption</code>; refused for other modes</td>
+</tr>
+<tr>
+<td><code>legacy_password_verifier</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Explicitly permits 10G and 11G password logins, only over <code>verified</code> or <code>native-encryption</code></td>
+</tr>
+<tr>
+<td><code>legacy_password_verifier_acknowledged_because</code></td>
+<td>string</td>
+<td>none</td>
+<td>Required, nonblank reason when the legacy switch is <code>true</code>; refused otherwise</td>
 </tr>
 <tr>
 <td><code>split</code></td>
@@ -2846,6 +2920,43 @@ it declares an Oracle source without <code>split: flashback</code>.</p>
 <p>sutura connects at startup, so it does not start if the listener or the login fails. The connect to
 the listener is bounded at 10 seconds. sutura refuses a listener that redirects the connection, before
 it logs in, so declare the address that answers.</p>
+<h3 id="native-encryption-and-legacy-passwords">Native encryption and legacy passwords<a class="headerlink" href="#native-encryption-and-legacy-passwords" title="Permanent link">&para;</a></h3>
+<p><code>verified</code> uses TLS to encrypt the connection and verify the listener's identity against the
+declared trust anchors. Prefer it when the database provides a TCPS listener.</p>
+<p><code>native-encryption</code> uses Oracle Native Network Encryption and Data Integrity over TCP. It requires
+both services, offers only AES-256/192/128 and SHA-512/384/256, and refuses a missing service or an
+algorithm outside those lists. There is no algorithm setting or fallback to plaintext. The
+Diffie-Hellman exchange authenticates neither endpoint: encryption and integrity do <strong>not</strong> prove
+the listener's identity against an active network attacker. This mode is an explicit operator
+decision for a listener that provides NNE rather than TCPS. It is never selected automatically, and startup logs it at <code>WARN</code>.</p>
+<p>Native record integrity excludes TNS headers and data flags. CBC reuses the derived IV for records
+within each protocol phase: equal plaintext block prefixes produce equal ciphertext prefixes.
+This is not TLS-equivalent protection or authenticated encryption with associated data.</p>
+<p>The native reason is separate from the shared-service-user posture's <code>acknowledged_because</code>.
+Native encryption accepts password authentication only; the built, unverified token path still
+requires <code>verified</code>.</p>
+<p>Native mode requires the patched NNE protocol, including authentication-key folding. The older
+protocol is refused even when it advertises AES and SHA-2. A pre-patch database can still use
+<code>verified</code> if it offers TCPS; native mode does not enable its obsolete integrity scheme.</p>
+<p>An account with only a 10G or 11G password verifier needs a second opt-in,
+<code>legacy_password_verifier: true</code>, and its own reason. Without it, the connection refuses the legacy
+verifier and names its type. An unknown verifier is always refused. A legacy login exposes material
+for offline password guessing if the login exchange is visible; the encrypted transport is
+required, and the native mode's unauthenticated-peer limit still applies. A password reset can
+provide a modern verifier where the database's policy permits it; the switch is for accounts that
+cannot migrate yet. Startup logs the legacy opt-in at <code>WARN</code>.</p>
+<h3 id="measured-acceptance">Measured acceptance<a class="headerlink" href="#measured-acceptance" title="Permanent link">&para;</a></h3>
+<p><a href="https://github.com/telekom/sutura/actions/runs/42931009000">Hosted acceptance on 2026-11-11</a>
+passed through both the product source and dictionary paths: required AES-256/SHA-256 native
+services with <code>SQLNET.ALLOW_WEAK_CRYPTO_CLIENTS = FALSE</code>, default-off refusal, and refusal of
+3DES-only encryption and SHA-1-only integrity. The 11G-only account passed opt-off, opt-on and
+wrong-password checks over native encryption; the 10G-only account passed those checks over
+verified TCPS. Stored verifier types were checked on the servers.</p>
+<p>Source positives read two exact 128-row results with 2000-byte payloads. Dictionary positives
+measure protected startup and catalog reads; that fixture has no measures. This run does not
+establish 10G native interoperability: 16-byte native authentication-key folding has unit and
+source evidence only. Other allowed AES/SHA-2 combinations have vector and unit coverage, not
+live interoperability evidence. No Oracle per-caller identity claim follows from this run.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <p>One database user for every caller:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">sources</span><span class="p">:</span>
@@ -2861,31 +2972,49 @@ it logs in, so declare the address that answers.</p>
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
 </span></code></pre></div>
-<p>Each caller with their own database user, which is built and not verified (see
-<a href="#identity">Identity</a>). The caller signs in to Keycloak through Microsoft Entra ID. Keycloak sends
-back the caller's Entra ID token, and Entra ID exchanges it for a token for the database:</p>
+<p>For a TCP listener that requires native encryption and integrity:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">sources</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1521</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"orcl.example.com"</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
 </span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">delegation</span><span class="p">:</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://keycloak.example.com/realms/example/broker/entra/token"</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/keycloak-client-secret"</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"broker-token"</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/oauth2/v2.0/token"</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/entra-client-secret"</span>
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"on-behalf-of"</span>
-</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"22222222-2222-4222-8222-222222222222"</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"native-encryption"</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">native_encryption_acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"the</span><span class="nv"> </span><span class="s">listener</span><span class="nv"> </span><span class="s">requires</span><span class="nv"> </span><span class="s">NNE</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">provides</span><span class="nv"> </span><span class="s">no</span><span class="nv"> </span><span class="s">TCPS</span><span class="nv"> </span><span class="s">endpoint"</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">legacy_password_verifier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">legacy_password_verifier_acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"this</span><span class="nv"> </span><span class="s">account</span><span class="nv"> </span><span class="s">cannot</span><span class="nv"> </span><span class="s">yet</span><span class="nv"> </span><span class="s">migrate</span><span class="nv"> </span><span class="s">its</span><span class="nv"> </span><span class="s">password</span><span class="nv"> </span><span class="s">verifier"</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">acknowledged_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">read-only</span><span class="nv"> </span><span class="s">Oracle</span><span class="nv"> </span><span class="s">user</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">every</span><span class="nv"> </span><span class="s">caller"</span>
+</span></code></pre></div>
+<p>Omit the two legacy fields for an account with a modern verifier. Native encryption and the legacy
+fields are Oracle-only; other data systems refuse them.</p>
+<p>Each caller with their own database user, which is built and not verified (see
+<a href="#identity">Identity</a>). The caller signs in to Keycloak through Microsoft Entra ID. Keycloak sends
+back the caller's Entra ID token, and Entra ID exchanges it for a token for the database:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"oracle"</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">"db.example.com"</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2484</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">service_name</span><span class="p">:</span><span class="w"> </span><span class="s">"orcl.example.com"</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">password_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-password"</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">transport_mode</span><span class="p">:</span><span class="w"> </span><span class="s">"verified"</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">transport_anchors</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/oracle-ca.pem"</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"impersonation-at-source"</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="nt">delegation</span><span class="p">:</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://keycloak.example.com/realms/example/broker/entra/token"</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"sutura"</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/keycloak-client-secret"</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"broker-token"</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">token_endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://login.microsoftonline.com/00000000-0000-4000-8000-000000000000/oauth2/v2.0/token"</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">        </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="s">"11111111-1111-4111-8111-111111111111"</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">        </span><span class="nt">client_secret_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/run/secrets/entra-client-secret"</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">        </span><span class="nt">grant</span><span class="p">:</span><span class="w"> </span><span class="s">"on-behalf-of"</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">        </span><span class="nt">audience</span><span class="p">:</span><span class="w"> </span><span class="s">"22222222-2222-4222-8222-222222222222"</span>
 </span></code></pre></div>
 <ul>
 <li>Start Keycloak with the feature <code>identity-brokering-api:v2</code>. The <code>broker-token</code> hop uses the

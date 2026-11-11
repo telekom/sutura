@@ -2905,7 +2905,7 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 <td><code>connection.transport_mode</code></td>
 <td>string</td>
 <td>required</td>
-<td><code>plaintext</code>, <code>verified</code> or <code>mutual</code>. Oracle accepts <code>verified</code> only</td>
+<td>PostgreSQL: <code>plaintext</code>, <code>verified</code> or <code>mutual</code>. Oracle: <code>verified</code> or the weaker <code>native-encryption</code></td>
 </tr>
 <tr>
 <td><code>connection.transport_anchors</code></td>
@@ -2919,15 +2919,49 @@ are optional here. The other keys are for this kind only, and sutura refuses the
 <td>none</td>
 <td>The client identity for <code>mutual</code></td>
 </tr>
+<tr>
+<td><code>connection.native_encryption_acknowledged_because</code></td>
+<td>string</td>
+<td>none</td>
+<td>Oracle only: required, nonblank reason for <code>native-encryption</code>; refused for other modes</td>
+</tr>
+<tr>
+<td><code>connection.legacy_password_verifier</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Oracle only: permits 10G and 11G password logins over <code>verified</code> or <code>native-encryption</code></td>
+</tr>
+<tr>
+<td><code>connection.legacy_password_verifier_acknowledged_because</code></td>
+<td>string</td>
+<td>none</td>
+<td>Oracle only: required, nonblank reason when the legacy switch is <code>true</code>; refused otherwise</td>
+</tr>
 </tbody>
 </table>
 <p><code>sutura serve</code> reads all catalog entries again at the shortest <code>refresh_seconds</code> among them. The default is 900, and <code>0</code> is refused. See <a href="../../../serving/">Serving</a>.</p>
 <p><code>plaintext</code> needs a loopback IP address as <code>host</code>. <code>verified</code> and <code>mutual</code> need <code>host</code>, not
 <code>unix_socket</code>. A build with the <code>rdbms</code> feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the <code>oracle</code> feature. Oracle refuses <code>plaintext</code> for every host:
-write <code>verified</code> with <code>transport_anchors</code> naming a PEM file. Those certificates replace the public
+dictionary needs a build with the <code>oracle</code> feature. Oracle refuses <code>plaintext</code> for every host.
+For <code>verified</code>, write <code>transport_anchors</code> naming a PEM file. Those certificates replace the public
 authorities, <code>host</code> is the name TLS verifies, and sutura presents no client certificate. The Oracle
 reader refuses a listener that redirects the connection, before it logs in.</p>
+<p>Oracle's <code>native-encryption</code> uses TCP with required Oracle Native Network Encryption and Data
+Integrity, with only AES-256/192/128 and SHA-512/384/256. <strong>It does not authenticate the listener:</strong>
+the unauthenticated Diffie-Hellman exchange does not establish the listener's identity against
+an active network attacker. Prefer <code>verified</code> when TCPS is available. Native mode requires its own
+reason, refuses TLS anchors and client identity fields, and startup logs it at <code>WARN</code>. There is no automatic fallback
+or algorithm setting.
+Native integrity excludes TNS headers and data flags. CBC reuses the derived IV for records within
+each protocol phase: equal plaintext block prefixes produce equal ciphertext prefixes. See the
+<a href="../../data-systems/oracle/#native-encryption-and-legacy-passwords">Oracle source limits</a>.</p>
+<p>The legacy-verifier switch is a separate decision with a separate reason and startup <code>WARN</code>.
+Without it, an Oracle account with only a 10G or 11G verifier is refused with its type named; an
+unknown verifier is always refused. Legacy login exchanges expose material for offline password
+guessing when visible, so this switch requires an encrypted transport. NNE's lack of authenticated
+peer identity still applies. These settings do not change the catalog identity: every read uses
+its declared dictionary login. See the <a href="../../data-systems/oracle/#native-encryption-and-legacy-passwords">Oracle source</a>
+for the same transport guarantees and limits.</p>
 <h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">catalogs</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">"dictionary"</span>
