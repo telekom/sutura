@@ -185,7 +185,10 @@ sources:
 Each call opens a fresh session, starts `SET TRANSACTION READ ONLY`, admits one driver-classified
 query, rolls back and discards the session. Statements containing `;` or ending in `/` are refused,
 including delimiters inside literals or comments. DDL, DML, PL/SQL and session-control statements
-are refused; a `SELECT ... FOR UPDATE` is refused by the read-only transaction.
+are refused. For `SELECT ... FOR UPDATE`, the verified fixture reports the read-only refusal
+`ORA-01456` as `403 source_refused`. On the native fixture, fetching instead receives an
+unprotected control packet, which the protected channel refuses as `422 statement_failed`.
+No Oracle error code is recovered on that path. The call returns no rows and its session is discarded.
 
 The database account's grants remain the security boundary. A pre-existing function can perform
 autonomous writes or external effects even when its caller's transaction is read-only. Grant only

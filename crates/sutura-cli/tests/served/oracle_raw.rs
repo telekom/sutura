@@ -84,13 +84,27 @@ fn oracle_raw_for_update_and_adversarial_with_are_refused_without_changing_rows(
     let tier = Tier::here();
     let case = "oracle-raw-read-only";
     let served = start_configured(case, &settings(&tier, case, true, false));
-    for statement in [
-        "SELECT ID FROM EVENTS WHERE ID = 1 FOR UPDATE",
-        "WITH FUNCTION attempt RETURN NUMBER IS BEGIN EXECUTE IMMEDIATE 'DELETE FROM EVENTS'; RETURN 1; END; SELECT attempt FROM dual",
+    // ponytail: native reports a channel refusal here; verified reports the read-only error.
+    let (read_only_status, read_only_code) = if tier.channel.starts_with("transport_mode: native-encryption") {
+        (422, "statement_failed")
+    } else {
+        (403, "source_refused")
+    };
+    for (statement, status, code) in [
+        (
+            "SELECT ID FROM EVENTS WHERE ID = 1 FOR UPDATE",
+            read_only_status,
+            read_only_code,
+        ),
+        (
+            "WITH FUNCTION attempt RETURN NUMBER IS BEGIN EXECUTE IMMEDIATE 'DELETE FROM EVENTS'; RETURN 1; END; SELECT attempt FROM dual",
+            403,
+            "source_refused",
+        ),
     ] {
         let reply = ran(&served, statement);
-        assert_eq!(reply.status, 403, "{}", reply.body);
-        assert_eq!(reply.json()["code"], "source_refused", "{}", reply.body);
+        assert_eq!(reply.status, status, "{}", reply.body);
+        assert_eq!(reply.json()["code"], code, "{}", reply.body);
         assert!(reply.json().get("rows").is_none(), "{}", reply.body);
     }
     let healthy = ran(&served, "SELECT COUNT(*) FROM EVENTS");
