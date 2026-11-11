@@ -66,7 +66,13 @@ fn run() -> Result<(), ProbeError> {
     println!("phase=query");
     let started = Instant::now();
     let result = connection.query_row(
-        "SELECT /* sutura_raw_deadline_probe */ raw_deadline_wait() FROM dual",
+        concat!(
+            "SELECT /*+ NO_PARALLEL */ /* sutura_raw_deadline_probe */ ",
+            "SUM(ORA_HASH(a.n + 1000 * b.n + 1000000 * c.n)) ",
+            "FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) a ",
+            "CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) b ",
+            "CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) c",
+        ),
         &[],
     );
     println!("query_ms={}", started.elapsed().as_millis());

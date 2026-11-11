@@ -22,7 +22,7 @@ BEGIN
         AND EXISTS (
           SELECT 1 FROM v$sql q
           WHERE q.sql_id = s.sql_id
-            AND q.sql_text = 'SELECT /* sutura_raw_deadline_probe */ raw_deadline_wait() FROM dual'
+            AND q.sql_text = 'SELECT /*+ NO_PARALLEL */ /* sutura_raw_deadline_probe */ SUM(ORA_HASH(a.n + 1000 * b.n + 1000000 * c.n)) FROM (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) a CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) b CROSS JOIN (SELECT LEVEL n FROM dual CONNECT BY LEVEL <= 1000) c'
         );
       IF active_count > 1 THEN
         RAISE_APPLICATION_ERROR(-20004, 'more than one fixture query matched');
@@ -42,6 +42,8 @@ BEGIN
       SELECT COUNT(*) INTO active_count FROM v$session s
       WHERE s.sid = probe_sid AND s.serial# = probe_serial AND s.status = 'ACTIVE';
       IF (DBMS_UTILITY.GET_TIME - active_at) * 10 > 6000 THEN
+        DBMS_OUTPUT.PUT_LINE('server_final_active_count=' || active_count);
+        DBMS_OUTPUT.PUT_LINE('server_final_elapsed_since_active_ms=' || (DBMS_UTILITY.GET_TIME - active_at) * 10);
         RAISE_APPLICATION_ERROR(-20006, 'the owned session did not stop within six seconds of observation');
       END IF;
       IF active_count = 0 THEN

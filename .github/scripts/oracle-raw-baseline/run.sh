@@ -50,30 +50,6 @@ CREATE USER RAWDEADLINE IDENTIFIED BY "$SUTURA_ORACLE_RAW_PASSWORD";
 GRANT CREATE SESSION TO RAWDEADLINE;
 EXIT
 SQL
-  timeout --kill-after=2s 15s docker exec -i "$SUTURA_ORACLE_RAW_CONTAINER" sqlplus -s / as sysdba \
-    > "$out/fixture-function.log" 2>&1 <<'SQL'
-WHENEVER SQLERROR EXIT FAILURE
-SET ECHO OFF VERIFY OFF
-ALTER SESSION SET CONTAINER=FREEPDB1;
-CREATE FUNCTION RAWDEADLINE.RAW_DEADLINE_WAIT RETURN NUMBER AUTHID DEFINER AS
-BEGIN
-  DBMS_SESSION.SLEEP(15);
-  RETURN 1;
-END;
-/
-DECLARE
-  valid_count PLS_INTEGER;
-BEGIN
-  SELECT COUNT(*) INTO valid_count FROM dba_objects
-  WHERE owner = 'RAWDEADLINE' AND object_name = 'RAW_DEADLINE_WAIT'
-    AND object_type = 'FUNCTION' AND status = 'VALID';
-  IF valid_count != 1 THEN
-    RAISE_APPLICATION_ERROR(-20003, 'the fixture wait function did not compile');
-  END IF;
-END;
-/
-EXIT
-SQL
   {
     printf 'ALTER SESSION SET CONTAINER=FREEPDB1;\n'
     cat nix/oracle-raw-baseline-observer.sql
