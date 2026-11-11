@@ -6,9 +6,10 @@ use datafusion::error::DataFusionError;
 use datafusion_distributed::{MaybeEncoded, SetPlanRequest, TaskKey};
 use datafusion_proto::protobuf::physical_expr_node::ExprType;
 use datafusion_proto::protobuf::physical_plan_node::PhysicalPlanType;
+use datafusion_proto::protobuf::window_agg_exec_node::InputOrderMode;
 use datafusion_proto::protobuf::{
     ArrowType, CsvScanExecNode, EmptyExecNode, EmptyMessage, Field, FileScanExecConf, FilterExecNode, ParquetScanExecNode,
-    PhysicalExprNode, PhysicalPlanNode, ScalarValue, Schema,
+    PartiallySortedInputOrderMode, PhysicalExprNode, PhysicalPlanNode, ScalarValue, Schema, WindowAggExecNode,
 };
 use datafusion_proto_common::protobuf_common::arrow_type::ArrowTypeEnum;
 use datafusion_proto_common::protobuf_common::scalar_value::Value as ScalarValueKind;
@@ -94,6 +95,41 @@ fn refused(plan: &PhysicalPlanNode) -> DataFusionError {
         .block_on(worker.coordinator_channel(HeaderMap::new(), stage, Box::pin(stream::empty())))
         .err()
         .expect("a node ran a stage it cannot decode")
+}
+
+fn window_without_expressions(input_order_mode: Option<InputOrderMode>) -> PhysicalPlanNode {
+    PhysicalPlanNode {
+        physical_plan_type: Some(PhysicalPlanType::Window(Box::new(WindowAggExecNode {
+            input: Some(empty_child()),
+            window_expr: vec![],
+            partition_keys: vec![],
+            input_order_mode,
+        }))),
+    }
+}
+
+#[test]
+fn a_node_refuses_an_unbounded_window_stage_without_expressions() {
+    let refused = refused(&window_without_expressions(None));
+    assert!(
+        matches!(refused.find_root(), DataFusionError::Plan(message) if message == "WindowAggExec requires at least one window expression"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_node_refuses_a_bounded_window_stage_without_expressions() {
+    for order in [
+        InputOrderMode::Linear(EmptyMessage {}),
+        InputOrderMode::PartiallySorted(PartiallySortedInputOrderMode { columns: vec![] }),
+        InputOrderMode::Sorted(EmptyMessage {}),
+    ] {
+        let refused = refused(&window_without_expressions(Some(order)));
+        assert!(
+            matches!(refused.find_root(), DataFusionError::Plan(message) if message == "BoundedWindowAggExec requires at least one window expression"),
+            "{refused}"
+        );
+    }
 }
 
 #[test]
