@@ -802,7 +802,9 @@ fn also_accept_without_a_primary_inbound_is_refused() {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert!(
-        refusals.iter().any(|r| matches!(*r, NotFitToServe::AlsoAcceptWithoutPrimaryInbound)),
+        refusals
+            .iter()
+            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptWithoutPrimaryInbound)),
         "{refusals:?}"
     );
 }
