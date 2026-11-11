@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, lock-overlay, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
+        options: [text, format, lock-format, lock-overlay, main-forward-lock, config, vectors, driver, native, native-base, native-claims, raw-base, raw-claims, raw-diagnostic, raw-plans, hygiene, lint, validate, arrow-source, postgres-diagnostic, oracle-split-claims, arrow-cache, arrow-lock]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -351,6 +351,15 @@ jobs:
           SUTURA_ORACLE_CLAIM_PROOF: "1"
         run: nix run .#oracle-native-acceptance
 
+      - name: Measure exact planner head and supported rows against base
+        if: inputs.operation == 'raw-plans'
+        run: |
+          set -euo pipefail
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-raw-proof.py" > /tmp/oracle_raw_proof.py
+          git show "$GITHUB_WORKFLOW_SHA:.github/scripts/oracle-plan-proof.py" > /tmp/oracle-plan-proof.py
+          sha256sum /tmp/oracle_raw_proof.py /tmp/oracle-plan-proof.py > /tmp/oracle-export/plan-proof-payload.sha256
+          nix shell --inputs-from . nixpkgs#clang nixpkgs#lld nixpkgs#pkg-config --command python3 /tmp/oracle-plan-proof.py
+
       - name: Measure raw SQL base or killing mutations
         if: inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'raw-diagnostic'
         env:
@@ -433,7 +442,7 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'raw-diagnostic' || inputs.operation == 'oracle-split-claims')
+        if: always() && (inputs.operation == 'native' || inputs.operation == 'native-base' || inputs.operation == 'native-claims' || inputs.operation == 'raw-base' || inputs.operation == 'raw-claims' || inputs.operation == 'raw-diagnostic' || inputs.operation == 'raw-plans' || inputs.operation == 'oracle-split-claims')
         with:
           name: oracle-fixture-${{ inputs.operation }}-${{ inputs.source_sha }}
           path: |
@@ -444,6 +453,7 @@ jobs:
             target/oracle-split-claim-proof
             target/oracle-raw-product
             target/oracle-raw-proof
+            target/oracle-plan-proof
           retention-days: 7
 
       - uses: ./.github/actions/nix-store-cache-report
