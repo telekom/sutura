@@ -59,7 +59,17 @@ jobs:
           git fetch --no-tags origin "$SOURCE_SHA"
           git worktree add --detach "$candidate" "$SOURCE_SHA"
           cd "$candidate"
-          nix develop --command python3 "$helper/prepare-execution-capture.py" "$SOURCE_SHA" "$output" "$helper"
+          nix shell --impure --no-write-lock-file --expr '
+            let
+              source = builtins.getFlake (builtins.toString ./.);
+              pkgs = import source.inputs.nixpkgs {
+                system = builtins.currentSystem;
+                overlays = [ (import source.inputs.rust-overlay) ];
+              };
+              toolchain = (import (source.outPath + "/nix/toolchains.nix") { rustPkgs = pkgs; }).nightly;
+            in [ pkgs.python3 pkgs.just pkgs.protobuf toolchain
+                 pkgs.llvmPackages_latest.clang pkgs.llvmPackages_latest.lld ]
+          ' --command python3 "$helper/prepare-execution-capture.py" "$SOURCE_SHA" "$output" "$helper"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && github.event_name == 'workflow_dispatch'
         with:
