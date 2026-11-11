@@ -1443,6 +1443,29 @@
           '');
         };
 
+        apps.oracle-native-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-oracle-native-acceptance" ''
+            set -euo pipefail
+            export PATH="${toolchain}/bin:${pkgs.git}/bin:${pkgs.openssl}/bin:${pkgs.python3}/bin:$PATH"
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            export SUTURA_ORACLE_CARGO_PROFILE=ci
+            export SUTURA_ORACLE_RUN_ACCEPTANCE=1
+            if [ -n "''${SUTURA_ORACLE_BASE_SHA:-}" ]; then
+              exec bash nix/oracle-native-base-proof.sh "$SUTURA_ORACLE_BASE_SHA"
+            fi
+            (
+              exec cargo test --profile ci -p sutura-cli --features oracle,rdbms --test served --no-run
+            )
+            if [ "''${SUTURA_ORACLE_CLAIM_PROOF:-0}" = 1 ]; then
+              exec bash nix/oracle-native-probe.sh
+            fi
+            bash nix/oracle-native-probe.sh
+            bash nix/oracle-legacy-probe.sh
+          '');
+        };
+
         # The DataHub venue (#1251): starts the compose `datahub` profile and runs the live
         # acceptance cells - the instance reachable, the deployment-defined metric document
         # round-tripping, a dataset page and a relationship page preserving their wire shapes,

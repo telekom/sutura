@@ -99,6 +99,15 @@ regexes = [
   '''^-----BEGIN ENCRYPTED PRIVATE KEY-----";\s+const PEM_ENCRYPTED_PRIVATE_KEY_FOOTER: &str =\s+"-----END ENCRYPTED PRIVATE KEY-----$''',
 ]
 
+# Oracle's published SCOTT/TIGER default is a known-answer 10G verifier fixture, never a deployment credential.
+[[allowlists]]
+description = "Published Oracle 10G known-answer fixture password"
+condition = "AND"
+targetRules = ["generic-password"]
+paths = ['''^nix/oracle-login-fixtures\.sh$''']
+regexTarget = "secret"
+regexes = ['''^TIGER$''']
+
 # These malformed authority strings probe the userinfo parser with an IPv6 literal.
 [[allowlists]]
 description = "Malformed loopback authority parser examples"
