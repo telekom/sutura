@@ -44,7 +44,7 @@ on:
         description: Hosted operation
         required: true
         type: choice
-        options: [text, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, raw-baseline]
+        options: [text, native-dictionary-prepare, format, lock-format, main-forward-lock, config, vectors, driver, native, native-base, native-claims, hygiene, lint, validate, arrow-source, postgres-diagnostic, raw-baseline]
       main_sha:
         description: Exact ancestor for main-forward-lock or native-base
         required: false
@@ -166,14 +166,60 @@ jobs:
         if: inputs.operation == 'lock-format' || inputs.operation == 'main-forward-lock'
         run: nix run .#cargo -- metadata --format-version 1 > /tmp/oracle-export/metadata.json
 
+      - name: Mint the native dictionary composition decision
+        if: inputs.operation == 'native-dictionary-prepare'
+        run: |
+          set -euo pipefail
+          nix run .#just -- new-adr native-dictionary-linked-metadata
+          python3 - <<'PYADR'
+          import re
+          import subprocess
+          from pathlib import Path
+
+          paths = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", "docs/adr"], text=True).splitlines()
+          assert len(paths) == 1 and re.fullmatch(r"docs/adr/[0-9]{14}-native-dictionary-linked-metadata[.]md", paths[0]), paths
+          path = Path(paths[0])
+          subprocess.run(["git", "add", "-N", str(path)], check=True)
+          path.write_text("""---
+          title: Native dictionary linked metadata
+          description: Native metadata selection and cross-catalog ownership without widening the planned column set.
+          ---
+
+          # Native dictionary linked metadata
+
+          Status: **accepted**.
+
+          Native dictionary mode reads visible metadata under the catalog login, with fixed queries,
+          bound schema values and bounded case-sensitive identifier patterns. Documentation views
+          remain the default. Unsupported types refuse rather than lose precision.
+
+          A catalog's kind and capabilities are type-level declarations. An explicit native RDBMS
+          plus Markdown composition arm therefore links concrete unlinked declarations, rather than
+          wrapping arbitrary adapters under one misleading catalog type. Contributor ownership and
+          capability fidelity are checked before references resolve and the joined bundle is pinned.
+
+          A successful native read supplies the effective physical table/column allowlist for its
+          configured source alias. Every contributor's models are checked against that authority,
+          including semantic aliases; duplicate native authorities refuse. Configured source aliases
+          remain distinct authorities even when operators point them at the same database. Raw
+          pass-through SQL remains governed by database grants and does not inherit exclusions.
+
+          Boot and refresh use the same loader. A failed read, selection, composition or validation
+          leaves the whole previous bundle published. Metadata byte checks follow allocation and
+          provide no process-memory or hard elapsed-time bound. Live proof covers CI fixtures only;
+          source review and a green compile are not behavioral verification.
+          """)
+          Path("/tmp/oracle-export/adr-path").write_text(str(path) + "\n")
+          PYADR
+
       - name: Format Rust with the pinned toolchain
-        if: inputs.operation == 'format' || inputs.operation == 'lock-format'
+        if: inputs.operation == 'native-dictionary-prepare' || inputs.operation == 'format' || inputs.operation == 'lock-format'
         run: |
           nix run .#cargo -- run -q -p xtask -- fmt
           nix run .#cargo -- run -q -p xtask -- text-hygiene --fix
 
       - name: Format text with the pinned tools
-        if: inputs.operation == 'text' || inputs.operation == 'format' || inputs.operation == 'lock-format'
+        if: inputs.operation == 'text' || inputs.operation == 'native-dictionary-prepare' || inputs.operation == 'format' || inputs.operation == 'lock-format'
         run: bash nix/format-text.sh fmt
 
       - name: Generate independently sourced modern NNE vectors
