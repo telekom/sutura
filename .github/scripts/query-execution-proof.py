@@ -1,11 +1,10 @@
-"""Diagnostic only: capture fresh compiler output for one native claim shard."""
+"""Diagnostic only: capture one patched cell's build through the existing test task."""
 
 import hashlib
 import json
 import os
 import re
 import subprocess
-import time
 from pathlib import Path
 
 ROOT = Path.cwd()
@@ -27,38 +26,38 @@ targets = [{"cell": Path(path).stem, "path": path, "sha256": census[patches.inde
             "shard": f"{patches.index(Path(path)) + 1}/{len(patches)}"} for path in changed]
 (OUT / "query-claim-targets.json").write_text(json.dumps(targets, indent=2) + "\n")
 target = targets[0]
-cell, shard = target["cell"], target["shard"]
-assert cell == "a_cell_cannot_forge_a_row" and shard == "26/820", target
-command = ["nix", "run", ".#claim-mutation-kills", "--", "--shard", shard]
-log = OUT / f"query-claim-{cell}.log"
-print("DIAGNOSTIC ONLY: one native shard; no head, base, budget or remaining claim runs.", flush=True)
-started_ns = time.time_ns()
-with log.open("w") as output:
-    output.write(json.dumps({"source": SOURCE, **target, "command": command}) + "\n")
-    output.flush()
-    result = subprocess.run(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=False)
-text = log.read_text()
-print(text, flush=True)
-(OUT / f"query-claim-{cell}.exit").write_text(str(result.returncode) + "\n")
-diagnostics = []
-for path in sorted((ROOT / "target/causality-target/ci/.fingerprint").glob("*/output-*")):
-    if path.is_symlink() or not path.is_file() or path.stat().st_mtime_ns < started_ns:
-        continue
-    data = path.read_bytes()
-    exported = OUT / "query-compiler-diagnostics" / path.parent.name / path.name
-    exported.parent.mkdir(parents=True, exist_ok=True)
-    exported.write_bytes(data)
-    diagnostics.append({"path": str(path.relative_to(ROOT)), "mtime_ns": path.stat().st_mtime_ns,
-                        "sha256": hashlib.sha256(data).hexdigest()})
-(OUT / "query-compiler-diagnostics.json").write_text(json.dumps(
-    {"source": SOURCE, "cell": cell, "shard": shard, "started_ns": started_ns, "files": diagnostics}, indent=2,
-) + "\n")
-(OUT / "query-diagnostic-summary").write_text("Diagnostic only: first native shard and fresh compiler files. No full-proof verdict.\n")
-assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT), cell
-assert not (ROOT / "target/causality-claim-worktree").exists(), cell
-assert [{"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-        for path in sorted(Path("devco/claim-mutations").glob("*.patch"))] == census, cell
-(OUT / f"query-claim-{cell}.restored").write_text("Source clean; native claim worktree removed; census unchanged.\n")
-assert result.returncode == 0, (cell, result.returncode)
-assert f"xtask check-claim-mutation-kills: shard {shard}: 1 of {len(patches)} patches" in text, cell
-assert "ok - claim cells: 1 declared, 1 killed" in text, cell
+cell = target["cell"]
+assert cell == "a_cell_cannot_forge_a_row" and target["shard"] == "26/820", target
+worktree = Path("/tmp/query-cell-build-diagnostic")
+subprocess.run(["git", "worktree", "add", "--detach", str(worktree), SOURCE], check=True)
+production = worktree / "crates/sutura-mcp/src/wire.rs"
+original = production.read_bytes()
+try:
+    subprocess.run(["git", "apply", str(ROOT / target["path"])], cwd=worktree, check=True)
+    assert subprocess.check_output(["git", "diff", "--name-only"], cwd=worktree, text=True).splitlines() == ["crates/sutura-mcp/src/wire.rs"]
+    diff = subprocess.check_output(["git", "diff", "--binary", "--full-index"], cwd=worktree)
+    (OUT / "query-cell-diagnostic.patch").write_bytes(diff)
+    (OUT / "query-cell-diagnostic.patch.sha256").write_text(hashlib.sha256(diff).hexdigest() + "\n")
+    selected = f"binary_id(=sutura-mcp) & test(/^(?:.*::)?{cell}$/)"
+    command = ["nix", "run", str(ROOT) + "#just", "--", "test", selected]
+    env = os.environ | {"INSTA_UPDATE": "no", "CARGO_TERM_COLOR": "never", "NEXTEST_PROFILE": "nofailfast", "CARGO_TARGET_DIR": str(ROOT / "target/query-diagnostic")}
+    with (OUT / "query-cell-diagnostic.log").open("w") as output:
+        result = subprocess.run(command, cwd=worktree, env=env, stdout=output, stderr=subprocess.STDOUT, check=False)
+    (OUT / "query-cell-diagnostic.exit").write_text(str(result.returncode) + "\n")
+    print((OUT / "query-cell-diagnostic.log").read_text(), flush=True)
+    (OUT / "query-cell-diagnostic.json").write_text(json.dumps({
+        "source": SOURCE, **target, "command": command, "exit": result.returncode,
+        "original_sha256": hashlib.sha256(original).hexdigest(),
+        "mutated_sha256": hashlib.sha256(production.read_bytes()).hexdigest(),
+        "limit": "Diagnostic only: just test uses Cargo dev; the native gate uses ci. No native kill or full-proof verdict.",
+    }, indent=2) + "\n")
+finally:
+    production.write_bytes(original)
+    assert production.read_bytes() == original
+    assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=worktree)
+    subprocess.run(["git", "worktree", "remove", str(worktree)], check=True)
+    assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)
+    assert [{"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            for path in sorted(Path("devco/claim-mutations").glob("*.patch"))] == census
+    (OUT / "query-cell-diagnostic.restored").write_text("Exact original bytes restored; diagnostic worktree removed; source clean; census unchanged.\n")
+(OUT / "query-diagnostic-summary").write_text("Diagnostic only: one patched cell, raw build output and exit captured. No native replay, head, base, budget or full-proof verdict.\n")
