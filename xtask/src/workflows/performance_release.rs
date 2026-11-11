@@ -617,7 +617,12 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
         let named: Vec<&str> = release
             .notes
             .lines()
-            .filter(|line| line.starts_with("| glibc |") || line.starts_with("| static musl |"))
+            .filter(|line| {
+                line.starts_with("| glibc |")
+                    || line.starts_with("| static musl |")
+                    || line.starts_with("| SQL, glibc |")
+                    || line.starts_with("| SQL, static musl |")
+            })
             .filter_map(|line| line.split('`').nth(1))
             .collect();
         assert_eq!(named, pushed, "{}", release.notes);

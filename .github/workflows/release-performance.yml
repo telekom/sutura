@@ -382,6 +382,8 @@ jobs:
             printf "| static musl | \`%s:%s-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             printf "| operator, glibc | \`%s:%s-operator\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             printf "| operator, static musl | \`%s:%s-operator-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| SQL, glibc | \`%s:%s-sql\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
+            printf "| SQL, static musl | \`%s:%s-sql-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$image_tag"
             echo
             echo '```'
             cat dist/image-digests.txt
