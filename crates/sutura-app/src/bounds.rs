@@ -44,5 +44,9 @@ pub(crate) fn exceeds_response_bound(
     execution: Option<&sutura_domain::warehouse::execution::Execution>,
 ) -> Option<u64> {
     let limit = sutura_domain::query::ResponseByteLimit::DEFAULT;
-    (rows.rendered_byte_len().saturating_add(execution.map_or(0, |details| details.rendered_byte_len())) > limit.bytes()).then_some(limit.bytes())
+    (rows
+        .rendered_byte_len()
+        .saturating_add(execution.map_or(0, |details| details.rendered_byte_len()))
+        > limit.bytes())
+    .then_some(limit.bytes())
 }

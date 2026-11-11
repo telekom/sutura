@@ -1,7 +1,7 @@
 //! Execution details on a certified answer. Raw statements and connection controls never enter it.
 
-use sutura_domain::warehouse::execution::Execution;
 use sutura_domain::warehouse::ParamValue;
+use sutura_domain::warehouse::execution::Execution;
 
 /// The exact parameterized DuckDB statement submitted for a whole-source answer.
 ///
@@ -29,10 +29,13 @@ pub(super) fn sql(execution: Option<&Execution>) -> Option<ExecutedSqlContent> {
             source: source.as_str().to_owned(),
             dialect: "duckdb",
             sql: sql.clone(),
-            parameters: parameters.iter().map(|value| match value {
-                ParamValue::Text(text) => ParameterContent::Text(text.clone()),
-                ParamValue::Date(date) => ParameterContent::Date(date.to_iso()),
-            }).collect(),
+            parameters: parameters
+                .iter()
+                .map(|value| match value {
+                    ParamValue::Text(text) => ParameterContent::Text(text.clone()),
+                    ParamValue::Date(date) => ParameterContent::Date(date.to_iso()),
+                })
+                .collect(),
         }),
         Execution::DataFusion { .. } => None,
     }
