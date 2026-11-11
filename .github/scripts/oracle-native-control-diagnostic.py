@@ -35,7 +35,47 @@ replace(
     '''  SUTURA_ORACLE_NATIVE_EXPECT=success cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \\
     oracle_native::oracle_native_logins_require_both_strong_services_on_both_production_paths -- --ignored --nocapture''',
     '''  diagnostic_out="$PWD/target/oracle-native-probe"
-  for diagnostic_iteration in $(seq 1 30); do
+  for diagnostic_iteration in $(seq 1 6); do
+    diagnostic_variant=baseline
+    diagnostic_modern=''
+    if [ "$((diagnostic_iteration % 2))" -eq 0 ]; then
+      diagnostic_variant=modern-readiness
+      diagnostic_modern='SELECT COUNT(*) FROM FIXTURE12.COLUMNS;'
+    fi
+    printf '%s iteration=%s variant=%s cold-ddl\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" "$diagnostic_variant" | tee -a "$diagnostic_out/cold-rounds.tsv"
+    timeout 20s docker exec -i "$name" sqlplus -s / as sysdba <<SQL
+WHENEVER SQLERROR EXIT FAILURE
+SET ECHO OFF VERIFY OFF
+ALTER SESSION SET CONTAINER=$service;
+DROP TABLE FIXTURE12.COLUMNS PURGE;
+CREATE TABLE FIXTURE12.COLUMNS AS SELECT * FROM $legacy_user.COLUMNS;
+EXIT
+SQL
+    readable=false
+    for diagnostic_readiness in $(seq 1 30); do
+      diagnostic_probe_log="$(mktemp)"
+      set +e
+      timeout 20s docker exec -i "$name" sqlplus -s / as sysdba > "$diagnostic_probe_log" 2>&1 <<SQL
+WHENEVER SQLERROR EXIT FAILURE
+ALTER SESSION SET CONTAINER=$service;
+SET TRANSACTION READ ONLY;
+SELECT COUNT(*) FROM $legacy_user.COLUMNS;
+$diagnostic_modern
+ROLLBACK;
+EXIT
+SQL
+      diagnostic_probe_status=$?
+      set -e
+      grep -oE 'ORA-[0-9]+' "$diagnostic_probe_log" | sed "s/^/iteration=$diagnostic_iteration variant=$diagnostic_variant /" | tee -a "$diagnostic_out/readiness-codes.log" || true
+      rm -f "$diagnostic_probe_log"
+      printf '%s iteration=%s variant=%s readiness=%s exit=%s\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" "$diagnostic_variant" "$diagnostic_readiness" "$diagnostic_probe_status" | tee -a "$diagnostic_out/cold-rounds.tsv"
+      if [ "$diagnostic_probe_status" -eq 0 ]; then
+        readable=true
+        break
+      fi
+      sleep 2
+    done
+    test "$readable" = true
     diagnostic_log="$(mktemp)"
     printf '%s iteration=%s start\\n' "$(date -u --iso-8601=ns)" "$diagnostic_iteration" | tee -a "$diagnostic_out/iterations.tsv"
     set +e
@@ -60,7 +100,7 @@ replace(
   timeout 10s docker exec "$name" sh -c 'for log in /opt/oracle/diag/tnslsnr/*/listener/trace/listener.log; do tail -n 200 "$log"; done' 2>/dev/null | awk -F '[*]' 'NF >= 6 && $NF ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { print $1 " | " $(NF-2) " | " $(NF-1) " | " $NF }' > "$out/listener-status.log" || true
   timeout 10s docker exec -i "$name" sh > "$out/server-error-codes.log" 2>/dev/null <<'DIAGNOSTIC' || true
 for trace in /opt/oracle/diag/rdbms/*/*/trace/*.trc; do
-  tail -n 400 "$trace" | awk '/^\\*\\*\\* [0-9][0-9][0-9][0-9]-/ { stamp=$2 } /ORA-01466/ { print stamp, "ORA-01466" }'
+  { head -n 400 "$trace"; tail -n 400 "$trace"; } | awk '/^\\*\\*\\* [0-9][0-9][0-9][0-9]-/ { stamp=$2 } /ORA-01466/ { print stamp, "ORA-01466" }'
 done
 DIAGNOSTIC''',
 )
