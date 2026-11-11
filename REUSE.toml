@@ -142,6 +142,12 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2019-2026 The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
 
+[[annotations]]
+path = "vendor/datafusion-sql/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2019-2026 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
+
 # The vendored IPC codec, the published 59.2.0 crate plus local patches `VENDOR.md` records.
 # Apache-2.0; the copyright line is the one in its own `NOTICE.txt`.
 [[annotations]]
