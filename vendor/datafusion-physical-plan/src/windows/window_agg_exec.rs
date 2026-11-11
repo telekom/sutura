@@ -47,7 +47,7 @@ use arrow::record_batch::RecordBatch;
 use datafusion_common::stats::Precision;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_common::utils::{evaluate_partition_ranges, transpose};
-use datafusion_common::{Result, assert_eq_or_internal_err};
+use datafusion_common::{Result, assert_eq_or_internal_err, plan_datafusion_err};
 use datafusion_execution::TaskContext;
 use datafusion_physical_expr_common::sort_expr::{
     OrderingRequirements, PhysicalSortExpr,
@@ -82,11 +82,14 @@ impl WindowAggExec {
         input: Arc<dyn ExecutionPlan>,
         can_repartition: bool,
     ) -> Result<Self> {
+        let first_expr = window_expr.first().ok_or_else(|| {
+            plan_datafusion_err!("WindowAggExec requires at least one window expression")
+        })?;
         let schema = create_schema(&input.schema(), &window_expr)?;
         let schema = Arc::new(schema);
 
         let ordered_partition_by_indices =
-            get_ordered_partition_by_indices(window_expr[0].partition_by(), &input)?;
+            get_ordered_partition_by_indices(first_expr.partition_by(), &input)?;
         let cache = Self::compute_properties(&schema, &input, &window_expr)?;
         Ok(Self {
             input,
