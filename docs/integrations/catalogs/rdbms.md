@@ -46,36 +46,57 @@ This catalog reads `name` and `version` from the
 [settings that every catalog has](../../integrations.md#catalog-settings). `dir` and `data_dir`
 are optional here. The other keys are for this kind only, and sutura refuses them on another kind.
 
-| Key                                                      | Type    | Default             | Meaning                                                             |
-| -------------------------------------------------------- | ------- | ------------------- | ------------------------------------------------------------------- |
-| `environment`                                            | string  | required            | Selects the rows of the view for this deployment                    |
-| `source_alias`                                           | string  | required            | The `sources:` alias of the data system that holds the tables       |
-| `dictionary_schema`                                      | string  | `sutura_dictionary` | The schema of the `columns` view. Letters, digits and `_` only      |
-| `max_dictionary_rows`                                    | integer | `10000`             | The row limit for one read. `0` is refused                          |
-| `max_dictionary_bytes`                                   | integer | `8388608`           | The size limit for one read. `0` is refused                         |
-| `live_row_predicate.column`                              | string  | none                | An extra column that selects live rows                              |
-| `live_row_predicate.operator`                            | string  | none                | `is_null`, `is_not_null` or `equals`                                |
-| `live_row_predicate.value`                               | string  | none                | The value for `equals`. Refused for the other two operators         |
-| `connection.dialect`                                     | string  | `postgres`          | `postgres` or `oracle`                                              |
-| `connection.host`                                        | string  | none                | The database host. Oracle requires it                               |
-| `connection.unix_socket`                                 | path    | none                | PostgreSQL only: a socket directory, instead of `host`              |
-| `connection.port`                                        | integer | required            | The database port                                                   |
-| `connection.database`                                    | string  | none                | PostgreSQL: the database. Required for PostgreSQL                   |
-| `connection.service_name`                                | string  | none                | Oracle: the service name. Required for Oracle                       |
-| `connection.user`                                        | string  | required            | The login of the catalog                                            |
-| `connection.password_file`                               | path    | required            | An absolute path to a file that holds the password                  |
-| `connection.transport_mode`                              | string  | required            | `plaintext`, `verified` or `mutual`. Oracle accepts `verified` only |
-| `connection.transport_anchors`                           | path    | none                | The CA file for `verified` and `mutual`                             |
-| `connection.client_certificate`, `connection.client_key` | path    | none                | The client identity for `mutual`                                    |
+| Key                                                        | Type    | Default             | Meaning                                                                                               |
+| ---------------------------------------------------------- | ------- | ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `environment`                                              | string  | required            | Selects the rows of the view for this deployment                                                      |
+| `source_alias`                                             | string  | required            | The `sources:` alias of the data system that holds the tables                                         |
+| `dictionary_schema`                                        | string  | `sutura_dictionary` | The schema of the `columns` view. Letters, digits and `_` only                                        |
+| `max_dictionary_rows`                                      | integer | `10000`             | The row limit for one read. `0` is refused                                                            |
+| `max_dictionary_bytes`                                     | integer | `8388608`           | The size limit for one read. `0` is refused                                                           |
+| `live_row_predicate.column`                                | string  | none                | An extra column that selects live rows                                                                |
+| `live_row_predicate.operator`                              | string  | none                | `is_null`, `is_not_null` or `equals`                                                                  |
+| `live_row_predicate.value`                                 | string  | none                | The value for `equals`. Refused for the other two operators                                           |
+| `connection.dialect`                                       | string  | `postgres`          | `postgres` or `oracle`                                                                                |
+| `connection.host`                                          | string  | none                | The database host. Oracle requires it                                                                 |
+| `connection.unix_socket`                                   | path    | none                | PostgreSQL only: a socket directory, instead of `host`                                                |
+| `connection.port`                                          | integer | required            | The database port                                                                                     |
+| `connection.database`                                      | string  | none                | PostgreSQL: the database. Required for PostgreSQL                                                     |
+| `connection.service_name`                                  | string  | none                | Oracle: the service name. Required for Oracle                                                         |
+| `connection.user`                                          | string  | required            | The login of the catalog                                                                              |
+| `connection.password_file`                                 | path    | required            | An absolute path to a file that holds the password                                                    |
+| `connection.transport_mode`                                | string  | required            | PostgreSQL: `plaintext`, `verified` or `mutual`. Oracle: `verified` or the weaker `native-encryption` |
+| `connection.transport_anchors`                             | path    | none                | The CA file for `verified` and `mutual`                                                               |
+| `connection.client_certificate`, `connection.client_key`   | path    | none                | The client identity for `mutual`                                                                      |
+| `connection.native_encryption_acknowledged_because`        | string  | none                | Oracle only: required, nonblank reason for `native-encryption`; refused for other modes               |
+| `connection.legacy_password_verifier`                      | boolean | `false`             | Oracle only: permits 10G and 11G password logins over `verified` or `native-encryption`               |
+| `connection.legacy_password_verifier_acknowledged_because` | string  | none                | Oracle only: required, nonblank reason when the legacy switch is `true`; refused otherwise            |
 
 `sutura serve` reads all catalog entries again at the shortest `refresh_seconds` among them. The default is 900, and `0` is refused. See [Serving](../../serving.md).
 
 `plaintext` needs a loopback IP address as `host`. `verified` and `mutual` need `host`, not
 `unix_socket`. A build with the `rdbms` feature reads PostgreSQL dictionaries; the Oracle
-dictionary needs a build with the `oracle` feature. Oracle refuses `plaintext` for every host:
-write `verified` with `transport_anchors` naming a PEM file. Those certificates replace the public
+dictionary needs a build with the `oracle` feature. Oracle refuses `plaintext` for every host.
+For `verified`, write `transport_anchors` naming a PEM file. Those certificates replace the public
 authorities, `host` is the name TLS verifies, and sutura presents no client certificate. The Oracle
 reader refuses a listener that redirects the connection, before it logs in.
+
+Oracle's `native-encryption` uses TCP with required Oracle Native Network Encryption and Data
+Integrity, with only AES-256/192/128 and SHA-512/384/256. **It does not authenticate the listener:**
+the unauthenticated Diffie-Hellman exchange does not establish the listener's identity against
+an active network attacker. Prefer `verified` when TCPS is available. Native mode requires its own
+reason, refuses TLS anchors and client identity fields, and startup logs it at `WARN`. There is no automatic fallback
+or algorithm setting.
+Native integrity excludes TNS headers and data flags. CBC reuses the derived IV for records within
+each protocol phase: equal plaintext block prefixes produce equal ciphertext prefixes. See the
+[Oracle source limits](../data-systems/oracle.md#native-encryption-and-legacy-passwords).
+
+The legacy-verifier switch is a separate decision with a separate reason and startup `WARN`.
+Without it, an Oracle account with only a 10G or 11G verifier is refused with its type named; an
+unknown verifier is always refused. Legacy login exchanges expose material for offline password
+guessing when visible, so this switch requires an encrypted transport. NNE's lack of authenticated
+peer identity still applies. These settings do not change the catalog identity: every read uses
+its declared dictionary login. See the [Oracle source](../data-systems/oracle.md#native-encryption-and-legacy-passwords)
+for the same transport guarantees and limits.
 
 ## Example
 
