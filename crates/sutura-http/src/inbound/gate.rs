@@ -37,6 +37,7 @@
 //! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
 //! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -88,6 +89,17 @@ pub struct InboundGate {
     realm: String,
     /// The public discovery document and the exact absolute URL the challenge points at.
     protected_resource: Option<crate::routes::protected_resource::ProtectedResource>,
+    /// The issuer this gate validates tokens for.
+    ///
+    /// Stored at startup from the declaration's requirement, so the multi-verifier dispatcher can
+    /// route by `iss` without consulting any configured state.
+    issuer: String,
+    /// Additional verifiers, keyed by their issuer string (`github.com/telekom/sutura#1884`).
+    ///
+    /// **Empty for a single-verifier deployment** - no dispatching cost and no allocation in that
+    /// case. When non-empty, `establish` peeks at the unverified `iss` claim to select the right
+    /// sub-gate before doing any signature work.
+    also_accept: HashMap<String, InboundGate>,
 }
 
 /// The gate could not be built.
@@ -144,6 +156,29 @@ impl InboundGate {
         Ok(Self::over(inbound, keys))
     }
 
+    /// The same, also loading the additional verifiers from `security.also_accept`
+    /// (`github.com/telekom/sutura#1884`).
+    ///
+    /// **Called when `also_accept` is non-empty.** The primary gate is built first; then each entry
+    /// in `also_accept` is built as a fully independent gate and stored by its issuer string. `iss`
+    /// dispatch in `establish` selects the sub-gate without further config lookups.
+    pub fn from_declarations_trusting(
+        inbound: &InboundIdentity,
+        also_accept: &[InboundIdentity],
+        anchors: Option<&sutura_tls::Anchors>,
+    ) -> Result<Self, InboundNotUsable> {
+        let mut primary = Self::from_declaration_trusting(inbound, anchors)?;
+        let map: Result<HashMap<String, InboundGate>, InboundNotUsable> = also_accept
+            .iter()
+            .map(|id| {
+                let gate = Self::from_declaration_trusting(id, anchors)?;
+                Ok((gate.issuer.clone(), gate))
+            })
+            .collect();
+        primary.also_accept = map?;
+        Ok(primary)
+    }
+
     /// The same, over a key set that is already in hand.
     ///
     /// `pub(crate)` and the seam every test in this module uses: a fake
@@ -178,6 +213,8 @@ impl InboundGate {
             bearer_prefixed,
             challenges,
             protected_resource,
+            issuer: String::from(requirement.issuer().as_str()),
+            also_accept: HashMap::new(),
         }
     }
 
@@ -191,8 +228,14 @@ impl InboundGate {
     /// forgiving: `crate::inbound::keys::KeySetCache::key_for` checks the age itself, so a deployment
     /// serving traffic re-reads within the same horizon. What the timer adds is the bound holding while
     /// nothing is being asked.
+    ///
+    /// For multi-verifier deployments, watches the sub-gate key sets too: each verifier has its own
+    /// key source and its own rotation cycle.
     pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown) {
-        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown);
+        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown.clone());
+        for gate in self.also_accept.values() {
+            KeySetCache::watch_until_shutdown(&gate.keys, MAX_KEY_SET_AGE, shutdown.clone());
+        }
     }
 
     /// The header this gate reads, for a startup log line and for a test.
@@ -250,7 +293,8 @@ impl InboundGate {
     /// Establishes who is asking, or says why it could not.
     ///
     /// The whole request path of leg 1, in one function, so the order of the four steps is readable in
-    /// one place: read the header, read the key id it names, find the key, verify.
+    /// one place: read the header, route by issuer (multi-verifier only), read the key id it names,
+    /// find the key, verify.
     ///
     /// **Takes the headers rather than the request, and both reasons are worth keeping.** The narrow
     /// one is that it is the whole of what leg 1 may read: a gate that was handed a request could
@@ -258,9 +302,37 @@ impl InboundGate {
     /// that unavailable rather than merely unwise. The mechanical one is that `axum::body::Body` is not
     /// `Sync`, so a future holding `&Request` across an await is not `Send` and cannot run as a layer
     /// at all - which is how the narrow reason got discovered.
+    ///
+    /// **Multi-verifier routing** (`github.com/telekom/sutura#1884`): when `also_accept` is non-empty,
+    /// the token's unverified `iss` claim selects the verifier. Reading an unauthenticated claim to
+    /// dispatch is safe here because the selected verifier still checks the signature, issuer match and
+    /// audience with keys it built for that issuer at startup. An `iss` that selects the wrong verifier
+    /// fails that verifier's checks; an `iss` that matches no verifier is `UnknownIssuer` immediately,
+    /// with no key lookup and no signature work.
     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let presented = self.presented(headers)?;
         self.validator.check_size(presented)?;
+        if self.also_accept.is_empty() {
+            // Single-verifier fast path: skip the issuer peek entirely.
+            return self.establish_token(presented, now).await;
+        }
+        // Multi-verifier: peek at the unverified `iss` to select the right sub-gate.
+        let iss = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
+        let gate = if iss == self.issuer {
+            self
+        } else if let Some(alt) = self.also_accept.get(iss.as_str()) {
+            alt
+        } else {
+            return Err(TokenRejected::UnknownIssuer);
+        };
+        gate.establish_token(presented, now).await
+    }
+
+    /// Verifies an already-extracted token against this gate's validator and key set.
+    ///
+    /// The original three-step body of `establish`, pulled out so the multi-verifier router can call
+    /// it on whichever sub-gate the `iss` selects.
+    async fn establish_token(&self, presented: &str, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let id = TokenValidator::key_id(presented)?;
         let key = self
             .keys
@@ -316,6 +388,7 @@ impl core::fmt::Debug for InboundGate {
         f.debug_struct("InboundGate")
             .field("header", &self.header)
             .field("realm", &self.realm)
+            .field("also_accept_count", &self.also_accept.len())
             .finish_non_exhaustive()
     }
 }
@@ -387,6 +460,32 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     response
 }
 
+/// Peeks at the token's `iss` claim without verifying anything.
+///
+/// A deliberate read of unauthenticated input, and the design notes say why that is not a security
+/// gap: `iss` selects a verifier, not a permission. The selected verifier then checks the signature,
+/// expiry, issuer match and audience with the keys it built at startup for that issuer.
+///
+/// A minimal inline struct deserializes only `iss`, so a JSON payload that lacks it returns `None`
+/// and the dispatcher will refuse with `UnknownIssuer`. The function is infallible in the sense that
+/// any parse failure returns `None` rather than an error: the subsequent `establish_token` call will
+/// produce the specific rejection when the caller passes `UnknownIssuer`.
+fn unverified_issuer(token: &str) -> Option<String> {
+    use base64::Engine as _;
+    #[derive(serde::Deserialize)]
+    struct IssOnly {
+        iss: String,
+    }
+    let mut segments = token.split('.');
+    let (Some(_header), Some(payload), Some(_sig), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss)
+}
+
 /// A refusal that is this process's state rather than the caller's credential, and is not a `401`.
 ///
 /// A full store of seen assertions is announced once per window where it is raised, so it gets no
@@ -417,7 +516,8 @@ fn challenged(response: &mut Response, challenge: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, TokenRejected, not_the_callers_fault};
+    use super::{Failure, TokenRejected, not_the_callers_fault, unverified_issuer};
+    use base64::Engine as _;
 
     #[test]
     fn a_full_seen_store_answers_identity_unavailable_and_a_replay_answers_401() {
@@ -426,5 +526,30 @@ mod tests {
             Some(Failure::IdentityUnavailable)
         ));
         assert!(not_the_callers_fault(&TokenRejected::Replayed).is_none());
+        assert!(not_the_callers_fault(&TokenRejected::UnknownIssuer).is_none());
+    }
+
+    #[test]
+    fn unverified_issuer_reads_iss_without_checking_signature() {
+        let payload = serde_json::json!({"iss": "https://idp.example.com/realms/prod", "sub": "user"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string());
+        let token = format!("eyJhbGciOiJSUzI1NiJ9.{encoded}.fakesig");
+        assert_eq!(
+            unverified_issuer(&token).as_deref(),
+            Some("https://idp.example.com/realms/prod")
+        );
+    }
+
+    #[test]
+    fn unverified_issuer_returns_none_for_a_missing_iss_or_malformed_token() {
+        // No `iss` claim in the payload.
+        let payload = serde_json::json!({"sub": "user"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string());
+        let token = format!("eyJhbGciOiJSUzI1NiJ9.{encoded}.fakesig");
+        assert!(unverified_issuer(&token).is_none(), "no iss should give None");
+        // Not a three-segment JWT at all.
+        assert!(unverified_issuer("notatoken").is_none(), "one segment should give None");
+        // Too many segments.
+        assert!(unverified_issuer("a.b.c.d").is_none(), "four segments should give None");
     }
 }

@@ -351,6 +351,9 @@ pub struct SecuritySettings {
     access_token: Option<AccessToken>,
     tls_termination: TlsTermination,
     inbound: Option<InboundIdentity>,
+    /// Additional verifiers accepted alongside `inbound`, selected per-request by the token's
+    /// unverified `iss` claim - `github.com/telekom/sutura#1884`.
+    also_accept: Vec<InboundIdentity>,
     identity: Option<DeploymentIdentity>,
     metrics_token: Option<AccessToken>,
     outbound: Option<OutboundAnchors>,
@@ -383,6 +386,7 @@ impl SecuritySettings {
         access_token: Option<AccessToken>,
         tls_termination: TlsTermination,
         inbound: Option<InboundIdentity>,
+        also_accept: Vec<InboundIdentity>,
         identity: Option<DeploymentIdentity>,
         metrics_token: Option<AccessToken>,
         outbound: Option<OutboundAnchors>,
@@ -393,6 +397,7 @@ impl SecuritySettings {
             access_token,
             tls_termination,
             inbound,
+            also_accept,
             identity,
             metrics_token,
             outbound,
@@ -478,6 +483,17 @@ impl SecuritySettings {
     #[inline]
     pub const fn inbound(&self) -> Option<&InboundIdentity> {
         self.inbound.as_ref()
+    }
+
+    /// Additional verifiers accepted alongside [`Self::inbound`], selected per-request by the
+    /// token's unverified `iss` claim.
+    ///
+    /// An empty slice means only the primary verifier is in effect. The startup refusal checks in
+    /// `crate::settings::posture` enforce that no issuer or audience appears in more than one
+    /// verifier.
+    #[inline]
+    pub fn also_accept(&self) -> &[InboundIdentity] {
+        &self.also_accept
     }
 
     /// Does anything here establish who the caller is?
@@ -601,6 +617,7 @@ mod tests {
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::None,
             None,
+            Vec::new(),
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
             None,
@@ -673,6 +690,7 @@ mod tests {
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::Ingress,
             None,
+            Vec::new(),
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
             None,
@@ -693,6 +711,7 @@ mod tests {
             None,
             TlsTermination::Ingress,
             Some(direct()),
+            Vec::new(),
             None,
             None,
             None,
@@ -903,6 +922,7 @@ mod tests {
             None,
             TlsTermination::None,
             None,
+            Vec::new(),
             None,
             None,
             Some(OutboundAnchors::System),

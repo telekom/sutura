@@ -533,6 +533,14 @@ pub(crate) struct RawSecurity {
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
     pub(crate) inbound: Option<RawInbound>,
+    /// Additional verifiers accepted alongside `inbound`, each selected per-request by the token's
+    /// unverified `iss` claim (`github.com/telekom/sutura#1884`).
+    ///
+    /// Each entry is a full inbound declaration like `inbound`; the mode is required and there is no
+    /// default. Audiences and issuers must not overlap between any two verifiers in the combined set:
+    /// overlapping audiences or duplicate issuers are refused at startup.
+    #[serde(default)]
+    pub(crate) also_accept: Vec<RawInbound>,
     /// The credential that gates `/metrics` and nothing else.
     ///
     /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of

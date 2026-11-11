@@ -230,6 +230,14 @@ pub enum TokenRejected {
     /// nothing is wrong with the caller's assertion, and none is admitted unrecorded.
     #[error("this process holds as many unexpired assertions as it can, and admits no new one until some expire")]
     SeenStoreFull,
+    /// A multi-verifier deployment received a token whose `iss` claim matches no configured verifier.
+    ///
+    /// **A deliberate `401 invalid_token`, not a `501`.** An unknown issuer is not an error this
+    /// deployment cannot handle - it is a caller presenting a token nobody here will verify. The
+    /// same error a wrong-audience or wrong-signature token produces, so a caller cannot learn from
+    /// the response which verifiers are configured and which are not.
+    #[error("the token's issuer is not one this deployment accepts")]
+    UnknownIssuer,
 }
 
 /// Why a presented token did not verify, when it did not.

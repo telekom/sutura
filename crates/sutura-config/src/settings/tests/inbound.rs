@@ -758,3 +758,99 @@ fn a_key_set_max_stale_outside_its_range_does_not_start() {
         drop(loads(overlay(declared, seconds)));
     }
 }
+
+// --------------------------------------------- security.also_accept (#1884) ----
+
+/// A `behind-gateway` block that sits under `security.also_accept`, indented for that position.
+///
+/// Different from `GATEWAY_INBOUND` in two ways: it is indented four more spaces (the YAML list
+/// item adds two, plus the existing two), and its issuer and audience are distinct from
+/// `DIRECT_INBOUND`'s so the two verifiers do not trigger the overlap refusals.
+const GATEWAY_ALSO_ACCEPT: &str = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
+                                    transit_header: \"X-Transit-Proof\"\n      \
+                                    transit_issuer: \"https://gateway.example.com\"\n      \
+                                    transit_audience: \"/hub/sutura/v1\"\n      \
+                                    key_set_file: \"/k.json\"\n      \
+                                    algorithms: [\"ES256\"]\n      \
+                                    transit_token_type: \"at+jwt\"\n";
+
+#[test]
+fn also_accept_beside_a_primary_inbound_loads_and_the_secondary_is_accessible() {
+    // The positive case: a primary `direct` verifier and a secondary `behind-gateway` verifier
+    // load, and `also_accept()` returns the secondary.
+    let settings = loads(format!("security:\n{DIRECT_INBOUND}{GATEWAY_ALSO_ACCEPT}"));
+    let primary = settings.security().inbound().expect("the primary declaration is there");
+    assert_eq!(primary.mode(), "direct");
+    let also = settings.security().also_accept();
+    assert_eq!(also.len(), 1, "one secondary verifier");
+    assert_eq!(also[0].mode(), "behind-gateway");
+    assert_eq!(also[0].requirement().issuer().as_str(), "https://gateway.example.com");
+    assert_eq!(also[0].requirement().audience().as_str(), "/hub/sutura/v1");
+}
+
+#[test]
+fn also_accept_without_a_primary_inbound_is_refused() {
+    // `also_accept` extends a primary verifier - there is no "secondary only" shape, because
+    // RFC 9728 describes one resource server and that is the primary.
+    let rendered = Settings::load(
+        &Sources::defaults(Environment::Development).with_overlay(format!("security:\n{GATEWAY_ALSO_ACCEPT}")),
+    )
+    .expect_err("also_accept without primary inbound is refused")
+    .reason()
+    .to_string();
+    assert!(rendered.contains("security.also_accept"), "{rendered}");
+    assert!(rendered.contains("security.inbound"), "{rendered}");
+}
+
+#[test]
+fn also_accept_duplicate_issuer_is_refused_naming_the_index() {
+    // The primary's `authorization_server` and the secondary's `transit_issuer` are the same
+    // issuer string. Each verifier must have a unique issuer so the dispatcher can route by `iss`.
+    let duplicate_issuer_also_accept = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
+                                         transit_header: \"X-Transit-Proof\"\n      \
+                                         transit_issuer: \"https://issuer.example.com\"\n      \
+                                         transit_audience: \"/hub/sutura/v1\"\n      \
+                                         key_set_file: \"/k.json\"\n      \
+                                         algorithms: [\"ES256\"]\n      \
+                                         transit_token_type: \"at+jwt\"\n";
+    let error = Settings::load(
+        &Sources::defaults(Environment::Development)
+            .with_overlay(format!("security:\n{DIRECT_INBOUND}{duplicate_issuer_also_accept}")),
+    )
+    .expect_err("also_accept with a duplicate issuer is refused");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(
+        refusals
+            .iter()
+            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptDuplicateIssuer { ref issuer, index: 0 } if issuer == "https://issuer.example.com")),
+        "{refusals:?}"
+    );
+}
+
+#[test]
+fn also_accept_overlapping_audience_is_refused_naming_the_index() {
+    // The primary's audience (derived from `resource`) and the secondary's `transit_audience` are
+    // the same string. Audiences must not overlap so a token cannot accidentally verify under two
+    // different verifiers.
+    let overlapping_audience_also_accept = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
+                                             transit_header: \"X-Transit-Proof\"\n      \
+                                             transit_issuer: \"https://gateway.example.com\"\n      \
+                                             transit_audience: \"https://sutura.example.com\"\n      \
+                                             key_set_file: \"/k.json\"\n      \
+                                             algorithms: [\"ES256\"]\n      \
+                                             transit_token_type: \"at+jwt\"\n";
+    let error = Settings::load(
+        &Sources::defaults(Environment::Development)
+            .with_overlay(format!("security:\n{DIRECT_INBOUND}{overlapping_audience_also_accept}")),
+    )
+    .expect_err("also_accept with an overlapping audience is refused");
+    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(
+        refusals.iter().any(|r| matches!(*r, NotFitToServe::AlsoAcceptOverlappingAudience { ref audience, index: 0 } if audience == "https://sutura.example.com")),
+        "{refusals:?}"
+    );
+}

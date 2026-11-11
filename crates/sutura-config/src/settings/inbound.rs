@@ -205,6 +205,14 @@ fn transit_lifetime(seconds: u64, accepted: bool) -> Result<ProofLifetime, Setti
     Ok(lifetime)
 }
 
+/// Parses a list of additional verifiers from the `security.also_accept` block.
+///
+/// Each entry is a full inbound declaration like `security.inbound`; the same parser is used,
+/// so an entry with no `mode` is refused just as a primary block with no mode is.
+pub(super) fn parse_also_accept(written: &[crate::raw::RawInbound]) -> Result<Vec<InboundIdentity>, SettingsError> {
+    written.iter().map(parse_inbound).collect()
+}
+
 /// The key this mode needs and did not get.
 ///
 /// One helper rather than six `ok_or_else` calls, so the refusal for a missing key says the same

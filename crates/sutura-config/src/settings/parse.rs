@@ -107,6 +107,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
         None => None,
         Some(written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
+    let also_accept = crate::settings::inbound::parse_also_accept(&raw.security.also_accept)?;
     // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
     // PRESENT empty block is. `outbound_identity` is the optional client pair beside the anchors
     // (`github.com/telekom/sutura#911`).
@@ -117,6 +118,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
         token,
         termination,
         inbound,
+        also_accept,
         identity,
         metrics_token,
         outbound,

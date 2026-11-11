@@ -613,6 +613,40 @@ pub enum NotFitToServe {
          sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
     )]
     FlashbackReadByNoNode { alias: SourceName },
+    /// Two verifiers in the combined set share an audience.
+    ///
+    /// **A security boundary, not a naming rule.** A token minted for one audience would, without
+    /// this check, be verifiable by both verifiers - because both would recognise the same `aud`
+    /// claim as their own. The startup refusal is what makes the boundary a mechanism rather than a
+    /// convention.
+    #[error(
+        "security.inbound and security.also_accept[{index}] share the audience `{audience}` - \
+         audiences must not overlap between verifiers, because a token issued for one would otherwise \
+         be accepted by both. Give each verifier a distinct audience"
+    )]
+    AlsoAcceptOverlappingAudience { audience: String, index: usize },
+    /// Two verifiers in the combined set share an issuer URL.
+    ///
+    /// A token's unverified `iss` is what selects the verifier per request; two verifiers with the
+    /// same issuer make the selection ambiguous and are refused at startup rather than resolved at
+    /// request time by any ordering rule.
+    #[error(
+        "security.inbound and security.also_accept[{index}] share the issuer `{issuer}` - each \
+         verifier in a multi-verifier deployment must have a distinct issuer, because the issuer \
+         claim selects which one validates the token. Remove the duplicate"
+    )]
+    AlsoAcceptDuplicateIssuer { issuer: String, index: usize },
+    /// `security.also_accept` was written, but `security.inbound` was not.
+    ///
+    /// `also_accept` extends a primary verifier - there is no "secondary only" shape, because
+    /// nothing would route an unknown-issuer request and nothing would describe the deployment's
+    /// own resource in RFC 9728 metadata.
+    #[error(
+        "security.also_accept is declared but security.inbound is not. `also_accept` extends a \
+         primary verifier - declare security.inbound with the deployment's own mode and resource, \
+         or remove security.also_accept"
+    )]
+    AlsoAcceptWithoutPrimaryInbound,
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
@@ -666,6 +700,59 @@ pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<
     } else {
         vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]
     }
+}
+
+/// Checks that every `also_accept` entry is compatible with the primary `inbound` declaration.
+///
+/// Three rules, all checked here:
+/// - `also_accept` without `inbound` is refused (`AlsoAcceptWithoutPrimaryInbound`).
+/// - Duplicate issuers across verifiers are refused (`AlsoAcceptDuplicateIssuer`).
+/// - Overlapping audiences are refused (`AlsoAcceptOverlappingAudience`).
+///
+/// The audience and issuer checks are symmetric: they compare each `also_accept` entry against
+/// the primary verifier and against every earlier `also_accept` entry, so the index in the error
+/// message names the LATER entry that introduced the collision.
+pub(super) fn also_accept_refusals(
+    inbound: Option<&InboundIdentity>,
+    also_accept: &[InboundIdentity],
+) -> Vec<NotFitToServe> {
+    let mut refusals = Vec::new();
+    if also_accept.is_empty() {
+        return refusals;
+    }
+    // Rule 1: `also_accept` without a primary `inbound` is refused.
+    let Some(primary) = inbound else {
+        refusals.push(NotFitToServe::AlsoAcceptWithoutPrimaryInbound);
+        // The other checks need the primary, so stop here.
+        return refusals;
+    };
+    // Build the full set of verifiers: the primary first, then each `also_accept` in order.
+    // Both the issuer and the audience of every earlier entry are compared against the later one.
+    let all: Vec<(&InboundIdentity, usize)> = std::iter::once((primary, usize::MAX))
+        .chain(also_accept.iter().enumerate().map(|(i, v)| (v, i)))
+        .collect();
+    for window_end in 1..all.len() {
+        let (later, later_index) = all[window_end];
+        let later_req = later.requirement();
+        let later_issuer = later_req.issuer().as_str();
+        let later_audience = later_req.audience().as_str();
+        for &(earlier, _) in &all[..window_end] {
+            let earlier_req = earlier.requirement();
+            if earlier_req.issuer().as_str() == later_issuer {
+                refusals.push(NotFitToServe::AlsoAcceptDuplicateIssuer {
+                    issuer: String::from(later_issuer),
+                    index: later_index,
+                });
+            }
+            if earlier_req.audience().as_str() == later_audience {
+                refusals.push(NotFitToServe::AlsoAcceptOverlappingAudience {
+                    audience: String::from(later_audience),
+                    index: later_index,
+                });
+            }
+        }
+    }
+    refusals
 }
 
 /// [`NotFitToServe::RunSqlEnabledInMultiUserMode`]: in `multi-user` mode, a listed alias that names

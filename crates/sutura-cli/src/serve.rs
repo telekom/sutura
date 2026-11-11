@@ -582,9 +582,19 @@ fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>,
         };
     };
     let anchors = settings.security().outbound().map(crate::sources::anchors_of);
-    let gate = sutura_http::InboundGate::from_declaration_trusting(declared, anchors.as_ref()).map_err(flatten)?;
+    let also_accept = settings.security().also_accept();
+    // `github.com/telekom/sutura#1884`: when `also_accept` is non-empty use the multi-verifier
+    // constructor, which builds a fully independent sub-gate for each additional verifier and stores
+    // them keyed by their issuer string. The single-verifier path is unchanged so its fast-path in
+    // `establish` has no overhead.
+    let gate = if also_accept.is_empty() {
+        sutura_http::InboundGate::from_declaration_trusting(declared, anchors.as_ref()).map_err(flatten)?
+    } else {
+        sutura_http::InboundGate::from_declarations_trusting(declared, also_accept, anchors.as_ref()).map_err(flatten)?
+    };
     tracing::info!(
         inbound_mode = declared.mode(),
+        also_accept_count = also_accept.len(),
         header = gate.header(),
         "leg 1 is armed: the key set was read and a caller's token will be verified against it"
     );
