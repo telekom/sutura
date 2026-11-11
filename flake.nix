@@ -46,7 +46,7 @@
     # The ADBC PostgreSQL driver (`c/driver/postgresql`, C++ over libpq), self-built
     # per release triple like the BigQuery one (telekom/sutura#913). Apache-2.0.
     # GitHub archives expand export-subst abbreviations that can grow at the same revision.
-    arrow-adbc-src.url = "git+https://github.com/apache/arrow-adbc?ref=refs/tags/apache-arrow-adbc-24";
+    arrow-adbc-src.url = "git+https://github.com/apache/arrow-adbc?ref=refs/tags/apache-arrow-adbc-24&shallow=1";
     arrow-adbc-src.flake = false;
   };
 
