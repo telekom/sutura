@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import resource
 import shlex
 import shutil
 import subprocess
@@ -260,6 +261,41 @@ def oracle_claims():
     assert status == 0
 
 
+def profile_diagnostic():
+    os.environ["NEXTEST_PROFILE"] = "nofailfast"
+    recipe = Path(__file__).resolve().with_name("profile.just")
+    assert digest(recipe.read_bytes()) == PLAN["profile_just_sha256"]
+    write("compiler.json", {"rustc_verbose": subprocess.check_output(["rustc", "-Vv"]).decode()})
+    commands = [
+        ("profile-default", ["just", "test-only", PLAN["test_filter"]]),
+        ("profile-ci", ["just", "--justfile", str(recipe), "--working-directory", str(Path.cwd()),
+                        "ci-only", PLAN["test_filter"]]),
+    ]
+    outcomes = []
+    for label, command in commands:
+        for moment in ("before", "after"):
+            exact(BASELINE)
+            assert not git("status", "--porcelain")
+            files = {path: digest(Path(path).read_bytes()) for path in PLAN["frozen_files"]}
+            assert files == PLAN["frozen_files"]
+            cell = PLAN["test_function"]
+            function_sha = digest(region(cell["path"], cell["name"])[2].encode())
+            assert function_sha == cell["sha256"]
+            names = ("RUST_MIN_STACK", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_PROFILE",
+                     "CARGO_BUILD_RUSTFLAGS", "CARGO_TARGET_DIR", "NEXTEST_PROFILE")
+            facts = {name: os.environ.get(name) for name in names}
+            facts.update({name: value for name, value in os.environ.items() if name.startswith("CARGO_PROFILE_")})
+            write(label + "-" + moment + "-environment.json", {
+                "environment": facts, "process_stack_soft_hard_bytes": resource.getrlimit(resource.RLIMIT_STACK),
+                "source_files": files, "test_function_sha256": function_sha,
+                "limit": "Process limits are observed, not a measurement of libtest thread stack size."})
+            if moment == "before":
+                status, _ = execute(label, command)
+                outcomes.append({"label": label, "exit": status})
+    write("diagnostic-summary.json", {"outcomes": outcomes, "status": "OBSERVATION ONLY",
+          "limit": "No demanded green, mutation proof, single-knob cause, or credit for the42 controls."})
+
+
 def bootstrap(mode, plan_path):
     out = Path("target/inbound-verifier-proof") / ("bootstrap-" + mode)
     out.mkdir(parents=True, exist_ok=False)
@@ -318,7 +354,7 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("mutations", "validate", "default-features", "oracle-claims")
+    assert mode in ("mutations", "validate", "default-features", "oracle-claims", "profile-diagnostic")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted proof"
     PLAN = json.loads(Path(plan_path).read_text())
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
@@ -351,6 +387,8 @@ if __name__ == "__main__":
             mutations()
         elif mode == "oracle-claims":
             oracle_claims()
+        elif mode == "profile-diagnostic":
+            profile_diagnostic()
         else:
             assert mode in ("validate", "default-features")
             task = {"validate": "validate", "default-features": "check-default-features"}[mode]

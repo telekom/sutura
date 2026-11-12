@@ -1,0 +1,67 @@
+{
+  "source_sha": "b06d80374f9f90c9733af83fdb56676c2a19ca69",
+  "source_tree": "77667fca73baba5a4707301039763fad643775fd",
+  "operation": "profile diagnostic only",
+  "frozen_cell": "combine::statement::tests::bounds::an_expression_chained_past_the_bound_is_not_planned",
+  "test_filter": "binary_id(=sutura-exec-datafusion) & test(=combine::statement::tests::bounds::an_expression_chained_past_the_bound_is_not_planned)",
+  "environment_before_each_phase": [
+    "RUST_MIN_STACK",
+    "CARGO_PROFILE",
+    "CARGO_PROFILE_TEST_*",
+    "CARGO_PROFILE_CI_*",
+    "RUSTFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "NEXTEST_PROFILE",
+    "ulimit soft/hard stack",
+    "compiler/nextest versions",
+    "source/test hashes"
+  ],
+  "sequence": [
+    {
+      "label": "default-test",
+      "command": [
+        "just",
+        "test-only",
+        "binary_id(=sutura-exec-datafusion) & test(=combine::statement::tests::bounds::an_expression_chained_past_the_bound_is_not_planned)"
+      ]
+    },
+    {
+      "label": "native-ci-profile",
+      "command": [
+        "just",
+        "--justfile",
+        "../devco/profile.just",
+        "--working-directory",
+        ".",
+        "ci-only",
+        "binary_id(=sutura-exec-datafusion) & test(=combine::statement::tests::bounds::an_expression_chained_past_the_bound_is_not_planned)"
+      ]
+    }
+  ],
+  "required_custody": "Existing frozen source/initial-final raw index+stage/full source snapshots, exact logs+exits for both runs. Never import or execute this helper locally.",
+  "limits": [
+    "Comparison is observational; neither phase is a killing mutation or42-control proof.",
+    "No RUST_MIN_STACK/ulimit change, product edit, assertion edit, ignored selection, or retries.",
+    "If default unexpectedly passes or ci fails, preserve observations without assigning cause.",
+    "A follow-up42-control venue remains necessary and separately reviewed; diagnostic alone cannot establish it."
+  ],
+  "status": "PRIVATE SOURCE PREPARATION ONLY; workflow/runner publication and dispatch not authorized",
+  "comparison_receipt_sha256": "2f259ff7c7cb334b0ab7b5d5a54e62e1fbd037f681bda46639791ad82eb2994d",
+  "comparison_sha": "5c4f252b4ac2bfc7dc834dc1197b642b026c12f7",
+  "profile_just_sha256": "a2c8f14b3caa71c187d93c49b18288129b5bad3a58c5454f038923f2d45ae5cb",
+  "frozen_files": {
+    "Cargo.toml": "20058d04e74e1873999fe3801cef56258e68147fec94e8317273414b44c78615",
+    "justfile": "a1f3fa59f16e14497a1fb912613901bbd02c23aba3b3ac027babbd3144b3d62f",
+    "flake.nix": "c24c95c4deedcfccd7990be7805b7d7d1a858945020ecdc6d5cbdae653b5d709",
+    "nix/cargo-env.nix": "e9bffd088712fb17c04d3090faf8beede49969fd43fae8f2b8aeed5c92e70aab",
+    ".config/nextest.toml": "f9ee23dd725a6b6032d9416313bd1d3ff6ba19d8e5ec4cc3627ce0e5f455a475",
+    "crates/sutura-exec-datafusion/src/combine/statement/tests/bounds.rs": "96d66e98e5801b1aa2857e3370cb9119ebe7571e1ebcaecbe1fa6b775811af7f"
+  },
+  "test_function": {
+    "path": "crates/sutura-exec-datafusion/src/combine/statement/tests/bounds.rs",
+    "name": "an_expression_chained_past_the_bound_is_not_planned",
+    "start": 95,
+    "end": 112,
+    "sha256": "c185ee0aad6dde55f56d049eead2990133b68bda9fbf180271d3791dfab07fba"
+  }
+}

@@ -40,7 +40,7 @@ on:
         description: Run the finishing gates on the pinned source
         type: choice
         required: true
-        options: [residual-proof]
+        options: [profile-diagnostic]
       source_sha:
         description: Exact frozen source commit; must match the reviewed plan
         type: string
@@ -60,42 +60,12 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 1
       matrix:
         include:
-          - label: sutura-app
-            plan: plan-sutura-app.json
-            mode: mutations
-          - label: sutura-cli-bin-sutura
-            plan: plan-sutura-cli-bin-sutura.json
-            mode: mutations
-          - label: sutura-cli-served
-            plan: plan-sutura-cli-served.json
-            mode: mutations
-          - label: sutura-config
-            plan: plan-sutura-config.json
-            mode: mutations
-          - label: sutura-config-chart_renders
-            plan: plan-sutura-config-chart_renders.json
-            mode: mutations
-          - label: sutura-config-tardis_example
-            plan: plan-sutura-config-tardis_example.json
-            mode: mutations
-          - label: sutura-domain
-            plan: plan-sutura-domain.json
-            mode: mutations
-          - label: sutura-exec-datafusion
-            plan: plan-sutura-exec-datafusion.json
-            mode: mutations
-          - label: sutura-http
-            plan: plan-sutura-http.json
-            mode: mutations
-          - label: sutura-runtime
-            plan: plan-sutura-runtime.json
-            mode: mutations
-          - label: oracle-claims
-            plan: plan-oracle-claims.json
-            mode: oracle-claims
+          - label: datafusion-profile-diagnostic
+            plan: plan-datafusion-profile-diagnostic.json
+            mode: profile-diagnostic
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,6 +107,7 @@ jobs:
           mkdir -p target/inbound-verifier-proof/parser
           cp ../devco/inbound_verifier_proof.py target/inbound-verifier-proof/collection-runner.py
           cp "../devco/$PROOF_PLAN" target/inbound-verifier-proof/collection-plan.json
+          cp ../devco/profile.just target/inbound-verifier-proof/collection-profile.just
           cp ../devco/check_own_sites.py target/inbound-verifier-proof/parser/check_own_sites.py
           cp ../devco/old_inbound_verifier_proof.py target/inbound-verifier-proof/parser/old_inbound_verifier_proof.py
           old_status=0
