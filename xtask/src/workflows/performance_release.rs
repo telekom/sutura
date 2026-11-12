@@ -562,6 +562,7 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
         let run = pushed_from("performance", false, "v0.6.1-performance");
         assert!(!run.succeeded, "{}", run.calls);
         assert!(run.printed.contains("an optimised release's own tag"), "{}", run.printed);
+        assert!(!run.calls.lines().any(|call| call.starts_with("push ")), "{}", run.calls);
         assert!(!run.calls.contains("imagetools create"), "{}", run.calls);
     }
 
