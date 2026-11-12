@@ -1762,6 +1762,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#raw-sql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw SQL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#identity" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2737,6 +2748,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#raw-sql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw SQL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#identity" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3027,6 +3049,33 @@ back the caller's Entra ID token, and Entra ID exchanges it for a token for the 
 <li><code>22222222-…</code> is the Entra ID app of the database. Each caller has their own database user, for
   example <code>CREATE USER caller IDENTIFIED GLOBALLY AS 'AZURE_USER=user@example.com';</code>.</li>
 </ul>
+<h2 id="raw-sql">Raw SQL<a class="headerlink" href="#raw-sql" title="Permanent link">&para;</a></h2>
+<p><code>tools.run_sql.enabled</code> opts a shared-user Oracle source into the <a href="../../../serving/#the-raw-sql-tool">raw tool</a>.
+Each call opens a fresh session, starts <code>SET TRANSACTION READ ONLY</code>, admits one driver-classified
+query, rolls back and discards the session. Statements containing <code>;</code> or ending in <code>/</code> are refused,
+including delimiters inside literals or comments. DDL, DML, PL/SQL and session-control statements
+are refused. For <code>SELECT ... FOR UPDATE</code>, the verified fixture reports the read-only refusal
+<code>ORA-01456</code> as <code>403 source_refused</code>. On the native fixture, fetching instead receives an
+unprotected control packet, which the protected channel refuses as <code>422 statement_failed</code>.
+No Oracle error code is recovered on that path. The call returns no rows and its session is discarded.</p>
+<p>The database account's grants remain the security boundary. A pre-existing function can perform
+autonomous writes or external effects even when its caller's transaction is read-only. Grant only
+the required reads and callable functions. In a build without <code>sql</code>, the source list does not
+restrict tables: Oracle authorizes the caller's unchanged text. With <code>sql</code>, the planner admits
+only declared columns and tables on listed sources. The answer is ungoverned, without certified
+provenance or an executed plan. Successful audit records retain the source and posture even when
+the response omits them; refused calls carry no success witness, including refusals after work ran.</p>
+<p>Raw results use the adapter's existing exact number and date conversions. LOBs, LONG, RAW and
+unmapped types are refused from metadata before fetching values. Declared widths and collected
+values spend the materialisation budget, and fetching stops at the row cap plus one so overflow
+is a refusal rather than a successful prefix. This bounds collected results, not Oracle's optimizer
+memory or the memory of work executing at the server.</p>
+<p>The driver timeout is per-read. The adapter checks the remaining request budget before parsing
+and each fetch, but busy reads, connect handshakes, rollback and session close have no hard total
+deadline. Native timeout recovery can disconnect rather than return a reusable session; raw calls
+never reuse that session. A suspended server function may ignore an interrupt. The hosted fixture
+checks an ordinary CPU query's exact session from ACTIVE to discarded and a later healthy call;
+it does not establish cancellation for every query or a hard end-to-end timeout.</p>
 <h2 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h2>
 <p>The supported posture is <code>shared-service-user</code>. sutura connects as the one user in <code>user</code>, and
 every caller's query runs with the permissions of that user.</p>

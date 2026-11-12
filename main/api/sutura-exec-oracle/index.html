@@ -2670,10 +2670,10 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
   <code>OracleError::RedirectRefused</code>: the driver is told not to follow one, so the connection
   stays on the address the source declared. A clustered listener that redirects every client is
   therefore refused too; declare the address that answers.</li>
-<li><strong>One <code>parking_lot::Mutex</code> serializes every call</strong>, and for good reason:
-  <code>Connection</code>'s own methods
-  take <code>&amp;self</code>, so the port's shared reference alone does not prove the driver tolerates two
-  overlapping calls - and nothing here measured that it does.</li>
+<li><strong>One <code>parking_lot::Mutex</code> serializes the boot and token-session paths.</strong> The driver's
+  <code>&amp;self</code> methods do not prove overlapping calls on one session work; none are measured here.
+  Raw calls own separate sessions and do not take that lock: their cleanup cannot block the
+  certified session, but this adapter does not cap the number of concurrent raw sessions.</li>
 <li><strong>The session lifecycle, and the bound on sessions.</strong> A question at an impersonating source
   opens its session under that lock, runs on it, and closes it before the lock is released, so a
   source holds at most one asker's session at a time beside its boot connection, and no session
@@ -2716,6 +2716,7 @@ answers <code>None</code>. This module's own <code>#[cfg(test)]</code> cell,
 - <code>Undeliverable</code> - The credential broker handed this adapter a leg it cannot open a session for.
 - <code>PresentedDisagreesWithPosture</code>
 - <code>DeadlineSpent</code> - The deadline was already spent before this call ever reached the driver - see <code>refuse_if_spent</code> for why this is checked rather than forwarded.
+- <code>RawNotQuery</code>
 - <code>CallTimeout</code> - <code>Connection::set_call_timeout</code> itself refused the value.
 - <code>PacketTraceOn</code> - The driver's packet trace is switched on - see <code>sutura_oracle_connect::oracle_trace::refuse</code>.
 - <code>FlashbackNotDeclared</code> - A partition was asked of a source whose flashback split was not declared and probed.
