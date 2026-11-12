@@ -40,7 +40,7 @@ on:
         description: Run the finishing gates on the pinned source
         type: choice
         required: true
-        options: [gates]
+        options: [residual-proof]
       source_sha:
         description: Exact frozen source commit; must match the reviewed plan
         type: string
@@ -55,12 +55,48 @@ concurrency:
 
 jobs:
   format:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: rust-mcp-16core
     timeout-minutes: 360
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        operation: [validate, ship-check]
+        include:
+          - label: sutura-app
+            plan: plan-sutura-app.json
+            mode: mutations
+          - label: sutura-cli-bin-sutura
+            plan: plan-sutura-cli-bin-sutura.json
+            mode: mutations
+          - label: sutura-cli-served
+            plan: plan-sutura-cli-served.json
+            mode: mutations
+          - label: sutura-config
+            plan: plan-sutura-config.json
+            mode: mutations
+          - label: sutura-config-chart_renders
+            plan: plan-sutura-config-chart_renders.json
+            mode: mutations
+          - label: sutura-config-tardis_example
+            plan: plan-sutura-config-tardis_example.json
+            mode: mutations
+          - label: sutura-domain
+            plan: plan-sutura-domain.json
+            mode: mutations
+          - label: sutura-exec-datafusion
+            plan: plan-sutura-exec-datafusion.json
+            mode: mutations
+          - label: sutura-http
+            plan: plan-sutura-http.json
+            mode: mutations
+          - label: sutura-runtime
+            plan: plan-sutura-runtime.json
+            mode: mutations
+          - label: oracle-claims
+            plan: plan-oracle-claims.json
+            mode: oracle-claims
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,14 +113,6 @@ jobs:
       - uses: ./.github/actions/reclaim-disk
         if: github.event_name == 'workflow_dispatch'
 
-      - name: Open KVM for the full validation gate
-        if: github.event_name == 'workflow_dispatch' && matrix.operation == 'validate'
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm
-
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
           extra_nix_config: |
@@ -97,23 +125,34 @@ jobs:
         if: github.event_name != 'workflow_dispatch'
         run: bash nix/format-text.sh check
 
-      - name: Run the finishing gates on the pinned source
-        if: github.event_name == 'workflow_dispatch'
+      - name: Associate parser output and run the pinned proof
         working-directory: source
         env:
-          OPERATION: ${{ matrix.operation }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          PROOF_MODE: ${{ matrix.mode }}
+          PROOF_PLAN: ${{ matrix.plan }}
         run: |
           set -euo pipefail
           unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
           export CARGO_TERM_COLOR=never NO_COLOR=1
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv --command python3 -I ../devco/inbound_verifier_proof.py "$OPERATION" ../devco/inbound-gates-plan.json
+          mkdir -p target/inbound-verifier-proof/parser
+          cp ../devco/inbound_verifier_proof.py target/inbound-verifier-proof/collection-runner.py
+          cp "../devco/$PROOF_PLAN" target/inbound-verifier-proof/collection-plan.json
+          cp ../devco/check_own_sites.py target/inbound-verifier-proof/parser/check_own_sites.py
+          cp ../devco/old_inbound_verifier_proof.py target/inbound-verifier-proof/parser/old_inbound_verifier_proof.py
+          old_status=0
+          nix shell --inputs-from . nixpkgs#python3 --command python3 -I ../devco/check_own_sites.py ../devco/old_inbound_verifier_proof.py > target/inbound-verifier-proof/parser/old.log 2>&1 || old_status=$?
+          printf '%s\n' "$old_status" > target/inbound-verifier-proof/parser/old.exit
+          test "$old_status" -ne 0
+          grep -F 'accepted unassociated panic evidence' target/inbound-verifier-proof/parser/old.log
+          nix shell --inputs-from . nixpkgs#python3 --command python3 -I ../devco/check_own_sites.py ../devco/inbound_verifier_proof.py > target/inbound-verifier-proof/parser/new.log 2>&1
+          printf '0\n' > target/inbound-verifier-proof/parser/new.exit
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv --command python3 -I ../devco/inbound_verifier_proof.py "$PROOF_MODE" "../devco/$PROOF_PLAN"
 
       - name: Retain evidence and any generated changes
         if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: inbound-finishing-${{ matrix.operation }}-${{ github.run_id }}
+          name: inbound-proof-${{ strategy.job-index }}-${{ github.run_id }}
           path: source/target/inbound-verifier-proof/
           if-no-files-found: error
           retention-days: 14

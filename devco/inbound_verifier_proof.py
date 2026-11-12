@@ -64,7 +64,7 @@ def execute(label, command):
     return result.returncode, text
 
 
-RESULT = re.compile(r"^\s*(PASS|FAIL)\s+\[[^\]]+\]\s+\(\s*\d+/\d+\)\s+(\S+)\s+(\S+)\s*$", re.M)
+RESULT = re.compile(r"^[ \t]*(PASS|FAIL)[ \t]+\[[^\]\n]+\][ \t]+\([ \t]*\d+/\d+\)[ \t]+(\S+)[ \t]+(\S+)[ \t]*$", re.M)
 
 
 def results(text):
@@ -92,17 +92,45 @@ def region(path, cell):
     return start + 1, end + 1, "\n".join(lines[start:end + 1])
 
 
-def own_sites(text, cell):
+def failed_output(text, binary, name):
+    headers = list(RESULT.finditer(text))
+    blocks = []
+    for index, header in enumerate(headers):
+        if header.groups() != ("FAIL", binary, name):
+            continue
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(text)
+        block = re.split(r"(?m)^[ \t]*(?:Summary[ \t]+\[|[─-]{6,}[ \t]*$)",
+                         text[header.end():end], maxsplit=1)[0]
+        if re.search(r"(?m)^  (?:stdout|stderr) [─-]+", block):
+            blocks.append(block)
+    assert len(blocks) == 1, ("missing or ambiguous named FAIL output", binary, name)
+    return blocks[0]
+
+
+def own_sites(text, cell, binary, name, expected_line, expected_hash):
+    text = failed_output(text, binary, name)
     path = PLAN["test_files"][cell]
     start, end, body = region(path, cell)
+    assert digest(body.encode()) == expected_hash, "named function differs from reviewed hash"
+    binding = PLAN.get("helper_site_bindings", {}).get(cell)
+    if binding:
+        assert binary == binding["binary"] and name == binding["full_cell"]
+        assert path == binding["test"]["path"] and digest(body.encode()) == binding["test"]["function_sha256"]
+        owner = binding["assertion_owner"]
+        assert digest(region(owner["path"], owner["non_test_helper"])[2].encode()) == owner["function_sha256"]
     sites = []
     for match in re.finditer(r" panicked at ([^\n]+):(\d+):(\d+):", text):
         found_path, line = match.group(1), int(match.group(2))
-        if found_path == path and start <= line <= end:
-            lines = text[match.start():].splitlines()
-            sites.append({"path": path, "line": line, "panic": "\n".join(lines[:8])})
+        lines = text[match.start():].splitlines()
+        if binding:
+            accepted = found_path == owner["path"] and line == owner["line"] and owner["literal_message"] in "\n".join(lines[:8])
+        else:
+            accepted = found_path == path and start <= line <= end and line == expected_line
+        if accepted:
+            sites.append({"path": found_path, "line": line, "panic": "\n".join(lines[:8]),
+                          "binding": "exact reviewed helper behavior assertion" if binding else "named function"})
     assert sites, ("no panic site inside the named test function", cell)
-    return {"cell": cell, "function_sha256": digest(body.encode()), "sites": sites}
+    return {"cell": cell, "binary_id": binary, "test_name": name, "function_sha256": digest(body.encode()), "sites": sites}
 
 
 def mutations():
@@ -124,11 +152,20 @@ def mutations():
     exact(BASELINE)
     saved_tests = {cell: digest(region(PLAN["test_files"][cell], cell)[2].encode()) for cell in cells}
     for mutant in PLAN["mutants"]:
+        for observation in mutant["observations"]:
+            assert saved_tests[observation["cell"]] == observation["function_sha256"]
+    for binding in PLAN.get("helper_site_bindings", {}).values():
+        assert digest(region(binding["test"]["path"], binding["cell"])[2].encode()) == binding["test"]["function_sha256"]
+        owner = binding["assertion_owner"]
+        assert digest(region(owner["path"], owner["non_test_helper"])[2].encode()) == owner["function_sha256"]
+    missing = []
+    for mutant in PLAN["mutants"]:
         label = mutant["label"]
         names = mutant["tests"]
         binaries = {locations[cell][0] for cell in names}
         assert len(binaries) == 1
         binary = binaries.pop()
+        assert binary == mutant["binary_hint"], "discovered binary differs from reviewed plan"
         full_names = [locations[cell][1] for cell in names]
         exact(BASELINE)
         assert not git("status", "--porcelain")
@@ -136,6 +173,7 @@ def mutations():
         exact(BASELINE)
         changed = {}
         evidence = None
+        problem = None
         try:
             if "patch" in mutant:
                 patch = Path(mutant["patch"])
@@ -164,9 +202,19 @@ def mutations():
             assert all(digest(region(PLAN["test_files"][cell], cell)[2].encode()) == saved_tests[cell] for cell in cells)
             exact(expected)
             write(label + "-mutant-state.json", expected)
-            text = whole(label + "-mutant", binary, full_names, False)
+            try:
+                text = whole(label + "-mutant", binary, full_names, False)
+            except (AssertionError, subprocess.CalledProcessError) as error:
+                problem = {"type": type(error).__name__, "detail": str(error)}
             exact(expected)
-            evidence = [own_sites(text, cell) for cell in names]
+            if problem is None:
+                try:
+                    evidence = [own_sites(text, cell, *locations[cell],
+                                          next(o["expected_site_line"] for o in mutant["observations"] if o["cell"] == cell),
+                                          next(o["function_sha256"] for o in mutant["observations"] if o["cell"] == cell))
+                                for cell in names]
+                except AssertionError as error:
+                    problem = {"type": type(error).__name__, "detail": str(error)}
         finally:
             for path, content in changed.items():
                 Path(path).write_bytes(content)
@@ -174,9 +222,42 @@ def mutations():
             whole(label + "-restored", binary, full_names, True)
             exact(BASELINE)
             assert not git("status", "--porcelain")
+        if problem:
+            missing.append(label)
         write(label + "-proof.json", {"source": PLAN["source_sha"], "tree": PLAN["source_tree"],
-                                      "binary_id": binary, "own_assertions": evidence, "restored": True})
-    write("mutation-summary.json", {"mutants": len(PLAN["mutants"]), "named_cells": len(cells), "status": "own-assertion kills and whole-binary head/restored passes"})
+                                      "binary_id": binary, "own_assertions": evidence, "restored": True,
+                                      "verdict": "NON_VERDICT" if problem else "OWN_SITE_KILL", "problem": problem})
+    write("mutation-summary.json", {"mutants": len(PLAN["mutants"]), "named_cells": len(cells),
+                                    "missing_proofs": missing,
+                                    "status": "INCOMPLETE" if missing else "own-site kills and whole-binary head/restored passes"})
+    assert not missing, ("required proofs missing", missing)
+
+
+
+def oracle_claims():
+    global BINARY_CELLS
+    os.environ["NEXTEST_PROFILE"] = "nofailfast"
+    binary = "sutura-cli::served"
+    status, text = execute("oracle-discover", ["just", "test-only", f"binary_id(={binary})"])
+    rows = results(text)
+    assert status == 0 and rows and {key[0] for key in rows} == {binary}
+    BINARY_CELLS = {binary: set(rows)}
+    names = [name for _, name in rows]
+    write("oracle-served-membership.json", sorted(rows))
+    exact(BASELINE)
+    whole("oracle-served-head", binary, names, True)
+    exact(BASELINE)
+    evidence = Path("target/oracle-split-claim-proof")
+    try:
+        status, _ = execute("oracle-claims", ["just", "oracle-split-claim-proof"])
+    finally:
+        if evidence.is_dir():
+            shutil.copytree(evidence, OUT / "oracle-split-claim-proof")
+        exact(BASELINE)
+        whole("oracle-served-restored", binary, names, True)
+        exact(BASELINE)
+    assert evidence.is_dir(), "Oracle task evidence missing"
+    assert status == 0
 
 
 def bootstrap(mode, plan_path):
@@ -237,8 +318,8 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("validate", "ship-check")
-    assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
+    assert mode in ("mutations", "validate", "default-features", "oracle-claims")
+    assert not os.environ.get("SKIP"), "no skipped hooks in the hosted proof"
     PLAN = json.loads(Path(plan_path).read_text())
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
@@ -266,12 +347,17 @@ if __name__ == "__main__":
     write("source-manifest.json", BASELINE)
     try:
         environment()
-        task = {"validate": "validate", "ship-check": "ship-check"}[mode]
-        os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
-        status, _ = execute(mode, ["just", task])
-        exact(BASELINE)
-        assert not git("status", "--porcelain")
-        assert status == 0
+        if mode == "mutations":
+            mutations()
+        elif mode == "oracle-claims":
+            oracle_claims()
+        else:
+            assert mode in ("validate", "default-features")
+            task = {"validate": "validate", "default-features": "check-default-features"}[mode]
+            status, _ = execute(mode, ["just", task])
+            exact(BASELINE)
+            assert not git("status", "--porcelain")
+            assert status == 0
     finally:
         capture_index("index-before-export")
         export_entries = git("ls-files", "--stage", "-z")
@@ -297,5 +383,6 @@ if __name__ == "__main__":
         write("final-state.json", {"tracked": state(), "status": final_status,
                                    "index_sha256": digest(final_index), "index_unchanged": final_index == SAVED_INDEX,
                                    "staged_entries_unchanged": final_entries == initial_entries})
+        assert final_index == SAVED_INDEX, "raw index bytes changed; snapshots retained"
         assert final_entries == initial_entries, "staged entries changed; raw manifests retained"
         assert state() == BASELINE, "tracked source or test bytes/modes changed during evidence export"
