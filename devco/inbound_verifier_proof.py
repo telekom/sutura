@@ -268,6 +268,18 @@ if __name__ == "__main__":
         environment()
         task = {"validate": "validate", "ship-check": "ship-check"}[mode]
         os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
+        if mode == "validate":
+            native_home = Path(tempfile.mkdtemp(prefix="validate-cargo-home-")).resolve()
+            os.environ["CARGO_HOME"] = str(native_home)
+            os.environ.pop("CARGO_NET_OFFLINE", None)
+            os.environ.pop("SUTURA_SATELLITE_CARGO_VENDOR_DIR", None)
+            assert not list(native_home.iterdir())
+            write("native-environment.json", {
+                "CARGO_HOME": str(native_home), "initial_home_entries": [],
+                "CARGO_TARGET_DIR": os.environ.get("CARGO_TARGET_DIR"),
+                "CARGO_NET_OFFLINE": os.environ.get("CARGO_NET_OFFLINE"),
+                "SUTURA_SATELLITE_CARGO_VENDOR_DIR": os.environ.get("SUTURA_SATELLITE_CARGO_VENDOR_DIR"),
+                "limit": "Pre-task environment only; native just validate runs the pinned Nix checks and supply-chain app."})
         status, _ = execute(mode, ["just", task])
         exact(BASELINE)
         assert not git("status", "--porcelain")

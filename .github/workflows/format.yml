@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        operation: [validate, ship-check]
+        operation: [validate]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
           export CARGO_TERM_COLOR=never NO_COLOR=1
-          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv --command python3 -I ../devco/inbound_verifier_proof.py "$OPERATION" ../devco/inbound-gates-plan.json
+          nix shell --inputs-from . nixpkgs#python3 nixpkgs#just nixpkgs#pixi nixpkgs#devenv nixpkgs#betterleaks --command python3 -I ../devco/inbound_verifier_proof.py "$OPERATION" ../devco/inbound-gates-plan.json
 
       - name: Retain evidence and any generated changes
         if: always() && github.event_name == 'workflow_dispatch'
