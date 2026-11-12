@@ -148,7 +148,7 @@ def main():
                 if guard_passes_base:
                     verdict(text, GUARD, "PASS")
                 else:
-                    own_red(status, text, GUARD, PERF, "assert!(!run.succeeded,", ["assertion failed"])
+                    own_red(status, text, GUARD, PERF, "assert!(!run.succeeded,", ["push ghcr.io/example/sutura:0.6.1-performance-performance-"])
                 record(out / "guard-base-result.json", {"passed": guard_passes_base, "exception_accepted": False})
             with overlay(out, "provenance-base", PROV, files[PROV], "feda4a0587082cb756a4f8d3b31b99f5776f41a8"):
                 own_red(*run(SIX, out / "provenance-base.log"), SIX, PROV,
@@ -179,7 +179,7 @@ def main():
                          if b"*-performance) echo" in line and b"an optimised release" in line)
             with overlay(out, "refguard", ACTION, files[ACTION].replace(guard, b"", 1), "bf619caa27bdcc0632143c9f4edf21f930fc772e"):
                 own_red(*run(GUARD, out / "refguard-red.log"), GUARD, PERF,
-                        "assert!(!run.succeeded,", ["assertion failed"])
+                        "assert!(!run.succeeded,", ["push ghcr.io/example/sutura:0.6.1-performance-performance-"])
             green(GUARD, out / "refguard-restored.log")
         green(ALIAS, out / "alias-head.log")
         old = b"alias.explicit = false;"
