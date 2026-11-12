@@ -145,7 +145,7 @@ fn execution(
     (stream, completion, cuts)
 }
 
-async fn drain(mut stream: SendableRecordBatchStream) -> (usize, Option<DataFusionError>) {
+async fn drain(mut stream: SendableRecordBatchStream) -> Result<(usize, Option<DataFusionError>), tokio::time::error::Elapsed> {
     tokio::time::timeout(Duration::from_secs(10), async move {
         let mut rows = 0;
         while let Some(batch) = stream.next().await {
@@ -163,7 +163,6 @@ async fn drain(mut stream: SendableRecordBatchStream) -> (usize, Option<DataFusi
         (rows, None)
     })
     .await
-    .expect("the production deadline must terminate the query before the harness")
 }
 
 fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
@@ -181,7 +180,9 @@ async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
     let calls = Arc::new(AtomicUsize::new(0));
     let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), false, None);
     assert!(completion.take().is_err());
-    let (rows, failure) = drain(stream).await;
+    let (rows, failure) = drain(stream)
+        .await
+        .expect("the production deadline must terminate the query before the harness");
     assert_eq!(rows, 1);
     assert!(failure.is_none(), "{failure:?}");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -195,7 +196,9 @@ async fn completion_chain_publishes_receipts_only_after_real_worker_rows() {
 async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receipt() {
     let calls = Arc::new(AtomicUsize::new(0));
     let (stream, completion, cuts) = execution(Some(ready(Arc::clone(&calls))), true, None);
-    let (rows, failure) = drain(stream).await;
+    let (rows, failure) = drain(stream)
+        .await
+        .expect("the production deadline must terminate the query before the harness");
     assert_eq!(rows, 1);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(cuts.load(Ordering::SeqCst), 1);
@@ -210,7 +213,9 @@ async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receip
 #[tokio::test]
 async fn completion_chain_refuses_a_missing_producer_before_worker_rows() {
     let (stream, completion, _) = execution(None, false, None);
-    let (rows, failure) = drain(stream).await;
+    let (rows, failure) = drain(stream)
+        .await
+        .expect("the production deadline must terminate the query before the harness");
     assert_eq!(rows, 0);
     let failure = failure.expect("required producer is absent");
     assert!(
@@ -233,7 +238,9 @@ async fn completion_chain_bounds_a_pending_producer_after_worker_rows() {
     }));
     // Keep the worker timer beyond the harness so only the query timer can satisfy this cell.
     let (stream, completion, _) = execution(Some(producer), false, Some(Duration::from_secs(20)));
-    let (rows, failure) = drain(stream).await;
+    let (rows, failure) = drain(stream)
+        .await
+        .expect("the production deadline must terminate the query before the harness");
     assert_eq!(rows, 1);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let failure = failure.expect("a pending producer must not turn row EOF into success");
