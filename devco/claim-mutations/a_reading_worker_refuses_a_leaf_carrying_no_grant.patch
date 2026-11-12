@@ -1,12 +1,10 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant.rs b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
 --- a/crates/sutura-exec-datafusion/src/combine/across/grant.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across/grant.rs
-@@ -248,7 +248,7 @@
+@@ -249,5 +249,5 @@
  /// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
  pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<AdmittedRead, WorkerRefusal> {
-     let task = reading::task_id(call.wire, call.partition);
 -    let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
 +    let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantExpired)?;
-     keys.admit(task, call.key, |key| {
-         reading::verify(&reading::Verification {
-             key,
+     let task = reading::task_id(call.wire, call.partition, grant.caller_context());
+     // The first presented key occupies a slot even if its MAC fails; authenticated nodes are trusted

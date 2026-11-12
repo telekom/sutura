@@ -1,12 +1,10 @@
 diff --git a/crates/sutura-http/src/inbound/gate.rs b/crates/sutura-http/src/inbound/gate.rs
 --- a/crates/sutura-http/src/inbound/gate.rs
 +++ b/crates/sutura-http/src/inbound/gate.rs
-@@ -384,7 +384,7 @@
-         .challenge(request_uri, headers)
+@@ -576,5 +576,5 @@
          .or_else(|| matches!(rejected, TokenRejected::TooLong { .. }).then(|| String::from("Bearer error=\"invalid_token\"")))
      {
 -        challenged(&mut response, &challenge);
 +        challenged(&mut response, &format!("{challenge}, error_description=\"{rejected}\""));
      }
      response
- }

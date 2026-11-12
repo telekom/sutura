@@ -1,13 +1,11 @@
 diff --git a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
 --- a/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
 +++ b/crates/sutura-exec-datafusion/src/combine/across/grant/reading.rs
-@@ -248,8 +248,7 @@
-         feed_field(&mut message, self.expiry.0.as_secs().to_string().as_bytes());
-         feed_field(&mut message, self.expiry.0.subsec_nanos().to_string().as_bytes());
-         feed_field(&mut message, self.caller.0.as_bytes());
+@@ -289,6 +289,5 @@
+         feed_field(&mut message, self.verifier.as_str().as_bytes());
+         feed_field(&mut message, &self.caller_context);
 -        feed_field(&mut message, self.bound.rows.to_string().as_bytes());
 -        feed_field(&mut message, self.bound.bytes.to_string().as_bytes());
 +        let _ = (self.bound.rows, self.bound.bytes);
          let (token, pool) = self
              .forwarded
-             .as_ref()

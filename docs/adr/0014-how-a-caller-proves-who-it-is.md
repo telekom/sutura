@@ -716,7 +716,6 @@ is not `direct`. `behind-gateway` is unchanged: the pool receives the gateway's 
 fourth amendment's table says. The check reads the configuration only. Which audiences a pool
 provider accepts is that provider's configuration, and sutura does not read it.
 
-
 ## Fourteenth amendment, 2026-11-12: named verifier and source admission
 
 A deployment may accept a named list of complete verifiers. Each MCP path admits only its declared
