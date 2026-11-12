@@ -138,8 +138,8 @@ impl LowLevelTransport {
         }
     }
 
-    /// Sets the read timeout for the low level transport.
-    pub(crate) fn set_read_timeout(
+    /// Sets the read and write timeouts for the low level transport.
+    pub(crate) fn set_timeout(
         &self,
         duration: Option<std::time::Duration>,
     ) -> Result<(), Error> {
@@ -147,7 +147,8 @@ impl LowLevelTransport {
             Self::Tcp(s) => s,
             Self::Tls(s) => &s.sock,
         };
-        Ok(stream.set_read_timeout(duration)?)
+        stream.set_read_timeout(duration)?;
+        Ok(stream.set_write_timeout(duration)?)
     }
 
     /// Shuts down the low-level transport.
@@ -403,6 +404,7 @@ impl Transport {
         }
         stream.set_nodelay(true)?;
         stream.set_read_timeout(None)?;
+        stream.set_write_timeout(None)?;
         self.socket_num = get_socket_num(&stream);
         self.low_level_transport = Some(LowLevelTransport::Tcp(stream));
         if address.protocol() == "tcps" {
@@ -425,10 +427,8 @@ impl Transport {
     pub(crate) fn negotiate_native(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
         let deadline = Instant::now() + timeout.unwrap_or(Duration::from_secs(30));
         self.native_deadline = Some(deadline);
-        let result = self.negotiate_native_inner(deadline).and_then(|()| {
-            self.set_read_timeout(None)?;
-            self.set_write_timeout(None)
-        });
+        let result = self.negotiate_native_inner(deadline)
+            .and_then(|()| self.set_timeout(None));
         self.native_deadline = None;
         if result.is_err() {
             let _ = self.close();
@@ -436,19 +436,10 @@ impl Transport {
         result
     }
 
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        match self.low_level_transport.as_ref().ok_or_else(Error::not_connected)? {
-            LowLevelTransport::Tcp(stream) => stream.set_write_timeout(timeout)?,
-            LowLevelTransport::Tls(stream) => stream.sock.set_write_timeout(timeout)?,
-        }
-        Ok(())
-    }
-
     fn negotiation_deadline(&self, deadline: Instant) -> Result<(), Error> {
         let remaining = deadline.checked_duration_since(Instant::now())
             .ok_or_else(|| Error::native_encryption_refused("negotiation deadline exceeded"))?;
-        self.set_read_timeout(Some(remaining))?;
-        self.set_write_timeout(Some(remaining))
+        self.set_timeout(Some(remaining))
     }
 
     fn negotiate_native_inner(&mut self, deadline: Instant) -> Result<(), Error> {
@@ -651,15 +642,15 @@ impl Transport {
         self.max_packet_size = size;
     }
 
-    /// Sets the read timeout for the transport.
-    pub(crate) fn set_read_timeout(
+    /// Sets the read and write timeouts for the transport.
+    pub(crate) fn set_timeout(
         &self,
         duration: Option<std::time::Duration>,
     ) -> Result<(), Error> {
         self.low_level_transport
             .as_ref()
             .ok_or_else(Error::not_connected)
-            .and_then(|t| t.set_read_timeout(duration))
+            .and_then(|t| t.set_timeout(duration))
     }
 
     /// Indicates that the full packet size should be used for all subsequent

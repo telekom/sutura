@@ -10,7 +10,7 @@ fn pair(size: usize) -> (TcpStream, Transport) {
     transport.native_requested = true;
     transport.set_max_packet_size(size);
     transport.set_full_packet_size();
-    transport.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    transport.set_timeout(Some(Duration::from_secs(2))).unwrap();
     (server, transport)
 }
 

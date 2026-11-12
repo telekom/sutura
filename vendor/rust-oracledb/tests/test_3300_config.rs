@@ -100,11 +100,11 @@ fn test_3301(
     value: &str,
 ) -> Result<(), oracledb::Error> {
     let config = oracledb::Config::default();
-    let err = match method(config, value.to_string()) {
-        Ok(_) => panic!("expected failure"),
-        Err(err) => err,
-    };
-    assert!(matches!(err.kind(), oracledb::ErrorKind::InvalidNetworkName(_)));
+    let error = method(config, value.to_string()).unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        oracledb::ErrorKind::InvalidNetworkName(_)
+    ));
     Ok(())
 }
 
@@ -226,13 +226,10 @@ fn test_3302(
 #[case("(DESCRIPTION_LIST=(ADRESS_LIST=(KEY=VALUE)))")]
 /// Tests parsing invalid connect strings.
 fn test_3303(#[case] value: &str) -> Result<(), oracledb::Error> {
-    let err = match oracledb::Config::default().set_connect_string(value) {
-        Ok(_) => panic!("expected failure"),
-        Err(err) => err,
-    };
-    println!("error kind is {:?}", err.kind());
+    let error =
+        oracledb::Config::default().set_connect_string(value).unwrap_err();
     assert!(matches!(
-        err.kind(),
+        error.kind(),
         oracledb::ErrorKind::InvalidConnectString(_, _)
             | oracledb::ErrorKind::ParseError(_, _)
     ));
@@ -269,6 +266,23 @@ fn test_3304() {
 }
 
 #[rstest]
+#[case::valid_proxy_user("user[proxy_user]", Some("user"), Some("proxy_user"))]
+#[case::external_auth("[proxy_user]", None, Some("proxy_user"))]
+#[case::no_opening_bracket("userproxy_user]", Some("userproxy_user]"), None)]
+#[case::no_closing_bracket("user[proxy_user", Some("user[proxy_user"), None)]
+#[case::invalid_proxy_user("user[]", Some("user[]"), None)]
+/// Verifies parsing of proxy user from an encoded string.
+fn test_3305(
+    #[case] value: &str,
+    #[case] user: Option<&str>,
+    #[case] proxy_user: Option<&str>,
+) {
+    let config = oracledb::Config::default().set_user(value);
+    assert_eq!(config.user(), user);
+    assert_eq!(config.proxy_user(), proxy_user);
+}
+
+#[rstest]
 #[case(oracledb::ExternalAuth::AccessToken(String::from("token_3305")))]
 #[case(oracledb::ExternalAuth::IamToken {
     token: String::from("token_3305"),
@@ -276,7 +290,7 @@ fn test_3304() {
 })]
 /// Tests that external authentication supplies the credentials for a
 /// connection but that it requires the use of the tcps protocol.
-fn test_3305(
+fn test_external_auth_requires_tcps(
     #[case] external_auth: oracledb::ExternalAuth,
 ) -> Result<(), oracledb::Error> {
     let config = oracledb::Config::default()
