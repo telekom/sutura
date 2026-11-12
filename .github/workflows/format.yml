@@ -40,7 +40,7 @@ on:
         description: Run the finishing gates on the pinned source
         type: choice
         required: true
-        options: [profile-diagnostic]
+        options: [residual-missing]
       source_sha:
         description: Exact frozen source commit; must match the reviewed plan
         type: string
@@ -63,9 +63,12 @@ jobs:
       max-parallel: 1
       matrix:
         include:
-          - label: datafusion-profile-diagnostic
-            plan: plan-datafusion-profile-diagnostic.json
-            mode: profile-diagnostic
+          - label: sutura-exec-datafusion-missing
+            plan: plan-sutura-exec-datafusion.json
+            mode: mutations
+          - label: sutura-http-missing-grant
+            plan: plan-sutura-http-missing-grant.json
+            mode: mutations
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

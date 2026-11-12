@@ -73,7 +73,7 @@ def results(text):
 
 
 def whole(label, binary, cells, green):
-    status, text = execute(label, ["just", "test-only", f"binary_id(={binary})"])
+    status, text = execute(label, [*TEST_COMMAND, f"binary_id(={binary})"])
     rows = results(text)
     assert rows and {key[0] for key in rows} == {binary}, "missing or competing test binaries"
     assert set(rows) == BINARY_CELLS[binary], "whole binary did not finish every discovered cell"
@@ -138,7 +138,7 @@ def mutations():
     global BINARY_CELLS
     os.environ["NEXTEST_PROFILE"] = "nofailfast"
     packages = sorted({mutant["package"] for mutant in PLAN["mutants"]})
-    status, text = execute("discover", ["just", "test-only", " | ".join(f"package(={p})" for p in packages)])
+    status, text = execute("discover", [*TEST_COMMAND, " | ".join(f"package(={p})" for p in packages)])
     assert status == 0
     rows = results(text)
     BINARY_CELLS = {binary: {key for key in rows if key[0] == binary} for binary, _ in rows}
@@ -191,6 +191,7 @@ def mutations():
                     file = Path(path)
                     changed.setdefault(path, file.read_bytes())
                     source = file.read_text()
+                    assert digest(changed[path]) == edit["source_sha256"]
                     assert source.count(edit["before"]) == edit["count"] == 1
                     file.write_text(source.replace(edit["before"], edit["after"], 1))
             expected = dict(BASELINE)
@@ -357,6 +358,11 @@ if __name__ == "__main__":
     assert mode in ("mutations", "validate", "default-features", "oracle-claims", "profile-diagnostic")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted proof"
     PLAN = json.loads(Path(plan_path).read_text())
+    TEST_COMMAND = ["just", "test-only"]
+    if mode == "mutations" and {m["binary_hint"] for m in PLAN["mutants"]} == {"sutura-exec-datafusion"}:
+        recipe = Path(__file__).resolve().with_name("profile.just")
+        assert digest(recipe.read_bytes()) == "a2c8f14b3caa71c187d93c49b18288129b5bad3a58c5454f038923f2d45ae5cb"
+        TEST_COMMAND = ["just", "--justfile", str(recipe), "--working-directory", str(Path.cwd()), "ci-only"]
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
     assert git("rev-parse", "HEAD^{tree}").decode().strip() == PLAN["source_tree"]
     assert git("merge-base", PLAN["comparison_sha"], PLAN["source_sha"]).decode().strip() == PLAN["comparison_sha"]
@@ -401,7 +407,16 @@ if __name__ == "__main__":
         export_entries = git("ls-files", "--stage", "-z")
         (OUT / "index-before-export-entries.z").write_bytes(export_entries)
         capture_index("index-after-export-entries")
-        (OUT / "final.patch").write_bytes(git("diff", "--binary", "HEAD"))
+        export_index = OUT / "diff-export-index.bin"
+        export_before = INDEX.read_bytes()
+        export_index.write_bytes(export_before)
+        (OUT / "final.patch").write_bytes(subprocess.check_output(
+            ["git", "diff", "--binary", "HEAD"],
+            env={**os.environ, "GIT_INDEX_FILE": str(export_index.resolve())}))
+        write("diff-export-index.json", {"copied_from_sha256": digest(export_before),
+            "copy_after_sha256": digest(export_index.read_bytes()),
+            "original_after_sha256": digest(INDEX.read_bytes()),
+            "limit": "Only the disposable export copy may refresh; original raw-index assertions remain unchanged."})
         capture_index("index-after-diff")
         untracked = git("ls-files", "--others", "--exclude-standard", "-z").decode().split("\0")
         capture_index("index-after-untracked")

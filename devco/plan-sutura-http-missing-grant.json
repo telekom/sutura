@@ -1,0 +1,68 @@
+{
+  "source_sha": "b06d80374f9f90c9733af83fdb56676c2a19ca69",
+  "source_tree": "77667fca73baba5a4707301039763fad643775fd",
+  "comparison_sha": "5c4f252b4ac2bfc7dc834dc1197b642b026c12f7",
+  "parser_prerequisite": {
+    "script": "devco/check_own_sites.py",
+    "sha256": "7e0f20393070fb684deb2f73309cdd99d342434eccf727b5fe9bf67835cb29df",
+    "required": "Hosted old-parser red and reviewed-parser green in this same job before mutation reliance"
+  },
+  "status": "Prepared executable shape; NOT execution authority",
+  "mutants": [
+    {
+      "label": "configured-grant-omitted-sutura-http",
+      "binary_hint": "sutura-http",
+      "package": "sutura-http",
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/token.rs",
+          "before": "        if let (None, Some(grant)) = (claims.scope.as_ref(), self.grant.as_ref()) {\n            return Ok(grant.clone());\n",
+          "after": "        if let (None, Some(_grant)) = (claims.scope.as_ref(), self.grant.as_ref()) {\n            return Ok(Scopes::none());\n",
+          "count": 1,
+          "source_sha256": "e52846aaefcc53d04993660edcfbaec746bf92b3e8d9d4338408452ee5867a92"
+        }
+      ],
+      "observations": [
+        {
+          "cell": "selected_verifiers_keep_configured_grants_separate",
+          "path": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+          "function_sha256": "6adc33cb80ec967b044f76406ee2dc4d3afd7e5a290f44a5c14845787112962c",
+          "expected_site_line": 147,
+          "expected_site_excerpt": "assert_eq!(caller.scopes().iter().collect::<Vec<_>>(), expected);",
+          "source_observation": {
+            "cell": "selected_verifiers_keep_configured_grants_separate",
+            "package": "sutura-http",
+            "function_sha256": "6adc33cb80ec967b044f76406ee2dc4d3afd7e5a290f44a5c14845787112962c",
+            "assertion_excerpt": "assert_eq!(caller.scopes().iter().collect::<Vec<_>>(), expected)",
+            "assertion_line": 147,
+            "assertion_found": true
+          },
+          "limit": "Exact reached own relevant assertion only.",
+          "causal_verdict": "UNMEASURED",
+          "all_route_limits": [
+            "Exact reached own relevant assertion only."
+          ]
+        }
+      ],
+      "mandatory": true,
+      "origins": [
+        {
+          "label": "configured-grant-omitted",
+          "provenance": "Retained core security/composition obligation"
+        }
+      ],
+      "kinds": [
+        "behavior"
+      ],
+      "tests": [
+        "selected_verifiers_keep_configured_grants_separate"
+      ],
+      "causal_verdict": "UNMEASURED"
+    }
+  ],
+  "test_files": {
+    "selected_verifiers_keep_configured_grants_separate": "crates/sutura-http/src/inbound/tests/multi_verifier.rs"
+  },
+  "separate_obligations": [],
+  "helper_site_bindings": {}
+}
