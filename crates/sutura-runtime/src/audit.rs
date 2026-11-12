@@ -608,10 +608,31 @@ mod tests {
     #[test]
     fn audit_events_name_the_configured_admitting_verifier() {
         use sutura_domain::identity::{AdmittingVerifier, VerifierMode};
+        use sutura_domain::model::SourceName;
+        use sutura_domain::plan::remote::RemoteLegOutcome;
+        use sutura_domain::raw::{RawOutcome, RawRefusalReason};
+        use sutura_domain::warehouse::RowSet;
 
         let chain = PrincipalChain::of(Subject::verified("same-subject").expect("a fixture subject"));
         let statement = sutura_domain::raw::RawStatement::parse("select 1").expect("a fixture statement");
         let (answer, refusal) = (an_answer_on_a_shared_source(), a_refusal());
+        let raw_answer = RawOutcome::Rows {
+            columns: vec![String::from("value")],
+            rows: vec![vec![String::from("1")]],
+            executed_as: None,
+        };
+        let raw_refusal = RawOutcome::Refusal {
+            reason: RawRefusalReason::TooManyRows { limit: 1 },
+        };
+        let rows = RowSet::new(vec![String::from("value")], Vec::new()).expect("an empty fixture result");
+        let remote_answer = RemoteLegOutcome::Answer {
+            batches: sutura_domain::warehouse::arrow::of_row_set(&rows).expect("a fixture batch"),
+        };
+        let remote_refusal = RemoteLegOutcome::Refusal {
+            reason: RefusalReason::RemoteLegNotCertified {
+                source: SourceName::parse("warehouse").expect("a fixture source"),
+            },
+        };
         for (issuer, mode) in [
             ("https://issuer.example.com", VerifierMode::Direct),
             ("https://gateway.example.com", VerifierMode::Gateway),
@@ -620,6 +641,10 @@ mod tests {
             for record in [
                 CallRecord::of(&chain, &answer, None),
                 CallRecord::of(&chain, &refusal, None),
+                CallRecord::of_raw(&chain, &statement, &raw_answer, None),
+                CallRecord::of_raw(&chain, &statement, &raw_refusal, None),
+                CallRecord::of_remote_leg(&chain, &remote_answer, None),
+                CallRecord::of_remote_leg(&chain, &remote_refusal, None),
                 CallRecord::failed(&chain, "warehouse"),
                 CallRecord::failed_raw(&chain, &statement, "warehouse"),
             ] {

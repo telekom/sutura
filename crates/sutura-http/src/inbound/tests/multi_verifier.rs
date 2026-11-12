@@ -209,6 +209,13 @@ async fn every_location_is_bounded_before_issuer_decoding_and_the_selected_limit
         gate.establish(&bearer(&token), Instant::now()).await,
         Err(TokenRejected::TooLong { limit: 1024, .. })
     ));
+    let (_, payload_and_signature) = token.split_once('.').expect("a signed token has a header");
+    let unreadable_header = format!("!.{payload_and_signature}");
+    assert!(unreadable_header.len() > 1024 && unreadable_header.len() < 4096);
+    assert!(matches!(
+        gate.establish(&bearer(&unreadable_header), Instant::now()).await,
+        Err(TokenRejected::TooLong { limit: 1024, .. })
+    ));
     let wider = gateway
         .mint(
             &Token::for_subject("application")
@@ -236,50 +243,54 @@ impl DelegationExchange for Exchange {
 async fn signed_gateway_admission_reaches_no_exchange_and_direct_admission_does() {
     let direct = an_issuer();
     let gateway = gateway("https://gateway.example.com", "/transit");
-    let gate = gate(&direct, 8192, &[(&gateway, "X-Transit-Proof", 8192)]);
-    let exchange = Arc::new(Exchange::default());
-    let delegation = || {
-        Delegation::through(
-            Arc::<Exchange>::clone(&exchange),
-            RequestedAudience::parse("https://pool.example.com").expect("a fixture audience"),
-        )
-    };
-    let deployment = PrincipalName::parse("deployment").expect("a fixture principal");
-    for broker in [
-        DeclaredPrincipalBroker::empty().federating(source(), Some(delegation())),
-        DeclaredPrincipalBroker::empty().authenticating(source(), delegation()),
-        DeclaredPrincipalBroker::empty().signing_in(source(), deployment.clone(), delegation()),
-    ] {
-        let gateway_token = signed(&gateway, "application", "sutura:query");
-        let admitted = gate
-            .establish(&transit(&gateway_token), Instant::now())
-            .await
-            .expect("the gateway admits");
-        let context = crate::principal::of_verified(&admitted);
-        assert!(matches!(
-            broker.mint(&context, &SourceSet::of(source())).expect("the broker answers"),
-            Minted::Refused { .. }
-        ));
-        assert_eq!(
-            exchange.0.load(Ordering::SeqCst),
-            0,
-            "gateway admission reached the exchange port"
-        );
-        let token = signed(&direct, "person@example.com", "sutura:query");
-        let admitted = gate
-            .establish(&bearer(&token), Instant::now())
-            .await
-            .expect("direct admission");
-        let context = crate::principal::of_verified(&admitted);
-        assert!(matches!(
-            broker.mint(&context, &SourceSet::of(source())).expect("the broker answers"),
-            Minted::Granted { .. }
-        ));
-        assert_eq!(
-            exchange.0.swap(0, Ordering::SeqCst),
-            1,
-            "direct admission must reach the same port"
-        );
+    for location in ["Authorization", "X-Transit-Proof"] {
+        let gate = gate(&direct, 8192, &[(&gateway, location, 8192)]);
+        let exchange = Arc::new(Exchange::default());
+        let delegation = || {
+            Delegation::through(
+                Arc::<Exchange>::clone(&exchange),
+                RequestedAudience::parse("https://pool.example.com").expect("a fixture audience"),
+            )
+        };
+        let deployment = PrincipalName::parse("deployment").expect("a fixture principal");
+        for broker in [
+            DeclaredPrincipalBroker::empty().federating(source(), Some(delegation())),
+            DeclaredPrincipalBroker::empty().authenticating(source(), delegation()),
+            DeclaredPrincipalBroker::empty().signing_in(source(), deployment.clone(), delegation()),
+        ] {
+            let gateway_token = signed(&gateway, "application", "sutura:query");
+            let headers = if location == "Authorization" {
+                bearer(&gateway_token)
+            } else {
+                transit(&gateway_token)
+            };
+            let admitted = gate.establish(&headers, Instant::now()).await.expect("the gateway admits");
+            let context = crate::principal::of_verified(&admitted);
+            assert!(matches!(
+                broker.mint(&context, &SourceSet::of(source())).expect("the broker answers"),
+                Minted::Refused { .. }
+            ));
+            assert_eq!(
+                exchange.0.load(Ordering::SeqCst),
+                0,
+                "gateway admission reached the exchange port"
+            );
+            let token = signed(&direct, "person@example.com", "sutura:query");
+            let admitted = gate
+                .establish(&bearer(&token), Instant::now())
+                .await
+                .expect("direct admission");
+            let context = crate::principal::of_verified(&admitted);
+            assert!(matches!(
+                broker.mint(&context, &SourceSet::of(source())).expect("the broker answers"),
+                Minted::Granted { .. }
+            ));
+            assert_eq!(
+                exchange.0.swap(0, Ordering::SeqCst),
+                1,
+                "direct admission must reach the same port"
+            );
+        }
     }
 }
 
@@ -373,5 +384,69 @@ async fn a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_ver
                 .expect("shared admission"),
             Minted::Granted { .. }
         ));
+    }
+}
+
+#[tokio::test]
+async fn signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier() {
+    use crate::testing::{broker, bundle, catalog_of, deadline, fake_warehouse};
+    use sutura_app::surface::{LocalService, Surface as _};
+    use sutura_domain::plan::remote::RemoteLegOutcome;
+    use sutura_domain::query::RefusalReason;
+    use sutura_domain::raw::RawStatement;
+
+    let direct = an_issuer();
+    let gateway = gateway("https://gateway.example.com", "/transit");
+    let (sent, received) = std::sync::mpsc::channel();
+    let shared = LocalService::start(
+        &catalog_of(bundle()),
+        fake_warehouse(),
+        Audit(sent),
+        broker(),
+        sutura_domain::plan::RefusingCombiner,
+        1 << 30,
+    )
+    .expect("the shared service starts");
+    for location in ["Authorization", "X-Transit-Proof"] {
+        let gate = gate(&direct, 8192, &[(&gateway, location, 8192)]);
+        for (issuer, mode) in [(&direct, VerifierMode::Direct), (&gateway, VerifierMode::Gateway)] {
+            let token = signed(issuer, "same-subject", "sutura:query");
+            let headers = if mode == VerifierMode::Direct || location == "Authorization" {
+                bearer(&token)
+            } else {
+                transit(&token)
+            };
+            let admitted = gate.establish(&headers, Instant::now()).await.expect("signed admission");
+            let context = crate::principal::of_verified(&admitted);
+            for (sql, refused) in [("select 1", false), ("refuse me", true)] {
+                let statement = RawStatement::parse(sql).expect("a fixture statement");
+                let outcome = shared
+                    .run_sql(&context, &statement, deadline())
+                    .expect("the raw call returns an outcome");
+                assert_eq!(outcome.refusal().is_some(), refused);
+                assert_eq!(
+                    received.try_recv().expect("the raw outcome is audited"),
+                    (String::from(issuer.issuer()), mode)
+                );
+            }
+            let leg = serde_json::from_value(serde_json::json!({
+                "leg": "lookup", "source": source(),
+                "metric": {"metric": "revenue", "digest": "a".repeat(64)},
+                "table": "orders", "joins": [], "keys": [], "filters": [],
+            }))
+            .expect("a well-formed lookup leg");
+            assert!(matches!(
+                shared
+                    .run_remote_leg(&context, leg, Vec::new(), deadline())
+                    .expect("a remote refusal is an outcome"),
+                RemoteLegOutcome::Refusal {
+                    reason: RefusalReason::RemoteLegNotCertified { .. }
+                }
+            ));
+            assert_eq!(
+                received.try_recv().expect("the shared source's remote refusal is audited"),
+                (String::from(issuer.issuer()), mode)
+            );
+        }
     }
 }
