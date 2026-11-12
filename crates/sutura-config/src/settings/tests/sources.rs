@@ -321,13 +321,11 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a delegation refusal, got {error:?}");
     };
-    assert_eq!(
-        *refusals,
-        vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier"),
-            key: "workload_identity.delegation",
-        }]
-    );
+    let mut expected = vec![NotFitToServe::DelegationWithoutDirectInbound {
+        alias: SourceName::parse("local").expect("a legal identifier"),
+        key: "workload_identity.delegation",
+    }];
+    assert_eq!(*refusals, expected);
     assert_eq!(
         refusals.first().expect("one refusal").to_string(),
         "`sources.local.workload_identity.delegation` is declared and security.inbound.mode is not \
@@ -336,7 +334,7 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     );
 
     // A `behind-gateway` deployment verifies a gateway's assertion, not the caller's own token, so
-    // it is refused exactly like one with no inbound block.
+    // it also refuses the gateway admission and the absence of a direct verifier.
     let gateway = Sources::defaults(Environment::Development).with_overlay(format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{GATEWAY_INBOUND}{}",
         source_overlay("impersonation-at-source", DELEGATION)
@@ -345,13 +343,15 @@ fn a_delegation_on_a_deployment_that_does_not_verify_direct_callers_is_not_fit_t
     let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
         panic!("expected a delegation refusal, got {error:?}");
     };
-    assert_eq!(
-        *refusals,
-        vec![NotFitToServe::DelegationWithoutDirectInbound {
-            alias: SourceName::parse("local").expect("a legal identifier"),
-            key: "workload_identity.delegation",
-        }]
-    );
+    expected.push(NotFitToServe::CallerSourceAdmitsGateway {
+        alias: SourceName::parse("local").expect("a legal identifier"),
+        verifier: sutura_domain::identity::VerifierId::primary(),
+    });
+    expected.push(NotFitToServe::DelegationVerifierCardinality {
+        alias: SourceName::parse("local").expect("a legal identifier"),
+        found: 0,
+    });
+    assert_eq!(*refusals, expected);
 
     // An Oracle source's own `delegation` hops send the same token, so they are refused the same way.
     let oracle = Sources::defaults(Environment::Development).with_overlay(
@@ -812,7 +812,9 @@ fn an_inbound_token_at_pool_acknowledgement_of_nothing_is_refused() {
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{GATEWAY_INBOUND}{}",
         source_overlay("impersonation-at-source", ACCEPTED)
     ));
-    assert_eq!(refused(&gateway), vec![without_effect.clone()], "a behind-gateway deployment");
+    let admission = String::from("caller-run source `local` admits gateway verifier `primary`; admit direct verifiers only");
+    let expected = vec![without_effect.clone(), admission];
+    assert_eq!(refused(&gateway), expected, "a behind-gateway deployment");
     let shared = Sources::defaults(Environment::Development).with_overlay(format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\n{DIRECT_INBOUND}{}",
         source_overlay(

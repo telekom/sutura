@@ -4,7 +4,7 @@
 //! module is arranged against:**
 //!
 //! - the [`AccessToken`]: *may this caller reach this service at all*
-//! - [`InboundIdentity`]: *who is asking*
+//! - [`InboundIdentity`](crate::inbound::InboundIdentity): *who is asking*
 //!
 //! What an [`AccessToken`] does is narrower than authentication, and the narrowness is the point: a
 //! presented token proves the caller holds a secret the deployment was configured with. It proves
