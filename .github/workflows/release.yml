@@ -473,6 +473,17 @@ jobs:
                 fi
               done
             done
+            key="sql-${target}"
+            files="images/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.cdx.json dist/sutura-oci-${key}.spdx.json"
+            case "$target" in
+              *-musl) files="${files} dist/sutura-oci-${key}.tar.gz dist/sutura-oci-${key}.tar.gz.sha256" ;;
+            esac
+            for f in $files; do
+              if [ ! -s "$f" ]; then
+                echo "::error::${key}: ${f} is missing or empty"
+                missing=1
+              fi
+            done
           done
           [ "$missing" -eq 0 ] || exit 1
           # And nothing EXTRA, which catches the drift in the other direction: a target added
@@ -711,7 +722,7 @@ jobs:
             echo
             echo "| Image | CycloneDX | SPDX |"
             echo "| --- | --- | --- |"
-            for bin in $BINARIES; do
+            for bin in $BINARIES sutura-sql; do
               for target in $TARGETS; do
                 if [ "$bin" = sutura ]; then key="$target"; else key="${bin#sutura-}-${target}"; fi
                 cdx="sutura-oci-${key}.cdx.json"
@@ -746,7 +757,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
             echo "| binaries, image tarballs, SBOMs, the two licence documents, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
             echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
-            echo "| images, eight leaves and four manifest lists | n/a | the four manifest lists | \`cosign\`, all twelve references |"
+            echo "| images, twelve leaves and six manifest lists | n/a | the six manifest lists | \`cosign\`, all eighteen references |"
             echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
             echo
             echo "| Check | Command |"
@@ -807,7 +818,7 @@ jobs:
           set -eu
           tag="${GITHUB_REF_NAME}"
           cat notes.md
-          # The collector already validated the five records and exact subject set. Require its
+          # The collector already validated the seven records and exact subject set. Require its
           # output to have arrived before creating the draft; dist/* below uploads it unchanged.
           if [ ! -s dist/sutura-provenance.intoto.jsonl ]; then
             echo "::error::missing provenance release asset"

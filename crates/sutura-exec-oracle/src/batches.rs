@@ -48,14 +48,25 @@ pub(crate) fn query_declared(
     stop: Stop,
     before_fetch: impl FnMut() -> Result<(), OracleError>,
 ) -> Result<Declared, OracleError> {
-    let sets = [params];
-    let batches = connection
+    let statement = connection
         .statement(sql)
         .map_err(execute_err_mapped)?
         .arrow_batch_per_round_trip()
         .exact_number_text()
         .build()
-        .map_err(execute_err_mapped)?
+        .map_err(execute_err_mapped)?;
+    prepared(statement, params, stop, before_fetch)
+}
+
+/// Reads an already admitted statement through the same type conversion and budget.
+pub(crate) fn prepared(
+    statement: oracledb::Statement,
+    params: &[&dyn oracledb::ToDbValue],
+    stop: Stop,
+    before_fetch: impl FnMut() -> Result<(), OracleError>,
+) -> Result<Declared, OracleError> {
+    let sets = [params];
+    let batches = statement
         .query_arrow_batches(sets.as_slice().into())
         .map_err(execute_err_mapped)?;
     let numbers = number_columns(batches.columns().iter().map(|column| (column.name(), column.db_type())))?;

@@ -34,12 +34,12 @@ let
   # `package` is the DERIVATION and `bin` the executable's NAME. Two parameters rather than one
   # because the image needs both and neither derives the other: the store path is what goes into
   # `contents`, while the name is what the image is called and what its title label says.
-  ociFor = { package, architecture, bin, entrypoint, cmd, description }: pkgs.dockerTools.streamLayeredImage {
+  ociFor = { package, architecture, bin, name ? bin, entrypoint, cmd, description }: pkgs.dockerTools.streamLayeredImage {
     # Named after the executable it holds, so `docker load` reports which of the two shipped
     # binaries arrived rather than reporting `sutura` for both. The release workflow retags
     # every loaded tarball before pushing it, and that retag is what the digest is recorded
     # from - so this name is what a local `nix build .#oci-operator` shows a developer.
-    name = bin;
+    inherit name;
     tag = "latest";
     inherit architecture;
     # Pinned, not `now`: an image whose digest changes on every build cannot be the
@@ -56,7 +56,7 @@ let
       User = "65532:65532";
       # `docker inspect` should answer "which commit is this" without a lookup table.
       Labels = {
-        "org.opencontainers.image.title" = bin;
+        "org.opencontainers.image.title" = name;
         "org.opencontainers.image.description" = description;
         "org.opencontainers.image.licenses" = "Apache-2.0";
         "org.opencontainers.image.source" = "https://github.com/telekom/sutura";
