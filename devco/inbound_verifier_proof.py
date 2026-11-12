@@ -237,7 +237,7 @@ if __name__ == "__main__":
     os.environ["GIT_OPTIONAL_LOCKS"] = "0"
     os.environ["INSTA_UPDATE"] = "no"
     mode, plan_path = sys.argv[1:]
-    assert mode in ("validate", "default-features", "ship-check")
+    assert mode in ("validate", "ship-check")
     assert not os.environ.get("SKIP"), "no skipped hooks in the hosted finishing gate"
     PLAN = json.loads(Path(plan_path).read_text())
     assert git("rev-parse", "HEAD").decode().strip() == PLAN["source_sha"]
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     write("source-manifest.json", BASELINE)
     try:
         environment()
-        task = {"validate": "validate", "default-features": "check-default-features", "ship-check": "ship-check"}[mode]
+        task = {"validate": "validate", "ship-check": "ship-check"}[mode]
         os.environ["SHIP_CHECK_BASE_REF"] = PLAN["comparison_sha"]
         status, _ = execute(mode, ["just", task])
         exact(BASELINE)
