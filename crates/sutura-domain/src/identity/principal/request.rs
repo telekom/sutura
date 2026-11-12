@@ -165,6 +165,8 @@ pub struct RequestContext {
     named_payer: Option<crate::identity::BillingAccount>,
     /// The id drawn for the request, where the transport drew one.
     correlation: Option<crate::identity::CorrelationId>,
+    /// Configured admission provenance, also read to refuse gateway credential exchange.
+    verifier: Option<crate::identity::AdmittingVerifier>,
 }
 
 impl RequestContext {
@@ -181,6 +183,7 @@ impl RequestContext {
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
             correlation: None,
+            verifier: None,
         }
     }
 
@@ -219,6 +222,7 @@ impl RequestContext {
             groups: crate::identity::CallerGroups::default(),
             named_payer: None,
             correlation: None,
+            verifier: None,
         }
     }
 
@@ -263,6 +267,31 @@ impl RequestContext {
     #[inline]
     pub const fn named_payer(&self) -> Option<&crate::identity::BillingAccount> {
         self.named_payer.as_ref()
+    }
+
+    /// The verifier that admitted this caller, absent for a deployment-local context.
+    #[inline]
+    #[must_use]
+    pub fn admitted_by(mut self, verifier: crate::identity::AdmittingVerifier) -> Self {
+        if let super::Subject::Verified(ref mut principal) = self.chain.subject {
+            principal.verifier = verifier.id().clone();
+        }
+        self.verifier = Some(verifier);
+        self
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn verifier(&self) -> Option<&crate::identity::AdmittingVerifier> {
+        self.verifier.as_ref()
+    }
+
+    /// Gateway assertions cannot be exchanged as direct caller credentials.
+    #[inline]
+    #[must_use]
+    pub fn is_gateway_admitted(&self) -> bool {
+        self.verifier()
+            .is_some_and(|verifier| verifier.mode() == crate::identity::VerifierMode::Gateway)
     }
 
     /// The caller's verified address: what a `domain_delegation` source runs the question as.

@@ -101,10 +101,8 @@ fn registry(entries: &[RawSourceEntry<'_>]) -> SourceRegistry {
     SourceRegistry::parse(entries, Some(&single_user())).expect("a test registry parses")
 }
 
-fn asked_by_a_person() -> RequestContext {
-    RequestContext::of(PrincipalChain::of(
-        Subject::verified("someone@example.com").expect("a test subject is a subject"),
-    ))
+fn asked_by_the_operator() -> RequestContext {
+    RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself))
 }
 
 #[test]
@@ -115,7 +113,7 @@ fn the_static_broker_serves_a_shared_source_under_the_operators_own_acknowledgem
     let broker = StaticCredentialBroker::from_registry(&registry(&[shared("local")]));
     assert_eq!(broker.count(), 1);
 
-    let context = asked_by_a_person();
+    let context = asked_by_the_operator();
     let requested = SourceSet::of(alias("local"));
     let minted = broker
         .mint(&context, &requested)
@@ -167,7 +165,7 @@ fn a_subject_with_no_credential_is_refused_rather_than_downgraded() {
     );
 
     let minted = broker
-        .mint(&asked_by_a_person(), &SourceSet::of(alias("warehouse")))
+        .mint(&asked_by_the_operator(), &SourceSet::of(alias("warehouse")))
         .expect("a refusal is a result, not an error");
     let Minted::Refused { source } = minted else {
         panic!("a static broker cannot impersonate anybody: {minted:?}");
@@ -186,7 +184,7 @@ fn one_unmintable_leg_refuses_the_whole_answer() {
 
     let both = SourceSet::of(alias("local")).and(alias("warehouse"));
     let minted = broker
-        .mint(&asked_by_a_person(), &both)
+        .mint(&asked_by_the_operator(), &both)
         .expect("a refusal is a result, not an error");
     assert!(
         matches!(minted, Minted::Refused { ref source } if *source == alias("warehouse")),
@@ -197,7 +195,7 @@ fn one_unmintable_leg_refuses_the_whole_answer() {
     // passing against a broker that refuses everything.
     assert!(matches!(
         broker
-            .mint(&asked_by_a_person(), &SourceSet::of(alias("local")))
+            .mint(&asked_by_the_operator(), &SourceSet::of(alias("local")))
             .expect("a static broker cannot fail to mint what it holds"),
         Minted::Granted { .. }
     ));
@@ -216,7 +214,7 @@ fn one_unmintable_leg_refuses_the_whole_answer() {
         assert!(
             matches!(
                 broker
-                    .mint(&asked_by_a_person(), &ordering)
+                    .mint(&asked_by_the_operator(), &ordering)
                     .expect("a refusal is a result, not an error"),
                 Minted::Refused { ref source } if *source == alias("warehouse")
             ),
@@ -234,8 +232,91 @@ fn a_deployment_that_declares_no_source_can_mint_nothing() {
     assert_eq!(broker.count(), 0);
     assert!(matches!(
         broker
-            .mint(&asked_by_a_person(), &SourceSet::of(alias("local")))
+            .mint(&asked_by_the_operator(), &SourceSet::of(alias("local")))
             .expect("a refusal is a result, not an error"),
         Minted::Refused { .. }
     ));
+}
+
+fn verified_by(subject_verifier: &str, descriptor_verifier: Option<&str>) -> RequestContext {
+    use sutura_domain::identity::{AdmittingVerifier, VerifiedAddress, VerifierId, VerifierMode};
+
+    let subject = Subject::verified_by(
+        VerifierId::parse(subject_verifier).expect("a verifier id"),
+        "user@example.com",
+    )
+    .expect("a subject");
+    let context = RequestContext::of(PrincipalChain::of(subject))
+        .addressed(Some(VerifiedAddress::parse("user@example.com").expect("an address")));
+    match descriptor_verifier {
+        None => context,
+        Some(id) => context.admitted_by(AdmittingVerifier::of(
+            VerifierId::parse(id).expect("a verifier id"),
+            String::from("https://issuer.example.com"),
+            VerifierMode::Direct,
+        )),
+    }
+}
+
+fn shared_brokers(
+    membership: Option<std::collections::BTreeSet<sutura_domain::identity::VerifierId>>,
+) -> (StaticCredentialBroker, super::declared::DeclaredPrincipalBroker) {
+    let mut registry = registry(&[shared("local")]);
+    let written = membership.map(|ids| ids.iter().map(|id| id.as_str().to_owned()).collect::<Vec<_>>());
+    registry
+        .declare_admitted_by("local", written.as_deref(), &[])
+        .expect("source admission parses");
+    let static_broker = StaticCredentialBroker::from_registry(&registry);
+    let declared = registry.get(&alias("local")).expect("a source").posture().expect("a posture");
+    let sutura_domain::source::SourcePosture::SharedServiceUser { declared } = declared else {
+        panic!("a shared source");
+    };
+    let admissions = super::SourceAdmissions::from_registry(&registry);
+    (
+        static_broker,
+        super::declared::DeclaredPrincipalBroker::empty()
+            .admitting(admissions)
+            .shared(alias("local"), declared.clone()),
+    )
+}
+
+#[test]
+fn both_brokers_require_source_membership_and_verifier_provenance_even_for_shared_credentials() {
+    use sutura_domain::identity::VerifierId;
+
+    let policy = Some(std::iter::once(VerifierId::parse("staff").expect("a verifier id")).collect());
+    let (static_broker, declared_broker) = shared_brokers(policy);
+    let sources = SourceSet::of(alias("local"));
+    for (context, admitted) in [
+        (verified_by("staff", Some("staff")), true),
+        (verified_by("partner", Some("partner")), false),
+        (verified_by("staff", None), false),
+        (asked_by_the_operator(), false),
+    ] {
+        for minted in [
+            static_broker.mint(&context, &sources).expect("the broker answers"),
+            declared_broker.mint(&context, &sources).expect("the broker answers"),
+        ] {
+            assert_eq!(matches!(minted, Minted::Granted { .. }), admitted, "{minted:?}");
+        }
+    }
+}
+
+#[test]
+fn both_brokers_distinguish_deployment_local_sources_from_an_explicit_empty_membership() {
+    for (membership, admits_deployment) in [(None, true), (Some(std::collections::BTreeSet::new()), false)] {
+        let (static_broker, declared_broker) = shared_brokers(membership);
+        let sources = SourceSet::of(alias("local"));
+        for (context, admitted) in [
+            (asked_by_the_operator(), admits_deployment),
+            (verified_by("staff", Some("staff")), false),
+        ] {
+            for minted in [
+                static_broker.mint(&context, &sources).expect("the broker answers"),
+                declared_broker.mint(&context, &sources).expect("the broker answers"),
+            ] {
+                assert_eq!(matches!(minted, Minted::Granted { .. }), admitted, "{minted:?}");
+            }
+        }
+    }
 }

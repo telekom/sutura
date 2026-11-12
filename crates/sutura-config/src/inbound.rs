@@ -66,6 +66,7 @@
 
 mod address_claim;
 mod audience;
+mod declaration;
 mod key_set;
 mod primitive;
 mod scope;
@@ -73,6 +74,7 @@ mod token_bytes;
 
 pub use crate::inbound::address_claim::{AddressClaim, ClaimName};
 pub use crate::inbound::audience::{ClientId, TokenAudience};
+pub use crate::inbound::declaration::{InboundVerifier, InvalidMcpPath, McpPath};
 pub use crate::inbound::key_set::{KeySetLocation, KeySetMaxStale, KeySetUrl};
 pub use crate::inbound::primitive::{
     InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,

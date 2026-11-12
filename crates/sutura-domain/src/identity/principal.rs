@@ -273,25 +273,6 @@ impl SubjectKey {
         Ok(Self(validated))
     }
 
-    /// Contributes the FULL verified value to `hasher`, as its own fixed-width digest, without
-    /// returning it.
-    ///
-    /// **Write-only by shape.** A hasher takes bytes and hands nothing back, so this cannot become the
-    /// path by which a raw subject reaches a formatter - which an `as_str` would be, in a type whose
-    /// whole purpose is that its `Display` is masked. [`Self::principal`] is the one other read, and
-    /// it hands the value to a source rather than to a formatter. `pub(super)` rather than `pub(crate)`: the one
-    /// caller is [`ComputeContext`](super::ComputeContext), a sibling of this module.
-    ///
-    /// The field's contribution is fixed-width, which is what makes the digest injective over its
-    /// inputs rather than over their concatenation: feeding raw bytes would let two different
-    /// (source, subject) pairs hash alike, and two pairs that hash alike are two callers the
-    /// federation optimizer is entitled to fuse. That is defence in depth at today's field order
-    /// rather than the thing holding it - `super::compute_context::feed_field` carries the
-    /// measurement and the limit. See [`ComputeContext::of`](super::ComputeContext::of).
-    pub(super) fn feed(&self, hasher: &mut sha2::Sha256) {
-        super::compute_context::feed_field(hasher, self.0.as_bytes());
-    }
-
     /// The FULL verified value as the principal a source runs this caller as - the one read that
     /// leaves this type unmasked, because the value is SENT: a source that switches to, or signs in
     /// as, the caller's verified name needs the name itself, and a masked one names nobody.
@@ -325,20 +306,27 @@ impl fmt::Debug for SubjectKey {
     }
 }
 
-/// The two halves a verified subject carries, sealed behind one type so they cannot disagree.
+/// A verified caller's masked record id, backend principal, and exact verifier-scoped identity.
 ///
-/// A verified caller is rendered under the masked [`SubjectId`] (what a record shows) and looked
-/// up in an impersonating source's map under the full [`SubjectKey`] (the one read that must not
-/// be a masked projection) - and this is the only type that holds both. Its fields are private, so
-/// **no code outside this module can build one or seat a different value in either half**: the only
-/// door is [`Subject::verified`], which parses both from the same verified `sub` and returns them
-/// together. That is what makes the doc sentence ("can never disagree about who was verified") true
-/// by type rather than by recall - the enum's variant fields inherit the public enum's visibility,
-/// so a plain two-field variant could not have said that.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Private fields keep these projections together. `Subject::verified_by` parses the masked id
+/// and backend key from one verified `sub` and retains its exact bytes for equality and hashing.
+/// Backend parsing still trims surrounding whitespace; caller identity does not. `Debug` omits
+/// the signed bytes. Construction records a verification claim; the transport must verify it.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct VerifiedPrincipal {
     id: SubjectId,
     key: SubjectKey,
+    verifier: crate::identity::VerifierId,
+    signed_sub: String,
+}
+
+impl fmt::Debug for VerifiedPrincipal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VerifiedPrincipal")
+            .field("id", &self.id)
+            .field("verifier", &self.verifier)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Who a question is attributed to, and what established it.
@@ -372,20 +360,46 @@ pub enum Subject {
 }
 
 impl Subject {
-    /// What established this subject, as a stable label for a record field.
+    /// A verified subject under the legacy `primary` verifier.
     ///
-    /// A `&'static str` from an exhaustive match rather than a `Display`, because it has to be a
-    /// value a query over records can group by and a value nothing caller-supplied can collide with.
-    /// The single way a verified identity enters the process: one parse of the verified `sub`
-    /// yields both the masked [`SubjectId`] a record renders and the full [`SubjectKey`] the
-    /// subject-to-account impersonation map (`docs/adr/0032`) reads, sealed together in
-    /// [`VerifiedPrincipal`]. Because the two halves are produced here from the same input and no
-    /// other constructor exists, they can never disagree about who was verified.
+    /// Named transport verifiers use [`Self::verified_by`]. Both parse record and backend
+    /// projections together while retaining the exact signed subject for caller identity.
     pub fn verified(raw: &str) -> Result<Self, InvalidPrincipalId> {
+        Self::verified_by(crate::identity::VerifierId::primary(), raw)
+    }
+
+    /// Scopes the exact signed subject to its configured verifier. Backend keys keep their existing spelling.
+    pub fn verified_by(verifier: crate::identity::VerifierId, raw: &str) -> Result<Self, InvalidPrincipalId> {
+        let len = raw.chars().count();
+        if len > MAX_PRINCIPAL_LEN {
+            return Err(InvalidPrincipalId::TooLong {
+                len,
+                limit: MAX_PRINCIPAL_LEN,
+            });
+        }
         Ok(Self::Verified(VerifiedPrincipal {
             id: SubjectId::parse(raw)?,
             key: SubjectKey::parse(raw)?,
+            verifier,
+            signed_sub: raw.to_owned(),
         }))
+    }
+
+    #[must_use]
+    pub const fn verifier_id(&self) -> Option<&crate::identity::VerifierId> {
+        match self {
+            Self::Verified(verified) => Some(&verified.verifier),
+            Self::TheDeploymentItself => None,
+        }
+    }
+
+    /// Exact verified claim bytes for caller keys and authenticated forwarding; never render in records.
+    #[must_use]
+    pub fn signed_sub(&self) -> Option<&str> {
+        match self {
+            Self::Verified(verified) => Some(&verified.signed_sub),
+            Self::TheDeploymentItself => None,
+        }
     }
 
     /// What established this subject, as a stable label for a record field.
@@ -657,6 +671,56 @@ impl PrincipalChain {
 mod tests {
     use super::{Actor, ActorChain, Attribution, InvalidPrincipalId, PrincipalChain, Subject, SubjectId, TaskId};
     use crate::identity::RequestContext;
+
+    #[test]
+    fn verifier_scopes_exact_signed_subject_without_changing_backend_principals() {
+        use crate::identity::VerifierId;
+        use std::collections::HashSet;
+
+        let raw = "user@example.com";
+        let staff = VerifierId::parse("staff").unwrap();
+        let partners = VerifierId::parse("partners").unwrap();
+        let first = Subject::verified_by(staff.clone(), raw).unwrap();
+        let repeat = Subject::verified_by(staff.clone(), raw).unwrap();
+        let other = Subject::verified_by(partners, raw).unwrap();
+        let padded = Subject::verified_by(staff.clone(), &format!(" {raw} ")).unwrap();
+        assert_eq!(first, repeat);
+        assert_ne!(first, other);
+        assert_ne!(first, padded);
+        assert_eq!(HashSet::from([first.clone(), repeat, other.clone(), padded.clone()]).len(), 3);
+        assert_eq!(first.verifier_id(), Some(&staff));
+        assert_eq!(padded.signed_sub(), Some(" user@example.com "));
+        for subject in [first, other, padded] {
+            assert_eq!(subject.key().unwrap().principal().unwrap().as_str(), raw);
+            let debug = format!("{subject:?}");
+            assert!(!debug.contains(raw), "{debug}");
+        }
+    }
+
+    #[test]
+    fn admission_binds_the_context_subject_to_its_verifier_before_caller_state_is_used() {
+        use crate::identity::{AdmittingVerifier, VerifierId, VerifierMode};
+
+        let raw = " user@example.com ";
+        let staff = VerifierId::parse("staff").unwrap();
+        let provenance = AdmittingVerifier::of(
+            staff.clone(),
+            String::from("https://issuer.example.com"),
+            VerifierMode::Direct,
+        );
+        let context = RequestContext::of(PrincipalChain::of(Subject::verified(raw).unwrap())).admitted_by(provenance);
+        let expected = Subject::verified_by(staff.clone(), raw).unwrap();
+        assert_eq!(context.chain().subject(), &expected);
+        assert_eq!(context.verifier().unwrap().id(), &staff);
+        assert_ne!(context.chain().subject(), &Subject::verified(raw).unwrap());
+        assert_eq!(context.chain().subject().signed_sub(), Some(raw));
+    }
+
+    #[test]
+    fn exact_subject_storage_is_bounded_before_trimming() {
+        let raw = format!("{}user", " ".repeat(super::MAX_PRINCIPAL_LEN));
+        assert!(matches!(Subject::verified(&raw), Err(InvalidPrincipalId::TooLong { .. })));
+    }
 
     fn actor(raw: &str) -> Actor {
         Actor::parse(raw).expect("a test actor is an actor")

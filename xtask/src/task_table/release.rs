@@ -34,7 +34,7 @@ pub(crate) const TASKS: &[Task] = &[
     },
     Task {
         name: "collect-provenance",
-        description: "export five release attestation bundles after exact subject-set checks",
+        description: "export seven release attestation bundles after exact subject-set checks",
         kind: Kind::Standalone,
         falsifier: Falsifier::declared_in_programme(),
         run: release_provenance::run,

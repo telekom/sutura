@@ -103,10 +103,7 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
                 .map_err(|cause| SettingsError::Identity { cause })?,
         ),
     };
-    let inbound = match &raw.security.inbound {
-        None => None,
-        Some(written) => Some(crate::settings::inbound::parse_inbound(written)?),
-    };
+    let inbound = crate::settings::inbound::parse_verifiers(raw.security.inbound.as_ref())?;
     // Deployment-wide, and parsed in `crate::settings::outbound` - absence is not a refusal, a
     // PRESENT empty block is. `outbound_identity` is the optional client pair beside the anchors
     // (`github.com/telekom/sutura#911`).
@@ -131,7 +128,11 @@ pub(super) fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, Sett
 /// and let `SourceRegistry::parse_billed` do the parsing. `BTreeMap` iteration is sorted, which is what makes
 /// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
 /// depends on how the file was written.
-pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
+pub(super) fn parse_sources(
+    raw: &RawSettings,
+    mode: Option<&DeploymentIdentity>,
+    inbound: &[crate::inbound::InboundVerifier],
+) -> Result<SourceRegistry, SettingsError> {
     let entries: Vec<(RawSourceEntry<'_>, CallerIdentityBlocks<'_>)> = raw
         .sources
         .iter()
@@ -185,6 +186,9 @@ pub(super) fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>
     let mut registry = SourceRegistry::parse_billed(entries.iter().map(|&(ref entry, blocks)| (entry, blocks)), &billing, mode)
         .map_err(|cause| SettingsError::Sources { cause })?;
     for (written, source) in &raw.sources {
+        registry
+            .declare_admitted_by(written, source.admitted_by.as_deref(), inbound)
+            .map_err(|cause| SettingsError::SourceAdmission { cause })?;
         if let Some(value) = source.inbound_token_at_pool.as_deref() {
             registry
                 .acknowledge_inbound_token_at_pool(written, value)

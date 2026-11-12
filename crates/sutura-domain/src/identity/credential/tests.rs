@@ -210,8 +210,8 @@ fn a_grant_is_checked_against_the_request_in_four_directions_and_one_call() {
             .agreeing_with(&a_person(), &sources, NOON)
             .unwrap_err(),
         CredentialsDoNotFitTheRequest::AnotherSubject {
-            asked: a_person(),
-            granted: Subject::TheDeploymentItself,
+            asked: Box::new(a_person()),
+            granted: Box::new(Subject::TheDeploymentItself),
         }
     );
 
@@ -304,8 +304,8 @@ fn what_a_failure_says_names_the_subject_the_way_a_record_does_and_carries_no_ma
     // each subject, and the identifier where there is one. `Subject::established` alone cannot tell
     // two verified people apart, which is why both halves are in the line.
     let rendered = CredentialsDoNotFitTheRequest::AnotherSubject {
-        asked: a_person(),
-        granted: Subject::TheDeploymentItself,
+        asked: Box::new(a_person()),
+        granted: Box::new(Subject::TheDeploymentItself),
     }
     .to_string();
     assert!(rendered.contains("a verified subject `s***@e***.c***`"), "{rendered}");

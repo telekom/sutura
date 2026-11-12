@@ -69,6 +69,7 @@ fn granted(key: &ReadingKey, wire: &[u8], partition: &[u8]) -> Vec<u8> {
         Partition::of(partition.to_vec()),
         Expiry::at(Duration::from_secs(4_000_000_000)),
         MaskedCaller::of_masked(String::from("masked")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound {
             rows: 1000,
             bytes: 1 << 20,
@@ -377,6 +378,7 @@ struct CertifiesNothing;
 impl PartitionReader for CertifiesNothing {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
@@ -478,6 +480,7 @@ fn granted_forwarding(key: &ReadingKey, wire: &[u8], partition: &[u8], token: &F
         Partition::of(partition.to_vec()),
         Expiry::at(Duration::from_secs(4_000_000_000)),
         MaskedCaller::of_masked(String::from("masked")),
+        (sutura_domain::identity::VerifierId::primary(), [0; 32]),
         StreamBound {
             rows: 1000,
             bytes: 1 << 20,
@@ -497,6 +500,7 @@ struct Forwards(Handed);
 impl PartitionReader for Forwards {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
@@ -512,6 +516,7 @@ impl PartitionReader for Forwards {
     )]
     fn read_forwarded(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
@@ -686,6 +691,7 @@ struct Either {
 impl PartitionReader for Either {
     fn read(
         &self,
+        _verifier: &sutura_domain::identity::VerifierId,
         _wire: &[u8],
         _source: &SourceName,
         _partition: &[u8],
@@ -701,6 +707,7 @@ impl PartitionReader for Either {
 
     fn read_forwarded(
         &self,
+        verifier: &sutura_domain::identity::VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
@@ -709,7 +716,7 @@ impl PartitionReader for Either {
         capture: Option<crate::SubmissionCapture>,
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.forwards
-            .read_forwarded(wire, source, partition, schema, forwarded, capture)
+            .read_forwarded(verifier, wire, source, partition, schema, forwarded, capture)
     }
 }
 
@@ -851,3 +858,93 @@ fn a_partition_read_carrying_no_principal_where_its_grant_names_one_is_refused()
 
 mod bounds;
 mod switched;
+
+#[test]
+fn worker_admission_passes_the_authenticated_verifier_to_every_reader_shape() {
+    use super::super::super::partition::{GrantReads, SwitchedPrincipal};
+    use sutura_domain::identity::{PrincipalName, Subject, VerifierId};
+
+    struct Records(Arc<parking_lot::Mutex<Vec<VerifierId>>>);
+    impl PartitionReader for Records {
+        fn read(
+            &self,
+            verifier: &VerifierId,
+            _wire: &[u8],
+            _source: &SourceName,
+            _partition: &[u8],
+            schema: &SchemaRef,
+            _capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.0.lock().push(verifier.clone());
+            Ok(Box::pin(RecordBatchStreamAdapter::new(
+                Arc::clone(schema),
+                stream::empty::<Result<RecordBatch, DataFusionError>>(),
+            )))
+        }
+
+        fn read_forwarded(
+            &self,
+            verifier: &VerifierId,
+            wire: &[u8],
+            source: &SourceName,
+            partition: &[u8],
+            schema: &SchemaRef,
+            _forwarded: Forwarded,
+            capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.read(verifier, wire, source, partition, schema, capture)
+        }
+
+        fn read_switched(
+            &self,
+            verifier: &VerifierId,
+            wire: &[u8],
+            source: &SourceName,
+            partition: &[u8],
+            schema: &SchemaRef,
+            _switched: SwitchedPrincipal,
+            capture: Option<crate::SubmissionCapture>,
+        ) -> Result<SendableRecordBatchStream, Unread> {
+            self.read(verifier, wire, source, partition, schema, capture)
+        }
+    }
+
+    let verifier = VerifierId::parse("partner").expect("an id");
+    let caller = Subject::verified_by(verifier.clone(), "user@example.com").expect("a subject");
+    let recorded = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let reader = Arc::new(Records(Arc::clone(&recorded)));
+    for reads in [
+        GrantReads::ServiceUser,
+        GrantReads::Token(forwarded("token-a")),
+        GrantReads::Principal(SwitchedPrincipal::new(
+            PrincipalName::parse("user@example.com").expect("a name"),
+        )),
+    ] {
+        let (key, grant) = super::super::granted_read(
+            b"wire-qualified",
+            &source(),
+            b"partition-qualified",
+            (&caller, Duration::from_secs(4_000_000_000)),
+            (1000, 1 << 20),
+            &reads,
+        )
+        .expect("a real grant mints");
+        let leaf = PartitionScanExec::new(
+            b"wire-qualified".to_vec(),
+            source(),
+            b"partition-qualified".to_vec(),
+            key,
+            Some(grant),
+            schema(),
+        );
+        let leaf = match reads {
+            GrantReads::ServiceUser => leaf,
+            GrantReads::Token(token) => leaf.forwarding(token),
+            GrantReads::Principal(principal) => leaf.switching(principal),
+        };
+        let leaf = admitted(leaf).expect("the grant authenticates through real worker admission");
+        let answered = executed(&leaf, Arc::clone(&reader) as Arc<dyn PartitionReader>, 1);
+        assert!(answered.iter().all(Result::is_ok), "{answered:?}");
+    }
+    assert_eq!(*recorded.lock(), vec![verifier; 3]);
+}

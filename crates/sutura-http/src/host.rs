@@ -49,16 +49,17 @@ impl HostAllowlist {
         if !settings.server().bind().is_loopback() && declared.is_empty() {
             return None;
         }
-        let resource = settings.security().inbound().and_then(|inbound| {
+        let resource = settings.security().inbound().iter().filter_map(|inbound| {
             let requirement = inbound.requirement();
             requirement
                 .resource()
                 .map_or_else(|| requirement.audience().host(), ResourceIdentifier::host)
         });
+        let resource = resource.collect::<Vec<_>>();
         let hosts = LOOPBACK
             .iter()
             .copied()
-            .chain(declared.iter().chain(resource.as_ref()).map(AllowedHost::as_str))
+            .chain(declared.iter().chain(resource.iter()).map(AllowedHost::as_str))
             .map(String::from)
             .collect();
         Some(Self(hosts))

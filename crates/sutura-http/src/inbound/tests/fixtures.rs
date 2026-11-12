@@ -373,3 +373,26 @@ pub(super) fn gate_over(declaration: &InboundIdentity, document: &str) -> Inboun
     let (cache, _) = cache_over(&[String::from(document)], Duration::from_secs(30), Instant::now());
     InboundGate::over(declaration, cache)
 }
+
+/// A multi-verifier gate: a primary gate plus one or more secondary gates, each paired with its
+/// own key set document. The secondary gates are keyed by their issuer string as `also_accept`
+/// would be in production.
+pub(super) fn gate_over_multi(
+    primary: &sutura_config::InboundVerifier,
+    primary_doc: &str,
+    secondaries: &[(&sutura_config::InboundVerifier, &str)],
+) -> InboundGate {
+    let also_accept = secondaries
+        .iter()
+        .map(|(id, doc)| {
+            let gate = gate_over_named(id, doc);
+            (gate.issuer().to_owned(), gate)
+        })
+        .collect();
+    gate_over_named(primary, primary_doc).with_also_accept(also_accept)
+}
+
+pub(super) fn gate_over_named(declaration: &sutura_config::InboundVerifier, document: &str) -> InboundGate {
+    let (cache, _) = cache_over(&[String::from(document)], Duration::from_secs(30), Instant::now());
+    InboundGate::over_named(declaration, cache)
+}

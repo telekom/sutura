@@ -185,8 +185,15 @@ mod tests {
             .expect("a runtime builds");
         let served = Arc::new(RecordingSurface::over_the_example(recorded)) as Arc<dyn Surface>;
         let port = runtime.block_on(async move {
-            let gate = InboundGate::from_declaration(settings.security().inbound().expect("node B declares leg 1"))
-                .expect("node B's gate reads its key set");
+            let gate = InboundGate::from_declaration(
+                settings
+                    .security()
+                    .inbound()
+                    .first()
+                    .map(sutura_config::InboundVerifier::identity)
+                    .expect("node B declares leg 1"),
+            )
+            .expect("node B's gate reads its key set");
             let admission = sutura_runtime::Admission::from_settings(settings.runtime());
             let state = ServiceState::new(served, Arc::new(settings), admission).with_inbound_identity(Arc::new(gate));
             let mount = sutura_http::flight::mount(&state);

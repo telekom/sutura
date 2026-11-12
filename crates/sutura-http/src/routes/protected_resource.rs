@@ -76,6 +76,16 @@ impl ProtectedResource {
         })
     }
 
+    /// Named verifiers publish at their configured mount; legacy objects retain their former URL.
+    pub(crate) fn for_verifier(verifier: &sutura_config::InboundVerifier) -> Option<Self> {
+        let mut resource = Self::for_requirement(verifier.requirement())?;
+        if let Some(path) = verifier.metadata_path() {
+            resource.path = format!("{WELL_KNOWN_PATH}{path}");
+            resource.url = format!("https://{}{}", resource.authority, resource.path);
+        }
+        Some(resource)
+    }
+
     /// The exact absolute URL placed in the Bearer challenge.
     pub(crate) fn url(&self) -> &str {
         &self.url

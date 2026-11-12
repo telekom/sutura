@@ -43,7 +43,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::grpc::{WorkerCall, WorkerCallAuthorizer};
 use datafusion_distributed::{DistributedExt as _, NetworkBoundaryExt as _};
 use ring::hmac;
-use sutura_domain::identity::SubjectKey;
+use sutura_domain::identity::{Subject, VerifierId};
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::ResultBudget;
 use tonic::Status;
@@ -231,15 +231,16 @@ pub(super) struct ReadingCall<'a> {
 }
 
 /// A reading grant's authenticated expiry and materialisation bound.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct AdmittedRead {
+    pub(super) verifier: VerifierId,
     pub(super) ends: Duration,
     pub(super) rows: usize,
     pub(super) budget: ResultBudget,
 }
 
-/// Admits a source-reading task's call: identifies the task from its wire and partition
-/// ([`reading::task_id`]), decodes its grant under the key `keys` kept for that task - the first
+/// Admits a source-reading task's call: decodes its grant, identifies the task from its caller
+/// context, wire and partition ([`reading::task_id`]), then verifies under the key kept for it - the first
 /// presented for it - checks the decoded grant names the wire's leg digest, the source and the
 /// partition and is not yet past `now` ([`reading::verify`]), then that it names exactly the token
 /// the task carries, or none where it carries none ([`reading::forwards`]), and the same of its
@@ -247,8 +248,10 @@ pub(super) struct AdmittedRead {
 /// A zero byte bound is refused rather than widened to a nonzero budget. A missing or malformed
 /// grant reads the same as one wrongly named: [`WorkerRefusal::GrantNotNaming`].
 pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Duration) -> Result<AdmittedRead, WorkerRefusal> {
-    let task = reading::task_id(call.wire, call.partition);
     let (grant, signature) = call.grant.and_then(reading::decode).ok_or(WorkerRefusal::GrantNotNaming)?;
+    let task = reading::task_id(call.wire, call.partition, grant.caller_context());
+    // The first presented key occupies a slot even if its MAC fails; authenticated nodes are trusted
+    // not to preempt another task. Namespace by caller, never by a replacement presented key.
     keys.admit(task, call.key, |key| {
         reading::verify(&reading::Verification {
             key,
@@ -268,6 +271,7 @@ pub(super) fn verify_reading(keys: &ReadingKeys, call: &ReadingCall<'_>, now: Du
     };
     let bytes = NonZeroUsize::new(bytes).ok_or(WorkerRefusal::GrantNotNaming)?;
     Ok(AdmittedRead {
+        verifier: grant.verifier().clone(),
         ends: grant.ends(),
         rows,
         budget: ResultBudget::of_bytes(bytes),
@@ -282,17 +286,23 @@ pub(super) fn granted_read(
     wire: &[u8],
     source: &SourceName,
     partition: &[u8],
-    (caller, until): (&SubjectKey, Duration),
+    (caller, until): (&Subject, Duration),
     (rows, bytes): (u32, u32),
     reads: &GrantReads,
 ) -> Result<KeyedGrant, DataFusionError> {
+    let (Some(verifier), Some(subject)) = (caller.verifier_id(), caller.key()) else {
+        return Err(DataFusionError::Plan(String::from(
+            "a reading grant requires a verifier-qualified caller",
+        )));
+    };
     let key = reading::ReadingKey::drawn()?;
     let grant = reading::ReadingGrant::new(
         reading::LegDigest::of(wire),
         source.clone(),
         reading::Partition::of(partition.to_vec()),
         reading::Expiry::at(until),
-        reading::MaskedCaller::of(caller),
+        reading::MaskedCaller::of(subject),
+        (verifier.clone(), reading::caller_context(source, caller)),
         reading::StreamBound { rows, bytes },
     );
     let grant = match reads {

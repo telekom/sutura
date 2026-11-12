@@ -83,6 +83,7 @@ pub type RunningRaw<B> = Result<AnsweredRaw, RunSqlError<<B as CredentialBroker>
 pub struct AnsweredRaw {
     outcome: sutura_domain::raw::RawOutcome,
     executed_until: Option<Expiry>,
+    executed_as: Option<ExecutedAs>,
 }
 
 impl AnsweredRaw {
@@ -102,6 +103,13 @@ impl AnsweredRaw {
     #[must_use]
     pub const fn executed_until(&self) -> Option<Expiry> {
         self.executed_until
+    }
+
+    /// Sources whose raw ports returned rows, retained even when the wire omits attribution.
+    #[inline]
+    #[must_use]
+    pub const fn executed_as(&self) -> Option<&ExecutedAs> {
+        self.executed_as.as_ref()
     }
 }
 
@@ -205,7 +213,10 @@ where
     let question = StatementQuestion::new(statement, &tables, scope.federation_allowed, working_set_bytes, deadline);
     let mut legs = RawLegs::new(context, broker, warehouses, listed, deadline);
     let outcome = match combiner.answer_statement(question, &mut legs) {
-        Some(Ok(rows)) => Ok(answer(rows, legs.executed_as.take().filter(|_| scope.federation_allowed))),
+        Some(Ok(rows)) => Ok(answer(
+            rows,
+            scope.federation_allowed.then(|| executed_as(warehouses, &legs.ran)).flatten(),
+        )),
         Some(Err(StatementStopped::Leg(stop))) => settled(Err(stop)),
         Some(Err(StatementStopped::SpansMoreThanOneSource)) => Ok(refusal(RawRefusalReason::PlanSpansMoreThanOneSource)),
         Some(Err(StatementStopped::NotPlanned)) => Ok(refusal(RawRefusalReason::StatementFailed)),
@@ -332,7 +343,7 @@ pub(crate) struct RawLegs<'a, W, B> {
     listed: Option<&'a [SourceName]>,
     deadline: Deadline,
     credentials: Option<BoundToTheRequest>,
-    executed_as: Option<ExecutedAs>,
+    ran: BTreeSet<SourceName>,
 }
 
 impl<'a, W, B> RawLegs<'a, W, B> {
@@ -350,15 +361,23 @@ impl<'a, W, B> RawLegs<'a, W, B> {
             listed,
             deadline,
             credentials: None,
-            executed_as: None,
+            ran: BTreeSet::new(),
         }
     }
 
     /// `outcome`, with the expiry of the credentials it ran under: `None` where nothing was minted.
-    fn answered(&self, outcome: RawOutcome) -> AnsweredRaw {
+    fn answered(&self, outcome: RawOutcome) -> AnsweredRaw
+    where
+        W: Warehouse,
+    {
+        let executed_as = match outcome {
+            RawOutcome::Rows { .. } => executed_as(self.warehouses, &self.ran),
+            RawOutcome::Refusal { .. } => None,
+        };
         AnsweredRaw {
             outcome,
             executed_until: self.credentials.as_ref().map(BoundToTheRequest::not_after),
+            executed_as,
         }
     }
 
@@ -404,7 +423,6 @@ where
             Agreed::Granted { credentials } => credentials,
         };
         self.credentials = Some(credentials);
-        self.executed_as = executed_as(self.warehouses, sources);
         Ok(())
     }
 
@@ -445,6 +463,7 @@ where
         if exceeds_row_cap(rows.rows().len(), MAX_ROWS) {
             return Err(LegStop::Refused(RawRefusalReason::TooManyRows { limit: MAX_ROWS }));
         }
+        self.ran.insert(source.clone());
         Ok(rows)
     }
 }

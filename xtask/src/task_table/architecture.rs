@@ -272,7 +272,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/sutura-config/src/settings/posture.rs",
-                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n    S22,\n    S23,\n    S24,\n    S25,\n    S26,\n    S27,\n    S28,\n    S29,\n    S30,\n    S31,\n    S32,\n    S33,\n    S34,\n    S35,\n    S36,\n    S37,\n    S38,\n    S39,\n    S40,\n    S41,\n    S42,\n    S43,\n    S44,\n}\n",
+                    "pub enum NotFitToServe {\n    S0,\n    S1,\n    S2,\n    S3,\n    S4,\n    S5,\n    S6,\n    S7,\n    S8,\n    S9,\n    S10,\n    S11,\n    S12,\n    S13,\n    S14,\n    S15,\n    S16,\n    S17,\n    S18,\n    S19,\n    S20,\n    S21,\n    S22,\n    S23,\n    S24,\n    S25,\n    S26,\n    S27,\n    S28,\n    S29,\n    S30,\n    S31,\n    S32,\n    S33,\n    S34,\n    S35,\n    S36,\n    S37,\n    S38,\n    S39,\n    S40,\n    S41,\n    S42,\n    S43,\n    S44,\n    S45,\n    S46,\n    S47,\n    S48,\n    S49,\n    S50,\n    S51,\n    S52,\n    S53,\n    S54,\n    S55,\n}\n",
                 ),
                 (
                     "crates/sutura-domain/src/pinned.rs",
@@ -316,7 +316,7 @@ pub(crate) const TASKS: &[Task] = &[
                 ),
                 (
                     "crates/example/tests/second.snap",
-                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 R34 R35 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 S29 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 V4 V5 V6 V7 W3 W4 W5 T3 T4 T5 T7 D2 D3 G1 P1 P2 K2\n",
+                    "R16 R17 R18 R19 R20 R21 R22 R23 R24 R25 R26 R27 R28 R29 R30 R31 R32 R33 R34 R35 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 S29 S30 S31 S32 S33 S34 S35 S36 S37 S38 S39 S40 S41 S42 S43 S44 S45 S46 S47 S48 S49 S50 S51 S52 S53 S54 S55 V4 V5 V6 V7 W3 W4 W5 T3 T4 T5 T7 D2 D3 G1 P1 P2 K2\n",
                 ),
             ],
             in_scope: Some("crates/sutura-http/src/tls.rs"),

@@ -27,6 +27,7 @@ struct LogsTheEnd {
 impl PartitionReader for LogsTheEnd {
     fn read(
         &self,
+        _: &sutura_domain::identity::VerifierId,
         _: &[u8],
         _: &SourceName,
         _: &[u8],
@@ -38,6 +39,7 @@ impl PartitionReader for LogsTheEnd {
 
     fn read_forwarded(
         &self,
+        verifier: &sutura_domain::identity::VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
@@ -47,7 +49,7 @@ impl PartitionReader for LogsTheEnd {
     ) -> Result<SendableRecordBatchStream, Unread> {
         self.ends.lock().push((forwarded.ends(), forwarded.left()));
         drop(forwarded);
-        self.rows.read(wire, source, partition, schema, capture)
+        self.rows.read(verifier, wire, source, partition, schema, capture)
     }
 }
 

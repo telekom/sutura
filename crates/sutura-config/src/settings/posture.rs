@@ -613,6 +613,57 @@ pub enum NotFitToServe {
          sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
     )]
     FlashbackReadByNoNode { alias: SourceName },
+    #[error("inbound verifier id `{id}` is declared more than once")]
+    DuplicateVerifierId { id: sutura_domain::identity::VerifierId },
+    #[error("inbound verifiers `{earlier}` and `{later}` share issuer `{issuer}`")]
+    DuplicateVerifierIssuer {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        issuer: String,
+    },
+    #[error("inbound verifiers `{earlier}` and `{later}` share audience `{audience}`")]
+    DuplicateVerifierAudience {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        audience: String,
+    },
+    #[error("direct verifiers `{earlier}` and `{later}` share MCP path `{path}`")]
+    DirectVerifiersSharePath {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
+    #[error("MCP paths `{earlier}` and `{later}` overlap; use disjoint literal subtrees")]
+    OverlappingMcpPaths {
+        earlier: crate::inbound::McpPath,
+        later: crate::inbound::McpPath,
+    },
+    #[error("verifier `{id}` MCP path `{path}` overlaps a reserved route")]
+    ReservedMcpPath {
+        id: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
+    #[error(
+        "named verifier `{id}` resource URI must have the exact MCP path `{path}`; configure the public resource path to match its mount"
+    )]
+    InboundResourcePathMismatch {
+        id: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
+    #[error("`sources.{alias}.admitted_by` is required with multiple inbound verifiers")]
+    SourceVerifiersUndeclared { alias: SourceName },
+    #[error("`sources.{alias}.admitted_by` names unknown verifier `{verifier}`")]
+    UnknownAdmittedVerifier {
+        alias: SourceName,
+        verifier: sutura_domain::identity::VerifierId,
+    },
+    #[error("caller-run source `{alias}` admits gateway verifier `{verifier}`; admit direct verifiers only")]
+    CallerSourceAdmitsGateway {
+        alias: SourceName,
+        verifier: sutura_domain::identity::VerifierId,
+    },
+    #[error("delegation source `{alias}` must admit exactly one direct verifier, found {found}")]
+    DelegationVerifierCardinality { alias: SourceName, found: usize },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
@@ -635,20 +686,6 @@ fn hopless_fixes(alias: &SourceName) -> String {
     .join("; ")
 }
 
-/// [`NotFitToServe::FlightSurfaceWithoutDirectInbound`], unless `inbound` is `direct`.
-/// [`NotFitToServe::InboundAudienceIsTheIssuer`], read off a `direct` declaration only: a
-/// `behind-gateway` deployment verifies a proof the gateway mints, under its own audience and issuer.
-pub(super) fn audience_refusal(inbound: Option<&InboundIdentity>) -> Option<NotFitToServe> {
-    match *inbound? {
-        InboundIdentity::Direct {
-            ref resource,
-            ref authorization_server,
-            ..
-        } if resource.audience().as_str() == authorization_server.as_str() => Some(NotFitToServe::InboundAudienceIsTheIssuer),
-        InboundIdentity::Direct { .. } | InboundIdentity::BehindGateway { .. } => None,
-    }
-}
-
 /// [`NotFitToServe::WorkersWaitNotBelowDeadline`], when a declared wait is not below the request
 /// timeout.
 pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToServe> {
@@ -660,8 +697,11 @@ pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToSe
     })
 }
 
-pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<NotFitToServe> {
-    if matches!(inbound, Some(InboundIdentity::Direct { .. })) {
+pub(super) fn flight_surface_refusals(inbound: &[crate::inbound::InboundVerifier]) -> Vec<NotFitToServe> {
+    if inbound
+        .iter()
+        .any(|verifier| matches!(verifier.identity(), InboundIdentity::Direct { .. }))
+    {
         Vec::new()
     } else {
         vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]

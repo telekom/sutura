@@ -2,7 +2,8 @@
 //! file declares is reachable through `super::`.
 
 use sutura_domain::identity::{
-    CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, SourceSet, Subject,
+    AdmittingVerifier, CredentialBroker as _, Minted, Presented, PrincipalChain, PrincipalName, RequestContext, SourceSet,
+    Subject, VerifierId, VerifierMode,
 };
 use sutura_domain::model::SourceName;
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared};
@@ -35,6 +36,23 @@ fn declared_shared() -> SharedIdentityDeclared {
     )
 }
 
+fn direct() -> AdmittingVerifier {
+    AdmittingVerifier::of(
+        VerifierId::primary(),
+        String::from("https://issuer.example.com"),
+        VerifierMode::Direct,
+    )
+}
+
+fn broker() -> DeclaredPrincipalBroker {
+    let admissions = ["warehouse", "replica", "lakehouse", "yard"]
+        .into_iter()
+        .fold(crate::credentials::SourceAdmissions::default(), |admissions, name| {
+            admissions.and(source(name), Some(std::iter::once(VerifierId::primary()).collect()))
+        });
+    DeclaredPrincipalBroker::empty().admitting(admissions)
+}
+
 /// A caller whose verified `sub` is `raw`, carrying the assertion leg 1 verified for it.
 ///
 /// **With an assertion, because a federating broker requires one**: what it presents IS the
@@ -46,6 +64,7 @@ fn caller(raw: &str) -> RequestContext {
         sutura_domain::identity::Secret::new(format!("assertion.for.{raw}")),
         A_FIXTURE_EXPIRY,
     )
+    .admitted_by(direct())
 }
 
 /// The same caller with nothing for a pool to verify.
@@ -53,6 +72,7 @@ fn no_assertion(raw: &str) -> RequestContext {
     RequestContext::of(PrincipalChain::of(
         Subject::verified(raw).expect("a test subject is a subject"),
     ))
+    .admitted_by(direct())
 }
 
 /// A request with no caller identity at all - the deployment's own front door and nobody behind it.
@@ -66,7 +86,7 @@ fn principal(raw: &str) -> PrincipalName {
 
 /// A federating warehouse with no delegation: every verified caller is presented its own assertion.
 fn warehouse() -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().federating(source("warehouse"), None)
+    broker().federating(source("warehouse"), None)
 }
 
 /// The credentials a mint granted, bound to the request that asked for them.
@@ -152,7 +172,8 @@ fn an_anonymous_request_carrying_an_assertion_is_refused_at_a_federating_source(
         PrincipalChain::of(Subject::TheDeploymentItself),
         sutura_domain::identity::Secret::new("assertion.for.nobody"),
         A_FIXTURE_EXPIRY,
-    );
+    )
+    .admitted_by(direct());
     let refused = warehouse()
         .mint(&anonymous, &SourceSet::of(source("warehouse")))
         .expect("an anonymous request is a refusal, not an error");
@@ -243,7 +264,7 @@ fn nothing_is_minted_for_a_plan_whose_second_source_cannot_be_served() {
 fn an_empty_broker_can_serve_nothing() {
     // The default is *nothing declared*, and nothing declared refuses. A broker that widened an
     // unknown source into the deployment's own identity is the fallback the port exists to remove.
-    let broker = DeclaredPrincipalBroker::empty();
+    let broker = broker();
     assert_eq!(broker.count(), 0);
     let refused = broker
         .mint(&caller("analyst-a@example.com"), &SourceSet::of(source("warehouse")))
@@ -258,6 +279,7 @@ fn caller_expiring_at(raw: &str, unix_seconds: u64) -> RequestContext {
         sutura_domain::identity::Secret::new(format!("assertion.for.{raw}")),
         unix_seconds,
     )
+    .admitted_by(direct())
 }
 
 #[test]
@@ -308,7 +330,7 @@ fn a_shared_only_plan_does_not_inherit_the_callers_own_deadline() {
     // would refuse answers for a lifetime that does not apply to them.
     let lapses_at = 1_700_000_000;
     let asked = SourceSet::of(source("replica"));
-    let broker = DeclaredPrincipalBroker::empty().shared(source("replica"), declared_shared());
+    let broker = broker().shared(source("replica"), declared_shared());
     let minted = broker
         .mint(&caller_expiring_at("analyst-a@example.com", lapses_at), &asked)
         .expect("a declared shared source is served");
@@ -321,7 +343,7 @@ fn a_shared_only_plan_does_not_inherit_the_callers_own_deadline() {
 }
 
 fn switching() -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().switching(source("lakehouse"), principal("sutura"))
+    broker().switching(source("lakehouse"), principal("sutura"))
 }
 
 /// A switching source is presented the caller's own verified subject, in full - a value no pool has

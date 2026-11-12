@@ -24,7 +24,12 @@ mod tests {
 
         let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(filled))
             .expect("the example's settings load");
-        let inbound = settings.security().inbound().expect("the example declares inbound identity");
+        let inbound = settings
+            .security()
+            .inbound()
+            .first()
+            .expect("the example declares inbound identity")
+            .identity();
         assert_eq!(inbound.mode(), "behind-gateway");
         assert!(inbound.reads_the_authorization_header());
         let requirement = inbound.requirement();

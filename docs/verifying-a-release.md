@@ -27,11 +27,17 @@ answers certified questions over HTTP, as `sutura serve`:
 **One registry repository**, `ghcr.io/telekom/sutura`. The unsuffixed tags resolve to `sutura`,
 and the operator's carry `-operator`. You choose the libc with the tag: `:latest-musl` for the static pair, `:latest` for glibc.
 
+The additive `:<version>-sql` and `:<version>-sql-musl` images hold `/bin/sutura` with the same
+adapters plus the SQL planner. They use the same registry, SBOM and signing path; there is no SQL
+`latest` alias. The default image and binary tarballs carry no SQL planner. The feature check reads
+`sqlparser` and `datafusion-sql` from the actual artefact: present for SQL and absent for default.
+See the [raw tool's planner limits](serving.md#the-raw-sql-tool) before enabling it.
+
 **Built with the optional features that `nix/shipped.nix` lists.** The published binary always
 links the HTTP surface, the caller-token verification, the rate limiter and the generated interface
 description. It also carries every entry of the `features` list in that file. A deployment uses an
 adapter through a settings-tree entry, not through a build. A binary with fewer adapters is a source
-build, and a feature that is not in that list is available in a source build only.
+build. The SQL image adds `sql` to that list; other features require a source build.
 
 **The musl pair also carries OpenSSL 3**, statically, inside the PostgreSQL ADBC driver that it
 links. libpq has no other TLS backend. Its fixes arrive with a `nixpkgs` bump, not with rustls. That
@@ -46,7 +52,9 @@ It builds the same commit at the `release-performance` profile: assets
 `sutura-<triple>-performance.tar.gz`, leaf images `:<version>-performance-<triple>`, lists
 `:<version>-performance` and `:<version>-performance-musl`, and for the operator
 `sutura-operator-<triple>-performance.tar.gz`, `:<version>-performance-operator-<triple>`,
-`:<version>-performance-operator` and `:<version>-performance-operator-musl`. The same signing, SBOM and provenance
+`:<version>-performance-operator` and `:<version>-performance-operator-musl`. The SQL image uses
+`:<version>-performance-sql-<triple>`, `:<version>-performance-sql` and
+`:<version>-performance-sql-musl`. The same signing, SBOM and provenance
 sequence runs over it, so the `cosign` commands below apply unchanged. The bundle-mode
 `gh attestation verify` below does not. For an optimised asset its identity is
 `https://github.com/telekom/sutura/.github/workflows/release-performance.yml@refs/tags/$TAG`, and
@@ -61,20 +69,21 @@ statement and chart are the ones on `v<version>`.
 | Artefact                         | Sigstore bundle                                  | SLSA provenance          | Registry signature               |
 | -------------------------------- | ------------------------------------------------ | ------------------------ | -------------------------------- |
 | the eight binary tarballs        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the four musl image tarballs     | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
-| the sixteen SBOMs                | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the six musl image tarballs      | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
+| the twenty-four SBOMs            | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the two licence documents        | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | `image-digests.txt`              | `<asset>.sigstore.json`, attached to the release | yes                      | n/a                              |
 | the `.sha256` sidecars           | no                                               | yes                      | n/a                              |
-| the eight leaf images            | n/a                                              | no                       | `cosign sign`, by digest         |
-| the four manifest lists          | n/a                                              | yes                      | `cosign sign`, by digest         |
+| the twelve leaf images           | n/a                                              | no                       | `cosign sign`, by digest         |
+| the six manifest lists           | n/a                                              | yes                      | `cosign sign`, by digest         |
 | the chart                        | n/a                                              | no                       | `cosign sign`, by digest         |
 | each leaf image's CycloneDX SBOM | n/a                                              | n/a                      | `cosign attest --type cyclonedx` |
-| `sutura-provenance.intoto.jsonl` | five existing signed attestation bundles         | not recursively attested | n/a                              |
+| `sutura-provenance.intoto.jsonl` | seven existing signed attestation bundles        | not recursively attested | n/a                              |
 
-Every count in that table is two binaries times four triples, or its consequence. A leaf and the
-SBOM beside it have the same key, `<triple>` for `sutura` and `operator-<triple>` for
-`sutura-operator`. `image-digests.txt` records them under that
+Binary tarballs cover two binaries at four triples. Images cover three variants at four triples,
+with two SBOM formats per image and two manifest lists per variant. A leaf and the SBOM beside it
+have the same key: `<triple>` for `sutura`, `operator-<triple>` for `sutura-operator`, and
+`sql-<triple>` for the SQL image. `image-digests.txt` records them under that
 key, so you match an entry there to an asset on the release page by reading.
 
 Three asymmetries in that table are deliberate. Each has a reason.
@@ -89,7 +98,7 @@ corrupted, and a bundle tells you who produced it.
 **Provenance covers the manifest lists, not the leaves.** A list is what an unqualified
 `docker pull` resolves and what the release notes tell you to pin. The leaves are what a list points
 at. `cosign` signs each leaf individually, and to pin one you ask for a single architecture. There
-are four lists, one per binary per libc. Provenance does not cover the chart: `cosign sign` signs the chart by
+are six lists, one per image variant per libc. Provenance does not cover the chart: `cosign sign` signs the chart by
 digest, and the table shows nothing more.
 
 **The images get `cosign` and the assets get a bundle.** By default, `gh attestation verify`
@@ -139,7 +148,7 @@ to download.
 ### Provenance from mirrored bytes
 
 For releases made by the exporting workflow, retain `sutura-provenance.intoto.jsonl` with the
-original assets. It contains five Sigstore bundles: one multi-subject asset attestation and four
+original assets. It contains seven Sigstore bundles: one multi-subject asset attestation and six
 manifest-list attestations. It is not a new signing policy. The collector checks the required
 JSON, DSSE and SLSA fields and the exact, unique name and digest pairs against `subjects.sha256` and
 `image-digests.txt`. It writes the asset only after all inputs pass. It does **not** verify

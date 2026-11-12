@@ -36,6 +36,7 @@ ALTER USER $legacy_user QUOTA UNLIMITED ON USERS;
 CREATE TABLE FIXTURE12.EVENTS (ID NUMBER(10) NOT NULL PRIMARY KEY, PAYLOAD VARCHAR2(2000) NOT NULL, MONTH DATE NOT NULL);
 INSERT INTO FIXTURE12.EVENTS SELECT LEVEL, LPAD(TO_CHAR(LEVEL), 2000, 'x'), DATE '2026-06-01' FROM dual CONNECT BY LEVEL <= 128;
 CREATE TABLE $legacy_user.EVENTS AS SELECT * FROM FIXTURE12.EVENTS;
+CREATE TABLE $legacy_user.EVENTS_MORE AS SELECT ID FROM FIXTURE12.EVENTS;
 CREATE TABLE $legacy_user.COLUMNS (
   environment VARCHAR2(64), catalog_name VARCHAR2(64), schema_name VARCHAR2(64),
   table_name VARCHAR2(64), model_name VARCHAR2(64), table_description VARCHAR2(256),
@@ -96,7 +97,11 @@ if [ "$SUTURA_ORACLE_ACCEPTANCE_MODE" = native ] && [ "${SUTURA_ORACLE_BASE_PROO
 fi
 oracle_test_filter=oracle_native::oracle_legacy_logins_reach_both_production_paths_only_with_the_opt_in
 if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" = 1 ]; then
-  oracle_test_filter=oracle_native::
+  oracle_test_filter=oracle_native::oracle_
 fi
 cargo test --profile "${SUTURA_ORACLE_CARGO_PROFILE:-dev}" -p sutura-cli --features oracle,rdbms --test served \
   "$oracle_test_filter" -- --ignored --nocapture
+
+if [ "${SUTURA_ORACLE_BASE_PROOF:-0}" != 1 ]; then
+  bash nix/oracle-raw-cells.sh "$name" "$service" "$legacy_user"
+fi

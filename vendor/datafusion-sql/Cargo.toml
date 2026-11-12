@@ -1,0 +1,119 @@
+[package]
+edition = "2024"
+rust-version = "1.94.0"
+name = "datafusion-sql"
+version = "55.1.0"
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "DataFusion SQL Query Planner"
+homepage = "https://datafusion.apache.org"
+keywords = [
+    "datafusion",
+    "sql",
+    "parser",
+    "planner",
+]
+license = "Apache-2.0"
+repository = "https://github.com/apache/datafusion"
+resolver = "2"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = [
+    "unicode_expressions",
+    "unparser",
+]
+recursive_protection = [
+    "dep:recursive",
+    "dep:stacker",
+]
+unicode_expressions = []
+unparser = []
+
+[lib]
+name = "datafusion_sql"
+path = "src/lib.rs"
+
+[dependencies.arrow]
+version = "59.2.0"
+features = [
+    "prettyprint",
+    "chrono-tz",
+]
+
+[dependencies.bigdecimal]
+version = "0.4.8"
+
+[dependencies.chrono]
+version = "0.4.45"
+default-features = false
+
+[dependencies.datafusion-common]
+version = "55.1.0"
+features = ["sql"]
+default-features = false
+
+[dependencies.datafusion-expr]
+version = "55.1.0"
+features = ["sql"]
+default-features = false
+
+[dependencies.datafusion-functions-nested]
+version = "55.1.0"
+features = ["sql"]
+default-features = false
+
+[dependencies.indexmap]
+version = "2.14.0"
+
+[dependencies.log]
+version = "^0.4"
+
+[dependencies.recursive]
+version = "0.1.1"
+optional = true
+
+[dependencies.regex]
+version = "1.12"
+
+[dependencies.sqlparser]
+version = "0.62.0"
+features = [
+    "std",
+    "visitor",
+]
+default-features = false
+
+[dependencies.stacker]
+version = "0.1.24"
+optional = true
+
+[lints.clippy]
+allow_attributes = "warn"
+assigning_clones = "warn"
+inefficient_to_string = "warn"
+large_futures = "warn"
+needless_pass_by_value = "warn"
+or_fun_call = "warn"
+uninlined_format_args = "warn"
+unnecessary_lazy_evaluations = "warn"
+unused_async = "warn"
+used_underscore_binding = "warn"
+
+[lints.rust]
+unused_qualifications = "deny"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(datafusion_coop, values("tokio", "tokio_fallback", "per_stream"))',
+    "cfg(coverage)",
+    "cfg(coverage_nightly)",
+]

@@ -204,7 +204,15 @@ async fn established_reading_roles(extra: &str) -> Result<crate::inbound::Verifi
     let settings = entra_declared(&format!(
         "    audience: \"{CLIENT_ID}\"\n    extra_scope_claims: [\"roles\"]\n"
     ));
-    let gate = gate_over(settings.security().inbound().expect("an inbound identity"), &jwks(KID, &pair));
+    let gate = gate_over(
+        settings
+            .security()
+            .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
+            .expect("an inbound identity"),
+        &jwks(KID, &pair),
+    );
     let token = signed_as(
         &pair,
         KID,

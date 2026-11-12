@@ -115,7 +115,7 @@ runs:
           echo "# leaf = single-arch image, named by its binary key and rust target triple"
         } > dist/image-digests.txt
         for target in $TARGETS; do
-         for bin in $BINARIES; do
+         for bin in $BINARIES sutura-sql; do
           # The same key rule as the build action and the arrival check in `release.yml`.
           if [ "$bin" = sutura ]; then base="$target"; else base="${bin#sutura-}-${target}"; fi
           key="${base}${psfx}"
@@ -160,7 +160,7 @@ runs:
         # is one more thing that has to be true about a runner. Every tag goes on one call, so a
         # list and its `latest` alias are the same push and cannot drift apart.
         lists=""
-        for bin in $BINARIES; do
+        for bin in $BINARIES sutura-sql; do
           # `sfx` is the tag suffix and `nm` the name `image-digests.txt` records the list
           # under - empty and empty for the tool, `-operator` and `operator-` for the operator.
           # The attest action reads that name, and `docs/verifying-a-release.md` documents it.
@@ -168,7 +168,7 @@ runs:
           at="${IMAGE}:${tag}${psfx}${sfx}"
           glibc=(-t "$at")
           musl=(-t "${at}-musl")
-          if [ "$move_latest" = yes ]; then
+          if [ "$move_latest" = yes ] && [ "$bin" != sutura-sql ]; then
             glibc+=(-t "${IMAGE}:latest${sfx}")
             musl+=(-t "${IMAGE}:latest${sfx}-musl")
           fi

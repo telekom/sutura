@@ -299,6 +299,10 @@ fn listening(
         pinned,
         crate::serve::OpenedSources::BigQuery(sutura_app::Warehouses::of(opened())),
         settings.server().request_timeout().budget(),
+        sutura_config::credentials::SourceAdmissions::default().and(
+            source("warehouse"),
+            Some(BTreeSet::from([sutura_domain::identity::VerifierId::primary()])),
+        ),
     );
     let reading = Nodes::worker_reading(working_set, identity(), Some(Arc::new(reader))).unwrap();
     let servers = tokio::runtime::Builder::new_multi_thread()

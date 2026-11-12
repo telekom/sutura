@@ -36,6 +36,9 @@ use sutura_domain::source::{SharedIdentityDeclared, SourcePosture};
 
 use crate::sources::SourceRegistry;
 
+mod admission;
+pub use admission::SourceAdmissions;
+
 /// A defect in this broker itself, which no configuration reaches.
 ///
 /// **Stated rather than unwrapped, and the reason is worth a line.** The one thing minting can fail
@@ -71,6 +74,7 @@ pub enum StaticCredentialsUnusable {
 #[derive(Debug, Clone)]
 pub struct StaticCredentialBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
+    admissions: SourceAdmissions,
 }
 
 impl StaticCredentialBroker {
@@ -89,7 +93,10 @@ impl StaticCredentialBroker {
                 drop(shared.insert(alias.clone(), declared.clone()));
             }
         }
-        Self { shared }
+        Self {
+            shared,
+            admissions: SourceAdmissions::from_registry(registry),
+        }
     }
 
     /// One shared source, declared in code rather than in a file.
@@ -107,6 +114,7 @@ impl StaticCredentialBroker {
     #[must_use]
     pub fn for_one_shared_source(source: SourceName, declared: SharedIdentityDeclared) -> Self {
         Self {
+            admissions: SourceAdmissions::default().and(source.clone(), None),
             shared: BTreeMap::from([(source, declared)]),
         }
     }
@@ -127,6 +135,9 @@ impl CredentialBroker for StaticCredentialBroker {
     type Error = StaticCredentialsUnusable;
 
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        if let Some(source) = self.admissions.refused(context, sources) {
+            return Ok(Minted::Refused { source });
+        }
         // **Two passes, and the order is the point.** A source with no static credential is a refusal
         // and not an error, and not a leg that runs as this process either - `docs/adr/0008` part 6:
         // asking differently does not help, so the caller is told which source rather than told to
