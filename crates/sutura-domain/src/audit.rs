@@ -127,6 +127,7 @@ pub struct CallRecord<'a> {
     client: Option<&'a ClientClaims>,
     labels: Option<&'a JobLabels>,
     delegated: Option<&'a DelegatedAs>,
+    verifier: Option<&'a crate::identity::AdmittingVerifier>,
 }
 
 /// How the call ended, as the two outcomes a question has.
@@ -210,6 +211,7 @@ impl<'a> CallRecord<'a> {
             client: None,
             labels: None,
             delegated: None,
+            verifier: None,
         }
     }
 
@@ -246,6 +248,7 @@ impl<'a> CallRecord<'a> {
             client: None,
             labels: None,
             delegated: None,
+            verifier: None,
         }
     }
 
@@ -264,6 +267,7 @@ impl<'a> CallRecord<'a> {
             client: None,
             labels: None,
             delegated: None,
+            verifier: None,
         }
     }
 
@@ -278,6 +282,7 @@ impl<'a> CallRecord<'a> {
             client: None,
             labels: None,
             delegated: None,
+            verifier: None,
         }
     }
 
@@ -291,7 +296,20 @@ impl<'a> CallRecord<'a> {
             client: None,
             labels: None,
             delegated: None,
+            verifier: None,
         }
+    }
+
+    /// The configured verifier that admitted the caller; absent for deployment-local calls.
+    #[must_use]
+    pub const fn admitted_by(mut self, verifier: Option<&'a crate::identity::AdmittingVerifier>) -> Self {
+        self.verifier = verifier;
+        self
+    }
+
+    #[must_use]
+    pub const fn verifier(&self) -> Option<&crate::identity::AdmittingVerifier> {
+        self.verifier
     }
 
     /// The statement text, where this record is a raw call. `None` for a certified answer or

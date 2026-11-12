@@ -168,7 +168,12 @@ fn reading_mount(
     settings: &Settings,
 ) -> Result<sutura_http::WorkerMount, String> {
     let (pinned, opened) = open_reading_sources(settings)?;
-    let reader = partition::Reader::new(pinned, opened, settings.server().request_timeout().budget());
+    let reader = partition::Reader::new(
+        pinned,
+        opened,
+        settings.server().request_timeout().budget(),
+        sutura_config::credentials::SourceAdmissions::from_registry(settings.sources()),
+    );
     mounted(tls, authority, settings.runtime(), Some(Arc::new(reader)))
 }
 

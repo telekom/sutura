@@ -1,42 +1,17 @@
-//! The sources this deployment declares: one entry per data system, keyed by the alias a model names.
+//! Data-system entries keyed by the alias a model names. Catalog paths locate authored definitions;
+//! the service opens the declared source, refusing an undeclared alias before a listener binds.
 //!
-//! **Beside `catalogs[].data_dir` rather than instead of it, and the two answer different questions.**
-//! For directory-backed catalogs, `catalogs[].dir` and `catalogs[].data_dir` locate authored definitions;
-//! an `rdbms` catalog needs neither path. A `sources:` entry is a *data system*: what kind it is, where it is, which
-//! identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
-//! is the key that selects one.
+//! Parsing rejects invalid names, duplicate aliases, unsupported kinds, missing or relative paths,
+//! unknown postures and contradictory declarations as [`SettingsError`](crate::SettingsError).
 //!
-//! **The service reads this tree and not `catalogs[].data_dir`**, which is the one operator-facing break
-//! worth stating at the top: a deployment that pointed the service at its files with
-//! `catalogs[].data_dir` has to declare a source instead, and one that declares none does not serve -
-//! the catalog names a source with no entry, and the composition root refuses before a listener is
-//! bound.
-//!
-//! # What is refused here, and what is refused later
-//!
-//! This module is the **parse**: an alias that is not a name, two entries whose aliases are one name,
-//! a kind this build has no adapter for, an entry with no file location, a relative path, a word that
-//! is not a posture, and a pairing of declarations that contradict each other. Every one of those is a
-//! value or a combination this type cannot hold, so it is a
-//! [`SettingsError`](crate::SettingsError) naming the key.
-//!
-//! Two checks are deliberately **not** here, and they are not here for two different reasons.
-//!
-//! - **The shared-identity acknowledgement** is a [`NotFitToServe`](crate::NotFitToServe) out of
-//!   `Settings::refusals`, because whether it is required depends on the *declared deployment mode* -
-//!   a fact about the tree as a whole rather than about this entry. A single-user deployment holds
-//!   every source under one static credential legitimately: that credential *is* the one user's.
-//! - **Whether the linked adapter can carry a per-subject credential at all** is a startup refusal in
-//!   the composition root, because it is a property of the BUILD. This crate cannot see which adapters
-//!   were linked and must not pretend to.
-//!
-//! And one is not a parse check on purpose: **whether the directory exists.** `CatalogSettings::parse`
-//! declines the same check for the reason that applies here unchanged - a directory that disappears
-//! between reading the configuration and opening the engine would make an existence check a claim that
-//! is already stale, and it would make configuration validation depend on the filesystem. A missing
-//! *file* is refused where it is discovered, at boot, by the composition root that tries to attach it.
+//! These checks belong later:
+//! - Shared-identity acknowledgement is a [`NotFitToServe`](crate::NotFitToServe) because its
+//!   requirement depends on the deployment's declared mode; a single-user credential is its user's.
+//! - Adapter credential support is checked by the composition root, which knows the linked build.
+//! - Filesystem existence is checked when the source opens. Checking it here would be stale before
+//!   use and make configuration parsing depend on the filesystem.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::security::DeploymentIdentity;
@@ -48,6 +23,7 @@ use crate::sources::transport::InvalidTransport;
 use crate::sources::workload_identity::{
     InboundTokenAtPool, InvalidWorkloadIdentity, UnknownAcknowledgement, WorkloadIdentityConfig,
 };
+use sutura_domain::identity::VerifierId;
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::source::{
     AcknowledgementReason, ConflictingSourceIdentity, HashBucketsDeclared, InvalidOperatorText, SharedIdentityDeclared,
@@ -84,6 +60,7 @@ pub mod workload_identity;
 pub mod split;
 use split::{SourceSplit, SplitRefused};
 
+pub mod admission;
 /// The per-entry reader - see its header for why it is its own file.
 mod entry;
 use entry::{parse_absolute, parse_delegation, parse_placement, refuse_foreign_keys, refuse_remote_plaintext, required};
@@ -237,6 +214,7 @@ impl SourceKind {
 /// `Settings::parse` is reachable from this crate's own tests without the refusal having run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfiguredSource {
+    admitted_by: Option<std::collections::BTreeSet<sutura_domain::identity::VerifierId>>,
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
     caller_identity: Option<CallerIdentity>,
@@ -246,6 +224,12 @@ pub struct ConfiguredSource {
 }
 
 impl ConfiguredSource {
+    /// Resolved names. `None` admits deployment-local contexts only; an empty set admits nobody.
+    #[must_use]
+    pub const fn admitted_by(&self) -> Option<&BTreeSet<VerifierId>> {
+        self.admitted_by.as_ref()
+    }
+
     /// The operator's witness for reading this source's lookup leg in hash buckets, written as
     /// `hash_buckets_acknowledged_because` on a `clickhouse` entry and refused on every other kind.
     #[inline]
@@ -747,6 +731,15 @@ pub(crate) struct RawSourceEntry<'raw> {
 }
 
 impl SourceRegistry {
+    pub(crate) fn declare_admitted_by(
+        &mut self,
+        written: &str,
+        raw: Option<&[String]>,
+        inbound: &[crate::inbound::InboundVerifier],
+    ) -> Result<(), admission::InvalidSourceAdmission> {
+        admission::declare_admitted_by(self, written, raw, inbound)
+    }
+
     /// Records the `inbound_token_at_pool` written on the entry `written`, after the entry itself
     /// parsed; whether it applies is `Settings::refusals`' combination check.
     pub(crate) fn acknowledge_inbound_token_at_pool(&mut self, written: &str, value: &str) -> Result<(), InvalidSourceRegistry> {
@@ -947,6 +940,7 @@ fn parse_entry(
         blocks,
     )?;
     Ok(ConfiguredSource {
+        admitted_by: None,
         placement,
         identity,
         caller_identity,

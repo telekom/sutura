@@ -124,6 +124,7 @@ in
     echo "pinned kubeconform: $(kubeconform -v)"
 
     helm lint "$chart"
+    bash "$testdata/inbound-cells.sh" "$chart" "$work"
 
     if helm template "$chart" > /dev/null 2> "$work/refusal.log"; then
       echo "sutura-chart: rendered with no values set - Settings::refusals' fail() guard did not fire" >&2

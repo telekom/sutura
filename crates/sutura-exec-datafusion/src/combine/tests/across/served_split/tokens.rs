@@ -21,7 +21,14 @@ pub(super) struct ReadsWithTokens {
 }
 
 impl PartitionReader for ReadsWithTokens {
-    fn read(&self, _: &[u8], _: &SourceName, _: &[u8], _: &SchemaRef) -> Result<SendableRecordBatchStream, Unread> {
+    fn read(
+        &self,
+        _: &sutura_domain::identity::VerifierId,
+        _: &[u8],
+        _: &SourceName,
+        _: &[u8],
+        _: &SchemaRef,
+    ) -> Result<SendableRecordBatchStream, Unread> {
         Err(Unread::Failed(DataFusionError::Execution(String::from("read with no token"))))
     }
 
@@ -31,6 +38,7 @@ impl PartitionReader for ReadsWithTokens {
     )]
     fn read_forwarded(
         &self,
+        verifier: &sutura_domain::identity::VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
@@ -40,6 +48,6 @@ impl PartitionReader for ReadsWithTokens {
         self.handed
             .lock()
             .push((partition.to_vec(), String::from(forwarded.into_token().expose_secret())));
-        self.rows.read(wire, source, partition, schema)
+        self.rows.read(verifier, wire, source, partition, schema)
     }
 }

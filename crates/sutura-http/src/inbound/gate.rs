@@ -37,6 +37,7 @@
 //! The log says - through the `#[source]` chain on `TokenRejected` - and the caller does not, because
 //! "the signature verified and the audience did not" tells somebody which half of a forgery to fix.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -45,7 +46,7 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, KeySetLocation, ResourceIdentifier, TokenLocation};
+use sutura_config::{InboundIdentity, InboundVerifier, KeySetLocation, McpPath, ResourceIdentifier, TokenLocation};
 
 use sutura_runtime::Shutdown;
 
@@ -59,6 +60,12 @@ use crate::problem::Failure;
 /// The scheme an `Authorization` token carries, and the header it arrives in.
 const AUTHORIZATION: &str = "authorization";
 const BEARER: &str = "Bearer";
+
+/// The gate chosen for a request, paired with the token string presented to it.
+///
+/// `'g` borrows from the outer gate (via `&self`) and `'h` borrows from the request headers.
+/// [`InboundGate::select_gate`] produces this pair when routing succeeds.
+type SelectedGate<'g, 'h> = (&'g InboundGate, &'h str);
 
 /// Everything one deployment needs to establish who a caller is, built once at startup.
 ///
@@ -88,6 +95,18 @@ pub struct InboundGate {
     realm: String,
     /// The public discovery document and the exact absolute URL the challenge points at.
     protected_resource: Option<crate::routes::protected_resource::ProtectedResource>,
+    /// The issuer this gate validates tokens for.
+    ///
+    /// Stored at startup from the declaration's requirement, so the multi-verifier dispatcher can
+    /// route by `iss` without consulting any configured state.
+    issuer: String,
+    path: McpPath,
+    /// Other configured verifiers, keyed by their distinct issuer strings.
+    ///
+    /// **Empty for a single-verifier deployment** - no dispatching cost and no allocation in that
+    /// case. When non-empty, `establish` peeks at the unverified `iss` claim to select the right
+    /// sub-gate before doing any signature work.
+    also_accept: BTreeMap<String, Self>,
 }
 
 /// The gate could not be built.
@@ -144,6 +163,32 @@ impl InboundGate {
         Ok(Self::over(inbound, keys))
     }
 
+    /// Reads every named verifier once; an empty declaration means no inbound identity.
+    pub fn from_verifiers_trusting(
+        declarations: &[InboundVerifier],
+        anchors: Option<&sutura_tls::Anchors>,
+    ) -> Result<Option<Self>, InboundNotUsable> {
+        let Some((first, rest)) = declarations.split_first() else {
+            return Ok(None);
+        };
+        let build = |declaration: &InboundVerifier| {
+            let mut gate = Self::from_declaration_trusting(declaration.identity(), anchors)?;
+            gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+            gate.path = declaration.path().clone();
+            gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
+            Ok::<Self, InboundNotUsable>(gate)
+        };
+        let mut gate = build(first)?;
+        gate.also_accept = rest
+            .iter()
+            .map(|declaration| {
+                let next = build(declaration)?;
+                Ok((next.issuer.clone(), next))
+            })
+            .collect::<Result<_, InboundNotUsable>>()?;
+        Ok(Some(gate))
+    }
+
     /// The same, over a key set that is already in hand.
     ///
     /// `pub(crate)` and the seam every test in this module uses: a fake
@@ -155,7 +200,7 @@ impl InboundGate {
         let (header, bearer_prefixed, challenges) = match requirement.location() {
             TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true, true),
             TokenLocation::GatewayBearer => (String::from(AUTHORIZATION), true, false),
-            TokenLocation::Header { name } => (String::from(name.as_str()), false, false),
+            TokenLocation::Header { name } => (name.as_str().to_ascii_lowercase(), false, false),
         };
         Self {
             realm: String::from(
@@ -178,7 +223,19 @@ impl InboundGate {
             bearer_prefixed,
             challenges,
             protected_resource,
+            issuer: String::from(requirement.issuer().as_str()),
+            path: McpPath::conventional(),
+            also_accept: BTreeMap::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn over_named(declaration: &InboundVerifier, keys: KeySetCache) -> Self {
+        let mut gate = Self::over(declaration.identity(), keys);
+        gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+        gate.path = declaration.path().clone();
+        gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
+        gate
     }
 
     /// Starts the timer that bounds how long a revoked key keeps verifying.
@@ -191,8 +248,14 @@ impl InboundGate {
     /// forgiving: `crate::inbound::keys::KeySetCache::key_for` checks the age itself, so a deployment
     /// serving traffic re-reads within the same horizon. What the timer adds is the bound holding while
     /// nothing is being asked.
-    pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown) {
-        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown);
+    ///
+    /// For multi-verifier deployments, watches the sub-gate key sets too: each verifier has its own
+    /// key source and its own rotation cycle.
+    pub fn watch_keys_until_shutdown(&self, shutdown: &Shutdown) {
+        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown.clone());
+        for gate in self.also_accept.values() {
+            KeySetCache::watch_until_shutdown(&gate.keys, MAX_KEY_SET_AGE, shutdown.clone());
+        }
     }
 
     /// The header this gate reads, for a startup log line and for a test.
@@ -200,6 +263,23 @@ impl InboundGate {
     #[must_use]
     pub fn header(&self) -> &str {
         &self.header
+    }
+
+    /// The issuer this gate validates tokens for, for multi-verifier assembly in tests.
+    #[cfg(test)]
+    pub(crate) fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    /// Attaches additional verifiers to this gate, keyed by their issuer string.
+    ///
+    /// **Test-only**: production paths use [`Self::from_verifiers_trusting`], which reads each
+    /// secondary verifier's key set from the filesystem or a URL. Tests supply the key set document
+    /// through [`Self::over`] and assemble the multi-verifier gate with this method instead.
+    #[cfg(test)]
+    pub(crate) fn with_also_accept(mut self, also_accept: std::collections::BTreeMap<String, Self>) -> Self {
+        self.also_accept = also_accept;
+        self
     }
 
     /// How many keys are cached, and their ids. For the startup log.
@@ -226,9 +306,21 @@ impl InboundGate {
     /// rather than the configured identifier's exact bytes.
     #[must_use]
     pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
-        if !self.challenges {
-            return None;
+        self.challenge_on(None, request_uri, headers)
+    }
+
+    fn challenge_on(&self, path: Option<&McpPath>, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
+        let mut direct = self
+            .gates()
+            .filter(|gate| gate.challenges && path.is_none_or(|path| gate.path == *path));
+        let gate = direct.next()?;
+        if direct.next().is_some() {
+            return Some(String::from("Bearer error=\"invalid_token\""));
         }
+        Some(gate.direct_challenge(request_uri, headers))
+    }
+
+    fn direct_challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> String {
         let mut challenge = format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm);
         if let Some(protected_resource) = self
             .protected_resource
@@ -239,18 +331,19 @@ impl InboundGate {
             challenge.push_str(protected_resource.url());
             challenge.push('"');
         }
-        Some(challenge)
+        challenge
     }
 
     /// The discovery document this gate built, only in the direct mode.
-    pub(crate) const fn protected_resource(&self) -> Option<&crate::routes::protected_resource::ProtectedResource> {
-        self.protected_resource.as_ref()
+    pub(crate) fn protected_resources(&self) -> impl Iterator<Item = &crate::routes::protected_resource::ProtectedResource> {
+        self.gates().filter_map(|gate| gate.protected_resource.as_ref())
     }
 
     /// Establishes who is asking, or says why it could not.
     ///
     /// The whole request path of leg 1, in one function, so the order of the four steps is readable in
-    /// one place: read the header, read the key id it names, find the key, verify.
+    /// one place: read the header, route by issuer (multi-verifier only), read the key id it names,
+    /// find the key, verify.
     ///
     /// **Takes the headers rather than the request, and both reasons are worth keeping.** The narrow
     /// one is that it is the whole of what leg 1 may read: a gate that was handed a request could
@@ -258,9 +351,87 @@ impl InboundGate {
     /// that unavailable rather than merely unwise. The mechanical one is that `axum::body::Body` is not
     /// `Sync`, so a future holding `&Request` across an await is not `Send` and cannot run as a layer
     /// at all - which is how the narrow reason got discovered.
+    ///
+    /// **Multi-verifier routing** (`github.com/telekom/sutura#1884`): when `also_accept` is non-empty,
+    /// [`Self::select_gate`] finds the right sub-gate from the headers. Reading an unauthenticated
+    /// `iss` claim to dispatch is safe because the selected verifier still checks the signature, issuer
+    /// match and audience with keys it built for that issuer at startup. An `iss` that selects the wrong
+    /// verifier fails that verifier's checks; an `iss` that matches no verifier is `UnknownIssuer`
+    /// immediately, with no key lookup and no signature work.
     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
-        let presented = self.presented(headers)?;
-        self.validator.check_size(presented)?;
+        if self.also_accept.is_empty() {
+            // Single-verifier fast path: skip the issuer peek entirely.
+            let presented = self.presented(headers)?;
+            self.validator.check_size(presented)?;
+            return self.establish_token(presented, now).await;
+        }
+        let (gate, presented) = self.select_gate(headers)?;
+        gate.validator.check_size(presented)?;
+        gate.establish_token(presented, now).await
+    }
+
+    /// Filters by the mounted MCP path before reading any issuer or consulting keys.
+    pub async fn establish_on(&self, path: &McpPath, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
+        let (gate, presented) = self.select_from(headers, Some(path))?;
+        gate.validator.check_size(presented)?;
+        gate.establish_token(presented, now).await
+    }
+
+    /// Reads each distinct location once, refusing competing proofs before issuer selection.
+    ///
+    /// Until the issuer is known, the largest bound at this location limits decoding. The selected
+    /// verifier's own bound is checked before reading the key id or verifying the signature.
+    fn select_gate<'h>(&self, headers: &'h HeaderMap) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
+        self.select_from(headers, None)
+    }
+
+    fn select_from<'h>(&self, headers: &'h HeaderMap, path: Option<&McpPath>) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
+        let eligible = || self.gates().filter(|gate| path.is_none_or(|path| gate.path == *path));
+        let mut locations = BTreeSet::new();
+        let mut found = None;
+        for gate in eligible() {
+            if !locations.insert((gate.header.as_str(), gate.bearer_prefixed)) {
+                continue;
+            }
+            match gate.presented(headers) {
+                Ok(presented) => {
+                    let largest = eligible()
+                        .filter(|candidate| candidate.same_location(gate))
+                        .max_by_key(|candidate| candidate.validator.max_token_bytes())
+                        .unwrap_or(gate);
+                    largest.validator.check_size(presented)?;
+                    if found.is_some() {
+                        return Err(TokenRejected::AmbiguousProof);
+                    }
+                    found = Some((gate, presented));
+                }
+                Err(TokenRejected::Absent { .. }) => {}
+                Err(cause) => return Err(cause),
+            }
+        }
+        let (location, presented) = found.ok_or_else(|| TokenRejected::Absent {
+            location: self.header.clone(),
+        })?;
+        let issuer = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
+        let gate = eligible()
+            .find(|gate| gate.same_location(location) && gate.issuer == issuer)
+            .ok_or(TokenRejected::UnknownIssuer)?;
+        Ok((gate, presented))
+    }
+
+    fn gates(&self) -> impl Iterator<Item = &Self> {
+        std::iter::once(self).chain(self.also_accept.values())
+    }
+
+    fn same_location(&self, other: &Self) -> bool {
+        self.header == other.header && self.bearer_prefixed == other.bearer_prefixed
+    }
+
+    /// Verifies an already-extracted token against this gate's validator and key set.
+    ///
+    /// The original three-step body of `establish`, pulled out so the multi-verifier router can call
+    /// it on whichever sub-gate the `iss` selects.
+    async fn establish_token(&self, presented: &str, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
         let id = TokenValidator::key_id(presented)?;
         let key = self
             .keys
@@ -316,6 +487,7 @@ impl core::fmt::Debug for InboundGate {
         f.debug_struct("InboundGate")
             .field("header", &self.header)
             .field("realm", &self.realm)
+            .field("also_accept_count", &self.also_accept.len())
             .finish_non_exhaustive()
     }
 }
@@ -330,7 +502,18 @@ impl core::fmt::Debug for InboundGate {
 /// **The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
 /// with something already under that type - which nothing can construct, but the reasoning should not
 /// rest on that alone - is replaced rather than joined.
-pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut request: Request, next: Next) -> Response {
+pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, request: Request, next: Next) -> Response {
+    require_caller(&gate, None, request, next).await
+}
+
+type PathAdmission = (Arc<InboundGate>, McpPath);
+
+/// Admission for one configured MCP mount, sharing the global verifier caches.
+pub async fn require_path_caller(State((gate, path)): State<PathAdmission>, request: Request, next: Next) -> Response {
+    require_caller(&gate, Some(&path), request, next).await
+}
+
+async fn require_caller(gate: &InboundGate, path: Option<&McpPath>, mut request: Request, next: Next) -> Response {
     // One clock read per request, passed down, so the rate-limit window is decided once and the same
     // instant is what a retry inside it is measured against.
     let now = Instant::now();
@@ -338,12 +521,16 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
     // whole request is not `Sync` - see `InboundGate::establish` - and a `HeaderMap` clone is a handful
     // of small allocations against a signature verification.
     let headers = request.headers().clone();
-    match gate.establish(&headers, now).await {
+    let caller = match path {
+        Some(path) => gate.establish_on(path, &headers, now).await,
+        None => gate.establish(&headers, now).await,
+    };
+    match caller {
         Ok(caller) => {
             drop(request.extensions_mut().insert(caller));
             next.run(request).await
         }
-        Err(rejected) => refused(&gate, &rejected, request.uri(), &headers),
+        Err(rejected) => refused(gate, path, &rejected, request.uri(), &headers),
     }
 }
 
@@ -353,7 +540,13 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
-fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
+fn refused(
+    gate: &InboundGate,
+    path: Option<&McpPath>,
+    rejected: &TokenRejected,
+    request_uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
     if let Some(failure) = not_the_callers_fault(rejected) {
         return failure.into_response();
     }
@@ -379,12 +572,35 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     }
     .into_response();
     if let Some(challenge) = gate
-        .challenge(request_uri, headers)
+        .challenge_on(path, request_uri, headers)
         .or_else(|| matches!(rejected, TokenRejected::TooLong { .. }).then(|| String::from("Bearer error=\"invalid_token\"")))
     {
         challenged(&mut response, &challenge);
     }
     response
+}
+
+/// Peeks at the token's `iss` claim without verifying anything.
+///
+/// A deliberate read of unauthenticated input, and the design notes say why that is not a security
+/// gap: `iss` selects a verifier, not a permission. The selected verifier then checks the signature,
+/// expiry, issuer match and audience with the keys it built at startup for that issuer.
+///
+/// The location's byte bound has already passed. A minimal struct reads only `iss`; any malformed
+/// payload or absent issuer is refused as `UnknownIssuer`, before key lookup.
+fn unverified_issuer(token: &str) -> Option<String> {
+    use base64::Engine as _;
+    #[derive(serde::Deserialize)]
+    struct IssOnly {
+        iss: String,
+    }
+    let mut segments = token.split('.');
+    let (Some(_header), Some(payload), Some(_sig), None) = (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss)
 }
 
 /// A refusal that is this process's state rather than the caller's credential, and is not a `401`.
@@ -417,7 +633,8 @@ fn challenged(response: &mut Response, challenge: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, TokenRejected, not_the_callers_fault};
+    use super::{Failure, TokenRejected, not_the_callers_fault, unverified_issuer};
+    use base64::Engine as _;
 
     #[test]
     fn a_full_seen_store_answers_identity_unavailable_and_a_replay_answers_401() {
@@ -426,5 +643,30 @@ mod tests {
             Some(Failure::IdentityUnavailable)
         ));
         assert!(not_the_callers_fault(&TokenRejected::Replayed).is_none());
+        assert!(not_the_callers_fault(&TokenRejected::UnknownIssuer).is_none());
+    }
+
+    #[test]
+    fn unverified_issuer_reads_iss_without_checking_signature() {
+        let payload = serde_json::json!({"iss": "https://idp.example.com/realms/prod", "sub": "user"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string());
+        let token = format!("eyJhbGciOiJSUzI1NiJ9.{encoded}.fakesig");
+        assert_eq!(
+            unverified_issuer(&token).as_deref(),
+            Some("https://idp.example.com/realms/prod")
+        );
+    }
+
+    #[test]
+    fn unverified_issuer_returns_none_for_a_missing_iss_or_malformed_token() {
+        // No `iss` claim in the payload.
+        let payload = serde_json::json!({"sub": "user"});
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.to_string());
+        let token = format!("eyJhbGciOiJSUzI1NiJ9.{encoded}.fakesig");
+        assert!(unverified_issuer(&token).is_none(), "no iss should give None");
+        // Not a three-segment JWT at all.
+        assert!(unverified_issuer("notatoken").is_none(), "one segment should give None");
+        // Too many segments.
+        assert!(unverified_issuer("a.b.c.d").is_none(), "four segments should give None");
     }
 }

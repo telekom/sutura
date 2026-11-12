@@ -230,6 +230,23 @@ pub enum TokenRejected {
     /// nothing is wrong with the caller's assertion, and none is admitted unrecorded.
     #[error("this process holds as many unexpired assertions as it can, and admits no new one until some expire")]
     SeenStoreFull,
+    /// A multi-verifier deployment received a token whose `iss` claim matches no configured verifier.
+    ///
+    /// **A deliberate `401 invalid_token`, not a `501`.** An unknown issuer is not an error this
+    /// deployment cannot handle - it is a caller presenting a token nobody here will verify. The
+    /// same error a wrong-audience or wrong-signature token produces, so a caller cannot learn from
+    /// the response which verifiers are configured and which are not.
+    #[error("the token's issuer is not one this deployment accepts")]
+    UnknownIssuer,
+    /// A multi-verifier deployment with verifiers in different header locations received tokens in
+    /// more than one of those locations simultaneously.
+    ///
+    /// **Refused rather than arbitrarily selected.** Each configured location carries exactly one
+    /// verifier, and a request presenting credentials in two of them is a request this gate cannot
+    /// decide: choosing either would silently ignore the other. The same `401` a wrong credential
+    /// produces; a caller does not learn which locations are configured.
+    #[error("tokens were presented in more than one configured header location")]
+    AmbiguousProof,
 }
 
 /// Why a presented token did not verify, when it did not.
@@ -366,6 +383,7 @@ struct Claims {
 /// differently, and every field on it is a control.
 #[derive(Debug)]
 pub struct TokenValidator {
+    verifier: sutura_domain::identity::AdmittingVerifier,
     max_token_bytes: sutura_config::inbound::MaxTokenBytes,
     validation: Validation,
     audience: TokenAudience,
@@ -400,6 +418,10 @@ impl TokenValidator {
         check_size(token, self.max_token_bytes.bytes())
     }
 
+    pub(crate) const fn max_token_bytes(&self) -> usize {
+        self.max_token_bytes.bytes()
+    }
+
     /// Builds the validation from a declaration `sutura-config` already accepted or refused.
     ///
     /// Every line here is a control, so each one says what it is for. What is **not** here is equally
@@ -407,6 +429,12 @@ impl TokenValidator {
     /// that reads the algorithm out of the token in order to pick one.
     #[must_use]
     pub fn new(requirement: &TokenRequirement<'_>) -> Self {
+        Self::named(sutura_domain::identity::VerifierId::primary(), requirement)
+    }
+
+    /// Binds successful verification to the stable configured identity provider.
+    #[must_use]
+    pub fn named(id: sutura_domain::identity::VerifierId, requirement: &TokenRequirement<'_>) -> Self {
         let algorithms = requirement.algorithms();
         // `Validation::new` seeds `algorithms` with the one it is given; the assignment below replaces
         // the whole list, so the seed cannot survive as an extra permitted algorithm.
@@ -426,6 +454,16 @@ impl TokenValidator {
         validation.validate_nbf = true;
         validation.leeway = LEEWAY_SECONDS;
         Self {
+            verifier: sutura_domain::identity::AdmittingVerifier::of(
+                id,
+                String::from(requirement.issuer().as_str()),
+                match requirement.location() {
+                    sutura_config::TokenLocation::AuthorizationBearer => sutura_domain::identity::VerifierMode::Direct,
+                    sutura_config::TokenLocation::GatewayBearer | sutura_config::TokenLocation::Header { .. } => {
+                        sutura_domain::identity::VerifierMode::Gateway
+                    }
+                },
+            ),
             max_token_bytes: requirement.max_token_bytes(),
             validation,
             audience: requirement.audience().clone(),
@@ -489,7 +527,8 @@ impl TokenValidator {
         // The single construction of a verified subject: both the masked id a record renders and the
         // full impersonation-map key come from one parse of the same verified `sub`, so they cannot
         // disagree about who was verified.
-        let subject = Subject::verified(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
+        let subject = Subject::verified_by(self.verifier.id().clone(), &claims.sub)
+            .map_err(|cause| TokenRejected::UnusableSubject { cause })?;
         let mut chain = PrincipalChain::of(subject);
         if let Some(ref actor) = claims.act {
             chain = chain.acting(chain_from(actor)?);
@@ -513,6 +552,7 @@ impl TokenValidator {
             sutura_domain::identity::Secret::new(token),
             u64::try_from(claims.exp).unwrap_or(0),
             client,
+            self.verifier.clone(),
         )
         .addressed(address);
         // LAST, so an assertion any check above refuses never takes a place in the store.

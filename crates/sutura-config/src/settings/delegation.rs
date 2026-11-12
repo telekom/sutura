@@ -10,7 +10,7 @@
 //! deployment's own token, so it earns its own refusal and message rather than being folded into
 //! [`crate::settings::NotFitToServe::DelegationToTheDeploymentsOwnAudience`].
 
-use crate::inbound::InboundIdentity;
+use crate::inbound::{InboundIdentity, InboundVerifier};
 use crate::settings::NotFitToServe;
 use crate::sources::SourceRegistry;
 use crate::sources::caller_identity::CallerIdentity;
@@ -21,30 +21,26 @@ use crate::sources::caller_identity::CallerIdentity;
 /// [`NotFitToServe::InboundTokenAtPoolWithoutEffect`],
 /// [`NotFitToServe::DelegationToTheDeploymentsOwnAudience`] and
 /// [`NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience`].
-pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRegistry) -> Vec<NotFitToServe> {
-    let own = inbound.and_then(|declared| match *declared {
-        InboundIdentity::Direct { ref resource, .. } => Some(resource),
-        InboundIdentity::BehindGateway { .. } => None,
-    });
-    let direct = own.is_some();
+pub(super) fn hop_refusals(inbound: &[InboundVerifier], sources: &SourceRegistry) -> Vec<NotFitToServe> {
     let mut refusals = Vec::new();
     for (alias, source) in sources.each() {
+        let own: Vec<_> = inbound
+            .iter()
+            .filter_map(|verifier| match verifier.identity() {
+                InboundIdentity::Direct { resource, .. } => Some(resource),
+                InboundIdentity::BehindGateway { .. } => None,
+            })
+            .collect();
+        let direct = inbound.iter().any(|verifier| {
+            matches!(verifier.identity(), InboundIdentity::Direct { .. })
+                && source.admitted_by().is_some_and(|ids| ids.contains(verifier.id()))
+        });
         let hops = source.workload_identity().map(|wif| !wif.delegation().is_empty());
-        let delegation = if hops == Some(true) {
-            Some("workload_identity.delegation")
-        } else if matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_))) {
-            Some("google_login")
-        } else if matches!(
-            *source.placement(),
-            crate::SourcePlacement::Oracle { ref delegation, .. }
-                | crate::SourcePlacement::Cube { ref delegation, .. }
-                | crate::SourcePlacement::Node { ref delegation, .. }
-                | crate::SourcePlacement::ClickHouse { ref delegation, .. } if !delegation.is_empty()
-        ) {
-            Some("delegation")
-        } else {
-            None
-        };
+        let delegation = super::admission::delegation_key(source).or_else(|| {
+            (matches!(source.caller_identity(), Some(CallerIdentity::GoogleLogin(_)))
+                && !source.admitted_by().is_some_and(std::collections::BTreeSet::is_empty))
+            .then_some("google_login")
+        });
         if let Some(key) = delegation
             && !direct
         {
@@ -68,16 +64,18 @@ pub(super) fn hop_refusals(inbound: Option<&InboundIdentity>, sources: &SourceRe
             },
             |wif| wif.delegation(),
         );
-        if let Some(resource) = own
-            && let crate::SourcePlacement::Node { ref delegation, .. } = *source.placement()
+        if let crate::SourcePlacement::Node { ref delegation, .. } = *source.placement()
             && let Some(last) = delegation.last()
-            && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
+            && own
+                .iter()
+                .any(|resource| last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
         {
             refusals.push(NotFitToServe::NodeDelegationToTheDeploymentsOwnAudience { alias: alias.clone() });
         }
-        if let Some(resource) = own
-            && let Some(last) = hops.last()
-            && (last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
+        if let Some(last) = hops.last()
+            && own
+                .iter()
+                .any(|resource| last.audience() == resource.as_str() || last.audience() == resource.audience().as_str())
         {
             refusals.push(NotFitToServe::DelegationToTheDeploymentsOwnAudience { alias: alias.clone() });
         }

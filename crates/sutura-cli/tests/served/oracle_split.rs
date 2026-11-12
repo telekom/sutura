@@ -164,7 +164,12 @@ impl Fixture {
 
     fn reader(&self, name: &str, catalog: &Path) -> Served {
         let server = format!("  role: reading-worker\n  host: 127.0.0.1\n  port: 0\n{}", self.pair());
-        let security = format!("{SINGLE_USER}  tls_termination: in-process\n");
+        let security = format!(
+            "{SINGLE_USER}  tls_termination: in-process\n  inbound:\n    mode: direct\n    resource: {}\n    authorization_server: {}\n    key_set_file: {}\n    algorithms: [ES256]\n",
+            self.issuer.audience(),
+            self.issuer.issuer(),
+            self.keys.path().display(),
+        );
         start_configured(
             &format!("{CASE}-{name}"),
             &settings_over(catalog, &example_root().join("data"), &server, &security, &self.source(true)),

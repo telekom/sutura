@@ -769,6 +769,7 @@ where
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );
@@ -828,6 +829,7 @@ where
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );
@@ -879,6 +881,7 @@ where
         self.sink.record(
             &record
                 .naming_client(context.client())
+                .admitted_by(context.verifier())
                 .labelled(&labels)
                 .delegating(&delegated),
         );

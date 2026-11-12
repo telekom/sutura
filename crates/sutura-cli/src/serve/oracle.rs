@@ -349,7 +349,8 @@ mod tests {
     fn the_broker_presents_the_token_a_callers_assertion_is_exchanged_for() {
         use base64::Engine as _;
         use sutura_domain::identity::{
-            Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+            AdmittingVerifier, Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet,
+            Subject, VerifierId, VerifierMode,
         };
         use sutura_http_client::test_support::{FakeServer, Scripted};
 
@@ -386,7 +387,12 @@ mod tests {
                     PrincipalChain::of(asked_by.clone()),
                     Secret::new("assertion.for.analyst-a"),
                     4_102_444_800,
-                ),
+                )
+                .admitted_by(AdmittingVerifier::of(
+                    VerifierId::primary(),
+                    String::from("https://idp.example.com"),
+                    VerifierMode::Direct,
+                )),
                 &asked,
             )
             .expect("a mint answers");

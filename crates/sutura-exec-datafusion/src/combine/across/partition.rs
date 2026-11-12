@@ -48,7 +48,7 @@ use futures_util::{StreamExt as _, stream};
 use parking_lot::Mutex;
 use prost::Message as _;
 use ring::digest;
-use sutura_domain::identity::{PrincipalName, Secret, WorkloadPool};
+use sutura_domain::identity::{PrincipalName, Secret, VerifierId, WorkloadPool};
 use sutura_domain::model::SourceName;
 use sutura_domain::warehouse::{Accumulating, ResultBatches, UnannouncedBatch};
 
@@ -59,7 +59,9 @@ use super::{StageReadsASource, carried};
 /// [`super::Nodes::worker_reading`] names it in a `pub fn` signature, so this trait cannot be more
 /// private than that function.
 pub trait PartitionReader: Send + Sync {
-    /// Reads `source`'s `partition` of the leg `wire` carries, against `schema`.
+    /// Reads `source`'s `partition` of the leg `wire` carries, against `schema`, for the authenticated
+    /// granting node's `verifier`. Source admission belongs to the concrete reader; this trait and
+    /// its closure implementor impose no membership policy.
     ///
     /// # Errors
     ///
@@ -68,6 +70,7 @@ pub trait PartitionReader: Send + Sync {
     /// for anything else.
     fn read(
         &self,
+        verifier: &VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
@@ -82,6 +85,7 @@ pub trait PartitionReader: Send + Sync {
     /// caller's token is never handed one to read past.
     fn read_forwarded(
         &self,
+        _verifier: &VerifierId,
         _wire: &[u8],
         source: &SourceName,
         _partition: &[u8],
@@ -102,6 +106,7 @@ pub trait PartitionReader: Send + Sync {
     /// caller's principal is never handed one to read as.
     fn read_switched(
         &self,
+        _verifier: &VerifierId,
         _wire: &[u8],
         source: &SourceName,
         _partition: &[u8],
@@ -266,6 +271,7 @@ where
 {
     fn read(
         &self,
+        _verifier: &VerifierId,
         _wire: &[u8],
         source: &SourceName,
         partition: &[u8],
@@ -520,6 +526,7 @@ impl ExecutionPlan for PartitionScanExec {
         let admitted = self
             .admitted
             .lock()
+            .clone()
             .ok_or_else(|| DataFusionError::External(Box::new(super::WorkerRefusal::GrantNotNaming)))?;
         let reader = context
             .session_config()
@@ -527,13 +534,27 @@ impl ExecutionPlan for PartitionScanExec {
             .ok_or_else(|| DataFusionError::Execution(String::from("this worker was built with no partition reader")))?;
         let schema = self.properties.eq_properties.schema();
         let mut batches = match self.taken()? {
-            Carried::Token(forwarded) => reader
-                .0
-                .read_forwarded(&self.wire, &self.source, &self.partition, schema, forwarded),
-            Carried::Principal(switched) => reader
-                .0
-                .read_switched(&self.wire, &self.source, &self.partition, schema, switched),
-            Carried::Nothing | Carried::Taken { .. } => reader.0.read(&self.wire, &self.source, &self.partition, schema),
+            Carried::Token(forwarded) => reader.0.read_forwarded(
+                &admitted.verifier,
+                &self.wire,
+                &self.source,
+                &self.partition,
+                schema,
+                forwarded,
+            ),
+            Carried::Principal(switched) => reader.0.read_switched(
+                &admitted.verifier,
+                &self.wire,
+                &self.source,
+                &self.partition,
+                schema,
+                switched,
+            ),
+            Carried::Nothing | Carried::Taken { .. } => {
+                reader
+                    .0
+                    .read(&admitted.verifier, &self.wire, &self.source, &self.partition, schema)
+            }
         }
         .map_err(Unread::into_error)?;
         let schema = Arc::clone(schema);

@@ -22,6 +22,33 @@ use crate::tools::InvalidRunSqlSources;
 /// stderr gets both without either being formatted into the other.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
+    #[error("a source's admitted verifiers are not usable")]
+    SourceAdmission {
+        #[source]
+        cause: crate::sources::admission::InvalidSourceAdmission,
+    },
+    #[error("`security.inbound` must contain at least one verifier; remove it for no inbound identity")]
+    InboundListEmpty,
+    #[error("`security.inbound` entry {index:?} requires `{key}`")]
+    InboundEntryKeyMissing { index: Option<usize>, key: &'static str },
+    #[error("`security.inbound` entry {index:?} has an invalid id")]
+    VerifierId {
+        index: Option<usize>,
+        #[source]
+        cause: sutura_domain::identity::InvalidVerifierId,
+    },
+    #[error("`security.inbound` entry {index:?} has an invalid MCP path")]
+    McpPath {
+        index: Option<usize>,
+        #[source]
+        cause: crate::inbound::InvalidMcpPath,
+    },
+    #[error("`security.inbound[{index}]` is not usable")]
+    InboundEntry {
+        index: usize,
+        #[source]
+        cause: Box<Self>,
+    },
     /// A source could not be read, or a value could not be deserialized into the raw tree. This is
     /// where an unknown key lands, because `deny_unknown_fields` is a deserialization error.
     ///

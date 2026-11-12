@@ -56,7 +56,8 @@ pub(crate) fn build_broker(
     )]
     outbound: Option<&sutura_tls::Declared>,
 ) -> Result<DeclaredPrincipalBroker, String> {
-    let mut broker = DeclaredPrincipalBroker::empty();
+    let mut broker =
+        DeclaredPrincipalBroker::empty().admitting(sutura_config::credentials::SourceAdmissions::from_registry(registry));
     for (alias, source) in registry.each() {
         if let Some(SourcePosture::SharedServiceUser { declared }) = source.posture() {
             broker = broker.shared(alias.clone(), declared.clone());

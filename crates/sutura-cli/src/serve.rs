@@ -485,7 +485,7 @@ pub(crate) fn run() -> Result<(), String> {
     let mut state = ServiceState::new(service, servable, admission);
     let coverage = state.catalog_coverage();
     #[cfg(feature = "agent")]
-    let agent_mount = agent_mount(&state)?;
+    let agent_mounts = agent_mounts(&state)?;
     // Off unless the deployment set `server.flight_surface.enabled`; where the mount may run is
     // `Settings::flight_surface_refusals`, asked again by `sutura_http::router` for the mount itself.
     #[cfg(feature = "flight")]
@@ -502,7 +502,7 @@ pub(crate) fn run() -> Result<(), String> {
         state = state.with_inbound_identity(gate);
     }
     #[cfg(feature = "agent")]
-    if let Some(mount) = agent_mount {
+    for mount in agent_mounts {
         state = state.with_agent_surface(mount);
     }
     #[cfg(feature = "flight")]
@@ -550,16 +550,32 @@ pub(crate) fn run() -> Result<(), String> {
 /// asked by `Settings::load` for the switch and by `sutura_http::router` again for the mount, so a
 /// later edit that attaches a mount without the switch is refused by the same rule.
 #[cfg(feature = "agent")]
-fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, String> {
+fn agent_mounts(state: &ServiceState) -> Result<Vec<sutura_http::AgentMount>, String> {
     if !state.settings().server().agent_surface_enabled() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
-    Ok(Some(agent::mount(
-        state.surface(),
-        state.settings(),
-        state.admission().clone(),
-        sutura_http::SpendHeadroomPush::of(state),
-    )?))
+    let mut paths = state
+        .settings()
+        .security()
+        .inbound()
+        .iter()
+        .map(|verifier| verifier.path().clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    if paths.is_empty() {
+        paths.insert(sutura_config::McpPath::conventional());
+    }
+    paths
+        .into_iter()
+        .map(|path| {
+            agent::mount_at(
+                state.surface(),
+                state.settings(),
+                state.admission().clone(),
+                sutura_http::SpendHeadroomPush::of(state),
+                path,
+            )
+        })
+        .collect()
 }
 
 /// Leg 1, for a deployment that declared one.
@@ -573,22 +589,24 @@ fn agent_mount(state: &ServiceState) -> Result<Option<sutura_http::AgentMount>, 
 /// The key set is read on this line, before the listener opens. What that buys is the difference
 /// between a process that does not start and a process that starts and authenticates nobody.
 fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>, String> {
-    let Some(declared) = settings.security().inbound() else {
+    if settings.security().inbound().is_empty() {
         let refusals = settings.query_surface_refusals();
         return if refusals.is_empty() {
             Ok(None)
         } else {
             Err(flatten(sutura_config::SettingsError::NotFitToServe { refusals }))
         };
-    };
+    }
     let anchors = settings.security().outbound().map(crate::sources::anchors_of);
-    let gate = sutura_http::InboundGate::from_declaration_trusting(declared, anchors.as_ref()).map_err(flatten)?;
-    tracing::info!(
-        inbound_mode = declared.mode(),
-        header = gate.header(),
-        "leg 1 is armed: the key set was read and a caller's token will be verified against it"
-    );
-    Ok(Some(gate))
+    let gate =
+        sutura_http::InboundGate::from_verifiers_trusting(settings.security().inbound(), anchors.as_ref()).map_err(flatten)?;
+    if gate.is_some() {
+        tracing::info!(
+            verifiers = settings.security().inbound().len(),
+            "leg 1 is armed: the key sets were read and caller tokens will be verified against them"
+        );
+    }
+    Ok(gate)
 }
 
 /// Gives the blocking pool what is left of the grace period, and then stops waiting.
@@ -650,7 +668,7 @@ async fn serve_until_stopped(
     // is a bound on how long a REVOKED key keeps verifying while nothing is being asked - the gate's
     // own age check covers the case where requests are arriving.
     if let Some(gate) = inbound {
-        gate.watch_keys_until_shutdown(stopping.clone());
+        gate.watch_keys_until_shutdown(&stopping);
     }
     serve_as_configured(router, address, stopping, material).await
 }

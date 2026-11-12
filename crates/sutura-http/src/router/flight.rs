@@ -4,7 +4,6 @@ use axum::body::Body;
 use axum::http::StatusCode;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::response::Response;
-use sutura_config::InboundIdentity;
 
 use super::{RouterNotBuilt, Ungoverned, host_checked, inbound_layered};
 use crate::host::HostAllowlist;
@@ -20,9 +19,9 @@ use crate::state::ServiceState;
 /// that ordering is what it is.
 pub(super) fn flight_subtree(
     state: &ServiceState,
-    declared: Option<&InboundIdentity>,
     hosts: Option<&HostAllowlist>,
     api: Option<&middleware::RateLimit>,
+    caller_limit: Option<&middleware::RateLimit>,
 ) -> Result<Option<Ungoverned>, RouterNotBuilt> {
     let Some(mount) = state.flight_surface() else {
         return Ok(None);
@@ -37,7 +36,7 @@ pub(super) fn flight_subtree(
             crate::capability::establish_leg_asked,
         ))
     });
-    let mount = mount.try_layered(|router| inbound_layered("flight", router, state, declared))?;
+    let mount = mount.try_layered(|router| inbound_layered("flight", router, state, None, caller_limit))?;
     let mount = mount
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
     let mount = mount.layered(|router| host_checked(router, hosts));

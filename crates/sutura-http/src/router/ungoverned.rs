@@ -12,6 +12,32 @@
 
 use axum::Router;
 
+/// Only parsed MCP paths and the fixed protocol service paths can be nested.
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
+#[derive(Clone, Debug)]
+pub(crate) enum MountPath {
+    #[cfg(feature = "agent")]
+    Agent(sutura_config::McpPath),
+    #[cfg(feature = "flight")]
+    Flight,
+    #[cfg(feature = "worker")]
+    Worker,
+}
+
+#[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
+impl MountPath {
+    fn as_str(&self) -> &str {
+        match self {
+            #[cfg(feature = "agent")]
+            Self::Agent(path) => path.as_str(),
+            #[cfg(feature = "flight")]
+            Self::Flight => crate::constants::FLIGHT_MOUNT_PATH,
+            #[cfg(feature = "worker")]
+            Self::Worker => crate::constants::WORKER_MOUNT_PATH,
+        }
+    }
+}
+
 /// An ungoverned subtree, fused with the path it was mounted at.
 ///
 /// The only way anything outside the governed subtree is mounted, and therefore the ALLOWLIST'S
@@ -40,7 +66,7 @@ use axum::Router;
 #[derive(Clone, Debug)]
 pub(crate) struct Ungoverned {
     router: Router,
-    path: &'static str,
+    path: MountPath,
 }
 
 #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
@@ -50,7 +76,7 @@ impl Ungoverned {
     ///
     /// Making this the SOLE `nest_service` call site is what `xtask::boundaries::ungoverned` holds, so a
     /// future ungoverned route has to mount here to exist, and mounting here records it.
-    pub(crate) fn mount<S>(path: &'static str, service: S) -> Self
+    pub(crate) fn mount<S>(path: MountPath, service: S) -> Self
     where
         S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
             + Clone
@@ -61,7 +87,7 @@ impl Ungoverned {
         S::Future: Send + 'static,
     {
         Self {
-            router: Router::new().nest_service(path, service),
+            router: Router::new().nest_service(path.as_str(), service),
             path,
         }
     }
@@ -92,8 +118,8 @@ impl Ungoverned {
     /// that is merged is, by construction, handed to [`super::check_ungoverned`]. An unrecorded merge
     /// cannot be expressed, because nothing else on this type returns a bare `Router`, and no other
     /// module can reach the field to fuse one by hand.
-    pub(crate) fn merge_into(self, router: &mut Router, recorded: &mut Vec<&'static str>) {
+    pub(crate) fn merge_into(self, router: &mut Router, recorded: &mut Vec<String>) {
         *router = router.clone().merge(self.router);
-        recorded.push(self.path);
+        recorded.push(String::from(self.path.as_str()));
     }
 }

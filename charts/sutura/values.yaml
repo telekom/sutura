@@ -77,7 +77,8 @@ security:
   tlsTermination: ""
   # Inbound caller identity.
   inbound:
-    # Secret that holds the key set that verifies caller tokens.
+    # Key set for a single inbound object. For a named list, leave this empty and mount
+    # each entry's key_set_file with extraVolumes and extraVolumeMounts.
     keySetSecretName: ""
     keySetSecretKey: jwks.json
 

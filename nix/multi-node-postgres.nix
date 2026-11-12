@@ -101,6 +101,13 @@ let
     posture = "shared-service-user";
   };
   acknowledged = { acknowledged_because = "every node reads fixture tables as one identity"; };
+  inbound = {
+    mode = "direct";
+    resource = "https://query";
+    authorization_server = "https://idp";
+    key_set_file = "${material}/jwks.json";
+    algorithms = [ "ES256" ];
+  };
 
   reader = own: {
     virtualisation.memorySize = 2048;
@@ -108,7 +115,7 @@ let
     systemd.services.sutura = serve
       (settings {
         server = pair own // { role = "reading-worker"; };
-        security = offHost // { identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
+        security = offHost // { inherit inbound; identity = "single-user"; single_user_because = "a reading worker reads one source as its declared role"; };
         sources = { inherit geo; };
       });
   };
@@ -174,13 +181,7 @@ pkgs.testers.runNixOSTest {
         };
         security = offHost // {
           identity = "multi-user";
-          inbound = {
-            mode = "direct";
-            resource = "https://query";
-            authorization_server = "https://idp";
-            key_set_file = "${material}/jwks.json";
-            algorithms = [ "ES256" ];
-          };
+          inherit inbound;
         };
         sources = {
           local = {

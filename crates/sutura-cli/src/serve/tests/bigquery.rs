@@ -10,7 +10,8 @@ use super::{bigquery_entry, default_timeout, one_worker, open_engine, opened_big
 use base64::Engine as _;
 #[cfg(feature = "bigquery")]
 use sutura_domain::identity::{
-    Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+    AdmittingVerifier, Agreed, CredentialBroker as _, Presented, PrincipalChain, RequestContext, Secret, SourceSet, Subject,
+    VerifierId, VerifierMode,
 };
 #[cfg(feature = "bigquery")]
 use sutura_domain::model::SourceName;
@@ -238,7 +239,11 @@ fn a_declared_workload_identity_admits_the_source_to_the_broker() {
 #[cfg(feature = "bigquery")]
 fn each_verified_caller_is_presented_its_own_assertion() {
     let broker = super::super::broker::build_broker(
-        &registry(&bigquery_entry("warehouse", "impersonation-at-source", &wif_with(""))),
+        &direct_registry(&bigquery_entry(
+            "warehouse",
+            "impersonation-at-source",
+            &wif_with("    inbound_token_at_pool: \"accepted\"\n"),
+        )),
         None,
     )
     .expect("a declared pool is a source this deployment can serve");
@@ -251,7 +256,8 @@ fn each_verified_caller_is_presented_its_own_assertion() {
         let subject = Subject::verified(subject_name).expect("a test subject is a subject");
         let minted = broker
             .mint(
-                &RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new(assertion), 4_102_444_800),
+                &RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new(assertion), 4_102_444_800)
+                    .admitted_by(direct_verifier()),
                 &asked,
             )
             .expect("a verified caller is mintable");
@@ -306,10 +312,10 @@ fn billed_for_a_finance_caller(caller_may_name: bool, named: Option<&str>) -> su
          - group: \"finance\"\n          project: \"acme-finance\"\n"
     );
     let broker = super::super::broker::build_broker(
-        &registry(&bigquery_entry(
+        &direct_registry(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
-            &format!("{}{billing}", wif_with("")),
+            &format!("{}{billing}", wif_with("    inbound_token_at_pool: \"accepted\"\n")),
         )),
         None,
     )
@@ -318,6 +324,7 @@ fn billed_for_a_finance_caller(caller_may_name: bool, named: Option<&str>) -> su
     let asked = SourceSet::of(warehouse.clone());
     let subject = Subject::verified("analyst-a@example.com").expect("a test subject is a subject");
     let context = RequestContext::with_assertion(PrincipalChain::of(subject.clone()), Secret::new("assertion"), 4_102_444_800)
+        .admitted_by(direct_verifier())
         .grouped(sutura_domain::identity::CallerGroups::of(["finance"]))
         .naming(named.map(account));
     let Agreed::Granted { credentials } = broker
@@ -375,6 +382,15 @@ fn direct_registry(entries: &str) -> sutura_config::SourceRegistry {
     .expect("the test settings load")
     .sources()
     .clone()
+}
+
+#[cfg(feature = "bigquery")]
+fn direct_verifier() -> AdmittingVerifier {
+    AdmittingVerifier::of(
+        VerifierId::primary(),
+        String::from("https://idp.example.com"),
+        VerifierMode::Direct,
+    )
 }
 
 /// The pool provider's client ID the exchanged token must carry.
@@ -485,7 +501,8 @@ fn a_delegated_source_exchanges_the_callers_own_token_and_presents_what_came_bac
                 PrincipalChain::of(subject.clone()),
                 Secret::new("assertion.for.analyst-a"),
                 4_102_444_800,
-            ),
+            )
+            .admitted_by(direct_verifier()),
             &asked,
         )
         .expect("a declared subject at a delegated source is mintable");
@@ -546,7 +563,8 @@ fn a_refused_exchange_fails_the_mint_and_never_presents_the_inbound_token() {
                 PrincipalChain::of(subject),
                 Secret::new("assertion.for.analyst-a"),
                 4_102_444_800,
-            ),
+            )
+            .admitted_by(direct_verifier()),
             &asked,
         )
         .expect_err("a refused exchange must not mint");
@@ -642,7 +660,8 @@ fn the_delegation_exchange_dials_over_the_declared_outbound_anchors() {
                     PrincipalChain::of(subject.clone()),
                     Secret::new("assertion.for.analyst-a"),
                     4_102_444_800,
-                ),
+                )
+                .admitted_by(direct_verifier()),
                 &asked,
             )
     };
@@ -764,7 +783,8 @@ fn a_google_login_source_presents_the_token_the_identity_provider_stored() {
                 PrincipalChain::of(subject.clone()),
                 Secret::new("assertion.for.analyst-a"),
                 4_102_444_800,
-            ),
+            )
+            .admitted_by(direct_verifier()),
             &asked,
         )
         .expect("a verified caller at a google_login source is mintable");
