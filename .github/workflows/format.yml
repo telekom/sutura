@@ -35,33 +35,76 @@ on:
       - "nix/dprint.nix"
       - "nix/format-text.sh"
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Supplemental operation on the pinned source
+        type: choice
+        required: true
+        options: [mutations, default-features, validate]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: inbound-verifier-proof-${{ github.ref }}-${{ inputs.operation }}
+  cancel-in-progress: false
 
 jobs:
   format:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: rust-mcp-16core
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          ref: 82ee4c21b73e52d625877725fa23ae167ed1eee8
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/reclaim-disk
+        if: github.event_name == 'workflow_dispatch'
+
+      - name: Open KVM
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'validate'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # 31.11.3
         with:
-          # The flag that makes nix honour settings from flake.nix itself is deliberately
-          # absent, for the reason security-audit.yml gives: with it, a pull request could add
-          # a substituter and a trusted key and have CI fetch attacker-built store paths whose
-          # signature verifies.
           extra_nix_config: |
             fallback = true
+            system-features = nixos-test benchmark big-parallel kvm
+            extra-substituters = https://sutura.cachix.org https://sutura-cross-build.cachix.org https://sutura-connectors.cachix.org
+            extra-trusted-public-keys = sutura.cachix.org-1:ujnKDi7ITrNVSQofXXvhiLhxoVUaYcFOM+qjW/+yGz0= sutura-cross-build.cachix.org-1:JIqwyJtgFFxOkA3JoUKOlbevOlflZ4J0Q3U04BJiq/w= sutura-connectors.cachix.org-1:1uJE7nE3cANwRW5R4Gf2i2YZldiAAC6p/jlUs0lMens=
 
-      # The candidate set is `git ls-files`, so the checkout above IS the input. `fetch-depth` is
-      # left at its default: the script reads the working tree, not a diff against a base.
       - name: markdown, yaml, toml and python
+        if: github.event_name != 'workflow_dispatch'
         run: bash nix/format-text.sh check
+
+      - name: Run the selected task on the pinned source
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: source
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          unset BASH_ENV CARGO_NET_OFFLINE CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
+          export CARGO_TERM_COLOR=never NO_COLOR=1
+          nix shell --inputs-from . nixpkgs#just nixpkgs#pixi --command python3 -I ../devco/inbound_verifier_proof.py "$OPERATION" ../devco/inbound-verifier-mutations.json
+
+      - name: Retain evidence and any generated changes
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: inbound-verifier-${{ inputs.operation }}-${{ github.run_id }}
+          path: source/target/inbound-verifier-proof/
+          if-no-files-found: error
+          retention-days: 14

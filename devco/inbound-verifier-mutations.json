@@ -1,0 +1,669 @@
+{
+  "status": "DRAFT REQUEST ONLY - no execution or dispatch",
+  "source_tree": "aa745df5bbee683e449a871167038eb45d36134f",
+  "rules": "Run the containing WHOLE TEST BINARY for each declared test using just test-only with nextest binary_id selection on head, production-only mutant, and restored source. Each named cell must pass on head, the mutant must compile and fail that named cell by its own assertion, and the containing binary must pass again after exact-tree restoration. Emit binary_id, test names, exit codes, actual assertions and source tree; verify no test bytes changed under mutation. A compiler failure, an unrelated test failure, or a named-only run is not a kill. Mutants are independent: start each from the exact source tree. Header-specific and per-guard/per-branch mutants cannot be replaced by one blanket omission. Ordinary causality remains separate and must be quoted verbatim.",
+  "mutants": [
+    {
+      "label": "configured-secondary-hidden",
+      "package": "sutura-config",
+      "tests": [
+        "also_accept_beside_a_primary_inbound_loads_and_the_secondary_is_accessible"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/security.rs",
+          "before": "pub fn also_accept(&self) -> &[InboundIdentity] {\n        &self.also_accept",
+          "after": "pub fn also_accept(&self) -> &[InboundIdentity] {\n        &[]",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "missing-primary-refusal-dropped",
+      "package": "sutura-config",
+      "tests": [
+        "also_accept_without_a_primary_inbound_is_refused"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "        refusals.push(NotFitToServe::AlsoAcceptWithoutPrimaryInbound);",
+          "after": "        // mutation: the missing-primary refusal is omitted.",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "duplicate-issuer-accepted",
+      "package": "sutura-config",
+      "tests": [
+        "also_accept_duplicate_issuer_is_refused_naming_the_index"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "if earlier_req.issuer().as_str() == later_issuer {",
+          "after": "if false && earlier_req.issuer().as_str() == later_issuer {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audience-collision-accepted",
+      "package": "sutura-config",
+      "tests": [
+        "also_accept_overlapping_audience_is_refused_naming_the_index"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "if earlier_req.audience().as_str() == later_audience {",
+          "after": "if false && earlier_req.audience().as_str() == later_audience {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "secondary-issuer-audience-collision-accepted",
+      "package": "sutura-config",
+      "tests": [
+        "an_also_accept_direct_entry_whose_audience_is_its_issuer_does_not_start"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "if matches!(*later, InboundIdentity::Direct { .. }) && later_audience == later_issuer {",
+          "after": "if false && matches!(*later, InboundIdentity::Direct { .. }) && later_audience == later_issuer {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "secondary-deployment-header-collision-accepted",
+      "package": "sutura-config",
+      "tests": [
+        "an_also_accept_entry_in_the_authorization_header_beside_a_deployment_token_does_not_start"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/settings/posture.rs",
+          "before": "if has_access_token && later.reads_the_authorization_header() {",
+          "after": "if false && has_access_token && later.reads_the_authorization_header() {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "gateway-exchange-allowed",
+      "package": "sutura-http",
+      "tests": [
+        "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/identity/principal/request.rs",
+          "before": ".is_some_and(|verifier| verifier.mode() == crate::identity::VerifierMode::Gateway)",
+          "after": ".is_some_and(|verifier| false && verifier.mode() == crate::identity::VerifierMode::Gateway)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "gateway-broker-cells",
+      "package": "sutura-config",
+      "tests": [
+        "a_gateway_admitted_caller_is_refused_at_a_federating_source_and_the_idp_is_not_called",
+        "a_gateway_admitted_caller_is_refused_at_an_authenticating_source_and_the_idp_is_not_called"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-domain/src/identity/principal/request.rs",
+          "before": ".is_some_and(|verifier| verifier.mode() == crate::identity::VerifierMode::Gateway)",
+          "after": ".is_some_and(|verifier| false && verifier.mode() == crate::identity::VerifierMode::Gateway)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "secondary-admission-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "each_signed_verifier_admits_its_subject_and_scopes_and_refuses_swapped_audiences",
+        "one_location_routes_each_issuer_and_competing_locations_are_refused",
+        "a_gateway_caller_in_the_secondary_header_is_admitted"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "std::iter::once(self).chain(self.also_accept.values())",
+          "after": "std::iter::once(self).chain(self.also_accept.values().take(0))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "primary-admission-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "a_direct_caller_in_the_primary_header_is_admitted"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": ".find(|gate| gate.same_location(location) && gate.issuer == issuer)",
+          "after": ".find(|gate| gate.same_location(location) && gate.issuer == issuer && gate.issuer != self.issuer)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "location-selection-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "a_token_for_the_secondary_issuer_in_the_wrong_header_is_refused"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": ".find(|gate| gate.same_location(location) && gate.issuer == issuer)",
+          "after": ".find(|gate| gate.issuer == issuer)",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "competing-proofs-ignored",
+      "package": "sutura-http",
+      "tests": [
+        "competing_primary_and_secondary_proofs_are_refused"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "if found.is_some() {\n                        return Err(TokenRejected::AmbiguousProof);",
+          "after": "if found.is_some() {\n                        continue;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "routing-byte-bound-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "every_location_is_bounded_before_issuer_decoding_and_the_selected_limit_still_applies"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "                    largest.validator.check_size(presented)?;",
+          "after": "                    let _unbounded = largest;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "gateway-scope-grant-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "selected_verifiers_keep_configured_grants_separate"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/token.rs",
+          "before": "            grant: requirement.grant().map(Scopes::declared),",
+          "after": "            grant: None,",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-verifier-issuer-omitted",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": ".map_or(\"\", sutura_domain::identity::AdmittingVerifier::issuer)",
+          "after": ".map_or(\"\", |_verifier| \"\")",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "issuer-decoding-value-lost",
+      "package": "sutura-http",
+      "tests": [
+        "unverified_issuer_reads_iss_without_checking_signature"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss)",
+          "after": "serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss.replacen(\"https://\", \"\", 1))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "missing-issuer-accepted",
+      "package": "sutura-http",
+      "tests": [
+        "unverified_issuer_returns_none_for_a_missing_iss_or_malformed_token"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss)",
+          "after": "serde_json::from_slice::<IssOnly>(&bytes).ok().map(|c| c.iss).or_else(|| Some(String::new()))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "gateway-bearer-only-labelled-direct",
+      "package": "sutura-http",
+      "tests": [
+        "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/token.rs",
+          "before": "                    sutura_config::TokenLocation::AuthorizationBearer => sutura_domain::identity::VerifierMode::Direct,\n                    sutura_config::TokenLocation::GatewayBearer | sutura_config::TokenLocation::Header { .. } => {\n                        sutura_domain::identity::VerifierMode::Gateway\n                    }",
+          "after": "                    sutura_config::TokenLocation::AuthorizationBearer | sutura_config::TokenLocation::GatewayBearer => {\n                        sutura_domain::identity::VerifierMode::Direct\n                    }\n                    sutura_config::TokenLocation::Header { .. } => sutura_domain::identity::VerifierMode::Gateway,",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "authenticating-gateway-guard-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/credentials/declared.rs",
+          "before": "            if let Some(delegation) = self.authenticating.get(source) {\n                if context.is_gateway_admitted() {",
+          "after": "            if let Some(delegation) = self.authenticating.get(source) {\n                if false && context.is_gateway_admitted() {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "signing-in-gateway-guard-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/credentials/declared.rs",
+          "before": "                if let Some(delegation) = delegation.as_ref() {\n                    if context.is_gateway_admitted() {",
+          "after": "                if let Some(delegation) = delegation.as_ref() {\n                    if false && context.is_gateway_admitted() {",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "federating-gateway-guard-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-config/src/credentials/declared.rs",
+          "before": "            if context.is_gateway_admitted() {\n                return Ok(Minted::Refused { source: source.clone() });\n            }\n            let (Some(_), Some(assertion), Some(expires))",
+          "after": "            if false && context.is_gateway_admitted() {\n                return Ok(Minted::Refused { source: source.clone() });\n            }\n            let (Some(_), Some(assertion), Some(expires))",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "selected-byte-bound-before-key-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "every_location_is_bounded_before_issuer_decoding_and_the_selected_limit_still_applies"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-http/src/inbound/gate.rs",
+          "before": "        let (gate, presented) = self.select_gate(headers)?;\n        gate.validator.check_size(presented)?;",
+          "after": "        let (gate, presented) = self.select_gate(headers)?;",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "answer-service-verifier-recording-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-app/src/surface.rs",
+          "before": "        let record = match answered {\n            Ok(ref answered) => CallRecord::of(context.chain(), answered.outcome(), answered.executed_until()),\n            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n                .admitted_by(context.verifier())\n",
+          "after": "        let record = match answered {\n            Ok(ref answered) => CallRecord::of(context.chain(), answered.outcome(), answered.executed_until()),\n            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "raw-service-verifier-recording-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-app/src/surface.rs",
+          "before": "        let record = match answered {\n            Ok(ref answered) => CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until()),\n            Err(ref failure) => CallRecord::failed_raw(context.chain(), statement, failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n                .admitted_by(context.verifier())\n",
+          "after": "        let record = match answered {\n            Ok(ref answered) => CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until()),\n            Err(ref failure) => CallRecord::failed_raw(context.chain(), statement, failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "remote-service-verifier-recording-omitted",
+      "package": "sutura-http",
+      "tests": [
+        "signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-app/src/surface.rs",
+          "before": "        let record = match ran {\n            Ok(ref ran) => CallRecord::of_remote_leg(context.chain(), ran.outcome(), ran.executed_until()),\n            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n                .admitted_by(context.verifier())\n",
+          "after": "        let record = match ran {\n            Ok(ref ran) => CallRecord::of_remote_leg(context.chain(), ran.outcome(), ran.executed_until()),\n            Err(ref failure) => CallRecord::failed(context.chain(), failure.as_str()),\n        };\n        self.sink.record(\n            &record\n                .naming_client(context.client())\n",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-answered-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Answered { rows, provenance } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Answered { rows, provenance } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-answered-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Answered { rows, provenance } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Answered { rows, provenance } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-refused-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Refused { reason } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Refused { reason } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-refused-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Refused { reason } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Refused { reason } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawanswered-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawanswered-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawrefused-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawRefused { reason, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawRefused { reason, statement } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawrefused-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawRefused { reason, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawRefused { reason, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-failed-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Failed { failure } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Failed { failure } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-failed-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::Failed { failure } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::Failed { failure } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawfailed-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawFailed { failure, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawFailed { failure, statement } => tracing::info!(\n                verifier_issuer = \"\",\n                verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-rawfailed-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "            RecordedOutcome::RawFailed { failure, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = verifier_mode(record),",
+          "after": "            RecordedOutcome::RawFailed { failure, statement } => tracing::info!(\n                verifier_issuer = verifier_issuer(record),\n                verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-remoteleganswered-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "        RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {\n                record_remote_leg(\n                    &who,\n                    &azp,\n                    &client_id,\n                    sutura_client,\n                    sutura_actor,\n                    sutura_correlation,\n                    &delegated_as,\n                    record,\n                );\n            }\n        }\n    }\n}\n\nfn verifier_issuer<'record>(record: &'record CallRecord<'_>) -> &'record str {\n    record\n        .verifier()\n        .map_or(\"\", sutura_domain::identity::AdmittingVerifier::issuer)\n}\n\nfn verifier_mode(record: &CallRecord<'_>) -> &'static str {\n    record.verifier().map_or(\"\", |verifier| verifier.mode().as_str())\n}\n\n/// `RecordedOutcome::RemoteLegAnswered`/`RemoteLegRefused`, split out of [`TracingAuditSink::record`]\n/// for the reason stated there. No `provenance` field: `RemoteLegOutcome` carries none, for the\n/// reason `sutura_app::remote_leg`'s module documentation gives.\nfn record_remote_leg(\n    who: &Attributed,\n    azp: &str,\n    client_id: &str,\n    sutura_client: &str,\n    sutura_actor: &str,\n    sutura_correlation: &str,\n    delegated_as: &str,\n    record: &CallRecord<'_>,\n) {\n    match *record.outcome() {\n        RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = verifier_mode(record),",
+          "after": "        RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {\n                record_remote_leg(\n                    &who,\n                    &azp,\n                    &client_id,\n                    sutura_client,\n                    sutura_actor,\n                    sutura_correlation,\n                    &delegated_as,\n                    record,\n                );\n            }\n        }\n    }\n}\n\nfn verifier_issuer<'record>(record: &'record CallRecord<'_>) -> &'record str {\n    record\n        .verifier()\n        .map_or(\"\", sutura_domain::identity::AdmittingVerifier::issuer)\n}\n\nfn verifier_mode(record: &CallRecord<'_>) -> &'static str {\n    record.verifier().map_or(\"\", |verifier| verifier.mode().as_str())\n}\n\n/// `RecordedOutcome::RemoteLegAnswered`/`RemoteLegRefused`, split out of [`TracingAuditSink::record`]\n/// for the reason stated there. No `provenance` field: `RemoteLegOutcome` carries none, for the\n/// reason `sutura_app::remote_leg`'s module documentation gives.\nfn record_remote_leg(\n    who: &Attributed,\n    azp: &str,\n    client_id: &str,\n    sutura_client: &str,\n    sutura_actor: &str,\n    sutura_correlation: &str,\n    delegated_as: &str,\n    record: &CallRecord<'_>,\n) {\n    match *record.outcome() {\n        RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(\n            verifier_issuer = \"\",\n            verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-remoteleganswered-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "        RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {\n                record_remote_leg(\n                    &who,\n                    &azp,\n                    &client_id,\n                    sutura_client,\n                    sutura_actor,\n                    sutura_correlation,\n                    &delegated_as,\n                    record,\n                );\n            }\n        }\n    }\n}\n\nfn verifier_issuer<'record>(record: &'record CallRecord<'_>) -> &'record str {\n    record\n        .verifier()\n        .map_or(\"\", sutura_domain::identity::AdmittingVerifier::issuer)\n}\n\nfn verifier_mode(record: &CallRecord<'_>) -> &'static str {\n    record.verifier().map_or(\"\", |verifier| verifier.mode().as_str())\n}\n\n/// `RecordedOutcome::RemoteLegAnswered`/`RemoteLegRefused`, split out of [`TracingAuditSink::record`]\n/// for the reason stated there. No `provenance` field: `RemoteLegOutcome` carries none, for the\n/// reason `sutura_app::remote_leg`'s module documentation gives.\nfn record_remote_leg(\n    who: &Attributed,\n    azp: &str,\n    client_id: &str,\n    sutura_client: &str,\n    sutura_actor: &str,\n    sutura_correlation: &str,\n    delegated_as: &str,\n    record: &CallRecord<'_>,\n) {\n    match *record.outcome() {\n        RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = verifier_mode(record),",
+          "after": "        RecordedOutcome::RemoteLegAnswered { .. } | RecordedOutcome::RemoteLegRefused { .. } => {\n                record_remote_leg(\n                    &who,\n                    &azp,\n                    &client_id,\n                    sutura_client,\n                    sutura_actor,\n                    sutura_correlation,\n                    &delegated_as,\n                    record,\n                );\n            }\n        }\n    }\n}\n\nfn verifier_issuer<'record>(record: &'record CallRecord<'_>) -> &'record str {\n    record\n        .verifier()\n        .map_or(\"\", sutura_domain::identity::AdmittingVerifier::issuer)\n}\n\nfn verifier_mode(record: &CallRecord<'_>) -> &'static str {\n    record.verifier().map_or(\"\", |verifier| verifier.mode().as_str())\n}\n\n/// `RecordedOutcome::RemoteLegAnswered`/`RemoteLegRefused`, split out of [`TracingAuditSink::record`]\n/// for the reason stated there. No `provenance` field: `RemoteLegOutcome` carries none, for the\n/// reason `sutura_app::remote_leg`'s module documentation gives.\nfn record_remote_leg(\n    who: &Attributed,\n    azp: &str,\n    client_id: &str,\n    sutura_client: &str,\n    sutura_actor: &str,\n    sutura_correlation: &str,\n    delegated_as: &str,\n    record: &CallRecord<'_>,\n) {\n    match *record.outcome() {\n        RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-remotelegrefused-verifier-issuer-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "        RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = verifier_mode(record),",
+          "after": "        RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(\n            verifier_issuer = \"\",\n            verifier_mode = verifier_mode(record),",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "audit-remotelegrefused-verifier-mode-lost",
+      "package": "sutura-runtime",
+      "tests": [
+        "audit_events_name_the_configured_admitting_verifier"
+      ],
+      "edits": [
+        {
+          "path": "crates/sutura-runtime/src/audit.rs",
+          "before": "        RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = verifier_mode(record),",
+          "after": "        RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(\n            verifier_issuer = verifier_issuer(record),\n            verifier_mode = \"\",",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "label": "committed-default-token-byte-bound",
+      "package": "sutura-http",
+      "tests": [
+        "a_token_over_the_size_bound_is_refused_before_anything_reads_it"
+      ],
+      "patch": "devco/claim-mutations/a_token_over_the_size_bound_is_refused_before_anything_reads_it.patch",
+      "patch_sha256": "c628d33cce5db4edeca04491ffa2feaae11b0c596f5026a21ce5a34422977038"
+    }
+  ],
+  "committed_claim_patch": "devco/claim-mutations/a_token_over_the_size_bound_is_refused_before_anything_reads_it.patch",
+  "limits": [
+    "MCP shared test helper boxing changes no assertion; old principal test constructor wiring changes no assertion. These are no new behavioral proof.",
+    "No new Claim-Cell or causality exemption is declared for new behavior.",
+    "The closure adds service raw-answer/refusal and remote-refusal provenance for both proof locations. It does not exercise remote success or failing execution through LocalService; the separate tracing table covers all eight RecordedOutcome variants.",
+    "No local tests or mutations were executed. Exact-count matching is a source check only; compilation, own-assertion kills and restored passes remain for hosted execution.",
+    "No Claim-Cell or causality exemption is added by the closure. Ordinary causality must be reported independently."
+  ],
+  "source_sha": "82ee4c21b73e52d625877725fa23ae167ed1eee8",
+  "parent_commit": "3fd8666879427ec523a672cd959fa5a16ec0e3d4",
+  "test_files": {
+    "a_direct_caller_in_the_primary_header_is_admitted": "crates/sutura-http/src/inbound/tests/router/multi_verifier.rs",
+    "a_gateway_admitted_caller_is_refused_at_a_federating_source_and_the_idp_is_not_called": "crates/sutura-config/src/credentials/declared/tests/delegation.rs",
+    "a_gateway_admitted_caller_is_refused_at_an_authenticating_source_and_the_idp_is_not_called": "crates/sutura-config/src/credentials/declared/tests/delegation.rs",
+    "a_gateway_caller_in_the_secondary_header_is_admitted": "crates/sutura-http/src/inbound/tests/router/multi_verifier.rs",
+    "a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_verifier": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "a_token_for_the_secondary_issuer_in_the_wrong_header_is_refused": "crates/sutura-http/src/inbound/tests/router/multi_verifier.rs",
+    "a_token_over_the_size_bound_is_refused_before_anything_reads_it": "crates/sutura-http/src/inbound/tests.rs",
+    "also_accept_beside_a_primary_inbound_loads_and_the_secondary_is_accessible": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "also_accept_duplicate_issuer_is_refused_naming_the_index": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "also_accept_overlapping_audience_is_refused_naming_the_index": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "also_accept_without_a_primary_inbound_is_refused": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "an_also_accept_direct_entry_whose_audience_is_its_issuer_does_not_start": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "an_also_accept_entry_in_the_authorization_header_beside_a_deployment_token_does_not_start": "crates/sutura-config/src/settings/tests/inbound.rs",
+    "audit_events_name_the_configured_admitting_verifier": "crates/sutura-runtime/src/audit.rs",
+    "competing_primary_and_secondary_proofs_are_refused": "crates/sutura-http/src/inbound/tests/router/multi_verifier.rs",
+    "each_signed_verifier_admits_its_subject_and_scopes_and_refuses_swapped_audiences": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "every_location_is_bounded_before_issuer_decoding_and_the_selected_limit_still_applies": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "one_location_routes_each_issuer_and_competing_locations_are_refused": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "selected_verifiers_keep_configured_grants_separate": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "signed_gateway_admission_reaches_no_exchange_and_direct_admission_does": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "signed_raw_outcomes_and_remote_refusals_record_the_admitting_verifier": "crates/sutura-http/src/inbound/tests/multi_verifier.rs",
+    "unverified_issuer_reads_iss_without_checking_signature": "crates/sutura-http/src/inbound/gate.rs",
+    "unverified_issuer_returns_none_for_a_missing_iss_or_malformed_token": "crates/sutura-http/src/inbound/gate.rs"
+  }
+}
