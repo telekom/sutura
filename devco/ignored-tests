@@ -54,3 +54,4 @@ crates/sutura-cli/tests/served/oracle_native.rs::oracle_legacy_logins_reach_both
 crates/sutura-cli/tests/served/oracle_native.rs::oracle_native_logins_require_both_strong_services_on_both_production_paths
 crates/sutura-exec-postgres/tests/kerberos.rs::a_declared_service_the_kdc_does_not_know_is_refused_rather_than_signed_in
 crates/sutura-exec-postgres/tests/kerberos.rs::the_linked_driver_signs_in_with_kerberos_over_a_gssapi_encrypted_channel
+crates/sutura-cli/src/serve/worker/partition/tests/native_bigquery.rs::forwarded_bigquery_native_read_keeps_its_descriptor_receipt

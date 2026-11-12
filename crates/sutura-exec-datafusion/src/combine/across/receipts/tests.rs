@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use datafusion::arrow::datatypes::Schema;
+use datafusion::arrow::array::Int64Array;
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::datasource::MemTable;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use futures_util::{StreamExt as _, poll};
 use sutura_domain::model::SourceName;
@@ -137,5 +140,38 @@ fn worker_capture_accepts_only_a_witnessed_local_plan_without_worker_receipts() 
                 completed(Some(incomplete), working_set).is_err(),
                 "an unwitnessed missing barrier is an error"
             );
+        });
+}
+
+#[test]
+fn receipt_setup_preserves_registered_tables_for_later_queries() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a fixture runtime builds")
+        .block_on(async {
+            let context = SessionContext::new_with_config(SessionConfig::new().with_extension(Arc::new(CaptureDistributed)));
+            let schema = Arc::new(Schema::new(vec![Field::new("n", DataType::Int64, false)]));
+            let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(Int64Array::from(vec![7_i64]))])
+                .expect("the fixture has one integer column");
+            let table = MemTable::try_new(schema, vec![vec![batch]]).expect("the fixture table builds");
+            context.register_table("fact", Arc::new(table)).expect("the fixture table is registered");
+            let working_set = WorkingSet::of_bytes(core::num::NonZeroUsize::new(1 << 20).expect("a positive bound"));
+            for _ in 0..2 {
+                let frame = context.sql("SELECT n FROM fact").await.expect("the registered table plans");
+                let (mut stream, capture) = executing(frame, working_set).await.expect("the table plan is witnessed");
+                let mut values = Vec::new();
+                while let Some(batch) = stream.next().await {
+                    let batch = batch.expect("the registered table executes");
+                    let integers = batch.column(0).as_any().downcast_ref::<Int64Array>()
+                        .expect("the result retains the integer column");
+                    values.extend(integers.values().iter().copied());
+                }
+                drop(stream);
+                assert_eq!(values, vec![7]);
+                assert!(context.table_exist("fact").expect("the catalog can be read"),
+                    "receipt setup replaced the registered catalog");
+                assert_eq!(completed(capture, working_set).expect("a local table has no worker facts"), Vec::new());
+            }
         });
 }

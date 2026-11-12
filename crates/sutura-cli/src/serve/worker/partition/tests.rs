@@ -46,3 +46,6 @@ fn a_partition_of_a_source_that_is_not_postgres_is_refused_naming_it() {
 
 #[cfg(all(feature = "bigquery", feature = "postgres"))]
 mod tokens;
+
+#[cfg(all(feature = "distributed", feature = "bigquery", feature = "postgres"))]
+mod native_bigquery;

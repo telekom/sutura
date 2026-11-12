@@ -20,6 +20,8 @@
 
 use core::num::NonZeroUsize;
 use core::time::Duration;
+use sha2::Digest as _;
+use sutura_domain::warehouse::execution::Execution;
 use std::time::{Instant, SystemTime};
 
 use sutura_domain::definitions::DefinitionDigest;
@@ -117,6 +119,10 @@ fn read(leg: &LegPlan, descriptor: &[u8], token: &Secret) -> Read {
 
 #[test]
 #[ignore = "needs a real BigQuery project, the driver .so, and a table caller A reads that splits into two or more streams"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the live adapter venue reads each actual descriptor with the forwarded token and checks its receipt"
+)]
 fn a_split_pool_leg_read_with_the_forwarded_token_answers_what_the_whole_read_answers() {
     let (leg, a) = (leg_over(SPLIT_TABLE), caller("SUTURA_BQ_INBOUND_A"));
     let warehouse = opened();
@@ -135,9 +141,13 @@ fn a_split_pool_leg_read_with_the_forwarded_token_answers_what_the_whole_read_an
     );
     let (mut columns, mut rows) = (Vec::new(), Vec::new());
     for descriptor in &descriptors {
-        let (labels, read) = read(&leg, descriptor, token.secret())
-            .expect("a stream reads with caller A's forwarded token")
-            .into_parts();
+        let mut batches = opened().read_partition(&leg, descriptor, token.secret(), deadline())
+            .expect("a stream reads with caller A's forwarded token");
+        let expected: [u8; 32] = sha2::Sha256::digest(descriptor).into();
+        assert_eq!(batches.take_executions(), vec![Execution::BigQueryRead {
+            source: source(), descriptor_sha256: expected,
+        }]);
+        let (labels, read) = rows_of(&batches).into_parts();
         columns = labels;
         rows.extend(read);
     }

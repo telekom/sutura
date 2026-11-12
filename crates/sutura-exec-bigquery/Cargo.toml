@@ -89,6 +89,7 @@ arrow-array = { version = "59", optional = true }
 arrow-schema = { version = "59", optional = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
 # Already a normal dependency; this entry asks for one FEATURE. `warehouse::agreement` is the typed
 # row comparison the conformance binding's row check makes, and it is SHARED with
 # `crates/sutura-app/tests/differential.rs` rather than copied - the copy is what lets both compare

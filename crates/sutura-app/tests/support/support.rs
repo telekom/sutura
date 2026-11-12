@@ -438,9 +438,9 @@ impl Warehouse for WideResult {
 /// rendered.
 ///
 /// **The instrument for the response-byte ceiling, and it has to push the OTHER dimension from
-/// [`WideResult`].** `ResponseByteLimit::DEFAULT` is measured in bytes of rendered cell text, and
-/// `plan::MAX_ROWS` bounds rows at ten thousand - so a result built by adding rows of one byte each
-/// hits the row cap millions of rows before it could ever reach the byte ceiling, and the two
+/// [`WideResult`].** `ResponseByteLimit::DEFAULT` charges rendered cell and execution text, excluding
+/// JSON escaping and structural overhead. `plan::MAX_ROWS` bounds rows at ten thousand, so adding
+/// rows of one byte each hits the row cap millions of rows before the byte ceiling, and the two
 /// refusals would be indistinguishable from this fake. Wide rather than tall: one row, one cell,
 /// however many bytes the test asks for.
 pub(crate) struct HeavyResult {

@@ -37,8 +37,9 @@ pub(in crate::combine) async fn executing(
     let count = limit.checked_div(64).unwrap_or_default().max(1);
     let deadline = tokio::time::Instant::now() + COMPLETION_TIMEOUT;
     let capture = Arc::new(QueryCompletion::new(count, count, limit, deadline)?);
-    let config = state.config().clone().with_extension(Arc::clone(&capture));
-    let state = SessionStateBuilder::new_from_existing(state).with_config(config).build();
+    let mut builder = SessionStateBuilder::new_from_existing(state);
+    let config = builder.config().take().unwrap_or_default().with_extension(Arc::clone(&capture));
+    let state = builder.with_config(config).build();
     let frame = DataFrame::new(state, logical);
     let context = Arc::new(frame.task_ctx());
     let plan = tokio::time::timeout_at(deadline, frame.create_physical_plan())

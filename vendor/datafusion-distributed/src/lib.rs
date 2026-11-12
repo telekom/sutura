@@ -77,3 +77,6 @@ pub use execution_plans::benchmarks::{
     LocalRepartitionBench, LocalRepartitionFixture, LocalRepartitionMode, ShuffleBench,
     ShuffleFixture, TransportBench, TransportBenchMode, TransportFixture,
 };
+
+#[cfg(test)]
+mod completion_chain_tests;
