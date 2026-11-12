@@ -390,7 +390,9 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     .without_v07_checks()
     .merge(state.inbound_identity().map_or_else(Router::new, |gate| {
         gate.protected_resources()
-            .fold(Router::new(), |router, resource| router.merge(resource.router()))
+            .fold(Router::new().without_v07_checks(), |router, resource| {
+                router.merge(resource.router())
+            })
     }));
     let public = if limits.enabled() {
         let (layer, handle) =
