@@ -3284,8 +3284,11 @@ one kind other than BigQuery (<code>files</code>, Postgres, ClickHouse, Oracle, 
 <p>Without <code>security.inbound</code>, the deployment token authenticates the deployment and not the caller. Every question runs
 with the access of the deployment.</p>
 <p>With <code>security.inbound</code>, every request carries a token that sutura verifies: signature, issuer, expiry and an audience
-that equals the resource identifier of the deployment. The verified subject goes into every audit record. There is
-no default mode:</p>
+that equals the resource identifier of the deployment. The verified subject goes into every audit record.
+The internal caller key is the configured verifier id and exact signed <code>sub</code>. Equal subjects or addresses from
+different verifiers remain separate callers. Backend principal and address spelling remain unchanged; source
+<code>admitted_by</code> bounds which verifiers may assert them. The audit record names the verifier id, issuer and mode.
+There is no default mode:</p>
 <table>
 <thead>
 <tr>
@@ -3805,18 +3808,23 @@ the node authority signed. <code>/v1</code>, <code>/mcp</code>, Flight and the d
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">security</span><span class="p">:</span>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
 </span></code></pre></div>
-<p>A worker is asked for no <code>security.access_token</code> or <code>security.inbound</code>, because no route on it reads either. In
+<p>A combining worker needs neither <code>security.access_token</code> nor <code>security.inbound</code>. In
 production or off-host it still needs <code>security.metrics_token</code> and <code>rate_limit.enabled</code>.</p>
 <p><code>server.role: reading-worker</code> is the worker that reads a granted leg's partitions. It is configured as above, and it
 declares the sources it reads and a catalog in a file or a variable, so it needs <code>security.identity</code> like any node with
 a source. At startup it opens its catalog and each source the catalog reads that its own <code>sources:</code> declares. A source
 the catalog reads and <code>sources:</code> does not declare is not opened and needs no credential there. Before it reads a
 partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
-leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+leg of a source it did not open. It also checks that the grant's verifier is admitted by that source. Declare matching
+<code>security.inbound</code> verifier definitions on serving and reading nodes, and list their ids in each source's <code>admitted_by</code>
+when more than one verifier is declared. A single declared verifier is admitted by default. These declarations do not
+open a human listener on a reading worker; the worker trusts the authenticated granting node's verifier attestation.
+It reads as its own declared service user for the source. The chart's worker pool
 runs <code>worker</code>, and each of its <code>readingWorkers.groups</code> runs <code>reading-worker</code>.</p>
-<p>Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
-worker. The catalog and the sources are read once, at startup.
-<code>server.nodes</code>, <code>security.inbound</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
+<p>Limit: a catalog counts only when a file or a variable declares it. Reading workers read PostgreSQL and Oracle partitions as their configured service user, and BigQuery partitions
+with the forwarded caller token at a declared pool. ClickHouse has no reading arm yet. The catalog and the sources
+are read once, at startup.
+<code>server.nodes</code> and <code>tools.run_sql</code> are accepted and unused. <code>/metrics</code> reports the transport series
 alone. The worker carries the limits of the node links above.</p>
 <h4 id="what-the-across-nodes-acceptance-shows">What the across-nodes acceptance shows<a class="headerlink" href="#what-the-across-nodes-acceptance-shows" title="Permanent link">&para;</a></h4>
 <p><code>.github/workflows/tpch-across-nodes.yml</code> starts four machines over TPC-H at scale factor 10: a serving node, two
