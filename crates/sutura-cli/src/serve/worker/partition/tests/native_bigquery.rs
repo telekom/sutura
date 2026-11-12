@@ -230,13 +230,19 @@ struct Actual {
 
 impl LegRunner for Actual {
     type Error = Infallible;
-    #[expect(clippy::panic_in_result_fn, reason = "an infallible fixture refuses a misrouted or repeated leg")]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "an infallible fixture refuses a misrouted or repeated leg"
+    )]
     fn run(&self, leg: &LegPlan) -> Result<ResultBatches, Infallible> {
         assert_eq!(leg.source(), &source("facts"));
         let mut fact = self.fact.try_lock().expect("the fixture fact is uncontended");
         Ok(fact.take().expect("one real files fact"))
     }
-    #[expect(clippy::panic_in_result_fn, reason = "an infallible fixture refuses a misrouted or repeated leg")]
+    #[expect(
+        clippy::panic_in_result_fn,
+        reason = "an infallible fixture refuses a misrouted or repeated leg"
+    )]
     fn lookup(&self, leg: &LegPlan, _: LinkCast) -> Result<Looked<'_>, Infallible> {
         assert_eq!(leg.source(), &source("warehouse"));
         let mut grant = self.grant.try_lock().expect("the fixture grant is uncontended");
