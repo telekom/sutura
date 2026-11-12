@@ -40,7 +40,7 @@ impl ServableSettings {
     ///
     /// [`NotServable`] carrying every refusal, not just the first.
     pub fn check(settings: Settings) -> Result<Self, NotServable> {
-        if settings.security().inbound().is_none() {
+        if settings.security().inbound().is_empty() {
             let refusals = settings.query_surface_refusals();
             if !refusals.is_empty() {
                 return Err(NotServable { refusals });

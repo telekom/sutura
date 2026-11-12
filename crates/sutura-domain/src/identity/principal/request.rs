@@ -273,6 +273,9 @@ impl RequestContext {
     #[inline]
     #[must_use]
     pub fn admitted_by(mut self, verifier: crate::identity::AdmittingVerifier) -> Self {
+        if let super::Subject::Verified(ref mut principal) = self.chain.subject {
+            principal.verifier = verifier.id().clone();
+        }
         self.verifier = Some(verifier);
         self
     }

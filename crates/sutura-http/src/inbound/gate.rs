@@ -46,7 +46,7 @@ use axum::http::HeaderMap;
 use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
-use sutura_config::{InboundIdentity, KeySetLocation, ResourceIdentifier, TokenLocation};
+use sutura_config::{InboundIdentity, InboundVerifier, KeySetLocation, McpPath, ResourceIdentifier, TokenLocation};
 
 use sutura_runtime::Shutdown;
 
@@ -100,7 +100,8 @@ pub struct InboundGate {
     /// Stored at startup from the declaration's requirement, so the multi-verifier dispatcher can
     /// route by `iss` without consulting any configured state.
     issuer: String,
-    /// Additional verifiers, keyed by their issuer string (`github.com/telekom/sutura#1884`).
+    path: McpPath,
+    /// Other configured verifiers, keyed by their distinct issuer strings.
     ///
     /// **Empty for a single-verifier deployment** - no dispatching cost and no allocation in that
     /// case. When non-empty, `establish` peeks at the unverified `iss` claim to select the right
@@ -162,27 +163,30 @@ impl InboundGate {
         Ok(Self::over(inbound, keys))
     }
 
-    /// The same, also loading the additional verifiers from `security.also_accept`
-    /// (`github.com/telekom/sutura#1884`).
-    ///
-    /// **Called when `also_accept` is non-empty.** The primary gate is built first; then each entry
-    /// in `also_accept` is built as a fully independent gate and stored by its issuer string. `iss`
-    /// dispatch in `establish` selects the sub-gate without further config lookups.
-    pub fn from_declarations_trusting(
-        inbound: &InboundIdentity,
-        also_accept: &[InboundIdentity],
+    /// Reads every named verifier once; an empty declaration means no inbound identity.
+    pub fn from_verifiers_trusting(
+        declarations: &[InboundVerifier],
         anchors: Option<&sutura_tls::Anchors>,
-    ) -> Result<Self, InboundNotUsable> {
-        let mut primary = Self::from_declaration_trusting(inbound, anchors)?;
-        let map: Result<BTreeMap<String, Self>, _> = also_accept
+    ) -> Result<Option<Self>, InboundNotUsable> {
+        let Some((first, rest)) = declarations.split_first() else {
+            return Ok(None);
+        };
+        let build = |declaration: &InboundVerifier| {
+            let mut gate = Self::from_declaration_trusting(declaration.identity(), anchors)?;
+            gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+            gate.path = declaration.path().clone();
+            gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
+            Ok::<Self, InboundNotUsable>(gate)
+        };
+        let mut gate = build(first)?;
+        gate.also_accept = rest
             .iter()
-            .map(|id| {
-                let gate = Self::from_declaration_trusting(id, anchors)?;
-                Ok((gate.issuer.clone(), gate))
+            .map(|declaration| {
+                let next = build(declaration)?;
+                Ok((next.issuer.clone(), next))
             })
-            .collect();
-        primary.also_accept = map?;
-        Ok(primary)
+            .collect::<Result<_, InboundNotUsable>>()?;
+        Ok(Some(gate))
     }
 
     /// The same, over a key set that is already in hand.
@@ -220,8 +224,18 @@ impl InboundGate {
             challenges,
             protected_resource,
             issuer: String::from(requirement.issuer().as_str()),
+            path: McpPath::conventional(),
             also_accept: BTreeMap::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn over_named(declaration: &InboundVerifier, keys: KeySetCache) -> Self {
+        let mut gate = Self::over(declaration.identity(), keys);
+        gate.validator = TokenValidator::named(declaration.id().clone(), &declaration.requirement());
+        gate.path = declaration.path().clone();
+        gate.protected_resource = crate::routes::protected_resource::ProtectedResource::for_verifier(declaration);
+        gate
     }
 
     /// Starts the timer that bounds how long a revoked key keeps verifying.
@@ -259,7 +273,7 @@ impl InboundGate {
 
     /// Attaches additional verifiers to this gate, keyed by their issuer string.
     ///
-    /// **Test-only**: production paths use [`Self::from_declarations_trusting`], which reads each
+    /// **Test-only**: production paths use [`Self::from_verifiers_trusting`], which reads each
     /// secondary verifier's key set from the filesystem or a URL. Tests supply the key set document
     /// through [`Self::over`] and assemble the multi-verifier gate with this method instead.
     #[cfg(test)]
@@ -292,9 +306,21 @@ impl InboundGate {
     /// rather than the configured identifier's exact bytes.
     #[must_use]
     pub fn challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
-        if !self.challenges {
-            return None;
+        self.challenge_on(None, request_uri, headers)
+    }
+
+    fn challenge_on(&self, path: Option<&McpPath>, request_uri: &Uri, headers: &HeaderMap) -> Option<String> {
+        let mut direct = self
+            .gates()
+            .filter(|gate| gate.challenges && path.is_none_or(|path| gate.path == *path));
+        let gate = direct.next()?;
+        if direct.next().is_some() {
+            return Some(String::from("Bearer error=\"invalid_token\""));
         }
+        Some(gate.direct_challenge(request_uri, headers))
+    }
+
+    fn direct_challenge(&self, request_uri: &Uri, headers: &HeaderMap) -> String {
         let mut challenge = format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm);
         if let Some(protected_resource) = self
             .protected_resource
@@ -305,12 +331,12 @@ impl InboundGate {
             challenge.push_str(protected_resource.url());
             challenge.push('"');
         }
-        Some(challenge)
+        challenge
     }
 
     /// The discovery document this gate built, only in the direct mode.
-    pub(crate) const fn protected_resource(&self) -> Option<&crate::routes::protected_resource::ProtectedResource> {
-        self.protected_resource.as_ref()
+    pub(crate) fn protected_resources(&self) -> impl Iterator<Item = &crate::routes::protected_resource::ProtectedResource> {
+        self.gates().filter_map(|gate| gate.protected_resource.as_ref())
     }
 
     /// Establishes who is asking, or says why it could not.
@@ -344,21 +370,32 @@ impl InboundGate {
         gate.establish_token(presented, now).await
     }
 
+    /// Filters by the mounted MCP path before reading any issuer or consulting keys.
+    pub async fn establish_on(&self, path: &McpPath, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
+        let (gate, presented) = self.select_from(headers, Some(path))?;
+        gate.validator.check_size(presented)?;
+        gate.establish_token(presented, now).await
+    }
+
     /// Reads each distinct location once, refusing competing proofs before issuer selection.
     ///
     /// Until the issuer is known, the largest bound at this location limits decoding. The selected
     /// verifier's own bound is checked before reading the key id or verifying the signature.
     fn select_gate<'h>(&self, headers: &'h HeaderMap) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
+        self.select_from(headers, None)
+    }
+
+    fn select_from<'h>(&self, headers: &'h HeaderMap, path: Option<&McpPath>) -> Result<SelectedGate<'_, 'h>, TokenRejected> {
+        let eligible = || self.gates().filter(|gate| path.is_none_or(|path| gate.path == *path));
         let mut locations = BTreeSet::new();
         let mut found = None;
-        for gate in self.gates() {
+        for gate in eligible() {
             if !locations.insert((gate.header.as_str(), gate.bearer_prefixed)) {
                 continue;
             }
             match gate.presented(headers) {
                 Ok(presented) => {
-                    let largest = self
-                        .gates()
+                    let largest = eligible()
                         .filter(|candidate| candidate.same_location(gate))
                         .max_by_key(|candidate| candidate.validator.max_token_bytes())
                         .unwrap_or(gate);
@@ -376,8 +413,7 @@ impl InboundGate {
             location: self.header.clone(),
         })?;
         let issuer = unverified_issuer(presented).ok_or(TokenRejected::UnknownIssuer)?;
-        let gate = self
-            .gates()
+        let gate = eligible()
             .find(|gate| gate.same_location(location) && gate.issuer == issuer)
             .ok_or(TokenRejected::UnknownIssuer)?;
         Ok((gate, presented))
@@ -466,7 +502,18 @@ impl core::fmt::Debug for InboundGate {
 /// **The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
 /// with something already under that type - which nothing can construct, but the reasoning should not
 /// rest on that alone - is replaced rather than joined.
-pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut request: Request, next: Next) -> Response {
+pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, request: Request, next: Next) -> Response {
+    require_caller(&gate, None, request, next).await
+}
+
+type PathAdmission = (Arc<InboundGate>, McpPath);
+
+/// Admission for one configured MCP mount, sharing the global verifier caches.
+pub async fn require_path_caller(State((gate, path)): State<PathAdmission>, request: Request, next: Next) -> Response {
+    require_caller(&gate, Some(&path), request, next).await
+}
+
+async fn require_caller(gate: &InboundGate, path: Option<&McpPath>, mut request: Request, next: Next) -> Response {
     // One clock read per request, passed down, so the rate-limit window is decided once and the same
     // instant is what a retry inside it is measured against.
     let now = Instant::now();
@@ -474,12 +521,16 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
     // whole request is not `Sync` - see `InboundGate::establish` - and a `HeaderMap` clone is a handful
     // of small allocations against a signature verification.
     let headers = request.headers().clone();
-    match gate.establish(&headers, now).await {
+    let caller = match path {
+        Some(path) => gate.establish_on(path, &headers, now).await,
+        None => gate.establish(&headers, now).await,
+    };
+    match caller {
         Ok(caller) => {
             drop(request.extensions_mut().insert(caller));
             next.run(request).await
         }
-        Err(rejected) => refused(&gate, &rejected, request.uri(), &headers),
+        Err(rejected) => refused(gate, path, &rejected, request.uri(), &headers),
     }
 }
 
@@ -489,7 +540,13 @@ pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut r
 /// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
 /// header that may not build and a response to return was over the cognitive-complexity threshold in
 /// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
-fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, headers: &HeaderMap) -> Response {
+fn refused(
+    gate: &InboundGate,
+    path: Option<&McpPath>,
+    rejected: &TokenRejected,
+    request_uri: &Uri,
+    headers: &HeaderMap,
+) -> Response {
     if let Some(failure) = not_the_callers_fault(rejected) {
         return failure.into_response();
     }
@@ -515,7 +572,7 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected, request_uri: &Uri, head
     }
     .into_response();
     if let Some(challenge) = gate
-        .challenge(request_uri, headers)
+        .challenge_on(path, request_uri, headers)
         .or_else(|| matches!(rejected, TokenRejected::TooLong { .. }).then(|| String::from("Bearer error=\"invalid_token\"")))
     {
         challenged(&mut response, &challenge);

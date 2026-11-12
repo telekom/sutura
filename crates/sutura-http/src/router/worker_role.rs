@@ -82,7 +82,10 @@ pub fn worker_router(settings: &Settings, mount: &WorkerMount) -> Result<Router,
     worker::certified(mount)
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(in_flight, counted)))
         .merge_into(&mut router, &mut ungoverned);
-    check_ungoverned(&ungoverned)?;
+    check_ungoverned(
+        &ungoverned.iter().map(String::as_str).collect::<Vec<_>>(),
+        settings.security().inbound(),
+    )?;
     let router = outer(router, settings, &observed, crate::correlation::from_the_os);
     middleware::spawn_reaper(&observed, &limiters, middleware::REAP_INTERVAL)
         .map_err(|cause| RouterNotBuilt::Reaper { cause })?;

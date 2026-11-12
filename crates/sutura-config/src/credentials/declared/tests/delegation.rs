@@ -75,10 +75,11 @@ fn asking(raw: &str) -> RequestContext {
         Secret::new(format!("inbound:{raw}")),
         INBOUND_EXPIRES,
     )
+    .admitted_by(super::direct())
 }
 
 fn delegated_warehouse(idp: &Arc<FakeIdp>) -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().federating(
+    super::broker().federating(
         source("warehouse"),
         Some(Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience())),
     )
@@ -199,7 +200,7 @@ fn a_failed_exchange_is_an_error_and_names_no_token() {
 
 /// One authenticating source whose callers' assertions are exchanged at `idp`.
 fn authenticating_warehouse(idp: &Arc<FakeIdp>) -> DeclaredPrincipalBroker {
-    DeclaredPrincipalBroker::empty().authenticating(
+    super::broker().authenticating(
         source("warehouse"),
         Delegation::through(Arc::<FakeIdp>::clone(idp), pool_audience()),
     )
@@ -243,7 +244,8 @@ fn an_authenticating_source_refuses_an_anonymous_or_assertionless_caller_and_ask
         PrincipalChain::of(Subject::TheDeploymentItself),
         Secret::new("inbound:nobody"),
         INBOUND_EXPIRES,
-    );
+    )
+    .admitted_by(super::direct());
     for context in [anonymous, super::no_caller(), super::no_assertion("analyst-a@example.com")] {
         let refused = authenticating_warehouse(&idp)
             .mint(&context, &SourceSet::of(source("warehouse")))
@@ -272,7 +274,8 @@ fn an_authenticating_sources_leg_lapses_with_the_earlier_of_the_assertion_and_th
         PrincipalChain::of(Subject::verified("analyst-a@example.com").expect("a test subject is a subject")),
         Secret::new("inbound:analyst-a@example.com"),
         ASSERTION_FIRST,
-    );
+    )
+    .admitted_by(super::direct());
     for (context, lapses) in [
         (asking("analyst-a@example.com"), DELEGATED_EXPIRES),
         (short_lived, ASSERTION_FIRST),
@@ -294,7 +297,7 @@ fn an_authenticating_sources_leg_lapses_with_the_earlier_of_the_assertion_and_th
 #[test]
 fn a_signing_in_source_presents_the_verified_name_and_the_exchanged_token() {
     let (idp, asked) = fake(false);
-    let broker = DeclaredPrincipalBroker::empty().signing_in(
+    let broker = super::broker().signing_in(
         source("warehouse"),
         PrincipalName::parse("sutura").expect("a test principal is a principal"),
         Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
@@ -335,7 +338,7 @@ fn a_signing_in_source_presents_the_verified_name_and_the_exchanged_token() {
 #[test]
 fn a_signing_in_source_refuses_a_caller_with_no_assertion_and_asks_no_idp() {
     let (idp, asked) = fake(false);
-    let broker = DeclaredPrincipalBroker::empty().signing_in(
+    let broker = super::broker().signing_in(
         source("warehouse"),
         PrincipalName::parse("sutura").expect("a test principal is a principal"),
         Delegation::through(Arc::<FakeIdp>::clone(&idp), pool_audience()),
@@ -382,6 +385,7 @@ fn an_address_outside_the_domains_is_refused_before_any_exchange() {
 /// A caller the multi-verifier gate admitted via a non-challenging (behind-gateway) verifier.
 fn gateway_caller(raw: &str) -> RequestContext {
     asking(raw).admitted_by(sutura_domain::identity::AdmittingVerifier::of(
+        sutura_domain::identity::VerifierId::primary(),
         String::from("https://gateway.example.com"),
         sutura_domain::identity::VerifierMode::Gateway,
     ))
@@ -431,4 +435,69 @@ fn a_gateway_admitted_caller_is_refused_at_an_authenticating_source_and_the_idp_
         reached.is_empty(),
         "the identity provider was called for a gateway-admitted caller: {reached:?}"
     );
+}
+
+#[test]
+fn a_later_source_denied_by_verifier_preflight_sends_nothing_to_the_idp_for_any_credential_shape() {
+    use crate::credentials::SourceAdmissions;
+    use sutura_domain::identity::{VerifiedAddress, VerifierId};
+
+    for shape in ["shared", "address", "name"] {
+        let (idp, reached) = fake(false);
+        let primary = Some(std::iter::once(VerifierId::primary()).collect());
+        let denied = SourceAdmissions::default().and(source("warehouse"), primary.clone()).and(
+            source("yard"),
+            Some(std::iter::once(VerifierId::parse("other").expect("an id")).collect()),
+        );
+        let broker = delegated_warehouse(&idp);
+        let broker = match shape {
+            "shared" => broker.shared(source("yard"), super::declared_shared()),
+            "address" => broker.addressing(source("yard"), None),
+            _ => broker.switching(source("yard"), PrincipalName::parse("deployment").expect("a principal")),
+        };
+        let context = asking("user@example.com").addressed(Some(VerifiedAddress::parse("user@example.com").expect("an address")));
+        let refused = broker
+            .clone()
+            .admitting(denied)
+            .mint(&context, &SourceSet::of(source("warehouse")).and(source("yard")))
+            .expect("a refusal is an answer");
+        assert!(
+            matches!(refused, Minted::Refused { ref source } if source.as_str() == "yard"),
+            "{shape}: {refused:?}"
+        );
+        assert!(reached.try_iter().next().is_none(), "a denied {shape} reached the IdP");
+
+        let admitted = SourceAdmissions::default()
+            .and(source("warehouse"), primary.clone())
+            .and(source("yard"), primary);
+        let granted = broker
+            .admitting(admitted)
+            .mint(&context, &SourceSet::of(source("warehouse")).and(source("yard")))
+            .expect("both sources admit this verifier");
+        assert!(matches!(granted, Minted::Granted { .. }), "{shape}: {granted:?}");
+        assert_eq!(reached.try_iter().count(), 1, "the admitted plan reaches its exchange");
+    }
+}
+
+#[test]
+fn gateway_callers_reach_no_hopless_name_or_address_credential() {
+    let direct = asking("user@example.com").addressed(Some(
+        sutura_domain::identity::VerifiedAddress::parse("user@example.com").expect("an address"),
+    ));
+    let gateway = gateway_caller("user@example.com").addressed(Some(
+        sutura_domain::identity::VerifiedAddress::parse("user@example.com").expect("an address"),
+    ));
+    let sources = SourceSet::of(source("warehouse"));
+    for broker in [
+        super::broker().switching(source("warehouse"), PrincipalName::parse("deployment").expect("a principal")),
+        super::broker().addressing(source("warehouse"), None),
+    ] {
+        assert!(matches!(
+            broker.mint(&direct, &sources).expect("the broker answers"),
+            Minted::Granted { .. }
+        ));
+        assert!(
+            matches!(broker.mint(&gateway, &sources).expect("the broker answers"), Minted::Refused { source: refused } if refused == source("warehouse"))
+        );
+    }
 }

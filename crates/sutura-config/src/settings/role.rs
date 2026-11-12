@@ -123,7 +123,7 @@ pub(super) fn declared_node_refusals(settings: &Settings) -> Vec<NotFitToServe> 
 /// **The limit:** it reads the declaration. A deployment with `security.inbound` whose callers
 /// reach `/v1` with no verified subject still meets the question-time refusal.
 pub(super) fn reading_node_refusals(settings: &Settings) -> Vec<NotFitToServe> {
-    if settings.server.role() != ServerRole::Serving || settings.security.inbound().is_some() {
+    if settings.server.role() != ServerRole::Serving || !settings.security.inbound().is_empty() {
         return Vec::new();
     }
     let Some(nodes) = settings.server.tls().and_then(crate::server::TlsMaterial::nodes) else {

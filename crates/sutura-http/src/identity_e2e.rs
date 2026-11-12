@@ -280,6 +280,8 @@ fn app_that_exchanges(
     let declaration = settings
         .security()
         .inbound()
+        .first()
+        .map(sutura_config::InboundVerifier::identity)
         .expect("this overlay declares an inbound identity")
         .clone();
     let gate = InboundGate::from_declaration(&declaration).expect("a published key set builds a gate");

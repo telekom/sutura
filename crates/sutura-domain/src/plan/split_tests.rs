@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use arrow_schema::Schema;
 
-use crate::identity::SubjectKey;
+use crate::identity::Subject;
 use crate::nonempty::NonEmpty;
 use crate::plan::{EstimatedRows, GrantExpired, Granted, SplitDecision, decide};
 use crate::warehouse::estimate::EstimatedBytes;
@@ -144,7 +144,7 @@ fn a_grant_ending_at_or_before_now_is_refused_as_expired() {
             Vec::new(),
             Arc::new(Schema::empty()),
             NonEmpty::one(vec![0]),
-            SubjectKey::parse("user@example.com").expect("a test caller is a subject"),
+            Subject::verified("user@example.com").expect("a test caller is a subject"),
             until,
             now,
             NonZeroU32::MIN,
@@ -252,7 +252,7 @@ fn a_grant_carries_the_asking_caller_the_leg_its_readers_re_certify_and_each_par
 
     assert_eq!(
         granted.caller(),
-        &SubjectKey::parse("user@example.com").expect("a test caller is a subject")
+        &Subject::verified("user@example.com").expect("a test caller is a subject")
     );
     assert_eq!(granted.until(), until);
     assert_eq!(leg.params().len(), 1, "the leg binds one value");
@@ -453,5 +453,36 @@ fn a_grant_switched_to_its_callers_principal_reads_as_that_principal() {
         matches!(granted.reads(), crate::plan::ReadAs::CallerPrincipal(name) if name.as_str() == "user@example.com"),
         "{:?}",
         granted.reads()
+    );
+}
+
+#[test]
+fn a_split_grant_retains_the_exact_qualified_subject_before_worker_encoding() {
+    let caller = Subject::verified_by(
+        crate::identity::VerifierId::parse("staff").expect("an id"),
+        " user@example.com ",
+    )
+    .expect("a subject");
+    let now = SystemTime::now();
+    let granted = crate::plan::Grantee::new(
+        &lookup_leg(),
+        &asked_by(&caller, crate::identity::Expiry::NothingExpires),
+        now + Duration::from_secs(30),
+    )
+    .expect("a qualified caller")
+    .grant(
+        Arc::new(Schema::empty()),
+        [Some(vec![1])],
+        NonZeroU32::MIN,
+        EstimatedBytes::parse(7),
+        (),
+        now,
+    )
+    .expect("a portable partition");
+    assert_eq!(granted.caller(), &caller);
+    assert_eq!(granted.caller().signed_sub(), Some(" user@example.com "));
+    assert_eq!(
+        granted.caller().verifier_id().map(crate::identity::VerifierId::as_str),
+        Some("staff")
     );
 }

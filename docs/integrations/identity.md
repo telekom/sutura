@@ -231,3 +231,54 @@ identity provider:
 ```
 
 [Serving over HTTP](../serving.md) has the complete serving settings: tokens, TLS and rate limits.
+
+## Several identity providers
+
+`security.inbound` also accepts a list. Every entry requires a stable `id` and a literal MCP
+`path`, beside its mode's existing token and key settings. For example:
+
+```yaml
+security:
+  inbound:
+    - id: warehouse
+      path: /warehouse/mcp
+      mode: direct
+      resource: https://sutura.example.com/warehouse/mcp
+      authorization_server: https://first.example.com
+      key_set_file: /etc/sutura/first-jwks.json
+      algorithms: [ES256]
+    - id: inventory
+      path: /inventory/mcp
+      mode: direct
+      resource: https://sutura.example.com/inventory/mcp
+      authorization_server: https://second.example.com
+      key_set_file: /etc/sutura/second-jwks.json
+      algorithms: [ES256]
+```
+
+A gateway entry uses its existing `behind-gateway` settings. Ids, issuers and audiences must
+be distinct. Two direct verifiers cannot share a path; a direct and a gateway verifier can.
+MCP first restricts verification to that path. The unverified issuer only selects one verifier,
+which still checks signature, audience, token type and lifetime. A request presenting credentials
+in two configured locations is refused. The versioned API and Flight select across all entries;
+when several direct verifiers are possible, their generic challenge chooses no authorization server.
+
+Each direct path publishes `/.well-known/oauth-protected-resource` followed by its MCP path.
+Its resource URL must have that exact path. A challenge advertises that document only when the
+request reproduces the configured resource URL. A gateway-only path publishes no document.
+The legacy single object keeps its existing discovery URL and defaults to id `primary`, path `/mcp`.
+
+With several verifiers, every source must declare `admitted_by: [warehouse]`, or another explicit
+list of configured ids. An empty list admits nobody. With one verifier, omission admits that
+verifier. Both shipped credential brokers check the whole requested source set before constructing
+or exchanging credentials; a denied source refuses the operation. Caller-run sources admit direct
+verifiers only; a delegation source admits exactly one. Custom in-process broker implementations
+remain a trust boundary.
+
+Caller state uses `(verifier id, exact signed sub)`, including spend windows, compute contexts and
+the authenticated rate quota shared by API, MCP and Flight. The outer network abuse quota remains:
+callers behind one address still share it. Catalog knowledge and scopes are computed from each
+request's verified grants. Backend principals and addresses keep their original spelling; internal
+caller isolation does not imply different database accounts. A reading grant authenticates verifier
+provenance and caller digest; workers trust the granting node's attestation and check their own
+source admission declaration. This does not establish a served human impersonation venue.

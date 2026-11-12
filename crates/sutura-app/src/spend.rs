@@ -407,4 +407,21 @@ mod tests {
         assert_eq!(ledger.charge(&subject("bob"), 900, now), Charge::Admitted);
         assert_eq!(ledger.spent_bytes_total(), Some(1_000));
     }
+    #[test]
+    fn equal_subjects_from_two_verifiers_have_separate_spend_windows() {
+        let ledger = SpendLedger::new(Some(SpendBudget::new(1_000, Duration::from_secs(60))));
+        let now = Instant::now();
+        let caller = |verifier| {
+            Subject::verified_by(
+                sutura_domain::identity::VerifierId::parse(verifier).expect("a fixture verifier id"),
+                "same-subject",
+            )
+            .expect("a fixture subject")
+        };
+        assert_eq!(ledger.charge(&caller("first"), 1_000, now), Charge::Admitted);
+        assert!(matches!(ledger.charge(&caller("first"), 1, now), Charge::Refused { .. }));
+        assert_eq!(ledger.charge(&caller("second"), 1_000, now), Charge::Admitted);
+        assert!(matches!(ledger.charge(&caller("second"), 1, now), Charge::Refused { .. }));
+        assert_eq!(ledger.spent_bytes_total(), Some(2_000));
+    }
 }

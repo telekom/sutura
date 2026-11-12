@@ -316,8 +316,10 @@ fn priced_agent_surface(key_set_id: &str) -> PricedAgentSurface {
         .gauge()
         .expect("the priced surface reports headroom at boot")
         .clone();
-    let mount = super::super::agent_mount(&state)
+    let mount = super::super::agent_mounts(&state)
         .expect("the agent mount builds")
+        .into_iter()
+        .next()
         .expect("the priced overlay enabled the agent surface");
     let registry = Arc::clone(&state.registry());
     let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
@@ -406,6 +408,8 @@ fn priced_state(key_set_id: &str) -> PricedState {
         &settings
             .security()
             .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
             .expect("this overlay declares an inbound identity")
             .clone(),
     )
@@ -854,12 +858,21 @@ async fn the_composed_agent_route_honours_token_bytes_for_both_inbound_modes() {
         let overlay = format!("{declaration}    max_token_bytes: 12288\nserver:\n  agent_surface:\n    enabled: true\n");
         let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay))
             .expect("both modes accept the declared token bound");
-        let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("an inbound declaration"))
-            .expect("the published keys load");
+        let gate = sutura_http::InboundGate::from_declaration(
+            settings
+                .security()
+                .inbound()
+                .first()
+                .map(sutura_config::InboundVerifier::identity)
+                .expect("an inbound declaration"),
+        )
+        .expect("the published keys load");
         let admission = sutura_runtime::Admission::from_settings(settings.runtime());
         let state = sutura_http::ServiceState::new(state.surface(), Arc::new(settings), admission);
-        let mount = super::super::agent_mount(&state)
+        let mount = super::super::agent_mounts(&state)
             .expect("the mount builds")
+            .into_iter()
+            .next()
             .expect("the agent is enabled");
         let state = state.with_inbound_identity(Arc::new(gate)).with_agent_surface(mount);
         let app = sutura_http::router(&state).expect("the composed router assembles");

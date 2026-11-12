@@ -20,13 +20,15 @@
 //!
 //! **The limit that survives all of it:** a caller whose identity is established is still a caller
 //! whose questions run with whatever access this process already had.
-//! [`InboundIdentity::what_it_does_not_do`] is that sentence, and the startup log prints it beside the
+//! [`crate::inbound::InboundIdentity::what_it_does_not_do`] is that sentence, and the startup log prints it beside the
 //! mode rather than leaving a reader to infer it.
 
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
 
+#[cfg(test)]
 use crate::inbound::InboundIdentity;
+use crate::inbound::InboundVerifier;
 
 /// A pre-shared secret a caller presents to reach the service.
 ///
@@ -350,10 +352,7 @@ pub(crate) use crate::security::outbound::{parse_outbound, parse_outbound_identi
 pub struct SecuritySettings {
     access_token: Option<AccessToken>,
     tls_termination: TlsTermination,
-    inbound: Option<InboundIdentity>,
-    /// Additional verifiers accepted alongside `inbound`, selected per-request by the token's
-    /// unverified `iss` claim - `github.com/telekom/sutura#1884`.
-    also_accept: Vec<InboundIdentity>,
+    inbound: Vec<InboundVerifier>,
     identity: Option<DeploymentIdentity>,
     metrics_token: Option<AccessToken>,
     outbound: Option<OutboundAnchors>,
@@ -370,11 +369,8 @@ pub struct SecuritySettings {
 impl SecuritySettings {
     /// Assembles the group from parts that have each already been parsed.
     ///
-    /// The inbound declaration is an `Option` because its absence is a posture rather than a gap: a
-    /// deployment that establishes no per-caller identity is a single-player deployment, which
-    /// `docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
-    /// once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
-    /// because the shape here cannot hold "a mode nobody named".
+    /// An empty verifier collection declares no per-caller identity. Every present declaration
+    /// contains a mode and all of that mode's required fields.
     ///
     /// The metrics token is an `Option` the same way: a deployment that chooses not to gate
     /// `/metrics` is making a posture, not leaving a gap.
@@ -385,8 +381,7 @@ impl SecuritySettings {
     pub const fn new(
         access_token: Option<AccessToken>,
         tls_termination: TlsTermination,
-        inbound: Option<InboundIdentity>,
-        also_accept: Vec<InboundIdentity>,
+        inbound: Vec<InboundVerifier>,
         identity: Option<DeploymentIdentity>,
         metrics_token: Option<AccessToken>,
         outbound: Option<OutboundAnchors>,
@@ -397,7 +392,6 @@ impl SecuritySettings {
             access_token,
             tls_termination,
             inbound,
-            also_accept,
             identity,
             metrics_token,
             outbound,
@@ -476,24 +470,10 @@ impl SecuritySettings {
         if self.access_token.is_some() { "configured" } else { "absent" }
     }
 
-    /// How the identity of a caller reaches this deployment, if it does.
-    ///
-    /// `None` is the shape that ships today and the shape a single-player deployment keeps: the
-    /// bearer token authenticates the deployment, and there is no per-request identity to establish.
+    /// Independent verifier declarations. Empty means deployment authentication only.
     #[inline]
-    pub const fn inbound(&self) -> Option<&InboundIdentity> {
-        self.inbound.as_ref()
-    }
-
-    /// Additional verifiers accepted alongside [`Self::inbound`], selected per-request by the
-    /// token's unverified `iss` claim.
-    ///
-    /// An empty slice means only the primary verifier is in effect. The startup refusal checks in
-    /// `crate::settings::posture` enforce that no issuer or audience appears in more than one
-    /// verifier.
-    #[inline]
-    pub fn also_accept(&self) -> &[InboundIdentity] {
-        &self.also_accept
+    pub fn inbound(&self) -> &[InboundVerifier] {
+        &self.inbound
     }
 
     /// Does anything here establish who the caller is?
@@ -515,10 +495,10 @@ impl SecuritySettings {
     ///
     /// **The limit, next to the claim:** `true` here says a caller's identity is *established*. It
     /// does not say a data source executes as that caller - see
-    /// [`InboundIdentity::what_it_does_not_do`], which the startup log prints beside this.
+    /// [`crate::inbound::InboundIdentity::what_it_does_not_do`], which the startup log prints beside this.
     #[inline]
     pub const fn describes_identity(&self) -> bool {
-        self.inbound.is_some()
+        !self.inbound.is_empty()
     }
 
     /// Which mode establishes the caller's identity, as a word for the startup log.
@@ -527,9 +507,10 @@ impl SecuritySettings {
     /// sometimes absent reads as a field that is sometimes broken.
     #[inline]
     pub const fn inbound_mode(&self) -> &'static str {
-        match self.inbound {
-            Some(ref inbound) => inbound.mode(),
-            None => "none",
+        match self.inbound.as_slice() {
+            [] => "none",
+            [verifier] => verifier.identity().mode(),
+            _ => "multiple",
         }
     }
 }
@@ -616,7 +597,6 @@ mod tests {
         let settings = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::None,
-            None,
             Vec::new(),
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
@@ -689,7 +669,6 @@ mod tests {
         let with_token = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::Ingress,
-            None,
             Vec::new(),
             Some(DeploymentIdentity::SubjectPerRequest),
             None,
@@ -710,8 +689,11 @@ mod tests {
         let verifying = SecuritySettings::new(
             None,
             TlsTermination::Ingress,
-            Some(direct()),
-            Vec::new(),
+            vec![crate::inbound::InboundVerifier::legacy(
+                sutura_domain::identity::VerifierId::primary(),
+                crate::inbound::McpPath::conventional(),
+                direct(),
+            )],
             None,
             None,
             None,
@@ -721,7 +703,7 @@ mod tests {
         assert!(verifying.describes_identity());
         assert_eq!(verifying.inbound_mode(), "direct");
         assert_eq!(verifying.token_state(), "absent");
-        assert!(verifying.inbound().is_some());
+        assert_ne!(verifying.inbound(), []);
 
         // And the third fact, which is the one the merge of leg 1 and the source registry made
         // available to assert: the two declarations are independent. A DECLARED multi-user mode
@@ -921,7 +903,6 @@ mod tests {
         let declared = SecuritySettings::new(
             None,
             TlsTermination::None,
-            None,
             Vec::new(),
             None,
             None,

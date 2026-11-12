@@ -113,6 +113,7 @@ impl AuditSink for TracingAuditSink {
             // `CallRecord::executed_as`, which derives it from the provenance the outcome carried, so
             // there is one place the value lives.
             RecordedOutcome::Answered { rows, provenance } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -135,6 +136,7 @@ impl AuditSink for TracingAuditSink {
             // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
             // rejected filter value is not in it.
             RecordedOutcome::Refused { reason } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -157,6 +159,7 @@ impl AuditSink for TracingAuditSink {
             // reason it is safe here and nowhere else is that this is a SINK, not a channel back to
             // any caller or any agent's context.
             RecordedOutcome::RawAnswered { rows, statement, .. } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -177,6 +180,7 @@ impl AuditSink for TracingAuditSink {
                 "raw_answered"
             ),
             RecordedOutcome::RawRefused { reason, statement } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -198,6 +202,7 @@ impl AuditSink for TracingAuditSink {
             // answer still names the principal it was delegated as; the cause chain stays on the
             // transport's own line.
             RecordedOutcome::Failed { failure } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -215,6 +220,7 @@ impl AuditSink for TracingAuditSink {
                 "failed"
             ),
             RecordedOutcome::RawFailed { failure, statement } => tracing::info!(
+                verifier_id = verifier_id(record),
                 verifier_issuer = verifier_issuer(record),
                 verifier_mode = verifier_mode(record),
                 subject_established = who.established,
@@ -251,6 +257,10 @@ impl AuditSink for TracingAuditSink {
     }
 }
 
+fn verifier_id<'record>(record: &'record CallRecord<'_>) -> &'record str {
+    record.verifier().map_or("", |verifier| verifier.id().as_str())
+}
+
 fn verifier_issuer<'record>(record: &'record CallRecord<'_>) -> &'record str {
     record
         .verifier()
@@ -276,6 +286,7 @@ fn record_remote_leg(
 ) {
     match *record.outcome() {
         RecordedOutcome::RemoteLegAnswered { rows } => tracing::info!(
+            verifier_id = verifier_id(record),
             verifier_issuer = verifier_issuer(record),
             verifier_mode = verifier_mode(record),
             subject_established = who.established,
@@ -294,7 +305,8 @@ fn record_remote_leg(
             "remote_leg_answered"
         ),
         RecordedOutcome::RemoteLegRefused { reason } => tracing::info!(
-            verifier_issuer = verifier_issuer(record),
+            verifier_id = verifier_id(record),
+                verifier_issuer = verifier_issuer(record),
             verifier_mode = verifier_mode(record),
             subject_established = who.established,
             subject = who.subject,
@@ -637,7 +649,8 @@ mod tests {
             ("https://issuer.example.com", VerifierMode::Direct),
             ("https://gateway.example.com", VerifierMode::Gateway),
         ] {
-            let verifier = AdmittingVerifier::of(String::from(issuer), mode);
+            let id = sutura_domain::identity::VerifierId::parse(mode.as_str()).expect("a fixture verifier id");
+            let verifier = AdmittingVerifier::of(id.clone(), String::from(issuer), mode);
             for record in [
                 CallRecord::of(&chain, &answer, None),
                 CallRecord::of(&chain, &refusal, None),
@@ -652,12 +665,14 @@ mod tests {
                     TracingAuditSink::new().record(&record.admitted_by(Some(&verifier)));
                 });
                 let written = line(&rendered);
+                assert_eq!(written["verifier_id"], id.as_str(), "{rendered}");
                 assert_eq!(written["verifier_issuer"], issuer, "{rendered}");
                 assert_eq!(written["verifier_mode"], mode.as_str(), "{rendered}");
                 assert_eq!(written["subject"], "s***", "{rendered}");
             }
         }
         let written = line(&written(&chain));
+        assert_eq!(written["verifier_id"], "");
         assert_eq!(written["verifier_issuer"], "");
         assert_eq!(written["verifier_mode"], "");
     }

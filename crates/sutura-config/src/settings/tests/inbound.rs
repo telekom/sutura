@@ -60,7 +60,7 @@ fn no_inbound_block_at_all_is_a_single_player_deployment_and_still_starts() {
     // says nothing here becomes required for the shape that ships today. So the defaults still load
     // and they still say they establish no identity.
     let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
-    assert!(settings.security().inbound().is_none());
+    assert_eq!(settings.security().inbound(), []);
     assert!(!settings.security().describes_identity());
     assert_eq!(settings.security().inbound_mode(), "none");
     // Production included, which needs the deployment token and nothing more.
@@ -151,7 +151,11 @@ fn a_key_set_url_is_read_as_the_url_location() {
     let key_set = settings.map(|settings| {
         format!(
             "{:?}",
-            settings.security().inbound().map(|inbound| inbound.requirement().key_set())
+            settings
+                .security()
+                .inbound()
+                .first()
+                .map(|inbound| inbound.requirement().key_set())
         )
     });
     assert_eq!(
@@ -193,7 +197,12 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{DIRECT_INBOUND}")))
             .expect("a complete direct declaration loads");
-    let inbound = settings.security().inbound().expect("the declaration is there");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(inbound.mode(), "direct");
     assert!(settings.security().describes_identity());
     let requirement = inbound.requirement();
@@ -210,7 +219,12 @@ fn a_complete_declaration_loads_and_derives_the_requirement_the_validator_reads(
     let gateway =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{GATEWAY_INBOUND}")))
             .expect("a complete gateway declaration loads");
-    let inbound = gateway.security().inbound().expect("the declaration is there");
+    let inbound = gateway
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(inbound.mode(), "behind-gateway");
     assert!(
         !inbound.reads_the_authorization_header(),
@@ -294,7 +308,12 @@ fn a_gateway_assertion_in_authorization_is_refused_only_beside_a_deployment_toke
     let inbound = GATEWAY_INBOUND.replacen("X-Transit-Proof", "Authorization", 1);
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{inbound}")))
         .expect("a gateway assertion in Authorization loads without a deployment token");
-    let declared = settings.security().inbound().expect("the declaration is there");
+    let declared = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert!(declared.reads_the_authorization_header());
     assert_eq!(declared.requirement().location().to_string(), "authorization: Bearer");
 
@@ -389,7 +408,12 @@ fn an_inbound_key_can_be_set_by_a_variable_and_a_misspelled_one_is_an_error() {
             "https://other.example.com",
         )]));
     let settings = Settings::load(&sources).expect("a variable overrides the file layer");
-    let inbound = settings.security().inbound().expect("the declaration is there");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(inbound.requirement().audience().as_str(), "https://other.example.com");
 
     let sources = Sources::defaults(Environment::Development)
@@ -455,7 +479,9 @@ fn direct_token_type_any_does_not_start_without_its_opt_in() {
         settings
             .security()
             .inbound()
+            .first()
             .expect("the declaration is there")
+            .identity()
             .accepts_any_token_class()
     );
 }
@@ -485,7 +511,9 @@ fn direct_token_type_any_starts_with_its_opt_in() {
         settings
             .security()
             .inbound()
+            .first()
             .expect("the declaration is there")
+            .identity()
             .accepts_any_token_class()
     );
 }
@@ -515,12 +543,24 @@ fn a_declared_address_claim_does_not_start_without_its_acceptance_in_either_mode
         let accepted = loads(format!(
             "security:\n{inbound}    address_claim: \"upn\"\n    accept_address_claim: true\n"
         ));
-        let declared = accepted.security().inbound().expect("the declaration is there").requirement();
+        let declared = accepted
+            .security()
+            .inbound()
+            .first()
+            .expect("the declaration is there")
+            .identity()
+            .requirement();
         assert_eq!(declared.address_claim().declared().map(crate::ClaimName::as_str), Some("upn"));
     }
     // `email` is the default and reads `email_verified`, so it needs no acceptance.
     let default = loads(format!("security:\n{DIRECT_INBOUND}    address_claim: \"email\"\n"));
-    let requirement = default.security().inbound().expect("the declaration is there").requirement();
+    let requirement = default
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity()
+        .requirement();
     assert_eq!(*requirement.address_claim(), crate::AddressClaim::VerifiedEmail);
 }
 
@@ -553,7 +593,12 @@ fn a_transit_lifetime_at_the_ceiling_loads_with_its_opt_in() {
         "security:\n{GATEWAY_INBOUND}    transit_max_lifetime_seconds: {}\n    accept_long_transit_lifetime: true\n",
         ProofLifetime::MAX_SECONDS
     ));
-    let inbound = settings.security().inbound().expect("the declaration is there");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(
         inbound
             .requirement()
@@ -614,7 +659,12 @@ fn a_transit_audience_may_be_a_path_and_is_never_cleartext() {
         )
     };
     let settings = load_inbound_overlay(gateway("/hub/My-MCP/v1")).expect("a path audience starts");
-    let inbound = settings.security().inbound().expect("the declaration is there");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(
         inbound.requirement().audience().as_str(),
         "/hub/My-MCP/v1",
@@ -687,7 +737,12 @@ fn a_direct_audience_is_its_own_key_and_never_cleartext() {
     const CLIENT: &str = "6f1c2c84-3b1e-4c8a-9d2e-5a0b7e9f1d23";
     let settings = load_inbound_overlay(format!("security:\n{DIRECT_INBOUND}    audience: \"{CLIENT}\"\n"))
         .expect("a client-id audience starts");
-    let inbound = settings.security().inbound().expect("the declaration is there");
+    let inbound = settings
+        .security()
+        .inbound()
+        .first()
+        .expect("the declaration is there")
+        .identity();
     assert_eq!(inbound.requirement().audience().as_str(), CLIENT);
     let refused = load_inbound_overlay(format!(
         "security:\n{DIRECT_INBOUND}    audience: \"http://sutura.example.com\"\n"
@@ -757,176 +812,4 @@ fn a_key_set_max_stale_outside_its_range_does_not_start() {
     for (declared, seconds) in [(DIRECT_INBOUND, 300), (GATEWAY_INBOUND, 86_400)] {
         drop(loads(overlay(declared, seconds)));
     }
-}
-
-// --------------------------------------------- security.also_accept (#1884) ----
-
-/// A `behind-gateway` block that sits under `security.also_accept`, indented for that position.
-///
-/// Different from `GATEWAY_INBOUND` in two ways: it is indented four more spaces (the YAML list
-/// item adds two, plus the existing two), and its issuer and audience are distinct from
-/// `DIRECT_INBOUND`'s so the two verifiers do not trigger the overlap refusals.
-const GATEWAY_ALSO_ACCEPT: &str = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
-                                    transit_header: \"X-Transit-Proof\"\n      \
-                                    transit_issuer: \"https://gateway.example.com\"\n      \
-                                    transit_audience: \"/hub/sutura/v1\"\n      \
-                                    key_set_file: \"/k.json\"\n      \
-                                    algorithms: [\"ES256\"]\n      \
-                                    transit_token_type: \"at+jwt\"\n";
-
-#[test]
-fn also_accept_beside_a_primary_inbound_loads_and_the_secondary_is_accessible() {
-    // The positive case: a primary `direct` verifier and a secondary `behind-gateway` verifier
-    // load, and `also_accept()` returns the secondary.
-    let settings = loads(format!("security:\n{DIRECT_INBOUND}{GATEWAY_ALSO_ACCEPT}"));
-    let primary = settings.security().inbound().expect("the primary declaration is there");
-    assert_eq!(primary.mode(), "direct");
-    let also = settings.security().also_accept();
-    assert_eq!(also.len(), 1, "one secondary verifier");
-    assert_eq!(also[0].mode(), "behind-gateway");
-    assert_eq!(also[0].requirement().issuer().as_str(), "https://gateway.example.com");
-    assert_eq!(also[0].requirement().audience().as_str(), "/hub/sutura/v1");
-}
-
-#[test]
-fn also_accept_without_a_primary_inbound_is_refused() {
-    // `also_accept` extends a primary verifier - there is no "secondary only" shape, because
-    // RFC 9728 describes one resource server and that is the primary.
-    let error =
-        Settings::load(&Sources::defaults(Environment::Development).with_overlay(format!("security:\n{GATEWAY_ALSO_ACCEPT}")))
-            .expect_err("also_accept without primary inbound is refused");
-    let rendered = error.reason().to_string();
-    assert!(rendered.contains("security.also_accept"), "{rendered}");
-    assert!(rendered.contains("security.inbound"), "{rendered}");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert!(
-        refusals
-            .iter()
-            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptWithoutPrimaryInbound)),
-        "{refusals:?}"
-    );
-}
-
-#[test]
-fn also_accept_duplicate_issuer_is_refused_naming_the_index() {
-    // The primary's `authorization_server` and the secondary's `transit_issuer` are the same
-    // issuer string. Each verifier must have a unique issuer so the dispatcher can route by `iss`.
-    let duplicate_issuer_also_accept = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
-                                         transit_header: \"X-Transit-Proof\"\n      \
-                                         transit_issuer: \"https://issuer.example.com\"\n      \
-                                         transit_audience: \"/hub/sutura/v1\"\n      \
-                                         key_set_file: \"/k.json\"\n      \
-                                         algorithms: [\"ES256\"]\n      \
-                                         transit_token_type: \"at+jwt\"\n";
-    let error = Settings::load(
-        &Sources::defaults(Environment::Development)
-            .with_overlay(format!("security:\n{DIRECT_INBOUND}{duplicate_issuer_also_accept}")),
-    )
-    .expect_err("also_accept with a duplicate issuer is refused");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert!(
-        refusals
-            .iter()
-            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptDuplicateIssuer { ref issuer, index: 0 } if issuer == "https://issuer.example.com")),
-        "{refusals:?}"
-    );
-}
-
-#[test]
-fn also_accept_overlapping_audience_is_refused_naming_the_index() {
-    // The primary's audience (derived from `resource`) and the secondary's `transit_audience` are
-    // the same string. Audiences must not overlap so a token cannot accidentally verify under two
-    // different verifiers.
-    let overlapping_audience_also_accept = "  also_accept:\n    - mode: \"behind-gateway\"\n      \
-                                             transit_header: \"X-Transit-Proof\"\n      \
-                                             transit_issuer: \"https://gateway.example.com\"\n      \
-                                             transit_audience: \"https://sutura.example.com\"\n      \
-                                             key_set_file: \"/k.json\"\n      \
-                                             algorithms: [\"ES256\"]\n      \
-                                             transit_token_type: \"at+jwt\"\n";
-    let error = Settings::load(
-        &Sources::defaults(Environment::Development)
-            .with_overlay(format!("security:\n{DIRECT_INBOUND}{overlapping_audience_also_accept}")),
-    )
-    .expect_err("also_accept with an overlapping audience is refused");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert!(
-        refusals.iter().any(|r| matches!(*r, NotFitToServe::AlsoAcceptOverlappingAudience { ref audience, index: 0 } if audience == "https://sutura.example.com")),
-        "{refusals:?}"
-    );
-}
-
-#[test]
-fn an_also_accept_direct_entry_whose_audience_is_its_issuer_does_not_start() {
-    // A secondary `direct` verifier whose `resource` (= audience) equals its `authorization_server`
-    // (= issuer) would accept any token the issuer minted for itself - including tokens for other
-    // services that happen to reach this deployment. The check is the per-entry equivalent of
-    // `InboundAudienceIsTheIssuer` for the primary verifier.
-    let same_url = "https://secondary.example.com";
-    let audience_is_issuer = format!(
-        "security:\n{DIRECT_INBOUND}  also_accept:\n    - mode: \"direct\"\n      \
-         resource: \"{same_url}\"\n      authorization_server: \"{same_url}\"\n      \
-         key_set_file: \"/k2.json\"\n      algorithms: [\"ES256\"]\n"
-    );
-    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(audience_is_issuer))
-        .expect_err("a secondary direct entry whose audience is its issuer does not start");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert!(
-        refusals.iter().any(|r| matches!(
-            *r,
-            NotFitToServe::AlsoAcceptAudienceIsTheIssuer { ref audience, index: 0 }
-                if audience == same_url
-        )),
-        "{refusals:?}"
-    );
-    // The error message names the index and the audience so an operator can fix it.
-    let rendered = refusals
-        .iter()
-        .find(|r| matches!(**r, NotFitToServe::AlsoAcceptAudienceIsTheIssuer { .. }))
-        .unwrap()
-        .to_string();
-    assert!(rendered.contains("[0]"), "{rendered}");
-    assert!(rendered.contains(same_url), "{rendered}");
-}
-
-#[test]
-fn an_also_accept_entry_in_the_authorization_header_beside_a_deployment_token_does_not_start() {
-    // A secondary verifier that reads `Authorization` while `security.access_token` is configured
-    // would try to verify the deployment bearer token as a caller assertion. The check is the
-    // per-entry equivalent of `DeploymentTokenSharesTheHeader` for the primary verifier.
-    //
-    // The primary is `behind-gateway` (X-Transit-Proof) so it does NOT trigger the primary
-    // header-collision refusal; only the secondary's Authorization read is at issue.
-    let authorization_also_accept = format!(
-        "security:\n  access_token: \"{TOKEN}\"\n{GATEWAY_INBOUND}  also_accept:\n    - mode: \"behind-gateway\"\n      \
-         transit_header: \"Authorization\"\n      transit_issuer: \"https://secondary.example.com\"\n      \
-         transit_audience: \"/hub/secondary/v1\"\n      key_set_file: \"/k2.json\"\n      \
-         algorithms: [\"ES256\"]\n      transit_token_type: \"at+jwt\"\n"
-    );
-    let error = Settings::load(&Sources::defaults(Environment::Development).with_overlay(authorization_also_accept))
-        .expect_err("a secondary verifier sharing the access_token header does not start");
-    let SettingsError::NotFitToServe { ref refusals } = *error.reason() else {
-        panic!("expected a posture refusal, got {error:?}");
-    };
-    assert!(
-        refusals
-            .iter()
-            .any(|r| matches!(*r, NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { index: 0 })),
-        "{refusals:?}"
-    );
-    // The error message names the index so an operator can find the entry.
-    let rendered = refusals
-        .iter()
-        .find(|r| matches!(**r, NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { .. }))
-        .unwrap()
-        .to_string();
-    assert!(rendered.contains("[0]"), "{rendered}");
 }

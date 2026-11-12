@@ -149,7 +149,12 @@ async fn the_ceiling_follows_the_declaration_for_either_source_in_either_mode() 
         ("behind-gateway", file, 86_400),
     ] {
         let settings = declared(mode, source, ceiling);
-        let declaration = settings.security().inbound().expect("an inbound identity");
+        let declaration = settings
+            .security()
+            .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
+            .expect("an inbound identity");
         holds_until(declaration, ceiling, None).await;
     }
 }
@@ -216,7 +221,12 @@ async fn past_the_ceiling_a_caller_gets_503_identity_unavailable_with_no_challen
     );
     let settings = declared("direct", "key_set_file: \"/unread.json\"", 300);
     let gate = Arc::new(InboundGate::over(
-        settings.security().inbound().expect("an inbound identity"),
+        settings
+            .security()
+            .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
+            .expect("an inbound identity"),
         cache,
     ));
     let (status, ref body, challenged) = guarded_answer(&gate, &a_token(&pair)).await;

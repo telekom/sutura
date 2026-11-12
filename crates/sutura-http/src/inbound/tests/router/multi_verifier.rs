@@ -11,9 +11,7 @@
 use axum::http::StatusCode;
 use sutura_dev::issuer::MockIssuer;
 
-use crate::testing::{
-    accepted_by, an_issuer, broker, bundle, declared_inbound, direct_overlay, fake_warehouse, serving, settings_with,
-};
+use crate::testing::{accepted_by, an_issuer, broker, bundle, fake_warehouse, named_direct_entry, serving, settings_with};
 
 use super::super::fixtures::gate_over_multi;
 use super::{UNREAD, assertion_from, status_of};
@@ -31,15 +29,14 @@ const GATEWAY_AUDIENCE: &str = "/hub/sutura/v1";
 /// Each issuer's key set is handed in directly rather than read from a file.
 fn app_multi_verifier(primary: &MockIssuer, secondary: &MockIssuer) -> axum::Router {
     let overlay = format!(
-        "{}  also_accept:\n    - mode: \"behind-gateway\"\n      transit_header: \"X-Transit-Proof\"\n      \
-         transit_issuer: \"{GATEWAY_ISSUER}\"\n      transit_audience: \"{GATEWAY_AUDIENCE}\"\n      \
-         key_set_file: \"{UNREAD}\"\n      algorithms: [\"ES256\"]\n      transit_token_type: \"at+jwt\"\n",
-        direct_overlay(primary, UNREAD)
+        "security:\n  inbound:\n{}    - id: gateway\n      path: /mcp\n      mode: behind-gateway\n      transit_header: X-Transit-Proof\n      transit_issuer: '{GATEWAY_ISSUER}'\n      transit_audience: '{GATEWAY_AUDIENCE}'\n      key_set_file: '{UNREAD}'\n      algorithms: [ES256]\n      transit_token_type: at+jwt\n",
+        named_direct_entry(primary, "primary", "/mcp", UNREAD)
     );
     let settings = settings_with(&overlay);
-    let primary_decl = declared_inbound(&settings);
-    let also_accept = settings.security().also_accept();
-    let gate = gate_over_multi(&primary_decl, &primary.key_set(), &[(&also_accept[0], &secondary.key_set())]);
+    let mut declarations = settings.security().inbound().iter();
+    let primary_decl = declarations.next().expect("a primary declaration");
+    let secondary_decl = declarations.next().expect("a gateway declaration");
+    let gate = gate_over_multi(primary_decl, &primary.key_set(), &[(secondary_decl, &secondary.key_set())]);
     serving(bundle(), fake_warehouse(), broker(), settings, Some(gate))
 }
 

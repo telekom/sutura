@@ -173,14 +173,23 @@ fn served(case: &str, idp: &FakeServer) -> Served {
         )
         .expect("the test bundle validates"),
     );
-    let gate = sutura_http::InboundGate::from_declaration(settings.security().inbound().expect("a direct deployment"))
-        .expect("a published key set builds a gate");
+    let gate = sutura_http::InboundGate::from_declaration(
+        settings
+            .security()
+            .inbound()
+            .first()
+            .map(sutura_config::InboundVerifier::identity)
+            .expect("a direct deployment"),
+    )
+    .expect("a published key set builds a gate");
     let admission = sutura_runtime::Admission::from_settings(settings.runtime());
     let state = sutura_http::ServiceState::new(service, Arc::new(settings), admission);
     #[cfg(feature = "agent")]
     let state = {
-        let mount = super::super::agent_mount(&state)
+        let mount = super::super::agent_mounts(&state)
             .expect("the agent mount builds")
+            .into_iter()
+            .next()
             .expect("the overlay enabled the agent surface");
         state.with_agent_surface(mount)
     };

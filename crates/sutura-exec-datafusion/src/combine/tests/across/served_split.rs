@@ -34,7 +34,6 @@ use datafusion::prelude::col;
 use futures_util::stream;
 use parking_lot::Mutex;
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
-use sutura_domain::identity::SubjectKey;
 use sutura_domain::model::SourceName;
 use sutura_domain::nonempty::NonEmpty;
 use sutura_domain::plan::leg::LegPlan;
@@ -64,8 +63,8 @@ fn source(name: &str) -> SourceName {
     SourceName::parse(name).expect("a test source is a source")
 }
 
-fn caller() -> SubjectKey {
-    SubjectKey::parse("user@example.com").expect("a test caller is a subject")
+fn caller() -> Subject {
+    Subject::verified("user@example.com").expect("a test caller is a subject")
 }
 
 fn label(link: u8) -> String {
@@ -156,7 +155,7 @@ impl Peer {
 }
 
 /// `partitions` of a leg answering `schema`, granted to `caller` for an hour.
-fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &SubjectKey) -> Looked<'static> {
+fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &Subject) -> Looked<'static> {
     let now = SystemTime::now();
     let granted = Granted::new(
         b"granted-leg".to_vec(),
@@ -177,7 +176,7 @@ fn grant(schema: SchemaRef, partitions: Vec<Vec<u8>>, caller: &SubjectKey) -> Lo
 struct Granting {
     schema: SchemaRef,
     partitions: Vec<Vec<u8>>,
-    caller: SubjectKey,
+    caller: Subject,
     read_here: AtomicUsize,
 }
 

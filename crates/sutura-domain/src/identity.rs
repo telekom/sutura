@@ -65,7 +65,7 @@ pub use crate::identity::principal::{
     OAuthClient, PrincipalChain, RequestContext, Subject, SubjectId, SubjectKey, TaskId,
 };
 pub use crate::identity::source_token::SourceToken;
-pub use crate::identity::verifier::{AdmittingVerifier, VerifierMode};
+pub use crate::identity::verifier::{AdmittingVerifier, InvalidVerifierId, VerifierId, VerifierMode};
 
 /// An opaque secret that nothing can render.
 ///

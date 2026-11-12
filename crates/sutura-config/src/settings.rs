@@ -25,7 +25,6 @@ use crate::api::ApiSettings;
 use crate::catalog::Catalogs;
 use crate::environment::Environment;
 use crate::governance::SpendBudget;
-use crate::inbound::InboundIdentity;
 use crate::limits::RateLimitSettings;
 use crate::prompt::PromptSettings;
 use crate::raw::RawSettings;
@@ -232,7 +231,7 @@ impl Settings {
         // in single-user mode borrows the mode's own declaration as its acknowledgement, so the mode
         // has to be parsed before the entry that may read it.
         let security = parse::parse_security(raw)?;
-        let sources = parse::parse_sources(raw, security.identity())?;
+        let sources = parse::parse_sources(raw, security.identity(), security.inbound())?;
         Ok(Self {
             layers,
             environment,
@@ -290,12 +289,8 @@ impl Settings {
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
         refusals.extend(delegation::hop_refusals(self.security.inbound(), &self.sources));
-        refusals.extend(posture::audience_refusal(self.security.inbound()));
-        refusals.extend(posture::also_accept_refusals(
-            self.security.inbound(),
-            self.security.also_accept(),
-            self.security.access_token().is_some(),
-        ));
+        refusals.extend(admission::verifier_refusals(self.security.inbound()));
+        refusals.extend(admission::source_refusals(self.security.inbound(), &self.sources));
         refusals.extend(posture::workers_wait_refusal(&self.server));
         refusals.extend(posture::run_sql_multi_user_refusal(
             &self.tools,
@@ -412,7 +407,7 @@ impl Settings {
     /// ask too, so `/v1` and `/mcp` cannot disagree about it.
     #[must_use]
     pub fn agent_surface_refusals(&self) -> Vec<NotFitToServe> {
-        if self.security.inbound().is_some() {
+        if !self.security.inbound().is_empty() {
             return Vec::new();
         }
         let mut refusals = Vec::new();
@@ -516,7 +511,7 @@ impl Settings {
     fn credential_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
         let mut refusals = Vec::new();
         let inbound = self.security.inbound();
-        if self.security.access_token().is_none() && inbound.is_none() && self.server.role() == ServerRole::Serving {
+        if self.security.access_token().is_none() && inbound.is_empty() && self.server.role() == ServerRole::Serving {
             // Two different reasons, and the message says which: an operator whose production
             // deployment refuses should not have to work out whether it was the bind or the
             // environment that asked for the token.
@@ -532,7 +527,11 @@ impl Settings {
         }
         // Asked of the requirement rather than of the variant, so a mode added later that also lands
         // in `Authorization` cannot slip past this.
-        if self.security.access_token().is_some() && inbound.is_some_and(InboundIdentity::reads_the_authorization_header) {
+        if self.security.access_token().is_some()
+            && inbound
+                .iter()
+                .any(|verifier| verifier.identity().reads_the_authorization_header())
+        {
             refusals.push(NotFitToServe::DeploymentTokenSharesTheHeader);
         }
         // The metrics token is a SECOND credential for a DIFFERENT surface, and the separation
@@ -709,6 +708,7 @@ mod catalogs;
 /// Reading the outbound trust declaration. Carved out for the same reason.
 mod outbound;
 
+mod admission;
 /// The delegation-hop combination checks. Carved out for the same reason.
 mod delegation;
 mod role;

@@ -122,8 +122,10 @@ with the access of the deployment.
 
 With `security.inbound`, every request carries a token that sutura verifies: signature, issuer, expiry and an audience
 that equals the resource identifier of the deployment. The verified subject goes into every audit record.
-The internal caller key is the raw `sub`. Equal `sub` values from different configured issuers share this key. The
-admitting verifier is separate audit and exchange provenance. There is no default mode:
+The internal caller key is the configured verifier id and exact signed `sub`. Equal subjects or addresses from
+different verifiers remain separate callers. Backend principal and address spelling remain unchanged; source
+`admitted_by` bounds which verifiers may assert them. The audit record names the verifier id, issuer and mode.
+There is no default mode:
 
 | Mode             | Use it when                                                                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -457,7 +459,7 @@ security:
   tls_termination: "in-process"
 ```
 
-A worker is asked for no `security.access_token` or `security.inbound`, because no route on it reads either. In
+A combining worker needs neither `security.access_token` nor `security.inbound`. In
 production or off-host it still needs `security.metrics_token` and `rate_limit.enabled`.
 
 `server.role: reading-worker` is the worker that reads a granted leg's partitions. It is configured as above, and it
@@ -465,12 +467,17 @@ declares the sources it reads and a catalog in a file or a variable, so it needs
 a source. At startup it opens its catalog and each source the catalog reads that its own `sources:` declares. A source
 the catalog reads and `sources:` does not declare is not opened and needs no credential there. Before it reads a
 partition, it certifies the leg against its own catalog. It refuses a leg that its catalog defines differently, or a
-leg of a source it did not open. It reads as its own declared service user for the source. The chart's worker pool
+leg of a source it did not open. It also checks that the grant's verifier is admitted by that source. Declare matching
+`security.inbound` verifier definitions on serving and reading nodes, and list their ids in each source's `admitted_by`
+when more than one verifier is declared. A single declared verifier is admitted by default. These declarations do not
+open a human listener on a reading worker; the worker trusts the authenticated granting node's verifier attestation.
+It reads as its own declared service user for the source. The chart's worker pool
 runs `worker`, and each of its `readingWorkers.groups` runs `reading-worker`.
 
-Limit: a catalog counts only when a file or a variable declares it. Only a PostgreSQL source is read on a reading
-worker. The catalog and the sources are read once, at startup.
-`server.nodes`, `security.inbound` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
+Limit: a catalog counts only when a file or a variable declares it. Reading workers read PostgreSQL and Oracle partitions as their configured service user, and BigQuery partitions
+with the forwarded caller token at a declared pool. ClickHouse has no reading arm yet. The catalog and the sources
+are read once, at startup.
+`server.nodes` and `tools.run_sql` are accepted and unused. `/metrics` reports the transport series
 alone. The worker carries the limits of the node links above.
 
 #### What the across-nodes acceptance shows

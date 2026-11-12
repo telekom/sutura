@@ -101,6 +101,7 @@ pub enum DeclaredPrincipalsUnusable {
 #[derive(Debug, Clone, Default)]
 pub struct DeclaredPrincipalBroker {
     shared: BTreeMap<SourceName, SharedIdentityDeclared>,
+    admissions: super::SourceAdmissions,
     federating: BTreeMap<SourceName, Option<Delegation>>,
     /// Each source that runs a caller as their verified name, the deployment's own user there - a
     /// name no caller is run as - and, for a source each caller signs in at, the exchange for the
@@ -122,6 +123,13 @@ impl DeclaredPrincipalBroker {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Installs resolved source policy before any source's credentials are constructed.
+    #[must_use]
+    pub fn admitting(mut self, admissions: super::SourceAdmissions) -> Self {
+        self.admissions = admissions;
+        self
     }
 
     /// Declares one shared source and the operator's acknowledgement for it.
@@ -225,11 +233,17 @@ impl CredentialBroker for DeclaredPrincipalBroker {
     type Error = DeclaredPrincipalsUnusable;
 
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        if let Some(source) = self.admissions.refused(context, sources) {
+            return Ok(Minted::Refused { source });
+        }
         // **Two passes, and the order is the property** - `sutura_config::StaticCredentialBroker`
         // carries the argument: a plan whose SECOND source is unmintable must be refused before the
         // first one's credential is built, so "refused before anything was minted" is true of what
         // happened rather than only of what escaped.
         for source in sources.iter() {
+            if context.is_gateway_admitted() && !self.shared.contains_key(source) {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
             if !self.shared.contains_key(source)
                 && !self.federating.contains_key(source)
                 && !self.switching.contains_key(source)
@@ -239,8 +253,7 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 return Ok(Minted::Refused { source: source.clone() });
             }
         }
-        // The raw verified `sub` remains the internal caller key: equal `sub` values from different
-        // configured issuers share it. The admitting verifier is separate audit/exchange provenance.
+        // Backend principal spelling stays raw; the subject and admission policy retain the verifier.
         // `None` for a request with no verified subject - an impersonating source then has nobody to
         // be, and the refusal below is what it gets.
         let asked_by = context.chain().subject();
@@ -293,9 +306,6 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // assertion. The gateway has already performed any credential exchange; re-exchanging its
             // intermediate assertion would bypass the caller's own identity boundary.
             if let Some(delegation) = self.authenticating.get(source) {
-                if context.is_gateway_admitted() {
-                    return Ok(Minted::Refused { source: source.clone() });
-                }
                 let (Some(_), Some(assertion), Some(expires)) = (key, assertion, assertion_expires) else {
                     return Ok(Minted::Refused { source: source.clone() });
                 };
@@ -316,9 +326,6 @@ impl CredentialBroker for DeclaredPrincipalBroker {
                 // runs below, after every refusal. Gateway-admitted callers are refused before the
                 // exchange path for the same reason as the authenticating case above.
                 if let Some(delegation) = delegation.as_ref() {
-                    if context.is_gateway_admitted() {
-                        return Ok(Minted::Refused { source: source.clone() });
-                    }
                     let (Some(assertion), Some(expires)) = (assertion, assertion_expires) else {
                         return Ok(Minted::Refused { source: source.clone() });
                     };
@@ -341,9 +348,6 @@ impl CredentialBroker for DeclaredPrincipalBroker {
             // answering as the deployment. Every other caller is presented its own assertion: which
             // rows that caller reads is the data system's grants on its federated principal.
             // Gateway-admitted callers are also refused: same boundary, same reason.
-            if context.is_gateway_admitted() {
-                return Ok(Minted::Refused { source: source.clone() });
-            }
             let (Some(_), Some(assertion), Some(expires)) = (key, assertion, assertion_expires) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };
@@ -428,10 +432,20 @@ mod addressing {
             Secret::new(format!("assertion.for.{raw}")),
             4_102_444_800,
         )
+        .admitted_by(sutura_domain::identity::AdmittingVerifier::of(
+            sutura_domain::identity::VerifierId::primary(),
+            String::from("https://issuer.example.com"),
+            sutura_domain::identity::VerifierMode::Direct,
+        ))
     }
 
     fn addressing() -> DeclaredPrincipalBroker {
-        DeclaredPrincipalBroker::empty().addressing(warehouse(), None)
+        DeclaredPrincipalBroker::empty()
+            .admitting(crate::credentials::SourceAdmissions::default().and(
+                warehouse(),
+                Some(std::iter::once(sutura_domain::identity::VerifierId::primary()).collect()),
+            ))
+            .addressing(warehouse(), None)
     }
 
     #[test]

@@ -115,6 +115,7 @@ mod tests {
             4_102_444_800,
             sutura_domain::identity::ClientClaims::default(),
             sutura_domain::identity::AdmittingVerifier::of(
+                sutura_domain::identity::VerifierId::primary(),
                 String::from(crate::testing::ISSUER),
                 sutura_domain::identity::VerifierMode::Direct,
             ),

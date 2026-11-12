@@ -613,63 +613,57 @@ pub enum NotFitToServe {
          sources: a flashback bucket is read on a reading node. Declare one, or remove the key"
     )]
     FlashbackReadByNoNode { alias: SourceName },
-    /// Two verifiers in the combined set share an audience.
-    ///
-    /// **A security boundary, not a naming rule.** A token minted for one audience would, without
-    /// this check, be verifiable by both verifiers - because both would recognise the same `aud`
-    /// claim as their own. The startup refusal is what makes the boundary a mechanism rather than a
-    /// convention.
+    #[error("inbound verifier id `{id}` is declared more than once")]
+    DuplicateVerifierId { id: sutura_domain::identity::VerifierId },
+    #[error("inbound verifiers `{earlier}` and `{later}` share issuer `{issuer}`")]
+    DuplicateVerifierIssuer {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        issuer: String,
+    },
+    #[error("inbound verifiers `{earlier}` and `{later}` share audience `{audience}`")]
+    DuplicateVerifierAudience {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        audience: String,
+    },
+    #[error("direct verifiers `{earlier}` and `{later}` share MCP path `{path}`")]
+    DirectVerifiersSharePath {
+        earlier: sutura_domain::identity::VerifierId,
+        later: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
+    #[error("MCP paths `{earlier}` and `{later}` overlap; use disjoint literal subtrees")]
+    OverlappingMcpPaths {
+        earlier: crate::inbound::McpPath,
+        later: crate::inbound::McpPath,
+    },
+    #[error("verifier `{id}` MCP path `{path}` overlaps a reserved route")]
+    ReservedMcpPath {
+        id: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
     #[error(
-        "security.inbound and security.also_accept[{index}] share the audience `{audience}` - \
-         audiences must not overlap between verifiers, because a token issued for one would otherwise \
-         be accepted by both. Give each verifier a distinct audience"
+        "named verifier `{id}` resource URI must have the exact MCP path `{path}`; configure the public resource path to match its mount"
     )]
-    AlsoAcceptOverlappingAudience { audience: String, index: usize },
-    /// Two verifiers in the combined set share an issuer URL.
-    ///
-    /// A token's unverified `iss` is what selects the verifier per request; two verifiers with the
-    /// same issuer make the selection ambiguous and are refused at startup rather than resolved at
-    /// request time by any ordering rule.
-    #[error(
-        "security.inbound and security.also_accept[{index}] share the issuer `{issuer}` - each \
-         verifier in a multi-verifier deployment must have a distinct issuer, because the issuer \
-         claim selects which one validates the token. Remove the duplicate"
-    )]
-    AlsoAcceptDuplicateIssuer { issuer: String, index: usize },
-    /// `security.also_accept` was written, but `security.inbound` was not.
-    ///
-    /// `also_accept` extends a primary verifier - there is no "secondary only" shape, because
-    /// nothing would route an unknown-issuer request and nothing would describe the deployment's
-    /// own resource in RFC 9728 metadata.
-    #[error(
-        "security.also_accept is declared but security.inbound is not. `also_accept` extends a \
-         primary verifier - declare security.inbound with the deployment's own mode and resource, \
-         or remove security.also_accept"
-    )]
-    AlsoAcceptWithoutPrimaryInbound,
-    /// A `direct` secondary verifier whose audience equals its own issuer URL.
-    ///
-    /// **The same boundary as [`Self::InboundAudienceIsTheIssuer`], applied per entry.**  An
-    /// authorization server whose issuer URL is also its resource audience would accept its own
-    /// access tokens for every resource it protects, so a token for a different service silently
-    /// becomes a valid credential here. The index names the `also_accept` entry that introduced it.
-    #[error(
-        "security.also_accept[{index}] is a `direct` verifier whose audience is the same as its \
-         issuer `{audience}`. Give the verifier a resource audience that is not the issuer URL"
-    )]
-    AlsoAcceptAudienceIsTheIssuer { audience: String, index: usize },
-    /// A secondary verifier reads the `Authorization` header while `security.access_token` is set.
-    ///
-    /// **The same boundary as [`Self::DeploymentTokenSharesTheHeader`], applied per entry.** When
-    /// the deployment bearer token also lives in `Authorization`, any verifier reading that header
-    /// would see-and try to verify-the deployment token as a caller assertion. The index names the
-    /// `also_accept` entry that introduced the collision.
-    #[error(
-        "security.also_accept[{index}] reads the Authorization header, and security.access_token \
-         is set: the deployment bearer token and the inbound caller token would share the same \
-         header. Give the also_accept verifier a distinct header, or remove security.access_token"
-    )]
-    AlsoAcceptSharesTheDeploymentTokenHeader { index: usize },
+    InboundResourcePathMismatch {
+        id: sutura_domain::identity::VerifierId,
+        path: crate::inbound::McpPath,
+    },
+    #[error("`sources.{alias}.admitted_by` is required with multiple inbound verifiers")]
+    SourceVerifiersUndeclared { alias: SourceName },
+    #[error("`sources.{alias}.admitted_by` names unknown verifier `{verifier}`")]
+    UnknownAdmittedVerifier {
+        alias: SourceName,
+        verifier: sutura_domain::identity::VerifierId,
+    },
+    #[error("caller-run source `{alias}` admits gateway verifier `{verifier}`; admit direct verifiers only")]
+    CallerSourceAdmitsGateway {
+        alias: SourceName,
+        verifier: sutura_domain::identity::VerifierId,
+    },
+    #[error("delegation source `{alias}` must admit exactly one direct verifier, found {found}")]
+    DelegationVerifierCardinality { alias: SourceName, found: usize },
 }
 
 /// The fixes [`NotFitToServe::InboundTokenAtPoolUnacknowledged`] names, the recommended one first;
@@ -692,20 +686,6 @@ fn hopless_fixes(alias: &SourceName) -> String {
     .join("; ")
 }
 
-/// [`NotFitToServe::FlightSurfaceWithoutDirectInbound`], unless `inbound` is `direct`.
-/// [`NotFitToServe::InboundAudienceIsTheIssuer`], read off a `direct` declaration only: a
-/// `behind-gateway` deployment verifies a proof the gateway mints, under its own audience and issuer.
-pub(super) fn audience_refusal(inbound: Option<&InboundIdentity>) -> Option<NotFitToServe> {
-    match *inbound? {
-        InboundIdentity::Direct {
-            ref resource,
-            ref authorization_server,
-            ..
-        } if resource.audience().as_str() == authorization_server.as_str() => Some(NotFitToServe::InboundAudienceIsTheIssuer),
-        InboundIdentity::Direct { .. } | InboundIdentity::BehindGateway { .. } => None,
-    }
-}
-
 /// [`NotFitToServe::WorkersWaitNotBelowDeadline`], when a declared wait is not below the request
 /// timeout.
 pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToServe> {
@@ -717,80 +697,15 @@ pub(super) fn workers_wait_refusal(server: &ServerSettings) -> Option<NotFitToSe
     })
 }
 
-pub(super) fn flight_surface_refusals(inbound: Option<&InboundIdentity>) -> Vec<NotFitToServe> {
-    if matches!(inbound, Some(InboundIdentity::Direct { .. })) {
+pub(super) fn flight_surface_refusals(inbound: &[crate::inbound::InboundVerifier]) -> Vec<NotFitToServe> {
+    if inbound
+        .iter()
+        .any(|verifier| matches!(verifier.identity(), InboundIdentity::Direct { .. }))
+    {
         Vec::new()
     } else {
         vec![NotFitToServe::FlightSurfaceWithoutDirectInbound]
     }
-}
-
-/// Checks that every `also_accept` entry is compatible with the primary `inbound` declaration.
-///
-/// Five rules, all checked here:
-/// - `also_accept` without `inbound` is refused (`AlsoAcceptWithoutPrimaryInbound`).
-/// - Duplicate issuers across verifiers are refused (`AlsoAcceptDuplicateIssuer`).
-/// - Overlapping audiences are refused (`AlsoAcceptOverlappingAudience`).
-/// - A `direct` secondary entry whose audience equals its issuer (`AlsoAcceptAudienceIsTheIssuer`).
-/// - A secondary entry reading `Authorization` while `access_token` is set (`AlsoAcceptSharesTheDeploymentTokenHeader`).
-///
-/// The audience and issuer checks are symmetric: they compare each `also_accept` entry against
-/// the primary verifier and against every earlier `also_accept` entry, so the index in the error
-/// message names the LATER entry that introduced the collision.
-///
-/// `has_access_token` is `true` when `security.access_token` is set, which the caller reads from
-/// the same settings tree.
-pub(super) fn also_accept_refusals(
-    inbound: Option<&InboundIdentity>,
-    also_accept: &[InboundIdentity],
-    has_access_token: bool,
-) -> Vec<NotFitToServe> {
-    let mut refusals = Vec::new();
-    if also_accept.is_empty() {
-        return refusals;
-    }
-    // Rule 1: `also_accept` without a primary `inbound` is refused.
-    let Some(primary) = inbound else {
-        refusals.push(NotFitToServe::AlsoAcceptWithoutPrimaryInbound);
-        // The other checks need the primary, so stop here.
-        return refusals;
-    };
-    // Build the full set of verifiers: the primary first, then each `also_accept` in order.
-    // Both the issuer and the audience of every earlier entry are compared against the later one.
-    let all: Vec<(&InboundIdentity, usize)> = std::iter::once((primary, usize::MAX))
-        .chain(also_accept.iter().enumerate().map(|(i, v)| (v, i)))
-        .collect();
-    for (window_end, &(later, later_index)) in all.iter().enumerate().skip(1) {
-        let later_req = later.requirement();
-        let later_issuer = later_req.issuer().as_str();
-        let later_audience = later_req.audience().as_str();
-        for &(earlier, _) in all.iter().take(window_end) {
-            let earlier_req = earlier.requirement();
-            if earlier_req.issuer().as_str() == later_issuer {
-                refusals.push(NotFitToServe::AlsoAcceptDuplicateIssuer {
-                    issuer: String::from(later_issuer),
-                    index: later_index,
-                });
-            }
-            if earlier_req.audience().as_str() == later_audience {
-                refusals.push(NotFitToServe::AlsoAcceptOverlappingAudience {
-                    audience: String::from(later_audience),
-                    index: later_index,
-                });
-            }
-        }
-        // Per-entry rules, applied to each secondary verifier independently.
-        if matches!(*later, InboundIdentity::Direct { .. }) && later_audience == later_issuer {
-            refusals.push(NotFitToServe::AlsoAcceptAudienceIsTheIssuer {
-                audience: String::from(later_audience),
-                index: later_index,
-            });
-        }
-        if has_access_token && later.reads_the_authorization_header() {
-            refusals.push(NotFitToServe::AlsoAcceptSharesTheDeploymentTokenHeader { index: later_index });
-        }
-    }
-    refusals
 }
 
 /// [`NotFitToServe::RunSqlEnabledInMultiUserMode`]: in `multi-user` mode, a listed alias that names

@@ -54,6 +54,7 @@ fn reading_at(pool: &str) -> super::super::Opened {
         pinned,
         sources: OpenedSources::BigQuery(sutura_app::Warehouses::of(bigquery)),
         budget: settings.server().request_timeout().budget(),
+        admissions: sutura_config::credentials::SourceAdmissions::from_registry(settings.sources()),
     }
 }
 

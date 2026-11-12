@@ -321,7 +321,7 @@ fn announce_oracle_channel(source: &SourceName, channel: &OracleChannel) -> (&'s
 fn announce_identity(settings: &Settings) {
     let security = settings.security();
     match security.inbound() {
-        None => tracing::warn!(
+        [] => tracing::warn!(
             per_caller_identity = security.describes_identity(),
             inbound_mode = security.inbound_mode(),
             "NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. \
@@ -329,18 +329,23 @@ fn announce_identity(settings: &Settings) {
              the question rather than using the deployment identity. Shared-identity sources execute \
              under their declared credentials. `security.inbound` is the key that changes who is asking"
         ),
-        Some(inbound) => {
-            tracing::warn!(
-                per_caller_identity = security.describes_identity(),
-                inbound_mode = security.inbound_mode(),
-                establishes = inbound.who_authenticated(),
-                token_class = inbound.type_check(),
-                limit = InboundIdentity::what_it_does_not_do(),
-                "PER-CALLER IDENTITY IS ESTABLISHED; SOURCE ACCESS DEPENDS ON ITS DECLARED POSTURE"
-            );
-            announce_token_class(inbound);
-            announce_grant(inbound);
-            announce_address_claim(inbound);
+        declarations => {
+            for declaration in declarations {
+                let inbound = declaration.identity();
+                tracing::warn!(
+                    verifier_id = %declaration.id(),
+                    path = %declaration.path(),
+                    per_caller_identity = security.describes_identity(),
+                    inbound_mode = inbound.mode(),
+                    establishes = inbound.who_authenticated(),
+                    token_class = inbound.type_check(),
+                    limit = InboundIdentity::what_it_does_not_do(),
+                    "PER-CALLER IDENTITY IS ESTABLISHED; SOURCE ACCESS DEPENDS ON ITS DECLARED POSTURE"
+                );
+                announce_token_class(inbound);
+                announce_grant(inbound);
+                announce_address_claim(inbound);
+            }
         }
     }
 }

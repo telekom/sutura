@@ -87,7 +87,7 @@ mod metrics;
 // makes the same read `E0616` from every item in THIS module, `assemble` included; the re-export
 // keeps `crate::router::Ungoverned` the path every other crate module already names.
 #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
-mod ungoverned;
+pub(crate) mod ungoverned;
 #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
 pub(crate) use ungoverned::Ungoverned;
 
@@ -241,6 +241,10 @@ pub enum RouterNotBuilt {
          cannot see. Add an `UngovernedRoute` row with its reason"
     )]
     UngovernedRouteNotAllowlisted { path: String },
+    /// Two MCP transports cannot occupy the same literal route.
+    #[cfg(feature = "agent")]
+    #[error("more than one agent surface is mounted at `{path}`")]
+    DuplicateAgentMount { path: sutura_config::McpPath },
 }
 
 /// The router, and the limiter state something has to keep sweeping.
@@ -301,6 +305,8 @@ pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
 /// keyed store. It starts no thread, so a test suite that assembles one router per test does not
 /// accumulate one sweeper per test.
 pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
+    #[cfg(feature = "agent")]
+    allowlist::check_agent_mounts(state)?;
     let settings = state.settings();
     let limits = settings.rate_limit();
     let key = ClientAddress::from_settings(limits);
@@ -309,6 +315,13 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     let hosts = HostAllowlist::of(settings);
     host::announce(hosts.as_ref());
     let mut limiters = Vec::new();
+    let callers = if limits.enabled() && !settings.security().inbound().is_empty() {
+        let (layer, handle) = middleware::caller_rate_limit_layer(state.metrics(), limits.api()).map_err(limiter)?;
+        limiters.push(handle);
+        Some(layer)
+    } else {
+        None
+    };
 
     // The versioned API. Nested before the layers are applied, so the token gate and the limiter
     // see the full path.
@@ -343,7 +356,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated
     // caller can spend. See `crate::inbound::gate`.
-    let versioned = inbound_layered("versioned", versioned, state, settings.security().inbound())?;
+    let versioned = inbound_layered("versioned", versioned, state, None, callers.as_ref())?;
     // Then the token gate, and only THEN the limiter - so the limiter is outside the gate and a
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
@@ -375,12 +388,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // configured metadata route whose literal resource path may contain a segment beginning `:`
     // or `*`.
     .without_v07_checks()
-    .merge(
-        state
-            .inbound_identity()
-            .and_then(|gate| gate.protected_resource())
-            .map_or_else(Router::new, crate::routes::protected_resource::ProtectedResource::router),
-    );
+    .merge(state.inbound_identity().map_or_else(Router::new, |gate| {
+        gate.protected_resources()
+            .fold(Router::new(), |router, resource| router.merge(resource.router()))
+    }));
     let public = if limits.enabled() {
         let (layer, handle) =
             middleware::probe_rate_limit_layer(state.metrics(), limits.probe(), key.clone()).map_err(limiter)?;
@@ -438,13 +449,14 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
     let mut router = router;
     #[cfg(any(feature = "agent", feature = "flight", feature = "worker"))]
-    let mut ungoverned: Vec<&'static str> = Vec::new();
+    let mut ungoverned: Vec<String> = Vec::new();
     // The agent surface, merged here for the same reason `public` is - outside the version prefix,
     // over the same final unchecked merge, and ONLY through an `Ungoverned`: `agent_subtree` fuses
     // the subtree with the path `check_ungoverned` must record, so a merge and its allowlist row
     // cannot drift - the type is what records it, and an unrecorded merge cannot be expressed.
     #[cfg(feature = "agent")]
-    if let Some(mount) = agent_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
+    for agent in state.agent_surface() {
+        let mount = agent_subtree(state, agent, hosts.as_ref(), api.as_ref(), callers.as_ref())?;
         // `merge_into`, and never a bare `merge`: it is the one call that both merges this
         // subtree and records its path, so a merged ungoverned route always reaches
         // `check_ungoverned` below.
@@ -454,7 +466,7 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // dispatching its own methods by the tonic-generated path `governed()`'s per-route table cannot
     // name a row for.
     #[cfg(feature = "flight")]
-    if let Some(mount) = flight_subtree(state, settings.security().inbound(), hosts.as_ref(), api.as_ref())? {
+    if let Some(mount) = flight_subtree(state, hosts.as_ref(), api.as_ref(), callers.as_ref())? {
         mount.merge_into(&mut router, &mut ungoverned);
     }
     // The worker transport, behind the one check `worker::worker_subtree` documents in place of these.
@@ -467,7 +479,10 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         for row in ungoverned_routes() {
             tracing::info!(path = row.path, reason = row.reason, "an ungoverned route is allowlisted");
         }
-        check_ungoverned(&ungoverned)?;
+        check_ungoverned(
+            &ungoverned.iter().map(String::as_str).collect::<Vec<_>>(),
+            settings.security().inbound(),
+        )?;
     }
     let router = outer(router, settings, state.metrics(), state.entropy());
     Ok(Assembled { router, limiters })
@@ -648,64 +663,53 @@ fn inbound_layered(
     surface: &'static str,
     versioned: Router,
     state: &ServiceState,
-    declared: Option<&sutura_config::InboundIdentity>,
+    path: Option<&sutura_config::McpPath>,
+    caller_limit: Option<&middleware::RateLimit>,
 ) -> Result<Router, RouterNotBuilt> {
-    let Some(declared) = declared else {
+    let Some(declared) = state.settings().security().inbound().first() else {
         // No declaration. Nothing is installed, `crate::principal::established` answers
         // `TheDeploymentItself`, and the startup log says so - which is every deployment that shipped
         // before leg 1.
         return Ok(versioned);
     };
     let Some(gate) = state.inbound_identity() else {
-        return Err(RouterNotBuilt::InboundIdentityNotAttached { mode: declared.mode() });
+        return Err(RouterNotBuilt::InboundIdentityNotAttached {
+            mode: declared.identity().mode(),
+        });
     };
     tracing::info!(
-        inbound_mode = declared.mode(),
+        inbound_mode = declared.identity().mode(),
         header = gate.header(),
-        establishes = declared.who_authenticated(),
+        establishes = declared.identity().who_authenticated(),
         limit = sutura_config::InboundIdentity::what_it_does_not_do(),
         "leg 1 is installed on the {surface} surface"
     );
-    Ok(versioned.route_layer(axum::middleware::from_fn_with_state(
-        Arc::clone(gate),
-        crate::inbound::require_verified_caller,
-    )))
+    let versioned = match caller_limit {
+        Some(layer) => versioned.route_layer(layer.clone()),
+        None => versioned,
+    };
+    Ok(match path {
+        Some(path) => versioned.route_layer(axum::middleware::from_fn_with_state(
+            (Arc::clone(gate), path.clone()),
+            crate::inbound::gate::require_path_caller,
+        )),
+        None => versioned.route_layer(axum::middleware::from_fn_with_state(
+            Arc::clone(gate),
+            crate::inbound::require_verified_caller,
+        )),
+    })
 }
 
-/// The agent surface subtree, or no mount when this build and deployment carry none.
-///
-/// **Refuses to assemble where this deployment may not serve `/mcp` without leg 1**
-/// ([`RouterNotBuilt::AgentSurfaceNotFitToServe`], the predicate `Settings::refusals` asks). Where it
-/// may - `single-user`, loopback or token-and-limiter, no impersonating source - `inbound_layered`
-/// installs nothing and `establish_asked` answers as the deployment, as on `/v1`. When leg 1 IS
-/// declared the transport runs behind the SAME
-/// `establish_asked` and `inbound_layered` layers the versioned surface runs behind; `route_layer`
-/// wraps, so `establish_asked` (added first) is the inner layer and `require_verified_caller` is
-/// the outer one - an unverified caller is refused with leg 1's own `401` challenge before the
-/// transport is ever reached.
-///
-/// **And the three outer layers `/v1` has, in `/v1`'s order**: the deployment token gate outside leg
-/// 1, the `Host` check outside the gate, and a general-tier limiter outside the `Host` check, keyed
-/// by the same [`ClientAddress`] and swept by the same reaper. So `/mcp` gets the same rate limit,
-/// `Host` list and deployment token gate as `/v1`. The body cap is the transport's own, read from the
-/// same `server.max_body_bytes` (`sutura_mcp::http::config`), because a `DefaultBodyLimit` binds an
-/// `axum` extractor and the transport reads its own body.
-///
-/// Returns `Option<Ungoverned>` rather than a bare router so the mount and its allowlist row stay
-/// one value end to end: `assemble` merges what this hands back and records the path it rides
-/// inside. The path itself is never restated here - [`Ungoverned::layered`]/[`Ungoverned::try_layered`]
-/// carry forward whatever [`state::AgentMount::new`](crate::state::AgentMount::new) mounted at, so
-/// this function cannot record a path other than the one the transport is actually nested under.
+/// One parsed MCP mount, behind the common identity, capability, token, Host and quota layers.
+/// The fused `Ungoverned` retains the actual mounted path through layering and recording.
 #[cfg(feature = "agent")]
 fn agent_subtree(
     state: &ServiceState,
-    declared: Option<&sutura_config::InboundIdentity>,
+    mount: &crate::state::AgentMount,
     hosts: Option<&HostAllowlist>,
     api: Option<&middleware::RateLimit>,
-) -> Result<Option<Ungoverned>, RouterNotBuilt> {
-    let Some(mount) = state.agent_surface() else {
-        return Ok(None);
-    };
+    caller_limit: Option<&middleware::RateLimit>,
+) -> Result<Ungoverned, RouterNotBuilt> {
     let refusals = state.settings().agent_surface_refusals();
     if !refusals.is_empty() {
         return Err(RouterNotBuilt::AgentSurfaceNotFitToServe { refusals });
@@ -724,6 +728,7 @@ fn agent_subtree(
     }
     // This state's own series, so `/mcp` counts its questions where `/v1` counts its own.
     let meter: Arc<dyn sutura_app::question::QuestionMeter> = Arc::new(state.metrics().clone());
+    let path = mount.path();
     let mount = mount.ungoverned().layered(|router| {
         router
             .route_layer(axum::middleware::from_fn_with_state(
@@ -732,17 +737,17 @@ fn agent_subtree(
             ))
             .route_layer(axum::Extension(meter))
     });
-    let mount = mount.try_layered(|router| inbound_layered("agent", router, state, declared))?;
+    let mount = mount.try_layered(|router| inbound_layered("agent", router, state, Some(path), caller_limit))?;
     let mount = mount
         .layered(|router| router.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)));
     let mount = mount.layered(|router| host_checked(router, hosts));
     // `route_layer` like every layer here, so only `/mcp` itself is charged: a `layer` would also wrap
     // this subtree's fallback, which the final merge makes the whole router's. `api` is the versioned
     // surface's own limiter, so the two spend one bucket.
-    Ok(Some(mount.layered(|router| match api {
+    Ok(mount.layered(|router| match api {
         Some(layer) => router.route_layer(layer.clone()),
         None => router.route_layer(middleware::disabled_rate_limit_layer()),
-    })))
+    }))
 }
 
 /// `router` behind the `Host` check, where this deployment enforces one.
@@ -866,129 +871,4 @@ fn announce_keying(limits: &sutura_config::RateLimitSettings) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{RouterNotBuilt, every_route_governed, governed_routes};
-
-    /// The check passes for the routes this crate actually mounts.
-    #[test]
-    fn every_route_this_crate_mounts_names_a_capability() {
-        assert!(governed_routes().is_ok(), "{:?}", governed_routes().err());
-    }
-
-    /// A document carrying one route under one method, for the two tests below.
-    fn document_with(route: &str, method: utoipa::openapi::HttpMethod) -> utoipa::openapi::OpenApi {
-        let mut document = utoipa::openapi::OpenApi::new(
-            utoipa::openapi::InfoBuilder::new().title("test").version("0").build(),
-            utoipa::openapi::Paths::new(),
-        );
-        drop(document.paths.paths.insert(
-            String::from(route),
-            utoipa::openapi::PathItem::new(method, utoipa::openapi::path::OperationBuilder::new().build()),
-        ));
-        document
-    }
-
-    /// **And the check is not vacuous.** A route nobody mapped is refused, and the error names it.
-    ///
-    /// This is the half that matters: the test above passes for a check that returns `Ok` without
-    /// looking at anything. Here a document carrying a route the table does not name has to fail, and
-    /// the failure has to name what was not governed - because the error is what tells whoever added
-    /// the route what to do about it.
-    #[test]
-    fn a_route_that_names_no_capability_assembles_no_router() {
-        let refused = every_route_governed(&document_with("/v1/rogue", utoipa::openapi::HttpMethod::Post))
-            .expect_err("an ungoverned route is refused");
-        let RouterNotBuilt::RouteNotGoverned { method, route } = refused else {
-            panic!("expected RouteNotGoverned, got {refused:?}");
-        };
-        assert_eq!(method, "POST");
-        assert_eq!(route, "/v1/rogue");
-    }
-
-    /// A method nobody expected on a route that IS governed is still refused.
-    ///
-    /// The fail-closed direction, and the reason the method list in [`every_route_governed`] is
-    /// written out in full: `crate::capability::governed` keys on method as well as path, so a
-    /// `DELETE` mounted by accident on the question route does not inherit its capability.
-    #[test]
-    fn a_governed_route_under_an_unexpected_method_is_refused_too() {
-        let refused = every_route_governed(&document_with("/v1/query", utoipa::openapi::HttpMethod::Delete))
-            .expect_err("an unexpected method is refused");
-        assert!(
-            matches!(refused, RouterNotBuilt::RouteNotGoverned { ref method, .. } if method == "DELETE"),
-            "{refused:?}"
-        );
-    }
-
-    /// A mounted agent surface is refused at assembly by the same predicate `Settings::refusals`
-    /// asks, even where `server.agent_surface.enabled` was never set - and assembles on a
-    /// single-user loopback deployment with no inbound identity.
-    ///
-    /// The fake service below never runs: this asserts on the assembly decision, ahead of any request.
-    #[cfg(feature = "agent")]
-    #[test]
-    fn a_mounted_agent_surface_is_refused_where_the_deployment_may_not_serve_it_without_leg_one() {
-        let mounted = |overlay: &str| {
-            let service = crate::surface::LocalService::start(
-                &crate::testing::catalog_of(crate::testing::bundle()),
-                crate::testing::fake_warehouse(),
-                crate::testing::sink(),
-                crate::testing::broker(),
-                sutura_domain::plan::RefusingCombiner,
-                1 << 30,
-            )
-            .expect("the test bundle validates");
-            let state = crate::testing::state_over(std::sync::Arc::new(service), crate::testing::settings_with(overlay));
-            // No spend ceiling is configured, so `ServiceState::new` registered no
-            // `sutura_spend_headroom_bytes` and this declaration is the true one.
-            let mount = crate::state::AgentMount::new(
-                tower::service_fn(|request: axum::http::Request<axum::body::Body>| {
-                    let _request = request;
-                    async { Ok::<_, std::convert::Infallible>(axum::response::Response::new(axum::body::Body::empty())) }
-                }),
-                crate::state::SpendHeadroomPush::NoCeilingConfigured,
-            );
-            let state = state.with_agent_surface(mount);
-            super::agent_subtree(&state, None, None, None).map(|mount| mount.is_some())
-        };
-        let single_user = "security:\n  identity: \"single-user\"\n  single_user_because: \"one operator\"\n";
-        // The switch never set, so `Settings::load` had nothing to refuse: no mode declared, then
-        // `multi-user`.
-        for overlay in ["", "security:\n  identity: \"multi-user\"\n"] {
-            let refused = mounted(overlay).expect_err("this mount assembles nothing");
-            assert!(
-                refused
-                    .to_string()
-                    .contains(&sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity.to_string()),
-                "the operator reads which refusal stopped the mount: {refused}"
-            );
-            let RouterNotBuilt::AgentSurfaceNotFitToServe { refusals } = refused else {
-                panic!("expected the agent-surface refusal, got {refused:?}");
-            };
-            assert_eq!(
-                refusals,
-                vec![sutura_config::NotFitToServe::AgentSurfaceWithoutInboundIdentity],
-                "{overlay}"
-            );
-        }
-        let assembled = mounted(single_user).expect("a single-user loopback deployment serves /mcp without leg 1");
-        assert!(assembled, "the mount is handed back for merging");
-    }
-
-    /// The ungoverned-route allowlist is not vacuous: a merged route with no `ungoverned_routes()`
-    /// row is refused by name, and the legitimate `/mcp` row passes.
-    #[cfg(feature = "agent")]
-    #[test]
-    fn a_second_ungoverned_route_with_no_allowlist_entry_is_refused() {
-        assert!(
-            super::check_ungoverned(&[crate::constants::AGENT_MOUNT_PATH]).is_ok(),
-            "the allowlisted agent mount passes"
-        );
-        let refused = super::check_ungoverned(&[crate::constants::AGENT_MOUNT_PATH, "/v1/rogue"])
-            .expect_err("a route neither governed nor allowlisted is refused");
-        let RouterNotBuilt::UngovernedRouteNotAllowlisted { path } = refused else {
-            panic!("expected UngovernedRouteNotAllowlisted, got {refused:?}");
-        };
-        assert_eq!(path, "/v1/rogue");
-    }
-}
+mod tests;

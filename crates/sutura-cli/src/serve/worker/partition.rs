@@ -12,11 +12,15 @@
 //! too: the planning node's deadline does not reach the worker, and dropping the stream does not
 //! stop a read already running - the deadline does. A `PostgreSQL` read runs as this node's own
 //! declared service user for the source, `AdbcPostgres::read_partition`'s own limit; nothing
-//! checks it against the planning node's.
+//! checks it against the planning node's. The concrete reader checks its own source's verifier
+//! membership before decoding or dispatching, using only the granting node's authenticated id.
+//! It does not reverify a human token or constrain other `PartitionReader` implementations.
 
 use std::sync::Arc;
 use std::time::Instant;
 
+use sutura_config::credentials::SourceAdmissions;
+use sutura_domain::identity::VerifierId;
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::warehouse::ResultBatches;
@@ -33,23 +37,34 @@ struct Opened {
     pinned: PinnedDefinitions,
     sources: OpenedSources,
     budget: Budget,
+    admissions: SourceAdmissions,
 }
 
 impl Reader {
     /// Reads from `sources` what `pinned` certifies, each read bounded by `budget`.
-    pub(super) fn new(pinned: PinnedDefinitions, sources: OpenedSources, budget: Budget) -> Self {
-        Self(Arc::new(Opened { pinned, sources, budget }))
+    pub(super) fn new(pinned: PinnedDefinitions, sources: OpenedSources, budget: Budget, admissions: SourceAdmissions) -> Self {
+        Self(Arc::new(Opened {
+            pinned,
+            sources,
+            budget,
+            admissions,
+        }))
     }
 }
 
 impl PartitionReader for Reader {
     fn read(
         &self,
+        verifier: &VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
     ) -> Result<SendableRecordBatchStream, Unread> {
+        // The granting node authenticated this id; this worker checks its own source declaration.
+        if !self.0.admissions.admits_verifier(source, verifier) {
+            return Err(Unread::LegNotCertified);
+        }
         let opened = Arc::clone(&self.0);
         let (wire, source, partition, granted) = (wire.to_vec(), source.clone(), partition.to_vec(), Arc::clone(schema));
         Ok(read_later(Arc::clone(schema), async move {
@@ -61,12 +76,17 @@ impl PartitionReader for Reader {
 
     fn read_forwarded(
         &self,
+        verifier: &VerifierId,
         wire: &[u8],
         source: &SourceName,
         partition: &[u8],
         schema: &SchemaRef,
         forwarded: Forwarded,
     ) -> Result<SendableRecordBatchStream, Unread> {
+        // The granting node authenticated this id; this worker checks its own source declaration.
+        if !self.0.admissions.admits_verifier(source, verifier) {
+            return Err(Unread::LegNotCertified);
+        }
         let opened = Arc::clone(&self.0);
         let (wire, source, partition) = (wire.to_vec(), source.clone(), partition.to_vec());
         Ok(read_later(Arc::clone(schema), async move {

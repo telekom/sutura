@@ -1,4 +1,4 @@
-//! The two layers that stand in front of a handler, and the reason there are exactly two.
+//! The deployment token gate and request rate limits.
 //!
 //! # The token gate
 //!
@@ -13,9 +13,7 @@
 //! combination - so the permissive branch here is guarded by a startup refusal rather than by this
 //! function being careful.
 //!
-//! # The limiter
-//!
-//! Two tiers, and a third function that is a no-op with the same shape.
+//! # The limiters
 //!
 //! **What a bucket is keyed on is configured, not decided here, and the reason is in
 //! [`crate::client_address`].** Neither of `tower_governor`'s own extractors is right for both of
@@ -23,6 +21,11 @@
 //! every request behind one, and a forwarded header is per-caller and is a value any caller can
 //! write. So the key comes from [`ClientAddress`], which reads the header only from a hop the
 //! operator named.
+//!
+//! An additional API quota runs after identity verification, keyed by the configured verifier id
+//! and exact signed subject. It is shared across transports. Valid requests still spend the outer
+//! network quota, so callers behind one attributed client IP can exhaust that shared cap. The outer
+//! layer's response headers describe network headroom, not the caller quota.
 //!
 //! Rate limiting is not authentication. It bounds how fast something can be done, not who may do
 //! it.
@@ -41,6 +44,7 @@
 //! the reordering and [`spawn_reaper`] are one change and must not be separated:** either alone is
 //! worse than neither.
 
+use std::net::IpAddr;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -49,12 +53,16 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use governor::middleware::StateInformationMiddleware;
 use sutura_config::{Quota, RequestTimeout};
+use sutura_domain::identity::Subject;
 use sutura_domain::warehouse::deadline::Deadline;
 use sutura_runtime::metrics::Label;
 use tower_governor::GovernorLayer;
+use tower_governor::errors::GovernorError;
 use tower_governor::governor::{GovernorConfig, GovernorConfigBuilder};
+use tower_governor::key_extractor::KeyExtractor;
 
 use crate::client_address::ClientAddress;
+use crate::inbound::VerifiedCaller;
 use crate::metrics::Metrics;
 use crate::problem::Failure;
 use crate::state::ServiceState;
@@ -63,17 +71,54 @@ use crate::state::ServiceState;
 const AUTHORIZATION: &str = "authorization";
 const BEARER: &str = "Bearer";
 
-/// A limiter layer, keyed by whatever [`ClientAddress`] attributes a request to, reporting its
-/// state in response headers.
+/// The network or verified-caller key retained by a limiter.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RateKey {
+    Address(IpAddr),
+    Caller(Subject),
+}
+
+/// A network extractor before authentication, or a verified-caller extractor after it.
+#[derive(Debug, Clone)]
+pub enum RateKeyExtractor {
+    Network(ClientAddress),
+    VerifiedCaller,
+}
+
+impl KeyExtractor for RateKeyExtractor {
+    type Key = RateKey;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        match self {
+            Self::Network(address) => address.extract(req).map(RateKey::Address),
+            Self::VerifiedCaller => {
+                let caller = req
+                    .extensions()
+                    .get::<VerifiedCaller>()
+                    .ok_or(GovernorError::UnableToExtractKey)?;
+                let subject = caller.chain().subject();
+                match subject {
+                    // The store retains its key after the request is gone.
+                    Subject::Verified(_) => Ok(RateKey::Caller(subject.clone())),
+                    Subject::TheDeploymentItself => Err(GovernorError::UnableToExtractKey),
+                }
+            }
+        }
+    }
+}
+
+/// A limiter layer reporting its bucket's state in response headers.
+///
+/// With nested API limiters the outer network layer writes these headers last.
 ///
 /// A named alias because the inline form is over the complexity threshold in `clippy.toml`. The
 /// `StateInformationMiddleware` in it is not incidental: it is what makes the layer emit the
 /// remaining-quota headers, and it is part of the type because that choice is made at construction.
-pub type RateLimit = GovernorLayer<ClientAddress, StateInformationMiddleware, axum::body::Body>;
+pub type RateLimit = GovernorLayer<RateKeyExtractor, StateInformationMiddleware, axum::body::Body>;
 type BuiltTier = Result<(RateLimit, LimiterHandle), LimiterNotBuilt>;
 
 /// The configuration one tier is built from, and the keyed state that lives inside it.
-type TierConfig = GovernorConfig<ClientAddress, StateInformationMiddleware>;
+type TierConfig = GovernorConfig<RateKeyExtractor, StateInformationMiddleware>;
 
 /// One tier the sweeper is watching: which tier it is, a non-owning view of its keyed state, and
 /// the metrics handles to report its bucket count into.
@@ -375,12 +420,19 @@ pub struct LimiterNotBuilt {
 
 /// The tier for what an unauthenticated caller can reach.
 pub fn probe_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
-    layer(metrics, quota, crate::metrics::PUBLIC_TIER, key)
+    layer(metrics, quota, crate::metrics::PUBLIC_TIER, RateKeyExtractor::Network(key))
 }
 
 /// The tier for the versioned API.
 pub fn api_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
-    layer(metrics, quota, crate::metrics::GENERAL_TIER, key)
+    layer(metrics, quota, crate::metrics::GENERAL_TIER, RateKeyExtractor::Network(key))
+}
+
+/// The verified-caller API quota, shared across surfaces and inside the inbound identity gate.
+///
+/// Callers still share the separate pre-authentication network cap when their client IP is the same.
+pub fn caller_rate_limit_layer(metrics: &Metrics, quota: Quota) -> BuiltTier {
+    layer(metrics, quota, crate::metrics::GENERAL_TIER, RateKeyExtractor::VerifiedCaller)
 }
 
 /// The tier for `/metrics`, a scrape about once a second - the `docs/adr/0015` tier, deliberately
@@ -389,7 +441,7 @@ pub fn api_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress)
 /// It reuses the probe quota's numbers, because a scrape is not a thing an operator needs to tune
 /// separately - the probe burst is already the tightest here.
 pub fn metrics_rate_limit_layer(metrics: &Metrics, quota: Quota, key: ClientAddress) -> BuiltTier {
-    layer(metrics, quota, crate::metrics::METRICS_TIER, key)
+    layer(metrics, quota, crate::metrics::METRICS_TIER, RateKeyExtractor::Network(key))
 }
 
 /// A limiter that limits nothing.
@@ -412,7 +464,7 @@ pub const fn disabled_rate_limit_layer() -> tower::layer::util::Identity {
 /// **Both halves, always.** The `Arc` is what the layer holds and what a sweep needs, so returning
 /// only the layer is how the store came to grow for the life of the process: there was nothing left
 /// to call `retain_recent` on.
-fn layer(metrics: &Metrics, quota: Quota, tier: Label, key: ClientAddress) -> BuiltTier {
+fn layer(metrics: &Metrics, quota: Quota, tier: Label, key: RateKeyExtractor) -> BuiltTier {
     let config = GovernorConfigBuilder::default()
         // Per nanosecond rather than `per_second`, so a sustained rate below one request per second
         // is expressible. `NonZeroU32` is why this division cannot be by zero.
@@ -495,6 +547,10 @@ fn replenishment_nanoseconds(quota: Quota) -> u64 {
 }
 
 #[cfg(test)]
+#[path = "middleware/tests.rs"]
+mod caller_tests;
+
+#[cfg(test)]
 mod tests {
     use core::num::NonZeroU32;
     use std::net::IpAddr;
@@ -530,8 +586,8 @@ mod tests {
     ///
     /// A `u8` index rather than a wider one reduced modulo 250: the workspace bans remainder
     /// arithmetic, and the last octet of an address is a byte, so the byte is the index.
-    fn caller(index: u8) -> IpAddr {
-        IpAddr::from([203, 0, 113, index])
+    fn caller(index: u8) -> super::RateKey {
+        super::RateKey::Address(IpAddr::from([203, 0, 113, index]))
     }
 
     #[test]

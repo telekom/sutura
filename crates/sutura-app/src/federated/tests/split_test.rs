@@ -16,7 +16,7 @@ use crate::ServiceError;
 use crate::tests_support::BrokerUnreachable;
 use sutura_domain::identity::{
     BillTo, BillingAccount, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry, LegCredentials, Minted, PrincipalChain,
-    RequestContext, SourceSet, Subject, SubjectKey,
+    RequestContext, SourceSet, Subject,
 };
 use sutura_domain::plan::{
     EstimatedRows, Grantee, LegPlan, LinkKind, LookupSplit, Partitioned, SplitDecision, SplitRefusal, decide,
@@ -60,7 +60,7 @@ struct SplitLegs {
 }
 
 /// Whom, and until when, a split was granted.
-type GrantedTo = (SubjectKey, SystemTime);
+type GrantedTo = (Subject, SystemTime);
 
 impl SplitLegs {
     fn answering(source: &str, rows: RowSet, splits: Splits) -> Self {
@@ -403,7 +403,7 @@ fn a_split_lookup_leg_is_granted_for_the_asking_caller_until_the_question_ends_a
     let (caller, until) = granted(&warehouses).expect("the split was granted");
     assert_eq!(
         caller,
-        SubjectKey::parse("someone@example.com").expect("a test subject is a subject"),
+        Subject::verified("someone@example.com").expect("a test subject is a subject"),
         "the grant names the caller who asked"
     );
     assert!(until > asked_at, "the grant outlives the moment it was asked for");

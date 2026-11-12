@@ -10,7 +10,7 @@ use crate::inbound::{
     KeySetUrl, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier, TokenAudience, TokenType,
     TransitProof,
 };
-use crate::raw::RawInbound;
+use crate::raw::{RawInbound, RawInboundDeclarations};
 use crate::settings::SettingsError;
 
 /// Turns an inbound-identity declaration into one of the two modes, or refuses it naming a key.
@@ -205,12 +205,48 @@ fn transit_lifetime(seconds: u64, accepted: bool) -> Result<ProofLifetime, Setti
     Ok(lifetime)
 }
 
-/// Parses a list of additional verifiers from the `security.also_accept` block.
-///
-/// Each entry is a full inbound declaration like `security.inbound`; the same parser is used,
-/// so an entry with no `mode` is refused just as a primary block with no mode is.
-pub(super) fn parse_also_accept(written: &[crate::raw::RawInbound]) -> Result<Vec<InboundIdentity>, SettingsError> {
-    written.iter().map(parse_inbound).collect()
+/// Normalizes the legacy object or the named list to complete verifier declarations.
+pub(super) fn parse_verifiers(
+    written: Option<&RawInboundDeclarations>,
+) -> Result<Vec<crate::inbound::InboundVerifier>, SettingsError> {
+    match written {
+        None => Ok(Vec::new()),
+        Some(RawInboundDeclarations::Legacy(entry)) => Ok(vec![parse_verifier(entry, None)?]),
+        Some(RawInboundDeclarations::Named(entries)) if entries.is_empty() => Err(SettingsError::InboundListEmpty),
+        Some(RawInboundDeclarations::Named(entries)) => entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| parse_verifier(entry, Some(index)))
+            .collect(),
+    }
+}
+
+fn parse_verifier(written: &RawInbound, index: Option<usize>) -> Result<crate::inbound::InboundVerifier, SettingsError> {
+    use crate::inbound::{InboundVerifier, McpPath};
+    use sutura_domain::identity::VerifierId;
+
+    let id = match written.id.as_deref() {
+        Some(raw) => VerifierId::parse(raw).map_err(|cause| SettingsError::VerifierId { index, cause })?,
+        None if index.is_none() => VerifierId::primary(),
+        None => return Err(SettingsError::InboundEntryKeyMissing { index, key: "id" }),
+    };
+    let path = match written.path.as_deref() {
+        Some(raw) => McpPath::parse(raw).map_err(|cause| SettingsError::McpPath { index, cause })?,
+        None if index.is_none() => McpPath::conventional(),
+        None => return Err(SettingsError::InboundEntryKeyMissing { index, key: "path" }),
+    };
+    let identity = parse_inbound(written).map_err(|cause| match index {
+        Some(index) => SettingsError::InboundEntry {
+            index,
+            cause: Box::new(cause),
+        },
+        None => cause,
+    })?;
+    Ok(if index.is_none() {
+        InboundVerifier::legacy(id, path, identity)
+    } else {
+        InboundVerifier::new(id, path, identity)
+    })
 }
 
 /// The key this mode needs and did not get.

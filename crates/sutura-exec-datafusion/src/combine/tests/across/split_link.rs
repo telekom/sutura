@@ -20,7 +20,7 @@ use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use futures_util::stream;
 use parking_lot::Mutex;
-use sutura_domain::identity::SubjectKey;
+use sutura_domain::identity::Subject;
 use sutura_domain::model::SourceName;
 use tokio::runtime::Runtime;
 use url::Url;
@@ -121,7 +121,7 @@ fn checked(values: Values) -> Checked {
         source("orders"),
         schema(),
         partitions(),
-        &SubjectKey::parse("user@example.com").expect("a test caller is a subject"),
+        &Subject::verified("user@example.com").expect("a test caller is a subject"),
         SystemTime::now() + Duration::from_secs(3600),
         StreamBound::new(1000, 1 << 20),
     )

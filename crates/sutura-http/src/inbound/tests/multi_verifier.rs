@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use sutura_config::{DeclaredPrincipalBroker, InboundIdentity};
+use sutura_config::{DeclaredPrincipalBroker, InboundVerifier};
 use sutura_dev::issuer::{MockIssuer, Token};
 use sutura_domain::identity::{
     CredentialBroker as _, Delegated, Delegation, DelegationExchange, DelegationFailed, Minted, PrincipalName, RequestedAudience,
@@ -13,15 +13,15 @@ use sutura_domain::identity::{
 
 use super::fixtures::{bearer, gate_over_multi, transit};
 use crate::inbound::{InboundGate, TokenRejected};
-use crate::testing::{an_issuer, declared_inbound, direct_overlay, settings_with, source};
+use crate::testing::{an_issuer, named_direct_entry, settings_with, source};
 
 fn gateway(issuer: &str, audience: &str) -> MockIssuer {
     MockIssuer::generating(issuer, audience, "gateway-key").expect("a fixture issuer generates a key")
 }
 
-fn secondary(issuer: &MockIssuer, header: &str, limit: usize) -> String {
+fn secondary(id: usize, issuer: &MockIssuer, header: &str, limit: usize) -> String {
     format!(
-        "    - mode: behind-gateway\n      transit_header: '{header}'\n      transit_issuer: '{}'\n      \
+        "    - id: gateway{id}\n      path: /mcp\n      mode: behind-gateway\n      transit_header: '{header}'\n      transit_issuer: '{}'\n      \
          transit_audience: '{}'\n      key_set_file: /unread.json\n      algorithms: [ES256]\n      \
          transit_token_type: at+jwt\n      max_token_bytes: {limit}\n      granted_scopes: ['sutura:metrics.ask']\n",
         issuer.issuer(),
@@ -33,22 +33,27 @@ type Secondary<'issuer> = (&'issuer MockIssuer, &'issuer str, usize);
 
 fn gate(primary: &MockIssuer, limit: usize, others: &[Secondary<'_>]) -> InboundGate {
     let mut overlay = format!(
-        "{}    max_token_bytes: {limit}\n  also_accept:\n",
-        direct_overlay(primary, "/unread.json")
+        "security:\n  inbound:\n{}      max_token_bytes: {limit}\n",
+        named_direct_entry(primary, "primary", "/mcp", "/unread.json")
     );
-    for (issuer, header, bound) in others {
-        overlay.push_str(&secondary(issuer, header, *bound));
+    for (id, (issuer, header, bound)) in others.iter().enumerate() {
+        overlay.push_str(&secondary(id, issuer, header, *bound));
     }
     let settings = settings_with(&overlay);
     let documents: Vec<String> = others.iter().map(|(issuer, _, _)| issuer.key_set()).collect();
-    let secondaries: Vec<(&InboundIdentity, &str)> = settings
+    let secondaries: Vec<(&InboundVerifier, &str)> = settings
         .security()
-        .also_accept()
+        .inbound()
         .iter()
+        .skip(1)
         .zip(&documents)
         .map(|(declaration, document)| (declaration, document.as_str()))
         .collect();
-    gate_over_multi(&declared_inbound(&settings), &primary.key_set(), &secondaries)
+    gate_over_multi(
+        settings.security().inbound().first().expect("a primary verifier"),
+        &primary.key_set(),
+        &secondaries,
+    )
 }
 
 fn signed(issuer: &MockIssuer, subject: &str, scope: &str) -> String {
@@ -77,7 +82,7 @@ async fn each_signed_verifier_admits_its_subject_and_scopes_and_refuses_swapped_
             .expect("the signed caller is admitted");
         assert_eq!(
             caller.chain().subject(),
-            &Subject::verified(subject).expect("a fixture subject")
+            &Subject::verified_by(caller.verifier().id().clone(), subject).expect("a fixture subject")
         );
         assert_eq!(caller.scopes().iter().collect::<Vec<_>>(), vec![scope]);
         assert_eq!(caller.verifier().issuer(), issuer.issuer());
@@ -239,6 +244,18 @@ impl DelegationExchange for Exchange {
     }
 }
 
+fn admitted_broker() -> DeclaredPrincipalBroker {
+    use sutura_config::credentials::SourceAdmissions;
+    use sutura_domain::identity::VerifierId;
+    DeclaredPrincipalBroker::empty().admitting(SourceAdmissions::default().and(
+        source(),
+        Some(std::collections::BTreeSet::from([
+            VerifierId::primary(),
+            VerifierId::parse("gateway0").expect("a fixture verifier"),
+        ])),
+    ))
+}
+
 #[tokio::test]
 async fn signed_gateway_admission_reaches_no_exchange_and_direct_admission_does() {
     let direct = an_issuer();
@@ -254,9 +271,9 @@ async fn signed_gateway_admission_reaches_no_exchange_and_direct_admission_does(
         };
         let deployment = PrincipalName::parse("deployment").expect("a fixture principal");
         for broker in [
-            DeclaredPrincipalBroker::empty().federating(source(), Some(delegation())),
-            DeclaredPrincipalBroker::empty().authenticating(source(), delegation()),
-            DeclaredPrincipalBroker::empty().signing_in(source(), deployment.clone(), delegation()),
+            admitted_broker().federating(source(), Some(delegation())),
+            admitted_broker().authenticating(source(), delegation()),
+            admitted_broker().signing_in(source(), deployment.clone(), delegation()),
         ] {
             let gateway_token = signed(&gateway, "application", "sutura:query");
             let headers = if location == "Authorization" {
@@ -331,7 +348,7 @@ async fn a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_ver
     )
     .expect("the shared service starts");
     let exchange = Arc::new(Exchange::default());
-    let delegated = DeclaredPrincipalBroker::empty().federating(
+    let delegated = admitted_broker().federating(
         source(),
         Some(Delegation::through(
             Arc::<Exchange>::clone(&exchange),
@@ -374,7 +391,7 @@ async fn a_shared_answer_and_an_exchange_refusal_record_the_signed_admitting_ver
                 Some((String::from(issuer.issuer()), mode))
             );
         }
-        let shared_broker = DeclaredPrincipalBroker::empty().shared(
+        let shared_broker = admitted_broker().shared(
             source(),
             SharedIdentityDeclared::of(
                 AcknowledgementReason::parse("a fixture source whose rows every caller may read")

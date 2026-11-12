@@ -286,6 +286,7 @@ let
         role = "reading-worker";
       };
       security = offHost // {
+        inherit (multiUser) inbound;
         identity = "single-user";
         single_user_because = "a reading worker reads one source as its declared role";
       };

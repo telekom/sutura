@@ -86,6 +86,8 @@ pub(crate) struct RawSettings {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawSource {
+    #[serde(default)]
+    pub(crate) admitted_by: Option<Vec<String>>,
     /// What kind of data system this is, which decides which adapter opens it.
     ///
     /// Required, with no default. It replaced a comparison against a hard-coded source NAME in the
@@ -532,15 +534,7 @@ pub(crate) struct RawSecurity {
     /// unaffected by any of this, while a block with no `mode` is a deployment that meant to
     /// establish identity and did not say how - and that one does not start.
     #[serde(default)]
-    pub(crate) inbound: Option<RawInbound>,
-    /// Additional verifiers accepted alongside `inbound`, each selected per-request by the token's
-    /// unverified `iss` claim (`github.com/telekom/sutura#1884`).
-    ///
-    /// Each entry is a full inbound declaration like `inbound`; the mode is required and there is no
-    /// default. Audiences and issuers must not overlap between any two verifiers in the combined set:
-    /// overlapping audiences or duplicate issuers are refused at startup.
-    #[serde(default)]
-    pub(crate) also_accept: Vec<RawInbound>,
+    pub(crate) inbound: Option<RawInboundDeclarations>,
     /// The credential that gates `/metrics` and nothing else.
     ///
     /// A holder of the API token can ask any question the catalog certifies; a scrape needs none of
@@ -595,6 +589,10 @@ pub(crate) struct RawOutbound {
     reason = "three are an operator's acceptance by name and one a switch, each read once at load"
 )]
 pub(crate) struct RawInbound {
+    #[serde(default)]
+    pub(crate) id: Option<String>,
+    #[serde(default)]
+    pub(crate) path: Option<String>,
     /// Both modes: the token size bound, excluding the scheme.
     #[serde(default)]
     pub(crate) max_token_bytes: Option<usize>,
@@ -678,6 +676,45 @@ pub(crate) struct RawInbound {
     /// does not start.
     #[serde(default)]
     pub(crate) accept_address_claim: bool,
+}
+
+/// The legacy object and the named list share one mode parser.
+pub(crate) enum RawInboundDeclarations {
+    Legacy(Box<RawInbound>),
+    Named(Vec<RawInbound>),
+}
+
+impl<'de> serde::Deserialize<'de> for RawInboundDeclarations {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct InboundVisitor;
+        impl<'de> serde::de::Visitor<'de> for InboundVisitor {
+            type Value = RawInboundDeclarations;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("an inbound declaration or a list of named inbound declarations")
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                <RawInbound as serde::Deserialize>::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(|entry| RawInboundDeclarations::Legacy(Box::new(entry)))
+            }
+
+            fn visit_seq<S>(self, seq: S) -> Result<Self::Value, S::Error>
+            where
+                S: serde::de::SeqAccess<'de>,
+            {
+                <Vec<RawInbound> as serde::Deserialize>::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
+                    .map(RawInboundDeclarations::Named)
+            }
+        }
+        deserializer.deserialize_any(InboundVisitor)
+    }
 }
 
 #[derive(serde::Deserialize)]
