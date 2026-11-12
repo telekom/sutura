@@ -817,7 +817,13 @@ where
         // exactly as reliably as a certified one.
         let (labels, delegated) = (JobLabels::of(context), noting.delegated());
         let record = match answered {
-            Ok(ref answered) => CallRecord::of_raw(context.chain(), statement, answered.outcome(), answered.executed_until()),
+            Ok(ref answered) => CallRecord::of_raw(
+                context.chain(),
+                statement,
+                answered.outcome(),
+                answered.executed_until(),
+                answered.executed_as(),
+            ),
             Err(ref failure) => CallRecord::failed_raw(context.chain(), statement, failure.as_str()),
         };
         self.sink.record(

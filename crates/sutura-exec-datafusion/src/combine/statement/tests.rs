@@ -22,6 +22,8 @@ use tokio::runtime::Runtime;
 
 use crate::combine::DataFusionCombiner;
 
+mod oracle;
+
 const AREAS: &str = "select r.sales_area, count(*) as customers from dim_customer c join dim_region r on c.region = r.region \
                      group by r.sales_area order by r.sales_area";
 
@@ -222,6 +224,17 @@ fn without_federation_a_statement_over_one_source_runs_whole_at_it() {
     assert_eq!(rows, legs.as_one(statement));
     assert_eq!(legs.opened, [BTreeSet::from([named("geo")])]);
     assert_eq!(legs.ran, [named("geo")]);
+}
+
+#[test]
+fn an_ordered_source_limit_keeps_its_offset_and_fetch_after_pushdown() {
+    let statement = "select region from dim_region order by region limit 1 offset 1";
+    let mut legs = Engines::new(None);
+    let answer = asked(statement, false, UNBOUNDED, &mut legs);
+    let Some(Ok(rows)) = answer else {
+        panic!("an ordered source limit is answered: {answer:?}");
+    };
+    assert_eq!(rows, legs.as_one(statement));
 }
 
 /// Only a query plans: no definition, write, session statement, explanation or description, and no

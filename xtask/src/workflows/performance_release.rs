@@ -337,7 +337,7 @@ jobs:
         let suffix = if profile == "performance" { "-performance" } else { "" };
         let images: Vec<String> = TRIPLES
             .iter()
-            .map(|triple| format!("images/sutura-oci-{triple}{suffix}.tar.gz"))
+            .flat_map(|triple| ["", "sql-"].map(|variant| format!("images/sutura-oci-{variant}{triple}{suffix}.tar.gz")))
             .collect();
         let fixtures: Vec<_> = images.iter().map(|path| (path.as_str(), &b""[..])).collect();
         let tree = scratch("push-images", &fixtures);
@@ -380,7 +380,14 @@ jobs:
             "{}: {}\n{}",
             release.status, release.printed, release.calls
         );
-        assert!(release.calls.contains("ghcr.io/example/sutura:latest"), "{}", release.calls);
+        assert!(
+            release
+                .calls
+                .split_whitespace()
+                .any(|tag| tag == "ghcr.io/example/sutura:latest"),
+            "{}",
+            release.calls
+        );
         let optimised = pushed("performance", false);
         assert!(
             optimised.succeeded,
@@ -392,7 +399,7 @@ jobs:
             .lines()
             .filter(|call| call.starts_with("buildx imagetools create"))
             .collect();
-        assert_eq!(lists.len(), 2, "{}", optimised.calls);
+        assert_eq!(lists.len(), 4, "{}", optimised.calls);
         assert!(
             lists[0].starts_with("buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance ghcr.io/"),
             "{lists:?}"
@@ -401,8 +408,29 @@ jobs:
             lists[1].starts_with("buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance-musl ghcr.io/"),
             "{lists:?}"
         );
+        for (index, suffix) in [(2, "sql"), (3, "sql-musl")] {
+            assert!(
+                lists[index].starts_with(&format!(
+                    "buildx imagetools create -t ghcr.io/example/sutura:0.6.1-performance-{suffix} ghcr.io/"
+                )),
+                "{lists:?}"
+            );
+        }
         assert!(
-            !optimised.calls.contains("ghcr.io/example/sutura:latest"),
+            !release.calls.contains("ghcr.io/example/sutura:latest-sql"),
+            "{}",
+            release.calls
+        );
+        assert!(
+            release.calls.contains("ghcr.io/example/sutura:0.6.1-sql"),
+            "{}",
+            release.calls
+        );
+        assert!(
+            !optimised
+                .calls
+                .split_whitespace()
+                .any(|tag| tag == "ghcr.io/example/sutura:latest"),
             "{}",
             optimised.calls
         );
@@ -534,6 +562,7 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
         let run = pushed_from("performance", false, "v0.6.1-performance");
         assert!(!run.succeeded, "{}", run.calls);
         assert!(run.printed.contains("an optimised release's own tag"), "{}", run.printed);
+        assert!(!run.calls.lines().any(|call| call.starts_with("push ")), "{}", run.calls);
         assert!(!run.calls.contains("imagetools create"), "{}", run.calls);
     }
 
@@ -584,12 +613,18 @@ git() { [ "$1" = ls-remote ] && printf '%b' "$TAG_REFS"; }
             .filter_map(|call| call.strip_prefix("buildx imagetools create -t "))
             .filter_map(|rest| rest.split_whitespace().next())
             .collect();
+        assert_eq!(pushed.len(), 4, "{}", optimised.calls);
         let release = released("");
         assert!(release.succeeded, "{}", release.printed);
         let named: Vec<&str> = release
             .notes
             .lines()
-            .filter(|line| line.starts_with("| glibc |") || line.starts_with("| static musl |"))
+            .filter(|line| {
+                line.starts_with("| glibc |")
+                    || line.starts_with("| static musl |")
+                    || line.starts_with("| SQL, glibc |")
+                    || line.starts_with("| SQL, static musl |")
+            })
             .filter_map(|line| line.split('`').nth(1))
             .collect();
         assert_eq!(named, pushed, "{}", release.notes);

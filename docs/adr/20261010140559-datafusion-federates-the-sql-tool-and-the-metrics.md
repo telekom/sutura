@@ -211,13 +211,16 @@ shipped builds.** Federation in `run_sql` needs datafusion's `sql` feature. That
 closure of each build that links the tool. ADR 0006, ADR 0007 and ADR 0013 call *not having a
 parser* a property. That property ends for such a build.
 
-An image that the owner names turns it on. So the default artefact keeps the property, and the
-decision to give it up is visible in a diff. Rejected: on in every build.
+The named `:<version>-sql` and `:<version>-sql-musl` images turn it on, using the same
+`/bin/sutura` executable name and adapter set. Default images and binary tarballs keep the feature
+off; no SQL `latest` alias is published. `nix/shipped.nix` checks the embedded dependency graph
+for both parser crates in the SQL variant and their absence in the default variant. This checks
+crate presence, not the planner's behavior. Rejected: on in every build.
 
-**Limit.** No check holds the default build free of a parser yet. ADR 0013's evidence is that
-neither crate is in `Cargo.lock`. `Cargo.lock` resolves every feature, so that evidence ends with
-this feature too. PR 5b adds a gate over the default build's resolved tree that fails when `sqlparser` or
-`datafusion-sql` is in it.
+**Limits.** `just check-default-features` rejects both parser crates in cargo's default resolved
+tree, which differs from the release feature list. `just shipped` checks the embedded release
+graph; `just validate` does not run that check. `Cargo.lock` resolves every feature and cannot
+prove their absence from one build.
 
 ## Decision 3: DataFusion plans the certified metric question, and every question value stays a bound parameter
 

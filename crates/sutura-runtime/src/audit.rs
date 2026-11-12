@@ -641,8 +641,8 @@ mod tests {
             for record in [
                 CallRecord::of(&chain, &answer, None),
                 CallRecord::of(&chain, &refusal, None),
-                CallRecord::of_raw(&chain, &statement, &raw_answer, None),
-                CallRecord::of_raw(&chain, &statement, &raw_refusal, None),
+                CallRecord::of_raw(&chain, &statement, &raw_answer, None, None),
+                CallRecord::of_raw(&chain, &statement, &raw_refusal, None, None),
                 CallRecord::of_remote_leg(&chain, &remote_answer, None),
                 CallRecord::of_remote_leg(&chain, &remote_refusal, None),
                 CallRecord::failed(&chain, "warehouse"),

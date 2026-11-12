@@ -223,22 +223,21 @@ impl<'a> CallRecord<'a> {
     /// because [`RawOutcome`] itself carries no statement text at all: the
     /// caller's own text is not something the OUTCOME needed to hold, and giving it a field there
     /// would be a second place a wire type could reach for it.
+    /// `executed_as` comes from completed raw legs, independently of the wire's optional field;
+    /// a refusal records none even when some work preceded the refusal.
     #[must_use]
     pub const fn of_raw(
         chain: &'a PrincipalChain,
         statement: &'a RawStatement,
         outcome: &'a RawOutcome,
         executed_until: Option<Expiry>,
+        executed_as: Option<&'a ExecutedAs>,
     ) -> Self {
         let recorded = match *outcome {
-            RawOutcome::Rows {
-                ref rows,
-                ref executed_as,
-                ..
-            } => RecordedOutcome::RawAnswered {
+            RawOutcome::Rows { ref rows, .. } => RecordedOutcome::RawAnswered {
                 rows: rows.len(),
                 statement,
-                executed_as: executed_as.as_ref(),
+                executed_as,
             },
             RawOutcome::Refusal { ref reason } => RecordedOutcome::RawRefused { reason, statement },
         };
@@ -548,13 +547,13 @@ mod tests {
             reason: RawRefusalReason::StatementFailed,
         };
 
-        let answered = CallRecord::of_raw(&chain, &statement, &rows, None);
+        let answered = CallRecord::of_raw(&chain, &statement, &rows, None, None);
         assert_eq!(answered.statement().map(RawStatement::as_str), Some("select 1"));
         assert!(matches!(*answered.outcome(), RecordedOutcome::RawAnswered { rows: 1, .. }));
         // Neither raw arm has an identity to report: `RawOutcome` carries no `Provenance`.
         assert_eq!(answered.executed_as(), None);
 
-        let refusal = CallRecord::of_raw(&chain, &statement, &refused, None);
+        let refusal = CallRecord::of_raw(&chain, &statement, &refused, None, None);
         assert_eq!(refusal.statement().map(RawStatement::as_str), Some("select 1"));
         assert!(matches!(
             *refusal.outcome(),
