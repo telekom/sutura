@@ -136,7 +136,7 @@ impl Provenance {
         self
     }
 
-    /// Submissions in logical metric, leg, partition and local-operation order.
+    /// Submissions in the supplied order, including repeated operations.
     #[must_use]
     pub fn executions(&self) -> &[crate::warehouse::execution::Execution] {
         &self.executions
