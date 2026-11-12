@@ -21,8 +21,8 @@
 use core::num::NonZeroUsize;
 use core::time::Duration;
 use sha2::Digest as _;
-use sutura_domain::warehouse::execution::Execution;
 use std::time::{Instant, SystemTime};
+use sutura_domain::warehouse::execution::Execution;
 
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::identity::{AssertionDigest, Presented, PrincipalChain, RequestContext, Secret, Subject};
@@ -141,12 +141,17 @@ fn a_split_pool_leg_read_with_the_forwarded_token_answers_what_the_whole_read_an
     );
     let (mut columns, mut rows) = (Vec::new(), Vec::new());
     for descriptor in &descriptors {
-        let mut batches = opened().read_partition(&leg, descriptor, token.secret(), deadline())
+        let mut batches = opened()
+            .read_partition(&leg, descriptor, token.secret(), deadline())
             .expect("a stream reads with caller A's forwarded token");
         let expected: [u8; 32] = sha2::Sha256::digest(descriptor).into();
-        assert_eq!(batches.take_executions(), vec![Execution::BigQueryRead {
-            source: source(), descriptor_sha256: expected,
-        }]);
+        assert_eq!(
+            batches.take_executions(),
+            vec![Execution::BigQueryRead {
+                source: source(),
+                descriptor_sha256: expected,
+            }]
+        );
         let (labels, read) = rows_of(&batches).into_parts();
         columns = labels;
         rows.extend(read);

@@ -1,10 +1,9 @@
 //! The real coordinator and worker, with loss injected only on the existing channel port.
 use crate::protocol::in_process::InProcessWorkerClient;
 use crate::{
-    ChannelResolver, CoordinatorToWorkerMsg, DistributedExec, DistributedExt, ExecuteTaskRequest,
-    GetWorkerInfoRequest, GetWorkerInfoResponse, NetworkCoalesceExec, QueryCompletion,
-    SessionStateBuilderExt, SetPlanRequest, TaskCompletionProducer, Worker, WorkerChannel,
-    WorkerQueryContext, WorkerToCoordinatorMsg,
+    ChannelResolver, CoordinatorToWorkerMsg, DistributedExec, DistributedExt, ExecuteTaskRequest, GetWorkerInfoRequest,
+    GetWorkerInfoResponse, NetworkCoalesceExec, QueryCompletion, SessionStateBuilderExt, SetPlanRequest, TaskCompletionProducer,
+    Worker, WorkerChannel, WorkerQueryContext, WorkerToCoordinatorMsg,
 };
 use async_trait::async_trait;
 use datafusion::arrow::array::{ArrayRef, Int32Array};
@@ -15,11 +14,11 @@ use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion::physical_plan::{ExecutionPlan, SendableRecordBatchStream};
 use datafusion::prelude::{SessionConfig, SessionContext};
-use futures::stream::BoxStream;
 use futures::StreamExt;
+use futures::stream::BoxStream;
 use http::HeaderMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 use url::Url;
@@ -44,15 +43,24 @@ impl WorkerChannel for Channel {
         if let (Some(request), Some(timeout)) = (&mut request.completion, self.worker_timeout) {
             request.timeout = timeout;
         }
-        let output = self.inner.coordinator_channel(headers, request, input, metrics, context).await?;
-        if !self.cut { return Ok(output); }
+        let output = self
+            .inner
+            .coordinator_channel(headers, request, input, metrics, context)
+            .await?;
+        if !self.cut {
+            return Ok(output);
+        }
         let cuts = Arc::clone(&self.cuts);
         // Close the real worker's response channel at its terminal receipt, after rows ran.
-        Ok(output.take_while(move |message| {
-            let cut = matches!(message, Ok(WorkerToCoordinatorMsg::TaskCompletion(_)));
-            if cut { cuts.fetch_add(1, Ordering::SeqCst); }
-            futures::future::ready(!cut)
-        }).boxed())
+        Ok(output
+            .take_while(move |message| {
+                let cut = matches!(message, Ok(WorkerToCoordinatorMsg::TaskCompletion(_)));
+                if cut {
+                    cuts.fetch_add(1, Ordering::SeqCst);
+                }
+                futures::future::ready(!cut)
+            })
+            .boxed())
     }
 
     async fn execute_task(
@@ -114,11 +122,19 @@ fn execution(
         .with_default_features()
         .with_config(SessionConfig::new().with_extension(Arc::clone(&completion)))
         .with_distributed_planner()
-        .with_distributed_dynamic_task_count(false).unwrap()
+        .with_distributed_dynamic_task_count(false)
+        .unwrap()
         .with_distributed_route_tasks_handler(|_| {
-            Some(Ok(crate::RouteTasksEventResponse::new(vec![Url::parse("http://worker").unwrap()])))
+            Some(Ok(crate::RouteTasksEventResponse::new(vec![
+                Url::parse("http://worker").unwrap(),
+            ])))
         })
-        .with_distributed_channel_resolver(Resolver { worker, cut, worker_timeout, cuts: Arc::clone(&cuts) })
+        .with_distributed_channel_resolver(Resolver {
+            worker,
+            cut,
+            worker_timeout,
+            cuts: Arc::clone(&cuts),
+        })
         .build();
     let values: ArrayRef = Arc::new(Int32Array::from(vec![7]));
     let batch = RecordBatch::try_from_iter([("value", values)]).unwrap();
@@ -136,14 +152,18 @@ async fn drain(mut stream: SendableRecordBatchStream) -> (usize, Option<DataFusi
             match batch {
                 Ok(batch) => {
                     let values = batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-                    for value in values.iter() { assert_eq!(value, Some(7)); }
+                    for value in values.iter() {
+                        assert_eq!(value, Some(7));
+                    }
                     rows += batch.num_rows();
                 }
                 Err(cause) => return (rows, Some(cause)),
             }
         }
         (rows, None)
-    }).await.expect("the production deadline must terminate the query before the harness")
+    })
+    .await
+    .expect("the production deadline must terminate the query before the harness")
 }
 
 fn ready(calls: Arc<AtomicUsize>) -> Arc<TaskCompletionProducer> {
@@ -180,7 +200,10 @@ async fn completion_chain_refuses_worker_channel_eof_after_rows_without_a_receip
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(cuts.load(Ordering::SeqCst), 1);
     let failure = failure.expect("row EOF must include the worker receipt barrier");
-    assert!(format!("{failure}").contains("worker channel closed without task completion"), "{failure}");
+    assert!(
+        format!("{failure}").contains("worker channel closed without task completion"),
+        "{failure}"
+    );
     assert!(completion.take().is_err());
 }
 
@@ -190,7 +213,10 @@ async fn completion_chain_refuses_a_missing_producer_before_worker_rows() {
     let (rows, failure) = drain(stream).await;
     assert_eq!(rows, 0);
     let failure = failure.expect("required producer is absent");
-    assert!(format!("{failure}").contains("required task completion producer is absent"), "{failure}");
+    assert!(
+        format!("{failure}").contains("required task completion producer is absent"),
+        "{failure}"
+    );
     assert!(completion.take().is_err());
 }
 
@@ -231,16 +257,21 @@ async fn completion_worker_bounds_its_pending_producer_without_a_query_timer() {
     )));
     let request = SetPlanRequest {
         completion: Some(crate::CompletionRequest::parse(1, 8, 2000).unwrap()),
-        task_key: crate::TaskKey { query_id: uuid::Uuid::from_u128(1), stage_id: 0, task_number: 0 },
+        task_key: crate::TaskKey {
+            query_id: uuid::Uuid::from_u128(1),
+            stage_id: 0,
+            task_number: 0,
+        },
         task_count: 1,
         plan: crate::MaybeEncoded::Decoded(plan),
         work_unit_feed_declarations: vec![],
         target_worker_url: Url::parse("http://worker").unwrap(),
         query_start_time_ns: 0,
     };
-    let mut output = worker(Some(producer)).coordinator_channel(
-        HeaderMap::new(), request, futures::stream::empty().boxed(),
-    ).await.unwrap();
+    let mut output = worker(Some(producer))
+        .coordinator_channel(HeaderMap::new(), request, futures::stream::empty().boxed())
+        .await
+        .unwrap();
     let failure = tokio::time::timeout(Duration::from_secs(10), async move {
         while let Some(message) = output.next().await {
             match message {
@@ -250,7 +281,9 @@ async fn completion_worker_bounds_its_pending_producer_without_a_query_timer() {
             }
         }
         panic!("worker omitted its deadline error")
-    }).await.expect("the worker timer must fire before the harness");
+    })
+    .await
+    .expect("the worker timer must fire before the harness");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(format!("{failure}").contains("task completion deadline"), "{failure}");
 }

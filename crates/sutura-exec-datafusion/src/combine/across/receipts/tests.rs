@@ -155,7 +155,9 @@ fn receipt_setup_preserves_registered_tables_for_later_queries() {
             let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(Int64Array::from(vec![7_i64]))])
                 .expect("the fixture has one integer column");
             let table = MemTable::try_new(schema, vec![vec![batch]]).expect("the fixture table builds");
-            context.register_table("fact", Arc::new(table)).expect("the fixture table is registered");
+            context
+                .register_table("fact", Arc::new(table))
+                .expect("the fixture table is registered");
             let working_set = WorkingSet::of_bytes(core::num::NonZeroUsize::new(1 << 20).expect("a positive bound"));
             for _ in 0..2 {
                 let frame = context.sql("SELECT n FROM fact").await.expect("the registered table plans");
@@ -163,15 +165,23 @@ fn receipt_setup_preserves_registered_tables_for_later_queries() {
                 let mut values = Vec::new();
                 while let Some(batch) = stream.next().await {
                     let batch = batch.expect("the registered table executes");
-                    let integers = batch.column(0).as_any().downcast_ref::<Int64Array>()
+                    let integers = batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
                         .expect("the result retains the integer column");
                     values.extend(integers.values().iter().copied());
                 }
                 drop(stream);
                 assert_eq!(values, vec![7]);
-                assert!(context.table_exist("fact").expect("the catalog can be read"),
-                    "receipt setup replaced the registered catalog");
-                assert_eq!(completed(capture, working_set).expect("a local table has no worker facts"), Vec::new());
+                assert!(
+                    context.table_exist("fact").expect("the catalog can be read"),
+                    "receipt setup replaced the registered catalog"
+                );
+                assert_eq!(
+                    completed(capture, working_set).expect("a local table has no worker facts"),
+                    Vec::new()
+                );
             }
         });
 }

@@ -361,11 +361,19 @@ fn a_result_within_the_row_cap_but_too_wide_to_encode_is_refused() {
     let fixture_rows = sutura_domain::warehouse::RowSet::new(
         vec![String::from("cell")],
         vec![vec![sutura_domain::warehouse::Value::Text(String::new())]],
-    ).expect("the fixture has one text cell");
-    let execution_bytes = crate::support::canned(&fixture_rows).take_executions().iter()
-        .map(sutura_domain::warehouse::execution::Execution::rendered_byte_len).sum::<u64>();
-    let at_the_ceiling = usize::try_from(ceiling.checked_sub(execution_bytes).expect("fixture executions fit the ceiling"))
-        .expect("the default ceiling fits a usize on every target this builds for");
+    )
+    .expect("the fixture has one text cell");
+    let execution_bytes = crate::support::canned(&fixture_rows)
+        .take_executions()
+        .iter()
+        .map(sutura_domain::warehouse::execution::Execution::rendered_byte_len)
+        .sum::<u64>();
+    let at_the_ceiling = usize::try_from(
+        ceiling
+            .checked_sub(execution_bytes)
+            .expect("fixture executions fit the ceiling"),
+    )
+    .expect("the default ceiling fits a usize on every target this builds for");
     let heavy_bytes = at_the_ceiling + 1;
     assert_eq!(at_the_ceiling as u64 + execution_bytes, ceiling);
     assert_eq!(heavy_bytes as u64 + execution_bytes, ceiling + 1);

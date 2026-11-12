@@ -456,10 +456,11 @@ Quote both whenever you report a figure, alongside the period and any filters ap
 answers in one conversation carry different digests, the definitions changed underneath you: say so
 rather than presenting the two numbers as comparable.
 
-Use `executed_sql` when the answer supplies it: the submitted DuckDB statement and ordered typed
-bindings. `logical_plan` is instead a diagnostic DataFusion plan submitted to its engine, not SQL
-or a stable replay format. Null means unavailable; unsupported adapters and answers assembled from
-several executions report no single statement or plan. Never invent verification SQL when SQL is
-unavailable, or label a logical plan as SQL. Replaying either needs the original tables and
-execution context. These details may reveal physical identifiers and certified filter values to
-the caller authorized to ask the metric.
+Use `executions` to inspect the ordered submissions that produced an answer: final SQL with typed
+bindings, diagnostic DataFusion plans, native Cube queries, outbound Node legs and native BigQuery
+stream-read digests. Federated answers carry their individual submissions and combine steps.
+Logical plans and native read digests are not SQL or stable replay formats. Never invent
+verification SQL when a record supplies none. Replaying a statement needs the original tables and
+execution context; remote receipts describe what the peer reported, not cryptographic attestation.
+These details may reveal physical identifiers and certified filter values to the caller authorized
+to ask the metric.
