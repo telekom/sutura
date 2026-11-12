@@ -135,6 +135,9 @@ pub(crate) fn open_catalog(
         // the not-linked refusal `open_openmetadata_catalogs` returns.
         sutura_config::CatalogKind::Openmetadata => open_openmetadata_catalogs(catalogs, outbound),
         sutura_config::CatalogKind::Cube => open_cube_catalogs(catalogs, outbound),
+        sutura_config::CatalogKind::Entropy => Err(String::from(
+            "catalog.kind: entropy is declarable, and no build links its reader yet",
+        )),
         #[cfg(feature = "openapi")]
         sutura_config::CatalogKind::OpenApi => catalogs
             .each()

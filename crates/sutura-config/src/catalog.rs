@@ -12,8 +12,13 @@ use std::path::{Path, PathBuf};
 use sutura_domain::model::SourceName;
 use sutura_domain::pinned::DefinitionVersion;
 
+pub mod entropy;
 pub mod platform;
 pub mod rdbms;
+pub use crate::catalog::entropy::{
+    EntropyAuth, EntropyBinding, EntropyOidc, EntropySettings, FieldName, FieldValue, InvalidBinding, InvalidEntropyCatalog,
+    ServerMatch,
+};
 pub use crate::catalog::platform::{DataHubPlatform, InvalidDataHubPlatform};
 pub use crate::catalog::rdbms::{
     CatalogConnection, CatalogEnvironment, Dialect, DictionarySource, DocumentationSchema, InvalidConnection,
@@ -85,6 +90,11 @@ pub enum CatalogKind {
     /// **Openable behind `sutura-cli`'s default-off `cube` feature; a build without it refuses this
     /// kind by name**, the stand [`Self::Openmetadata`] makes. It takes the same reader fields.
     Cube,
+    /// A data product marketplace's REST API: data products and the data contracts their ports
+    /// name.
+    ///
+    /// **Declarable, and refused by name by every build**: no build links its reader yet.
+    Entropy,
     /// EXPERIMENTAL: an HTTP metadata API that a pinned `OpenAPI` document and a mapping file in
     /// `dir` describe, decided by `sutura-catalog-openapi` over its `AnswerReader` port.
     ///
@@ -109,6 +119,7 @@ impl CatalogKind {
         "openmetadata",
         "rdbms",
         "cube",
+        "entropy",
         "openapi",
     ];
 
@@ -122,6 +133,7 @@ impl CatalogKind {
             "openmetadata" => Ok(Self::Openmetadata),
             "rdbms" => Ok(Self::Rdbms),
             "cube" => Ok(Self::Cube),
+            "entropy" => Ok(Self::Entropy),
             "openapi" => Ok(Self::OpenApi),
             other => Err(UnknownCatalogKind {
                 found: String::from(other),
@@ -141,6 +153,7 @@ impl CatalogKind {
             Self::Openmetadata => "openmetadata",
             Self::Rdbms => "rdbms",
             Self::Cube => "cube",
+            Self::Entropy => "entropy",
             Self::OpenApi => "openapi",
         }
     }
@@ -158,13 +171,13 @@ pub struct CatalogSettings {
     dir: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     version: DefinitionVersion,
-    /// `catalog.kind: datahub` only - see [`Self::with_datahub_reader`]. `None` for every other
-    /// kind, and for a `datahub` entry before that step runs.
+    /// `catalog.kind: datahub`, `entropy` and the HTTP readers - see [`Self::with_datahub_reader`].
+    /// `None` for every other kind, and for such an entry before that step runs.
     endpoint: Option<String>,
     /// `catalog.kind: datahub` only - the settings-declared file a composition root reads the
     /// personal access token from at boot. Never the token itself.
     token_file: Option<PathBuf>,
-    /// `catalog.kind: datahub` only - the deployment-chosen structured property name.
+    /// `catalog.kind: datahub` and `entropy` - the deployment-chosen property name.
     metric_property: Option<String>,
     /// `catalog.kind: datahub` only - each `DataHub` platform mapped to the declared source alias
     /// serving its datasets. Empty means the single `bigquery` platform, served by this catalog's
@@ -184,6 +197,8 @@ pub struct CatalogSettings {
     refresh_seconds: Option<u64>,
     /// `catalog.kind: rdbms` only, all or nothing. `None` for every other kind.
     rdbms: Option<RdbmsSettings>,
+    /// `catalog.kind: entropy` only. `None` for every other kind.
+    entropy: Option<EntropySettings>,
 }
 
 /// Why a catalog configuration is not usable.
@@ -257,6 +272,16 @@ pub enum InvalidCatalogSettings {
     /// A platform was written with no source.
     #[error("`catalogs.{name}.platforms.{platform}` names no source - write a declared `sources:` alias")]
     PlatformWithoutSource { name: SourceName, platform: DataHubPlatform },
+    /// A `catalog.kind: entropy` entry's own keys are not usable.
+    #[error("`catalogs.{name}` is `kind: entropy` and is not usable")]
+    Entropy {
+        name: SourceName,
+        #[source]
+        cause: InvalidEntropyCatalog,
+    },
+    /// A catalog of another kind wrote an entropy-only key, a key nothing would read.
+    #[error("`catalogs.{name}.{key}` is read only when `kind` is `entropy` - remove it, or write `kind: entropy`")]
+    EntropyKeyOnOtherKind { name: SourceName, key: &'static str },
     /// A catalog of another kind wrote `platforms`, a key nothing would read.
     #[error("`catalogs.{name}.platforms` is read only when `kind` is `datahub` - remove it, or write `kind: datahub`")]
     PlatformsOnOtherKind { name: SourceName },
@@ -293,7 +318,7 @@ impl CatalogSettings {
                 name: "catalogs[].data_dir",
             });
         }
-        if kind != CatalogKind::Rdbms {
+        if !matches!(kind, CatalogKind::Rdbms | CatalogKind::Entropy) {
             if dir.is_none() {
                 return Err(InvalidCatalogSettings::EmptyPath { name: "catalogs[].dir" });
             }
@@ -317,6 +342,7 @@ impl CatalogSettings {
             max_response_bytes: None,
             refresh_seconds: None,
             rdbms: None,
+            entropy: None,
         })
     }
 
@@ -355,6 +381,34 @@ impl CatalogSettings {
     #[inline]
     pub const fn rdbms(&self) -> Option<&RdbmsSettings> {
         self.rdbms.as_ref()
+    }
+
+    /// Adds a `catalog.kind: entropy` entry's endpoint, metric property, sign-in and bindings.
+    /// `parse_catalogs` calls this only when `kind` parsed as [`CatalogKind::Entropy`].
+    pub fn with_entropy(
+        mut self,
+        endpoint: String,
+        metric_property: String,
+        entropy: EntropySettings,
+    ) -> Result<Self, InvalidCatalogSettings> {
+        for (field, value) in [("endpoint", &endpoint), ("metric_property", &metric_property)] {
+            if value.trim().is_empty() {
+                return Err(InvalidCatalogSettings::MissingForReader { kind: "entropy", field });
+            }
+        }
+        if endpoint.contains('@') {
+            return Err(InvalidCatalogSettings::CredentialsInEndpoint { name: self.name });
+        }
+        self.endpoint = Some(endpoint);
+        self.metric_property = Some(metric_property);
+        self.entropy = Some(entropy);
+        Ok(self)
+    }
+
+    /// The entropy-only settings, `Some` exactly for a `kind: entropy` entry read from settings.
+    #[inline]
+    pub const fn entropy(&self) -> Option<&EntropySettings> {
+        self.entropy.as_ref()
     }
 
     /// Adds the three `catalog.kind: datahub`-only fields to an already-parsed entry.
@@ -471,13 +525,13 @@ impl CatalogSettings {
         self.kind
     }
 
-    /// The declared catalog directory. Required for every kind except `rdbms`.
+    /// The declared catalog directory. Required for every kind except `rdbms` and `entropy`.
     #[inline]
     pub fn dir(&self) -> Option<&Path> {
         self.dir.as_deref()
     }
 
-    /// The declared data directory. Required for every kind except `rdbms`.
+    /// The declared data directory. Required for every kind except `rdbms` and `entropy`.
     #[inline]
     pub fn data_dir(&self) -> Option<&Path> {
         self.data_dir.as_deref()
@@ -487,7 +541,8 @@ impl CatalogSettings {
     pub const fn version(&self) -> &DefinitionVersion {
         &self.version
     }
-    /// The declared `DataHub` endpoint, once [`Self::with_datahub_reader`] has run.
+    /// The declared endpoint, once [`Self::with_datahub_reader`], [`Self::with_http_reader`] or
+    /// [`Self::with_entropy`] has run.
     #[inline]
     pub fn endpoint(&self) -> Option<&str> {
         self.endpoint.as_deref()
@@ -499,7 +554,8 @@ impl CatalogSettings {
         self.token_file.as_deref()
     }
 
-    /// The deployment-chosen structured property name, once [`Self::with_datahub_reader`] has run.
+    /// The deployment-chosen property name, once [`Self::with_datahub_reader`] or
+    /// [`Self::with_entropy`] has run.
     #[inline]
     pub fn metric_property(&self) -> Option<&str> {
         self.metric_property.as_deref()

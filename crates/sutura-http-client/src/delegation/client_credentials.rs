@@ -1,0 +1,192 @@
+//! The RFC 6749 client credentials grant: this deployment's own access token, for a system that
+//! authorizes the deployment rather than the caller.
+//!
+//! The client authenticates by HTTP Basic (`client_secret_basic`), the one method every
+//! authorization server must support. What is checked on the answer: a success status, JSON, a
+//! `token_type` of `Bearer` and a non-empty `access_token`. **The token is opaque and never
+//! decoded**: the system it is presented to verifies it, so a token for the wrong audience is
+//! refused there, not here.
+//!
+//! **Nothing holds the token**: each [`ClientCredentials::bearer`] call is one request, so a caller
+//! asks once per unit of work and drops it after.
+//!
+//! **The token is the deployment's, not the caller's.** What it may read, every caller of a reader
+//! built on it reads; nothing here knows who is asking.
+
+use base64::Engine as _;
+use sutura_domain::identity::Secret;
+
+use super::{ExchangeClient, TokenEndpoint, Unsent};
+use crate::ReadBounds;
+
+/// The `scope` a request asks for (RFC 6749, section 3.3): tokens of printable ASCII other than `"`
+/// and `\`, separated by single spaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scope(String);
+
+impl Scope {
+    /// # Errors
+    ///
+    /// [`UnusableScope`] for a value the RFC's `scope` syntax refuses.
+    pub fn parse(raw: &str) -> Result<Self, UnusableScope> {
+        let token =
+            |token: &str| !token.is_empty() && token.bytes().all(|byte| byte.is_ascii_graphic() && !b"\"\\".contains(&byte));
+        if raw.split(' ').all(token) {
+            Ok(Self(String::from(raw)))
+        } else {
+            Err(UnusableScope)
+        }
+    }
+}
+
+/// A scope RFC 6749 cannot carry: empty, a space at either edge or twice, or a byte outside the
+/// token set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a scope is tokens of printable ASCII other than `\"` and `\\`, separated by single spaces")]
+pub struct UnusableScope;
+
+/// Why the token endpoint produced no usable token.
+#[derive(Debug, thiserror::Error)]
+pub enum ClientCredentialsFailed {
+    /// The token endpoint could not be reached or its answer not read.
+    #[error("the token endpoint could not be reached")]
+    Unreachable {
+        #[source]
+        cause: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// The token endpoint answered with a non-success status.
+    #[error("the token endpoint refused the client credentials ({status}, {})", error.as_deref().unwrap_or("no error code"))]
+    Refused {
+        /// The HTTP status.
+        status: u16,
+        /// The RFC 6749 `error` code, when it had the registered shape.
+        error: Option<String>,
+    },
+    /// The answer was larger than the deployment's cap.
+    #[error("the token endpoint's answer is over the {cap}-byte cap")]
+    TooLarge {
+        /// The cap.
+        cap: u64,
+    },
+    /// The answer lacked a field this grant needs, or carried one in an unusable shape.
+    #[error("the token endpoint's answer is malformed: {what}")]
+    Malformed {
+        /// Which part, named here rather than quoted from the answer.
+        what: &'static str,
+    },
+    /// The token endpoint issued something other than a bearer access token.
+    #[error("the token endpoint issued something other than a bearer access token")]
+    WrongTokenType,
+}
+
+/// The client credentials grant at one token endpoint.
+#[derive(Debug)]
+pub struct ClientCredentials {
+    endpoint: TokenEndpoint,
+    client: ExchangeClient,
+    scope: Option<Scope>,
+    agent: sutura_tls::Rotating<ureq::Agent>,
+    bounds: ReadBounds,
+}
+
+impl ClientCredentials {
+    /// Without a `scope` none is sent, and the token endpoint grants its default.
+    #[must_use]
+    pub const fn new(
+        endpoint: TokenEndpoint,
+        client: ExchangeClient,
+        scope: Option<Scope>,
+        agent: sutura_tls::Rotating<ureq::Agent>,
+        bounds: ReadBounds,
+    ) -> Self {
+        Self {
+            endpoint,
+            client,
+            scope,
+            agent,
+            bounds,
+        }
+    }
+
+    /// A newly issued token.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientCredentialsFailed`]: nothing usable came back.
+    pub fn bearer(&self) -> Result<Secret, ClientCredentialsFailed> {
+        let scope = self.scope.as_ref().map(|scope| ("scope", scope.0.as_str()));
+        let form: Vec<_> = core::iter::once(("grant_type", "client_credentials")).chain(scope).collect();
+        let (status, text) =
+            super::post(&self.agent, &self.endpoint, self.bounds, Some(&basic(&self.client)), &form).map_err(|unsent| {
+                match unsent {
+                    Unsent::Unreachable(cause) => ClientCredentialsFailed::Unreachable { cause: Box::new(cause) },
+                    Unsent::TooLarge(cap) => ClientCredentialsFailed::TooLarge { cap },
+                }
+            })?;
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the answer is read here and nowhere else; no error built from it carries the token"
+        )]
+        answered(status, text.expose_secret())
+    }
+}
+
+/// The `Authorization` value over the form-encoded identifier and secret, as RFC 6749 asks. A token
+/// endpoint that does not decode them refuses an identifier or secret outside `[A-Za-z0-9*-._]`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the client secret is the value the grant exists to send; it is encoded straight into the \
+              header value, itself a Secret, and no error carries it"
+)]
+fn basic(client: &ExchangeClient) -> Secret {
+    let pair = Secret::new(format!(
+        "{}:{}",
+        form_encoded(&client.id),
+        form_encoded(client.secret.expose_secret())
+    ));
+    Secret::new(format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(pair.expose_secret())
+    ))
+}
+
+/// `application/x-www-form-urlencoded`, which RFC 6749 asks of both halves of a Basic credential.
+fn form_encoded(raw: &str) -> String {
+    let mut encoded = String::with_capacity(raw.len());
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() || b"*-._".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('%');
+            for nibble in [byte >> 4, byte & 0xF] {
+                encoded.extend(char::from_digit(u32::from(nibble), 16).map(|digit| digit.to_ascii_uppercase()));
+            }
+        }
+    }
+    encoded
+}
+
+/// Validates the token endpoint's answer. Pure, so every refusal has a cell without a socket.
+fn answered(status: u16, text: &str) -> Result<Secret, ClientCredentialsFailed> {
+    let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
+    let text_of = |name: &str| body.as_ref()?.get(name)?.as_str();
+    if !(200..300).contains(&status) {
+        return Err(ClientCredentialsFailed::Refused {
+            status,
+            error: super::registered(text_of("error")),
+        });
+    }
+    if body.is_none() {
+        return Err(ClientCredentialsFailed::Malformed { what: "not JSON" });
+    }
+    if !text_of("token_type").is_some_and(|kind| kind.eq_ignore_ascii_case("bearer")) {
+        return Err(ClientCredentialsFailed::WrongTokenType);
+    }
+    text_of("access_token")
+        .filter(|token| !token.is_empty())
+        .map(Secret::new)
+        .ok_or(ClientCredentialsFailed::Malformed { what: "no access_token" })
+}
+
+#[cfg(test)]
+mod tests;

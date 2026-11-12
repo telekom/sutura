@@ -82,10 +82,11 @@ pub enum UnusableClientId {
     Unusable,
 }
 
-/// This deployment's client at the identity provider and its secret (`client_secret_post`).
+/// This deployment's client at the identity provider and its secret: `client_secret_post` for an
+/// exchange, `client_secret_basic` for [`ClientCredentials`].
 ///
 /// **The most sensitive value in the deployment**: whoever holds it can obtain a pool-audience
-/// token for any subject whose inbound token they also hold. `Debug` prints the identifier and `Secret`'s redaction; there is no
+/// token for any subject whose inbound token they also hold, or the deployment's own token. `Debug` prints the identifier and `Secret`'s redaction; there is no
 /// `Display`.
 #[derive(Debug, Clone)]
 pub struct ExchangeClient {
@@ -160,7 +161,7 @@ impl OverHttp {
     }
 
     fn send(&self, form: &[(&str, &str)]) -> Result<Answer, DelegationFailed> {
-        post(&self.agent, &self.endpoint, self.bounds, form).map_err(|unsent| match unsent {
+        post(&self.agent, &self.endpoint, self.bounds, None, form).map_err(|unsent| match unsent {
             Unsent::Unreachable(cause) => DelegationFailed::Unreachable { cause: Box::new(cause) },
             Unsent::TooLarge(cap) => DelegationFailed::TooLarge { cap },
         })
@@ -173,22 +174,30 @@ enum Unsent {
     TooLarge(u64),
 }
 
-/// Posts `form` and reads the answer, bounded, into a [`Secret`]: a token endpoint's answer can
-/// carry tokens beside the one asked for.
+/// Posts `form`, with `authorization` as that header when given, and reads the answer, bounded, into
+/// a [`Secret`]: a token endpoint's answer can carry tokens beside the one asked for.
 fn post(
     agent: &sutura_tls::Rotating<ureq::Agent>,
     endpoint: &TokenEndpoint,
     bounds: ReadBounds,
+    authorization: Option<&Secret>,
     form: &[(&str, &str)],
 ) -> Result<Answer, Unsent> {
-    let mut response = agent
+    let mut request = agent
         .current()
         .post(endpoint.as_str())
         .config()
         .timeout_global(Some(Budget::socket(bounds.timeout())))
-        .build()
-        .send_form(form.iter().copied())
-        .map_err(Unsent::Unreachable)?;
+        .build();
+    if let Some(value) = authorization {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the client's own credential, into the one header that carries it over the declared endpoint"
+        )]
+        let with = request.header("authorization", value.expose_secret());
+        request = with;
+    }
+    let mut response = request.send_form(form.iter().copied()).map_err(Unsent::Unreachable)?;
     let cap = bounds.max_response_bytes();
     let text = Secret::new(
         response
@@ -196,7 +205,10 @@ fn post(
             .with_config()
             .limit(cap.saturating_add(cap.max(1024)))
             .read_to_string()
-            .map_err(Unsent::Unreachable)?,
+            .map_err(|cause| match cause {
+                ureq::Error::BodyExceedsLimit(_) => Unsent::TooLarge(cap),
+                cause => Unsent::Unreachable(cause),
+            })?,
     );
     #[expect(clippy::disallowed_methods, reason = "only the length is read")]
     if text.expose_secret().len() as u64 > cap {
@@ -337,8 +349,10 @@ fn claims_of(token: &str) -> Option<serde_json::Value> {
     serde_json::from_slice(&bytes).ok()
 }
 
+mod client_credentials;
 mod linked;
 mod pool;
+pub use client_credentials::{ClientCredentials, ClientCredentialsFailed, Scope, UnusableScope};
 pub use linked::BrokeredLogin;
 pub use pool::{GOOGLE_STS, GoogleSts};
 
