@@ -204,7 +204,13 @@ const PRICE_BYTES: u64 = 500;
 /// Outside the `execute` that calls it, because `clippy::unwrap_in_result` is denied and an
 /// unreachable arm threaded through a canned answer says less than this sentence does.
 fn canned(rows: &RowSet) -> ResultBatches {
-    sutura_domain::warehouse::arrow::of_row_set(rows).expect("a row set's width invariant is the only failure this has")
+    sutura_domain::warehouse::arrow::of_row_set(rows)
+        .expect("a row set's width invariant is the only failure this has")
+        .with_execution(sutura_domain::warehouse::execution::Execution::DataFusion {
+            source: Some(source()),
+            stage: sutura_domain::warehouse::execution::PlanStage::Files,
+            logical_plan: String::from("fixture: materialize canned rows"),
+        })
 }
 
 /// A data system whose dry run reports a real byte price. The served surface never reaches a real
